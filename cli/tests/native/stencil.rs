@@ -2938,6 +2938,37 @@ fn a_server_answers_a_request_on_a_socket() {
     crate::shared::served_the_path(&reply, "/ping");
 }
 
+/// **A `Server`'s `tls` field reaches the acceptor, at this backend's layout.**
+///
+/// The one thing F4 added to the C ABI is a *payload-carrying enum in a list*:
+/// `listenBind`'s plan is a `[Serve]`, and `Serve` is `Speak(Protocol)`,
+/// `Certificate(Str)` and `PrivateKey(Str)`. `cli/runtime/net.rs` states the
+/// size and both offsets on the runtime's side; this is the side that would
+/// hand it the wrong bytes if this backend laid the enum out differently, and
+/// the failure would be silent rather than loud — a certificate read from a
+/// pointer taken out of a tag.
+///
+/// So all three claims are about what came *back*. A refusal naming the path is
+/// a `Str` payload that survived; a refusal about ALPN is a `.Speak` that did;
+/// and a port above zero is both files read and `rustls` having accepted the
+/// pair. `shared::tls_server` is where each is argued.
+///
+/// The handshake itself is not here and cannot be: a TLS client needs `rustls`,
+/// and the only one in this repository is inside the runtime archive, so ALPN
+/// and HTTP/2's multiplexing are asserted in `cli/runtime/net.rs`'s own cases.
+#[test]
+fn a_secured_server_opens_its_port_and_says_why_when_it_cannot() {
+    if !supported() {
+        return;
+    }
+    let (certificate, key, absent) = crate::shared::tls_identity("stencil");
+    let source = crate::shared::tls_server(&certificate, &key, &absent);
+    let binary = build_with("server-tls", &source, None);
+    let out = crate::shared::ran(&binary);
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    crate::shared::tls_bind_answers(&out.stdout, &absent);
+}
+
 /// **Eight requests at once, answered one at a time — and all eight answered.**
 ///
 /// The frame-threaded backend's half of F3, and the honest one. `run` fans its

@@ -29,49 +29,65 @@
 #      find out what grew, and then either fix it or re-measure and re-state the
 #      number here with the new one written down.
 #
-#      IT HAS BEEN HIT ONCE, and the budgets below are the re-statement. Two
+#      IT HAS BEEN HIT ONCE, and the budgets below are that re-statement. Two
 #      slices moved the archive after the one that measured it. B6 linked the
 #      carrier runtime — `cli/runtime/rt.rs`, the reactor and its timer wheel —
 #      which is 185 424 bytes of tokio on all three triples. C7 linked the TLS
 #      client, which is 1.72 MiB, about 845 KB of it `ring`'s own C and assembly
 #      object files, which a `staticlib` carries whether the linker needs them
 #      or not. Together they put aarch64-apple-darwin at 8 198 904 bytes, over
-#      the 7 MiB this script used to allow. The budgets below are the new
-#      measurements: about 15 % of headroom over the figure measured here, and
-#      about a fifth over the projected Linux one.
+#      the 7 MiB this script used to allow, and 9 MiB is what replaced it.
+#
+#      A THIRD SLICE HAS SINCE MOVED IT AND THE BUDGET DID NOT MOVE WITH IT,
+#      which is the ratchet working the other way and is worth being explicit
+#      about. F4 linked `hyper`'s HTTP/2 server — and with it `h2`, `tokio-util`
+#      and HPACK's tables — for 771 688 bytes, putting aarch64-apple-darwin at
+#      8 970 592. That is UNDER the 9 MiB above, by about 4.9 %, so the number
+#      here is left where it is: this budget moves when it is hit, and it was
+#      not hit. What that leaves is a thin margin and the next slice to link one
+#      of the two remaining crates should expect to be the one that re-measures
+#      and re-states it. The Linux projection moves the same way — the 10.5 MB
+#      the last re-statement projected becomes about 11.3 MB against 12 MiB,
+#      roughly a tenth — and CI is where a projection becomes a measurement.
 #
 #      THE `net-h3` ARCHIVE IS HELD TO THE SAME BUDGET, and that is a measured
 #      claim rather than an omission. `quinn` is referenced by nothing but
 #      `net.rs`'s `size_of`, so fat LTO drops it whole: on aarch64-apple-darwin
-#      the h3 archive is 8 198 992 bytes against the `net` one's 8 199 032 — the
-#      h3 build is the SMALLER of the two by forty bytes, which is the refusal
-#      string it does not need. A separate, larger h3 budget would therefore be
-#      a number with nothing behind it, and would hide exactly the growth this
-#      shared one catches: the slice that first CALLS into quinn has to come
-#      back here and move a number, the same way B6 and C7 did.
+#      the h3 archive is 8 971 008 bytes against the `net` one's 8 970 592 — a
+#      QUIC implementation for 416 bytes, which is the refusal string an h3
+#      build does not need going away and the feature line arriving. A separate,
+#      larger h3 budget would therefore be a number with nothing behind it, and
+#      would hide exactly the growth this shared one catches: the slice that
+#      first CALLS into quinn has to come back here and move a number, the same
+#      way B6 and C7 did.
 #
 #   3. THE NETWORKING CRATES, ON WHICHEVER SIDE OF THE LINE THEY ARE ON.
-#      `net` brings five crates in. Three of them are now reached and the
-#      archive MUST carry them: `tokio`, by `rt.rs`, since B6; `rustls` and
-#      `ring`, by `cli/runtime/tls.rs`, since C7. An archive built with the
-#      feature and carrying no TLS code would be a toolchain whose `https://`
-#      fails at run time for a reason no test here would have caught, and one
-#      carrying no reactor would be a toolchain whose every suspending host call
-#      does. Two of them — `hyper` and `tungstenite` — are still referenced by
-#      nothing but `net.rs`'s `size_of`, `lto = "fat"` drops them whole, and the
-#      archive must NOT carry them. The slice that first links one of THOSE
-#      moves it across the same way, deliberately, in the commit that does it.
+#      `net` brings five crates in. FOUR of them are now reached and the archive
+#      MUST carry them: `tokio`, by `rt.rs`, since B6; `rustls` and `ring`, by
+#      `cli/runtime/tls.rs`, since C7; and `hyper`, by `cli/runtime/net.rs`,
+#      since F4 — which is the HTTP/2 half of the acceptor, the multiplexing and
+#      the ALPN that F2 and F3 both deferred to it by name. An archive built
+#      with the feature and carrying no TLS code would be a toolchain whose
+#      `https://` fails at run time for a reason no test here would have caught;
+#      one carrying no reactor would be a toolchain whose every suspending host
+#      call does; and one carrying no `hyper` would be a server that negotiates
+#      `h2` in its handshake and then has nothing to frame it with. ONE of the
+#      five — `tungstenite` — is still referenced by nothing but `net.rs`'s
+#      `size_of`, `lto = "fat"` drops it whole, and the archive must NOT carry
+#      it. F7 is the slice that moves it across, the same way, in the commit
+#      that does it.
 #
-#      `mio` and `socket2` reach the archive through tokio and are deliberately
-#      on neither list: they are that crate's platform layer, not a seventh and
-#      eighth dependency, and `dependencies_stay_behind_the_bar` is what holds
-#      the direct set to six. The same goes for the twenty-odd crates `quinn`
-#      brings with it, which is why it is named here and they are not.
+#      `mio` and `socket2` reach the archive through tokio, and `h2`,
+#      `tokio-util` and `http` reach it through hyper. All five are deliberately
+#      on neither list: they are their crate's own layers, not further
+#      dependencies, and `dependencies_stay_behind_the_bar` is what holds the
+#      direct set to six. The same goes for the twenty-odd crates `quinn` brings
+#      with it, which is why it is named here and they are not.
 #
 #      `quinn` is the sixth crate and it is on the ABSENT list on every leg,
-#      h3 included, for exactly the reason `hyper` and `tungstenite` are: the
-#      feature brings the crate in and nothing calls it yet. F2 is the slice
-#      that moves it, and it moves the budget above at the same time.
+#      h3 included, for the reason `tungstenite` is: the feature brings the
+#      crate in and nothing calls it yet. The slice that first drives HTTP/3
+#      moves it, and moves the budget above at the same time.
 #
 #      Which side is which is read from `libburi_rt.a.features`, written beside
 #      the archive by the same run of `cli/build.rs` that produced it: a
@@ -98,11 +114,11 @@ set -euo pipefail
 target=${1:-target}
 
 case "$(uname -s)" in
-  # 8 199 032 measured (8 198 992 with `net-h3`); 9 MiB leaves ~15 %.
+  # 8 970 592 measured with `net` since F4 linked hyper; 9 MiB leaves ~4.9 %.
   Darwin) budget=9437184 ;;
-  # 8 469 832 was measured on the larger of the two Linux triples before either
-  # the reactor or TLS; the macOS deltas put it near 10.5 MB and CI is where
-  # that is confirmed. 12 MiB is ~20 % on that projection.
+  # 8 469 832 was measured on the larger of the two Linux triples before the
+  # reactor, TLS or HTTP/2; the macOS deltas put it near 11.3 MB and CI is where
+  # that is confirmed. 12 MiB is ~10 % on that projection.
   Linux)  budget=12582912 ;;
   *)      echo "::error::this script knows macOS and Linux only" ; exit 1 ;;
 esac
@@ -198,15 +214,15 @@ present() {
 # half of a log.
 before=$status
 if grep -qx "net" "$features"; then
-  present tokio rustls ring_core
+  present tokio rustls ring_core hyper
   # `aws_lc` is here although it was never a dependency: it is the OTHER
   # provider `rustls` ships, and a second one appearing means a feature was
   # enabled somewhere that quietly doubled the cryptography in every binary.
   # `quinn` is the crate most likely to do it, and it is on this list on both
   # legs anyway because nothing calls into it yet.
-  absent hyper tungstenite quinn aws_lc
+  absent tungstenite quinn aws_lc
   if [ "$status" -eq "$before" ]; then
-    echo "libburi_rt.a: the reactor and TLS are linked, and the unreferenced crates are still unreferenced"
+    echo "libburi_rt.a: the reactor, TLS and HTTP/2 are linked, and the unreferenced crates are still unreferenced"
   fi
 else
   absent tokio hyper rustls tungstenite quinn ring_core aws_lc

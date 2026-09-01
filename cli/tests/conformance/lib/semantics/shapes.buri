@@ -6,8 +6,8 @@
 // prove its own implementation is the one that ran.
 
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Protocol,
-    Region, Request, Response, ServeError, Sockets, Stdout, Tasks,
+    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Region,
+    Request, Response, Serve, ServeError, Sockets, Stdout, Tasks,
 };
 from "core/fs" import * as fs;
 from "core/io" import * as io;
@@ -961,7 +961,7 @@ impl Listen for OneShotListen {
         self,
         address: Str,
         port: Int,
-        protocols: [Protocol],
+        plan: [Serve],
         requestLimit: Int,
         idleTimeoutMillis: Int,
     ): Result<Listener, ServeError> {
@@ -1049,7 +1049,7 @@ impl Listen for PoolListen {
         self,
         address: Str,
         port: Int,
-        protocols: [Protocol],
+        plan: [Serve],
         requestLimit: Int,
         idleTimeoutMillis: Int,
     ): Result<Listener, ServeError> {
@@ -1073,6 +1073,81 @@ impl Listen for PoolListen {
             },
             _ => .Err(ServeError { cause: .Closed, detail: "" }),
         }
+    }
+
+    fn listenRespond(
+        self,
+        connection: Int,
+        status: Int,
+        headers: [Header],
+        body: [U8],
+    ): Result<(), ServeError> {
+        .Err(ServeError { cause: .Closed, detail: "" })
+    }
+
+    fn listenClose(self, handle: Int): () {
+        ()
+    }
+}
+
+/// A `Listen` that answers with **the plan it was handed**, as a number.
+///
+/// `listenBind` takes one `[Serve]` — the list `core/net/server`'s `bind`
+/// renders a `Server`'s `protocols` and `tls` fields into — and an effect
+/// method takes only `self`, which is immutable, so a fake here cannot record
+/// anything. What it *can* do is answer, and a `Listener` is three `Int`s: the
+/// plan's digest rides out on `port`, one digit per element in the order the
+/// elements were written, so a caller reads back both what was in the plan and
+/// what order it was in.
+///
+/// This is the only thing in the corpus that can see the plan at all. The
+/// acceptor's side of it — what a certificate path does once the runtime has
+/// one — is `cli/runtime/net.rs`'s to test, because it needs a certificate and
+/// a socket.
+export struct PlanListen {}
+
+/// One `Serve` as one digit: the protocol's own index plus one, then the two
+/// halves of an identity.
+///
+/// Plus one so that `.Http1` is `1` and not `0`, which would vanish into the
+/// leading digits of the fold below and make a plan of two protocols read as a
+/// plan of one.
+fn planDigit(item: Serve): Int {
+    match (item) {
+        .Speak(protocol) => {
+            match (protocol) {
+                .Http1 => 1,
+                .Http2 => 2,
+                .Http3 => 3,
+            }
+        },
+        .Certificate(_path) => 4,
+        .PrivateKey(_key) => 5,
+    }
+}
+
+impl Listen for PlanListen {
+    fn listenBind(
+        self,
+        address: Str,
+        port: Int,
+        plan: [Serve],
+        requestLimit: Int,
+        idleTimeoutMillis: Int,
+    ): Result<Listener, ServeError> {
+        .Ok(Listener {
+            handle: 1,
+            port: plan.fold(fn(sofar, item) => sofar * 10 + planDigit(item), 0),
+            handlers: 1,
+        })
+    }
+
+    fn listenAccept(self, handle: Int): Result<Int, ServeError> {
+        .Err(ServeError { cause: .Closed, detail: "" })
+    }
+
+    fn listenRequest(self, connection: Int): Result<Request, ServeError> {
+        .Err(ServeError { cause: .Closed, detail: "" })
     }
 
     fn listenRespond(

@@ -2585,7 +2585,7 @@ fn a_handler_a_wrapper_rebuilt_is_entered_on_every_backend() {
         "rebuilt handler",
         r#"
 from "core/effect" import {
-  Alloc, Header, IoError, Listen, Listener, Protocol, Region, Request, Response,
+  Alloc, Header, IoError, Listen, Listener, Region, Request, Response, Serve,
   ServeError, Stdout,
 };
 from "core/host" import * as host;
@@ -2612,7 +2612,7 @@ impl Listen for OneShot {
     self,
     address: Str,
     port: Int,
-    protocols: [Protocol],
+    plan: [Serve],
     requestLimit: Int,
     idleTimeoutMillis: Int,
   ): Result<Listener, ServeError> {
@@ -2670,11 +2670,11 @@ impl<C: Listen> Listen for Wrap<C> {
     self,
     address: Str,
     port: Int,
-    protocols: [Protocol],
+    plan: [Serve],
     requestLimit: Int,
     idleTimeoutMillis: Int,
   ): Result<Listener, ServeError> {
-    self.0.listenBind(address, port, protocols, requestLimit, idleTimeoutMillis)
+    self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMillis)
   }
 
   fn listenAccept(self, handle: Int): Result<Int, ServeError> {

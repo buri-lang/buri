@@ -317,23 +317,28 @@ export effect Tasks {
 /// toolchain can spell. It is the same reason `listenRespond` takes a
 /// `Response`'s three fields instead of a `Response`.
 ///
-/// **The parameter list has a budget, and `listenBind` is at it.** A runtime
-/// call carries ten integer arguments — `backend/stencil/abi.rs`'s
-/// `MAX_INT_ARGS`, which is AAPCS64's register half plus two — and this one
-/// spends all ten: three for the address, one for the port, two for the
-/// protocol list, two knobs, and the two out-pointers `Result` needs. The
-/// knobs that do *not* cross are the acceptor's own constants — how long one
-/// connection may take to send its head, and the largest body it will read —
-/// and they are the runtime's rather than the program's until the budget grows
-/// or a knob earns its place ahead of one that is here.
+/// **The parameter list has a budget, `listenBind` is at it, and the plan is
+/// how it stopped being a wall.** A runtime call carries ten integer arguments
+/// — `backend/stencil/abi.rs`'s `MAX_INT_ARGS`, which is AAPCS64's register
+/// half plus two — and this one spends all ten: three for the address, one for
+/// the port, two for the plan list, two knobs, and the two out-pointers
+/// `Result` needs. When TLS arrived it needed two more `Str`s, which is six
+/// more integers on a call with none to give, and the two answers written down
+/// at the time were "widen the budget" and "an options struct behind one
+/// pointer". Neither was needed: the **list** argument already crosses as a
+/// pointer and a length, whatever its elements are, so `protocols: [Protocol]`
+/// became `plan: [Serve]` — one tagged option per element — and a certificate,
+/// a key and every knob after them cost a variant rather than an argument.
 ///
-/// **`listenHandlers` is a knob that got a call of its own rather than a
-/// place in that queue**, and the arithmetic above is why: the bind had no
-/// eleventh argument to give it. A separate call is not a workaround for the
-/// budget so much as the shape the question already had — the number is asked
-/// for once, between the bind and the loop, and it is a *negotiation* rather
-/// than a setting. The program says what it wants, `-1` for "no preference",
-/// and the acceptor answers with what it will actually host.
+/// The knobs that still do not cross are the acceptor's own constants — how
+/// long one connection may take to send its head, and the largest body it will
+/// read. They are the runtime's rather than the program's because nobody has
+/// yet had a reason to name them, and `Serve` is where they land when somebody
+/// does.
+///
+/// **How many handlers a listener hosts is not in the plan either**, and that
+/// is a different argument reaching a different answer: it is not a setting but
+/// an *answer*, so it rides back on `Listener` rather than out on the bind.
 ///
 /// **Granted on LINUX and MACOS**, together with `Sockets`, and never on `JS`
 /// or `WEB`: a page does not hold a port open, and that is a fact about pages
@@ -342,19 +347,22 @@ export effect Listen {
     /// Opens a port, and answers with it.
     ///
     /// `address` is `""` for "the runtime chooses", `port` is `0` for "the
-    /// operating system chooses", `protocols` is `[]` for the same, and each
-    /// `Int` knob is negative for it. `Listener.port` is what the operating
-    /// system actually gave.
+    /// operating system chooses", `plan` is `[]` for the same, and each `Int`
+    /// knob is negative for it. `Listener.port` is what the operating system
+    /// actually gave.
     ///
     /// `.AddressInUse`, `.AddressNotAvailable` and `.PermissionDenied` are the
     /// three the operating system reports by name. `.Unsupported` is a
     /// protocol this toolchain's runtime does not speak, which is a fact about
     /// how the toolchain was built rather than about the program.
+    /// `.Transport` is a certificate the plan named and the runtime could not
+    /// use — read at the bind, once, so that a server with a certificate it
+    /// cannot present does not start.
     fn listenBind(
         self,
         address: Str,
         port: Int,
-        protocols: [Protocol],
+        plan: [Serve],
         requestLimit: Int,
         idleTimeoutMillis: Int,
     ): Result<Listener, ServeError>;
@@ -528,6 +536,36 @@ export enum Protocol {
     Http1,
     Http2,
     Http3,
+}
+
+derive Eq, Show for Serve;
+/// One thing a listener is being asked for — **the bind's whole plan, one
+/// element at a time.**
+///
+/// `listenBind` is at the ten-integer budget a runtime call has, and this is
+/// the shape that stopped that from being the end of the conversation. A list
+/// crosses as a pointer and a length whatever its elements are, so a list of
+/// *tagged options* carries as many `Str`s and `Int`s as anyone wants for the
+/// price of the one list argument the call already spends. A certificate and a
+/// key would have been six more integers; they are two variants.
+///
+/// The **declaration order is the ABI**, as `Protocol`'s is: the variant index
+/// and its payload are what cross, and `cli/runtime/net.rs`'s `BuriServe` is
+/// this declaration transcribed. Append, never reorder.
+///
+/// `core/net/server`'s `bind` is what renders a `Server` into one of these, and
+/// an empty plan is a caller who chose nothing.
+export enum Serve {
+    /// An HTTP version to speak. Naming none is naming HTTP/1.1.
+    Speak(Protocol),
+    /// Where to read the server's certificate chain, as a path to a PEM file.
+    ///
+    /// A **path** and not the certificate itself, because a certificate is a
+    /// file that expires and gets rotated, and a private key written into a
+    /// source file is a private key in a version control system.
+    Certificate(Str),
+    /// Where to read the private key that goes with it, on the same terms.
+    PrivateKey(Str),
 }
 
 derive Eq, Show for ServeFailure;

@@ -3632,6 +3632,28 @@ fn a_server_answers_a_request_on_a_socket() {
     crate::shared::served_the_path(&reply, "/ping");
 }
 
+/// **A `Server`'s `tls` field reaches the acceptor, at this backend's layout.**
+///
+/// The stencil row's twin, and written twice for the reason every server row in
+/// this repository is: each backend decides for itself where a payload sits
+/// inside an enum and where a `Str` sits inside a struct, so one green row says
+/// nothing about the other. What F4 added to the C ABI is a payload-carrying
+/// enum in a list — `listenBind`'s plan is a `[Serve]` — and a backend that
+/// disagreed about its 32-byte stride would hand the acceptor a certificate
+/// path read out of the middle of another element.
+///
+/// The three claims and why each of them is one are in `shared::tls_server`.
+#[test]
+fn a_secured_server_opens_its_port_and_says_why_when_it_cannot() {
+    skip_unless_executable!();
+    let (certificate, key, absent) = crate::shared::tls_identity("llvm");
+    let source = crate::shared::tls_server(&certificate, &key, &absent);
+    let binary = build_at("server-tls", &source, None, Profile::Release);
+    let out = crate::shared::ran(&binary);
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+    crate::shared::tls_bind_answers(&out.stdout, &absent);
+}
+
 /// **Fifty requests at once, against a handler that sleeps** — F3, end to end.
 ///
 /// `run` fans its accept loop out with `Tasks.parallel`, one worker per handler

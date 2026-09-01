@@ -24,8 +24,8 @@
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Stats };
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, Listen, Listener, Net, NetError, Proc, Protocol,
-    Rand, Request, Response, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Alloc, Clock, Env, Fs, Header, Listen, Listener, Net, NetError, Proc, Rand, Request,
+    Response, Serve, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -78,7 +78,7 @@ impl Listen for OneShot {
         self,
         address: Str,
         port: Int,
-        protocols: [Protocol],
+        plan: [Serve],
         requestLimit: Int,
         idleTimeoutMillis: Int,
     ): Result<Listener, ServeError> {

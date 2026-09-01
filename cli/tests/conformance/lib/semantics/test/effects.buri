@@ -31,9 +31,9 @@ from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 from "//lib/semantics" import {
     EchoEnv, elapsed, fetchBody, FrozenClock, greet, guarded, joinedWith, loadText,
-    loggedWith, OneShotListen, PoolListen, pushedWith, QuietSockets, ReadOnly,
-    repeatedWith, roundTrip, runInOrder, runInOrderNamed, saveText, SerialTasks,
-    serveOnce, shout, stamp, stampedWith, StaticFs, TeapotNet, ticking,
+    loggedWith, OneShotListen, PlanListen, PoolListen, pushedWith, QuietSockets,
+    ReadOnly, repeatedWith, roundTrip, runInOrder, runInOrderNamed, saveText,
+    SerialTasks, serveOnce, shout, stamp, stampedWith, StaticFs, TeapotNet, ticking,
 };
 
 // -----------------------------------------------------------------------------
@@ -1405,6 +1405,7 @@ test "an omitted Server field is .None and not a default this module chose" {
         protocols: .None,
         requestLimit: .None,
         idleTimeoutMillis: .None,
+        tls: .None,
     };
     let elided = server.Server {
         port: 0,
@@ -1414,7 +1415,57 @@ test "an omitted Server field is .None and not a default this module chose" {
     assert.eq(elided.protocols, written.protocols);
     assert.eq(elided.requestLimit, written.requestLimit);
     assert.eq(elided.idleTimeoutMillis, written.idleTimeoutMillis);
+    assert.eq(elided.tls, written.tls);
     assert.none(elided.address);
+    // A server without a certificate is a cleartext one, and it is cleartext
+    // because nothing was chosen rather than because this module chose.
+    assert.none(elided.tls);
+}
+
+test "a Server's protocols and tls are rendered into the bind's one plan" {
+    // `listenBind` takes a single `[Serve]`, which is what let a certificate
+    // and a key reach a call that had spent its ten integer arguments. What is
+    // asserted here is the *rendering*: which options `bind` puts in the plan,
+    // and in which order. `PlanListen` answers the digest on `Listener.port` —
+    // one digit per element, `.Http1` as 1, `.Http2` as 2, a certificate as 4
+    // and a key as 5.
+    let ctx = context {
+        Alloc: alloc(),
+        Listen: PlanListen { },
+        Stdout: stdout(),
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    let secured = assert.ok(
+        server.bind(ctx, server.Server {
+            port: 0,
+            onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+            protocols: .Some([.Http1, .Http2]),
+            tls: .Some(server.Tls { certificate: "/leaf.pem", key: "/leaf.key" }),
+        }),
+    );
+    assert.eq(secured.port, 1245);
+
+    // The certificate travels with its key and after the protocols, so a plan
+    // with an identity and no preference is two elements and not four.
+    let quiet = assert.ok(
+        server.bind(ctx, server.Server {
+            port: 0,
+            onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+            tls: .Some(server.Tls { certificate: "/leaf.pem", key: "/leaf.key" }),
+        }),
+    );
+    assert.eq(quiet.port, 45);
+
+    // And a `Server` that chose nothing renders an empty plan — which is the
+    // `.None` convention reaching the effect rather than a default this module
+    // invented on the way past.
+    let bare = assert.ok(
+        server.bind(ctx, server.Server {
+            port: 0,
+            onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+        }),
+    );
+    assert.eq(bare.port, 0);
 }
 
 test "bind answers the port the acceptor chose, and run is the rest of serve" {

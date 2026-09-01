@@ -68,9 +68,12 @@ crate-type = ["staticlib"]
 #   `kqueue` behind one edge-triggered readiness API, per platform, is the whole
 #   of what a hand-written one would have to be, and getting it subtly wrong
 #   presents as a hang rather than as a failure.
-# * **`hyper`** — HTTP/1.1 and HTTP/2 framing. `cli/runtime/http.rs` is a
-#   complete cleartext HTTP/1.1 *client*, which is the easy half; a correct
-#   server, HPACK, flow control and connection management are not.
+# * **`hyper`** — HTTP/2 framing. `cli/runtime/http.rs` is a complete cleartext
+#   HTTP/1.1 *client* and `cli/runtime/net.rs` frames HTTP/1.1 as a server, both
+#   by hand, because a request line, some fields and a body is the easy half.
+#   HPACK, per-stream flow control and several requests interleaved on one
+#   socket are not, and they are what this crate is here for. **Linked for real
+#   since F4**: an ALPN-negotiated `h2` connection is handed to it whole.
 # * **`rustls`** — TLS 1.2 and 1.3. `http.rs`'s header has said since it was
 #   written that TLS is the shape of problem the bar exists for, and this is
 #   the crate it named. **Linked for real since C7**: `https://` goes through
@@ -90,18 +93,20 @@ crate-type = ["staticlib"]
 #   `net-h3` rather than `net`, and the only one that is **off by default**;
 #   the feature block below is where that is argued.
 #
-# **Three of the six are linked; three are still referenced by nothing.** When
-# the crates landed, none of them was: `net.rs` named one type from each and
+# **Four of the six are linked; two are still referenced by nothing.** When the
+# crates landed, none of them was: `net.rs` named one type from each and
 # stopped, `lto = "fat"` below is whole-program over the dependency rlibs, and
 # Rust code nothing reaches is not in the archive — measured on
 # aarch64-apple-darwin at the commit that added `net`, twenty-four bytes for the
-# lot. Three have since been reached, each in the commit that needed it:
+# lot. Four have since been reached, each in the commit that needed it:
 # `tokio` by `rt.rs`, the carrier runtime whose reactor and timer wheel
-# `Clock::sleepMillis` and `Net::fetch` wait on (+185 424 bytes), and `rustls`
+# `Clock::sleepMillis` and `Net::fetch` wait on (+185 424 bytes); `rustls`
 # and `ring` by `tls.rs`, which `http.rs` calls for every `https://` URL
-# (+1 804 592). `hyper`, `tungstenite` and `quinn` are reached by nothing still.
+# (+1 804 592); and `hyper` by `net.rs`'s HTTP/2 acceptor (+771 688, which is
+# the server, `h2`, `tokio-util` and HPACK's tables). `tungstenite` and `quinn`
+# are reached by nothing still.
 # `.github/scripts/assert-runtime-archive.sh` is where all of that is asserted
-# rather than assumed: three names its symbol table must carry, three it must
+# rather than assumed: four names its symbol table must carry, two it must
 # not.
 #
 # ## The provider, and what it costs
@@ -111,17 +116,21 @@ crate-type = ["staticlib"]
 # capability is bought rather than where the dependency is added. This is that
 # slice, and the bill, measured on aarch64-apple-darwin:
 #
-#   net off (no dependency tree at all)      6 130 536 bytes
-#   net on (the reactor and the TLS client)  8 198 904   +2 068 368
+#   net off (no dependency tree at all)              6 304 448 bytes
+#   net on (the reactor, TLS, and HTTP/2 since F4)   8 970 592   +2 666 144
+#   net-h3 on as well                                8 971 008         +416
 #
-# **1.72 MiB**, of which 845 064 bytes is `ring`'s **native** object code — C
-# and AArch64 assembly in twenty-five `.o` members that `rustc` bundles into a
-# `staticlib` whether the linker needs them or not, so `lto = "fat"` cannot
-# touch them. `curve25519.o` alone is 405 KB and `p256-nistz.o` is 173 KB. That
-# total put the archive **over** the 7 MiB budget
-# `.github/scripts/assert-runtime-archive.sh` carried, by about 505 KB; the
-# budget was re-measured and re-stated there in this commit, which is the
-# ratchet working as written rather than the ratchet being quietly widened.
+# TLS was **1.72 MiB** of that, of which 845 064 bytes is `ring`'s **native**
+# object code — C and AArch64 assembly in twenty-five `.o` members that `rustc`
+# bundles into a `staticlib` whether the linker needs them or not, so
+# `lto = "fat"` cannot touch them. `curve25519.o` alone is 405 KB and
+# `p256-nistz.o` is 173 KB. That total put the archive **over** the 7 MiB budget
+# `.github/scripts/assert-runtime-archive.sh` carried, by about 505 KB, and the
+# budget was re-measured and re-stated there in C7's commit — the ratchet
+# working as written rather than being quietly widened. HTTP/2 added 771 688 on
+# top in F4 and the budget did **not** move, because 8 970 592 is still under
+# the 9 MiB the re-statement set: a ratchet that moves when it has not been hit
+# is not one.
 #
 # `ring` rather than `aws-lc-rs`, the other provider `rustls` ships: `aws-lc-rs`
 # needs `cmake` (and, on some hosts, `bindgen`) at build time, which is a second
@@ -142,7 +151,7 @@ crate-type = ["staticlib"]
 # counterexample — so "a dependency is a line" is a property this file owes it.
 [dependencies]
 tokio = { version = "1", optional = true, default-features = false, features = ["rt-multi-thread", "net", "time", "io-util", "sync"] }
-hyper = { version = "1", optional = true, default-features = false, features = ["client", "server", "http1"] }
+hyper = { version = "1", optional = true, default-features = false, features = ["client", "server", "http1", "http2"] }
 rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "tls12", "ring"] }
 ring = { version = "0.17", optional = true, default-features = false }
 tungstenite = { version = "0.30", optional = true, default-features = false, features = ["handshake"] }

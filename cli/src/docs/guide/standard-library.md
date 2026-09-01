@@ -188,14 +188,24 @@ operation. `core/net/server` is the other half of `core/net/http` — a program
 that *is* a server rather than one that talks to one, which is a second
 authority rather than a second spelling. A `Server<C>` is the whole
 configuration: a `port`, an `onRequest` handler taking the caller's own context,
-and `Option` knobs for the address, the protocols, a request limit and an idle
-timeout, each of which means "the runtime chooses" when it is left out of the
-literal. `serve` binds and answers until the listener closes; `bind` and `run`
-are the same thing in two halves, for a program that wants the port number
-before it starts answering; `errorText` turns a `ServeError` into a line. It
-speaks HTTP/1.1, one request per connection, and it answers as many connections
-at once as the acceptor said it would host — `run` puts each handler on a task
-of its own, which is why `serve` needs `Tasks` and `Alloc` beside `Listen`. Only
+and `Option` knobs for the address, the protocols, a certificate, a request
+limit and an idle timeout, each of which means "the runtime chooses" when it is
+left out of the literal. `serve` binds and answers until the listener closes;
+`bind` and `run` are the same thing in two halves, for a program that wants the
+port number before it starts answering; `errorText` turns a `ServeError` into a
+line. It speaks HTTP/1.1 and, over TLS, HTTP/2. A `tls: .Some(Tls { certificate,
+key })` names two PEM *files* — read once, when the port is opened, so a
+certificate that is missing or does not match its key stops the program starting
+— and turns the server into an HTTPS one without changing a handler, which never
+learns which transport its request arrived on. HTTP/2 comes with TLS and only
+with TLS: it is chosen inside the handshake by ALPN, so a `Server` naming
+`.Http2` without a certificate is refused at the bind rather than quietly served
+in HTTP/1.1, and a `Server` with a certificate and no `protocols` offers
+HTTP/1.1 because `.None` is the absence of a choice. One request per HTTP/1.1
+connection; several share an HTTP/2 one, which is what multiplexing is. It
+answers as many at once as the acceptor said it would host — `run` puts each
+handler on a task of its own, which is why `serve` needs `Tasks` and `Alloc`
+beside `Listen`. Only
 `LINUX` and `MACOS` grant `Listen`, because a page is served rather than
 serving; `WEB` grants no `Tasks` either, so a server on a page is refused
 twice. `sendText`,

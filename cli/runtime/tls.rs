@@ -58,13 +58,21 @@
 //! generated. Nothing in that test reaches the network, resolves a name off
 //! this machine, or can wait forever for anything.
 
+use std::io::{Read as _, Write as _};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
-use rustls::pki_types::{CertificateDer, ServerName};
-use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
+use rustls::pki_types::{
+    CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
+    ServerName,
+};
+use rustls::{
+    ClientConfig, ClientConnection, RootCertStore, ServerConfig, ServerConnection, StreamOwned,
+};
 
 use crate::http::NetFail;
 
@@ -309,7 +317,7 @@ fn certificates_in(pem: &str) -> Vec<Vec<u8>> {
 /// reading one kind out of a file that holds several is the whole shape of the
 /// format; the trust reader asks for `CERTIFICATE` and the test server, which
 /// needs a key, asks for `PRIVATE KEY`.
-fn blocks_in(pem: &str, label: &str) -> Vec<Vec<u8>> {
+pub(crate) fn blocks_in(pem: &str, label: &str) -> Vec<Vec<u8>> {
     let begin = format!("-----BEGIN {label}-----");
     let end = format!("-----END {label}-----");
     pem.split(begin.as_str())
@@ -353,9 +361,334 @@ fn base64(text: &str) -> Option<Vec<u8>> {
 }
 
 // ---------------------------------------------------------------------------
+// The server half
+// ---------------------------------------------------------------------------
+//
+// Everything above answers "may this connection be trusted", which is the
+// question a *client* asks. Below is the question a **server** answers instead:
+// *here is who I am, and here is what I am willing to speak*. They share this
+// file because they share the crate, the provider and the PEM reader, and
+// because a reader looking for "where is TLS" should find one file rather than
+// two.
+//
+// The asymmetry is worth naming. A client needs a trust store and no identity;
+// a server needs an identity and — until there is client authentication — no
+// trust store. So there is no root store below, and `with_no_client_auth` is a
+// decision rather than a placeholder: a server that demanded a certificate of
+// every caller would refuse every browser.
+
+/// The ALPN identifier for HTTP/2 over TLS, as RFC 7540 §3.3 spells it.
+pub const ALPN_H2: &[u8] = b"h2";
+
+/// The ALPN identifier for HTTP/1.1, as RFC 7301's registry spells it.
+pub const ALPN_HTTP1: &[u8] = b"http/1.1";
+
+/// A server's identity and its protocol offer, from two PEM files.
+///
+/// **Paths and not PEM text**, which is the shape decision here. A certificate
+/// is a file that expires and gets rotated, and a private key written into a
+/// source file is a private key in a version control system — so what crosses
+/// `effect Listen` is where to read them, and reading them is the runtime's.
+/// The read happens **at the bind**, once, so a certificate that is missing or
+/// unreadable is an `.Err` out of `server.bind` at start-up rather than a
+/// handshake failure at three in the morning.
+///
+/// `alpn` is the offer, most-preferred first, and it is what makes HTTP/2
+/// reachable at all: h2 over TLS is negotiated and never assumed (RFC 7540
+/// §3.3), so an empty offer is a server that will speak HTTP/1.1 however many
+/// protocols it was configured with.
+pub fn server_config(
+    certificate: &Path,
+    key: &Path,
+    alpn: Vec<Vec<u8>>,
+) -> Result<ServerConfig, String> {
+    let cert_pem = std::fs::read_to_string(certificate).map_err(|e| {
+        format!("tls: the certificate at {} could not be read: {e}", certificate.display())
+    })?;
+    let chain: Vec<CertificateDer<'static>> =
+        certificates_in(&cert_pem).into_iter().map(CertificateDer::from).collect();
+    if chain.is_empty() {
+        return Err(format!(
+            "tls: {} holds no CERTIFICATE block, so this server has no identity to present",
+            certificate.display()
+        ));
+    }
+    let key_pem = std::fs::read_to_string(key)
+        .map_err(|e| format!("tls: the private key at {} could not be read: {e}", key.display()))?;
+    let private = private_key_in(&key_pem).ok_or_else(|| {
+        format!(
+            "tls: {} holds no PRIVATE KEY, RSA PRIVATE KEY or EC PRIVATE KEY block this runtime \
+             could read",
+            key.display()
+        )
+    })?;
+
+    // `builder_with_provider` rather than `builder`, for `connect`'s reason:
+    // the plain builder reads a process-global default provider, which is
+    // state a static archive has no business depending on.
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let mut config = ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|e| format!("tls: this runtime's TLS configuration is not usable: {e}"))?
+        .with_no_client_auth()
+        .with_single_cert(chain, private)
+        .map_err(|e| {
+            format!(
+                "tls: the certificate at {} and the key at {} were refused: {e}",
+                certificate.display(),
+                key.display()
+            )
+        })?;
+    config.alpn_protocols = alpn;
+    Ok(config)
+}
+
+/// The first private key of a PEM document, whichever of the three encodings
+/// it is written in.
+///
+/// All three are in circulation and which one a file holds is a matter of the
+/// tool that wrote it: `openssl genpkey` writes PKCS#8, `openssl genrsa` writes
+/// PKCS#1, and `openssl ecparam -genkey` writes SEC1. A server refusing two of
+/// the three would be refusing a key that is not wrong, so the label decides
+/// the encoding and the document may hold whichever one it holds.
+fn private_key_in(pem: &str) -> Option<PrivateKeyDer<'static>> {
+    if let Some(der) = blocks_in(pem, "PRIVATE KEY").into_iter().next() {
+        return Some(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(der)));
+    }
+    if let Some(der) = blocks_in(pem, "RSA PRIVATE KEY").into_iter().next() {
+        return Some(PrivateKeyDer::Pkcs1(PrivatePkcs1KeyDer::from(der)));
+    }
+    blocks_in(pem, "EC PRIVATE KEY")
+        .into_iter()
+        .next()
+        .map(|der| PrivateKeyDer::Sec1(PrivateSec1KeyDer::from(der)))
+}
+
+/// Complete a server handshake on an already-accepted socket, and answer with
+/// the connection ALPN was settled on.
+///
+/// Blocking, and deliberately so: it is called from the acceptor's own
+/// connection thread, where the socket is still a `std::net::TcpStream` with
+/// its deadlines on it. The h2 half converts *afterwards* — see [`AsyncTls`] —
+/// which is legal precisely because every byte either side of this call lives
+/// inside the `rustls` connection rather than in a buffer beside it.
+///
+/// The deadline is the socket's, and [`bound`] puts one on a socket that
+/// arrives without one, for the reason it does on the client side: a stranger
+/// who completes the TCP handshake and then says nothing must not be able to
+/// keep a thread.
+pub fn accept(
+    config: Arc<ServerConfig>,
+    sock: &mut TcpStream,
+) -> Result<ServerConnection, String> {
+    let mut conn = ServerConnection::new(config)
+        .map_err(|e| format!("tls: the connection could not be started: {e}"))?;
+    bound(sock);
+    let mut rounds = 0;
+    while conn.is_handshaking() {
+        conn.complete_io(sock).map_err(|e| format!("tls: the handshake failed: {e}"))?;
+        rounds += 1;
+        if rounds > 8 {
+            return Err(String::from("tls: the handshake did not finish"));
+        }
+    }
+    Ok(conn)
+}
+
+/// A handshaken `rustls` connection over a **tokio** socket, spelled in the two
+/// traits `hyper` reads and writes through.
+///
+/// This exists for exactly one caller — the HTTP/2 half of the acceptor — and
+/// the reason it is hand-written is `manifest.toml`'s closed set: `tokio-rustls`
+/// and `hyper-util` between them would be two more crates in every binary this
+/// compiler produces, to bridge two traits over a state machine that is already
+/// here. What they would provide is the loop below, and `rustls` is not an I/O
+/// library at all but a byte pump with four questions — does it want to write,
+/// does it want more ciphertext, is there plaintext to hand up, and what did
+/// ALPN choose — which readiness-driven I/O answers without a buffer of its own.
+///
+/// `hyper::rt::Read`/`Write` rather than tokio's `AsyncRead`/`AsyncWrite`,
+/// because implementing tokio's would then need `hyper-util`'s `TokioIo` to
+/// turn them back into hyper's. One adapter, at the end it is read from.
+///
+/// It carries a `rustls::Connection` and not a `ServerConnection` so that the
+/// same pump serves the tests' h2 *client*: multiplexing is a property of a
+/// conversation, and a test that could only write one side of it would be
+/// asserting against itself.
+pub struct AsyncTls {
+    sock: tokio::net::TcpStream,
+    conn: rustls::Connection,
+    /// `send_close_notify` queues a message rather than setting a flag, and
+    /// `poll_shutdown` may be polled more than once.
+    goodbye: bool,
+}
+
+/// The socket as `rustls` wants to see it: a `Read + Write` that answers
+/// `WouldBlock` instead of waiting.
+///
+/// `try_read` and `try_write` are the pair that make this work: on `WouldBlock`
+/// they clear the readiness tokio had recorded, so the `poll_*_ready` that
+/// follows registers this task rather than answering ready forever.
+struct Ready<'a>(&'a tokio::net::TcpStream);
+
+impl std::io::Read for Ready<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.0.try_read(buf)
+    }
+}
+
+impl std::io::Write for Ready<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.try_write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl AsyncTls {
+    /// Take over a handshaken connection whose socket is going asynchronous.
+    ///
+    /// The socket arrives blocking, because the handshake above wanted it that
+    /// way, and leaves non-blocking, because the reactor wants it that way.
+    /// Nothing is buffered outside `conn`, which is what makes the switch a
+    /// change of I/O discipline rather than a loss of bytes.
+    pub fn adopt(
+        sock: TcpStream,
+        conn: impl Into<rustls::Connection>,
+    ) -> std::io::Result<AsyncTls> {
+        sock.set_nonblocking(true)?;
+        // The deadlines the handshake ran under are the socket's, and a
+        // non-blocking socket has no use for them: a read that would wait
+        // answers `WouldBlock` now, and the waiting is the reactor's.
+        let _ = sock.set_read_timeout(None);
+        let _ = sock.set_write_timeout(None);
+        let sock = tokio::net::TcpStream::from_std(sock)?;
+        Ok(AsyncTls { sock, conn: conn.into(), goodbye: false })
+    }
+
+    /// Push out everything `rustls` wants to say.
+    fn pump_write(&mut self, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        while self.conn.wants_write() {
+            match self.conn.write_tls(&mut Ready(&self.sock)) {
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::task::ready!(self.sock.poll_write_ready(cx))?;
+                }
+                Err(e) => return Poll::Ready(Err(e)),
+            }
+        }
+        Poll::Ready(Ok(()))
+    }
+
+    /// Take in one helping of ciphertext and let `rustls` make sense of it.
+    /// `Ok(0)` is the peer having closed the socket.
+    fn pump_read(&mut self, cx: &mut Context<'_>) -> Poll<std::io::Result<usize>> {
+        loop {
+            match self.conn.read_tls(&mut Ready(&self.sock)) {
+                Ok(0) => return Poll::Ready(Ok(0)),
+                Ok(n) => {
+                    return match self.conn.process_new_packets() {
+                        Ok(_) => Poll::Ready(Ok(n)),
+                        Err(e) => Poll::Ready(Err(std::io::Error::other(e))),
+                    };
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::task::ready!(self.sock.poll_read_ready(cx))?;
+                }
+                Err(e) => return Poll::Ready(Err(e)),
+            }
+        }
+    }
+}
+
+impl hyper::rt::Read for AsyncTls {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        mut cursor: hyper::rt::ReadBufCursor<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let me = &mut *self;
+        loop {
+            // SAFETY: the cursor's uninitialised tail is writable for its own
+            // length, and nothing below reads a byte it has not just written.
+            let room = unsafe { cursor.as_mut() };
+            let take = room.len().min(16 * 1024);
+            if take > 0 {
+                let mut plain = vec![0u8; take];
+                match me.conn.reader().read(&mut plain) {
+                    // A clean end of the peer's stream: no bytes, no error.
+                    Ok(0) => return Poll::Ready(Ok(())),
+                    Ok(n) => {
+                        for (slot, byte) in room.iter_mut().zip(plain.get(..n).unwrap_or(&[])) {
+                            slot.write(*byte);
+                        }
+                        // SAFETY: `n` bytes of the cursor were just written.
+                        unsafe { cursor.advance(n) };
+                        return Poll::Ready(Ok(()));
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e) => return Poll::Ready(Err(e)),
+                }
+            }
+            // A read is also when a session ticket or an alert gets sent, so
+            // the write side is pushed on the way past. Best effort: this call
+            // is a read, and a socket that cannot take bytes right now is not a
+            // reason to refuse the ones it has.
+            if me.conn.wants_write() {
+                let _ = me.pump_write(cx);
+            }
+            match std::task::ready!(me.pump_read(cx)) {
+                Ok(0) => return Poll::Ready(Ok(())),
+                Ok(_) => {}
+                Err(e) => return Poll::Ready(Err(e)),
+            }
+        }
+    }
+}
+
+impl hyper::rt::Write for AsyncTls {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        let me = &mut *self;
+        // Drained *before* the bytes are taken, so that `rustls`'s outgoing
+        // buffer is bounded by one write rather than by how fast the peer
+        // reads. Answering `Pending` here has consumed nothing, which is the
+        // contract this order keeps.
+        std::task::ready!(me.pump_write(cx))?;
+        match me.conn.writer().write(buf) {
+            Ok(n) => {
+                let _ = me.pump_write(cx);
+                Poll::Ready(Ok(n))
+            }
+            Err(e) => Poll::Ready(Err(e)),
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        let me = &mut *self;
+        me.pump_write(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        let me = &mut *self;
+        if !me.goodbye {
+            me.conn.send_close_notify();
+            me.goodbye = true;
+        }
+        std::task::ready!(me.pump_write(cx))?;
+        Poll::Ready(Ok(()))
+    }
+}
+
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -390,7 +723,7 @@ mod tests {
     /// and 8000 days rather than a century so the `notAfter` stays inside the
     /// UTCTime era every X.509 parser agrees about. It expires in **2048**; a
     /// maintainer who meets an `Expired` here should re-run the block above.
-    const CA_PEM: &str = "\
+    pub(crate) const CA_PEM: &str = "\
 -----BEGIN CERTIFICATE-----
 MIIBpTCCAUygAwIBAgIUbhJr2chPv/c7SF7l4NzpYPs3TvIwCgYIKoZIzj0EAwIw
 HzEdMBsGA1UEAwwUYnVyaSBydW50aW1lIHRlc3QgQ0EwHhcNMjYwODMwMTYzMDI1
@@ -406,7 +739,7 @@ u66hvyYsxgIgYiwfnji/XJr7G0G3su3bda6gySR7mwXtJaSJYsw0AQo=
 
     /// The leaf, `CN=localhost` with `subjectAltName = DNS:localhost` and no
     /// IP SAN — which is what makes the `127.0.0.1` case below a refusal.
-    const LEAF_PEM: &str = "\
+    pub(crate) const LEAF_PEM: &str = "\
 -----BEGIN CERTIFICATE-----
 MIIBwzCCAWigAwIBAgIUB7wmYz/reLH8tSqdnHa/BR/gebcwCgYIKoZIzj0EAwIw
 HzEdMBsGA1UEAwwUYnVyaSBydW50aW1lIHRlc3QgQ0EwHhcNMjYwODMwMTYzMDM4
@@ -424,7 +757,7 @@ f5ZwnkOLTUiDfd4nyoY9skQKNg8V9CU=
     /// The leaf's private key, PKCS#8. A test fixture and nothing else: it has
     /// signed one certificate, for `localhost`, that no trust store on earth
     /// carries.
-    const LEAF_KEY_PEM: &str = "\
+    pub(crate) const LEAF_KEY_PEM: &str = "\
 -----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVHRl2YgdCy3mjKbk
 16fSBF1ppkf1hD5sToo8d62EJnuhRANCAAQOZuolOZh48E1a/BM/6evUztl8opNv

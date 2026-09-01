@@ -102,9 +102,8 @@
 //! ```
 
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Proc,
-    Protocol, Rand, Region, Request, Response, ServeError, Sockets, Stderr, Stdin,
-    Stdout, Tasks,
+    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Proc, Rand,
+    Region, Request, Response, Serve, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 
 // --- The door onto the effect -------------------------------------------------
@@ -643,11 +642,11 @@ impl<C: Listen> Listen for Scoped<C> {
         self,
         address: Str,
         port: Int,
-        protocols: [Protocol],
+        plan: [Serve],
         requestLimit: Int,
         idleTimeoutMillis: Int,
     ): Result<Listener, ServeError> {
-        self.0.listenBind(address, port, protocols, requestLimit, idleTimeoutMillis)
+        self.0.listenBind(address, port, plan, requestLimit, idleTimeoutMillis)
     }
 
     fn listenAccept(self, handle: Int): Result<Int, ServeError> {
