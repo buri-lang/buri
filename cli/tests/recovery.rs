@@ -329,6 +329,15 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // toolchain did not move; the population did, and `insert-stray` went
         // from 17.7% to 19.3% of it.
         //
+        // Re-read again when `cli/tests/conformance/lib/actor/` landed, for the
+        // same reason and with the same evidence: `delete-closer` went from
+        // 12.6% to 13.2% of a population that grew by one file. That file is
+        // dense in nested closers — `assert.eq(counted.ask(ctx, fn(reply) =>
+        // .Get(reply)), .Ok(2))` ends in four of them — and deleting one leaves
+        // a call the checker can still count the arguments of, so it counts
+        // them and says so. That is the residue this row measures rather than a
+        // regression in it: no row's per-case behaviour moved, and every other
+        // row fell as a share of the larger population.
         // **And re-read again in F4, for the same reason and with the same
         // answer.** `delete-closer` was 159 of 1243 — 12.8%, two cases under a
         // ceiling of 13% — and the TLS slice added a `Listen` fake and a test

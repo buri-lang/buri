@@ -176,8 +176,8 @@ Deliberately absent, and not by oversight:
 `core/effect` declares the effects; `core/host` implements them and may be
 imported only by the module that exports `main`. `core/alloc`, `core/io`,
 `core/fs`, `core/env`, `core/time`, `core/random`, `core/net/http`,
-`core/net/server`, `core/proc` and `core/tasks` are the interfaces those effects
-are used through — and they are the *only* way through: an effect is performed
+`core/net/server`, `core/proc`, `core/tasks` and `core/actor` are the interfaces
+those effects are used through — and they are the *only* way through: an effect is performed
 by handing the context to a function, never by calling a method on it
 (SPEC 10.2), so `io.println(ctx, text)` is how a program prints and
 `ctx.println(text)` is refused. `core/testing/assert` and `core/host/testing`
@@ -240,6 +240,38 @@ its backend builds has a single Buri stack to hold their frames in. All three
 answer the same list, which is the point of fixing the order. Two tasks that
 *compute* do not yet overlap on either native backend: `parallel` buys
 overlapped waiting rather than more processors.
+
+`core/actor` is the other half of concurrency: state that outlives one call,
+behind a mailbox. An actor is a *value* — an initial state and a
+`step: fn(C, S, M) => S` — and `start` gives it a mailbox and answers an
+`Address`. The enum is the protocol: a variant carrying no `Reply` is a `send`,
+a variant carrying a `Reply<R>` is an `ask` that yields an `R`, and `stop`
+closes the mailbox, discards what is left and runs `onStop` once with the final
+state. Everything after that is `.Err(.Stopped)`.
+
+```buri
+from "core/actor" import { Actor, Reply };
+
+enum CounterMessage {
+    Increment,
+    Get(Reply<Int>),
+}
+
+fn counter<C>(initial: Int): Actor<C, Int, CounterMessage> {
+    Actor { state: initial, step: fn(c, count, message) => count + 1 }
+}
+```
+
+It needs no test double, and that is a property of the shape rather than an
+omission: `step` is an ordinary function in an ordinary field, so testing an
+actor is calling it. The mailbox is bounded — `mailbox: .Some(1)`, or the
+module's own `MAILBOX` — and a `send` that fills it runs the actor down rather
+than letting the queue grow. **The actor steps on the task that drives it**:
+`ask` runs the mailbox down before it reads its reply, and `stop` before it
+runs `onStop`. That is a scheduling decision and not a semantic one — the
+answers are the same either way, exactly as `parallel`'s two arms answer the
+same list — but it means an actor is not yet a way to get work done in the
+background.
 
 `core/net/http` is where `Request` and `Response` are documented — the two types
 `Net.fetch` speaks in, re-exported from `core/effect` where the effect's own

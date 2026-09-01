@@ -227,6 +227,16 @@ pub fn h3() -> bool {
 /// compiles the program and `serve` answers `.Err(Unsupported)`, which is the
 /// same choice as `HostNet.fetch` above and made for the same reason.
 pub fn net_intrinsic(key: &str) -> bool {
+    // `core/actor`'s nine. They are not a host effect and have no `host.`
+    // prefix to strip — the authority is the `C: Tasks` bound in each
+    // signature and the key is the module's, which is `core/list`'s shape —
+    // but their bodies are in `cli/runtime/rt.rs` behind the same feature, and
+    // one of them (`mailboxPush`) parks on the reactor. So the question this
+    // function asks is about *where the body is*, not about what the key looks
+    // like, and the family is matched by its own prefix.
+    if key.starts_with("actor.") {
+        return true;
+    }
     let Some(rest) = key.strip_prefix("host.") else { return false };
     let Some((effect, _operation)) = rest.split_once('.') else { return false };
     matches!(effect, "HostListen" | "HostSockets" | "HostTasks")
