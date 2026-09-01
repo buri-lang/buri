@@ -56,10 +56,10 @@ comment.
 | Crate | Feature | Why it clears the bar |
 |---|---|---|
 | `tokio` | `net` | The reactor and the timer wheel, and **linked**: `cli/runtime/rt.rs` is the carrier runtime and every suspending host call parks on it. `epoll` and `kqueue` behind one readiness API, per platform; getting it subtly wrong presents as a hang. |
-| `hyper` | `net` | HTTP/1.1 and HTTP/2 framing. `cli/runtime/http.rs` is a complete cleartext client, which is the easy half; HPACK, flow control and a correct server are not. |
+| `hyper` | `net` | HTTP/1.1 and HTTP/2 framing, and **linked**: `cli/runtime/net.rs` serves HTTP/2 over TLS through it, chosen by ALPN, and frames HTTP/1.1 itself. `cli/runtime/http.rs` is a complete cleartext client, which is the easy half; HPACK, flow control and a correct server are not. |
 | `rustls` | `net` | TLS 1.2 and 1.3, and **linked**: `cli/runtime/tls.rs` builds its client configuration and `http.rs` reaches that for every `https://` URL. |
 | `ring` | `net` | `rustls`'s crypto provider. Reached only through `rustls::crypto::ring`, and declared directly anyway — see §1.1.2. |
-| `tungstenite` | `net` | RFC 6455 framing and the handshake: a protocol with a specification and a conformance suite, not an algorithm. |
+| `tungstenite` | `net` | RFC 6455 framing and the handshake, and **linked**: every WebSocket message a server sends or reads is framed through it. A protocol with a specification and a conformance suite, not an algorithm. |
 | `quinn` | `net-h3` | QUIC, which is what HTTP/3 runs on: congestion control, loss recovery, stream multiplexing and connection migration over UDP. The only entry behind a feature that is **off by default** — §1.1.3. |
 
 `net` is **on by default**, which is the opposite of `backend-llvm` and for a
@@ -77,8 +77,8 @@ answer "was this toolchain built with the networking stack"; no intrinsic key
 mangles to a symbol in that file. On `aarch64-apple-darwin` the archive was
 5 987 472 bytes with `net` off and 5 987 496 with it on: twenty-four bytes,
 because `lto = "fat"` is whole-program across the dependency rlibs and Rust code
-nothing reaches does not reach the archive. Three of the six are still in exactly
-that state — `hyper`, `tungstenite` and `quinn` — and three are not.
+nothing reaches does not reach the archive. One of the six is still in exactly
+that state — `quinn` — and the other five are not.
 
 **`tokio` was linked first, once and deliberately.** `cli/runtime/rt.rs` is the
 carrier runtime — the reactor handle, the carrier pool with its 512 KiB stacks
@@ -93,13 +93,15 @@ archive on purpose:
 | the reactor | +185 424 |
 
 `mio` and `socket2` arrive with it and are tokio's platform layer rather than a
-sixth and seventh dependency; the direct set is still five, and
-`dependencies_stay_behind_the_bar` is what holds it there.
+seventh and eighth dependency; the direct set is still the six the table above
+lists, and `dependencies_stay_behind_the_bar` is what holds it there.
 
 ### 1.1.2 What `https://` cost, and the budget it moved
 
 `rustls` and `ring` followed, and they are the expensive half.
-`aarch64-apple-darwin`, `libburi_rt.a`, as this tree stands:
+`aarch64-apple-darwin`, `libburi_rt.a`, as C7 left it — F4 and F7 have both
+moved these numbers since, and `.github/scripts/assert-runtime-archive.sh`
+carries the current ones:
 
 | | bytes | delta |
 |---|---:|---:|
@@ -120,8 +122,10 @@ contributes twenty-odd `.o` members of C and AArch64 assembly, of which
 Linux, measured before either the reactor or TLS. The budget is a ratchet whose
 stated response to being hit is "find out what grew, then fix it or re-measure
 and re-state" — this is the re-statement, 9 MiB and 12 MiB, and the growth is
-named rather than absorbed. Every `buri` binary is 1.72 MiB larger for having a
-TLS client in it.
+named rather than absorbed. F4 re-stated the Linux half a second time, at
+14 MiB: every Linux figure before it had been a projection, and the first real
+measurement came in 1.9 MB above it. Every `buri` binary is 1.72 MiB larger for
+having a TLS client in it.
 
 **`ring` rather than `aws-lc-rs`**, the other provider `rustls` ships:
 `aws-lc-rs` wants `cmake` at build time, which is a second tool to require of
@@ -157,10 +161,10 @@ lines, and forty lines this repository can reasonably write is the definition of
 `SSL_CERT_FILE` is for, and `tls.rs` says so.
 
 `.github/scripts/assert-runtime-archive.sh` holds all of it in CI: the size
-budget, a symbol table that **must** mention `tokio`, `rustls` and `ring` when
-the feature file says `net`, and one that must mention none of `hyper`,
-`tungstenite` and `quinn` — nor `aws_lc`, a provider that was never a
-dependency — on any leg.
+budget, a symbol table that **must** mention `tokio`, `rustls`, `ring`, `hyper`
+and `tungstenite` when the feature file says `net`, and one that must mention
+neither `quinn` — on any leg, `net-h3` included — nor `aws_lc`, a provider that
+was never a dependency.
 
 **How the toolchain knows.** `cli/build.rs` writes `libburi_rt.a.features`
 beside the archive and beside its digest — the Cargo features the archive was
@@ -250,9 +254,10 @@ named by one `size_of` in `cli/runtime/net.rs` and reached by nothing else, so
 symbol in an h3 archive at all — and the forty bytes are the HTTP/3 refusal
 string an h3 build has no use for. So `assert-runtime-archive.sh` holds the h3
 leg to the **same** size budget as the `net` one rather than inventing a larger
-number with nothing behind it, and `quinn` is on that script's *absent* list on
-every leg beside `hyper` and `tungstenite`. F2 is the slice that moves both, in
-the commit that first calls into the crate.
+number with nothing behind it, and `quinn` is the only crate left on that
+script's *absent* list, on every leg. `hyper` left it in F4 and `tungstenite` in
+F7; the slice that first calls into `quinn` is the one that moves it, in the
+commit that does.
 
 **The provider is `ring`, by name.** `quinn`'s own defaults are
 `rustls-aws-lc-rs` and `platform-verifier`; both are off in
@@ -286,9 +291,13 @@ from that being a value:
 
 `runtime_native::h3()` is the toolchain's half, read from the same feature file
 by the same whole-line rule `net()` uses — which is why the rule is whole lines:
-`net-h3` contains `net`. Nothing in the compiler branches on it yet, and the
-first thing that does is F2. What reads it today is a test, and it is worth
-naming because it is the property this slice actually holds:
+`net-h3` contains `net`. Nothing in the compiler branches on it yet, and F2 —
+the slice this sentence used to name as the first that would — landed without
+needing to, as did F3 through F8: the refusal is `cli/runtime/net.rs::serves`'s,
+taken at the bind, so a `Server` naming `.Http3` on a toolchain without QUIC
+answers `.Err(Unsupported)` with the compiler none the wiser. What reads it
+today is still a test, and it is worth naming because it is the property this
+slice actually holds:
 `the_networking_features_agree_across_the_abi` in `cli/tests/native/runtime.rs`
 links the archive, calls `buri_rt_net_h3_available` through the C ABI, and
 compares the answer with `h3()`. Those two paths — a `#[cfg]` folded into a

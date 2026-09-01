@@ -12,8 +12,8 @@ export effect Alloc {
 }
 
 export effect Stdout {
-    fn print(self, text: Template): ();
-    fn println(self, text: Template): ();
+    fn print(self, text: Template): Result<(), IoError>;
+    fn println(self, text: Template): Result<(), IoError>;
 }
 
 export effect Fs {
