@@ -157,16 +157,29 @@ export fn main(): Result<(), Str> {
 }
 "#;
 
-/// The fastest of three runs, because the slow ones are the machine's and the
-/// fast one is the program's.
-fn milliseconds(scratch: &Scratch, package: &str, expected: &str) -> u128 {
-    let mut best = u128::MAX;
+/// The fastest of three runs of **each** program, taken **alternately**.
+///
+/// The fastest is the program's and the slow ones are the machine's, which is
+/// what the best-of-three was always for. Alternating is what was added after
+/// this row went flaky inside a full-suite run and never on its own: three
+/// runs of one program and then three of the other are two samples taken at
+/// two different moments, so a burst of load that lands entirely inside the
+/// second one inflates `large` and leaves `small` alone — and the ratio, which
+/// is the whole claim, moves for a reason that has nothing to do with the
+/// curve. Interleaving means any such burst is offered to both, and the
+/// best-of-three then throws it away from both. Neither the bound nor the
+/// number of runs moved: it is the same measurement, taken so that the two
+/// halves see the same machine.
+fn milliseconds(scratch: &Scratch, packages: [&str; 2], expected: &str) -> [u128; 2] {
+    let mut best = [u128::MAX; 2];
     for _ in 0..3 {
-        let start = Instant::now();
-        let run = scratch.exec_js(package);
-        let took = start.elapsed().as_millis();
-        assert_eq!(run.stdout.trim(), expected, "{}\n{}", run.what, run.all());
-        best = best.min(took);
+        for (i, package) in packages.iter().enumerate() {
+            let start = Instant::now();
+            let run = scratch.exec_js(package);
+            let took = start.elapsed().as_millis();
+            assert_eq!(run.stdout.trim(), expected, "{}\n{}", run.what, run.all());
+            best[i] = best[i].min(took);
+        }
     }
     best
 }
@@ -187,8 +200,7 @@ fn growing_a_list_in_a_loop_is_linear() {
         scratch.write(&format!("{package}/main.buri"), &source);
         scratch.run(&["build", &format!("//{package}"), "--force"]).ok();
     }
-    let small = milliseconds(&scratch, "cmd/small", "2000000 2000000");
-    let large = milliseconds(&scratch, "cmd/large", "2000000 2000000");
+    let [small, large] = milliseconds(&scratch, ["cmd/small", "cmd/large"], "2000000 2000000");
     assert!(
         large <= small.saturating_mul(4).max(200),
         "growing a list is not linear: two million pushes in runs of ten thousand \

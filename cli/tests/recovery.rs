@@ -328,7 +328,17 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // now on three, and a mutation of it is a different program. The
         // toolchain did not move; the population did, and `insert-stray` went
         // from 17.7% to 19.3% of it.
-        ("a syntax error stays a syntax error", "delete-closer") => 13,
+        //
+        // Re-read again when `cli/tests/conformance/lib/actor/` landed, for the
+        // same reason and with the same evidence: `delete-closer` went from
+        // 12.6% to 13.2% of a population that grew by one file. That file is
+        // dense in nested closers — `assert.eq(counted.ask(ctx, fn(reply) =>
+        // .Get(reply)), .Ok(2))` ends in four of them — and deleting one leaves
+        // a call the checker can still count the arguments of, so it counts
+        // them and says so. That is the residue this row measures rather than a
+        // regression in it: no row's per-case behaviour moved, and every other
+        // row fell as a share of the larger population.
+        ("a syntax error stays a syntax error", "delete-closer") => 14,
         ("a syntax error stays a syntax error", "delete-separator ()") => 3,
         // The arm before the comma swallows the next arm's pattern, so `2` gets
         // a field: the same residue this invariant's sibling caps at 7.
