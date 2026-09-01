@@ -337,6 +337,7 @@ fresh clock every call, so a test never inherits another test's.
 | `env()` | `Env` | No variables and no arguments. |
 | `proc()` | `Proc` | **Absorbs** the exit instead of taking it, so the test carries on. |
 | `tasks()` | `Tasks` | Runs the tasks one at a time, in **program order**, until a builder says otherwise. |
+| `sockets()` | `Sockets` | Sockets with **no network** behind them: `open()` mints one, and what is pushed on it is recorded. |
 
 Configuration is a **method on the value that answers a new handle**, so a
 chain reads in the order it is applied and the value it was called on is
@@ -355,6 +356,9 @@ unchanged:
 | `fs().readOnly()` | The **same** files, through a handle whose every write fails with `.ReadOnly` |
 | `net().respond(fn(Request) => Result<Response, NetError>)` | A network answering every request through that function |
 | `tasks().anyOrder()`, `.everyOrder()`, `.seed(n)` | A scheduler running its tasks in one order, in every order, or in the one that seed names |
+
+`sockets()` has no builder, because there is nothing to configure: a socket is
+minted rather than declared, and `sockets().open()` is the method that does it.
 
 Every builder here is spelled as the design note writes it, and `arguments` is
 the one that cost something to get. A type's methods are one map keyed by name,
@@ -635,6 +639,7 @@ and answer them in the order they completed:
 | `fs().calls()` | `[FsCall]` — one per call to any of the eleven methods of `Fs` |
 | `net().calls()` | `[NetCall]` — one per request, whole: method, URL, headers and body |
 | `stdin().calls()` | `[StdinCall]` — one per `readLine` or `readBytes`, with what it asked for |
+| `sockets().sent()` | `[(Socket, Message)]` — one per message pushed, oldest first |
 
 A test writes the call it expects with the constructor of the same name, and
 these are ordinary functions of `core/host/testing`: `readFile(path)`,
@@ -905,6 +910,68 @@ after it have not started. `task(k).fails(why)` fails that task every time it is
 reached and `task(k).failsOnCall(n, why)` the `n`th, counted over the fan-outs
 that reach it — and, as everywhere else here, **a fault whose task is never
 reached fails the test**.
+
+### A socket with no server
+
+A `Socket` is inert — one number a program may hold, put in a list and send to
+an actor — and its two methods need `Sockets` and nothing else. So the half of a
+WebSocket program that *pushes* is a half a test can run on its own, and
+`sockets()` is what it runs against: `open()` mints a socket with no network
+behind it, and `sent()` reads back every message that was pushed on one.
+
+| Member | Answers |
+|---|---|
+| `sockets().open()` | A `Socket` of that double's, open, with nothing behind it |
+| `sockets().sent()` | `[(Socket, Message)]` — every push, oldest first, both framings in one list |
+| `sockets().isOpen(socket)` | Whether that socket is still one this double will take a message for |
+
+```buri role=test
+# from "core/effect" import { Sockets };
+# from "core/host/testing" import { sockets };
+# from "core/net/server" import { Message, Socket };
+# from "core/testing/assert" import * as assert;
+
+# fn broadcast<C: Sockets>(ctx: C, room: [Socket], said: Message): () {
+#     room.foldCtx(ctx, fn(c, _sofar, socket) => socket.send(c, said), ())
+# }
+
+test "everybody in the room hears it" {
+    let wire = sockets();
+    let ctx = context {
+        Sockets: wire,
+    };
+    let first = wire.open();
+    let second = wire.open();
+    let _said = broadcast(ctx, [first, second], .Text("hello"));
+    // The socket that did not publish heard it, which is the whole of what a
+    // broadcast is — and there is no listener, no port and no client here.
+    assert.eq(wire.sent(), [
+        (first, Message.Text("hello")),
+        (second, Message.Text("hello")),
+    ]);
+}
+```
+
+**A message to a socket that has gone is dropped**, which is the real platform's
+rule rather than the double's: `send` never waits, so "did this arrive" was
+never a question this side could answer. Three things are dropped alike — a
+socket this double closed, a handle a program invented, and a socket another
+`sockets()` minted, because two doubles are two worlds the way two `fs()` calls
+are two filesystems. `isOpen` is the question asked directly, and it is a
+question about *one* socket rather than a count of the open ones: the blocks of
+a suite share a runner, so a count would answer differently depending on what
+ran beside it.
+
+The close's code and phrase are not kept, for `proc()`'s reason: they are what
+the far side would be told, there is no far side, and a number held where
+nothing can read it is state kept for its own sake.
+
+**Reading a socket is not here, and deliberately.** That authority is `Listen`'s
+— it belongs to whoever holds the listener — and what a fake acceptor answers is
+the test's own decision, so a test writes one for itself as it writes any other
+fake. What a test *cannot* write for itself is a double that records: an effect
+method takes only `self`, `self` is immutable, and so a hand-written `Sockets`
+has nowhere to put what it was told. That is the whole of why this one is here.
 
 ## Test data and golden files
 

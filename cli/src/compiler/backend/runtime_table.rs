@@ -786,6 +786,33 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.TestEnv.arguments", "buri_rt_host_testing_test_env_arguments", Ret::Out),
     e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
     e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
+    // `sockets()` — a socket with no network behind it. Seven rows: the double,
+    // the mint, the three `Sockets` methods and the two readers. `sent` and
+    // `isOpen` take the **handle** rather than the `TestSockets`, in
+    // `netCalls`'s shape but for the plainer reason: they are Buri bodies,
+    // because `sent` builds a `Message` out of the flat record this side writes
+    // and `isOpen` unwraps a `Socket`. `cli/runtime/lib.rs` §2.1's division —
+    // a runtime writes a struct and the program builds the enum — is the same
+    // one `Received` is on.
+    e("host_testing.sockets", "buri_rt_host_testing_sockets", Ret::Out),
+    e("host_testing.socketsOpen", "buri_rt_host_testing_sockets_open", Ret::Scalar),
+    e("host_testing.socketsSent", "buri_rt_host_testing_sockets_sent", Ret::Out),
+    e("host_testing.socketsIsOpen", "buri_rt_host_testing_sockets_is_open", Ret::Scalar),
+    e(
+        "host_testing.TestSockets.socketSendText",
+        "buri_rt_host_testing_test_sockets_socket_send_text",
+        Ret::Void,
+    ),
+    e(
+        "host_testing.TestSockets.socketSendBytes",
+        "buri_rt_host_testing_test_sockets_socket_send_bytes",
+        Ret::Void,
+    ),
+    e(
+        "host_testing.TestSockets.socketClose",
+        "buri_rt_host_testing_test_sockets_socket_close",
+        Ret::Void,
+    ),
     // The one key here that no Buri declaration produces: `middle::monomorphize`
     // emits it after every `test` body, so that "a fault whose call never
     // happens fails the test" is checked once for all three backends rather than

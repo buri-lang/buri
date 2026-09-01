@@ -64,6 +64,30 @@
 #      all to this archive should expect to be the one that re-measures and
 #      re-states this number rather than the one that squeezes under it.
 #
+#      F8 IS THAT SLICE AND IT DID, though what it added is small: the
+#      `sockets()` test double, which is about two hundred lines of `testing.rs`
+#      over the handle table that was already there and links no dependency at
+#      all. All three archives re-measured from scratch on aarch64-apple-darwin,
+#      on the tree that did it:
+#
+#        net off                                             6 329 104 bytes  +6 408
+#        net on                                              9 097 192        +6 416
+#        net-h3 on as well                                   9 097 432          +240
+#
+#      Six kilobytes for a whole double is the shape to expect from anything
+#      that is code rather than a crate, and the h3 delta is 240 bytes against
+#      F7's 248, which is the same "quinn is dropped whole" measurement taken
+#      again. The Darwin budget is STILL NOT HIT — 9 097 192 is under 9 MiB by
+#      339 992 bytes — so it does not move. THE HEADROOM IS NOW 3.6 %, and the
+#      sentence above stands unchanged for whoever comes next.
+#
+#      LINUX WAS RE-MEASURED IN THE SAME RUN, in the container
+#      `scripts/test-linux.sh` runs: 13 799 068 bytes on
+#      aarch64-unknown-linux-gnu, which is +10 896 for the same two hundred
+#      lines — 1.70x the Darwin delta against an archive 1.52x as large, the
+#      same shape of ratio F4 and F7 both measured. Not hit, does not move,
+#      ~6.0 % left.
+#
 #      THE LINUX BUDGET IS A DIFFERENT STORY AND IT IS THE CAUTIONARY ONE.
 #      Every Linux figure this script has ever carried was a PROJECTION — the
 #      macOS delta added to an 8 469 832-byte measurement taken before the
@@ -164,14 +188,14 @@ set -euo pipefail
 target=${1:-target}
 
 case "$(uname -s)" in
-  # 9 090 776 measured with `net` since F7 linked tungstenite; 9 MiB leaves
-  # ~3.7 %, which is the thinnest this has been. See the note above.
+  # 9 097 192 measured with `net` since F8 added the socket double; 9 MiB
+  # leaves ~3.6 %, which is the thinnest this has been. See the note above.
   Darwin) budget=9437184 ;;
-  # 13 788 172 measured on aarch64-unknown-linux-gnu since F7 linked
-  # tungstenite; F4's figures for the same triple were 13 611 228 here and
-  # 13 515 516 on CI. 14 MiB leaves ~6.1 % on the largest. THESE NUMBERS
-  # REPLACED A PROJECTION, and the projection was wrong by 1.9 MB — see the
-  # note below.
+  # 13 799 068 measured on aarch64-unknown-linux-gnu since F8 added the socket
+  # double; F7's figure for the same triple was 13 788 172, and F4's were
+  # 13 611 228 here and 13 515 516 on CI. 14 MiB leaves ~6.0 % on the largest.
+  # THESE NUMBERS REPLACED A PROJECTION, and the projection was wrong by
+  # 1.9 MB — see the note below.
   Linux)  budget=14680064 ;;
   *)      echo "::error::this script knows macOS and Linux only" ; exit 1 ;;
 esac

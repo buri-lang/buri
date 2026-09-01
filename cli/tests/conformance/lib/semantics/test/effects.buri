@@ -1937,12 +1937,19 @@ test "a context holding the same double still reaches the same answer" {
 // `Scripted` below is a double with just enough state to stop, so what it can
 // drive is the whole of a socket's life except the message in the middle: the
 // upgrade, `onOpen`, the close, `onClose`, the state threaded between them, and
-// the close-code mapping. A message needs a double that can answer two
-// different things to two `listenReceive` calls that look alike, which is
-// `core/host/testing`'s `sockets()` and is not written yet. Until then a
-// message on a socket is proven against the real acceptor —
+// the close-code mapping. A message *arriving* still needs a fake that can
+// answer two different things to two `listenReceive` calls that look alike, and
+// nothing here is one: that half stays proven against the real acceptor —
 // `cli/runtime/net.rs`'s own tests — and against a real client, in
 // `cli/tests/native/`.
+//
+// The **writing** half is not on this file any more. `core/host/testing`'s
+// `sockets()` records what a program pushes, so a socket program that is
+// `Sockets` and nothing else — the broadcast room, most of all — is driven
+// with no acceptor at all in `host_testing.buri` beside this one. That is the
+// line `effect Sockets` draws, arriving in the corpus: reading is `Listen`'s
+// and a test writes its own acceptor; writing is `Sockets`' and a test cannot,
+// because a hand-written one records nothing.
 //
 // What *is* here runs on every backend, JavaScript included, which is the point
 // of putting it here rather than only there.

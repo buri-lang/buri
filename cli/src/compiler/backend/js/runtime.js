@@ -4233,6 +4233,76 @@ function $test_replay(index) {
   return true;
 }
 
+// A socket with no network behind it: `open` mints one, the three methods of
+// `Sockets` act on it, and `sent` reads back what was pushed.
+//
+// `cli/runtime/testing.rs` is the same design for the other backend, and the
+// two agree on the thing a program can see: a socket is a **slot of its own**,
+// so its number is unique across the runner and a socket one double minted is
+// not one another double has. That is what makes the three cases `effect
+// Sockets` calls alike alike here too — a handle a program invented, a socket
+// this double closed, and another double's socket all drop the message.
+//
+// The close's code and phrase are not kept, for `proc()`'s reason: they are
+// what the far side would be told, there is no far side, and a number nothing
+// can read back is state held for its own sake.
+
+// `Frame`'s two framings, as the variant indices `core/effect` declares. The
+// third, `.Closed`, is never written here: only the two sends write this log.
+const $SOCKET_TEXT = 0;
+const $SOCKET_BINARY = 1;
+
+function $host_testing_sockets() {
+  return $handle({ sent: [] });
+}
+
+function $host_testing_socketsOpen(h) {
+  return $tmint({ owner: Number(h), open: true });
+}
+
+// Whether a push through this double onto that socket goes anywhere — which is
+// `isOpen`'s answer and the send path's test, one function so the two cannot
+// disagree.
+function $tsockwritable(h, socket) {
+  const s = $tslot(socket);
+  return !!s && s.owner === Number(h) && s.open === true;
+}
+
+function $host_testing_socketsIsOpen(h, socket) {
+  return $tsockwritable(h, socket);
+}
+
+// Every push through this double, oldest first. A `Sent` is
+// `{ socket, frame, text, data }`, which is a struct and so an array of its
+// fields in declaration order — the flat record the program builds its
+// `Message` out of.
+function $host_testing_socketsSent(h) {
+  return $tslot(h).sent.map(function (one) {
+    return [one[0], one[1], one[2], one[3].slice()];
+  });
+}
+
+// One push, dropped where the socket is not an open one of this double's.
+function $tsockpush(self, socket, frame, text, data) {
+  if (!$tsockwritable(self[0], socket)) return 0;
+  $slot(self).sent.push([socket, frame, text, data]);
+  return 0;
+}
+
+function $host_testing_TestSockets_socketSendText(self, socket, text) {
+  return $tsockpush(self, socket, $SOCKET_TEXT, text, []);
+}
+
+function $host_testing_TestSockets_socketSendBytes(self, socket, body) {
+  return $tsockpush(self, socket, $SOCKET_BINARY, "", body.slice());
+}
+
+function $host_testing_TestSockets_socketClose(self, socket, code, reason) {
+  if (!$tsockwritable(self[0], socket)) return 0;
+  $tslot(socket).open = false;
+  return 0;
+}
+
 // A fresh, empty log, and the handle that names it. A bare `I64` rather than a
 // handle-carrying value, because `net()` is a Buri body that builds the
 // `TestNet` around it — the responder in the other field is a value this file

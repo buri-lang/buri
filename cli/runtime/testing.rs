@@ -162,6 +162,22 @@ enum Slot {
     /// needs it. `plan` still names the [`Slot::Plan`] holding the *promise*,
     /// entry for entry with this list.
     Tasks { mode: i64, seed: i64, plan: i64, log: Vec<i64>, faults: Vec<TaskFault> },
+    /// `core/host/testing`'s `TestSockets` — every message pushed through it,
+    /// oldest first, and nothing else.
+    ///
+    /// The sockets are not in here. [`Slot::Socket`] is one apiece, which makes
+    /// a socket's number a position in this table and therefore unique across
+    /// the process — so a socket one double minted is not one another double
+    /// has, and that is what makes two `sockets()` calls two worlds the way two
+    /// `fs()` calls are two filesystems.
+    Sockets { sent: Vec<SentLog> },
+    /// One socket `TestSockets::open` minted: which double owns it, and whether
+    /// it is still open.
+    ///
+    /// The second slot shape that names another (`Slot::Fs` is the first), and
+    /// it points the other way: a view names its store, and a socket names the
+    /// double that will record what is pushed on it.
+    Socket { owner: i64, open: bool },
 }
 
 /// One call to a `TestFs`, as `core/host/testing`'s `FsCall` records it: the
@@ -1533,6 +1549,196 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_args(
 // `host_testing.buri` — the same shape `TestNet` has, reached for the plainer
 // reason.
 
+// -- `core/host/testing`'s `sockets()` ---------------------------------------
+//
+// A socket with no network behind it. `open` mints one, the three `Sockets`
+// methods act on it, and `sent` reads back what was pushed — which is the whole
+// double, because writing on a socket is the whole of what `effect Sockets` is
+// (`host_testing.buri`'s own header, and `effect Sockets`').
+//
+// **A socket is a slot of this same table**, so its number is unique across the
+// process and a socket one double minted is not one another has. That makes the
+// three cases `effect Sockets` says are alike genuinely alike here: a handle a
+// program invented names a slot of some other shape, a closed socket names a
+// [`Slot::Socket`] whose flag is down, and another double's socket names one
+// whose `owner` is somebody else. All three drop the message.
+//
+// Nothing in here waits, and there is no queue: the real `socketSendText`
+// promises never to wait, and a double that records the push and returns keeps
+// that promise with nothing behind it.
+
+/// `Frame::Text`'s variant index, which is `core/effect`'s declared order and
+/// the same number `net.rs` writes into a `Received`.
+const FRAME_TEXT: i8 = 0;
+
+/// `Frame::Binary`'s. `Frame::Closed` is never written here — only the two
+/// sends write this log, and neither of them is a close.
+const FRAME_BINARY: i8 = 1;
+
+/// One push through a `TestSockets`, as `sent()` reads it back: which socket,
+/// which framing, and the payload of the field that framing names.
+///
+/// The other field is empty rather than absent, which is `Received`'s shape one
+/// file over and is there for `Received`'s reason: a flat record crosses whole,
+/// and `core/host/testing` builds the `Message` out of it on the Buri side.
+struct SentLog {
+    socket: i64,
+    frame: i8,
+    text: String,
+    data: Vec<u8>,
+}
+
+/// `Sent` — `struct { socket: Int, frame: Frame, text: Str, data: [U8] }`.
+///
+/// `#[repr(C)]` for [`BuriFsCall`]'s reason, and `frame` is an `i8` for
+/// [`BuriNetCall`]'s: a payload-free enum of at most 256 variants *is* its tag
+/// (VALUE-MODEL.md §6), so the discriminant is the value.
+#[repr(C)]
+struct BuriSent {
+    socket: i64,
+    frame: i8,
+    text: BuriStr,
+    data: BuriList,
+}
+
+/// `sockets()` — a double with no sockets open and nothing pushed.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_sockets(out: *mut i64) {
+    let handle = install(Slot::Sockets { sent: Vec::new() });
+    // SAFETY: the caller promises a writable destination.
+    unsafe { out.write(handle) }
+}
+
+/// `socketsOpen(handle)` — a fresh socket of that double's.
+///
+/// A slot of its own, for the reason at the top of this section: the number a
+/// `Socket` carries has to be one no other double can have minted.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_sockets_open(handle: i64) -> i64 {
+    install(Slot::Socket { owner: handle, open: true })
+}
+
+/// `socketsIsOpen(handle, socket)` — whether that double minted that socket and
+/// has not closed it.
+///
+/// **A question about one socket**, never a count of the open ones: the blocks
+/// of a suite share this table, so a count would answer differently depending
+/// on what ran beside the block asking.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_sockets_is_open(handle: i64, socket: i64) -> u8 {
+    u8::from(writable(handle, socket))
+}
+
+/// Whether a push through `handle` onto `socket` goes anywhere.
+fn writable(handle: i64, socket: i64) -> bool {
+    with(socket, false, |slot| match slot {
+        Slot::Socket { owner, open } => *owner == handle && *open,
+        _ => false,
+    })
+}
+
+/// Append one push, or drop it where the socket is not this double's and open.
+///
+/// Two locks and not one, because [`lock`] is not reentrant: the socket's slot
+/// and the double's log are two entries of the same table, and a `with` inside
+/// a `with` would be this runtime deadlocking on itself.
+fn pushed(handle: i64, socket: i64, frame: i8, text: String, data: Vec<u8>) {
+    if !writable(handle, socket) {
+        return;
+    }
+    with(handle, (), |slot| {
+        if let Slot::Sockets { sent } = slot {
+            sent.push(SentLog { socket, frame, text, data });
+        }
+    });
+}
+
+/// `TestSockets::socketSendText`.
+///
+/// # Safety
+/// The text must be a live `Str` view.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_sockets_socket_send_text(
+    handle: i64,
+    socket: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: the caller promises the range.
+    let text = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    pushed(handle, socket, FRAME_TEXT, text, Vec::new());
+}
+
+/// `TestSockets::socketSendBytes`.
+///
+/// # Safety
+/// The body must be a live `[U8]` view.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_sockets_socket_send_bytes(
+    handle: i64,
+    socket: i64,
+    ptr: *const u8,
+    len: u64,
+) {
+    // SAFETY: the caller promises the range.
+    let data = unsafe { view(ptr, len) }.to_vec();
+    pushed(handle, socket, FRAME_BINARY, String::new(), data);
+}
+
+/// `TestSockets::socketClose` — the socket closes, and neither the code nor the
+/// phrase is kept.
+///
+/// `TestProc::exitWith`'s reason: both are what the *far side* would be told,
+/// there is no far side, and a number held where nothing can read it is state
+/// kept for its own sake. What a close does here is close, which
+/// `socketsIsOpen` reports and which every later send obeys.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_test_sockets_socket_close(
+    handle: i64,
+    socket: i64,
+    _code: i64,
+    _base: *mut u8,
+    _ptr: *const u8,
+    _len: u64,
+) {
+    if !writable(handle, socket) {
+        return;
+    }
+    with(socket, (), |slot| {
+        if let Slot::Socket { open, .. } = slot {
+            *open = false;
+        }
+    });
+}
+
+/// `socketsSent(handle)` — every push through this double, oldest first.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_sockets_sent(handle: i64, out: *mut BuriList) {
+    let sent = with(handle, Vec::new(), |slot| match slot {
+        Slot::Sockets { sent } => sent
+            .iter()
+            .map(|s| (s.socket, s.frame, s.text.clone(), s.data.clone()))
+            .collect(),
+        _ => Vec::new(),
+    });
+    let value =
+        list_of(&sent, |(socket, frame, text, data): &(i64, i8, String, Vec<u8>)| BuriSent {
+            socket: *socket,
+            frame: *frame,
+            text: str_of(text),
+            data: list_of_bytes(data),
+        });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
 // -- `core/host/testing`'s call log -----------------------------------------
 //
 // One append-only log per handle: `Slot::Fs`'s, `Slot::Net`'s and
@@ -1584,8 +1790,8 @@ struct BuriStdinCall {
     count: i64,
 }
 
-/// A `[T]` of one of the three records above: one block of `size_of::<T>()`
-/// strides, each written in place.
+/// A `[T]` of one of the four records this file writes — the three above and
+/// [`BuriSent`]: one block of `size_of::<T>()` strides, each written in place.
 ///
 /// [`list_of_pairs`] with the element type abstracted, and the same two
 /// promises: the stride is a multiple of 8 and the payload is 16-aligned, so
@@ -1600,7 +1806,7 @@ fn list_of<T, S>(items: &[S], element: impl Fn(&S) -> T) -> BuriList {
     for (i, item) in items.iter().enumerate() {
         // SAFETY: `i * stride` is within the `items.len() * stride` block, and
         // the destination is 8-aligned because the payload is 16-aligned and
-        // every one of the three strides is a multiple of 8.
+        // every one of the four strides is a multiple of 8.
         unsafe { ptr.add(i.saturating_mul(stride)).cast::<T>().write(element(item)) };
     }
     BuriList { ptr, len: items.len() as u64 }
@@ -3383,4 +3589,146 @@ mod tests {
         }
     }
 
+    // -- `sockets()` ---------------------------------------------------------
+    //
+    // The double's own rules, at the rows a program reaches them through.
+    // `cli/tests/conformance/lib/semantics/test/host_testing.buri` asserts the
+    // same rules from a Buri program on every backend; these assert the half
+    // only this side can see, which is the log's shape and the drop.
+
+    /// `sockets()`, without the out-pointer the row is called through.
+    fn sockets_handle() -> i64 {
+        let mut handle = 0i64;
+        // SAFETY: `handle` is a live, aligned `i64`.
+        unsafe { buri_rt_host_testing_sockets(&raw mut handle) };
+        handle
+    }
+
+    /// One text push, at the row's own signature.
+    fn send_text(handle: i64, socket: i64, text: &str) {
+        // SAFETY: the range is a live `&str`'s.
+        unsafe {
+            buri_rt_host_testing_test_sockets_socket_send_text(
+                handle,
+                socket,
+                std::ptr::null_mut(),
+                text.as_ptr(),
+                text.len() as u64,
+            );
+        }
+    }
+
+    /// One close, likewise. The phrase is handed over and dropped, which is
+    /// what the double promises.
+    fn close_socket(handle: i64, socket: i64, code: i64, phrase: &str) {
+        buri_rt_host_testing_test_sockets_socket_close(
+            handle,
+            socket,
+            code,
+            std::ptr::null_mut(),
+            phrase.as_ptr(),
+            phrase.len() as u64,
+        );
+    }
+
+    /// The log as `(socket, frame, text)`, read off the slot.
+    fn sent_on(handle: i64) -> Vec<(i64, i8, String)> {
+        with(handle, Vec::new(), |slot| match slot {
+            Slot::Sockets { sent } => {
+                sent.iter().map(|s| (s.socket, s.frame, s.text.clone())).collect()
+            }
+            _ => Vec::new(),
+        })
+    }
+
+    #[test]
+    fn a_socket_takes_a_message_until_it_is_closed() {
+        let double = sockets_handle();
+        let socket = buri_rt_host_testing_sockets_open(double);
+        assert_eq!(buri_rt_host_testing_sockets_is_open(double, socket), 1);
+        send_text(double, socket, "before");
+        close_socket(double, socket, 1000, "closing normally");
+        send_text(double, socket, "after");
+        // The close is the whole of what a close does here, and the drop is the
+        // real platform's own sentence: "did this arrive" was never answerable
+        // from this side, so a message to a socket that has gone is dropped.
+        assert_eq!(buri_rt_host_testing_sockets_is_open(double, socket), 0);
+        assert_eq!(sent_on(double), vec![(socket, FRAME_TEXT, String::from("before"))]);
+    }
+
+    /// Two `sockets()` are two worlds, exactly as two `fs()` are two
+    /// filesystems — and a socket is a slot of its own precisely so that this
+    /// is a fact rather than a convention.
+    #[test]
+    fn one_double_never_writes_on_another_doubles_socket() {
+        let (mine, theirs) = (sockets_handle(), sockets_handle());
+        let ours = buri_rt_host_testing_sockets_open(mine);
+        let alien = buri_rt_host_testing_sockets_open(theirs);
+        assert_ne!(ours, alien);
+        assert_eq!(buri_rt_host_testing_sockets_is_open(mine, alien), 0);
+        send_text(mine, alien, "not yours");
+        send_text(mine, ours, "mine");
+        assert_eq!(sent_on(mine), vec![(ours, FRAME_TEXT, String::from("mine"))]);
+        assert_eq!(sent_on(theirs), Vec::new());
+    }
+
+    /// A handle a program invented, and a handle that names a slot of some
+    /// other shape, are both "a socket that has already gone" — which is
+    /// `effect Sockets`' promise and is why a forged `Socket` is inert rather
+    /// than an abort.
+    #[test]
+    fn a_handle_that_names_no_socket_of_this_doubles_is_one_that_has_gone() {
+        let double = sockets_handle();
+        let not_a_socket = sockets_handle();
+        for handle in [-1, i64::MAX, not_a_socket, double] {
+            assert_eq!(buri_rt_host_testing_sockets_is_open(double, handle), 0);
+            send_text(double, handle, "nowhere");
+        }
+        assert_eq!(sent_on(double), Vec::new());
+    }
+
+    /// The log's shape, at the row `core/host/testing`'s `sent` reads it
+    /// through: a `[Sent]` whose stride is `Sent`'s own layout.
+    ///
+    /// `Sent` is `{ socket: Int, frame: Frame, text: Str, data: [U8] }` and
+    /// VALUE-MODEL.md §5 lays a struct out in declaration order at natural
+    /// alignment under C rules — 8, then a tag padded to 8, then 24, then 16 —
+    /// so this number is the layout rather than a description of it, exactly as
+    /// `net.rs` asserts for `BuriReceived`.
+    #[test]
+    fn the_log_crosses_as_a_list_of_flat_records() {
+        assert_eq!(size_of::<BuriSent>(), 56);
+        let double = sockets_handle();
+        let socket = buri_rt_host_testing_sockets_open(double);
+        send_text(double, socket, "one");
+        let body = [7u8, 8, 9];
+        // SAFETY: the range is a live `[u8]`'s.
+        unsafe {
+            buri_rt_host_testing_test_sockets_socket_send_bytes(
+                double,
+                socket,
+                body.as_ptr(),
+                body.len() as u64,
+            );
+        }
+        let mut out = BuriList { ptr: std::ptr::null_mut(), len: 0 };
+        // SAFETY: `out` is a live, aligned `BuriList`.
+        unsafe { buri_rt_host_testing_sockets_sent(double, &raw mut out) };
+        assert_eq!(out.len, 2);
+        // SAFETY: `out.ptr` is a block of two `BuriSent` strides, just written.
+        let (first, second) = unsafe {
+            (&*out.ptr.cast::<BuriSent>(), &*out.ptr.add(size_of::<BuriSent>()).cast::<BuriSent>())
+        };
+        assert_eq!(first.frame, FRAME_TEXT);
+        assert_eq!(first.socket, socket);
+        // SAFETY: written by the call above.
+        assert_eq!(unsafe { first.text.as_str() }, "one");
+        assert_eq!(second.frame, FRAME_BINARY);
+        assert_eq!(second.data.len, 3);
+        // A framing names one field and the other is empty rather than absent,
+        // which is what lets `core/host/testing` build the `Message` from it.
+        // SAFETY: written by the call above.
+        assert_eq!(unsafe { second.text.as_str() }, "");
+        assert_eq!(first.data.len, 0);
+    }
 }
