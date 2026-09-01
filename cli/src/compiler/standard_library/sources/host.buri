@@ -11,9 +11,8 @@
 //! that asked for it.
 
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Proc,
-    Protocol, Rand, Region, Request, Response, ServeError, Sockets, Stderr, Stdin,
-    Stdout, Tasks,
+    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Proc, Rand,
+    Region, Request, Response, Serve, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 
 // One `Request` now. `ui/effect` used to declare a second — the
@@ -145,7 +144,7 @@ impl Listen for HostListen {
         self,
         address: Str,
         port: Int,
-        protocols: [Protocol],
+        plan: [Serve],
         requestLimit: Int,
         idleTimeoutMillis: Int,
     ): Result<Listener, ServeError>;

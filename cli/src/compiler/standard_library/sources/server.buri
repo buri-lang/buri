@@ -61,7 +61,8 @@
 //! | Field | `.None` crosses as | And the acceptor today |
 //! |---|---|---|
 //! | `address` | `""` | listens on `127.0.0.1` |
-//! | `protocols` | `[]` | speaks HTTP/1.1 |
+//! | `protocols` | no `.Speak` in the plan | speaks HTTP/1.1 |
+//! | `tls` | no `.Certificate` in the plan | serves cleartext |
 //! | `requestLimit` | `-1` | answers until the listener is closed |
 //! | `idleTimeoutMillis` | `-1` | waits for a connection indefinitely |
 //!
@@ -69,16 +70,18 @@
 //! reader knows what to expect rather than so a program may rely on it. The
 //! second column is the contract.
 //!
-//! **How many handlers run at once is not on this list**, and that is the
-//! same argument reaching a different answer. It is not a `Server` field at all:
-//! `effect Listen`'s `listenBind` is at the ten-integer budget a runtime call
-//! has, so a program's preference has no way across, and a field nothing could
-//! carry would be a knob that silently did nothing — which is exactly why
-//! `headerTimeoutMillis` and `bodyLimitBytes` are absent too. The acceptor
-//! answers with the number it will host, on `Listener.handlers`, and `run` fans
-//! out to it. A program that has to bound its own concurrency bounds it inside
-//! its handler; the day the bind's budget grows, the field lands beside the
-//! four above and this paragraph becomes a row.
+//! **`protocols` and `tls` cross as one list**, which `effect Listen` calls the
+//! plan and `bind` builds. That is worth knowing here for one reason: it is why
+//! there is room for a knob at all. `listenBind` spends the ten integer
+//! arguments a runtime call has, and a list crosses as a pointer and a length
+//! however many things are in it — so the fields a `Server` grows from now on
+//! are variants of `Serve` rather than arguments nobody has room for.
+//!
+//! **How many handlers run at once is still not on this list**, and it is not a
+//! `Server` field at all — not for want of room now, but because it is an
+//! *answer* rather than a setting. The acceptor says how many it will host, on
+//! `Listener.handlers`, and `run` fans out to it. A program that has to bound
+//! its own concurrency bounds it inside its handler.
 //!
 //! ## A handler runs on a task, and that is why `Tasks` is in the bound
 //!
@@ -104,11 +107,54 @@
 //! looks for it. A program that grants `Listen` and not `Tasks` is not a slower
 //! server; it does not compile, and the message names what is missing.
 //!
+//! ## TLS, and the protocol ALPN chooses
+//!
+//! A `Server` with a `tls` serves HTTPS, and the same handler answers both ways
+//! — a handler never learns which transport its request arrived over, because
+//! nothing about a `Request` depends on it.
+//!
+//! **HTTP/2 comes with TLS and only with TLS.** It is chosen inside the
+//! handshake, by ALPN (RFC 7540 §3.3), so a `Server` asking for `.Http2`
+//! without a certificate is `.Err(.Unsupported)` from `bind` with a message
+//! saying so — refused rather than quietly answered in HTTP/1.1, because a
+//! server that did not do what it was configured to do is the failure that is
+//! found in production. A `Server` with a certificate and no `protocols` offers
+//! HTTP/1.1: `.None` is the absence of a choice, and growing a certificate is
+//! not a program asking for a second protocol.
+//!
+//! ```buri
+//! from "core/effect" import { Alloc, Listen, Tasks };
+//! from "core/host" import * as host;
+//! from "core/net/http" import * as http;
+//! from "core/net/server" import * as server;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Listen: host.listen,
+//!         Tasks: host.tasks,
+//!     };
+//!     server
+//!         .serve(ctx, server.Server {
+//!             port: 8443,
+//!             protocols: .Some([.Http1, .Http2]),
+//!             tls: .Some(server.Tls {
+//!                 certificate: "/etc/ssl/example.pem",
+//!                 key: "/etc/ssl/example.key",
+//!             }),
+//!             onRequest: fn(c, _request) => http.text(c, "hello"),
+//!         })
+//!         .mapErr(server.errorText)
+//! }
+//! ```
+//!
 //! ## What is here, and what is not yet
 //!
-//! One request per connection: the response says `connection: close` and the
-//! socket is dropped after it. Keep-alive and HTTP/2's multiplexing are the same
-//! slice as TLS, and it is the next one.
+//! One request per HTTP/1.1 connection: the response says `connection: close`
+//! and the socket is dropped after it. Several requests share an HTTP/2
+//! connection, which is what multiplexing is, and a worker answers each of them
+//! exactly as it answers an HTTP/1.1 one. Keep-alive — several requests on one
+//! *HTTP/1.1* connection — is still not here.
 //!
 //! `sendText`, `sendBytes` and `close` are the socket half. Nothing hands out
 //! a `Socket` yet — a WebSocket upgrade is not something `serve` performs —
@@ -117,14 +163,14 @@
 //! they say what they will do rather than pretending to do it today.
 
 from "core/effect" import {
-    Alloc, Listen, Listener, Protocol, Request, Response, ServeError, ServeFailure,
-    Sockets, Tasks,
+    Alloc, Listen, Listener, Protocol, Request, Response, Serve, ServeError,
+    ServeFailure, Sockets, Tasks,
 };
 from "core/list" import * as list;
 from "core/tasks" import * as tasks;
 
 from "core/effect" export {
-    Listener, Protocol, Request, Response, ServeError, ServeFailure,
+    Listener, Protocol, Request, Response, Serve, ServeError, ServeFailure,
 };
 
 /// A server, whole.
@@ -154,7 +200,8 @@ export struct Server<C> {
     export address: Option<Str>,
     /// The HTTP versions to speak. `.None` is HTTP/1.1. A protocol this
     /// toolchain's runtime was not built with is `.Err(.Unsupported)` from
-    /// `bind`, with a message naming the switch that would add it.
+    /// `bind`, with a message naming the switch that would add it, and so is
+    /// `.Http2` without a `tls` — see that field.
     export protocols: Option<[Protocol]>,
     /// Stop after answering this many requests, and return `.Ok(())`. `.None`
     /// serves until the listener is closed.
@@ -168,16 +215,45 @@ export struct Server<C> {
     /// `.Err(.Timeout)`. `.None` waits indefinitely, which is what an ordinary
     /// server does.
     export idleTimeoutMillis: Option<Int>,
+    /// The certificate this server presents, and therefore whether it speaks
+    /// TLS at all. `.None` is a cleartext server.
+    ///
+    /// It is also what decides whether `.Http2` is reachable: HTTP/2 is chosen
+    /// inside the TLS handshake (RFC 7540 §3.3), so a server that asks for it
+    /// without a certificate is refused at the bind rather than quietly served
+    /// in HTTP/1.1.
+    export tls: Option<Tls>,
+}
+
+derive Eq, Show for Tls;
+/// Where a server's identity is read from.
+///
+/// **Two paths and not two PEM documents**, which is a shape decision worth the
+/// sentence. A certificate is a file that expires and gets rotated, and a
+/// private key written into a source file is a private key in a version control
+/// system — so what a program names is where to read them, and the reading is
+/// the runtime's. They are read once, when the port is opened: a certificate
+/// that is missing, unreadable, or does not match its key is an `.Err` from
+/// `bind` and not a handshake failure at three in the morning.
+///
+/// Both fields are required, because half an identity is not one.
+export struct Tls {
+    /// The PEM file holding the certificate chain, leaf first.
+    export certificate: Str,
+    /// The PEM file holding the private key that goes with the leaf. PKCS#8,
+    /// PKCS#1 and SEC1 are all read; the label in the file is what says which.
+    export key: Str,
 }
 
 //
-// Two knobs a reader might look for are deliberately absent: **how long one
-// connection may take to send its head**, and **the largest body the acceptor
-// will read**. Both exist and both are the runtime's own numbers; neither is a
-// field here, because `Listen.listenBind` is at the ten-integer budget a
-// runtime call has (`backend/stencil/abi.rs`) and a field nothing could carry
-// across would be a knob that silently did nothing. `effect Listen` says the
-// same thing from the other side, which is where the budget is.
+// Two knobs a reader might look for are still absent: **how long one connection
+// may take to send its head**, and **the largest body the acceptor will read**.
+// Both exist and both are the runtime's own numbers. They used to be absent
+// because `listenBind` had no argument left to carry them; that is no longer
+// true — the plan is a list and a list holds as many options as anyone writes —
+// so they are absent now for the ordinary reason, which is that nobody has
+// needed to name them yet. The day somebody does, they are two variants of
+// `Serve` and two fields here.
 
 /// The whole of a server: bind the port, answer requests until the listener is
 /// done, give the port back.
@@ -205,14 +281,41 @@ export fn serve<C: Alloc + Listen + Tasks>(
 /// program that has to publish the number — write it to a file, print it, hand
 /// it to a task that will connect — reads `listener.port` here, between the
 /// bind and the loop.
-export fn bind<C: Listen>(ctx: C, server: Server<C>): Result<Listener, ServeError> {
+/// **`Alloc` is in the bound because the plan is a list.** `listenBind` takes
+/// one `[Serve]` — the shape `effect Listen` argues for, and the reason a
+/// certificate could be added to a call that was already at its argument
+/// budget — and building a list is an allocation, which this language says in
+/// the bound rather than in a comment. `serve` already carried `Alloc` for
+/// `run`'s fan-out, so nothing that called `serve` changes.
+export fn bind<C: Alloc + Listen>(
+    ctx: C,
+    server: Server<C>,
+): Result<Listener, ServeError> {
     ctx.listenBind(
         server.address.withDefault(""),
         server.port,
-        server.protocols.withDefault([]),
+        planned(ctx, server),
         server.requestLimit.withDefault(-1),
         server.idleTimeoutMillis.withDefault(-1),
     )
+}
+
+/// A `Server`'s protocol and TLS fields, rendered into the one list the bind
+/// takes.
+///
+/// The order is protocols first and then the identity, which is the order they
+/// are read in: the acceptor walks the protocols to decide what it may offer
+/// and then reads the certificate to decide whether it can offer anything at
+/// all. An empty list is a caller who chose nothing, and `.None` on both fields
+/// is exactly that.
+fn planned<C: Alloc>(ctx: C, server: Server<C>): [Serve] {
+    let spoken: [Serve] = server.protocols.withDefault([]).map(ctx, fn(p) => .Speak(p));
+    match (server.tls) {
+        .None => spoken,
+        .Some(tls) => {
+            spoken.concat(ctx, [.Certificate(tls.certificate), .PrivateKey(tls.key)])
+        },
+    }
 }
 
 /// The most workers this module will start, whatever a `Listener` says.

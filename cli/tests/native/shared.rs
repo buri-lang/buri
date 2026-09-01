@@ -432,6 +432,185 @@ pub fn served_the_path(reply: &str, path: &str) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// TLS
+// ---------------------------------------------------------------------------
+//
+// **What a native row can assert about TLS, and what it deliberately cannot.**
+// A test here can build a Buri program, run it, and read what it printed; it
+// cannot *talk* TLS to it, because a TLS client needs `rustls` and the only
+// `rustls` in this repository is inside the runtime archive — a dev-dependency
+// on it in `cli/Cargo.toml` fails `dependencies_stay_behind_the_bar`, which is
+// the wall C7 met and wrote down.
+//
+// So the handshake, ALPN and HTTP/2's multiplexing are asserted where both ends
+// are reachable, in `cli/runtime/net.rs`'s own tests, and what these rows
+// assert is the half only they can: that a `Server`'s `tls` field survives the
+// whole toolchain — the `[Serve]` plan `bind` renders, the list of tagged
+// options crossing the C ABI at each backend's own layout, and the acceptor
+// reading a certificate off the path it was given. A refusal naming the path is
+// proof the `Str` payload arrived intact; a successful bind is proof the
+// certificate was read and `rustls` accepted it.
+
+/// The certificate the fixture below presents, and the key that goes with it.
+///
+/// **A copy of `cli/runtime/tls.rs`'s test fixture, and the copy is deliberate.**
+/// That module is the source of truth — it records the `openssl` commands that
+/// produced these, and the leaf's `DNS:localhost` and 2048 expiry are argued
+/// there — and it is `#[cfg(test)]` inside a package this suite cannot import
+/// from. The two corpora are independent by construction (C7 §3), so the fixture
+/// is duplicated rather than shared, and this comment is where a maintainer
+/// regenerating one is told to regenerate the other.
+pub const TLS_LEAF_PEM: &str = "\
+-----BEGIN CERTIFICATE-----
+MIIBwzCCAWigAwIBAgIUB7wmYz/reLH8tSqdnHa/BR/gebcwCgYIKoZIzj0EAwIw
+HzEdMBsGA1UEAwwUYnVyaSBydW50aW1lIHRlc3QgQ0EwHhcNMjYwODMwMTYzMDM4
+WhcNNDgwNzI1MTYzMDM4WjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjO
+PQIBBggqhkjOPQMBBwNCAAQOZuolOZh48E1a/BM/6evUztl8opNvN36cRROHvFG5
+TJfrBSfH3IXkHfALHOC4nsMZgUIK1DDUYy/eh0P1jYuYo4GMMIGJMAwGA1UdEwEB
+/wQCMAAwDgYDVR0PAQH/BAQDAgeAMBMGA1UdJQQMMAoGCCsGAQUFBwMBMBQGA1Ud
+EQQNMAuCCWxvY2FsaG9zdDAdBgNVHQ4EFgQUJheVI1V2yv/bAsVsv7BpVcbp/Hgw
+HwYDVR0jBBgwFoAUwNSr5KDm70fvAJ+1UOaxnPImzKMwCgYIKoZIzj0EAwIDSQAw
+RgIhAKAUNh0Y9nOCGTYhCwKgc68ih70uKRmbikS+DOzEicJcAiEA+hYUHrQ/rPHi
+f5ZwnkOLTUiDfd4nyoY9skQKNg8V9CU=
+-----END CERTIFICATE-----
+";
+
+/// The leaf's private key, PKCS#8. A test fixture and nothing else: it has
+/// signed one certificate, for `localhost`, that no trust store on earth
+/// carries.
+pub const TLS_LEAF_KEY_PEM: &str = "\
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgVHRl2YgdCy3mjKbk
+16fSBF1ppkf1hD5sToo8d62EJnuhRANCAAQOZuolOZh48E1a/BM/6evUztl8opNv
+N36cRROHvFG5TJfrBSfH3IXkHfALHOC4nsMZgUIK1DDUYy/eh0P1jYuY
+-----END PRIVATE KEY-----
+";
+
+/// The two PEM files a fixture names, written beside the binary that will read
+/// them, and a third path that is deliberately not there.
+///
+/// Named for the row that asked, so two rows running at once do not share a
+/// file — and written under the process's own temporary directory rather than
+/// the repository, because a certificate is not source.
+pub fn tls_identity(row: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("buri-tls-{}-{row}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("a directory for the certificate");
+    let certificate = dir.join("leaf.pem");
+    let key = dir.join("leaf.key");
+    let absent = dir.join("nothing-here.pem");
+    std::fs::write(&certificate, TLS_LEAF_PEM).expect("the certificate");
+    std::fs::write(&key, TLS_LEAF_KEY_PEM).expect("the key");
+    let _ = std::fs::remove_file(&absent);
+    (certificate, key, absent)
+}
+
+/// A program that asks for TLS three ways and prints what it was told.
+///
+/// It never serves a request, and that is what makes it a *bind* fixture: every
+/// claim it makes is about the plan reaching the acceptor and the acceptor's
+/// answer coming back, which is exactly the half `cli/runtime/net.rs`'s own
+/// cases cannot reach through the toolchain.
+///
+/// Three lines out, in order:
+///
+/// * `h2 <sentence>` — `.Http2` with no certificate, refused at the bind. This
+///   one proves a `.Speak` variant crossed: nothing else in the plan could have
+///   produced the refusal.
+/// * `missing <sentence>` — a certificate path that is not a file. The sentence
+///   carries the path, which is a `Str` payload of a `.Certificate` making the
+///   round trip and coming back inside a `ServeError.detail`.
+/// * `opened <port>` — a real certificate and a real key, bound. A port above
+///   zero is the acceptor having read both files and `rustls` having accepted
+///   the pair.
+pub fn tls_server(certificate: &Path, key: &Path, absent: &Path) -> String {
+    format!(
+        r#"from "core/effect" import {{ Alloc, Listen, Stdout, Tasks }};
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{
+    Alloc: host.alloc,
+    Listen: host.listen,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  }};
+  let h2 = server.Server {{
+    port: 0,
+    onRequest: fn(_c, _request) => http.status(204),
+    protocols: .Some([.Http2]),
+    idleTimeoutMillis: .Some(200),
+  }};
+  let _h2 = match (server.bind(ctx, h2)) {{
+    .Err(e) => io.println(ctx, "h2 ${{e.detail}}").ignore(),
+    .Ok(_listener) => io.println(ctx, "h2 bound, which it should not have").ignore(),
+  }};
+  let missing = server.Server {{
+    port: 0,
+    onRequest: fn(_c, _request) => http.status(204),
+    tls: .Some(server.Tls {{ certificate: "{absent}", key: "{key}" }}),
+    idleTimeoutMillis: .Some(200),
+  }};
+  let _missing = match (server.bind(ctx, missing)) {{
+    .Err(e) => io.println(ctx, "missing ${{e.detail}}").ignore(),
+    .Ok(_listener) => io.println(ctx, "missing bound, which it should not have").ignore(),
+  }};
+  let secured = server.Server {{
+    port: 0,
+    onRequest: fn(_c, _request) => http.status(204),
+    protocols: .Some([.Http1, .Http2]),
+    tls: .Some(server.Tls {{ certificate: "{certificate}", key: "{key}" }}),
+    idleTimeoutMillis: .Some(200),
+  }};
+  match (server.bind(ctx, secured)) {{
+    .Err(e) => .Err(server.errorText(e)),
+    .Ok(listener) => {{
+      let _opened = io.println(ctx, "opened ${{listener.port}}").ignore();
+      // The idle deadline is what ends this, and `run` gives the port back on
+      // its way out — so the program finishes rather than being killed.
+      let _served = server.run(ctx, listener, secured);
+      .Ok(())
+    }},
+  }}
+}}
+"#,
+        certificate = certificate.display(),
+        key = key.display(),
+        absent = absent.display(),
+    )
+}
+
+/// The three claims [`tls_server`] prints, asserted the same way on every
+/// backend.
+pub fn tls_bind_answers(stdout: &str, absent: &Path) {
+    let h2 = stdout
+        .lines()
+        .find(|line| line.starts_with("h2 "))
+        .unwrap_or_else(|| panic!("the program printed no h2 line:\n{stdout}"));
+    assert!(
+        h2.contains("ALPN"),
+        "`.Http2` without a certificate was not refused for the reason it should be:\n{h2}"
+    );
+    let missing = stdout
+        .lines()
+        .find(|line| line.starts_with("missing "))
+        .unwrap_or_else(|| panic!("the program printed no missing line:\n{stdout}"));
+    assert!(
+        missing.contains(&absent.display().to_string()),
+        "the refusal does not name the certificate it could not read, so the `Str` payload of a \
+         `Serve::Certificate` did not survive the round trip:\n{missing}"
+    );
+    let opened = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("opened "))
+        .unwrap_or_else(|| panic!("the program printed no opened line:\n{stdout}"));
+    let port: u32 = opened.trim().parse().unwrap_or_else(|_| panic!("a port, not {opened:?}"));
+    assert!(port > 0, "a secured listener was not given a port: {port}");
+}
+
 /// The conformance corpus as the repository it is, opened once per process.
 ///
 /// Eleven files import `//lib/<package>`, so a harness that compiled each as a
