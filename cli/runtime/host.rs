@@ -789,16 +789,22 @@ pub unsafe extern "C" fn buri_rt_host_net_fetch(
         // is one, so the payload is the bytes themselves.
         unsafe { std::slice::from_raw_parts(bptr, blen as usize) }
     };
-    // **A suspension point** (`rt.rs` §2). The transport underneath is still
-    // `http.rs`'s synchronous client, so the future completes on this thread
-    // and the answer is byte for byte the one it always was; what `park_on`
-    // adds is that the carrier is not holding the run baton while it waits.
-    // C7 replaces the body of that future with a real one and this line does
-    // not move.
+    // **Not a suspension point, though it is spelled like one.** `http.rs`'s
+    // client is synchronous, so the `async` block runs to completion inside its
+    // first poll and answers `Ready`, and `rt::park_on` only gives a carrier
+    // back to a future that answers `Pending`. This carrier is held for as long
+    // as the exchange takes — bounded, but by `http.rs`'s own deadlines and not
+    // by anything here. `net.rs`'s `park` is the same two lines with the same
+    // caveat written out at length. What the spelling buys is that the day the
+    // client is asynchronous this becomes the suspension the name promises,
+    // without this line or any caller moving.
     //
-    // The Buri blocks below are built **after** the park returns, on the
-    // carrier and under the baton, because the allocator and the refcounts are
-    // single-threaded (`memory.rs`) and stay that way until track G.
+    // The Buri blocks below are built **after** it answers and on the carrier.
+    // That used to be load-bearing: under the run baton the allocator and the
+    // reference counts were single-threaded. G3 deleted the baton and made a
+    // block two carriers can reach atomically counted (`rt.rs` §1), so what is
+    // left is the ordinary rule — a runtime call builds no Buri value until it
+    // has an answer to build one from.
     #[cfg(feature = "net")]
     let outcome = crate::rt::park_on(async { http::fetch(method, &url, &sent, body) });
     #[cfg(not(feature = "net"))]
