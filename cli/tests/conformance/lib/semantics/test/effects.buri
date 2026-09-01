@@ -1405,6 +1405,7 @@ test "an omitted Server field is .None and not a default this module chose" {
         protocols: .None,
         requestLimit: .None,
         idleTimeoutMillis: .None,
+        drainMillis: .None,
         tls: .None,
     };
     let elided = server.Server {
@@ -1415,8 +1416,13 @@ test "an omitted Server field is .None and not a default this module chose" {
     assert.eq(elided.protocols, written.protocols);
     assert.eq(elided.requestLimit, written.requestLimit);
     assert.eq(elided.idleTimeoutMillis, written.idleTimeoutMillis);
+    assert.eq(elided.drainMillis, written.drainMillis);
     assert.eq(elided.tls, written.tls);
     assert.none(elided.address);
+    // A server that named no drain is one the runtime decides the deadline
+    // for, and it is the runtime's because nothing was chosen rather than
+    // because this module chose zero.
+    assert.none(elided.drainMillis);
     // A server without a certificate is a cleartext one, and it is cleartext
     // because nothing was chosen rather than because this module chose.
     assert.none(elided.tls);
@@ -1427,8 +1433,8 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
     // and a key reach a call that had spent its ten integer arguments. What is
     // asserted here is the *rendering*: which options `bind` puts in the plan,
     // and in which order. `PlanListen` answers the digest on `Listener.port` —
-    // one digit per element, `.Http1` as 1, `.Http2` as 2, a certificate as 4
-    // and a key as 5.
+    // one digit per element, `.Http1` as 1, `.Http2` as 2, a certificate as 4,
+    // a key as 5 and a drain deadline as 6.
     let ctx = context {
         Alloc: alloc(),
         Listen: PlanListen { },
@@ -1456,9 +1462,26 @@ test "a Server's protocols and tls are rendered into the bind's one plan" {
     );
     assert.eq(quiet.port, 45);
 
+    // The drain deadline is rendered last, after the identity, because it is
+    // read last: a shutdown is a question nobody asks until the server is being
+    // stopped. It is also the knob that proves the plan is an extension point
+    // rather than a place two `Str`s happened to fit — a fourth variant cost
+    // nothing that a fourth argument would have cost.
+    let stopping = assert.ok(
+        server.bind(ctx, server.Server {
+            port: 0,
+            onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
+            protocols: .Some([.Http1]),
+            drainMillis: .Some(2500),
+        }),
+    );
+    assert.eq(stopping.port, 16);
+
     // And a `Server` that chose nothing renders an empty plan — which is the
     // `.None` convention reaching the effect rather than a default this module
-    // invented on the way past.
+    // invented on the way past. An absent `drainMillis` is an absent element
+    // and not a `.DrainMillis(-1)`, which is the one place the plan's encoding
+    // differs from the `Int` knobs beside it.
     let bare = assert.ok(
         server.bind(ctx, server.Server {
             port: 0,

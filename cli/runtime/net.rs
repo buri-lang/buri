@@ -463,6 +463,26 @@ const HEAD_DEADLINE: Duration = Duration::from_secs(30);
 /// handler had to remember.
 const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
+/// How long a drain waits for the requests already in flight, when the plan
+/// named no number of its own.
+///
+/// **What it bounds is the waiting and not the handlers.** A drain stops the
+/// listener accepting, waits for every connection it has already taken to be
+/// answered, and only then tells the workers there will be no more; a handler
+/// that is still running when this expires still writes its response, because
+/// the connection is still in [`CONNECTIONS`] and `listenClose` is still the
+/// last thing `run` does. What expiry changes is that the workers waiting for a
+/// *new* request stop waiting.
+///
+/// Ten seconds rather than thirty, which is the number the head deadline
+/// carries. The two are answers to different questions: thirty seconds is how
+/// long one client may take to say what it wants, and ten is how long a server
+/// that has been asked to stop should keep a deployment waiting for a client
+/// that is not going to finish. A program that knows its own handlers take
+/// longer says so — `Server.drainMillis` is that sentence, and it is one
+/// [`ServePlan`] variant rather than one more argument.
+const DRAIN_DEADLINE: Duration = Duration::from_secs(10);
+
 /// How many accepted connections may be in flight — handshaking, being framed,
 /// or waiting for a worker — before the acceptor thread stops taking more.
 ///
@@ -579,6 +599,10 @@ struct Plan {
     idle: Option<Duration>,
     head: Duration,
     body_limit: usize,
+    /// How long [`drain`] waits for the connections this listener has already
+    /// taken. The plan's own number where it named one, [`DRAIN_DEADLINE`]
+    /// where it did not.
+    drain: Duration,
 }
 
 /// The `[Serve]` list a `Server`'s protocol and TLS fields were rendered into,
@@ -608,13 +632,16 @@ pub struct ServePlan {
     pub certificate: Option<PathBuf>,
     /// Where its private key is read from.
     pub key: Option<PathBuf>,
+    /// How long a shutdown waits for the requests already in flight. `None` is
+    /// a caller who chose nothing, which is [`DRAIN_DEADLINE`].
+    pub drain: Option<Duration>,
 }
 
 impl ServePlan {
     /// A plan that names protocols and no certificate — what a cleartext
     /// caller and most of the tests below want.
     pub fn speaking(protocols: &[Protocol]) -> ServePlan {
-        ServePlan { protocols: protocols.to_vec(), certificate: None, key: None }
+        ServePlan { protocols: protocols.to_vec(), certificate: None, key: None, drain: None }
     }
 
     /// The ALPN offer this plan makes, most-preferred first.
@@ -694,6 +721,17 @@ struct Gate {
     /// The listener will answer no more: its request limit is spent, or it has
     /// been closed. Once true, never false again.
     finished: bool,
+    /// The listener takes no more *connections*, and the requests it already
+    /// took are being answered. Once true, never false again.
+    ///
+    /// **Two flags and not one, because a drain is the half-open state a
+    /// shutdown is made of.** `finished` answers `listenAccept` with `.Closed`,
+    /// which ends every worker; this one ends the acceptor thread and leaves
+    /// the workers exactly as they were, so a request that has been framed is
+    /// still handed out and a request that has been handed out is still
+    /// answered. [`drain`] is what turns the first into the second, and the
+    /// waiting in between is the whole of what "graceful" means here.
+    draining: bool,
     /// Requests handed out, which is what `requestLimit` counts.
     ///
     /// **Counted when a request joins [`Gate::ready`]**, which is where "handed
@@ -743,6 +781,16 @@ struct Listening {
     /// and the whole of the difference is [`serve_connection`]'s first branch.
     #[cfg(feature = "net")]
     tls: Option<Arc<rustls::ServerConfig>>,
+    /// The drain has begun — told to the one part of this file that cannot be
+    /// told with a condition variable.
+    ///
+    /// Every other thread on a listener is a blocking one and waits on
+    /// [`Listening::arrived`] or [`Listening::room`]. An HTTP/2 connection is
+    /// not a thread: it is a task on the reactor, and what it has to be told is
+    /// "send your GOAWAY and finish the streams you have". A `Notify` is that
+    /// condition variable's asynchronous twin, and [`h2`] is its one waiter.
+    #[cfg(feature = "net")]
+    stopping: tokio::sync::Notify,
 }
 
 impl Listening {
@@ -759,6 +807,60 @@ impl Listening {
         self.gate().finished = true;
         self.arrived.notify_all();
         self.room.notify_all();
+    }
+
+    /// Stop taking connections, and tell everything that is waiting.
+    ///
+    /// The first half of a drain, and the only half that has to happen at
+    /// once: after this the acceptor thread is on its way out, an HTTP/2
+    /// connection has been asked to send its GOAWAY, and every request already
+    /// framed is still on [`Gate::ready`] waiting for a worker.
+    fn begin_drain(&self) {
+        let mut gate = self.gate();
+        if gate.draining {
+            return;
+        }
+        gate.draining = true;
+        drop(gate);
+        // The acceptor thread may be waiting for room under `IN_FLIGHT` rather
+        // than inside the accept, and a drain that only dialled would leave it
+        // there until a response it is no longer going to see.
+        self.room.notify_all();
+        self.arrived.notify_all();
+        #[cfg(feature = "net")]
+        self.stopping.notify_waiters();
+        // And if it *is* inside the accept, this is what brings it out.
+        self.wake();
+    }
+
+    /// Wait until every connection this listener took has been answered, or
+    /// until `until`. `true` if it drained, `false` if the deadline came first.
+    ///
+    /// **[`Gate::outstanding`] reaching zero is the whole condition, and it
+    /// covers the queue too.** A connection is counted from the moment it is
+    /// accepted to the moment it is answered, and an HTTP/1.1 request waiting
+    /// on [`Gate::ready`] for a worker is a connection in that interval; an
+    /// HTTP/2 stream is not counted itself, but the socket it arrived on is,
+    /// for as long as `hyper` is driving it. So there is no state in which the
+    /// queue holds something and this number is zero.
+    ///
+    /// It also cannot reach zero while the acceptor thread is alive:
+    /// [`accepting_on`] reserves its place *before* it accepts, which is what
+    /// makes "the acceptor has stopped" part of what this waits for rather than
+    /// something to check separately.
+    fn drained(&self, until: Instant) -> bool {
+        let mut gate = self.gate();
+        while gate.outstanding > 0 {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            gate = match self.room.wait_timeout(gate, left) {
+                Ok((g, _)) => g,
+                Err(poisoned) => poisoned.into_inner().0,
+            };
+        }
+        true
     }
 
     /// Interrupt the acceptor thread's blocking accept, by connecting to the
@@ -818,15 +920,19 @@ impl Listening {
     }
 
     /// One more connection in flight, or `false` if the listener is done.
+    ///
+    /// A drain stops it as a close does, which is what ends the acceptor thread
+    /// while the workers carry on: the difference between the two states is
+    /// what [`Gate::draining`] is for.
     fn take_flight(&self) -> bool {
         let mut gate = self.gate();
-        while !gate.finished && gate.outstanding >= IN_FLIGHT {
+        while !gate.finished && !gate.draining && gate.outstanding >= IN_FLIGHT {
             gate = match self.room.wait(gate) {
                 Ok(g) => g,
                 Err(poisoned) => poisoned.into_inner(),
             };
         }
-        if gate.finished {
+        if gate.finished || gate.draining {
             return false;
         }
         gate.outstanding = gate.outstanding.saturating_add(1);
@@ -834,11 +940,18 @@ impl Listening {
     }
 
     /// One fewer, and the acceptor thread may take another.
+    ///
+    /// **All of them and not one**, because there are now two kinds of waiter
+    /// on [`Listening::room`]: the acceptor thread waiting for a place under
+    /// `IN_FLIGHT`, and a drain waiting for the last one to be given back. At
+    /// most one of each exists on any listener, so this is two wakeups on a
+    /// response rather than one, and a `notify_one` that reached the wrong one
+    /// would be a drain that waits out its deadline beside an idle server.
     fn land(&self) {
         let mut gate = self.gate();
         gate.outstanding = gate.outstanding.saturating_sub(1);
         drop(gate);
-        self.room.notify_one();
+        self.room.notify_all();
     }
 }
 
@@ -1095,6 +1208,7 @@ pub fn bind(
         idle: (idle_millis >= 0).then_some(Duration::from_millis(idle_millis.max(0) as u64)),
         head: HEAD_DEADLINE,
         body_limit: BODY_LIMIT,
+        drain: plan.drain.unwrap_or(DRAIN_DEADLINE),
     };
     let handle = NEXT_HANDLE.fetch_add(1, Ordering::Relaxed);
     // **The listener stays blocking, whatever the caller asked for.** It used
@@ -1109,6 +1223,7 @@ pub fn bind(
         plan,
         gate: Mutex::new(Gate {
             finished: false,
+            draining: false,
             served: 0,
             outstanding: 0,
             ready: VecDeque::new(),
@@ -1119,6 +1234,8 @@ pub fn bind(
         wake_at: dial_address(local),
         #[cfg(feature = "net")]
         tls: secure,
+        #[cfg(feature = "net")]
+        stopping: tokio::sync::Notify::new(),
     });
     let accepting = Arc::clone(&listening);
     let started = std::thread::Builder::new()
@@ -1128,7 +1245,13 @@ pub fn bind(
         Ok(_joining) => {}
         Err(e) => return Err(ServeErr::io(&e, "starting the acceptor")),
     }
-    acceptors(|table| table.insert(handle, listening));
+    acceptors(|table| {
+        table.insert(handle, listening);
+        // Under the table's own lock, so that the disposition and the reason
+        // for it cannot disagree: a listener is open exactly while a signal
+        // means "drain", and [`shutdown::listen`] is where that is argued.
+        shutdown::listen();
+    });
     Ok((handle, bound, MAX_HANDLERS))
 }
 
@@ -1160,10 +1283,19 @@ fn accepting_on(listening: &Arc<Listening>, handle: i64) {
         };
         // The connection may be [`Listening::wake`]'s own dial rather than a
         // client's, and what this thread does with one is give the port back.
-        if listening.gate().finished {
+        //
+        // A drain ends this thread here too, and the connection it was holding
+        // is dropped unanswered. That is the line a shutdown has to draw
+        // somewhere: a request already framed is answered, and a socket the
+        // kernel accepted a moment after the signal is not, because a server
+        // that kept taking connections while it drained would never finish.
+        let gate = listening.gate();
+        if gate.finished || gate.draining {
+            drop(gate);
             listening.land();
             return;
         }
+        drop(gate);
         let connection = Arc::clone(listening);
         dispatch(move || serve_connection(&connection, handle, stream));
     }
@@ -1560,7 +1692,18 @@ fn write_response(
 /// now, the dial below brings the thread out of the call, and the socket closes
 /// when the last holder of a clone lets go.
 pub fn close(handle: i64) {
-    let Some(listening) = acceptors(|table| table.remove(&handle)) else { return };
+    let Some(listening) = acceptors(|table| {
+        let gone = table.remove(&handle);
+        // The last port back is the last reason to hold the signals, and
+        // giving them up under the table's lock is what keeps the two from
+        // disagreeing — [`shutdown::listen`] takes them the same way.
+        if table.is_empty() {
+            shutdown::quiet();
+        }
+        gone
+    }) else {
+        return;
+    };
     listening.finish();
     listening.wake();
     // A connection no worker will be handed back is an answer nobody will
@@ -1568,7 +1711,368 @@ pub fn close(handle: i64) {
     // HTTP/1.1 client sees the socket close and an HTTP/2 stream sees its
     // `oneshot` sender go, which is what a server going down looks like from
     // the outside.
-    connections(|table| table.retain(|_, pending| pending.listener != handle));
+    //
+    // **And a dropped connection has left flight**, which is why the count goes
+    // with them. It matters because a drain waits on that number: a worker
+    // whose loop failed closes the listener beside a shutdown that is draining
+    // it, and a connection this dropped but still counted would make that drain
+    // wait out its whole deadline for an answer nobody was ever going to write.
+    // A worker that answers one of these afterwards finds nothing in the table
+    // and returns without landing it a second time.
+    let dropped = connections(|table| {
+        let mut counted = 0usize;
+        table.retain(|_, pending| {
+            let ours = pending.listener == handle;
+            if ours && pending.counted {
+                counted += 1;
+            }
+            !ours
+        });
+        counted
+    });
+    if dropped > 0 {
+        let mut gate = listening.gate();
+        gate.outstanding = gate.outstanding.saturating_sub(dropped);
+        drop(gate);
+        listening.room.notify_all();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown
+// ---------------------------------------------------------------------------
+//
+// **What a shutdown has to interrupt is the accept, and F3 wrote that down two
+// slices before there was anything to interrupt it with.** `listenAccept` is
+// where a server spends its idle life: it is the one call in `effect Listen`
+// that can wait forever, and every other call in this file is bounded by a
+// deadline somebody set. So a server that is asked to stop is a server whose
+// waiting workers have to be told, and the telling is [`Gate::finished`] — the
+// one-way door that has been here since F3 and that `core/net/server`'s
+// `answering` already turns into `.Ok(())`.
+//
+// What F5 adds is the half in front of that door: **stop taking connections,
+// answer the ones already taken, and only then close it.** Three states rather
+// than two, and the middle one is [`Gate::draining`]:
+//
+// ```text
+//   serving    accepting, framing, answering
+//      |
+//      |  a signal, or `drain`
+//      v
+//   draining   the acceptor thread is gone; the queue is still handed out and
+//      |       the requests in flight are still answered
+//      |  every connection answered, or the drain deadline
+//      v
+//   finished   `listenAccept` says `.Closed`, every worker ends, `run` closes
+//              the port and `serve` answers `.Ok(())`
+// ```
+//
+// The difference between draining and closing is what makes this graceful, and
+// it is one line: [`close`] drops the connections no worker will be handed
+// back, and a drain waits for them instead.
+//
+// ## Why the signal is caught at all, and what a second one does
+//
+// The default disposition of `SIGINT` and `SIGTERM` is to terminate the
+// process, which for a server means every request in flight is a client holding
+// a socket that closed mid-response. Catching them is how a deployment gets to
+// say "stop when you have finished what you are doing".
+//
+// It is caught **only while a port is open**, which is the answer to the
+// obvious objection. A signal handler is process-wide state, and a runtime that
+// installed one at startup would change what Ctrl-C does to every program this
+// compiler builds — including the ones that are not servers, which would then
+// have to be killed twice. So [`bind`] takes the disposition and the last
+// [`close`] gives it back, both under [`ACCEPTORS`]'s own lock, and a program
+// with no listener open is a program whose signals are the operating system's
+// again.
+//
+// **The second signal is the operating system's too.** The handler restores the
+// default disposition for the signal it was called with before it does anything
+// else, so a second Ctrl-C during a slow drain terminates the process the
+// ordinary way. That is the behaviour a person pressing it twice means, and it
+// is also the reason the drain deadline is not the only thing standing between
+// a hung handler and a process that will not stop.
+
+/// Stop accepting, wait for the requests already in flight, and then say the
+/// listener is closed. `true` if it drained within its deadline.
+///
+/// This is [`close`]'s gentler sibling and the two are deliberately different
+/// verbs: `close` takes the port back *now* and drops whatever was in flight,
+/// which is what a worker whose loop failed wants; this one answers what it
+/// took first. Both end with `listenAccept` saying `.Closed`, which is what
+/// `core/net/server` turns into `.Ok(())`, so a drained server and a closed one
+/// look the same to a program.
+///
+/// The port itself is **not** given back here. `run` closes the listener when
+/// its last worker returns, which is one line further along the path a request
+/// limit already takes, and a drain that closed the port would be racing that.
+pub fn drain(handle: i64) -> bool {
+    let Ok(listening) = listening(handle) else { return true };
+    listening.begin_drain();
+    let drained = listening.drained(Instant::now() + listening.plan.drain);
+    listening.finish();
+    drained
+}
+
+/// Every open listener, drained at once — what a signal means.
+///
+/// **At once and not one after another**, which is what the shared deadline is:
+/// the listeners are told to stop taking connections in one pass and then
+/// waited for against a single instant, so a process holding four ports takes
+/// one drain deadline to stop rather than four. The instant is the longest any
+/// one of them asked for, because a deadline is a promise to the slowest
+/// listener and not a budget divided between them.
+fn drain_all() {
+    let listeners: Vec<Arc<Listening>> = acceptors(|table| table.values().map(Arc::clone).collect());
+    // No port open is a signal with nothing to drain, which is the race at the
+    // very end of a server's life: the last `close` gave the signals back a
+    // moment after this one was delivered. Nothing to do, and nothing lost —
+    // the disposition is the operating system's again, so the next one
+    // terminates the process the ordinary way.
+    let Some(until) = listeners.iter().map(|l| l.plan.drain).max().map(|d| Instant::now() + d)
+    else {
+        return;
+    };
+    for listening in &listeners {
+        listening.begin_drain();
+    }
+    for listening in &listeners {
+        listening.drained(until);
+    }
+    for listening in &listeners {
+        listening.finish();
+    }
+}
+
+/// The two signals, the disposition they are held under, and the thread that
+/// answers them.
+///
+/// # What may happen inside a signal handler
+///
+/// Almost nothing. A handler runs on whatever thread the kernel picked, at
+/// whatever point that thread had reached — which on this runtime may be inside
+/// `malloc`, inside the allocator's own lock, or part-way through B9's stack
+/// switch with a stack pointer that belongs to neither carrier nor task. So the
+/// only calls a handler may make are the ones POSIX lists as
+/// async-signal-safe, and [`on_signal`] makes exactly three of them: it takes
+/// the errno slot's address, it restores the default disposition, and it writes
+/// one byte.
+///
+/// **The byte is the whole design.** Everything a shutdown actually has to do —
+/// take locks, wait on condition variables, dial a socket — is done by
+/// [`watching`], an ordinary thread blocked on an ordinary read, and the
+/// self-pipe is how the handler reaches it. It is the oldest trick in this part
+/// of the library and it is here for the reason it always is: the alternative
+/// is a handler that takes a lock a signal may have interrupted.
+///
+/// **`errno` is saved and restored**, which is the part that is easy to leave
+/// out. `write` sets it, and the thread this handler interrupted may be between
+/// a failing call and its own `errno` read; a handler that clobbered it would
+/// turn somebody else's `EAGAIN` into a success. Both platforms reach the slot
+/// through a function of their own — `__error` on macOS, `__errno_location` on
+/// Linux — and both are async-signal-safe, being a thread-local address and
+/// nothing more.
+///
+/// # Why not `tokio::signal`
+///
+/// It is the same self-pipe with a reactor in front of it, and it costs the
+/// `signal` feature in a crate that is linked into every native binary this
+/// compiler produces. `manifest.toml`'s dependency set is closed by an exact
+/// list for that reason, and the same argument that hand-wrote `mmap`'s three
+/// declarations in `memory.rs` hand-writes these three. It would also be
+/// unavailable exactly where the acceptor is not: a `net`-off runtime has no
+/// reactor, and this file's acceptor is compiled into that archive too.
+mod shutdown {
+    use std::os::unix::io::AsRawFd;
+    use std::os::unix::net::UnixStream;
+    use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+    use std::sync::{Mutex, OnceLock};
+
+    /// `SIGINT` — a person at a terminal. Two on both platforms this runtime
+    /// is built for; `ARCHITECTURE.md` §9 admits Linux and macOS and no third.
+    pub(super) const SIGINT: i32 = 2;
+    /// `SIGTERM` — a supervisor, a container runtime, an `init`. Fifteen on
+    /// both.
+    pub(super) const SIGTERM: i32 = 15;
+
+    /// The two, in the order they are installed and restored.
+    const CAUGHT: [i32; 2] = [SIGINT, SIGTERM];
+
+    /// `SIG_DFL`, which is the null handler pointer on both platforms.
+    const SIG_DFL: usize = 0;
+    /// `SIG_ERR`, which `signal` answers when it will not do what it was asked.
+    const SIG_ERR: usize = usize::MAX;
+
+    // The three calls this module makes into the C library, declared rather
+    // than depended on — `memory.rs`'s `mmap` block, one file over, is the
+    // precedent and carries the argument.
+    //
+    // `signal` rather than `sigaction` because the two platforms lay `struct
+    // sigaction` out differently and nothing here needs a field of it: the
+    // disposition is all that is being set, both platforms give `signal` BSD
+    // semantics (the handler stays installed, and an interrupted syscall is
+    // restarted rather than answered `EINTR`), and restarting is what this file
+    // wants — the accept is interrupted by a dial and not by a signal, and a
+    // read that answered `EINTR` because somebody pressed Ctrl-C would be a
+    // client refused for the server's reasons.
+    unsafe extern "C" {
+        fn signal(sig: i32, handler: usize) -> usize;
+        fn write(fd: i32, buf: *const core::ffi::c_void, count: usize) -> isize;
+    }
+
+    #[cfg(target_os = "macos")]
+    unsafe extern "C" {
+        /// The address of this thread's `errno`.
+        fn __error() -> *mut i32;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    unsafe extern "C" {
+        /// The same, spelled the way glibc and musl spell it.
+        fn __errno_location() -> *mut i32;
+    }
+
+    fn errno_slot() -> *mut i32 {
+        #[cfg(target_os = "macos")]
+        // SAFETY: a thread-local address, and nothing else.
+        unsafe {
+            __error()
+        }
+        #[cfg(not(target_os = "macos"))]
+        // SAFETY: as above.
+        unsafe {
+            __errno_location()
+        }
+    }
+
+    /// The writing end of the self-pipe, as a raw descriptor a handler may
+    /// read out of an atomic. `-1` until there is one.
+    static WAKE: AtomicI32 = AtomicI32::new(-1);
+
+    /// The reading end, held for the process's life so that the writing end is
+    /// never a pipe with no reader.
+    static PIPE: OnceLock<UnixStream> = OnceLock::new();
+
+    /// Whether the disposition is currently ours. Under [`super::ACCEPTORS`]'s
+    /// lock at every use, which is what makes it agree with the table.
+    static HELD: AtomicBool = AtomicBool::new(false);
+
+    /// The watching thread, started once and never stopped: a thread blocked
+    /// on a read costs nothing, and a process that has served once may serve
+    /// again.
+    static WATCHER: Mutex<bool> = Mutex::new(false);
+
+    /// The handler. **Everything it does is on POSIX's async-signal-safe list**
+    /// and the module header says why that matters.
+    extern "C" fn on_signal(sig: i32) {
+        let slot = errno_slot();
+        // SAFETY: `errno_slot` answers this thread's own `errno`.
+        let saved = unsafe { slot.read() };
+        // The default disposition back, first: from here on a second signal
+        // terminates the process, which is what somebody pressing Ctrl-C twice
+        // means and what stops a hung handler from being unkillable.
+        // SAFETY: setting a disposition is async-signal-safe.
+        unsafe { signal(sig, SIG_DFL) };
+        let fd = WAKE.load(Ordering::Relaxed);
+        if fd >= 0 {
+            let byte = [sig as u8];
+            // SAFETY: `fd` is the writing end of a pipe this process holds
+            // both ends of, and one byte of a two-byte buffer is readable.
+            // A short write and a failed write are the same thing here: the
+            // reader is woken by any byte at all.
+            unsafe { write(fd, byte.as_ptr().cast(), 1) };
+        }
+        // SAFETY: as above. Restored last, so that nothing between the two
+        // reads a value this handler produced.
+        unsafe { slot.write(saved) };
+    }
+
+    /// The thread the handler wakes: drain every open listener, then wait for
+    /// the next signal.
+    ///
+    /// It loops rather than returning after one, because the handler restores
+    /// the default disposition **per signal**: a `SIGINT` leaves `SIGTERM`
+    /// caught, and a supervisor that sends both should get one drain apiece
+    /// rather than one drain and one unnoticed signal.
+    fn watching(mut pipe: UnixStream) {
+        use std::io::Read;
+        let mut byte = [0u8; 1];
+        while matches!(pipe.read(&mut byte), Ok(1)) {
+            super::drain_all();
+        }
+    }
+
+    /// Take the two signals, if a listener has not taken them already.
+    ///
+    /// Called with [`super::ACCEPTORS`]'s lock held, which is what makes "the
+    /// disposition is ours exactly while a port is open" true rather than
+    /// nearly true.
+    pub(super) fn listen() {
+        if HELD.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        start();
+        for sig in CAUGHT {
+            // SAFETY: an ordinary `signal` call with a function this module
+            // owns. `SIG_ERR` is what a signal that may not be caught answers,
+            // and neither of these two is one — but a runtime that could not
+            // take them should serve rather than refuse to start, so the
+            // failure is left to the operating system's own default.
+            let previous = unsafe { signal(sig, on_signal as *const () as usize) };
+            debug_assert!(previous != SIG_ERR, "SIGINT and SIGTERM can be caught");
+        }
+    }
+
+    /// Give them back. Called under the same lock, when the last port closes.
+    pub(super) fn quiet() {
+        if !HELD.swap(false, Ordering::Relaxed) {
+            return;
+        }
+        for sig in CAUGHT {
+            // SAFETY: as above. The handler may already have restored one of
+            // the two, and setting a disposition that is already the default
+            // is what it looks like when it has.
+            unsafe { signal(sig, SIG_DFL) };
+        }
+    }
+
+    /// The self-pipe and the thread that reads it, made once.
+    fn start() {
+        let mut made = match WATCHER.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if *made {
+            return;
+        }
+        let Ok((reading, writing)) = UnixStream::pair() else { return };
+        let fd = writing.as_raw_fd();
+        // The writing end is kept alive by the `OnceLock` for as long as the
+        // process is: a descriptor whose owner was dropped is a number the next
+        // `open` may be given, and a signal handler writing one byte into an
+        // unrelated file is the worst kind of bug to go looking for.
+        if PIPE.set(writing).is_err() {
+            return;
+        }
+        let started = std::thread::Builder::new()
+            .name(String::from("buri-shutdown"))
+            .spawn(move || watching(reading));
+        if started.is_err() {
+            return;
+        }
+        // Last, so that a handler cannot find a descriptor nobody is reading.
+        WAKE.store(fd, Ordering::Relaxed);
+        *made = true;
+    }
+
+    /// What [`on_signal`] is, as a number — for the one test that asserts the
+    /// disposition really is this module's.
+    #[cfg(test)]
+    pub(super) fn handler_address() -> usize {
+        on_signal as *const () as usize
+    }
 }
 
 /// The reason phrase for a status, for the statuses this acceptor writes.
@@ -1649,6 +2153,14 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 /// `hyper` is driving it, and gives it back when the task ends — so a client
 /// that opens a connection and holds it open counts once, however many requests
 /// it sends on it.
+///
+/// **And that is exactly why a drain has to reach in here.** An HTTP/1.1
+/// connection carries one message and ends; an HTTP/2 connection is a thing a
+/// client keeps, so a shutdown that only stopped accepting would wait out its
+/// whole deadline for a client doing nothing wrong. `hyper` has the right
+/// answer already — `graceful_shutdown` sends the GOAWAY frame that says "no
+/// new streams, finish the ones you have" — and what this had to grow is
+/// somewhere to hear the drain from.
 #[cfg(feature = "net")]
 fn h2(
     listening: &Arc<Listening>,
@@ -1660,14 +2172,37 @@ fn h2(
     let driving = Arc::clone(listening);
     crate::rt::handle().spawn(async move {
         let service = Multiplexed { listening: Arc::clone(&driving), handle };
+        let connection = hyper::server::conn::http2::Builder::new(Spawn)
+            .max_concurrent_streams(MAX_STREAMS)
+            .serve_connection(io, service);
+        let mut connection = std::pin::pin!(connection);
+        let stopping = driving.stopping.notified();
+        let mut stopping = std::pin::pin!(stopping);
+        let mut asked = false;
+        // Hand-written rather than `tokio::select!`, which would be the
+        // `macros` feature in a crate every native binary carries for the sake
+        // of one two-armed wait. The arms are not symmetric anyway: the
+        // connection is the future being driven and the notification is a thing
+        // that happens to it once.
+        //
         // The result is deliberately dropped. Every way an h2 connection can
         // end — the client went away, a stream was reset, the settings could
         // not be agreed — is that client's connection ending and not this
         // server's failure, and `serve` answers for the server.
-        let _served = hyper::server::conn::http2::Builder::new(Spawn)
-            .max_concurrent_streams(MAX_STREAMS)
-            .serve_connection(io, service)
-            .await;
+        let _served = std::future::poll_fn(|cx| {
+            if !asked {
+                // Polled before the flag is read, and both are asked every
+                // time: polling is what registers the waker, and the flag is
+                // what catches a drain that began before this task existed.
+                let woken = stopping.as_mut().poll(cx).is_ready();
+                if woken || driving.gate().draining {
+                    asked = true;
+                    connection.as_mut().graceful_shutdown();
+                }
+            }
+            connection.as_mut().poll(cx)
+        })
+        .await;
         driving.land();
     });
     Ok(())
@@ -1921,12 +2456,17 @@ pub struct BuriServe {
     payload: BuriServePayload,
 }
 
-/// `Serve`'s payload area: a `Protocol`'s tag, or a `Str`.
+/// `Serve`'s payload area: a `Protocol`'s tag, an `Int`, or a `Str`.
 #[repr(C)]
 union BuriServePayload {
     /// `.Speak` — a payload-free enum is a bare integer (§6's first niche), so
     /// `Protocol`'s payload *is* its variant index in one byte.
     protocol: i8,
+    /// `.DrainMillis` — an `Int`, which is eight bytes at the payload area's
+    /// own offset. It changes nothing about the size: a `Str` was already the
+    /// widest thing here, and F4's argument that the whole is 32 bytes is what
+    /// a fifth variant would have to move rather than a fourth.
+    millis: i64,
     /// `.Certificate` and `.PrivateKey`.
     text: std::mem::ManuallyDrop<BuriStr>,
 }
@@ -1957,6 +2497,15 @@ unsafe fn plan_of(ptr: *const u8, len: u64) -> Result<ServePlan, ServeErr> {
             2 => {
                 plan.key =
                     Some(PathBuf::from(unsafe { element.payload.text.as_str() }.into_owned()));
+            }
+            // SAFETY: the tag says the payload area holds an `Int`. A negative
+            // number is `.None` reaching here the long way — nothing in
+            // `core/net/server` renders one, since the field is an `Option` and
+            // an absent option is an absent element — so it is read as "chose
+            // nothing" rather than as a deadline in the past.
+            3 => {
+                let millis = unsafe { element.payload.millis };
+                plan.drain = (millis >= 0).then(|| Duration::from_millis(millis as u64));
             }
             // Not defensive: a program this toolchain built cannot produce a
             // fourth tag, so this is what an older program linked against a
@@ -2417,13 +2966,18 @@ mod tests {
         assert_eq!(std::mem::offset_of!(BuriServeError, cause), 0);
         assert_eq!(std::mem::offset_of!(BuriServeError, detail), 8);
 
-        // `Serve { Speak(Protocol), Certificate(Str), PrivateKey(Str) }` —
-        // §6's `tag ++ payload`, and the first payload-carrying enum this
-        // runtime reads. The tag is one byte because three variants fit in one;
-        // the payload area starts at 8 because a `Str` is eight-aligned; the
-        // whole is 32 because that is `align_up(8 + 24, 8)`. A `[Serve]`'s
-        // stride is that size, so getting it wrong reads every element after
-        // the first from the wrong address.
+        // `Serve { Speak(Protocol), Certificate(Str), PrivateKey(Str),
+        // DrainMillis(Int) }` — §6's `tag ++ payload`, and the first
+        // payload-carrying enum this runtime reads. The tag is one byte because
+        // four variants fit in one; the payload area starts at 8 because a
+        // `Str` is eight-aligned; the whole is 32 because that is
+        // `align_up(8 + 24, 8)`. A `[Serve]`'s stride is that size, so getting
+        // it wrong reads every element after the first from the wrong address.
+        //
+        // **F5 added a variant and none of those numbers moved**, which is what
+        // the extension point being free means: an `Int` payload is eight bytes
+        // in an area that already held twenty-four, and a fourth tag is a fourth
+        // value of a byte that already had two hundred and fifty-six.
         assert_eq!(std::mem::size_of::<BuriServe>(), 32);
         assert_eq!(std::mem::align_of::<BuriServe>(), 8);
         assert_eq!(std::mem::offset_of!(BuriServe, tag), 0);
@@ -2432,6 +2986,7 @@ mod tests {
         // is what "one payload area, read according to the tag" means.
         assert_eq!(std::mem::size_of::<BuriServePayload>(), str_bytes);
         assert_eq!(std::mem::align_of::<BuriServePayload>(), 8);
+        assert_eq!(std::mem::offset_of!(BuriServe, payload) + std::mem::size_of::<i64>(), 16);
     }
 
     /// A `[Serve]` decodes into the plan the acceptor keeps, tag by tag.
@@ -2457,16 +3012,29 @@ mod tests {
                 tag: 2,
                 payload: BuriServePayload { text: std::mem::ManuallyDrop::new(borrowed(&key)) },
             },
+            BuriServe { tag: 3, payload: BuriServePayload { millis: 2_500 } },
         ];
-        // SAFETY: four live elements, at the stride asserted above.
+        // SAFETY: five live elements, at the stride asserted above.
         let plan = unsafe { plan_of(items.as_ptr().cast(), items.len() as u64) }
             .expect("a plan this runtime knows every tag of");
         assert_eq!(plan.protocols, vec![Protocol::Http1, Protocol::Http2]);
         assert_eq!(plan.certificate.as_deref(), Some(std::path::Path::new(&certificate)));
         assert_eq!(plan.key.as_deref(), Some(std::path::Path::new(&key)));
-        // An empty plan is a caller who chose nothing.
+        // The `Int` arm of the same payload area, read back at the same offset
+        // a `Str` is read at — which is the claim the union makes and the one
+        // that would fail silently if it were wrong.
+        assert_eq!(plan.drain, Some(Duration::from_millis(2_500)));
+        // An empty plan is a caller who chose nothing, and that includes the
+        // drain: `None` here is `DRAIN_DEADLINE` at the bind, not zero.
         let empty = unsafe { plan_of(std::ptr::null(), 0) }.expect("nothing is a plan too");
         assert!(empty.protocols.is_empty());
+        assert_eq!(empty.drain, None);
+        // A negative deadline is `.None` arriving the long way round, and it
+        // reads as "chose nothing" rather than as a deadline already past.
+        let negative = [BuriServe { tag: 3, payload: BuriServePayload { millis: -1 } }];
+        // SAFETY: one live element.
+        let negative = unsafe { plan_of(negative.as_ptr().cast(), 1) }.expect("a plan");
+        assert_eq!(negative.drain, None);
         // The ALPN offer follows the protocols and their order, most preferred
         // first — which is the whole of how a client comes to be speaking h2 —
         // and a caller who chose nothing offers HTTP/1.1. There is no offer to
@@ -2489,6 +3057,181 @@ mod tests {
             .expect_err("there is no eighth serve option");
         assert_eq!(refused.cause, ServeFail::Unsupported);
         assert!(refused.detail.contains("disagree"), "{}", refused.detail);
+    }
+
+    /// **A drain answers what the listener already took, and only then closes
+    /// it** — which is the whole of what "graceful" means here.
+    ///
+    /// The instrument is the ordering: the request is accepted *before* the
+    /// drain begins and answered *after* it, so a drain that behaved like
+    /// [`close`] would have dropped the connection and the client would read an
+    /// empty reply. What it must do instead is wait, and the wait is what the
+    /// drain thread's `true` reports.
+    ///
+    /// The second client is the other half of the same claim: once the drain
+    /// has returned, the acceptor thread is gone — it cannot be otherwise,
+    /// since it reserves its place in `outstanding` before it accepts and the
+    /// drain waited for that number to reach zero — so a connection made
+    /// afterwards is never answered.
+    #[test]
+    fn a_drain_answers_the_request_it_took_and_then_stops_the_listener() {
+        let plan = ServePlan {
+            protocols: vec![Protocol::Http1],
+            certificate: None,
+            key: None,
+            drain: Some(Duration::from_secs(10)),
+        };
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
+
+        let client = std::thread::spawn(move || {
+            let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+            socket.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            socket.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            socket.write_all(b"GET /inflight HTTP/1.1\r\nhost: h\r\n\r\n").expect("request");
+            socket.flush().expect("flush");
+            let mut reply = Vec::new();
+            let _ = socket.read_to_end(&mut reply);
+            reply
+        });
+
+        let connection = accept(handle).expect("one connection");
+        // From here the listener is being drained on another thread, and this
+        // one is the request in flight it has to wait for.
+        let draining = std::thread::spawn(move || drain(handle));
+        let read = request(connection).expect("the request survives the drain");
+        assert_eq!(read.target, "/inflight");
+        respond(connection, 200, &[], b"finished").expect("a response");
+        assert!(
+            draining.join().expect("the drain finished"),
+            "the drain timed out rather than waiting for the request it had taken"
+        );
+
+        let reply =
+            String::from_utf8_lossy(&client.join().expect("the client finished")).to_string();
+        assert!(reply.starts_with("HTTP/1.1 200 OK\r\n"), "{reply}");
+        assert!(reply.ends_with("\r\n\r\nfinished"), "{reply}");
+
+        // And now the listener says it will answer no more, which is the
+        // `.Closed` `core/net/server`'s `run` turns into `.Ok(())`.
+        assert_eq!(accept(handle).expect_err("drained").cause, ServeFail::Closed);
+
+        // A client that arrives after the drain is not answered. The port is
+        // still open — `run` closes it, one line further along — so the connect
+        // succeeds and nothing comes back.
+        let mut late = TcpStream::connect(("127.0.0.1", port)).expect("the port is still open");
+        late.set_read_timeout(Some(Duration::from_millis(500))).expect("a deadline");
+        late.set_write_timeout(Some(Duration::from_millis(500))).expect("a deadline");
+        let _ = late.write_all(b"GET /late HTTP/1.1\r\nhost: h\r\n\r\n");
+        let mut nothing = Vec::new();
+        let _ = late.read_to_end(&mut nothing);
+        assert!(nothing.is_empty(), "a drained listener answered a new connection: {nothing:?}");
+
+        close(handle);
+    }
+
+    /// **The drain deadline bounds the waiting, and the waiting only.**
+    ///
+    /// A request that is accepted and never answered is the worst case a
+    /// shutdown has — a handler that will not return — and this is what it
+    /// costs: the drain gives up after the number the plan named, the workers
+    /// are told the listener is closed, and the process is free to end.
+    ///
+    /// A hundred and fifty milliseconds so that the row is fast, and the
+    /// assertion on the elapsed time is two-sided: it waited at least its
+    /// deadline (a drain that returned at once would not have waited for
+    /// anything) and it stopped well inside a bound (a drain that ignored its
+    /// deadline would sit here until the head deadline thirty seconds away).
+    #[test]
+    fn a_drain_gives_up_on_a_request_nobody_answers() {
+        let plan = ServePlan {
+            protocols: vec![Protocol::Http1],
+            certificate: None,
+            key: None,
+            drain: Some(Duration::from_millis(150)),
+        };
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
+
+        let client = std::thread::spawn(move || {
+            let mut socket = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+            socket.set_read_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            socket.set_write_timeout(Some(Duration::from_secs(20))).expect("a deadline");
+            socket.write_all(b"GET /abandoned HTTP/1.1\r\nhost: h\r\n\r\n").expect("request");
+            socket.flush().expect("flush");
+            let mut reply = Vec::new();
+            let _ = socket.read_to_end(&mut reply);
+            reply
+        });
+
+        let connection = accept(handle).expect("one connection");
+        assert_eq!(request(connection).expect("its request").target, "/abandoned");
+        // And nothing answers it.
+        let started = Instant::now();
+        assert!(!drain(handle), "the drain claimed to have drained a request nobody answered");
+        let waited = started.elapsed();
+        assert!(waited >= Duration::from_millis(150), "the drain did not wait: {waited:?}");
+        assert!(waited < Duration::from_secs(10), "the deadline did not bound it: {waited:?}");
+
+        assert_eq!(accept(handle).expect_err("drained").cause, ServeFail::Closed);
+        // Giving the port back is what drops the connection nobody answered,
+        // and the client sees the socket close rather than a response.
+        close(handle);
+        let reply = client.join().expect("the client finished");
+        assert!(reply.is_empty(), "a request nobody answered was answered anyway: {reply:?}");
+    }
+
+    /// **`SIGINT` and `SIGTERM` are this runtime's exactly while a port is
+    /// open.**
+    ///
+    /// The disposition is process-wide state, so what can be asserted here
+    /// without racing every other row in this file is the half that holds a
+    /// listener open across it: while *this* test's listener is in the table
+    /// the table is not empty, so nothing else can give the signals back.
+    ///
+    /// It is asserted as an **equality with the handler's own address** rather
+    /// than as "not the default", which is what makes it a test of the
+    /// disposition rather than of the query: a `sigaction` read at the wrong
+    /// offset would answer something that is also not `SIG_DFL`.
+    ///
+    /// The other half — that the last `close` gives them back — cannot be
+    /// asserted from here, because another row's listener may be open at the
+    /// same moment. It is asserted where a process is the unit:
+    /// `cli/tests/native`'s signal rows.
+    #[test]
+    fn a_bound_listener_holds_the_shutdown_signals() {
+        let (handle, _port, _handlers) =
+            bind("127.0.0.1", 0, &ServePlan::default(), -1, 60).expect("a bound port");
+        let ours = shutdown::handler_address();
+        assert_eq!(disposition(shutdown::SIGTERM), ours, "SIGTERM is not this runtime's");
+        assert_eq!(disposition(shutdown::SIGINT), ours, "SIGINT is not this runtime's");
+        close(handle);
+    }
+
+    /// A signal's current handler, read without changing it.
+    ///
+    /// `sigaction` with a null `act` is the only query POSIX gives — `signal`
+    /// answers the previous disposition but sets one on the way past, which two
+    /// rows binding at once would race on. The struct's layout differs between
+    /// the two platforms in everything *after* the first field, and the first
+    /// field is the handler on both, so what is read here is one pointer out of
+    /// a buffer that is comfortably larger than either.
+    fn disposition(sig: i32) -> usize {
+        #[repr(C, align(16))]
+        struct Sigaction([u8; 256]);
+
+        unsafe extern "C" {
+            fn sigaction(sig: i32, act: *const u8, old: *mut u8) -> i32;
+        }
+
+        let mut out = Sigaction([0u8; 256]);
+        // SAFETY: a null `act` reads without writing, and the destination is
+        // larger than `struct sigaction` on either platform.
+        let rc = unsafe { sigaction(sig, std::ptr::null(), (&raw mut out.0).cast()) };
+        assert_eq!(rc, 0, "sigaction could not be asked about signal {sig}");
+        // SAFETY: `sa_handler` is the first member on both platforms, and the
+        // buffer is aligned for it.
+        unsafe { (&raw const out.0).cast::<usize>().read() }
     }
 
     /// A `Str` view over a Rust `String` that owns nothing — what a generated
@@ -3047,6 +3790,7 @@ mod tests {
             protocols: vec![Protocol::Http1, Protocol::Http2],
             certificate: Some(certificate),
             key: Some(key),
+            drain: None,
         };
         let (handle, port, _handlers) =
             bind("127.0.0.1", 0, &plan, 1, 30_000).expect("a bound port");
@@ -3104,6 +3848,7 @@ mod tests {
             protocols: vec![Protocol::Http2, Protocol::Http1],
             certificate: Some(certificate),
             key: Some(key),
+            drain: None,
         };
         let (handle, port, _handlers) =
             bind("127.0.0.1", 0, &plan, 2, 30_000).expect("a bound port");
@@ -3174,6 +3919,86 @@ mod tests {
         close(handle);
     }
 
+    /// **A drain sends an idle HTTP/2 connection on its way, rather than
+    /// waiting for it.**
+    ///
+    /// This is the case HTTP/2 makes and HTTP/1.1 does not. A cleartext
+    /// connection here carries one message and ends, so a drain that only
+    /// stopped accepting would already be finished; an h2 connection is a thing
+    /// a client *keeps*, and a client holding an idle one open is doing exactly
+    /// what the protocol is for. Without `hyper`'s `graceful_shutdown` the drain
+    /// below would wait out its whole deadline for a client that has done
+    /// nothing wrong.
+    ///
+    /// So the instrument is the clock and the deadline together: fifteen
+    /// seconds asked for, and the assertion is that it took under five. A drain
+    /// that could not reach into the connection answers `false` after fifteen,
+    /// which fails on the line above rather than on the timing.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_drain_sends_an_idle_h2_connection_on_its_way() {
+        let (certificate, key) = identity_files("h2-drain");
+        let plan = ServePlan {
+            protocols: vec![Protocol::Http2],
+            certificate: Some(certificate),
+            key: Some(key),
+            drain: Some(Duration::from_secs(15)),
+        };
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &plan, -1, 30_000).expect("a bound port");
+
+        let (answered, was_answered) = std::sync::mpsc::channel();
+        let client = std::thread::spawn(move || {
+            let (conn, sock) = handshaken(port, vec![crate::tls::ALPN_H2.to_vec()]);
+            crate::rt::handle().block_on(async move {
+                let io = crate::tls::AsyncTls::adopt(sock, conn).expect("an async connection");
+                let (mut send, driving) =
+                    hyper::client::conn::http2::handshake::<_, _, Once>(Spawn, io)
+                        .await
+                        .expect("an h2 handshake");
+                let driven = crate::rt::handle().spawn(async move {
+                    let _driven = driving.await;
+                });
+                let request = hyper::Request::builder()
+                    .method("GET")
+                    .uri("https://localhost/keep")
+                    .body(Once(None))
+                    .expect("a request");
+                let response = send.send_request(request).await.expect("a response");
+                let status = response.status().as_u16();
+                let body =
+                    collected(response.into_body(), 64 * 1024).await.expect("a body");
+                let _ = answered.send(());
+                // And now the client does nothing at all, holding its
+                // connection open. What ends this wait is the server's GOAWAY —
+                // **and the deadline is what stops it being a hang** when the
+                // GOAWAY does not come. Under a drain that cannot reach into
+                // `hyper` this is the wait that would otherwise run until CI
+                // killed the job; with the bound it is a `false` on the line
+                // below instead. That rule has a name in this repository and it
+                // is the tls-hang incident.
+                let ended = tokio::time::timeout(PATIENCE, driven).await.is_ok();
+                (status, String::from_utf8_lossy(&body).into_owned(), ended)
+            })
+        });
+
+        let connection = accept(handle).expect("the one stream");
+        assert_eq!(request(connection).expect("its request").target, "/keep");
+        respond(connection, 200, &[], b"kept").expect("a response");
+        was_answered.recv_timeout(PATIENCE).expect("the client read its answer");
+
+        let started = Instant::now();
+        assert!(drain(handle), "the drain gave up on an h2 connection it should have ended");
+        let waited = started.elapsed();
+        assert!(waited < Duration::from_secs(5), "the GOAWAY did not end it: {waited:?}");
+
+        let (status, body, ended) = client.join().expect("the client finished");
+        assert_eq!((status, body.as_str()), (200, "kept"));
+        assert!(ended, "the client's connection was never sent a GOAWAY");
+        assert_eq!(accept(handle).expect_err("drained").cause, ServeFail::Closed);
+        close(handle);
+    }
+
     /// A certificate the runtime cannot read stops the **bind**, and says which
     /// file and why.
     ///
@@ -3191,6 +4016,7 @@ mod tests {
             protocols: vec![Protocol::Http1],
             certificate: Some(missing.clone()),
             key: Some(key.clone()),
+            drain: None,
         };
         let refused = bind("127.0.0.1", 0, &plan, -1, 60).expect_err("there is no such file");
         assert_eq!(refused.cause, ServeFail::Transport);
@@ -3205,6 +4031,7 @@ mod tests {
             protocols: vec![Protocol::Http1],
             certificate: Some(empty.clone()),
             key: Some(key),
+            drain: None,
         };
         let refused = bind("127.0.0.1", 0, &plan, -1, 60).expect_err("no identity to present");
         assert_eq!(refused.cause, ServeFail::Transport);
