@@ -38,17 +38,36 @@
 #      or not. Together they put aarch64-apple-darwin at 8 198 904 bytes, over
 #      the 7 MiB this script used to allow, and 9 MiB is what replaced it.
 #
-#      A THIRD SLICE HAS SINCE MOVED IT AND THE BUDGET DID NOT MOVE WITH IT,
-#      which is the ratchet working the other way and is worth being explicit
-#      about. F4 linked `hyper`'s HTTP/2 server — and with it `h2`, `tokio-util`
-#      and HPACK's tables — for 771 688 bytes, putting aarch64-apple-darwin at
-#      8 970 592. That is UNDER the 9 MiB above, by about 4.9 %, so the number
-#      here is left where it is: this budget moves when it is hit, and it was
-#      not hit. What that leaves is a thin margin and the next slice to link one
-#      of the two remaining crates should expect to be the one that re-measures
-#      and re-states it. The Linux projection moves the same way — the 10.5 MB
-#      the last re-statement projected becomes about 11.3 MB against 12 MiB,
-#      roughly a tenth — and CI is where a projection becomes a measurement.
+#      A THIRD SLICE HAS SINCE MOVED IT. F4 linked `hyper`'s HTTP/2 server —
+#      and with it `h2`, `tokio-util` and HPACK's tables — for 771 688 bytes,
+#      putting aarch64-apple-darwin at 8 970 592. That is UNDER the 9 MiB above,
+#      by about 4.9 %, so the Darwin number is left where it is: this budget
+#      moves when it is hit, and it was not hit. The margin is thin, and the
+#      next slice to link one of the remaining crates should expect to be the
+#      one that re-measures it.
+#
+#      THE LINUX BUDGET IS A DIFFERENT STORY AND IT IS THE CAUTIONARY ONE.
+#      Every Linux figure this script has ever carried was a PROJECTION — the
+#      macOS delta added to an 8 469 832-byte measurement taken before the
+#      reactor, TLS or HTTP/2 — and the comment that carried it said CI was
+#      where a projection becomes a measurement. F4 is when that happened, and
+#      the projection was wrong by 1.9 MB in the direction that matters:
+#
+#        aarch64-unknown-linux-gnu, `net`
+#          before F4 (the projection said ~10.5 MB)   12 407 786 bytes
+#          after F4                                   13 611 228   +1 203 442
+#
+#      So Linux had been sitting at 98.6 % of a 12 MiB budget for two slices
+#      with nobody the wiser, and hyper's legitimate bytes are what pushed it
+#      over. The growth itself is honest: Linux is 1.51x Darwin's archive before
+#      the slice and hyper costs 1.56x there — the same code, at ELF's price per
+#      byte, and not a strip that stopped working. 14 MiB is the re-measurement,
+#      with about 7 % over the larger of the two Linux figures.
+#
+#      The lesson for the next re-statement is in the numbers rather than in
+#      this paragraph: a budget nothing has measured is not a budget, and the
+#      two Linux triples should both be read off a real job before either is
+#      trusted again.
 #
 #      THE `net-h3` ARCHIVE IS HELD TO THE SAME BUDGET, and that is a measured
 #      claim rather than an omission. `quinn` is referenced by nothing but
@@ -116,10 +135,10 @@ target=${1:-target}
 case "$(uname -s)" in
   # 8 970 592 measured with `net` since F4 linked hyper; 9 MiB leaves ~4.9 %.
   Darwin) budget=9437184 ;;
-  # 8 469 832 was measured on the larger of the two Linux triples before the
-  # reactor, TLS or HTTP/2; the macOS deltas put it near 11.3 MB and CI is where
-  # that is confirmed. 12 MiB is ~10 % on that projection.
-  Linux)  budget=12582912 ;;
+  # 13 611 228 measured on aarch64-unknown-linux-gnu; CI's leg reported
+  # 13 515 516. 14 MiB leaves ~7 % on the larger. THIS NUMBER REPLACES A
+  # PROJECTION, and the projection was wrong by 1.9 MB — see the note below.
+  Linux)  budget=14680064 ;;
   *)      echo "::error::this script knows macOS and Linux only" ; exit 1 ;;
 esac
 
@@ -180,11 +199,51 @@ fi
 # `nm` over an archive lists every member's symbols. A failure to read it is
 # not a pass: `|| true` would turn a missing `nm` into a green assertion, so the
 # symbol dump is taken once and its emptiness is checked.
-symbols=$(nm "$best_file" 2>/dev/null || true)
-if [ -z "$symbols" ]; then
+raw_symbols=$(nm "$best_file" 2>/dev/null || true)
+if [ -z "$raw_symbols" ]; then
   echo "::error::nm produced no symbols for $best_file, so the networking assertion below would pass vacuously."
   exit 1
 fi
+
+# THE INSTANTIATING CRATE IS NOT THE DEFINING CRATE, and a substring grep over
+# mangled names cannot tell them apart. This line is what makes the lists below
+# mean "code FROM this crate" rather than "this crate's name appears somewhere".
+#
+# Rust's v0 mangling ends a monomorphised generic with the crate that
+# instantiated it: `<alloc::raw_vec::RawVec<http::header::map::Bucket<..>>>::grow_one`
+# compiled in tungstenite's codegen unit is
+#
+#     _RNvMs4_NtCs<..>_5alloc7raw_vec..._4http6header3map6Bucket...Cs<..>_11tungstenite
+#          ^^^^^^^^^^^^^^^^ the path: `alloc`, over `http`'s types      ^^^^^^^^^^^^^ who instantiated it
+#
+# — `alloc`'s code, over `http`'s types, and tungstenite only because LLVM kept
+# that copy when it deduplicated the identical instantiation every other crate
+# also needs. Which copy survives is arbitrary and it differs by platform, which
+# is exactly how this bit us: F4 linked `hyper`, `http`'s `HeaderMap` became
+# live for the first time, and three such symbols appeared in the Linux archive
+# and none in the Darwin one. The archive carried NO tungstenite code on either
+# — `ar t` lists no member from it and every one of the three names begins
+# `NtCs<..>_5alloc` — and the six Linux jobs went red anyway.
+#
+# The tag is the LAST thing on its line and a defining path never is: a path is
+# a crate plus at least one item, so a crate that owns code in this archive is
+# always followed by something. That is the whole of the test the two loops
+# below make — `$crate` followed by a non-blank — and it is a position rather
+# than a strip on purpose. Cutting the tag off with a regex was tried first and
+# is a trap: `Cs<disambiguator>_` occurs at the START of a mangled path too, so
+# leftmost-longest matching deletes the entire symbol and every list goes
+# quiet — `present tokio` and `present hyper` both failed against an archive
+# that plainly carries them.
+#
+# The one thing that IS stripped is `.llvm.<n>`, LLVM's own suffix on a symbol
+# it internalised, which would otherwise sit behind the tag and put a character
+# after it.
+#
+# `present` reads the same dump and makes the same positional test,
+# deliberately: a crate whose only appearance was an instantiation tag would
+# otherwise satisfy a claim that it is linked, which is the same confusion
+# pointing the other way.
+symbols=$(sed -E 's/\.llvm\.[0-9]+$//' <<<"$raw_symbols")
 
 # A here-string rather than a pipe into `grep -q`: `set -o pipefail` and a grep
 # that exits on its first match make the pipeline's status SIGPIPE, which reads
@@ -192,7 +251,7 @@ fi
 # precisely when the archive is not clean.
 absent() {
   for crate in "$@"; do
-    if grep -qi -- "$crate" <<<"$symbols"; then
+    if grep -qiE -- "$crate[^[:space:]]" <<<"$symbols"; then
       echo "::error::libburi_rt.a carries symbols from \`$crate\`, and nothing in the runtime is supposed to reach it. Either something new does — in which case this list and the size budget above both move, in the commit that made it deliberate — or a crate was added to cli/runtime/manifest.toml without an argument for it."
       status=1
     fi
@@ -201,7 +260,7 @@ absent() {
 
 present() {
   for crate in "$@"; do
-    if ! grep -qi -- "$crate" <<<"$symbols"; then
+    if ! grep -qiE -- "$crate[^[:space:]]" <<<"$symbols"; then
       echo "::error::libburi_rt.a carries NO symbol from \`$crate\`, but it was built with the runtime's \`net\` feature, which is what links the reactor and the TLS client. An archive in this state has an \`https://\` or a suspending host call that fails at run time and a test suite that never noticed. Check cli/runtime/rt.rs and cli/runtime/tls.rs are still reached."
       status=1
     fi
