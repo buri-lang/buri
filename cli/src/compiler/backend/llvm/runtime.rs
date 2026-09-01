@@ -1478,6 +1478,58 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
+    // `sockets()` — a socket with no network behind it. Seven rows, because the
+    // double is small: the double itself, the mint, the three methods of
+    // `Sockets`, and the two readers.
+    //
+    // `socketsSent` and `socketsIsOpen` take the **handle** in `TestFs`'s
+    // shape, but for a different reason: a `TestSockets` *is* a bare handle, so
+    // `self` would have crossed fine — these two are Buri bodies because one
+    // builds a `Message` out of the flat record the archive writes
+    // (`cli/runtime/lib.rs` §2.1, and `Received` for the same reason) and the
+    // other unwraps a `Socket`.
+    Entry {
+        key: "host_testing.sockets",
+        symbol: "buri_rt_host_testing_sockets",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.socketsOpen",
+        symbol: "buri_rt_host_testing_sockets_open",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.socketsSent",
+        symbol: "buri_rt_host_testing_sockets_sent",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.socketsIsOpen",
+        symbol: "buri_rt_host_testing_sockets_is_open",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.TestSockets.socketSendText",
+        symbol: "buri_rt_host_testing_test_sockets_socket_send_text",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestSockets.socketSendBytes",
+        symbol: "buri_rt_host_testing_test_sockets_socket_send_bytes",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::List],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestSockets.socketClose",
+        symbol: "buri_rt_host_testing_test_sockets_socket_close",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
     // The one key here that no Buri declaration produces: `middle::monomorphize`
     // emits it after every `test` body, so that "a fault whose call never
     // happens fails the test" is checked once for all three backends rather than

@@ -7,8 +7,8 @@
 //! authority can enter.
 //!
 //! Every name here is `core/host`'s name — `alloc`, `stdout`, `stderr`,
-//! `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc` — but **called** rather
-//! than referred to.
+//! `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc`, `sockets` — but
+//! **called** rather than referred to.
 //! `core/host`'s `clock` is one clock because a process has one; `clock()` is a
 //! fresh one every call, so what one test does to it is invisible to the next.
 //! That is the whole reason these are functions and `core/host`'s are `let`s.
@@ -78,6 +78,20 @@
 //! a handle and a plan, and the reason `faults` hands the runner a rendering of
 //! each entry as it installs it.
 //!
+//! ## A socket with no network behind it
+//!
+//! `sockets()` is the one double a program takes a **handle out of**: `open()`
+//! mints a `Socket` and `sent()` reads back `[(Socket, Message)]`. Every other
+//! double here is configured with values a test wrote down; a socket is the one
+//! thing in `core/net/server` a test cannot write down, because a `Socket` a
+//! program invents names nothing, which is the point of the type.
+//!
+//! It is only the writing half. Reading a socket belongs to `Listen`, a fake
+//! acceptor is a value a test writes for itself, and the module's own
+//! documentation has the argument. What this closes is the gap that argument
+//! leaves: a hand-written `Sockets` records nothing, because an effect method
+//! takes only `self` and `self` is immutable.
+//!
 //! ## The order the work happens in
 //!
 //! `tasks()` is the one double whose subject is not state but **scheduling**.
@@ -109,9 +123,15 @@
 //! a test writes.
 
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, IoError, Method, Net, NetError, Proc, Rand, Region,
-    Request, Response, Stderr, Stdin, Stdout, Tasks,
+    Alloc, Clock, Env, Frame, Fs, Header, IoError, Method, Net, NetError, Proc, Rand,
+    Region, Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
+
+// The one module above `core/effect` this one imports, and it is the surface
+// rather than the authority: `Socket` and `Message` are inert data that
+// `core/net/server` declares, and a double whose readers spoke in `Int`s and
+// framing tags would be a double a test had to translate out of.
+from "core/net/server" import { Message, Socket };
 
 // --- Alloc --------------------------------------------------------------------
 
@@ -974,6 +994,150 @@ impl Proc for TestProc {
 export fn proc(): TestProc {
     TestProc(0)
 }
+
+// --- Sockets ------------------------------------------------------------------
+
+/// Sockets with no network behind them: `open` mints one, `sent` reads back
+/// what was pushed on it.
+///
+/// A program that holds a `Socket` and pushes on it — an actor a hook handed
+/// one to, a room that broadcasts to everybody in it — is bounded by `Sockets`
+/// and by nothing else, which is what the inert handle in `core/net/server`
+/// was for. So it can be tested with no listener, no port, no client and no
+/// server at all: `sockets().open()` is a socket, a `send` on it is recorded,
+/// and `sent()` is the whole of what the far side would have received.
+///
+/// **This is not half a pair, and `Listen` deliberately has no double.**
+/// Reading from a socket is `Listen`'s authority and writing on one is
+/// `Sockets`' — `effect Sockets`' own header draws that line — and the two
+/// need different things from a test. A fake acceptor is a value a test writes
+/// for itself, because what it answers is the test's own decision;
+/// `lib/semantics`' `Scripted` is one. What cannot be written by hand is
+/// *this* half: an effect method takes only `self` and `self` is immutable, so
+/// a hand-written `Sockets` can record nothing at all, and a recording double
+/// is a handle into runner-side state by construction.
+///
+/// **Nothing here waits.** The real `socketSendText` promises never to wait —
+/// it takes a lock, pushes onto a queue and returns — so a double that records
+/// the push and returns is the same promise kept with no queue behind it, and
+/// there is no deadline, no timeout and no thread anywhere in this double.
+export struct TestSockets(I64);
+
+impl Sockets for TestSockets {
+    /// Recorded, and read back by `sent` as a `.Text`.
+    ///
+    /// **Dropped where the socket is not an open one of this double's**, which
+    /// is three things deliberately made alike: a handle a program invented, a
+    /// socket this double closed, and a socket another `sockets()` minted. The
+    /// first two are `effect Sockets`' own sentence — "a handle that names no
+    /// open socket is treated as one that has already gone" — and the third is
+    /// what makes two doubles in one test two worlds, exactly as two `fs()`
+    /// calls are two filesystems.
+    fn socketSendText(self, socket: Int, text: Str): ();
+
+    /// The same, read back as a `.Binary`. Two operations rather than one with
+    /// a choice of payload, because the effect declares two.
+    fn socketSendBytes(self, socket: Int, body: [U8]): ();
+
+    /// Closes the socket, so that `isOpen` answers `false` and every later send
+    /// through it is dropped.
+    ///
+    /// **The code and the phrase are not kept**, for `TestProc.exitWith`'s
+    /// reason: they are what the *far side* is told, there is no far side, and
+    /// a number held where nothing can read it is state kept for its own sake.
+    /// What a close does here is close, and that is what the two readers
+    /// report — `isOpen` directly, and `sent` by not growing.
+    fn socketClose(self, socket: Int, code: Int, reason: Str): ();
+}
+
+/// No sockets open and nothing pushed. A fresh double every call, so what one
+/// test opens is invisible to the next.
+export fn sockets(): TestSockets;
+
+impl TestSockets {
+    /// A socket of this double's: open, and with no network behind it.
+    ///
+    /// It is a `Socket` like any other — inert, comparable, copyable and
+    /// sendable to an actor — and the number inside it is this runner's, so two
+    /// sockets are never equal and a socket is never equal to one another
+    /// `sockets()` minted.
+    ///
+    /// A **method** rather than a builder, and the difference is worth naming:
+    /// every builder in this module answers a *new double*, and this answers a
+    /// new **socket** of the double it was called on. `sockets()` is the value
+    /// a context binds, and it does not move when a socket opens.
+    export fn open(self): Socket {
+        Socket(socketsOpen(self.0))
+    }
+
+    /// Every message pushed on a socket of this double's, oldest first.
+    ///
+    /// Both framings in one list and in one order, because that is the order
+    /// the far side would have seen them in — and a broadcast that reached two
+    /// sockets is two entries here, which is the whole assertion such a test
+    /// wants to make.
+    ///
+    /// The pair is built **in Buri**, out of a struct the runner hands over,
+    /// and that is `core/effect`'s `Received` for `Received`'s reason:
+    /// `cli/runtime/lib.rs` §2.1 gives a non-enum value its own out-pointer and
+    /// it crosses whole, so the runner writes one flat shape and the program
+    /// reads the enum it wanted. The context `map` asks for is this module's
+    /// own `alloc()`, which both native backends open-code to a handle that
+    /// names nothing — so it charges nothing and reads nothing, and this reader
+    /// stays a reader, taking `self` and no context like every other one here.
+    export fn sent(self): [(Socket, Message)] {
+        socketsSent(self.0).map(alloc(), fn(one) => (Socket(one.socket), framed(one)))
+    }
+
+    /// Whether that socket is still one this double will accept a message for.
+    ///
+    /// `false` for a socket this double closed, and `false` for a handle it
+    /// never minted — which is `socketSendText`'s three cases asked directly
+    /// rather than inferred from a `sent()` that did not grow.
+    ///
+    /// **A question about this socket, and never a count of the open ones.** A
+    /// count would be a claim about the whole runner, and the blocks of a suite
+    /// share a process, so it would pass or fail depending on what ran beside
+    /// it.
+    export fn isOpen(self, socket: Socket): Bool {
+        socketsIsOpen(self.0, socket.0)
+    }
+}
+
+/// One push, as the runner hands it back: which socket, which framing, and the
+/// two payload fields of which a framing names one.
+///
+/// Private, because `sent` is the surface and this is only the crossing.
+/// `Frame` is `core/effect`'s, so the tag the runner writes is one the acceptor
+/// and this double already agree on; its `.Closed` is unreachable here, because
+/// only the two sends ever write this log.
+struct Sent {
+    socket: Int,
+    frame: Frame,
+    text: Str,
+    data: [U8],
+}
+
+/// One recorded push, as the message a reader wants.
+fn framed(one: Sent): Message {
+    match (one.frame) {
+        .Text => .Text(one.text),
+        .Binary => .Binary(one.data),
+        // Unreachable: nothing but the two sends writes this log, and neither
+        // says `.Closed`. A total answer costs nothing, and an abort here would
+        // turn a toolchain bug into a stopped test.
+        .Closed => .Text(one.text),
+    }
+}
+
+/// A fresh socket of this double's, and the number that names it.
+fn socketsOpen(handle: I64): Int;
+
+/// Every push through this double, oldest first.
+fn socketsSent(handle: I64): [Sent];
+
+/// Whether this double minted that socket and has not closed it.
+fn socketsIsOpen(handle: I64, socket: Int): Bool;
 
 derive Eq, Show for FsCall;
 // --- The call log -------------------------------------------------------------

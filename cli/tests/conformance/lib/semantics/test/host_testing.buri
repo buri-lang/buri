@@ -11,10 +11,12 @@
 // either both pass it or disagree about the language. `cli/tests/native/
 // conformance.rs` runs this same file through the copy-and-patch backend.
 
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Reply };
 from "core/alloc" import * as alloc;
 from "core/effect" import {
     Alloc, Clock, Env, Fs, Header, IoError, Net, NetError, Proc, Rand, Region, Request,
-    Response, Stderr, Stdin, Stdout, Tasks,
+    Response, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -25,10 +27,13 @@ from "core/fs" import * as fs;
 from "core/host/testing" import {
     alloc, appendFile, clock, env, fetch, fileExists, fs, makeDir, net, proc, rand,
     readBytes, readDir, readFile, readFileBytes, readLine, removeFile, renameFile,
-    stderr, stdin, stdout, syncFile, task, TaskCall, tasks, writeFile, writeFileBytes,
+    sockets, stderr, stdin, stdout, syncFile, task, TaskCall, tasks, writeFile,
+    writeFileBytes,
 };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/net/server" import { Message, Socket };
 from "core/proc" import * as proc;
 from "core/random" import * as random;
 from "core/str" import * as str;
@@ -2272,4 +2277,191 @@ test "faults replaces, and a plan it replaced claims nothing" {
     };
     assert.eq(labelled(ctx, [1, 2]), [1, 102]);
     assert.eq(scheduler.calls(), [task(0), task(1)]);
+}
+
+// --- sockets(), and a broadcast actor with no server at all --------------------
+//
+// `sockets()` is the double for the half of a WebSocket program that is
+// `Sockets` and nothing else: a `Socket` is inert, its two methods need only
+// that effect, and so a program that holds one and pushes on it can run with no
+// listener, no port, no client and no server. That is what these blocks are —
+// the room from `core/net/server`'s own documentation, driven directly.
+//
+// The other half is `Listen`, and it deliberately has no double here: what a
+// fake acceptor answers is the test's own decision, so a test writes one
+// (`effects.buri`'s `Scripted`). What a test cannot write for itself is a
+// double that *records*, because an effect method takes only `self` and `self`
+// is immutable — which is why this one is a handle into the runner.
+
+/// The room from `core/net/server`'s WebSocket section, as a protocol.
+///
+/// `Publish` carries a `Reply<Int>` and the publisher **asks**, which is not
+/// decoration: `core/actor`'s `send` posts and runs the mailbox down only when
+/// it found the mailbox crowded, so a room driven by `send` alone would step
+/// nothing until something else drove it. The ask is what runs it, and the
+/// answer is how many sockets the message reached.
+enum Room {
+    Joined(Socket),
+    Left(Socket),
+    Publish(Message, Reply<Int>),
+}
+
+/// An actor holding everybody in the room, pushing to all of them on a publish.
+///
+/// Bounded by `Sockets` and by nothing else beyond what an actor needs, which
+/// is the whole claim: this is a socket program with no server in it.
+fn room<C: Alloc + Sockets + Tasks>(): Actor<C, [Socket], Room> {
+    Actor {
+        state: [],
+        step: fn(c, members, message) => {
+            match (message) {
+                .Joined(socket) => members.push(c, socket),
+                .Left(socket) => members.filter(c, fn(m) => m != socket),
+                .Publish(m, reply) => {
+                    let _pushed = members.foldCtx(
+                        c,
+                        fn(inner, _sofar, socket) => socket.send(inner, m),
+                        (),
+                    );
+                    let _answered = reply.answer(c, members.len());
+                    members
+                },
+            }
+        },
+    }
+}
+
+test "a socket this double minted is open, and two of them differ" {
+    let s = sockets();
+    let first = s.open();
+    let second = s.open();
+    assert.isTrue(s.isOpen(first));
+    assert.isTrue(s.isOpen(second));
+    assert.notEq(first, second);
+    // Nothing was pushed, so there is nothing to read back — a double is born
+    // empty, exactly as `fs()` and `stdin()` are.
+    assert.eq(s.sent(), []);
+    // And a handle a program made up is not a socket. `effect Sockets` says a
+    // handle naming no open socket is one that has already gone, and this is
+    // that sentence asked directly.
+    //
+    // A negative number, because the runner's handles are positions in a table
+    // the whole suite shares: any *positive* number is one some other block may
+    // eventually be handed, and a fixture that only fails when something else
+    // runs beside it is the kind of test this repository has been bitten by.
+    assert.isFalse(s.isOpen(server.Socket(-1)));
+}
+
+test "both framings are read back, in the order they were pushed" {
+    let s = sockets();
+    let ctx = context {
+        Sockets: s,
+    };
+    let socket = s.open();
+    let _text = socket.send(ctx, .Text("hello"));
+    let _bytes = socket.send(ctx, .Binary([1, 2, 3]));
+    let _more = socket.send(ctx, .Text("again"));
+    // One list and one order, because that is the order the far side would have
+    // seen them in — and the framing is the message's own variant rather than a
+    // field a test has to read.
+    assert.eq(s.sent(), [
+        (socket, Message.Text("hello")),
+        (socket, Message.Binary([1, 2, 3])),
+        (socket, Message.Text("again")),
+    ]);
+}
+
+test "a message to a closed socket is dropped, and the close is not" {
+    let s = sockets();
+    let ctx = context {
+        Sockets: s,
+    };
+    let socket = s.open();
+    let _before = socket.send(ctx, .Text("before"));
+    let _closed = socket.close(ctx, .Normal);
+    let _after = socket.send(ctx, .Text("after"));
+    // The real platform drops a message to a socket that has gone, because "did
+    // this arrive" was never a question that side could answer. So does this,
+    // and the log is the evidence.
+    assert.isFalse(s.isOpen(socket));
+    assert.eq(s.sent(), [(socket, Message.Text("before"))]);
+}
+
+test "two doubles are two worlds, and neither writes on the other's socket" {
+    let mine = sockets();
+    let theirs = sockets();
+    let ctx = context {
+        Sockets: mine,
+    };
+    let ours = mine.open();
+    let alien = theirs.open();
+    let _ours = ours.send(ctx, .Text("mine"));
+    let _alien = alien.send(ctx, .Text("theirs"));
+    // Two `sockets()` calls are two worlds, exactly as two `fs()` calls are two
+    // filesystems — so a socket the other double minted is dropped here for the
+    // same reason a forged one is, and nothing reached the other's log either.
+    assert.isFalse(mine.isOpen(alien));
+    assert.eq(mine.sent(), [(ours, Message.Text("mine"))]);
+    assert.eq(theirs.sent(), []);
+}
+
+test "a broadcast actor reaches every socket in the room, with no server at all" {
+    let s = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: s,
+        Tasks: tasks(),
+    };
+    let first = s.open();
+    let second = s.open();
+    let members = actor.start(ctx, room());
+    let _joinedFirst = members.send(ctx, .Joined(first));
+    let _joinedSecond = members.send(ctx, .Joined(second));
+    // The receipt is the count, and the ask is what ran the mailbox down: two
+    // sockets joined, so a publish reached two.
+    assert.eq(
+        assert.ok(members.ask(ctx, fn(reply) => .Publish(.Text("hi"), reply))),
+        2,
+    );
+    // And the socket that did **not** publish heard it, which is the whole of
+    // what a broadcast is. With a server this needed two workers and a real
+    // client; with the double it is one block on every backend.
+    assert.eq(s.sent(), [(first, Message.Text("hi")), (second, Message.Text("hi"))]);
+    // Somebody leaves, and the next publish reaches one.
+    let _left = members.send(ctx, .Left(first));
+    assert.eq(
+        assert.ok(members.ask(ctx, fn(reply) => .Publish(.Text("bye"), reply))),
+        1,
+    );
+    assert.eq(s.sent(), [
+        (first, Message.Text("hi")),
+        (second, Message.Text("hi")),
+        (second, Message.Text("bye")),
+    ]);
+    let _stopped = members.stop(ctx);
+}
+
+test "a socket the room closed is one a later broadcast does not reach" {
+    let s = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: s,
+        Tasks: tasks(),
+    };
+    let staying = s.open();
+    let going = s.open();
+    let members = actor.start(ctx, room());
+    let _joinedStaying = members.send(ctx, .Joined(staying));
+    let _joinedGoing = members.send(ctx, .Joined(going));
+    let _closed = going.close(ctx, .GoingAway);
+    // The room still counts two members — it was never told — and the message
+    // still reaches only one. That is the platform's own rule reaching a
+    // program that did not think about it, which is the divergence a double
+    // exists to keep out.
+    assert.eq(
+        assert.ok(members.ask(ctx, fn(reply) => .Publish(.Text("room"), reply))),
+        2,
+    );
+    assert.eq(s.sent(), [(staying, Message.Text("room"))]);
+    let _stopped = members.stop(ctx);
 }

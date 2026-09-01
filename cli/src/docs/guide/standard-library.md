@@ -331,7 +331,7 @@ an `impl` block takes `self`), so the constructors are free functions:
 
 `core/host/testing` is `core/host`'s surface for a test: the same names —
 `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `env`,
-`proc` — **called** rather than referred to, so each one is a fresh double, and
+`proc`, `sockets` — **called** rather than referred to, so each one is a fresh double, and
 configured by a method that answers a new one (`clock().at(1000)`,
 `rand().seed(7)`, `env().variables([...]).arguments([...])`,
 `fs().files([...]).readOnly()`). `net()` **refuses** every request until
@@ -351,7 +351,12 @@ nothing about the order the work runs in, so `tasks()` runs the tasks in program
 order, `tasks().anyOrder()` in the one order its own content seeds, and
 `tasks().everyOrder()` runs
 the whole `test` body once per completion order. A seed is the order's own
-number, so a failure names a line that replays it. See
+number, so a failure names a line that replays it. `sockets()` is the double for
+the writing half of a WebSocket: `sockets().open()` mints a `Socket` with no
+network behind it, `sent()` reads back `[(Socket, Message)]` and `isOpen(s)`
+says whether a socket is still one this double will take a message for — so a
+broadcast room, which is `Sockets` and nothing else, is tested with no listener,
+no port and no client. See
 [testing](../build/testing.md).
 
 ### Allocators
