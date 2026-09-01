@@ -124,6 +124,17 @@
 //! to `stop`'s discard loop. That is the one place this language's runtime
 //! holds onto a value of the program between two calls, and
 //! `cli/runtime/lib.rs` §3 is where the rule it amends is stated.
+//!
+//! **Every one of those blocks is built by `core/alloc`'s `copyAcross`**, which
+//! is a deep copy made with every arena left. Four crossings hand a value over
+//! — `start`'s initial state, `send`'s message, the state a step leaves behind,
+//! and `Reply::answer`'s answer — and all four outlive the call that made them,
+//! so a value made inside an `alloc.scoped` body would otherwise be handed to
+//! the runtime *in pages the scope is about to unmap*. A plain `copyOut` is not
+//! enough here and is the bug this rule replaced: it copies onto whichever
+//! allocator is active, and inside a scope that is the scope's own arena.
+//! `cli/tests/conformance/lib/actor/test/scoped.buri` is the corpus that reads
+//! each of the four back after its scope has ended.
 
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc, Tasks };
@@ -246,13 +257,17 @@ export let MAILBOX: Int = 64;
 /// and does not come back out until a step asks for it, which is what makes "the state
 /// is reachable only through the protocol" true of the value and not only of
 /// the reader's intent.
+///
+/// The state is deep-copied out of every arena on the way in (`core/alloc`'s
+/// `copyAcross`), because the runtime holds it past this call and an actor
+/// started inside an `alloc.scoped` body outlives that body.
 export fn start<C: Alloc + Tasks, S, M>(
     ctx: C,
     actor: Actor<C, S, M>,
 ): Address<C, S, M> {
     let bound = actor.mailbox.withDefault(MAILBOX);
     Address {
-        handle: mailboxOpen(ctx, [carried(actor.state)], bound),
+        handle: mailboxOpen(ctx, alloc.copyAcross([carried(actor.state)]), bound),
         step: actor.step,
         onStop: actor.onStop,
         bound: bound,
@@ -262,16 +277,19 @@ export fn start<C: Alloc + Tasks, S, M>(
 impl<C: Alloc + Tasks, S, M> Address<C, S, M> {
     /// Posts a message. `.Err(.Stopped)` once the actor has stopped.
     ///
-    /// The message is deep-copied out of the caller's scope before it is
-    /// posted (`core/alloc`'s `copyOut`), so an actor that outlives an
-    /// `alloc.scoped` body shares no block with it. That is the same copy a
-    /// value leaving a scope takes, at a second site.
+    /// The message is deep-copied **out of every arena** before it is posted
+    /// (`core/alloc`'s `copyAcross`), so what the mailbox holds is a block on
+    /// the platform allocator whatever scope this call was made inside. That is
+    /// the same copy a value leaving a scope takes, at a second site — and it
+    /// is `copyAcross` rather than `copyOut` because this one is not leaving a
+    /// scope, it is leaving *all* of them: `copyOut` copies onto whichever
+    /// allocator is active, which inside a scope is the arena about to go back.
     ///
     /// **A mailbox at its bound is run down here**, before this call answers,
     /// which is the whole of what `Actor::mailbox` buys: the queue is a bound
     /// on how much work may wait, not on how much may arrive.
     export fn send(self, ctx: C, message: M): Result<(), Stopped> {
-        match (mailboxPush(ctx, self.handle, [carried(alloc.copyOut(message))])) {
+        match (mailboxPush(ctx, self.handle, alloc.copyAcross([carried(message)]))) {
             .None => .Err(.Stopped),
             .Some(waiting) => {
                 match (crowded(waiting, self.bound)) {
@@ -343,8 +361,11 @@ impl<R> Reply<R> {
     /// `.Err(.Stopped)` where the answer has already been given or the asker
     /// is gone. A step that never answers is not an error here — the `ask`
     /// itself is what reports it.
+    ///
+    /// The answer takes `send`'s copy for `send`'s reason: the reply slot is
+    /// the runtime's, and it holds the block until somebody takes it.
     export fn answer<C: Alloc + Tasks>(self, ctx: C, value: R): Result<(), Stopped> {
-        match (replyPut(ctx, self.0, [carried(alloc.copyOut(value))])) {
+        match (replyPut(ctx, self.0, alloc.copyAcross([carried(value)]))) {
             .None => .Err(.Stopped),
             .Some(_stored) => .Ok(()),
         }
@@ -387,6 +408,22 @@ fn draining<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>, state: S)
 /// task is stepping. Both are "somebody else will run it", and neither is a
 /// failure a caller has anything to do about, which is why this answers a
 /// `Bool` and not a `Result`.
+///
+/// The state going back takes `start`'s copy, and for the same reason: a step
+/// that ran inside an `alloc.scoped` body built the next state *there*, and the
+/// runtime keeps it long after that body has answered.
+///
+/// **That copy is the one cost this module's crossings have that is not
+/// constant.** It is a deep copy of the state per *drive* — not per message:
+/// `draining` above runs the whole mailbox down and this happens once after it
+/// — and it is unconditional, because a copy that decided for itself whether it
+/// was needed would be a memory-safety primitive with a path that skips the
+/// safety. The cheaper form is available and is deliberately not taken here:
+/// `arenaEnter` answers what arena the carrier was in, so `copyAcross` could
+/// hand the value straight back where that answer is "none" and no page is
+/// going to be unmapped. That is a change with a benchmark attached and
+/// belongs to whoever is holding the budget, not to the slice that closed the
+/// hole.
 fn drive<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>): Bool {
     match (stateTake(ctx, address.handle)) {
         .None => false,
@@ -395,7 +432,11 @@ fn drive<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>): Bool {
                 .None => false,
                 .Some(state) => {
                     let ended = draining(ctx, address, state.value);
-                    let _ = statePut(ctx, address.handle, [carried(ended)]);
+                    let _ = statePut(
+                        ctx,
+                        address.handle,
+                        alloc.copyAcross([carried(ended)]),
+                    );
                     true
                 },
             }

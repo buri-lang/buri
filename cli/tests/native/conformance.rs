@@ -27,11 +27,12 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Thirty-two of the forty-one files are in it** — the number the
-//! harness prints, and one the prose has now had off by one twice: before
-//! `semantics/generics.buri` joined them, and again after
-//! `codegen/step_trampoline.buri` did. Both counts are re-derived from the
-//! harness rather than incremented by hand. `semantics/http.buri` is the
+//! **Thirty-six of the forty-five files are in it** — the number the harness
+//! prints, re-derived from it rather than incremented by hand, and one the
+//! prose has drifted from more than once. The ordinals in the paragraphs below
+//! record *when* a file joined the set and are not a running total of it;
+//! `actor/scoped.buri` is the latest, and its own entry says why it is in.
+//! `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
 //! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
 //! `semantics/host_testing.buri` is the
@@ -263,6 +264,12 @@ const PACKAGES: &[Case] = &[
     // every one of those entries is in both runtime tables, and the answers it
     // asserts are answers rather than timings.
     included("actor/counter.buri"),
+    // The same surface driven from inside `core/alloc::scoped`, which is where
+    // the four values `core/actor` hands the runtime have to be copies made
+    // outside every arena rather than blocks the scope is about to unmap. It is
+    // a *native* case in the way `memory/copyout.buri` is: on JavaScript the
+    // assertions are answers, and here they are answers plus the pages.
+    included("actor/scoped.buri"),
     //
     // Five files, and between them they are `core/bits` entire,
     // `Checked`/`Wrapping`/`Saturating`/`Bounded` at every width including
