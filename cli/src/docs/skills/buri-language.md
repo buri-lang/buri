@@ -32,7 +32,8 @@ The normative text ships in the binary: `buri docs lang/lexical`,
    `io.println(ctx, "hi")` is, because an effect method is not callable on the
    value that carries it (`effect-method-call`). `core/io`, `core/fs`,
    `core/env`, `core/time`, `core/random`, `core/alloc`, `core/net/http`,
-   `core/proc`, `core/tasks` are the doors. See the `buri-types` skill.
+   `core/net/server`, `core/proc`, `core/tasks` and `ui/signal` are the doors.
+   See the `buri-types` skill.
 8. **A bare identifier in a pattern is always a binding.** `None` binds a
    variable; write `.None` or `Option.None` to match the variant.
 9. **`Result` may not be discarded.** `let _ = someResult()` is a compile

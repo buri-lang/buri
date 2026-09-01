@@ -55,6 +55,14 @@ described who was allowed to write which file during a rollout that is over.
 | 3d | The `buri_rt_*` runtime surface as both backends call it |
 | 4 | The allocator types and `Alloc` accounting |
 
+**A second set of labels appears beside these**, and it is not the same scheme:
+the concurrency-and-servers program that followed was cut into slices named by a
+letter and a number — `B6`, `C4`, `C7`, `D4`, `E13`, `F2`–`F8`, `G5`, `H3` and
+the rest — and they are in `DECISIONS.md` rows, in `cli/runtime/` comments and in
+`core/*` sources. They are slice names rather than a rollout order, there is no
+table of them, and none is needed: every one is named inside a sentence that says
+what that slice did, and `native/DECISIONS.md` is where the sentences are.
+
 One thing from wave 3c did **not** land: the golden re-record for a *Linux*
 host. Two fixtures name `linux` as the platform this toolchain cannot produce,
 and on a Linux machine it now can.
