@@ -386,10 +386,13 @@ making it an error would put `option.ignore` in front of half the standard
 library for no safety gain. Section 15 records this as a judgment call rather
 than a principle.
 
-Note also that `io.print` / `io.println` return `()`, not `Result`. Stream errors
-are reported by the platform at flush time and surface as `main`'s exit status;
-threading an `IoError` through every print statement buys nothing that a
-program can act on.
+`io.print` / `io.println` are no exception: they answer `Result<(), IoError>`,
+because a closed pipe, a full disk and a revoked permission are things that
+happen to a print and a signature saying `()` was claiming they do not. A
+program that does not care writes `.ignore()` there like anywhere else, and one
+that does can answer instead — which is what the old `()` shape could not give,
+since a stream error reported by the platform at flush time surfaces only as
+`main`'s exit status, the one place a program can no longer act on it.
 
 ### 5.8 Function types
 

@@ -37,6 +37,7 @@ cli/tests/
     stencil.rs            gated on `backend-stencil`: the copy-and-patch
                           backend, its leak parity, and its cross emission
     agreement.rs          gated on either: VALUE-MODEL.md §12, both backends
+    shared.rs             what more than one backend suite needs and none owns
   docs/      main.rs    THE DOCUMENTATION, held to the bar the code is
     documents.rs          what the documents are: fences, links, staleness
     examples.rs           what the documents show: every example compiles
@@ -54,6 +55,8 @@ cli/tests/
                         page the front end prints for it, case by case
   linting.rs            AND WHAT THE RULES STILL SAY — a lint fixture with one
                         token wrong, through a one-package repository
+  ci.rs                 THE WORKFLOW IS WIRED THE WAY THE SUITE BELIEVES — the
+                        three promises `.github/workflows/ci.yml` has to keep
 
   conformance/          a Buri repository: `test/` blocks on language semantics
   reject/               programs that must not compile, with their diagnostics
