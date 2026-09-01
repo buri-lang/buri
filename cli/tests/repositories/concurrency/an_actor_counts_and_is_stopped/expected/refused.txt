@@ -1,0 +1,7 @@
+FAIL //lib/room  test/counter.buri  "everything after a stop is refused"
+  assert.eq failed
+    actual:   .Err(.Stopped)
+    expected: .Ok(())
+  --> lib/room/test/counter.buri:85:1
+
+4 passed, 1 failed, 0 skipped (0.0s)

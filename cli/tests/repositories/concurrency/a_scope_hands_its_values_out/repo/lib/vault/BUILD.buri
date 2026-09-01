@@ -1,0 +1,7 @@
+library {
+    sources: ["keeper.buri"]
+
+    test {
+        sources: ["test/crossings.buri"]
+    }
+}

@@ -1,0 +1,30 @@
+error: //lib/ledger/entry.buri is internal to //lib/ledger [internal-import]
+ --> cmd/report/main.buri:6:6
+  |
+6 | from "//lib/ledger/entry.buri" import { entries, total };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = only names re-exported by lib/ledger/lib.buri are available
+  = fix: import the library instead: from "//lib/ledger" import { ... }
+error: there is nothing named `total` in scope [unresolved-name]
+  --> cmd/report/main.buri:15:42
+   |
+15 |         .println(ctx, "total ${show(ctx, total(entries()))}")
+   |                                          ^^^^^
+   |
+   = fix: declare `total`, or import it — a name is in scope only from this module's own declarations and its imports
+
+     What to do
+     ──────────
+
+     Correct the spelling, or declare it. The diagnostic offers the nearest name
+     in scope.
+
+     Why
+     ───
+
+     There is no prelude and no ambient scope: the names available in a module
+     are the ones it declares plus the ones its own imports name. That is what
+     makes the suggestion trustworthy — the set it is drawn from is exactly the
+     set the file put there.
+

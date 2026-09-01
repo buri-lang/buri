@@ -1100,6 +1100,13 @@ fn the_llvm_feature_is_confined_to_the_files_the_bar_names() {
         // `NATIVES` table that gains an `llvm` row, so both are in the delta.
         "cli/tests/native/agreement.rs",
         "cli/tests/fuzz.rs",
+        // The end-to-end tier, which builds each of its whole programs with
+        // *whichever* native backend the toolchain has: the copy-and-patch one
+        // on a default build, and LLVM under the feature. So its rows do more
+        // under the feature rather than appearing as new ones, exactly as
+        // `agreement`'s do, and the bar's feature leg selects `e2e::` beside
+        // `llvm::` and `agreement::`.
+        "cli/tests/native/e2e.rs",
     ];
 
     // Spelled in two pieces so that this file is not its own first hit, and so

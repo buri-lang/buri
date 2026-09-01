@@ -38,6 +38,8 @@ cli/tests/
     stencil.rs            gated on `backend-stencil`: the copy-and-patch
                           backend, its leak parity, and its cross emission
     agreement.rs          gated on either: VALUE-MODEL.md §12, both backends
+    e2e.rs                gated on either: WHOLE PROGRAMS, real processes, real
+                          sockets, real signals — the top of the trust ordering
     shared.rs             what more than one backend suite needs and none owns
   docs/      main.rs    THE DOCUMENTATION, held to the bar the code is
     documents.rs          what the documents are: fences, links, staleness
@@ -64,6 +66,8 @@ cli/tests/
   crash/                programs that compile, then abort, saying why
   example/              the worked monorepo, and the largest Buri here to read
   repositories/         whole repositories, one per build-system rule
+    concurrency/          …and one per concurrency-and-servers claim: actors,
+                          arenas, the sockets double, imports, a print's Result
   golden_javascript/    one construct per case, with the code it emits
   formatting/           an `input.buri` and the one `expected.buri` allowed
     generated/          the same, a thousand of them, written by the mutator
@@ -96,7 +100,7 @@ several sets of assertions.
 | Unit tests (`cli/src/**`, `#[cfg(test)]`) | The lexer, parser, textproto reader, type unifier, JS printer, minifier, SHA-256, and SCC finder do what they claim in isolation. |
 | `language` | That a program means what SPEC says: the conformance repository run through the real `buri test`, the reject corpus with its diagnostics recorded exactly, `core/*` typechecking against itself, every source in the repository parsing and formatting to a fixed point, and what the JavaScript backend compiles each construct to. |
 | `build` | What the build system does: one repository per rule with a manifest of what the CLI does in it, the worked monorepo, what the cache may and may not do read off `--explain`, that an action's spawn is deterministic and a perturbed environment changes neither bytes nor verdicts, and what `buri watch` declares and re-runs. |
-| `native` | That the native backends agree with the reference one, and that the runtime under them holds: bytes in and an executable out, the `buri_rt_*` C ABI driven from C, 3.8 million doubles of float rendering, whole programs through the copy-and-patch backend and LLVM, and VALUE-MODEL.md §12 row by row under both. |
+| `native` | That the native backends agree with the reference one, and that the runtime under them holds: bytes in and an executable out, the `buri_rt_*` C ABI driven from C, 3.8 million doubles of float rendering, whole programs through the copy-and-patch backend and LLVM, and VALUE-MODEL.md §12 row by row under both. `e2e` is the top of the trust ordering below: whole programs in processes of their own, over real sockets and real signals, built by whichever native backend the toolchain has. |
 | `docs` | That every fence is scannable and tagged, every link resolves, the assembled `SPEC.md` is not stale, and every example in every topic — and in the root `README.md` — compiles. |
 | `vectors` | That the Lean formalisation and protobuf's own conformance runner still agree with this toolchain — replayed from checked-in vectors, so neither tool is needed to run the suite. |
 | `formatting` | A directory per decision the formatter makes, plus every output being a fixed point, keeping its comments and tokens, and fitting the margin. |
@@ -109,6 +113,161 @@ several sets of assertions.
 
 Everything but the unit tests drives the real `buri` binary, because that is
 what a user runs.
+
+## The trust ordering
+
+Every suite above is worth having and they are not worth the same. This section
+says which one is believed when two disagree, why, and the three rules that stop
+the ordering from being a preference nobody enforces.
+
+It exists because of an incident. `cli/tests/failing/task_order/` and
+`cli/tests/failing/every_order/` held the **only** end-to-end coverage of
+`tasks().everyOrder()`, the order line and the seed line. A commit that renamed
+`ctx.parallel(…)` to `tasks.parallel(…)` stopped their fixture compiling; a
+later commit about a lint blessed both goldens down from eighteen and fourteen
+lines to `0 passed, 0 failed, 0 skipped, 1 failed to compile`. Both cases stayed
+**green** — `exit:` is hand-written, and a suite that does not compile exits 1
+exactly like a suite whose tests fail — and so did the runtime-crate tests, the
+conformance rows and the unit tests under them. Two waves passed. The lesson is
+not "watch the goldens": it is that **a lower tier staying green is not evidence
+that the thing a user runs still works**, and only a tier that runs the whole
+thing can say otherwise.
+
+### The tiers, most trusted first
+
+| | Tier | What it runs | Where it lives |
+|---|---|---|---|
+| 1 | **End to end** | A whole program, built by a real backend, in a process of its own, talking over a real socket and receiving a real signal. | `native/e2e.rs`, and the server rows in `native/stencil.rs` and `native/llvm.rs` |
+| 2 | **Repository** | A repository on disk, one `buri` command, and what it printed — the CLI a person types, over a package graph, with a linked test binary underneath. | `repositories/*`, `failing/`, driven by `build::repositories` and `failing.rs` |
+| 3 | **Conformance** | The same corpus of `test` blocks under every backend, so a divergence is a failure in exactly one of them. | `conformance/`, read by `language::conformance` and `native::conformance` |
+| 4 | **Agreement** | One source through two backends, compared byte for byte. | `native/agreement.rs` |
+| 5 | **Runtime crate** | `cli/runtime`'s own `#[test]`s: the acceptor, TLS, WebSocket framing, the mailbox, the arena — both ends of a wire, inside one process. | `cli/runtime/*.rs`, reached by `native::runtime` |
+| 6 | **Compiler unit** | A function, a hand-built `Program`, a table. | `cli/src/**` `#[cfg(test)]` |
+
+Reading it downwards: **the higher a tier, the fewer of its assumptions are the
+test's own.** A unit row asserts about a `Program` a test built out of a list of
+strings; a repository row asserts about a `Program` the front end built out of
+source somebody could have written. Both are useful and only one of them
+notices when `host.HostListen.listen` turns out not to be a key any real
+program reaches — which is what
+`e2e::the_refusal_a_toolchain_without_networking_names_what_a_real_server_reached`
+found on the day it was written.
+
+Reading it upwards: **the higher a tier, the more of the product one failure
+implicates, and the less precisely it names what broke.** That is the trade, and
+it is why the lower tiers are not being demoted — a red row in tier 5 says which
+function, a red row in tier 1 says which program. Both, and in that order of
+belief.
+
+### What the concurrency-and-servers features have at each tier
+
+The program that added servers, actors, scoped arenas, the `sockets()` double
+and four flag days is the worked example, and this is where each of its claims
+is answered.
+
+| Feature | Tier 1 (end to end) | Tier 2 (repository) | Below |
+|---|---|---|---|
+| serve HTTP/1.1 | `{stencil,llvm}::a_server_answers_a_request_on_a_socket`; `fifty_requests_are_answered_at_once` | `build-files/server_on_a_page` (the graph refusal) | `net.rs`'s acceptor set; `conformance`'s `Scripted` fake |
+| TLS, and ALPN choosing `h2` | `e2e::a_tls_port_chooses_a_protocol_and_answers_a_plaintext_client_with_no_http_at_all`; `{stencil,llvm}::a_secured_server_opens_its_port_and_says_why_when_it_cannot` | — | `net.rs`'s `alpn_*`, `http2_*`, `a_certificate_the_runtime_cannot_read_stops_the_bind`; `tls.rs`'s trust-anchor set |
+| a protocol the runtime lacks | `e2e::a_protocol_this_runtime_was_not_built_for_is_refused_when_the_port_opens` | — | `net.rs`'s `serves`; `runtime_native`'s `h3` |
+| networking absent altogether | *(named exception — see below)* | — | `backend::mod`'s eleven rows, plus `e2e::the_refusal_a_toolchain_without_networking_names_what_a_real_server_reached` over a real `Program` |
+| drain on a signal | `{stencil,llvm}::a_signalled_server_answers_the_request_in_flight_and_stops`; `stencil::an_interrupted_server_drains_the_same_way`; `e2e::a_second_signal_ends_a_server_the_first_one_asked_to_drain` | — | `net.rs`'s four drain rows |
+| WebSocket lifecycle | `{stencil,llvm}::a_socket_counts_the_messages_it_was_sent`; `llvm::a_broadcast_actor_reaches_a_socket_it_did_not_publish_on`; `e2e::a_full_outbound_buffer_closes_the_socket_and_the_close_hook_is_told_why`; `e2e::an_upgrade_request_reaches_the_request_handler_when_a_server_has_no_hooks` | — | `net.rs`'s socket set; `conformance`'s close-code mapping |
+| the `sockets()` double | `e2e::the_same_handler_answers_the_same_way_with_and_without_a_socket` | `concurrency/a_room_of_sockets_with_no_server` | `conformance`'s six `sockets()` blocks; `testing.rs` |
+| actors | *(a socket hook drives one in the counter rows above)* | `concurrency/an_actor_counts_and_is_stopped` | `conformance/lib/actor/`; `agreement`'s two rows; `rt.rs`'s mailbox set |
+| scoped arenas and `copyAcross` | — | `concurrency/a_scope_hands_its_values_out` | `conformance/lib/{actor,memory}`; `agreement`; `memory.rs` |
+| the ctx form, and a print that answers a `Result` | — | `concurrency/printing_is_a_result_and_a_context_is_an_argument` | `reject/effect_method_*`, `reject/discarded_result*` |
+| import forms across packages | — | `concurrency/three_packages_and_the_imports_between_them`; `libraries/*` | `reject/`, `linting/` |
+
+Two of those rows are blank at tier 1 and one at tier 2, and each blank is an
+argument rather than an omission — they are the exceptions named below.
+
+### The rules
+
+**1. Every feature's happy path *and* its signature failure get a test at the
+highest tier that can reach them.** Not a rate, not a sample: the two named
+cases. A green happy path says a thing works on the day it was written; the
+failure beside it is what says the mechanism is still connected. So
+`e2e::a_tls_port_…` proves a TLS port answers TLS *and*, on the same listener a
+moment earlier, has nothing to say to a plaintext client — the refusal is only
+evidence because the acceptance follows it, and the acceptance is only evidence
+of a Buri program's own port because the refusal came first. Every case under
+`repositories/concurrency/` ends with the edit that makes its subject fail and
+records the report, for the same reason `repositories/`'s own rule already says
+*every case that must stay clean ends with the edit that makes it fire*.
+
+**2. A golden can never collapse into the absence of one, silently.**
+`harness::no_golden_has_collapsed` runs at the end of every `run_corpus` and at
+the end of `failing.rs`'s `recorded_failure_reports`, over the bytes the run has
+just written. It is set equality in **both** directions against
+`harness::A_RUN_THAT_ASSERTED_NOTHING`, so a case that starts recording
+`failed to compile` or `0 passed, 0 failed` fails, and a case that is *supposed*
+to record one and has stopped fails too. It is called from inside the corpus
+runner rather than being a `#[test]` of its own, and that placement is
+load-bearing: under `BURI_BLESS=1` a separate test races the blesser and reports
+the golden it is in the middle of fixing.
+
+Blessing may rewrite what a report *says*. This is the one thing it may not do.
+
+**3. Every end-to-end test binds loopback, and every wait has a deadline.** The
+doctrine is `tls-hang-fix`'s, and the incident that produced it is worth keeping
+because it was not a flake: a test whose server thread sat in `accept()` with no
+deadline while the test thread called `join()`, on a host where `localhost`
+resolves to `::1` before `127.0.0.1`. Deterministic, on every machine that
+ordered the two the other way round, and it took a CI job with it. So:
+
+* the program binds `port: 0` and prints the port; the client dials
+  `127.0.0.1`. A test that picks a port and hopes is a race between the pick and
+  the bind;
+* every connect, read and write carries `shared::SERVER_DEADLINE`;
+* every wait on a child goes through `shared::waited`, which polls and **kills
+  what it could not stop** — `Child::wait` has no deadline;
+* every thread is joined, and the client's answer is read *before* the server
+  is joined, so a client that failed is reported as the client failing;
+* a `#[test]` here is bounded twice over: the harness's per-invocation hang cap
+  (`harness/hang.rs`) for anything it spawns through the CLI, and each CI job's
+  `timeout-minutes` outside that.
+
+A broken server is a failing test with a sentence, never a job CI has to kill.
+
+### The exceptions, and why each is one
+
+A tier ordering that pretends to have no gaps is worse than one that names them.
+There are three, all in the same place, and all three come from
+`language::corpus::dependencies_stay_behind_the_bar` — the workspace may not
+grow a dependency for a test, `[dev-dependencies]` included.
+
+**A test cannot use a TLS or WebSocket library.** The only `rustls` and the only
+`tungstenite` here are inside the runtime archive. So the protocol-level claims
+— the handshake, multiplexing, masking, fragmentation, the close handshake —
+live at tier 5, in `cli/runtime/net.rs`'s own tests, where both ends of the wire
+are reachable. What tier 1 asserts is the half only it can: that a *Buri
+program's* `Server` opened the port that answered. Its clients are hand-written
+and deliberately minimal — `e2e::client_hello` is the smallest TLS 1.2
+`ClientHello` a `rustls` server will answer, chosen at 1.2 precisely because
+1.3 encrypts the ALPN answer and reading it would need the library that is not
+here; `shared::Talking` is one masked text frame at a time.
+
+**A repository fixture cannot run a server.** `repositories/` reaches a native
+backend through `buri test`, and a test source may not import `core/host`
+(SPEC 4.1.1: only the module exporting `main` may). So a repository case can
+assert the *graph* refusal — `build-files/server_on_a_page` — and anything that
+runs a listener is at tier 1, in a process of its own.
+
+**`networking-not-available` has no whole-process row.**
+`runtime_native::net()` reads a file `cli/build.rs` writes beside the archive
+and `include_str!` bakes into the binary, so the only way to *run* that refusal
+is to build `buri` a second time with `BURI_RUNTIME_NET=0` — minutes of `cargo`,
+inside a test. What stands in its place is
+`e2e::the_refusal_a_toolchain_without_networking_names_what_a_real_server_reached`,
+which drives the real front end over a real `server.bind`-and-`run` source and
+asks the refusal's own seam what it would say — recording the eight intrinsic
+keys such a program actually reaches, which is the half a hand-built `Program`
+could never have got right.
+
+None of the three is a hole a lower tier is quietly covering for. Each is a
+sentence about what the top tier cannot reach, written where a reader looking
+for the missing row will find it.
 
 ## Running them
 
@@ -267,7 +426,7 @@ the sequence, and it is the one the number below was taken from:
 ```
 cargo test -p buri
 cargo test -p buri --features backend-llvm --lib compiler::backend::llvm::
-cargo test -p buri --features backend-llvm --test native -- llvm:: agreement::
+cargo test -p buri --features backend-llvm --test native -- llvm:: agreement:: e2e::
 cargo test -p buri --features backend-llvm --test fuzz
 cargo bench  -p buri --bench compiler --profile validate -- --validate
 cargo clippy -p buri --all-targets
@@ -283,11 +442,13 @@ neither needs a line of its own.
 `cargo test -p buri --features backend-llvm` runs 917 tests, of which 843 are
 the ones the first line has just run, with the same code, to the same answer.
 The delta is 74 tests by name — fifteen `backend::llvm` unit tests and the 59
-in `native::llvm` — plus two suites that keep a `NATIVES` table which *gains* an
-`llvm` row under the feature, so their existing tests do more work rather than
-appearing as new ones: `native::agreement` and the whole `fuzz` binary. Those
-four selections are the delta, and running them instead of the other 788 is
-**dedup, not less coverage**.
+in `native::llvm` — plus three suites whose existing tests do more work under
+the feature rather than appearing as new ones: `native::agreement` and the whole
+`fuzz` binary each keep a `NATIVES` table that *gains* an `llvm` row, and
+`native::e2e` builds each of its whole programs with whichever native backend
+the toolchain has, which is the copy-and-patch one on a default build and LLVM
+here. Those five selections are the delta, and running them instead of the other
+788 is **dedup, not less coverage**.
 
 It is only dedup while the delta stays where it is said to be, so that is a
 test: `language::corpus::the_llvm_feature_is_confined_to_the_files_the_bar_names`

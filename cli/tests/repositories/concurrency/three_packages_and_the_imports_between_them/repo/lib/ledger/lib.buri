@@ -1,0 +1,4 @@
+// The surface re-exports from a file of this package. A dependent names this
+// module; nothing outside may name `entry.buri`.
+
+from "//lib/ledger/entry.buri" export { entries, Entry, total };

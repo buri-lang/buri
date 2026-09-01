@@ -77,7 +77,7 @@ fn skip_reason() -> Option<String> {
 /// `BURI_CI`, every job in the workflow sets it, and every one of them asserts
 /// the stencil libraries are real bytes before the suite starts. A guard firing
 /// there is a broken runner rather than a modest host.
-fn supported() -> bool {
+pub fn supported() -> bool {
     match skip_reason() {
         Some(why) => !crate::ci::skipped("stencil", &why),
         None => true,
@@ -164,7 +164,7 @@ fn lowered(source: &str) -> (monomorphize::Program, buri::compiler::semantics::t
 
 /// The whole pipeline, for one snippet, with an optional C probe linked
 /// beside it.
-fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
+pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     let (program, tables) = lowered(source);
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };

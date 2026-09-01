@@ -61,6 +61,11 @@ mod shared;
 
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
 mod agreement;
+// The end-to-end tier: whole programs, a real process, a real socket. Gated
+// like `agreement` — it needs *a* native backend and does not care which — and
+// its module doc is `cli/tests/README.md`'s "The trust ordering" applied.
+#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+mod e2e;
 #[cfg(feature = "backend-stencil")]
 mod conformance;
 mod float_parity;

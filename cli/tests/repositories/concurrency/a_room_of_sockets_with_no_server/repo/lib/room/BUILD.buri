@@ -1,0 +1,7 @@
+library {
+    sources: ["broadcast.buri"]
+
+    test {
+        sources: ["test/broadcast.buri"]
+    }
+}
