@@ -156,6 +156,8 @@ pub fn run_with(program: &Program, tables: &Tables, plan: &rc::Plan) -> ir::Prog
                     unmatched: None,
                     sites: Sites::of(fplan, f.body()),
                     node_values: HashMap::default(),
+                    #[cfg(debug_assertions)]
+                    debug_name: &f.debug_name,
                 };
                 Body::Code(lower.func(&sig, &f.params, f.body(), dispatch))
             }
@@ -440,6 +442,11 @@ struct FnLower<'a> {
     /// What each node evaluated to, for the sites that name a temporary
     /// rather than a local.
     node_values: HashMap<rc::NodeId, ValueId>,
+    /// The function being lowered, for the plan-order tripwire's message and
+    /// for nothing else — which is why it is not carried at all in a build
+    /// that has no tripwire in it.
+    #[cfg(debug_assertions)]
+    debug_name: &'a str,
 }
 
 impl FnLower<'_> {
@@ -726,17 +733,77 @@ impl FnLower<'_> {
     /// layout table, which this pass does not have (`rc.rs`, the contract).
     fn rc(&mut self, node: rc::NodeId, after: bool) {
         let sites: Vec<rc::Site> = self.sites.get(node, after).to_vec();
+        #[cfg(debug_assertions)]
+        let mut emitted: Vec<(rc::RcOp, ValueId)> = Vec::new();
         for site in sites {
             let value = match site.target {
                 rc::Target::Local(l) => self.env.get(l.index()).copied().flatten(),
                 rc::Target::Node(n) => self.node_values.get(&n).copied(),
             };
             let Some(value) = value else { continue };
+            #[cfg(debug_assertions)]
+            emitted.push((site.op, value));
             self.push(match site.op {
                 rc::RcOp::IncRef => Inst::IncRef { value },
                 rc::RcOp::DecRef => Inst::DecRef { value, drop: None },
             });
         }
+        #[cfg(debug_assertions)]
+        self.check_plan_order(node, after, &emitted);
+    }
+
+    /// The plan-order invariant: **no value is released at a key and retained
+    /// at that same key**.
+    ///
+    /// *Here* rather than anywhere else because this is the one place the
+    /// identity the invariant needs exists. The plan holds [`rc::Target`]s, and
+    /// a drop keyed on `Local(l)` and the increment that gave `l` its count
+    /// keyed on the `Node` that produced it are two targets naming one block —
+    /// a distinction that dissolves three lines above, where both kinds resolve
+    /// to a `ValueId`. It sees exactly what is emitted, too: a site whose
+    /// target resolves to nothing is skipped rather than guessed at, and a
+    /// skipped site cannot free anything.
+    ///
+    /// **A tripwire, not a gate, and that is why it is `debug_assertions`.**
+    /// [`rc::order_sites`] runs every increment at a key before every decrement
+    /// at it, so this can no longer fire on any plan that pass produced: what
+    /// it watches for is a *future edit* to the ordering or to `lower`'s
+    /// emission, which is a compiler contributor's mistake and not a property
+    /// of the program being compiled. So the audience is the test suite, where
+    /// it runs over every program the corpus compiles on both native pipelines,
+    /// and the cost — a `Vec` and a quadratic scan of it, at every node and
+    /// both positions of every function lowered — is one the release compiler
+    /// does not pay to learn something it cannot act on. A release build could
+    /// only turn a violation into a compiler panic on a user's program, which
+    /// is a worse answer than the one `order_sites` already guarantees. The
+    /// same shape and the same argument as `ir::verify`, which both native
+    /// backends run behind `cfg!(debug_assertions)`.
+    ///
+    /// It **asserts**, and the whole function is absent from a release build —
+    /// which is what keeps it inside this repository's rule that no input may
+    /// panic the toolchain (`Cargo.toml`, `[workspace.lints.clippy]`). There is
+    /// no input that can reach it in a shipped compiler, because there is no it.
+    /// A diagnostic would be the alternative, in the shape `ir::verify`'s
+    /// callers use — and `lower` has no diagnostic channel to put one on, which
+    /// is the second reason this is a developer's check rather than a user's.
+    ///
+    /// The message names the function, the node, the position, the value and
+    /// the whole plan for the key: a *named failing test*, three frames and one
+    /// allocation earlier than the segfault this class produced when nobody
+    /// knew to look for it (`reports/llvm-parallel-listen-fix.md` §2).
+    #[cfg(debug_assertions)]
+    fn check_plan_order(&self, node: rc::NodeId, after: bool, emitted: &[(rc::RcOp, ValueId)]) {
+        let violation = rc::release_then_retain(emitted);
+        assert!(
+            violation.is_none(),
+            "release-then-retain in `{}`: {} is released and then retained at ({node:?}, {}) — \
+             a free, and then a write through the freed header. The plan for this key is \
+             {emitted:?}; `rc::order_sites` is what keeps every increment at a key ahead of \
+             every decrement at it.",
+            self.debug_name,
+            violation.map_or(String::new(), |v| format!("v{}", v.0)),
+            if after { "after" } else { "before" }
+        );
     }
 
     fn expr_inner(&mut self, e: &Expr) -> ValueId {
@@ -1901,6 +1968,67 @@ mod tests {
     /// Wraps a body in a `main` the driver will accept.
     fn program(extra: &str, body: &str) -> String {
         format!("{extra}\n\nexport fn main(): Result<(), Str> {{\n{body}\n  .Ok(())\n}}\n")
+    }
+
+    /// The reproduction the release-then-retain class was found on, lowered.
+    ///
+    /// Four lines of Buri: a struct holding a list whose elements are counted,
+    /// a field of it projected into a `let` **nothing reads**, and the struct
+    /// read afterwards so the projection is not the last thing alive
+    /// (`reports/llvm-parallel-listen-fix.md` §1). The list is freshly
+    /// allocated, so its count at the drop is one and a release there is a
+    /// free.
+    ///
+    /// Asserted over the **emitted instructions** rather than over the plan, so
+    /// this holds in a build with no `debug_assertions` in it — which the
+    /// tripwire in `FnLower::rc` does not. It is also the wider claim: a run of
+    /// reference operations with no instruction between them is one run
+    /// whatever keys it came from, and a release followed by a retain of one
+    /// value inside such a run is a write through a header the allocator may
+    /// already have taken back.
+    #[test]
+    fn a_counted_field_bound_and_never_read_is_not_released_then_retained() {
+        let p = lower(&program(
+            "struct Two { a: Int, b: [Str] }\n\n\
+             export fn two(): Int {\n\
+             \x20 let two = Two { a: 200, b: [\"h\"] };\n\
+             \x20 let hs = two.b;\n\
+             \x20 two.a\n\
+             }",
+            "  let _ = two();",
+        ));
+        let mut pairs = 0usize;
+        for f in &p.funcs {
+            let Some(code) = f.code() else { continue };
+            for block in &code.blocks {
+                // A maximal run of reference operations: nothing between them
+                // runs, so the whole run is one moment.
+                let mut released: Vec<ValueId> = Vec::new();
+                for inst in &block.insts {
+                    match inst {
+                        Inst::DecRef { value, .. } => released.push(*value),
+                        Inst::IncRef { value } => {
+                            assert!(
+                                !released.contains(value),
+                                "{}: v{} is released and then retained with nothing between \
+                                 — a free, and then a write through the freed header\n{}",
+                                f.debug_name,
+                                value.0,
+                                p.render_func(f)
+                            );
+                            pairs += 1;
+                        }
+                        _ => released.clear(),
+                    }
+                }
+            }
+        }
+        // Not vacuous: this program really does emit the operations whose order
+        // is the claim. On the planner that produced the crash, one of the
+        // increments counted here stood in a run that had already released its
+        // value — so a lowering that stopped emitting reference operations
+        // would satisfy the loop above and is refused here instead.
+        assert!(pairs > 0, "no increment was emitted at all, so nothing was ordered");
     }
 
     #[test]
