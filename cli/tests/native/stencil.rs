@@ -133,7 +133,7 @@ fn archive() -> &'static Path {
 /// A C shim linked beside the program, whose destructor reports the
 /// runtime's allocation counters once `main` has returned.
 ///
-use crate::shared::{probed, Ran, ALLOC_PROBE};
+use crate::shared::{self, probed, Ran, ALLOC_PROBE};
 
 /// The whole pipeline, for one snippet, with an optional C probe linked
 /// beside it.
@@ -190,8 +190,17 @@ pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
         let c = dir.join("probe.c");
         std::fs::write(&c, text).unwrap();
         let o = dir.join("probe.o");
-        let built = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".to_string()))
+        // The product's driver for the compile too, not just for the link:
+        // where the `musl-clang` tier is the answer to "which libc", it is the
+        // program that puts musl's headers in front of glibc's, and an object
+        // compiled by anything else is an object compiled against the wrong
+        // ones. On the baked tier the driver is the host's own and the target
+        // is a flag instead, which is what `product_compile_args` carries:
+        // a probe compiled for glibc and linked against musl agrees only by
+        // luck.
+        let built = shared::product_cc()
             .arg("-c")
+            .args(shared::product_compile_args())
             .arg(&c)
             .arg("-o")
             .arg(&o)
@@ -206,12 +215,6 @@ pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     }
     let binary = dir.join("program");
 
-    let mut cc = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".to_string()));
-    cc.arg("-o").arg(&binary);
-    for o in &objects {
-        cc.arg(o);
-    }
-    cc.arg(archive());
     // **The product's link flags, not a bare one.** `build/link.rs` passes
     // `-dead_strip` on every macOS link, and `object.rs` sets
     // `MH_SUBSECTIONS_VIA_SYMBOLS` — which together mean a function nothing
@@ -225,15 +228,17 @@ pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     // here until the carrier-door test asked what the link had stripped and got
     // an answer from a link that had stripped nothing
     // (`the_carrier_door_is_emitted_and_is_stripped_as_far_as_the_container_allows`).
-    // The other two Linux flags are not optional either — the runtime archive's
-    // `tokio` worker reaches libm's `pow`, and libm is its own library there
-    // where macOS folds it into libSystem.
-    if cfg!(target_os = "macos") {
-        cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
+    // The Linux half now carries the whole "which libc" answer as well, and
+    // that is why this is a call rather than a list: the flags are
+    // `build/link.rs`'s own, and the driver is too, because the `musl-clang`
+    // tier answers the libc question with the program.
+    let mut cc = shared::product_cc();
+    cc.arg("-o").arg(&binary);
+    for o in &objects {
+        cc.arg(o);
     }
-    if cfg!(target_os = "linux") {
-        cc.args(["-Wl,--gc-sections", "-lpthread", "-ldl", "-lm"]);
-    }
+    cc.arg(archive());
+    cc.args(shared::product_link_args());
     let out = cc.output().unwrap();
     assert!(
         out.status.success(),
@@ -1850,24 +1855,17 @@ fn link_and_run(path: &str, units: &[Emitted]) -> Ran {
         objects.push(at);
     }
     let binary = dir.join("program");
-    let mut cc = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".to_string()));
+    // `build/link.rs::platform_flags`, for `build_with`'s reason: a harness
+    // that links more permissively than the product cannot see the product's
+    // bugs, and one that links *less* completely than it invents failures the
+    // product does not have.
+    let mut cc = shared::product_cc();
     cc.arg("-o").arg(&binary);
     for o in &objects {
         cc.arg(o);
     }
     cc.arg(archive());
-    // `build/link.rs::platform_flags`, for `build_with`'s reason: a harness
-    // that links more permissively than the product cannot see the product's
-    // bugs, and one that links *less* completely than it invents failures the
-    // product does not have. The Linux three are not optional — the runtime
-    // archive's `tokio` multi-thread worker reaches libm's `pow`, and libm is
-    // its own library there where macOS folds it into libSystem.
-    if cfg!(target_os = "macos") {
-        cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
-    }
-    if cfg!(target_os = "linux") {
-        cc.args(["-Wl,--gc-sections", "-lpthread", "-ldl", "-lm"]);
-    }
+    cc.args(shared::product_link_args());
     let out = cc.output().unwrap();
     assert!(
         out.status.success(),
@@ -2198,9 +2196,18 @@ export fn main(): Result<(), Str> {
     assert!(!units.is_empty(), "no codegen units were emitted");
 
     let dir = workspace("product-link");
-    let Ok(linker) = link::select(target) else {
-        eprintln!("no linker driver on this host");
-        return;
+    // The refusal is *printed*, not swallowed. `link::select` refuses for two
+    // very different reasons — no `cc` at all, which is a machine this test
+    // cannot be about, and a Linux toolchain that cannot link hermetically,
+    // which is a bug somebody has to see. A bare "no linker driver" reported
+    // the second as the first, and a skip nobody can read the reason for is the
+    // shape of green this repository refuses.
+    let linker = match link::select(target) {
+        Ok(linker) => linker,
+        Err(refusal) => {
+            eprintln!("{}", refusal.text());
+            return;
+        }
     };
     let linker = linker.in_dir(dir.join("link"));
     let rows: Vec<Row> = units
@@ -2270,7 +2277,11 @@ export fn main(): Result<(), Str> {
 /// lines this test printed in CI run 33322552387, job `test (x86_64,
 /// ubuntu-24.04)`, and the rest was measured on that job's own uploaded
 /// artifacts — `scratch-linux-x86_64` carries the archive, the objects and both
-/// linked programs.
+/// linked programs. Both columns are a *glibc* Linux and a smaller runtime than
+/// this tree has; they are kept because the point they make — that the platforms
+/// disagree about where debug information lives, not about how much runtime
+/// survives — is still the point, and the numbers this tree actually produces
+/// are below.
 ///
 /// Read across the bottom two rows and the platforms agree to within 13%. Of
 /// the 2 190 488-byte Linux artifact, 1 801 007 bytes are `.debug_*` sections
@@ -2285,7 +2296,7 @@ export fn main(): Result<(), Str> {
 /// platforms, and it is asserted against numbers that were measured on both:
 ///
 /// * **The debug-stripped artifact is under its target's ceiling** — 512 KiB on
-///   macOS against 348 KiB measured, 576 KiB on Linux against 391 KiB. What
+///   macOS against 376 KiB measured, 768 KiB on Linux against 532 KiB. What
 ///   that catches is the regression this test exists for, and the size of the
 ///   catch was measured rather than assumed: relinking the x86-64 Linux job's
 ///   own objects and archive with `rust-lld -nostdlib`, once with
@@ -2293,7 +2304,7 @@ export fn main(): Result<(), Str> {
 ///   stripped. A link that stopped stripping pays about 300 KB, and every
 ///   ceiling above sits below where that lands.
 /// * **The linked artifact is under a coarser per-target ceiling** — 1 MiB on
-///   macOS, 3 MiB on Linux, 4 MiB anywhere else. This is the one that still
+///   macOS, 4 MiB on Linux, 4 MiB anywhere else. This is the one that still
 ///   runs on a host with no `strip`, and the one that catches the gross
 ///   failure — the archive linked whole rather than trimmed — on a target no
 ///   row above covers.
@@ -2302,8 +2313,30 @@ export fn main(): Result<(), Str> {
 ///   to cost kilobytes; it is not allowed to drag a megabyte of runtime in
 ///   behind it.
 ///
-/// The arm64 Linux row is the one number no measurement here covers: that job
-/// is green, so its linked artifact is under a quarter of its archive, and its
+/// **Both Linux ceilings moved when the Linux link became static-musl, and the
+/// bytes they moved by are musl's `libc.a`.** A glibc link left the C library
+/// *outside* the artifact — a `NEEDED libc.so.6` and a loader to find it — and
+/// a hermetic one puts the part it uses inside (`build/link.rs`, "Which libc,
+/// on Linux"). Measured on arm64 Linux, `podman` on Debian trixie, clang 19,
+/// against a 13 938 046-byte archive:
+///
+/// ```text
+///                            glibc, dynamic          musl, static-pie
+/// bare, as linked                 2 855 272                 3 149 128
+/// hello, as linked                2 875 128                 3 170 440
+/// bare, debug stripped              433 296                   544 432
+/// hello, debug stripped             453 016                   565 592
+/// ```
+///
+/// About 294 KB linked and 111 KB stripped, which is what a `printf`, a
+/// `malloc` and a thread implementation cost when they are in the file rather
+/// than on the machine. It is the *price of the feature* and not a stripping
+/// regression, which is why the ceilings moved rather than the test failing:
+/// the deltas that the ceilings are really watching — hello over bare, and a
+/// link with `--gc-sections` over one without — are unchanged.
+///
+/// The x86-64 Linux row is the one no measurement here covers: that job is
+/// green, so its linked artifact is under a quarter of its archive, and its
 /// stripped size is *estimated* under the Linux ceiling rather than measured
 /// under it. If it is the row that fails, the sizes this test prints are the
 /// measurement, and this table is where they go.
@@ -2337,8 +2370,8 @@ fn hello_world_still_links_the_runtime_archive() {
         return;
     };
     let target = Target { platform, arch: link::host_arch() };
-    if link::select(target).is_err() {
-        eprintln!("no linker driver on this host");
+    if let Err(refusal) = link::select(target) {
+        eprintln!("{}", refusal.text());
         return;
     }
 
@@ -2548,7 +2581,7 @@ fn run_artifact(path: &Path) -> Output {
 fn size_ceilings(target: Target) -> (u64, u64) {
     match target.platform {
         Platform::Macos => (1024 * 1024, 512 * 1024),
-        Platform::Linux => (3 * 1024 * 1024, 576 * 1024),
+        Platform::Linux => (4 * 1024 * 1024, 768 * 1024),
         _ => (4 * 1024 * 1024, 1024 * 1024),
     }
 }
@@ -2672,7 +2705,21 @@ static void *carrier(void *unused) {
 __attribute__((constructor)) static void buri_carrier_probe(void) {
   memset(buri$stencil$stack, SENTINEL, WATCHED);
   pthread_t t;
-  if (pthread_create(&t, 0, carrier, 0) != 0) { fprintf(stderr, "carrier: no thread\n"); return; }
+  /* EIGHT MEGABYTES, SPELLED OUT, because the default is not a constant of
+     "a thread" — it is a constant of the libc. glibc takes RLIMIT_STACK, which
+     is 8 MiB nearly everywhere; musl's default is 128 KiB, and the artifact is
+     now linked against musl. This probe's thread runs the door's prologue and
+     the runtime's first-entry work before anything switches onto a Buri stack,
+     and 128 KiB is not enough for it: the program took SIGSEGV in the
+     constructor, before its own first `fprintf`, which reads as a door that
+     faulted rather than as a thread with no room to stand on. The number is
+     glibc's default written down, so this thread has the stack it always had
+     and the assertions below are measuring what they were written to measure. */
+  pthread_attr_t attr;
+  pthread_attr_init(&attr);
+  pthread_attr_setstacksize(&attr, 8u * 1024u * 1024u);
+  if (pthread_create(&t, &attr, carrier, 0) != 0) { fprintf(stderr, "carrier: no thread\n"); return; }
+  pthread_attr_destroy(&attr);
   pthread_join(t, 0);
   unsigned long clobbered = 0;
   for (unsigned i = 0; i < WATCHED; i++) if (buri$stencil$stack[i] != SENTINEL) clobbered++;
@@ -2971,20 +3018,15 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
         objects.push(at);
     }
     let binary = dir.join("program");
-    let mut cc = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".to_string()));
+    // `build/link.rs`'s platform flags and its driver, for `build_with`'s
+    // reason.
+    let mut cc = shared::product_cc();
     cc.arg("-o").arg(&binary);
     for o in &objects {
         cc.arg(o);
     }
     cc.arg(archive());
-    // `build/link.rs`'s platform flags, for `build_with`'s reason. The Linux
-    // three carry `-lm` because the archive's `tokio` worker reaches `pow`.
-    if cfg!(target_os = "macos") {
-        cc.args(["-Wl,-dead_strip", "-Wl,-oso_prefix,."]);
-    }
-    if cfg!(target_os = "linux") {
-        cc.args(["-Wl,--gc-sections", "-lpthread", "-ldl", "-lm"]);
-    }
+    cc.args(shared::product_link_args());
     let out = cc.output().unwrap();
     assert!(out.status.success(), "the link failed:\n{}", String::from_utf8_lossy(&out.stderr));
     binary
@@ -3083,7 +3125,7 @@ fn linux_arm64_objects_link_and_every_relocation_resolves() {
     objects_link_and_every_relocation_resolves(
         Arch::Arm64,
         "AArch64",
-        "aarch64-unknown-linux-gnu",
+        "aarch64-unknown-linux-musl",
         "aarch64linux",
     );
 }
@@ -3101,7 +3143,7 @@ fn linux_x86_64_objects_link_and_every_relocation_resolves() {
     objects_link_and_every_relocation_resolves(
         Arch::X86_64,
         "X86-64",
-        "x86_64-unknown-linux-gnu",
+        "x86_64-unknown-linux-musl",
         "elf_x86_64",
     );
 }

@@ -669,7 +669,7 @@ pub fn codegen_key(
 ///
 /// ```text
 /// link_key = H(Link, toolchain_version, mode, platform, arch,
-///              linker.name(), linker.version(),
+///              linker.name(), linker.version(), linker.link_identity(),
 ///              [codegen_key(u) for u in units],   // ordered
 ///              runtime_archive_hash | "omitted")
 /// ```
@@ -716,6 +716,12 @@ pub fn link_key_of(
     let mut k = KeyBuilder::new(Action::Link, mode);
     k.platform(target.platform, target.arch);
     k.linker(linker.name(), &linker.version());
+    // *How* the link runs, beside *who* runs it. The linker's banner does not
+    // move when a toolchain gains a musl sysroot and starts linking
+    // `-static-pie` against it, and the artifact is a different file — so
+    // without this term the rebuilt toolchain is served the old one's
+    // executable. See [`Linker::link_identity`].
+    k.input("libc", linker.link_identity().as_bytes());
     for key in unit_keys {
         k.dependency(key);
     }
@@ -983,11 +989,17 @@ pub struct Objects {
 fn linker_for(output: &Output, diagnostics: &mut Diagnostics) -> Option<link::CDriver> {
     match link::select(target_of(output)) {
         Ok(l) => Some(l),
-        Err(message) => {
-            diagnostics.push(Diagnostic::error(output.span, message).with_fix(
-                "install a C toolchain — the link is driven through `cc`, which is what knows \
-                 where this platform's libc and startup files live",
-            ));
+        Err(refusal) => {
+            // The wording is `link::select`'s and not this function's. There
+            // are three refusals now — wrong platform, no `cc`, and a
+            // toolchain that cannot link hermetically — and only the module
+            // that told them apart can say which remedy belongs to which. This
+            // site's job is the span.
+            let mut d = Diagnostic::error(output.span, refusal.message);
+            for note in refusal.notes {
+                d.note(note);
+            }
+            diagnostics.push(d.with_fix(refusal.fix));
             None
         }
     }

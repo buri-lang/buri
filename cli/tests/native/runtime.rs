@@ -67,13 +67,14 @@ fn driver() -> &'static Path {
         std::fs::write(&archive, ARCHIVE).unwrap();
         std::fs::write(&source, DRIVER).unwrap();
 
-        let mut cc = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".to_string()));
+        // `build/link.rs`'s own driver and trailing arguments
+        // (`shared::product_cc`). The archive this driver.c links against is
+        // the one `cli/build.rs` built, and on Linux that is a musl archive —
+        // so the old `-lpthread -ldl -lm` is not merely stale here, it is a
+        // link against the wrong libc.
+        let mut cc = crate::shared::product_cc();
         cc.arg("-std=c11").arg("-O1").arg("-o").arg(&binary).arg(&source).arg(&archive);
-        if cfg!(target_os = "linux") {
-            // Harmless where glibc has folded them in, and required where it
-            // has not. `std` reaches for all three.
-            cc.args(["-lpthread", "-ldl", "-lm"]);
-        }
+        cc.args(crate::shared::product_link_args());
         let out = cc.output().unwrap();
         assert!(
             out.status.success(),
@@ -845,12 +846,12 @@ const SWITCH_BLOCKS: [(&str, &str, &str); 3] = [
     ("macos-arm64", "arm64-apple-darwin", include_str!("../../runtime/switch_macos_arm64.s")),
     (
         "linux-arm64",
-        "aarch64-unknown-linux-gnu",
+        "aarch64-unknown-linux-musl",
         include_str!("../../runtime/switch_linux_arm64.s"),
     ),
     (
         "linux-x86_64",
-        "x86_64-unknown-linux-gnu",
+        "x86_64-unknown-linux-musl",
         include_str!("../../runtime/switch_linux_x86_64.s"),
     ),
 ];

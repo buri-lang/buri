@@ -67,12 +67,26 @@ fn workspace(name: &str) -> PathBuf {
 /// `Debug`-formatted: a `Diagnostics` is not `Debug`, on purpose — every one of
 /// them leaves through `Session::emit` in the toolchain — so a test that wants
 /// to fail on one says what it said.
+///
+/// **The notes are printed too, and that is not decoration.** A failed link's
+/// message is the single line `the link failed (cc+mold)`; everything a reader
+/// needs — the linker's own stderr and the command line as a person would type
+/// it — is in the notes (`build/link.rs`'s failure arm puts it there). Dropping
+/// them turned every link regression in this file into the same four words.
 fn ok<T>(r: Result<T, buri::diagnostics::Diagnostics>) -> T {
     match r {
         Ok(value) => value,
         Err(diagnostics) => {
-            let text: Vec<String> = diagnostics.items.iter().map(|d| d.message.clone()).collect();
-            panic!("{}", text.join("\n"))
+            let mut text = String::new();
+            for d in &diagnostics.items {
+                text.push_str(&d.message);
+                for note in &d.notes {
+                    text.push_str("\n  = ");
+                    text.push_str(note);
+                }
+                text.push('\n');
+            }
+            panic!("{text}")
         }
     }
 }
@@ -594,6 +608,73 @@ fn the_link_key_is_the_ordered_units_and_the_linker() {
     // And the build mode, like everywhere else.
     let release = actions::link_key_of(BuildMode::Release, target, &Named("cc+lld"), &one, linked);
     assert_ne!(lld, release, "the build mode is not in the link key");
+}
+
+/// **Which libc the link answers with is in the `link` key.**
+///
+/// The bug this closes has a shape and the shape is not hypothetical. A Linux
+/// contributor without the musl `rust-std` installed builds the toolchain,
+/// which degrades to glibc and links `cc ... -lpthread -ldl -lm` (the shape
+/// `BURI_MUSL=off` still has, and the only one it has). They run
+/// `rustup target add <arch>-unknown-linux-musl`, rebuild, and the toolchain
+/// now links `--target=<musl> -B musl/lib -L musl/lib -static-pie` against a
+/// baked sysroot. Same `cc`, same `mold`, same `--version` banners, same objects,
+/// same runtime archive digest — every term the `link` key used to hold is
+/// unchanged, and the artifact is a completely different file. Without
+/// `Linker::link_identity` the second build is served the first one's
+/// executable out of the cache, and the developer's "static" binary is the
+/// glibc one.
+///
+/// Asserted through a linker that is *only* its identity, because the real
+/// `CDriver` can produce only one of the three answers on any given host and
+/// the claim is about all three.
+#[test]
+fn the_link_key_moves_with_the_libc() {
+    let Some(target) = linkable() else {
+        crate::ci::skipped("link", "no C toolchain on this host: nothing to link with");
+        return;
+    };
+
+    /// One name, one version, and a libc term that varies — which is exactly
+    /// the situation a rebuilt toolchain is in.
+    struct Libc(&'static str);
+    impl Linker for Libc {
+        fn name(&self) -> &'static str {
+            "cc+mold"
+        }
+        fn version(&self) -> String {
+            String::from("cc+mold:same-banner")
+        }
+        fn link_identity(&self) -> String {
+            self.0.to_string()
+        }
+        fn link(
+            &self,
+            _units: &[Emitted],
+            _unchanged: &[usize],
+            _out: &Path,
+            _opts: &LinkOptions<'_>,
+        ) -> Result<(), buri::diagnostics::Diagnostics> {
+            Ok(())
+        }
+    }
+
+    let one = [ActionKey::of(b"a")];
+    let linked = link::RuntimeArchive::Linked;
+    let key = |identity| actions::link_key_of(BuildMode::Debug, target, &Libc(identity), &one, linked);
+
+    let baked = key("musl-baked");
+    let system = key("musl-system");
+    let glibc = key("glibc");
+    assert_ne!(baked, glibc, "the libc is not in the link key");
+    assert_ne!(baked, system, "two musl mechanisms share one link key");
+    assert_ne!(system, glibc, "the libc is not in the link key");
+    // A function of its input, like every other term: an unchanged toolchain
+    // must still hit.
+    assert_eq!(baked, key("musl-baked"));
+    // And the default — the empty identity a linker with no command line to
+    // vary returns — is its own key rather than an alias of any of them.
+    assert_ne!(baked, key(""), "an empty libc term collides with a real one");
 }
 
 /// The archive decision moves the `link` key, and moves it **only** when it

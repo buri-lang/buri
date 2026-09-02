@@ -67,9 +67,10 @@ use inkwell::context::Context;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::{hash_bytes, ActionKey};
 use crate::compiler::backend::carrier;
-use crate::compiler::backend::{Backend, Emitted, Options, Units};
+use crate::compiler::backend::{triple_text, Backend, Emitted, Options, Target, Units};
 use crate::compiler::middle::{ir, layout, lower, monomorphize, rc};
 use crate::compiler::semantics::types::{FuncIdx, Tables};
 use crate::diagnostics::{Diagnostic, Diagnostics, Span};
@@ -89,8 +90,9 @@ impl Backend for Llvm {
         "llvm"
     }
 
-    /// The LLVM version this binary is linked against, and the inkwell version
-    /// it speaks through. Both enter every cache key.
+    /// The LLVM version this binary is linked against, the inkwell version it
+    /// speaks through, and every triple this toolchain renders. All of them
+    /// enter every cache key.
     ///
     /// A constant would be a lie here, and this is the backend the trait's
     /// documentation names when it says so: `llvm-sys` links against whatever
@@ -99,9 +101,58 @@ impl Backend for Llvm {
     /// objects. `support::get_llvm_version` asks the library rather than the
     /// feature flag, so a `strict-versioning` mismatch that slipped through
     /// still moves the key.
+    ///
+    /// # Why the triples are in it
+    ///
+    /// **To close an asymmetry with the other native backend.** `Stencil`'s
+    /// identity is the digests of the libraries it bakes, so *how a target is
+    /// named* reaches its key through the bytes that name buys: when the Linux
+    /// triple went from `-gnu` to `-musl` those digests were rebuilt from an
+    /// empty scratch directory and measured identical
+    /// (`stencil::abi::StencilTarget::triple`), and a rename that had changed
+    /// one byte of one shard would have moved every stencil key by itself.
+    /// This backend had no such term. `llvm <version> inkwell 0.10` is the
+    /// same string under both spellings, and [`crate::build::actions::codegen_key`]
+    /// folds in the platform and the arch but not the triple — so a `.buri`
+    /// cache written by a gnu-era toolchain would serve its `linux/arm64`
+    /// objects to a musl one under a key that never moved.
+    ///
+    /// That today's emission is byte-identical across the rename is not a
+    /// property a cache key may rest on. The relocation model, the TLS model,
+    /// the stack-protector default and the unwinder are all derived from the
+    /// triple inside LLVM, and two triples agreeing on all of them is a fact
+    /// about one LLVM version rather than a rule.
+    ///
+    /// **Every triple, not this build's.** `Backend::identity(&self)` is told
+    /// no target — `Stencil::identity` makes the same observation about its own
+    /// digests and answers with all three libraries for it — so the honest
+    /// answer here is the whole rendering. The term then moves when
+    /// [`triple_text`] changes for *any* target rather than only for the one
+    /// being built, which costs one conservative invalidation and buys the
+    /// property: the alternative moves nothing and serves an object emitted for
+    /// another triple.
+    ///
+    /// **It lands once.** `actions::codegen_key` folds this string in and
+    /// states the platform and the arch beside it; this backend's own
+    /// `codegen_key` folds it in beside *the* triple, which is what tells its
+    /// per-unit keys for two targets apart. Neither key grows a second copy of
+    /// the rendering.
     fn identity(&self) -> String {
         let (major, minor, patch) = inkwell::support::get_llvm_version();
-        format!("llvm {major}.{minor}.{patch} inkwell 0.10")
+        let mut id = format!("llvm {major}.{minor}.{patch} inkwell 0.10");
+        // Derived from the platform list rather than written out beside it, so
+        // that a fifth platform cannot leave this naming four. The
+        // JavaScript ones render no triple and drop out here, which is the
+        // same `None` `select` refuses them by.
+        for platform in Platform::ALL {
+            for arch in [Arch::Arm64, Arch::X86_64] {
+                if let Some(triple) = triple_text(Target { platform, arch: Some(arch) }) {
+                    id.push(' ');
+                    id.push_str(&triple);
+                }
+            }
+        }
+        id
     }
 
     /// Which intrinsic keys this backend has nothing for, asked of the program
@@ -553,11 +604,27 @@ mod tests {
 
     /// The identity names the library rather than the feature flag, so a
     /// toolchain built against a different LLVM produces a different key.
+    ///
+    /// And it names every triple this toolchain renders, so that a rename of
+    /// one — `-gnu` to `-musl` was the one that happened — moves the key even
+    /// though the platform and the arch beside it in
+    /// `actions::codegen_key` did not. The Linux assertion is the case that
+    /// motivated the term: a cache written before the rename must not serve a
+    /// musl toolchain.
     #[test]
-    fn the_identity_names_the_linked_llvm() {
+    fn the_identity_names_the_linked_llvm_and_its_triples() {
         let id = Llvm.identity();
         assert!(id.starts_with("llvm 21."), "{id}");
         assert!(id.contains("inkwell"), "{id}");
+        for triple in [
+            "aarch64-apple-darwin",
+            "x86_64-apple-darwin",
+            "aarch64-unknown-linux-musl",
+            "x86_64-unknown-linux-musl",
+        ] {
+            assert!(id.contains(triple), "the identity does not name {triple}: {id}");
+        }
+        assert!(!id.contains("linux-gnu"), "a glibc triple is in the identity: {id}");
     }
 
     /// Four targets, and the one that is not this backend's.
@@ -570,11 +637,11 @@ mod tests {
         assert_eq!(t(Platform::Macos, Some(Arch::X86_64)).as_deref(), Ok("x86_64-apple-darwin"));
         assert_eq!(
             t(Platform::Linux, Some(Arch::Arm64)).as_deref(),
-            Ok("aarch64-unknown-linux-gnu")
+            Ok("aarch64-unknown-linux-musl")
         );
         assert_eq!(
             t(Platform::Linux, Some(Arch::X86_64)).as_deref(),
-            Ok("x86_64-unknown-linux-gnu")
+            Ok("x86_64-unknown-linux-musl")
         );
         assert!(t(Platform::Js, None).is_err());
     }

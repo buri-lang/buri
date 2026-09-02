@@ -445,8 +445,11 @@ fn check_native(
         };
         let linker = match link::select(actions::target_of(output)) {
             Ok(l) => l.in_dir(round_dir.join("link")),
-            Err(message) => {
-                eprintln!("error: {message}");
+            // `text()` and not the message alone: the hermetic-link refusal
+            // carries the rule and the escape hatch in its notes, and this path
+            // has no `Diagnostics` sink to render them through.
+            Err(refusal) => {
+                eprintln!("{}", refusal.text());
                 return Err(1);
             }
         };

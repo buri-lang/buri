@@ -450,10 +450,18 @@ pub fn write(
             (SHT_PROGBITS, s.data.len() as u64, place(&mut body, &mut at, &s.data, align))
         };
         let exec = s.attributes & super::object::CODE_ATTRIBUTES != 0;
-        let flags = SHF_ALLOC
-            | if exec { SHF_EXECINSTR } else { 0 }
-            // A zero-fill section is the Buri stack, which is written to.
-            | if s.zerofill > 0 { SHF_WRITE } else { 0 };
+        // Code, or data that is written to. There is no third kind here: the
+        // two non-code sections this emitter produces are the Buri stack
+        // (`.bss`, zero-filled and written by the program) and the constant
+        // pool (`.data.rel.ro`, written *once* by the dynamic relocations a
+        // static PIE applies before `main` — see `mod.rs` for why the pool is
+        // not `.rodata`). A read-only alloc section that carries an `Abs64`
+        // relocation is one a `-static-pie` link refuses outright, so this is
+        // the flag that decides whether a Linux artifact links at all rather
+        // than a hardening detail. `PT_GNU_RELRO` is what gives the pool its
+        // read-onlyness back, and the linker builds that from the section
+        // *name*.
+        let flags = SHF_ALLOC | if exec { SHF_EXECINSTR } else { SHF_WRITE };
         shdrs.push(Shdr {
             name: sec_name.get(i).copied().unwrap_or(0),
             kind,

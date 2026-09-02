@@ -54,9 +54,16 @@ mod sweep;
 mod ci;
 
 // What more than one backend suite needs: the allocation probe, the shape a
-// run produces, and the conformance corpus as a repository. One copy, because
-// what those suites assert is that the backends agree.
-#[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]
+// run produces, the conformance corpus as a repository, and the product's own
+// link line. One copy, because what those suites assert is that the backends
+// agree.
+//
+// **Not gated on a backend**, though most of it is only read when one is
+// built. `runtime` and `float_parity` link a C driver against the runtime
+// archive on every host, so they need `product_cc` and `product_link_args`
+// too — and a second copy of the link line for the ungated half is exactly the
+// duplication that let the Linux flags rot. `#![allow(dead_code)]` at the top
+// of the file is what makes the unread rest of it free.
 mod shared;
 
 #[cfg(any(feature = "backend-llvm", feature = "backend-stencil"))]

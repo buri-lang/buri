@@ -38,12 +38,48 @@ name: CI
 #   native path and nowhere else, so that `minimal`, `lean`, `tree-sitter` and
 #   `nix` do not pay a minute of stencil generation they never read.
 #
-# * **clang, lld, mold, llvm and binutils, all five.** clang for the above; mold
-#   *and* lld because `build/link.rs::choose` prefers mold on Linux and every
-#   ELF byte this compiler emits had, until these runners, been accepted by
-#   exactly one linker; `llvm` for the unversioned `llvm-nm`, `llvm-objdump` and
-#   `llvm-readelf` that `cli/tests/native/stencil.rs::cross_tools` probes before
-#   it will run the cross-link tests — without them those tests skip.
+# * **clang, lld, mold, llvm and binutils** — five of the seven. clang for the
+#   above; mold *and* lld because `build/link.rs::choose` prefers mold on Linux
+#   and every ELF byte this compiler emits had, until these runners, been
+#   accepted by exactly one linker; `llvm` for the unversioned `llvm-nm`,
+#   `llvm-objdump` and `llvm-readelf` that
+#   `cli/tests/native/stencil.rs::cross_tools` probes before it will run the
+#   cross-link tests — without them those tests skip.
+#
+# * **musl-dev and musl-tools, the sixth and seventh.** A Linux artifact is a
+#   static-PIE musl executable or it is a refusal (ARCHITECTURE.md §9,
+#   CODEGEN-STENCIL.md §12.3), and these are what that costs on a glibc runner.
+#   `musl-dev` is for the **C headers**: the runtime archive is built for
+#   `<arch>-unknown-linux-musl`, so the C that `ring`'s build script compiles
+#   has to be musl's too — `cli/build.rs` points cc-rs at the clang above with a
+#   `--target=` and an `-isystem /usr/include/<arch>-linux-musl`, and musl-dev
+#   is what puts musl's headers at that path. Without it the archive still
+#   builds, with glibc's C inside it, and the failure surfaces as undefined
+#   symbols at link time in a suite three steps later. `musl-tools` provides
+#   `musl-gcc`, which is `build/link.rs::libc_for`'s **tier-2 system driver**:
+#   the step below means these runners never reach tier 2, and having it
+#   installed is what keeps a broken `rustup target add` presenting as a
+#   different libc tier in the log rather than as a wall of refusals.
+#
+# * **`rustup target add <arch>-unknown-linux-musl`, before the first cargo
+#   build on every Linux leg.** Not a convenience — the leg's correctness.
+#   `cli/build.rs` asks `rustc --print target-libdir --target <musl>` for a
+#   `self-contained/libc.a`, and that directory exists only when the musl
+#   `rust-std` is installed. It supplies both halves of the answer at once: the
+#   standard library the runtime archive is compiled against, and the eleven
+#   files — `libc.a`, `libunwind.a`, `rcrt1/crt1/Scrt1/crti/crtn`,
+#   `crtbegin{,S}`, `crtend{,S}` — that `cli/src/build/musl.rs` bakes into the
+#   toolchain with `include_bytes!` and `build/link.rs::stage_sysroot` writes
+#   back out beside the objects.
+#
+#   Missing, the build script *degrades*: the archive is built for the host's
+#   gnu triple, its `.libc` sidecar reads `gnu`, and the baked sysroot is empty.
+#   That is deliberately not survivable here — `assert-runtime-archive.sh` fails
+#   on the sidecar and `link::select` refuses every link — because the artifact
+#   a degraded toolchain produces runs on this runner and on no older machine,
+#   which is a property no test that runs *here* can observe. The runner is
+#   `aarch64` on the `-arm` rows and `x86_64` on the others, so the triple is
+#   taken from `uname -m` rather than written down twice.
 #
 # `push:` with no branch filter: every push to every branch in this repository.
 # `pull_request:` is what covers the case `push:` cannot see — a pull request
@@ -153,12 +189,18 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang lld mold llvm binutils
+          sudo apt-get install -y --no-install-recommends \
+            clang lld mold llvm binutils musl-dev musl-tools
           # Debian's `llvm` package installs the UNVERSIONED tool names under
           # /usr/lib/llvm-<N>/bin and only the versioned ones in /usr/bin.
           # `cross_tools` probes the unversioned names, so the directory goes on
           # PATH rather than this file guessing a version. Highest wins.
           ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
+          # The musl standard library, before anything runs `cli/build.rs`.
+          # The header argues it: without this the archive is a gnu archive,
+          # the baked sysroot is empty, and the leg is red — loudly, which is
+          # the point, but red. `uname -m` already spells the Rust arch.
+          rustup target add "$(uname -m)-unknown-linux-musl"
       # Asserted, not assumed. A missing tool otherwise presents as a test that
       # skipped or as a link failure inside a suite, and both read as "green" or
       # as "a compiler bug" rather than as "the runner changed".
@@ -334,8 +376,12 @@ jobs:
       - run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang lld mold llvm binutils
+          sudo apt-get install -y --no-install-recommends \
+            clang lld mold llvm binutils musl-dev musl-tools
           ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
+          # The musl standard library, before the `cargo build` below runs
+          # `cli/build.rs`. The header argues why it is not optional.
+          rustup target add "$(uname -m)-unknown-linux-musl"
       - run: cargo build -p buri --tests
       - name: The stencil libraries are not empty
         run: bash .github/scripts/assert-stencils.sh
@@ -544,8 +590,12 @@ jobs:
       - run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang lld mold llvm binutils
+          sudo apt-get install -y --no-install-recommends \
+            clang lld mold llvm binutils musl-dev musl-tools
           ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
+          # The musl standard library, before the `cargo build` below runs
+          # `cli/build.rs`. The header argues why it is not optional.
+          rustup target add "$(uname -m)-unknown-linux-musl"
       - run: cargo build -p buri --tests
       - name: The stencil libraries are not empty
         run: bash .github/scripts/assert-stencils.sh
@@ -716,8 +766,12 @@ jobs:
       - run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang lld mold llvm binutils
+          sudo apt-get install -y --no-install-recommends \
+            clang lld mold llvm binutils musl-dev musl-tools
           ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 >> "$GITHUB_PATH"
+          # The musl standard library, before the `cargo build` below runs
+          # `cli/build.rs`. The header argues why it is not optional.
+          rustup target add "$(uname -m)-unknown-linux-musl"
 
       - name: Install LLVM 21 from apt.llvm.org
         run: |

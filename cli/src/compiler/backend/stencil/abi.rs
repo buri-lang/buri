@@ -75,11 +75,29 @@ impl StencilTarget {
     /// What `clang -target` is given. The same spelling
     /// `llvm/target.rs::triple` produces, so both native backends name a target
     /// one way.
+    ///
+    /// Linux is `-musl` for the reason `backend::triple_text` argues: the
+    /// executables are static PIEs linked against the musl libc this toolchain
+    /// ships, and a stencil compiled for one C library and copied into an
+    /// object linked against another is a disagreement nothing downstream
+    /// checks. Here it is free of consequence rather than merely safe — the
+    /// generated C reaches no libc header at all (`sources::compile_flags`
+    /// passes `-nostdinc` and no sysroot, and `sources::memcpy_decl` declares
+    /// the one function it uses), and `-gnu` and `-musl` share a psABI on both
+    /// of these architectures — so clang emits the bytes it emitted before,
+    /// and only the name it was asked under changed.
+    ///
+    /// Measured rather than assumed, when the spelling moved: all three
+    /// libraries were rebuilt from an empty scratch directory under `-musl`
+    /// and every shard object, and all three encoded blobs, came out identical
+    /// to the `-gnu` ones byte for byte — digests included. `Stencil::identity`
+    /// is those digests, so nothing that was cached against it was invalidated
+    /// by the rename.
     pub fn triple(self) -> &'static str {
         match self {
             StencilTarget::MacosArm64 => "arm64-apple-darwin",
-            StencilTarget::LinuxArm64 => "aarch64-unknown-linux-gnu",
-            StencilTarget::LinuxX86_64 => "x86_64-unknown-linux-gnu",
+            StencilTarget::LinuxArm64 => "aarch64-unknown-linux-musl",
+            StencilTarget::LinuxX86_64 => "x86_64-unknown-linux-musl",
         }
     }
 

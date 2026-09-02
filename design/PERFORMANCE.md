@@ -722,7 +722,7 @@ row, JavaScript and native alike, which is what keeps the three comparable;
 `--json --split` still emits one parseable document.
 
 Three native triples by default — `aarch64-apple-darwin`,
-`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` — whichever machine
+`x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` — whichever machine
 the suite is run on. A cross triple is *more* reproducible than the host one:
 the host ISA is inferred from the running CPU's features and a cross ISA is the
 baseline for its triple. The refusal to cross-*link* stays where it belongs, at
@@ -1697,16 +1697,21 @@ Its numbers, and the one this tree reproduced on 2026-09-01:
 | triple | `net` off | `net` | `net-h3` | budget | headroom |
 |---|---:|---:|---:|---:|---:|
 | `aarch64-apple-darwin` | 6,329,104 | **9,097,192** | 9,097,432 | 9,437,184 | 3.6% |
-| `aarch64-unknown-linux-gnu` | — | **13,799,068** | — | 14,680,064 | 6.0% |
+| `aarch64-unknown-linux-musl` | — | **13,938,046** | — | 14,680,064 | 5.05% |
 
 The Darwin figure is not quoted from the script: a `cargo build --release -p
 buri` in this worktree produced an archive of exactly 9,097,192 bytes, and the
 script passed over it. The Linux figure is the script's own, measured in the
-container `scripts/test-linux.sh` runs, and it is 1.52× Darwin's for the same
-code — ELF's price per byte, the same ratio F4 and F7 each measured. Both
-budgets are ratchets and **neither is hit**; Darwin's 3.6% is the thinner of the
-two, and the script says in capitals that the next slice to add anything at all
-is the one that re-measures it.
+container `scripts/test-linux.sh` runs, and it is now the **musl** triple's:
+the Linux link is static-musl, and the archive it builds is 13,938,046 bytes
+against 13,799,068 for the `gnu` triple it replaced — 139 KB and 1.0% larger,
+which is musl's standard library rather than anything this repository did. It
+is 1.53× Darwin's for the same code — ELF's price per byte, near enough the
+ratio F4 and F7 each measured on `gnu`. Both budgets are ratchets and **neither
+is hit**; Darwin's 3.6% is still the thinner of the two, the musl switch cost
+Linux the difference between 6.0% and 5.05% and needed no raise, and the script
+says in capitals that the next slice to add anything at all is the one that
+re-measures it.
 
 **What a phase allocates, which is the one figure with no noise in it.**
 `--alloc` needs the counting global allocator (`--features alloc-counter`), so a

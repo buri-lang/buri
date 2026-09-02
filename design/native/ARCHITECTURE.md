@@ -701,7 +701,7 @@ those that nothing checks. What remains open is in `design/TODO.md`, under
   than by the running CPU, cross-building both of its Linux libraries on a macOS
   host with no Linux sysroot (CODEGEN-STENCIL.md §3.2), and LLVM targets
   everything: the benchmark suite takes `aarch64-apple-darwin`,
-  `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu` as default rows on
+  `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` as default rows on
   whichever machine it is run on (`design/PERFORMANCE.md` §3). A cross triple is
   in fact *more* reproducible than the host one, because the host ISA is
   inferred from the running CPU's features and a cross ISA is the baseline for
@@ -717,8 +717,60 @@ those that nothing checks. What remains open is in `design/TODO.md`, under
   fix, when someone wants it, is "ship prebuilt runtime archives per triple": a
   packaging problem rather than a compiler one. Saying that is the point of
   refusing out loud.
-- **No dynamic linking, no shared libraries, no `dlopen`.** Every artifact is a
-  static executable against the platform libc. The language has no FFI to declare
-  one with, so there is nothing to link against but the runtime.
+- **No dynamic linking, no shared libraries, no `dlopen`.** The language has no
+  FFI to declare one with, so there is nothing to link against but the runtime.
+  What "static" *means* is different on the two platforms, though, and the word
+  on its own has been read as a promise the macOS artifact does not keep — so
+  both are written out:
+
+  - **Linux: a static-PIE executable against a musl the toolchain carries.**
+    Not the machine's libc, and not a distribution's musl either. `cli/build.rs`
+    builds `libburi_rt.a` for `<arch>-unknown-linux-musl` and bakes eleven files
+    out of that rustc's own `self-contained/` directory — `libc.a`,
+    `libunwind.a`, and the crt objects — into the `buri` binary;
+    `build/link.rs` writes them back out beside the objects and points the
+    driver at them. So the libc an artifact carries is a property of the
+    toolchain that built it and not of the machine that ran the build, which is
+    the whole point: a `buri build` on a 2024 distribution has to produce
+    something that runs on a 2018 one. CODEGEN-STENCIL.md §12.3 has the command
+    line and the three tiers.
+  - **macOS: dynamically linked against libSystem, because there is no other
+    option.** Apple ships no static libc, has not since 10.4, and a binary that
+    bypassed `libSystem.dylib` to make raw syscalls would be one Apple has said
+    it may break in any release. Every other dependency is still static — the
+    runtime archive is in the artifact — so what "dynamic" costs here is one
+    library that is present on every macOS by definition.
+
+  Three consequences follow from the Linux half, and none of them is
+  hypothetical:
+
+  - **`dlopen` is not merely forbidden, it is absent.** The rule above is a
+    design decision; a static-PIE musl binary makes it a fact of the file. That
+    is also the reason a *statically linked glibc* was not the answer: glibc's
+    `getaddrinfo` dlopens a matching `libnss_*.so` at run time, so a
+    "statically linked" glibc artifact still needs a `libnss_files.so` of the
+    right version to be present, and the thing the static link was for is
+    exactly the thing it fails to deliver.
+  - **Name resolution is musl's, which reads `/etc/resolv.conf` and
+    `/etc/hosts` and nothing else.** There is no NSS, so `nsswitch.conf` is not
+    read and mDNS, LDAP, NIS and `systemd-resolved`'s own plugin do not
+    participate. This is not academic: `cli/runtime/http.rs`'s `resolve` calls
+    `to_socket_addrs`, which is `getaddrinfo`, so a Buri program fetching a
+    `.local` name — or a corporate name served only by an NSS module — will not
+    find what a glibc program on the same machine finds. It is accepted rather
+    than worked around because the alternative above does not work at all, and
+    because the failure is a name that does not resolve rather than a binary
+    that does not start.
+  - **musl's `malloc` is slower than glibc's under multithreaded churn**, and
+    the runtime allocates: `cli/runtime/lib.rs` §5 is `malloc`-backed, one block
+    per allocation. What keeps that from being a per-value trip into a
+    contended allocator is `cli/runtime/memory.rs`'s G2 per-thread block caches
+    — a free returns the block to this thread's cache and the next allocation
+    of that size takes it back without touching `malloc` at all (`rt.rs`'s
+    thread-local note explains why a cached block may cross threads safely). If
+    it ever does bite, **the answer is to bundle an allocator into the runtime
+    archive, not to go back to glibc**: an allocator is a dependency this
+    project can carry, and a libc the artifact does not carry is the property
+    the whole section is about.
 - **No threads.** This is not a native-backend decision, it is the language's,
   and MEMORY.md §3 records what it buys: non-atomic reference counting.
