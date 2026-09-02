@@ -728,8 +728,22 @@ fn compile_unit(
     // one is a name and a flag word, and `elf.rs` reads the flags off
     // `attributes` and `zerofill` exactly as `object.rs` does.
     let (text, text_seg) = if target.is_elf() { (".text", "") } else { ("__text", "__TEXT") };
+    // **`.data.rel.ro` and not `.rodata`**, which is the ELF spelling of the
+    // `__DATA_CONST,__const` beside it rather than a different decision. The
+    // pool holds *addresses* — every `Abs64` in `pool_relocs` writes one — and
+    // in a position-independent executable an address is not known until the
+    // image is placed, so the word has to be written at startup. A linker
+    // asked to put a run-time-written word in a read-only section refuses:
+    // `mold: relocation at offset 0x8 against symbol `buri$stencil$pool` can
+    // not be used; recompile with -fPIC`, which is what a `-static-pie` link
+    // of a `.rodata` pool actually says. `.data.rel.ro` is the section the ELF
+    // world has for exactly this — writable while the dynamic relocations are
+    // applied, then folded into the `PT_GNU_RELRO` segment and made read-only
+    // again before `main` — so the constant pool ends up as constant as it was,
+    // one page later. Mach-O's `__DATA_CONST` has always been the same bargain,
+    // which is why only the spelling differs here.
     let (const_, const_seg) =
-        if target.is_elf() { (".rodata", "") } else { ("__const", "__DATA_CONST") };
+        if target.is_elf() { (".data.rel.ro", "") } else { ("__const", "__DATA_CONST") };
     let (bss, bss_seg) = if target.is_elf() { (".bss", "") } else { ("__bss", "__DATA") };
     let mut sections = vec![
         object::Section {

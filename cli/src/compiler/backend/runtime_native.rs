@@ -83,6 +83,8 @@ fn snake_into(segment: &str, out: &mut String) {
     }
 }
 
+use crate::build::musl::{self, Libc};
+
 /// `libburi_rt.a` for the host.
 ///
 /// Empty on a host `cli/build.rs` builds no runtime for — anything that is not
@@ -122,6 +124,50 @@ const FEATURES: &str = include_str!(concat!(env!("OUT_DIR"), "/libburi_rt.a.feat
 /// Whole lines, because the next feature is `net-h3` and it contains `net`.
 pub fn declares(feature: &str) -> bool {
     declares_in(FEATURES, feature)
+}
+
+/// The C library `cli/build.rs` built the archive against.
+///
+/// Written beside the archive, its digest and its feature list by one run of
+/// the build script, for the reason [`FEATURES`] is: a stale `OUT_DIR` cannot
+/// pair one build's bytes with another build's answer.
+///
+/// Three values, and the empty file is one of them — `musl`, `gnu`, or nothing
+/// at all on a host with no archive to have a libc.
+const LIBC: &str = include_str!(concat!(env!("OUT_DIR"), "/libburi_rt.a.libc"));
+
+/// Which libc this toolchain links against, and whether it brought its own.
+///
+/// The sidecar answers the first half and `musl::BAKED` the second, which is
+/// why this is a function over two facts rather than a fourth line in the
+/// feature list. They are genuinely separate: `cli/build.rs` bakes the sysroot
+/// from *this rustc's* self-contained directory whether or not the runtime's
+/// dependency tree resolved, so "the archive is musl" and "the bytes to link it
+/// with are in this binary" can differ, and [`Libc::MuslSystem`] is the case
+/// where they do.
+///
+/// A file read rather than a `--cfg`, for the reason the emptiness of
+/// [`ARCHIVE`] is the availability signal.
+pub fn libc() -> Libc {
+    libc_in(LIBC, musl::BAKED)
+}
+
+/// [`libc`], over a sidecar and a baked-ness the caller supplies.
+///
+/// The same seam [`declares_in`] is: both facts are baked into this binary, so
+/// a test has no other way to ask what a differently-built toolchain would
+/// answer, and all four states are reachable on some host but never on one.
+fn libc_in(sidecar: &str, baked: bool) -> Libc {
+    match sidecar.trim() {
+        "musl" if baked => Libc::MuslBaked,
+        "musl" => Libc::MuslSystem,
+        "gnu" => Libc::Glibc,
+        // Empty, which is the only other value `libc_beside` writes. Anything
+        // else would be a build script and a reader that disagree, and reading
+        // it as "no Linux libc here" is the answer that degrades rather than
+        // the one that mislinks.
+        _ => Libc::Absent,
+    }
 }
 
 /// [`declares`], over a feature list the caller supplies.
@@ -351,6 +397,76 @@ mod tests {
     }
 
     /// The family `net` carries, and the near misses that are not it.
+    /// The sidecar's three values against the four states they mean, and the
+    /// join with `musl::BAKED` that makes four out of three. Written as a table
+    /// rather than as assertions about *this* host because only one row of it is
+    /// reachable from any given build — which is the reason `libc_in` is a seam
+    /// at all, the same reason `declares_in` is one.
+    #[test]
+    fn a_libc_is_a_sidecar_and_a_sysroot() {
+        assert_eq!(libc_in("musl", true), Libc::MuslBaked);
+        assert_eq!(
+            libc_in("musl", false),
+            Libc::MuslSystem,
+            "a musl archive with no baked sysroot links against the machine's musl"
+        );
+        assert_eq!(libc_in("gnu", true), Libc::Glibc, "a gnu archive is gnu whatever was baked");
+        assert_eq!(libc_in("gnu", false), Libc::Glibc);
+        assert_eq!(
+            libc_in("", true),
+            Libc::Absent,
+            "an empty sidecar is no archive, and no archive has no libc — baking a sysroot \
+             does not invent one"
+        );
+        assert_eq!(libc_in("", false), Libc::Absent);
+        // Trailing whitespace is not a fourth value. `libc_beside` writes no
+        // newline, but a file that acquired one must not read as `Absent` and
+        // silently take a Linux toolchain out of the musl claim.
+        assert_eq!(libc_in("musl\n", true), Libc::MuslBaked);
+        assert_eq!(libc_in("gnu\n", false), Libc::Glibc);
+        // And the accessor is the seam over this build's own two facts.
+        assert_eq!(libc(), libc_in(LIBC, musl::BAKED));
+    }
+
+    /// What the host implies about the two, on the one host each test runs on.
+    ///
+    /// macOS is the whole of what can be asserted unconditionally: `cli/build.rs`
+    /// writes the sidecar empty and bakes nothing there, so both halves are
+    /// pinned. The Linux side is `.github/scripts/assert-runtime-archive.sh`'s,
+    /// because the answer there depends on what the *builder* had installed and
+    /// a unit test cannot tell a contributor's laptop from a release runner —
+    /// which is exactly the distinction that script exists to draw.
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_has_no_linux_libc() {
+        assert_eq!(libc(), Libc::Absent);
+        // `musl::BAKED` is a `const` the build script writes, so clippy reads
+        // this as an assertion on a constant; that it is constant *per build*
+        // is the point — the check is that this build is the macOS one.
+        #[allow(clippy::assertions_on_constants)]
+        {
+            assert!(!musl::BAKED, "there is no Linux link to bake a sysroot for on macOS");
+        }
+        for (name, bytes) in musl::FILES {
+            assert!(bytes.is_empty(), "{name} should be baked empty on macOS");
+        }
+    }
+
+    /// The sysroot's digest is a digest, whether or not there is a sysroot.
+    ///
+    /// An empty sysroot still has a hash — of eleven empty members, which is a
+    /// perfectly good sixty-four hex digits — so the shape of the answer does
+    /// not depend on the host, and Package B's cache key does not have to ask.
+    #[test]
+    fn the_sysroot_hash_is_a_hash() {
+        let hash = musl::sysroot_hash();
+        assert_eq!(hash.len(), 64, "{hash} is not a SHA-256 in hex");
+        assert!(
+            hash.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "{hash} is not lowercase hex — no newline to trim, the convention ARCHIVE_SHA256 sets"
+        );
+    }
+
     #[test]
     fn the_networking_family_is_three_effects() {
         for key in [

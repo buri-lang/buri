@@ -175,9 +175,15 @@ case "$job" in
     *) echo "test-linux.sh: --job takes all, test or programs (got '$job')" >&2; exit 2 ;;
 esac
 
+# `musltriple` is the Rust target the runtime archive is built for inside the
+# container, and it is the same name as the container's own architecture with a
+# different libc: `cli/build.rs` switches a `-linux-gnu` host to its `-linux-musl`
+# sibling so that the executables `buri build` produces are static-PIE and run on
+# any Linux. Named here rather than derived in the Containerfile because `rustup
+# target add` needs it spelled out and the arch table is where the arch is spelt.
 case "$arch" in
-    arm64)  platform=linux/arm64  ; debarch=arm64 ; nodearch=arm64   ; bunarch=aarch64 ;;
-    x86_64) platform=linux/amd64  ; debarch=amd64 ; nodearch=x64     ; bunarch=x64     ;;
+    arm64)  platform=linux/arm64  ; debarch=arm64 ; nodearch=arm64   ; bunarch=aarch64 ; musltriple=aarch64-unknown-linux-musl ;;
+    x86_64) platform=linux/amd64  ; debarch=amd64 ; nodearch=x64     ; bunarch=x64     ; musltriple=x86_64-unknown-linux-musl  ;;
 esac
 
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -252,15 +258,22 @@ trap 'rm -rf "$build_dir"' EXIT
 cat > "$build_dir/Containerfile" <<CONTAINERFILE
 FROM $RUST_IMAGE
 
-# The five packages the workflow installs, and the reason each is there is
+# The seven packages the workflow installs, and the reason each is there is
 # argued in ci.yml's header: clang because \`cli/build.rs\` degrades to an empty
 # stencil library under gcc; mold AND lld because \`build/link.rs::choose\`
 # prefers mold and both are asserted on their own output; llvm for the
 # unversioned llvm-nm/objdump/readelf that \`cross_tools\` probes; binutils for
 # \`readelf\` itself. xz-utils and unzip unpack node and bun below.
+#
+# musl-dev and musl-tools are the sixth and seventh, and they are for \`ring\`.
+# The runtime is built for $musltriple, so the C \`ring\` compiles has to be
+# compiled for musl too; \`cli/build.rs\` points cc-rs at the clang above with a
+# \`--target=\` and an \`-isystem /usr/include/<arch>-linux-musl\`, and musl-dev is
+# what puts musl's headers at that path. Without them the archive still builds
+# and the C in it is glibc's, which surfaces as undefined symbols at link time.
 RUN apt-get update \\
  && apt-get install -y --no-install-recommends \\
-      clang lld mold llvm binutils xz-utils unzip ca-certificates curl \\
+      clang lld mold llvm binutils musl-dev musl-tools xz-utils unzip ca-certificates curl \\
  && rm -rf /var/lib/apt/lists/*
 
 # Debian installs the UNVERSIONED llvm tool names under /usr/lib/llvm-<N>/bin
@@ -276,6 +289,14 @@ RUN ls -d /usr/lib/llvm-*/bin | sort -V | tail -1 > /etc/llvm-bin-dir
 # clippy in it. The workflow runs clippy on the Linux legs, so it is added here
 # rather than discovered missing after the suite has already run.
 RUN rustup component add clippy
+
+# And the musl standard library, for the same reason and with a sharper
+# consequence. \`cli/build.rs\` probes for it and *degrades* when it is missing:
+# the runtime gets built against the image's glibc, every executable the suite
+# links depends on that glibc, and nothing fails — which is exactly the silent
+# green \`.github/scripts/assert-runtime-archive.sh\` refuses. Installed here so
+# that the local Linux run and CI answer the same question the same way.
+RUN rustup target add $musltriple
 
 # node and bun, at exact versions, verified against the digests their own
 # release hosts publish. Compiled programs are executed with bun, and the
@@ -615,8 +636,9 @@ binary {
 BUILD
     cat > "$work/repo/cmd/app/main.buri" <<'SRC'
 from "core/host" import { stdout };
+from "core/io" import * as io;
 export fn main(): Result<(), Str> {
-  let _ = stdout.println("reproducible");
+  let _ = io.println(stdout, "reproducible").ignore();
   .Ok(())
 }
 SRC

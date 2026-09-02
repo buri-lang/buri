@@ -4,16 +4,112 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
+
+    # THE THIRD INPUT, AND WHAT IT BUYS: A LINUX PACKAGE THAT CAN LINK.
+    #
+    # This flake had two inputs on purpose, and an input is a real cost — a
+    # second source of a compiler, a second lockfile entry, a second thing to
+    # bump. What buys this one is not convenience: it is the difference
+    # between a `buri` that produces Linux executables and one that refuses
+    # to.
+    #
+    # `pkgs.rustPlatform`'s rustc ships `rust-std` for the host triple alone,
+    # and there is no `rustup` in a sandbox to add another with. On Linux
+    # `cli/build.rs` needs `<arch>-unknown-linux-musl`'s std — it probes
+    # `rustc --print target-libdir --target <musl>` for the `self-contained/`
+    # directory it bakes eleven files out of — so without it the derivation
+    # took `build.rs`'s documented degradation and built a **glibc** archive
+    # with an empty sysroot. The toolchain that came out then refused every
+    # native Linux link in the product's own words
+    # (`build/link.rs::libc_for`): loud, correct, and a compiler with its
+    # native backend switched off by the way it was packaged.
+    #
+    # `rust-bin.stable.latest.default.override { targets = [ ... ]; }` is
+    # upstream's own dist tarball, which is exactly where the
+    # `self-contained/` directory comes from — measured, not assumed: the
+    # override's sysroot holds precisely the eleven files `cli/src/build/musl.rs`
+    # bakes, and `--print target-libdir --target <musl>` resolves into it.
+    # `pkgs.pkgsCross.musl64` was the other candidate and answers a different
+    # question — it cross-compiles the *toolchain* to musl, where what is
+    # wanted is a toolchain that can produce musl artifacts — and a nixpkgs
+    # std built against its own musl carries no `self-contained/` at all.
+    #
+    # `follows`, so that the overlay's nixpkgs is this flake's nixpkgs: one
+    # copy of nixpkgs in the lockfile, and a `pkgs` whose rust and whose
+    # everything-else come from the same tree.
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { self, nixpkgs, flake-utils }:
+    { self, nixpkgs, flake-utils, rust-overlay }:
     # The four systems a `buri` binary is expected on: aarch64 and x86_64,
     # Darwin and Linux.
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        # The overlay is what puts `pkgs.rust-bin` there; nothing else in this
+        # `pkgs` changes, so every other package is still the one `nixos-25.11`
+        # names.
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ (import rust-overlay) ];
+        };
+        inherit (pkgs) lib;
+
+        # The triple the Linux half of this package is *about*.
+        #
+        # A substring replacement over the host's own config triple, which is
+        # the same transformation `cli/build.rs::product_target` makes and is
+        # deliberately the same shape: an `arm-unknown-linux-gnueabihf` host
+        # becomes `...-musleabihf`, where a triple rebuilt from the
+        # architecture would have dropped the ABI suffix and named a target
+        # that does not exist. On Darwin the replacement finds nothing, the
+        # value is the host triple, and nothing below reads it.
+        muslTarget =
+          builtins.replaceStrings [ "-linux-gnu" ] [ "-linux-musl" ]
+            pkgs.stdenv.hostPlatform.config;
+        # `cc-rs` spells its per-target variables with underscores:
+        # `CC_aarch64_unknown_linux_musl`. Same string, one substitution.
+        muslKey = builtins.replaceStrings [ "-" ] [ "_" ] muslTarget;
+
+        # The compiler this package is built by — the overlay's on Linux, and
+        # nixpkgs' own everywhere else.
+        #
+        # **The split is deliberate and it is measured.** The overlay is here
+        # for one thing, a musl `rust-std`, and macOS has no use for one: a
+        # `buri` on Darwin produces Mach-O. Taking the overlay there anyway
+        # would not be free and would not be neutral — it is a *compiler
+        # version bump* smuggled in beside a libc fix, because
+        # `rust-bin.stable.latest` is 1.98.0 where this flake's `nixos-25.11`
+        # pins 1.91.1. What that costs was not guessed: built on aarch64-darwin,
+        # 1.98.0's runtime archive is 9 582 112 bytes against the 9 437 184-byte
+        # Darwin budget in `.github/scripts/assert-runtime-archive.sh`, so the
+        # bump alone turns `nix build` red on macOS — an artifact-size decision
+        # arriving as a side effect of a Linux packaging one, which is exactly
+        # the shape of change this repository argues against. Linux takes the
+        # newer compiler because there it buys the musl target; Darwin keeps
+        # the one nixpkgs pins, and every input to its derivation is the one
+        # this change found — `src` aside, which every edit to this file moves.
+        #
+        # `makeRustPlatform`, because `buildRustPackage` takes its `rustc` and
+        # `cargo` from a platform rather than from the arguments, and a
+        # toolchain wired anywhere else is a toolchain the build does not use.
+        # `rustToolchain` is never forced on Darwin: nix is lazy, and the `if`
+        # below is what keeps the dist tarball from being fetched there.
+        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+          targets = [ muslTarget ];
+        };
+        rustPlatform =
+          if pkgs.stdenv.hostPlatform.isLinux then
+            pkgs.makeRustPlatform {
+              cargo = rustToolchain;
+              rustc = rustToolchain;
+            }
+          else
+            pkgs.rustPlatform;
 
         # The version is read rather than written down. `buri version` prints
         # `CARGO_PKG_VERSION`, so a version repeated here is a second place to
@@ -68,8 +164,8 @@
         # Neither `importCargoLock` call takes a hash: both read theirs out of
         # the lockfile they are given, so there is still no `cargoHash` to keep
         # in sync by hand and a lockfile edit needs no second edit here.
-        toolchainCrates = pkgs.rustPlatform.importCargoLock { lockFile = ./Cargo.lock; };
-        runtimeCrates = pkgs.rustPlatform.importCargoLock {
+        toolchainCrates = rustPlatform.importCargoLock { lockFile = ./Cargo.lock; };
+        runtimeCrates = rustPlatform.importCargoLock {
           lockFile = ./cli/runtime/manifest.lock;
         };
 
@@ -125,7 +221,7 @@
         '';
       in
       {
-        packages.default = pkgs.rustPlatform.buildRustPackage {
+        packages.default = rustPlatform.buildRustPackage ({
           pname = cargoToml.package.name;
           inherit (cargoToml.package) version;
           # The flake's own source. In a checkout that is a git repository this
@@ -189,6 +285,38 @@
             bash .github/scripts/assert-runtime-archive.sh target
           '';
 
+          # WHICH LIBC THE ARCHIVE IS BUILT AGAINST, AND WHY NOTHING HERE
+          # RELAXES THE ANSWER ANY MORE.
+          #
+          # On a Linux host `cli/build.rs` builds the runtime archive for
+          # `<arch>-unknown-linux-musl`, so that every artifact `buri build`
+          # links is a static-PIE musl executable that runs on any Linux
+          # (design/native/ARCHITECTURE.md §9, CODEGEN-STENCIL.md §12.3). It
+          # finds the bytes for that by asking `rustc --print target-libdir
+          # --target <musl>` for a `self-contained/` directory, and that
+          # directory exists only where the musl `rust-std` is installed beside
+          # the compiler. `rustToolchain` above is that compiler: the
+          # `targets = [ muslTarget ]` override is what puts the directory
+          # there, and the `postBuild` assertion above is what says so.
+          #
+          # This block used to set `BURI_ARCHIVE_LIBC_MAY_BE_GLIBC=1`, the one
+          # escape hatch in `assert-runtime-archive.sh`, because
+          # `pkgs.rustPlatform`'s rustc ships std for the host triple alone and
+          # a sandbox has no `rustup` to add a target with. The archive was a
+          # `gnu` archive, the baked sysroot was empty, and the toolchain that
+          # came out refused every native Linux link. Nothing sets that variable
+          # now — the script no longer has it — and the libc assertion is
+          # load-bearing on `x86_64-linux` and `aarch64-linux` again: a
+          # `nix build` that produced a glibc archive would go red.
+          #
+          # `BURI_MUSL=off` is deliberately NOT set. It is read by the produced
+          # binary at link time rather than by this build, so setting it here
+          # does nothing — and setting it *for the produced binary*, by
+          # wrapping it, would trade a hermetic executable for a `buri build`
+          # that silently links against the user's glibc. That is the precise
+          # outcome this whole arrangement exists to prevent, and a package
+          # manager is the last place to make it the default.
+
           # `cargo test` compiles and *runs* the examples under `cli/src/docs/`,
           # which means spawning a JavaScript runtime -- a package
           # build must not depend on that, so the suite stays in `nix develop`.
@@ -213,7 +341,74 @@
             license = pkgs.lib.licenses.mit;
             platforms = pkgs.lib.platforms.unix;
           };
-        };
+        }
+        # RING'S C, AND THE ONE COMPILER IN THIS SANDBOX THAT CAN AIM AT MUSL.
+        #
+        # The rust half above is not the whole answer. The runtime's `ring` —
+        # `rustls`'s crypto provider, and the reason `https://` works — builds
+        # C and assembly through `cc-rs`, and a musl *rust* target makes that a
+        # musl *C* compile too. `cc-rs` left to itself goes looking for
+        # `musl-gcc` by name, finds none, and the build ends at a header it
+        # cannot open; `cli/build.rs::musl_cc_env`'s own fallback is Debian's
+        # `/usr/include/<arch>-linux-musl` over a `cc` that takes `--target=`,
+        # and a nix sandbox has neither — its `cc` is gcc, which rejects the
+        # flag outright. So the answer is named here, where the store paths are
+        # known, rather than probed there.
+        #
+        # `CC_<target>`/`CFLAGS_<target>` is the pair `cc-rs` consults *first*,
+        # ahead of every guess it would otherwise make, and `musl_cc_env`
+        # returns untouched when it finds `CC_<target>` already set — that
+        # deference is the contract this relies on, and the comment on that
+        # function is its other half. The two must stay spelled the same way:
+        # `muslKey` is the underscored triple `cc-rs` looks for.
+        #
+        # `pkgs.clang` and not the stdenv's `cc`, because one clang binary
+        # compiles for every target it was built with and gcc compiles for one.
+        # The `-isystem` is musl's own headers out of the store, which is the
+        # nix-shaped answer to the Debian path above: hermetic, versioned with
+        # the rest of `pkgs`, and no `/usr` anywhere in it. It precedes the
+        # wrapper's own libc `-isystem` — cc-wrapper appends `NIX_CFLAGS_COMPILE`
+        # *after* the caller's arguments — so musl's `stdlib.h` is the one
+        # found, not glibc's.
+        #
+        # `NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING`: the clang wrapper prints a
+        # line per compilation unit when it is handed a `--target=` other than
+        # its own, on the reasoning that it "is currently not designed with
+        # multi-target compilers in mind". What the warning is about is the
+        # wrapper's *link* flags, which point at glibc — and nothing here
+        # links: `cc-rs` compiles objects, `rustc` links them against the
+        # baked musl sysroot. Suppressed with the argument written down rather
+        # than left to scroll past on every file.
+        //
+          lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            "CC_${muslKey}" = "${pkgs.clang}/bin/clang";
+            "CFLAGS_${muslKey}" = "--target=${muslTarget} -isystem ${pkgs.musl.dev}/include";
+            NIX_CC_WRAPPER_SUPPRESS_TARGET_WARNING = "1";
+
+            # THE SAME CLANG AS `CC`, AND THE SECOND HALF OF A NATIVE BACKEND.
+            #
+            # `cli/build.rs` builds the stencil library with `CC` — two Linux
+            # blobs, cross-compiled as `clang --target=<arch>-unknown-linux-musl
+            # -nostdinc -isystem $(clang -print-resource-dir)/include`, which is
+            # clang's own headers and no sysroot
+            # (`backend/stencil/sources.rs::compile_flags`). gcc has no
+            # `--target=` and no `-print-resource-dir`, so with the stdenv's
+            # `cc` the probe in `sources.rs::can_build` fails, both blobs are
+            # written empty, and `backend::select` answers "the linux backend is
+            # not implemented" for every native output — measured on this
+            # derivation before this line existed, with a musl runtime archive
+            # sitting right beside the empty stencils.
+            #
+            # `preBuild` and not an attribute, because cc-wrapper's setup hook
+            # exports `CC` unconditionally during `setupPhase` and would
+            # overwrite one. Only `CC` moves: `CXX` stays the stdenv's, and
+            # nothing in either dependency tree compiles C++ under the default
+            # features.
+            preBuild = ''
+              export CC=${pkgs.clang}/bin/clang
+            '';
+          }
+        );
 
         # `nix run github:buri-lang/buri -- version`.
         apps.default = {

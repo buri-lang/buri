@@ -137,6 +137,15 @@ pub type LinkOptions<'a> = Options<'a>;
 /// No macOS deployment version: the object the linker is handed carries what
 /// `cc` puts on the command line, and pinning one here would make a toolchain
 /// refuse to link on a newer SDK.
+///
+/// **Linux is `-musl`, not `-gnu`.** A Linux executable this toolchain
+/// produces is a static PIE linked against the musl libc it ships, so it runs
+/// on any Linux of that architecture with no loader and no `libc.so` to find;
+/// naming glibc in the triple while linking musl would be a claim the
+/// toolchain has stopped being able to make. It costs nothing in bytes: on
+/// both architectures emitted for, the two spellings share a psABI, a data
+/// layout and a relocation vocabulary, so what an object holds is unchanged
+/// and only the name on it moves.
 pub fn triple_text(target: Target) -> Option<String> {
     let arch = match target.arch {
         Some(Arch::X86_64) => "x86_64",
@@ -146,7 +155,7 @@ pub fn triple_text(target: Target) -> Option<String> {
     };
     match target.platform {
         Platform::Macos => Some(format!("{arch}-apple-darwin")),
-        Platform::Linux => Some(format!("{arch}-unknown-linux-gnu")),
+        Platform::Linux => Some(format!("{arch}-unknown-linux-musl")),
         Platform::Js | Platform::Web => None,
     }
 }
@@ -353,6 +362,27 @@ pub trait Linker {
     /// The linker's own identity, for the same reason [`Backend::identity`]
     /// exists: `ld64` and `mold` do not produce the same bytes.
     fn version(&self) -> String;
+
+    /// Everything *else* about the link that decides the bytes: the flags, and
+    /// the libc they name.
+    ///
+    /// [`Linker::version`] is the linker's `--version` banner and nothing more,
+    /// so for years the `link` key held *who* linked and not *how*. That was
+    /// survivable while the command line was a function of the platform alone;
+    /// it stopped being survivable when the Linux link gained a libc question
+    /// with three answers. A toolchain rebuilt with a musl `rust-std` installed
+    /// links `-static-pie` against a baked sysroot where the one before it
+    /// linked against the host glibc — same `cc`, same `mold`, same objects,
+    /// same banner, and an artifact that is a different file. Without this term
+    /// the second build is served the first one's executable.
+    ///
+    /// Empty by default, and that is the honest answer for a linker whose
+    /// command line has no variation in it: `js::Concatenate` writes bytes it
+    /// computed itself, and a term that is always the same string is a term
+    /// that says nothing.
+    fn link_identity(&self) -> String {
+        String::new()
+    }
 
     /// Combines units into the final artifact at `out`. `unchanged` names the
     /// units whose bytes are byte-identical to the previous link, which a

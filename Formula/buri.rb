@@ -30,6 +30,35 @@ class Buri < Formula
 
   head "#{REPO}.git", branch: "main"
 
+  # THE LINUX CONSEQUENCE, and it is a real one on Linuxbrew rather than a
+  # theoretical one.
+  #
+  # A Linux artifact this toolchain links is a static-PIE musl executable
+  # (design/native/ARCHITECTURE.md §9), and `cli/build.rs` gets the bytes for
+  # that by asking `rustc --print target-libdir --target
+  # <arch>-unknown-linux-musl` for a `self-contained/` directory — which exists
+  # only where the musl `rust-std` is installed beside the compiler. Homebrew's
+  # `rust` is a rustc built for its host triple, with **no rustup**, so there is
+  # nothing here to `rustup target add` with: the build script takes its
+  # documented degradation, prints a `cargo:warning`, and writes an archive
+  # built against glibc.
+  #
+  # What the user then has is a toolchain that **refuses** every native Linux
+  # link rather than one that quietly produces a non-portable binary. The
+  # refusal is `build/link.rs`'s, it names both fixes, and it fires on either
+  # musl tier — even where `musl-clang` is installed — because the link's libc
+  # is checked against the *archive's* and a glibc archive on a musl command
+  # line is `undefined reference to __libc_start_main` waiting to happen. The
+  # front end, the JavaScript backend and everything that is not a native link
+  # still work.
+  #
+  # macOS is unaffected: there is no musl question there, `libSystem` is the
+  # only libc, and this formula's primary audience is on it. Closing the Linux
+  # gap means either depending on a `rustup`-managed toolchain — which Homebrew
+  # deliberately does not package — or shipping bottles built elsewhere, and
+  # both are release decisions rather than formula edits. Until one is taken,
+  # `cargo install buri` on a machine with rustup is the Linux path that
+  # produces a hermetic toolchain.
   depends_on "rust" => :build
 
   # No runtime dependency on a JavaScript runtime: `bun` is a development

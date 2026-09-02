@@ -182,6 +182,18 @@
 #
 # Usage: bash .github/scripts/assert-runtime-archive.sh [target-dir]
 # Runs on macOS and Linux, unchanged.
+#
+# THERE IS NO ESCAPE HATCH, AND THERE WAS ONE. `BURI_ARCHIVE_LIBC_MAY_BE_GLIBC=1`
+# used to downgrade the "WHICH LIBC" assertion below — and only that one — from
+# an error to a warning, for exactly one caller: `flake.nix`, whose sandbox had
+# no musl `rust-std` and no `rustup` to add one with, and whose Linux archive
+# was therefore a `gnu` archive. That flake now brings its own musl-capable
+# toolchain (`rust-overlay`, `targets = [ "<arch>-unknown-linux-musl" ]`) and
+# builds a musl archive like everything else, so the last caller is gone and
+# the variable with it. It is not kept "just in case": a build that needs it is
+# a build that has disarmed the one check standing between it and a silently
+# non-portable release, and the honest way to ask for that is to write the
+# argument down here, in a diff someone reviews.
 
 set -euo pipefail
 
@@ -196,6 +208,22 @@ case "$(uname -s)" in
   # 13 611 228 here and 13 515 516 on CI. 14 MiB leaves ~6.0 % on the largest.
   # THESE NUMBERS REPLACED A PROJECTION, and the projection was wrong by
   # 1.9 MB — see the note below.
+  #
+  # THE MUSL SWITCH DID NOT NEED THIS RAISED, and that is a measurement of the
+  # real archive rather than a projection — this file has been wrong that way
+  # once already, so the number below was taken from a built one and not
+  # computed. 13 938 046 on aarch64-unknown-linux-musl, against the 13 799 068
+  # for the gnu triple above: 139 KB and 1.0 % larger, which is musl's standard
+  # library rather than anything this repository did. 14 MiB still holds, with
+  # 5.05 % left rather than 6.0 %, and the next 740 KB is what will need a new
+  # figure here.
+  #
+  # The reason the switch costs so little is the same measurement that forced
+  # `cli/build.rs` to bake a sysroot at all: rustc does *not* fold musl's
+  # `libc.a` into a staticlib, so `nm` over the archive above finds `malloc`,
+  # `free`, `memcpy`, `mmap` and `_Unwind_*` all still undefined. Those 6.6 MB
+  # land in the toolchain binary, through `src/build/musl.rs`, and not in this
+  # file. This budget is over the archive alone and always has been.
   Linux)  budget=14680064 ;;
   *)      echo "::error::this script knows macOS and Linux only" ; exit 1 ;;
 esac
@@ -238,6 +266,54 @@ if [ ! -f "$features" ]; then
   echo "::error::$features is missing, so which networking crates this archive should carry is unknown and the assertions below would be a guess."
   exit 1
 fi
+
+# WHICH LIBC, AND ON LINUX THERE IS ONLY ONE RIGHT ANSWER.
+#
+# `cli/build.rs` builds the runtime for `<arch>-unknown-linux-musl` on a Linux
+# host so that the executables `buri build` produces are static-PIE binaries
+# that run on any Linux. It degrades to the host's glibc triple when that
+# target's `rust-std` is not installed — with a `cargo:warning`, which is the
+# right answer for a contributor on a plane and the wrong one for a release.
+#
+# A toolchain built that way is not broken; it is quietly *less portable*, and
+# nothing downstream fails in a way anyone would notice. Every executable it
+# links just carries a dependency on the CI runner's glibc version, and the
+# first report of it comes from a user on an older distro. That is precisely the
+# silent green this script exists to refuse, so on Linux a `gnu` sidecar is an
+# error rather than a warning. `rustup target add <arch>-unknown-linux-musl` in
+# the workflow is the fix; the build log names it too.
+#
+# On macOS the file is empty and that is correct — there is no Linux libc there
+# to have an opinion about.
+libc="$best_file.libc"
+if [ ! -f "$libc" ]; then
+  echo "::error::$libc is missing, so which C library this archive was built against is unknown. cli/build.rs writes it on every path that writes an archive, so a missing file means the archive and this script came from different builds."
+  exit 1
+fi
+libc_says=$(cat "$libc")
+case "$(uname -s)" in
+  Linux)
+    case "$libc_says" in
+      musl) echo "libburi_rt.a: built against musl" ;;
+      gnu)
+        echo "::error::libburi_rt.a was built against glibc, not musl. Executables this toolchain links will depend on the build machine's glibc and will not run on a Linux with an older one — which fails for users and for nobody in CI. cli/build.rs falls back to the host triple when the musl standard library is missing: add \`rustup target add \$(rustc -vV | sed -n 's/host: //p' | sed 's/-linux-gnu/-linux-musl/')\` to the job that built this."
+        status=1
+        ;;
+      *)
+        echo "::error::$libc says '$libc_says', and on Linux the only values that mean anything are \`musl\` and \`gnu\`. An empty file here means the archive above was written by a path that thought there was no archive at all."
+        status=1
+        ;;
+    esac
+    ;;
+  Darwin)
+    if [ -n "$libc_says" ]; then
+      echo "::error::$libc says '$libc_says' on macOS, where there is no Linux libc to name. cli/build.rs writes this file empty on Darwin, so a value here means the file belongs to a different build than the archive beside it."
+      status=1
+    else
+      echo "libburi_rt.a: no Linux libc to name (macOS)"
+    fi
+    ;;
+esac
 
 if grep -qx "net-h3" "$features"; then
   echo "libburi_rt.a: built with \`net-h3\`"

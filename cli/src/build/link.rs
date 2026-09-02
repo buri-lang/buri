@@ -20,12 +20,37 @@
 //! driver then runs is chosen with `-fuse-ld=`:
 //!
 //! ```text
-//! linux   cc -fuse-ld=mold  -o A u0.o u1.o libburi_rt.a -Wl,--build-id=none -Wl,--gc-sections
+//! linux   cc -fuse-ld=mold  -o A u0.o u1.o libburi_rt.a -Wl,--build-id=none -Wl,--gc-sections \
+//!            --target=aarch64-unknown-linux-musl -B musl/lib -L musl/lib -static-pie \
+//!            -unwindlib=none -lunwind
 //!         cc -fuse-ld=lld   ...                          (mold absent)
 //!         cc                ...                          (neither present)
 //! macos   cc -fuse-ld=lld   -o A u0.o u1.o libburi_rt.a -Wl,-dead_strip
 //!         cc                ...                          (ld64.lld absent)
 //! ```
+//!
+//! **That rule is narrowed on Linux and not reversed.** The extra flags answer
+//! one question — *which libc* — with bytes this binary carries
+//! ([`crate::build::musl`]) rather than with whatever is in `/usr/lib`, and
+//! they answer it by putting one directory in front of the driver's own search
+//! path. **Which files a link needs, and in what order, stays entirely the
+//! driver's**: clang is what knows that `-static-pie` selects `rcrt1.o` over
+//! `crt1.o` and `crtbeginS.o` over `crtbegin.o`, and where `crti.o … crtn.o`
+//! bracket the inputs. `-nostdlib` with a hand-assembled crt sequence was the
+//! alternative and was rejected on exactly that: five objects in a fixed order
+//! is the part of a link that changes with a libc release, and it is already
+//! inside the driver.
+//!
+//! The one library the driver must **not** choose is the unwinder. Its default
+//! is glibc's `libgcc_eh.a`, which is not libc-neutral: a link that keeps it
+//! ends at `undefined symbol: _dl_find_object`, glibc's unwinder reaching for a
+//! glibc-only loader entry point from inside a binary that has just left glibc
+//! behind. `-unwindlib=none` drops it and `-lunwind` names the baked
+//! `libunwind.a`. `-lgcc` and `-lc` stay the driver's: `-lc` finds the staged
+//! `libc.a` because `-L musl/lib` is searched first, and `-lgcc` is compiler
+//! builtins — `__addtf3` and its family, arithmetic that knows nothing about a
+//! libc, and which **musl's own `libc.a` needs** in order to print a
+//! long double.
 //!
 //! mold first on Linux because it is 3-10x faster than lld on its own
 //! benchmarks; mold is **not** an option on macOS (it is ELF-only, and its
@@ -44,6 +69,53 @@
 //! hermeticity: the linker's name and version are in the `link` key
 //! ([`CDriver::version`]), so two choices are two cache entries rather than one
 //! entry that might hold either's bytes.
+//!
+//! # Which libc, on Linux
+//!
+//! **A Linux artifact is a static-PIE musl executable, or it is a refusal.**
+//! ARCHITECTURE.md §9 makes the output's portability a property of the
+//! toolchain rather than of the machine that ran it: the executable
+//! `buri build` produces has to run on a Linux that is not this one, and a
+//! glibc link cannot promise that. A statically linked glibc still dlopens a
+//! matching `libnss_*.so` from inside `getaddrinfo`, so the "static" binary
+//! resolves no hostnames on the older machine the staticness was for. musl was
+//! designed for this link.
+//!
+//! Three tiers, in order, and `BURI_MUSL` (`baked` | `system` | `off`, and
+//! nothing else — `forced_libc` refuses a fourth spelling rather than ignoring
+//! it) forces the choice the way `BURI_LINKER` forces the flavour:
+//!
+//! 1. **Baked** — `cli/build.rs` copied musl's `libc.a`, `libunwind.a` and the
+//!    nine crt objects out of this rustc's self-contained directory, and
+//!    [`stage_sysroot`] writes them into `<link dir>/musl/lib` for
+//!    `-B musl/lib -L musl/lib` to find. Needs a driver that
+//!    understands `--target=<musl triple>`, which is [`accepts_target`]'s one
+//!    memoized probe.
+//! 2. **System** — the host is itself musl (Alpine: `cc -dumpmachine` says so)
+//!    or carries a `musl-clang`/`musl-gcc` wrapper. The wrapper becomes the
+//!    driver, `-static-pie` still goes on the line, and nothing points it
+//!    anywhere: the machine's musl is already the driver's own libc.
+//! 3. **Neither** — [`select`] refuses. There is no silent glibc fallback,
+//!    because the failure it would hide is invisible until the artifact is
+//!    copied to another machine, which is after every test in this repository
+//!    has passed.
+//!
+//! `BURI_MUSL=off` is the escape hatch, and it is the only path on which
+//! `-lpthread -ldl -lm` are still passed. They are dropped everywhere else, and
+//! that is a hard requirement rather than tidiness: musl folds all three into
+//! `libc.a` and ships no `libpthread.a` stub, so `-lpthread` against the baked
+//! sysroot is `cannot find -lpthread` and the link ends there.
+//!
+//! **`-static-pie` and not `-static`**, matching the Linux link line
+//! CODEGEN-STENCIL.md states. The stencil and LLVM backends emit
+//! position-independent code — the LLVM one through `RelocMode::PIC`, the
+//! stencil one through the `.data.rel.ro` constant pool `stencil/mod.rs`
+//! argues for — musl ships the `rcrt1.o` that self-relocates a static PIE
+//! before `main`, and both mold and ld.lld implement the mode. The same flag
+//! in `debug` and in `release`: a dynamic musl executable needs a
+//! `ld-musl-*.so.1` that a glibc distribution does not have, so the
+//! profile-dependent variant would be a development build that runs in fewer
+//! places than the release one.
 //!
 //! # Reproducibility
 //!
@@ -70,6 +142,8 @@
 //! .buri/link/<link-key>/<unit>.o        the object, from the cache
 //! .buri/link/<link-key>/libburi_rt.a    the embedded runtime archive, when
 //!                                       these objects reference it
+//! .buri/link/<link-key>/musl/lib/*      the baked musl sysroot, on the Linux
+//!                                       path that uses it
 //! ```
 //!
 //! The archive's last line is a decision rather than a constant:
@@ -84,6 +158,7 @@
 
 use crate::build::buildfile::{Arch, Platform};
 use crate::build::cache::hash_bytes;
+use crate::build::musl::{self, Libc};
 use crate::build::spawn;
 use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::{Emitted, LinkOptions, Linker, Target};
@@ -317,6 +392,58 @@ pub fn dir(root: &Path, link_key: &str) -> PathBuf {
 // Which linker
 // ---------------------------------------------------------------------------
 
+/// Why this machine has no linker for a target, in the shape a diagnostic
+/// wants.
+///
+/// A `String` was enough while the only two refusals were "wrong platform" and
+/// "no `cc`", both of which are one sentence with one remedy. The musl refusal
+/// is not: a reader who meets it needs to be told what the rule is
+/// (ARCHITECTURE.md §9), which half of the toolchain broke it, and that
+/// `BURI_MUSL=off` exists — and folding that into one `message` would put four
+/// sentences on the `error:` line, which is the shape this repository's
+/// diagnostics are built to avoid.
+///
+/// One `fix` and not three, because [`Diagnostic::fix`] is one field and "every
+/// diagnostic has one": the alternatives are joined into it with "or", and the
+/// background lives in `notes`.
+///
+/// [`Diagnostic::fix`]: crate::diagnostics::Diagnostic::fix
+#[derive(Clone, Debug)]
+pub struct Refusal {
+    /// The `error:` line.
+    pub message: String,
+    /// The `= ...` lines: what the rule is, and what broke it.
+    pub notes: Vec<String>,
+    /// The edit that resolves it.
+    pub fix: String,
+}
+
+impl Refusal {
+    fn new(message: impl Into<String>, fix: impl Into<String>) -> Refusal {
+        Refusal { message: message.into(), notes: Vec::new(), fix: fix.into() }
+    }
+
+    fn with_note(mut self, note: impl Into<String>) -> Refusal {
+        self.notes.push(note.into());
+        self
+    }
+
+    /// The whole refusal as one block of text, for a caller with no
+    /// `Diagnostic` to hand — `commands/build.rs`'s `--check-reproducible`
+    /// path prints to stderr directly.
+    pub fn text(&self) -> String {
+        let mut out = format!("error: {}", self.message);
+        for note in &self.notes {
+            out.push_str("\n  note: ");
+            out.push_str(note);
+        }
+        out.push_str("\n  fix: ");
+        out.push_str(&self.fix);
+        out
+    }
+}
+
+
 /// Which linker the C driver is told to run.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Flavour {
@@ -370,6 +497,11 @@ pub struct CDriver {
     driver: PathBuf,
     flavour: Flavour,
     target: Target,
+    /// Which libc this link answers with, decided once in [`select`] and read
+    /// in three places: the flags, the staging, and the `link` key. One field
+    /// rather than three calls to [`libc_for`], so that a key can never be
+    /// built from a different answer than the command line was.
+    libc: LibcMode,
     /// Shared with every other `CDriver` this process selected for the same
     /// driver and flavour, so the two `--version` spawns happen once (see
     /// [`PROBED`]).
@@ -526,26 +658,35 @@ pub fn warm(target: Target) {
 /// to exist before the directory it will work in has a name.
 /// [`CDriver::in_dir`] closes the loop.
 ///
-/// `Err` names the thing that is missing, in the form a diagnostic's message
-/// wants. The only two ways to get one are a target this host cannot link and a
-/// `cc` that is not installed — and the second is not a case the fallback story
-/// covers, because there is no link at all without a C driver.
-pub fn select(target: Target) -> Result<CDriver, String> {
+/// `Err` names the thing that is missing, in the form a diagnostic wants. There
+/// are three ways to get one: a target this host cannot link, a `cc` that is
+/// not installed — which no fallback story covers, because there is no link at
+/// all without a C driver — and a Linux host that cannot produce a hermetic
+/// executable ([`libc_for`]).
+pub fn select(target: Target) -> Result<CDriver, Refusal> {
     if !can_link(target) {
-        return Err(format!(
-            "this toolchain cannot link {} artifacts on this machine",
-            target.platform.slug()
+        return Err(Refusal::new(
+            format!("this toolchain cannot link {} artifacts on this machine", target.platform.slug()),
+            "build for this machine's platform, or run the build on one of the target's",
         ));
     }
     let name = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
     let Some(driver) = spawn::resolve(&name) else {
-        return Err(format!("no C compiler on PATH to drive the link (looked for `{name}`)"));
+        return Err(Refusal::new(
+            format!("no C compiler on PATH to drive the link (looked for `{name}`)"),
+            "install a C toolchain — the link is driven through `cc`, which is what knows where \
+             this platform's libc and startup files live",
+        ));
     };
+    // The libc question can replace the driver (the `musl-clang` tier), so it
+    // is answered before the identity probe: the term in the `link` key has to
+    // be the version of the program that will actually run.
+    let (driver, libc) = libc_for(target, driver)?;
     let flavour = choose(target.platform);
     let mut programs = vec![driver.clone()];
     programs.extend(flavour.program(Some(target.platform)).and_then(spawn::resolve));
     let version = identity_of(flavour, programs);
-    Ok(CDriver { dir: PathBuf::new(), driver, flavour, target, version })
+    Ok(CDriver { dir: PathBuf::new(), driver, flavour, target, libc, version })
 }
 
 /// The flavour for a platform, honouring `BURI_LINKER` and otherwise probing.
@@ -595,6 +736,420 @@ fn version_of(program: &Path) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Which libc
+// ---------------------------------------------------------------------------
+
+/// How one link answers "which libc", which on Linux is the whole of whether
+/// the artifact is hermetic.
+///
+/// Not [`musl::Libc`] reused: that enum says what `cli/build.rs` built the
+/// *runtime archive* against, which is a fact about this binary, and this says
+/// what the *link* is about to do, which is a fact about a command line. The
+/// two are compared in [`libc_for`] and disagreeing is the refusal — a
+/// comparison that could not be written if one type were doing both jobs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LibcMode {
+    /// musl, from the sysroot baked into this binary and staged into the link
+    /// directory. The intended state of every Linux toolchain.
+    MuslBaked,
+    /// musl, from the machine: an Alpine host, or a `musl-clang`/`musl-gcc`
+    /// wrapper that is now the driver. Still `-static-pie`, no sysroot flags.
+    MuslSystem,
+    /// The host's glibc, and therefore an artifact that runs where that glibc
+    /// does. `BURI_MUSL=off` and nothing else reaches this.
+    Glibc,
+    /// Not a Linux link. macOS, where libSystem is the only answer and there
+    /// was never a question.
+    NotLinux,
+}
+
+impl LibcMode {
+    /// The term this mode contributes to the `link` key.
+    ///
+    /// Spelled out rather than `{:?}`: a `Debug` rendering is a convenience
+    /// that a `derive` may change, and this string is a cache key, so two
+    /// toolchains that disagree about it would serve each other's artifacts.
+    fn key(self) -> &'static str {
+        match self {
+            LibcMode::MuslBaked => "musl-baked",
+            LibcMode::MuslSystem => "musl-system",
+            LibcMode::Glibc => "glibc",
+            LibcMode::NotLinux => "not-linux",
+        }
+    }
+
+    /// Whether this link is hermetic, which is the question every caller
+    /// outside this module is actually asking.
+    pub fn is_musl(self) -> bool {
+        matches!(self, LibcMode::MuslBaked | LibcMode::MuslSystem)
+    }
+}
+
+/// The libc for one link, and the driver that will produce it.
+///
+/// The driver comes back because tier 2 can replace it: `musl-clang` is a
+/// wrapper around the host clang that puts musl's headers and libraries in
+/// front of glibc's, and using it means spawning it rather than passing a flag.
+///
+/// `BURI_MUSL` narrows the candidate list; it does **not** skip the probes, and
+/// that is the first of two ways it differs from `BURI_LINKER`.
+/// `BURI_LINKER=mold` on a machine with no mold is a link that fails with a
+/// message naming mold, which is a fine escape hatch for an escape hatch.
+/// `BURI_MUSL=baked` on a toolchain with no baked sysroot would instead be a
+/// link that succeeds against the host's glibc — a silent loss of the property
+/// the flag was asking for — so the forced choice is checked and refused rather
+/// than taken on trust. The second way is [`forced_libc`]: a value that is not
+/// one of the three is refused too, for the same reason and against the same
+/// mistake made one letter earlier.
+fn libc_for(target: Target, driver: PathBuf) -> Result<(PathBuf, LibcMode), Refusal> {
+    if target.platform != Platform::Linux {
+        // Before the variable is read, and deliberately: `BURI_MUSL` is a
+        // question about a Linux link, and a macOS build that refused because
+        // of a stale export in someone's shell profile would be refusing a
+        // build the variable has nothing to say about.
+        return Ok((driver, LibcMode::NotLinux));
+    }
+    let forced = forced_libc(&std::env::var("BURI_MUSL").unwrap_or_default())?;
+    if forced == Forced::Off {
+        // The only path that keeps `-lpthread -ldl -lm`, and the only one that
+        // is not checked against the runtime archive's own libc: a toolchain
+        // whose archive is musl and whose link is glibc will fail in the
+        // linker, loudly, which is the answer this flag asked for.
+        return Ok((driver, LibcMode::Glibc));
+    }
+    let triple = crate::compiler::backend::triple_text(target)
+        .unwrap_or_else(|| String::from("unknown-unknown-linux-musl"));
+
+    // Tier 1. Bytes first, because the probe costs a process and the bytes
+    // cost a `is_empty`.
+    if forced != Forced::System && musl::BAKED && accepts_target(&driver, &triple) {
+        return agrees(driver, LibcMode::MuslBaked, &triple);
+    }
+    // Tier 2.
+    if forced != Forced::Baked {
+        if let Some(system) = system_musl(&driver) {
+            return agrees(system, LibcMode::MuslSystem, &triple);
+        }
+    }
+    Err(refusal(&triple).with_note(match (forced, musl::BAKED) {
+        (Forced::Baked | Forced::Unset, false) => {
+            "this toolchain baked no musl sysroot, so it has nothing to link against"
+        }
+        (Forced::Baked, true) => {
+            "this toolchain baked a musl sysroot, but its C driver does not understand \
+             `--target=` and so cannot be pointed at one"
+        }
+        (Forced::System, _) => "`BURI_MUSL=system` was set and no musl driver is on PATH",
+        // `Forced::Off` returned above, and the remaining case is an unset
+        // variable on a toolchain that baked a sysroot its driver refused.
+        _ => "no musl driver is on PATH either",
+    }))
+}
+
+/// What `BURI_MUSL` was set to, once, in a form the tiers below can be matched
+/// against.
+///
+/// An enum rather than the string compared four times: "not one of the three"
+/// is then a case the compiler makes [`forced_libc`] answer, instead of a
+/// spelling that matches no comparison and lands on the unset behaviour.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Forced {
+    /// Unset. The three tiers are tried in order and the first that answers
+    /// wins.
+    Unset,
+    /// `baked`. Tier 1 only.
+    Baked,
+    /// `system`. Tier 2 only.
+    System,
+    /// `off`. The glibc escape hatch, which is not a tier at all.
+    Off,
+}
+
+/// `BURI_MUSL`'s value, and a refusal for anything that is not one of the
+/// three.
+///
+/// **A value this does not know is a hard error**, which is [`libc_for`]'s own
+/// argument applied to the flag rather than to the toolchain. That function's
+/// doc says the forced choice is *checked* and not taken on trust, because
+/// `BURI_MUSL=baked` on a toolchain with no baked sysroot would otherwise be a
+/// link that quietly succeeded against the host's glibc — a silent loss of the
+/// property the flag was asking for. `BURI_MUSL=bakde` is that case with two
+/// letters transposed: it matches nothing, every comparison in `libc_for`
+/// falls through, and the build takes the unset path while the person who
+/// typed it believes they pinned the opposite. A typo'd force is exactly the
+/// failure the checking was for.
+///
+/// **`BURI_LINKER` is left as it is, and the asymmetry is on purpose.**
+/// [`choose`]'s `match` ends in `_ => {}`, so an unknown flavour is probed for
+/// as if the variable were unset — right there and wrong here, because the two
+/// mistakes are not the same size. A wrong linker is *loudly* wrong: the
+/// flavour enters the `link` key and the link either runs the linker that was
+/// named or fails naming it, so nothing about the artifact is in question. A
+/// wrong libc is *silently* wrong: the link succeeds, every test on this
+/// machine passes, and what was lost — an executable that runs on a Linux that
+/// is not this one — is not observable until it is copied to one.
+///
+/// The unset case is `Ok(Forced::Unset)` and not an error, because an unset
+/// variable is how nearly every build reaches here.
+fn forced_libc(value: &str) -> Result<Forced, Refusal> {
+    match value {
+        "" => Ok(Forced::Unset),
+        "baked" => Ok(Forced::Baked),
+        "system" => Ok(Forced::System),
+        "off" => Ok(Forced::Off),
+        other => Err(Refusal::new(
+            format!("`BURI_MUSL={other}` is not a libc this toolchain can be forced to"),
+            "set `BURI_MUSL` to `baked`, `system` or `off`, or unset it and let the \
+             toolchain choose",
+        )
+        .with_note(
+            "`baked` is the musl sysroot this binary carries, `system` is a musl driver on \
+             PATH, and `off` links against this machine's glibc",
+        )
+        .with_note(
+            "the value is refused rather than ignored: a misspelled force would silently \
+             take the path it was set to avoid",
+        )),
+    }
+}
+
+/// [`libc_for`]'s last step: the link's answer must be the archive's answer.
+///
+/// The runtime archive is half of every Buri executable, and `cli/build.rs`
+/// records which libc it was compiled against
+/// ([`runtime_native::libc`]). A glibc archive dropped onto a musl command line
+/// is not a portability question — it is `undefined reference to
+/// `__libc_start_main`` at best and a binary that segfaults in `getaddrinfo` at
+/// worst — so the disagreement is refused here rather than discovered by
+/// whoever runs the artifact.
+///
+/// [`Libc::Absent`] agrees with everything, because it is the answer of a
+/// toolchain with no archive at all: there is nothing for the link to
+/// contradict.
+fn agrees(
+    driver: PathBuf,
+    mode: LibcMode,
+    triple: &str,
+) -> Result<(PathBuf, LibcMode), Refusal> {
+    match runtime_native::libc() {
+        Libc::Glibc => Err(refusal(triple)
+            .with_note("this toolchain's runtime archive was built against glibc")),
+        Libc::MuslBaked | Libc::MuslSystem | Libc::Absent => Ok((driver, mode)),
+    }
+}
+
+/// The shared skeleton of the hermetic-link refusal.
+///
+/// One wording with one `note` slot, because there is one rule being broken and
+/// several ways to break it: a reader who typed `buri build` cares first that
+/// the artifact would not have been portable, and only then which half of the
+/// toolchain is why.
+fn refusal(triple: &str) -> Refusal {
+    Refusal::new(
+        "this toolchain cannot produce a hermetic Linux executable",
+        format!(
+            "`rustup target add {triple}` and rebuild the toolchain, or install `musl-tools` \
+             (Debian/Ubuntu) for a system musl driver"
+        ),
+    )
+    .with_note(
+        "Linux artifacts are statically linked against musl so that they run in any Linux \
+         environment (design/native/ARCHITECTURE.md §9)",
+    )
+    .with_note(
+        "`BURI_MUSL=off` links against this machine's glibc instead, and the executable then \
+         runs only where that glibc does",
+    )
+}
+
+/// Whether the driver can be pointed at a triple.
+///
+/// The question is asked by **compiling** a translation unit for it rather than
+/// by matching the driver's name or its `--version` banner. `--target=` is
+/// clang's spelling and gcc rejects it outright, but "is this clang" is not the
+/// property that matters — the property is that this driver will accept the
+/// flag and produce code for that triple, and a `cc` that is a wrapper script,
+/// a ccache shim, or a cross toolchain with its own opinions can answer that
+/// differently from what its name suggests.
+///
+/// The source includes nothing, so no sysroot and no headers are needed: the
+/// probe is about the driver's own target support and must not fail merely
+/// because musl's `stdio.h` is not installed. `-c -o /dev/null` because the
+/// object is not wanted and a temporary file would be one more thing to clean
+/// up.
+///
+/// Memoized for the process, for [`PROBED`]'s reason: `buri test //...` selects
+/// a linker per suite, and this would otherwise be one `clang -c` per suite.
+fn accepts_target(driver: &Path, triple: &str) -> bool {
+    static ASKED: std::sync::Mutex<Vec<(String, bool)>> = std::sync::Mutex::new(Vec::new());
+    let name = format!("{}\u{0}{triple}", driver.display());
+    if let Ok(table) = ASKED.lock() {
+        if let Some((_, answer)) = table.iter().find(|(key, _)| *key == name) {
+            return *answer;
+        }
+    }
+    let answer = probe_target(driver, triple);
+    if let Ok(mut table) = ASKED.lock() {
+        table.push((name, answer));
+    }
+    answer
+}
+
+/// [`accepts_target`] without the memo.
+fn probe_target(driver: &Path, triple: &str) -> bool {
+    use std::io::Write as _;
+    let spawned = Command::new(driver)
+        .arg(format!("--target={triple}"))
+        .args(["-c", "-x", "c", "-", "-o", "/dev/null"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    let Ok(mut child) = spawned else { return false };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(b"int buri_musl_probe(void) { return 0; }\n");
+    }
+    child.wait().is_ok_and(|status| status.success())
+}
+
+/// The machine's own musl driver, if it has one.
+///
+/// Two shapes, and the first is not a program at all. On Alpine the *host* is
+/// musl: `cc` is already a musl compiler, `cc -dumpmachine` says
+/// `<arch>-alpine-linux-musl`, and there is nothing to install and nothing to
+/// swap. Everywhere else the wrapper is a separate program, and
+/// `musl-clang` is preferred over `musl-gcc` because `-static-pie` under gcc
+/// wants a `libgcc` built for musl and Debian's is not.
+///
+/// The `-dumpmachine` spawn is only reached when tier 1 has already failed,
+/// which on a correctly built Linux toolchain is never — so it is not on the
+/// path any normal build takes and does not need the memo [`accepts_target`]
+/// has.
+fn system_musl(driver: &Path) -> Option<PathBuf> {
+    let host = Command::new(driver).arg("-dumpmachine").output().ok();
+    let musl_host = host.is_some_and(|out| {
+        out.status.success() && String::from_utf8_lossy(&out.stdout).contains("musl")
+    });
+    if musl_host {
+        return Some(driver.to_path_buf());
+    }
+    ["musl-clang", "musl-gcc"].iter().find_map(|name| spawn::resolve(name))
+}
+
+/// Writes the baked musl sysroot into `<dir>/musl/lib`.
+///
+/// The names are musl's own and [`musl::FILES`] carries them, because a driver
+/// given `-B <dir>` looks for `rcrt1.o` and its siblings by exactly those
+/// names.
+///
+/// The "write only if the size differs" guard is the one [`Linker::link`] uses
+/// for the runtime archive, and it is worth more here: this is eleven files and
+/// about 6.6 MB, written into a directory that a `--watch` loop reuses on every
+/// pass. The *size* rather than the bytes, unlike [`already_holds`], because
+/// these are constants of this binary — a file in the link directory whose
+/// length matches came from this same `include_bytes!` and cannot be a
+/// different sysroot that happens to weigh the same.
+pub fn stage_sysroot(dir: &Path) -> std::io::Result<()> {
+    let lib = dir.join("musl").join("lib");
+    std::fs::create_dir_all(&lib)?;
+    for (name, bytes) in musl::FILES {
+        let path = lib.join(name);
+        if std::fs::metadata(&path).map(|m| m.len()).ok() != Some(bytes.len() as u64) {
+            std::fs::write(&path, bytes)?;
+        }
+    }
+    Ok(())
+}
+
+/// The driver a harness should spawn to link the way the product does, and the
+/// arguments it should pass.
+///
+/// **A harness that links more permissively than the product is a harness that
+/// cannot see the product's bugs.** That sentence is already in
+/// `tests/native/stencil.rs`, written the day a hand-rolled `cc -o out *.o
+/// libburi_rt.a` passed every program in the file while `buri test` failed 977
+/// of 997 conformance tests on the same emitter — the harness had left off
+/// `-dead_strip`. Nine harnesses across five test files were each spelling the
+/// product's flags out again, which means nine places for the next flag to be
+/// added in eight of them; this is the one place.
+///
+/// [`product_link_args`] **stages** whatever the link needs into `dir` — today
+/// the musl sysroot — and returns the non-object arguments in the order the
+/// product passes them, which is *after* the objects and the archive. The paths
+/// in them are relative, exactly as they are in the product, so the command
+/// must be run with `current_dir(dir)`; that is not a quirk of the helper but
+/// the reproducibility discipline of [`Linker::link`] itself
+/// (ARCHITECTURE.md §7), and a harness that ran the driver somewhere else would
+/// again be linking differently from the product.
+///
+/// An empty list on a host that cannot link at all — no `cc`, or the hermetic
+/// refusal. That is not permissiveness: the product cannot link there either,
+/// and the harness's own driver invocation is about to fail for the same
+/// reason.
+pub fn product_link_args(dir: &Path) -> Vec<String> {
+    let Some(platform) = host_platform() else { return Vec::new() };
+    let target = Target { platform, arch: host_arch() };
+    let Ok(driver) = select(target) else { return Vec::new() };
+    if driver.libc == LibcMode::MuslBaked {
+        let _ = stage_sysroot(dir);
+    }
+    driver.platform_flags()
+}
+
+/// The driver [`product_link_args`]'s arguments are for.
+///
+/// A separate function and not a tuple, because most callers want only the
+/// arguments: `$CC` is the driver on every host but one. The exception is the
+/// `musl-clang` tier, where the *program* is the answer to "which libc" and a
+/// harness that kept spawning `$CC` would link against glibc while the product
+/// linked against musl — the divergence this pair exists to close.
+pub fn product_link_driver() -> Option<PathBuf> {
+    let platform = host_platform()?;
+    select(Target { platform, arch: host_arch() }).ok().map(|cc| cc.driver)
+}
+
+/// The arguments a **compile** needs in order to agree with the link
+/// [`product_link_args`] describes.
+///
+/// The pair above answers "how does the product link"; a harness that also
+/// *compiles* — the C probe `tests/native/llvm.rs` and `tests/native/stencil.rs`
+/// link beside the emitted objects — has a second question, and until this
+/// function it answered it by accident. The probe was compiled by the product's
+/// driver for the driver's **own default target**, which on a Debian host is
+/// glibc, and then linked against the baked musl sysroot. It works, and it
+/// works for a reason that does not generalize: those probes are a dozen lines
+/// that call `printf` and touch no type whose layout a libc chooses. The first
+/// probe to name a `struct stat`, a `pthread_mutex_t` or an `off_t` would be
+/// compiled against one libc's idea of it and linked against another's, and the
+/// symptom would be a corrupt field rather than an error.
+///
+/// **Only the baked tier has anything to say.** There the driver is the host's
+/// own `cc` and `--target=` is the entire mechanism by which it is pointed at
+/// musl (`CDriver::libc_flags`), so a compile that omits it is compiling for
+/// a different target from the one being linked for. On the `musl-clang` tier
+/// the driver *is* the musl compiler — that is what tier 2 selects it for — and
+/// there is nothing to point. On `BURI_MUSL=off`, and on macOS, the compile and
+/// the link already name one target and a flag here would be the divergence
+/// rather than the fix.
+///
+/// Empty on a host that cannot link at all, for [`product_link_args`]'s reason:
+/// the compile that follows is about to fail for the same cause.
+pub fn product_compile_args() -> Vec<String> {
+    let Some(platform) = host_platform() else { return Vec::new() };
+    let target = Target { platform, arch: host_arch() };
+    let Ok(driver) = select(target) else { return Vec::new() };
+    if driver.libc != LibcMode::MuslBaked {
+        return Vec::new();
+    }
+    // The same rendering the link's `--target=` is built from, and taken from
+    // the same function: two spellings of one triple would be the divergence
+    // this exists to close.
+    crate::compiler::backend::triple_text(target)
+        .map(|triple| vec![format!("--target={triple}")])
+        .unwrap_or_default()
+}
+
+// ---------------------------------------------------------------------------
 // The link
 // ---------------------------------------------------------------------------
 
@@ -609,6 +1164,15 @@ impl CDriver {
     /// The directory the objects are written into.
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    /// Which libc this link will answer with.
+    ///
+    /// Public because it is what a test asks to know whether it is looking at a
+    /// hermetic link, and because a harness that reproduces the product's
+    /// command line has to be able to say which one it reproduced.
+    pub fn libc(&self) -> LibcMode {
+        self.libc
     }
 
     /// The object's filename for one unit, rejecting anything that is not one.
@@ -660,18 +1224,111 @@ impl CDriver {
                 // 2.19 MB either way — which is why the test that polices this
                 // measures the stripped size.
                 flags.push("-Wl,--gc-sections".into());
-                // What `std` and the runtime archive reach for, and what
-                // macOS gets for free because libSystem is all of them at
-                // once. Harmless where glibc has folded them in, and required
-                // where it has not — the same three `tests/native/runtime.rs`
-                // passes for the same archive.
+                flags.extend(self.libc_flags());
+            }
+        }
+        flags
+    }
+
+    /// The half of [`platform_flags`] that answers "which libc", which on
+    /// Linux is the half that decides whether the artifact is hermetic.
+    ///
+    /// [`platform_flags`]: CDriver::platform_flags
+    fn libc_flags(&self) -> Vec<String> {
+        let mut flags: Vec<String> = Vec::new();
+        match self.libc {
+            LibcMode::MuslBaked => {
+                // `--target=` is what makes clang select musl's crt sequence
+                // — `rcrt1.o crti.o crtbeginS.o … crtendS.o crtn.o`, in that
+                // order — rather than the host glibc's; `-B` and `-L` are what
+                // make it find them in the copy this binary carries instead of
+                // in `/usr/lib`. Both prefixes are searched *before* the
+                // driver's own directories, which is the whole mechanism.
                 //
-                // `-lm` is load-bearing rather than defensive: `tokio`'s
-                // multi-thread worker calls libm's `pow` (its mean-poll-time
-                // estimator), and since the carrier pool made
-                // `rt::Launch::launch` reachable, `libburi_rt.a` carries that
-                // worker in every Buri program. Without `-lm` a Linux link
-                // ends at `undefined reference to 'pow'`.
+                // **No `--sysroot=musl`, and that is a measurement rather than
+                // an omission.** It was the obvious flag and it makes the link
+                // fail: clang locates its GCC installation relative to the
+                // sysroot, a staged directory has none, and the link ended at
+                // `mold: fatal: cannot open crtbeginS.o` — then, once those
+                // were baked too, at `mold: fatal: library not found: gcc`.
+                // The flag buys nothing the two prefixes do not already buy,
+                // because a link reads no headers.
+                //
+                // Every path is **relative**, and the driver is run with
+                // `current_dir` set to the link directory (`Linker::link`).
+                // That is the same reproducibility discipline the object names
+                // are under (ARCHITECTURE.md §7): an absolute `-L` would put
+                // the checkout's path on the command line, and a command line
+                // is what `--check-reproducible` compares two of.
+                if let Some(triple) = crate::compiler::backend::triple_text(self.target) {
+                    flags.push(format!("--target={triple}"));
+                }
+                flags.push("-B".into());
+                flags.push("musl/lib".into());
+                flags.push("-L".into());
+                flags.push("musl/lib".into());
+                flags.push("-static-pie".into());
+                // **The unwinder is the one library the driver must not
+                // choose**, and it is the narrowest place the rule in this
+                // file's header could be narrowed to. clang's default for a
+                // Linux target is glibc's `libgcc_eh.a`, and that archive is
+                // not libc-neutral the way the rest of `libgcc` is: linking it
+                // gave `undefined symbol: _dl_find_object, referenced by
+                // libgcc_eh.a(unwind-dw2-fde-dip.o)` — glibc's unwinder
+                // reaching for a glibc-only loader entry point from inside a
+                // binary that has just left glibc behind. `-unwindlib=none`
+                // drops it; `-lunwind` names the `libunwind.a` this toolchain
+                // baked (`musl::LIBUNWIND_A`, staged beside `libc.a` and found
+                // through the `-L` above).
+                //
+                // `-lgcc` and `-lc` are left to the driver on purpose. `-lc`
+                // resolves to the staged `libc.a`, because `-L musl/lib` is
+                // searched first. `-lgcc` resolves to the host's, and that is
+                // correct rather than tolerated: it is the compiler builtins —
+                // `__addtf3`, `__floatsitf`, `__fixunstfsi` — which are
+                // arithmetic and know nothing about a libc.
+                //
+                // **`-nodefaultlibs`, with the builtins taken from
+                // `libburi_rt.a`'s own `compiler_builtins`, was tried and is
+                // wrong: musl's `libc.a` needs builtins too.** Its
+                // `vfprintf.lo` reaches for `__addtf3`, `__netf2`,
+                // `__floatsitf` and `__fixunstfsi` to format a long double, and
+                // libc is scanned *after* the archive — so a link with no
+                // runtime archive on the line, which is every link in
+                // `tests/native/link.rs`, ended at four undefined symbols
+                // inside libc itself. (`-rtlib=compiler-rt` is not the escape
+                // either: Debian ships no `libclang_rt.builtins.a` for a musl
+                // triple.)
+                //
+                // `-lunwind` comes after `libburi_rt.a` on the command line,
+                // because `platform_flags` is appended after the inputs and an
+                // ELF linker resolves left to right.
+                flags.push("-unwindlib=none".into());
+                flags.push("-lunwind".into());
+            }
+            // The machine's musl is already the driver's own libc, so there is
+            // nothing to point it at — only the mode to ask for.
+            LibcMode::MuslSystem => flags.push("-static-pie".into()),
+            LibcMode::Glibc => {
+                // **The `BURI_MUSL=off` path, and the only one that keeps
+                // these three.** What `std` and the runtime archive reach for,
+                // and what macOS gets for free because libSystem is all of
+                // them at once. Harmless where glibc has folded them in, and
+                // required where it has not — the same three
+                // `tests/native/runtime.rs` passes for the same archive.
+                //
+                // The reason `-lm` was load-bearing survives the flag's
+                // removal from every other path: `tokio`'s multi-thread worker
+                // calls libm's `pow` (its mean-poll-time estimator), and since
+                // the carrier pool made `rt::Launch::launch` reachable,
+                // `libburi_rt.a` carries that worker in every Buri program. On
+                // glibc that call needs `-lm` and a link without it ends at
+                // `undefined reference to 'pow'`. On musl it needs nothing:
+                // `pow` is *in* `libc.a`, along with everything `-lpthread`
+                // and `-ldl` used to name, and musl ships no `libpthread.a`
+                // stub for `-lpthread` to find — so passing them against the
+                // baked sysroot is not a harmless extra but `cannot find
+                // -lpthread`, a hard error before a single symbol is resolved.
                 //
                 // They come *after* the archive on the command line
                 // (`Linker::link` below), which is the half that matters to a
@@ -681,6 +1338,10 @@ impl CDriver {
                 flags.push("-ldl".into());
                 flags.push("-lm".into());
             }
+            // Unreachable from the `_` arm this is called under, which is
+            // Linux; spelled out rather than caught by a wildcard so that a
+            // fourth platform cannot silently inherit a Linux libc.
+            LibcMode::NotLinux => {}
         }
         flags
     }
@@ -693,6 +1354,32 @@ impl Linker for CDriver {
 
     fn version(&self) -> String {
         self.version.get()
+    }
+
+    /// The libc, the sysroot's digest, and the flags — hashed, because the
+    /// flags are a list and a key term is a string.
+    ///
+    /// All three and not one of them. The **mode** is what a reader would
+    /// think of first and is the weakest of the three on its own: two
+    /// toolchains can both say `musl-baked`. The **sysroot digest** is what
+    /// separates them, and it belongs here for the same reason
+    /// `runtime_archive_hash` is in this key — a link's output depends on
+    /// musl's `libc.a` exactly as it depends on `libburi_rt.a`, so a toolchain
+    /// built against a different musl must miss. The **flags** are the
+    /// backstop: they are the thing that actually reaches the driver, and a
+    /// future flag added on one path and not another would move the bytes
+    /// without moving either of the other two terms. `musl::sysroot_hash` is
+    /// valid on a toolchain that baked nothing, so no branch is needed for the
+    /// empty case.
+    fn link_identity(&self) -> String {
+        let mut text = String::from(self.libc.key());
+        text.push('\u{0}');
+        text.push_str(&musl::sysroot_hash());
+        for flag in self.platform_flags() {
+            text.push('\u{0}');
+            text.push_str(&flag);
+        }
+        hash_bytes(text.as_bytes())
     }
 
     /// Writes the objects and the runtime archive into the link directory and
@@ -777,6 +1464,19 @@ impl Linker for CDriver {
                     diagnostics.push(d);
                     return Err(diagnostics);
                 }
+            }
+        }
+
+        // The libc's own staged files, on the one path that has any. Eleven
+        // files under `musl/lib/`, named on the command line as
+        // `-B musl/lib -L musl/lib` — see `libc_flags`.
+        if self.libc == LibcMode::MuslBaked {
+            if let Err(e) = stage_sysroot(&self.dir) {
+                diagnostics.push(Diagnostic::error(
+                    Span::NONE,
+                    format!("cannot write the musl sysroot into {}: {e}", self.dir.display()),
+                ));
+                return Err(diagnostics);
             }
         }
 
@@ -1105,6 +1805,177 @@ mod tests {
         // A term that is only the flavour is a term that does not tell two
         // linkers apart, which is the thing it exists to do.
         assert!(term.len() > first.name().len() + 1, "no banner hash in {term}");
+    }
+
+    /// The libc a link answers with, and the flags that answer it.
+    ///
+    /// Three claims, and each of them is a bug this repository has already had
+    /// or is one flag away from having.
+    ///
+    /// **macOS asks no libc question.** `Libc::Absent` is a fourth variant
+    /// precisely so that "not applicable" is not reported as glibc, and a macOS
+    /// link that grew a `-static-pie` or a `--sysroot` would fail on every
+    /// developer machine in the repository.
+    ///
+    /// **`-lpthread` never appears beside a musl sysroot.** musl ships no
+    /// `libpthread.a` stub, so it is not a harmless extra: it is
+    /// `cannot find -lpthread` before a symbol is resolved.
+    ///
+    /// **`-static-pie` appears exactly on the musl paths.** It is the whole of
+    /// what makes the artifact run on a Linux that is not this one.
+    #[test]
+    fn the_libc_flags_are_the_libc_the_link_chose() {
+        let Some(host) = host_platform() else { return };
+        let Ok(cc) = select(Target { platform: host, arch: host_arch() }) else {
+            // No C compiler, or a Linux host that cannot link hermetically.
+            // Both are refusals rather than links, and both are asserted
+            // elsewhere; there is no command line here to be about.
+            return;
+        };
+        let flags = cc.platform_flags();
+        let has = |flag: &str| flags.iter().any(|f| f == flag);
+        if host == Platform::Macos {
+            assert_eq!(cc.libc(), LibcMode::NotLinux, "macOS has no Linux libc question");
+            assert!(has("-Wl,-dead_strip"), "the macOS link lost -dead_strip: {flags:?}");
+            assert!(!has("-static-pie"), "a Mach-O link asked for -static-pie: {flags:?}");
+            assert!(!has("-lunwind"), "a Mach-O link named musl's unwinder: {flags:?}");
+            return;
+        }
+        assert!(has("-Wl,--gc-sections"), "the Linux link lost --gc-sections: {flags:?}");
+        if cc.libc().is_musl() {
+            assert!(has("-static-pie"), "a musl link is not static-pie: {flags:?}");
+            for absent in ["-lpthread", "-ldl", "-lm"] {
+                assert!(!has(absent), "{absent} is on a musl command line: {flags:?}");
+            }
+        }
+        if cc.libc() == LibcMode::MuslBaked {
+            assert!(has("musl/lib"), "-B/-L do not point at the staged sysroot: {flags:?}");
+            assert!(has("-unwindlib=none"), "glibc's unwinder was left on the line: {flags:?}");
+            assert!(has("-lunwind"), "the baked unwinder is not named: {flags:?}");
+            assert!(
+                flags.iter().any(|f| f.starts_with("--target=") && f.ends_with("-linux-musl")),
+                "the driver is not pointed at a musl triple: {flags:?}"
+            );
+        }
+        if cc.libc() == LibcMode::Glibc {
+            // `BURI_MUSL=off`, the one path that keeps them. `-lm` is
+            // load-bearing there: `tokio`'s worker calls `pow`.
+            for present in ["-lpthread", "-ldl", "-lm"] {
+                assert!(has(present), "{present} left the glibc path: {flags:?}");
+            }
+        }
+    }
+
+    /// `BURI_MUSL` has three values, and a fourth is a refusal rather than a
+    /// silent unset.
+    ///
+    /// **Asked of [`forced_libc`] and not of the environment.** A `set_var`
+    /// here would be a data race against every other test in this binary —
+    /// they share one process, they run in parallel, and several of them
+    /// select a linker — and the parse is the whole of what this claim is
+    /// about. What the force then *does* is the test above's subject, and it
+    /// reads the variable the way a build does.
+    ///
+    /// The refusal has to name the offending value, because a typo is only
+    /// obvious once it is quoted back, and the three that would have worked,
+    /// because a reader who misspelled one does not know which three they were
+    /// choosing between.
+    #[test]
+    fn an_unknown_buri_musl_is_refused_rather_than_ignored() {
+        assert_eq!(forced_libc("").unwrap(), Forced::Unset);
+        assert_eq!(forced_libc("baked").unwrap(), Forced::Baked);
+        assert_eq!(forced_libc("system").unwrap(), Forced::System);
+        assert_eq!(forced_libc("off").unwrap(), Forced::Off);
+        // The near-misses, which are the values this exists for: a transposed
+        // `baked`, a plausible synonym, and the case-shifted spelling of a
+        // value that is otherwise right.
+        for typo in ["bakde", "musl", "none", "OFF", "off "] {
+            let refused = forced_libc(typo).expect_err("a value that is not one of the three");
+            let text = refused.text();
+            assert!(text.contains(typo), "the refusal does not quote `{typo}`:\n{text}");
+            for valid in ["baked", "system", "off"] {
+                assert!(text.contains(valid), "the refusal does not name `{valid}`:\n{text}");
+            }
+        }
+    }
+
+    /// The staged sysroot is the bytes this binary carries, under the names
+    /// musl's own crt objects have — which is what `-B musl/lib` looks for.
+    ///
+    /// Skipped where there is nothing baked, because the empty case is the one
+    /// [`select`] refuses rather than the one this describes.
+    #[test]
+    fn the_sysroot_is_staged_under_musls_own_names() {
+        if !musl::BAKED {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("buri-sysroot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        stage_sysroot(&dir).expect("staging the sysroot");
+        for (name, bytes) in musl::FILES {
+            let path = dir.join("musl").join("lib").join(name);
+            let on_disk = std::fs::read(&path).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(on_disk.len(), bytes.len(), "{name} was staged at the wrong length");
+        }
+        // Twice is the same eleven files: a `--watch` pass must not rewrite
+        // 6.6 MB it already wrote.
+        stage_sysroot(&dir).expect("staging the sysroot again");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The harness helper is the product's own command line, not a copy of it.
+    ///
+    /// A harness that links more permissively than the product is a harness
+    /// that cannot see the product's bugs, so what this asserts is identity
+    /// with `platform_flags` rather than the presence of any particular flag —
+    /// the flags themselves are the test above's subject.
+    #[test]
+    fn the_harness_helper_is_the_products_own_flags() {
+        let Some(host) = host_platform() else { return };
+        let Ok(cc) = select(Target { platform: host, arch: host_arch() }) else { return };
+        let dir = std::env::temp_dir().join(format!("buri-helper-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a temporary directory");
+        assert_eq!(product_link_args(&dir), cc.platform_flags());
+        // And it staged what those flags name, so a caller that runs the
+        // driver in `dir` finds them.
+        if cc.libc() == LibcMode::MuslBaked {
+            assert!(dir.join("musl/lib/rcrt1.o").exists(), "the static-PIE crt was not staged");
+            assert!(dir.join("musl/lib/libc.a").exists(), "musl's libc.a was not staged");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A harness compiles for the target it links for.
+    ///
+    /// Only the baked tier has anything to say, and there it says the whole
+    /// thing: the driver is the host's own `cc` and the triple is a flag, so a
+    /// probe compiled without it is an object for a different target from the
+    /// one on the link line. Asserted as *agreement with*
+    /// [`CDriver::platform_flags`] rather than against a spelled-out triple,
+    /// for the reason the test above gives — two spellings of one triple is the
+    /// divergence, not the check.
+    #[test]
+    fn the_harness_compiles_for_the_target_it_links_for() {
+        let Some(host) = host_platform() else { return };
+        let Ok(cc) = select(Target { platform: host, arch: host_arch() }) else { return };
+        let compile = product_compile_args();
+        let named = |flags: &[String]| {
+            flags.iter().find(|f| f.starts_with("--target=")).cloned()
+        };
+        if cc.libc() != LibcMode::MuslBaked {
+            // macOS, the `musl-clang` tier and `BURI_MUSL=off` all compile and
+            // link with one driver for one target already, and a flag here
+            // would be the divergence rather than the fix.
+            assert!(compile.is_empty(), "a compile flag escaped the baked tier: {compile:?}");
+            return;
+        }
+        assert_eq!(
+            named(&compile),
+            named(&cc.platform_flags()),
+            "the compile and the link name two different targets"
+        );
+        assert!(named(&compile).is_some(), "the baked tier named no target at all");
     }
 
     /// mold is ELF-only and refuses macOS by name, so it must never be

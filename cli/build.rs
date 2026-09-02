@@ -74,13 +74,80 @@
 //!   hash — which enters the `link` cache key — depend on whatever `rustc` was
 //!   on `PATH` at *use* time rather than at *install* time.
 //!
-//! * **The host triple and nothing else.** `--target <host>` names the one
-//!   triple this build supports, which is why cross-compilation is refused
-//!   rather than half-working (ARCHITECTURE.md §9). On a host with no runtime —
-//!   anything that is not macOS or Linux — the archive is written empty and
-//!   `runtime_native::AVAILABLE` is false, so the toolchain still builds and
-//!   still runs the JavaScript backend, which is the "degrades rather than
-//!   breaks" clause of the dependency bar applied to the runtime itself.
+//! * **The product triple, which is the host triple on every host but one.**
+//!   `--target <product>` names the one triple this build supports, which is
+//!   why cross-compilation is refused rather than half-working
+//!   (ARCHITECTURE.md §9). The host it differs on is **Linux/glibc**, and the
+//!   difference is the whole of what makes a Buri Linux executable run on a
+//!   Linux that is not this one: the archive is built for
+//!   `<arch>-unknown-linux-musl`, and `<arch>-unknown-linux-gnu` names only the
+//!   machine that happened to build it.
+//!
+//!   The reason it is musl and not the host's own libc is that glibc is not a
+//!   libc you can finish linking. A statically linked glibc still reaches for a
+//!   matching `.so` at run time from inside `getaddrinfo` and `iconv` — so a
+//!   "static" binary built here would resolve no hostnames on a machine whose
+//!   glibc is older, which is precisely the machine the staticness was for.
+//!   musl was designed for this link, so the hermetic answer is to build
+//!   against it. On Alpine the host triple already ends `-linux-musl` and there
+//!   is nothing to change; on Darwin the host triple is the answer and always
+//!   was.
+//!
+//!   **The switch is a probe rather than a `cfg`, and one probe answers two
+//!   questions.** `rustc --print target-libdir --target <musl>` names a
+//!   directory that exists with a `self-contained/libc.a` in it only when that
+//!   target's `rust-std` is installed — so the single question settles both
+//!   "can the runtime be built for musl" and "where are the bytes to bake".
+//!   A gnu host that fails it keeps its gnu triple, bakes an empty sysroot, and
+//!   gets a `cargo:warning` naming `rustup target add
+//!   <arch>-unknown-linux-musl`. That is the same degrade shape the C-compiler
+//!   probe below uses and it is chosen for the same reason: a contributor's
+//!   checkout still builds and still links, it just links against whatever libc
+//!   is on the machine, which is what this repository did before.
+//!
+//!   On a host with no runtime at all — anything that is not macOS or Linux —
+//!   the archive is written empty and `runtime_native::AVAILABLE` is false, so
+//!   the toolchain still builds and still runs the JavaScript backend, which is
+//!   the "degrades rather than breaks" clause of the dependency bar applied to
+//!   the runtime itself.
+//!
+//! * **The archive says which libc it was built against, and carries that libc
+//!   with it.** `libburi_rt.a.libc` holds `musl`, `gnu`, or nothing at all, and
+//!   `src/build/musl.rs` `include_bytes!`es musl's `libc.a`, `libunwind.a` and
+//!   crt objects out of `OUT_DIR` exactly the way `runtime_native::ARCHIVE`
+//!   does. The sidecar is written by `libc_beside`, which is `features_beside`
+//!   with a different filename, and it is a file for the reason that one is:
+//!   one run of this script writes the bytes, their digest, their feature list
+//!   and their libc into one `OUT_DIR`, so a stale directory cannot pair one
+//!   build's archive with another's answer.
+//!
+//!   Baked rather than found at use time, because a toolchain that reached for
+//!   a musl on the machine running `buri build` would be handing back exactly
+//!   the hermeticity this is all for, at the last step. Empty on macOS — the
+//!   emptiness is the signal, the same convention the archive uses.
+//!
+//!   **`libc.a` is on that list because it had to be, and that was measured
+//!   rather than assumed.** `nm --defined-only` over a real
+//!   `aarch64-unknown-linux-musl` archive finds no `malloc`, no `free`, no
+//!   `memcpy` and no `mmap` — all four come back *undefined*, because rustc
+//!   archives its own crates' objects and leaves libc to the link. The lone
+//!   `libc-*.libc.a*.rcgu.o` member inside is the Rust `libc` crate's code and
+//!   not musl's, which is the thing that makes the hope look plausible.
+//!   `libunwind.a` is on the list by the same measurement — `_Unwind_*` comes
+//!   back undefined too, even though the runtime is `panic = "abort"`, because
+//!   `std`'s backtrace machinery references the unwinder whether or not a panic
+//!   ever unwinds. Together they are ~6.6 MB, which is why the size budget in
+//!   `.github/scripts/assert-runtime-archive.sh` is written against the archive
+//!   alone and not against `OUT_DIR`.
+//!
+//!   **No `-Crelocation-model=pic` is pinned, and that was measured too.**
+//!   `-static-pie` needs every *allocated* section free of 32-bit absolute
+//!   relocations. `llvm-readelf -r` over the staticlib finds `R_X86_64_32` and
+//!   `R_AARCH64_ABS32` in `.debug_*` and nowhere else — not allocated, so not a
+//!   PIE's problem — and the 64-bit absolute relocations only in
+//!   `.data.rel.ro`, which is the section a PIE turns into `R_*_RELATIVE`.
+//!   Rust's musl targets set `static_position_independent_executables` and the
+//!   object files agree, so `nested`'s empty `RUSTFLAGS` stays empty.
 //!
 //! * **A dependency tree that cannot be resolved degrades; one that cannot be
 //!   compiled does not.** The second half of the same clause, and the two
@@ -264,6 +331,290 @@ fn features_beside(out: &Path, features: &[&str]) {
     }
 }
 
+/// Writes `<out>.libc` beside the runtime archive: the C library the archive
+/// was built against, and empty when there is no archive.
+///
+/// `features_beside` with a different filename, deliberately — the two answer
+/// questions of the same shape about the same bytes, and the mechanism that
+/// keeps a feature list from drifting away from the archive it describes is the
+/// mechanism this needs. One run of this script, one `OUT_DIR`, so a stale
+/// directory cannot pair one build's bytes with another build's libc.
+///
+/// Three values and no more: `musl`, `gnu`, and the empty file. The empty one
+/// is not "unknown" — it is "there is no Linux libc question here", which is
+/// macOS and every host that wrote an empty archive.
+///
+/// It is a **separate file from `.features`** rather than a fourth line in it
+/// because it is not a feature: `runtime_native::declares` is a whole-line
+/// membership test over a set, and a libc is a single-valued field. Folding
+/// them together would make `declares("musl")` answerable, which is a question
+/// with no meaning.
+fn libc_beside(out: &Path, libc: &str) {
+    let path = out.with_file_name(format!(
+        "{}.libc",
+        out.file_name().and_then(|n| n.to_str()).unwrap_or_default()
+    ));
+    if let Err(e) = std::fs::write(&path, libc) {
+        fail(&format!("could not write {}: {e}", path.display()));
+    }
+}
+
+/// The triple the runtime archive is *built for*, and the musl sysroot to bake
+/// beside it.
+///
+/// The header's product-triple bullet is the argument; this is the decision
+/// table it describes. Three cases and they are all the same shape — a triple,
+/// a directory to bake from or `None`, and the word that goes in the sidecar.
+struct Product {
+    /// What the nested cargo is given as `--target`.
+    target: String,
+    /// musl's `self-contained/` directory, when there is one to bake from.
+    /// `None` on Darwin, on a gnu host that failed the probe, and on an Alpine
+    /// whose `rustc` ships no self-contained musl of its own — in that last
+    /// case the archive is still a musl archive, it is just one whose libc the
+    /// system already has.
+    sysroot: Option<PathBuf>,
+    /// What [`libc_beside`] writes.
+    libc: &'static str,
+}
+
+/// `self-contained/` under a target's libdir, if it holds the `libc.a` that
+/// makes it worth having.
+///
+/// One `rustc` invocation answering two questions, which is why the probe is
+/// shaped this way rather than as a `rustup target list --installed` parse:
+/// `--print target-libdir` succeeds and prints a plausible path for a target
+/// whose `rust-std` was never installed, so the path is not the answer — the
+/// `libc.a` inside it is. A directory with one means the standard library is
+/// there to compile against *and* the bytes are there to bake.
+fn self_contained(rustc: &str, target: &str) -> Option<PathBuf> {
+    let out = Command::new(rustc)
+        .args(["--print", "target-libdir", "--target", target])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let libdir = PathBuf::from(String::from_utf8(out.stdout).ok()?.trim().to_string());
+    let dir = libdir.join("self-contained");
+    dir.join("libc.a").is_file().then_some(dir)
+}
+
+/// [`Product`] for a host triple.
+fn product_target(rustc: &str, host: &str) -> Product {
+    // Already musl, which is Alpine and the container images built from it.
+    // Nothing to switch: the host triple is the product triple, and the sysroot
+    // is baked when this rustc has one so that the answer does not depend on
+    // which musl the *user's* machine has either. A distro rustc that links
+    // against the system musl has no `self-contained/`, and that is the one
+    // case where a musl archive ships without a musl beside it.
+    if host.contains("-linux-musl") {
+        return Product {
+            target: host.to_string(),
+            sysroot: self_contained(rustc, host),
+            libc: "musl",
+        };
+    }
+    // Not Linux at all: Darwin, and the unsupported hosts that never get here.
+    // The host triple is the answer and there is no Linux libc to name.
+    if !host.contains("-linux-gnu") {
+        return Product { target: host.to_string(), sysroot: None, libc: "" };
+    }
+
+    // Linux/glibc, the one host where the product is not the host.
+    //
+    // A substring replacement rather than `<arch>-unknown-linux-musl` built
+    // from the architecture, because the two are the same answer on the triples
+    // this actually meets and the replacement is right on more of them:
+    // `arm-unknown-linux-gnueabihf` becomes `arm-unknown-linux-musleabihf`,
+    // which is a real target, where a rebuild from the arch would have dropped
+    // the ABI suffix and named one that is not.
+    let musl = host.replace("-linux-gnu", "-linux-musl");
+    match self_contained(rustc, &musl) {
+        Some(dir) => Product { target: musl, sysroot: Some(dir), libc: "musl" },
+        // The degrade. Not an error, for the reason the C-compiler probe below
+        // is not an error: this is the configuration every checkout had before
+        // musl, it builds and it links, and what it loses is portability of the
+        // *output* rather than the ability to produce output at all.
+        None => {
+            println!(
+                "cargo:warning=the runtime is being built for {host} rather than {musl}, because \
+                 {musl}'s standard library is not installed. Executables this toolchain links \
+                 will depend on this machine's glibc and will not run on a Linux with an older \
+                 one. `rustup target add {musl}` and rebuild to get static-musl executables."
+            );
+            Product { target: host.to_string(), sysroot: None, libc: "gnu" }
+        }
+    }
+}
+
+/// The baked sysroot's members, in the order their digest is taken over them.
+///
+/// `libc.a` and `libunwind.a` are here because the archive genuinely does not
+/// contain them — the header's measurement — and the crt objects because a
+/// link needs whichever of them the mode selects: `rcrt1.o` for `-static-pie`,
+/// `Scrt1.o` for a dynamic PIE, `crt1.o` for a non-PIE, `crti.o`/`crtn.o`
+/// bracketing all three, and `crtbegin*.o`/`crtend*.o` bracketing them inside
+/// that. All of them are baked rather than only the static-PIE three so that
+/// choosing a link mode stays a decision the linker code can make on its own,
+/// without coming back here for bytes.
+///
+/// **`crtbegin*.o`/`crtend*.o` were left out at first, on the theory that they
+/// belong to the compiler's runtime and that clang supplies its own. That is
+/// true of a clang linking against the *host's* sysroot and false of the link
+/// this file exists to make.** clang finds `crtbeginS.o` by locating a GCC
+/// installation relative to `--sysroot`, and the sysroot staged from these
+/// bytes has no GCC installation in it, so the link ended at
+/// `mold: fatal: cannot open crtbeginS.o: No such file or directory` — measured
+/// on Debian trixie, clang 19, `aarch64-unknown-linux-musl`. Nor is
+/// `-rtlib=compiler-rt` a way out: Debian ships no
+/// `libclang_rt.builtins.a` for a musl triple, so that route ends at the same
+/// error one file later. `rustc` links its own musl binaries from exactly these
+/// eleven files (`--print link-args` on this image names all of them out of
+/// `self-contained/`), which is the strongest evidence available that eleven is
+/// the complete set: it is the set the toolchain that produced `libc.a` uses to
+/// finish a link against it.
+const SYSROOT_FILES: &[&str] = &[
+    "libc.a",
+    "libunwind.a",
+    "rcrt1.o",
+    "crt1.o",
+    "Scrt1.o",
+    "crti.o",
+    "crtn.o",
+    "crtbegin.o",
+    "crtbeginS.o",
+    "crtend.o",
+    "crtendS.o",
+];
+
+/// Copies the musl sysroot into `$OUT_DIR/musl/` for `build::musl` to
+/// `include_bytes!`, and writes one digest covering the lot.
+///
+/// **Every file is written on every path**, empty when `from` is `None`, for
+/// the reason the archive is written empty rather than `--cfg`-ed away: the
+/// `include_bytes!` is unconditional, so the file has to exist on macOS too,
+/// and the emptiness is what `build::musl::BAKED` reads.
+///
+/// One digest over all eleven rather than eleven digests, because there is one
+/// question — "is this the same sysroot" — and it enters one cache key. The
+/// name and the length go into the hash ahead of each member's bytes so that
+/// the digest distinguishes a renamed member and a shuffled boundary from the
+/// concatenation that would otherwise be identical.
+fn bake_sysroot(out_dir: &Path, from: Option<&Path>) {
+    let dir = out_dir.join("musl");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        fail(&format!("could not create {}: {e}", dir.display()));
+    }
+    let mut digested = Vec::new();
+    for name in SYSROOT_FILES {
+        let bytes = match from {
+            Some(src) => match std::fs::read(src.join(name)) {
+                Ok(b) => b,
+                // The probe found `libc.a` in this directory, so a member
+                // missing from it now is a sysroot that is not the shape every
+                // Rust musl target has had. That is a broken toolchain rather
+                // than an absent one, and it fails like one.
+                Err(e) => fail(&format!(
+                    "{} has a self-contained musl directory but no {name} in it: {e}",
+                    src.display()
+                )),
+            },
+            None => Vec::new(),
+        };
+        digested.extend_from_slice(name.as_bytes());
+        digested.push(0);
+        digested.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+        digested.extend_from_slice(&bytes);
+        let path = dir.join(name);
+        if let Err(e) = std::fs::write(&path, &bytes) {
+            fail(&format!("could not write {}: {e}", path.display()));
+        }
+    }
+    let digest = dir.join("sysroot.sha256");
+    if let Err(e) = std::fs::write(&digest, sha256::hash_bytes(&digested)) {
+        fail(&format!("could not write {}: {e}", digest.display()));
+    }
+}
+
+/// Whether `cc` will accept `--target=<triple>`, which is to say whether it is
+/// clang.
+///
+/// Asked by compiling nothing: `-E -x c -` with a closed stdin preprocesses an
+/// empty translation unit, so the exit status is about the *flag* and not about
+/// any source. gcc has no `--target=` and rejects it, which is the whole
+/// distinction this needs to draw.
+fn accepts_target(cc: &str, triple: &str) -> bool {
+    Command::new(cc)
+        .args([format!("--target={triple}").as_str(), "-E", "-x", "c", "-"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// Points `cc-rs` at a C compiler that will produce musl objects, for the one
+/// dependency that compiles C.
+///
+/// `ring` — `rustls`'s crypto provider — builds C and assembly through
+/// `cc-rs`, and `cc-rs` cross-compiling to `<arch>-unknown-linux-musl` goes
+/// looking for `musl-gcc` and friends by name. On the hosts this actually runs
+/// on there is no such binary and there does not need to be: the clang that is
+/// already required for `buri`'s own links compiles for any target it was built
+/// with, given `--target=`.
+///
+/// So the target-specific `CC_*`/`CFLAGS_*` variables are set **explicitly**,
+/// which is the pair `cc-rs` consults before it starts guessing. Nothing is set
+/// when the compiler is not a clang: the fallback is the host compiler
+/// unmodified, and its failure mode is undefined symbols at link time with the
+/// names of the C functions in them, which is loud and points at the cause.
+/// Silently dropping `net` here would be quieter and worse — it would turn a
+/// missing clang into a toolchain whose `https://` refuses at run time.
+///
+/// The `-isystem` is Debian's musl-dev layout, where musl's headers live under
+/// `/usr/include/<arch>-linux-musl` rather than where clang would look for
+/// them. It is added only when the directory is there, so a host with a
+/// complete musl sysroot elsewhere is not told a wrong answer.
+///
+/// **An ambient `CC_<target>` wins, and nothing here is set on top of it.**
+/// That is `cc-rs`'s own contract — a per-target `CC_*` is the most specific
+/// thing it consults, so a caller that sets one has already answered the
+/// question this function exists to answer — and it is what makes a
+/// non-Debian musl sysroot expressible at all. `flake.nix` is the caller that
+/// needs it: a nix sandbox has no `/usr/include/<arch>-linux-musl` and no
+/// `cc` that would accept `--target=`, so the derivation names a clang and
+/// `${musl.dev}/include` itself, and this function overwriting that with its
+/// own guess would be the difference between a hermetic musl toolchain and a
+/// build that cannot find `stdlib.h`. `CFLAGS_<target>` is left alone in the
+/// same breath rather than appended to: the ambient `CC_*` may be a compiler
+/// that takes no `--target=` (a `musl-gcc`), and half of somebody else's
+/// answer is worse than none of it.
+fn musl_cc_env(command: &mut Command, target: &str, cc: &str) {
+    if !target.contains("-linux-musl") {
+        return;
+    }
+    let key = target.replace('-', "_");
+    // Read rather than passed through: `command` inherits this process's
+    // environment, so an ambient pair is already on its way to `cc-rs` and the
+    // only thing to decide is whether to overwrite it.
+    println!("cargo:rerun-if-env-changed=CC_{key}");
+    println!("cargo:rerun-if-env-changed=CFLAGS_{key}");
+    if std::env::var_os(format!("CC_{key}")).is_some() {
+        return;
+    }
+    if !accepts_target(cc, target) {
+        return;
+    }
+    let mut cflags = format!("--target={target}");
+    let arch = target.split('-').next().unwrap_or_default();
+    let headers = format!("/usr/include/{arch}-linux-musl");
+    if Path::new(&headers).is_dir() {
+        cflags.push_str(" -isystem ");
+        cflags.push_str(&headers);
+    }
+    command.env(format!("CC_{key}"), cc);
+    command.env(format!("CFLAGS_{key}"), cflags);
+}
+
 /// The three flags that reach `rustc` on the command line rather than through
 /// `cli/runtime/manifest.toml`, because Cargo has no profile key for any of
 /// them.
@@ -393,6 +744,20 @@ fn assemble(runtime: &Path, out_dir: &Path) -> PathBuf {
 /// flags would make the archive a different archive on every machine, and the
 /// flags this build does need go to the runtime crate alone
 /// ([`RUNTIME_RUSTC_ARGS`]).
+///
+/// **It stays empty for the musl build, and that is a measurement rather than
+/// an oversight.** `-static-pie` is the point of the musl product triple, and
+/// the obvious worry is that it needs `-Crelocation-model=pic` pinned here —
+/// which would sit awkwardly with the rule above, since a flag pinned as a
+/// literal is not ambient state and the rule is only about ambient state.
+/// `llvm-readelf -r` over the staticlib says it is not needed: the 32-bit
+/// absolute relocations are confined to `.debug_*`, which is not allocated, and
+/// the 64-bit ones to `.data.rel.ro`, which is where a PIE wants them. Rust's
+/// musl targets already set `static_position_independent_executables`, so the
+/// default relocation model is the one `-static-pie` requires and there is
+/// nothing to pin. If a future target ever disagrees, the flag belongs here as
+/// a literal `env` with this paragraph attached — the rule's *reason* is
+/// reproducibility, and a flag this file chooses is reproducible.
 fn nested(cargo: &str, rustc: &str) -> Command {
     let mut command = Command::new(cargo);
     for (name, _) in std::env::vars() {
@@ -491,6 +856,12 @@ fn runtime_archive(manifest: &Path) {
         // No archive is no features, and the file exists on every path because
         // the toolchain `include_str!`s it unconditionally.
         features_beside(&out, &[]);
+        // Nor any libc, and for the same unconditional-`include_str!` reason.
+        // A host with no native backend has no link to name a libc for.
+        libc_beside(&out, "");
+        // And an empty sysroot, which `build::musl` `include_bytes!`es just as
+        // unconditionally. The emptiness is the signal.
+        bake_sysroot(&out_dir, None);
         package_env(None, true);
         return;
     }
@@ -508,6 +879,20 @@ fn runtime_archive(manifest: &Path) {
     let rustc = std::env::var("BURI_RUNTIME_RUSTC")
         .or_else(|_| std::env::var("RUSTC"))
         .unwrap_or_else(|_| "rustc".to_string());
+
+    // The product triple, which is where `TARGET` stops being the answer. The
+    // header's bullet argues it; `product_target` is the table. Everything
+    // below — the fetch probe, the `--target` on the build, the path the
+    // archive is copied from — reads the product triple, because a build whose
+    // fetch and whose compile disagreed about the target would resolve one tree
+    // and build another.
+    let product = product_target(&rustc, &target);
+    let target = product.target;
+    // Baked here rather than beside the archive's own write, because the
+    // sysroot is a fact about *this rustc* and not about whether the runtime's
+    // dependency tree happened to resolve. Every path from here down leaves the
+    // same eleven files in `OUT_DIR`.
+    bake_sysroot(&out_dir, product.sysroot.as_deref());
 
     let pkg = assemble(&runtime, &out_dir);
     let target_dir = out_dir.join("rt");
@@ -593,6 +978,10 @@ fn runtime_archive(manifest: &Path) {
                 );
                 write_empty(&out);
                 features_beside(&out, &[]);
+                // An empty archive is not a musl archive, whatever the product
+                // triple would have been: there is nothing to link and so
+                // nothing to link against.
+                libc_beside(&out, "");
                 package_env(None, true);
                 return;
             }
@@ -626,6 +1015,10 @@ fn runtime_archive(manifest: &Path) {
     if h3 {
         command.args(["--features", "net-h3"]);
     }
+    // `ring`'s C, told which target it is for. A no-op on Darwin and on a gnu
+    // host that stayed gnu, because the product triple is the host triple there
+    // and `cc-rs` needs no help finding a compiler for the machine it is on.
+    musl_cc_env(&mut command, &target, &cc);
     command.arg("--").args(RUNTIME_RUSTC_ARGS);
 
     match command.status() {
@@ -668,6 +1061,10 @@ fn runtime_archive(manifest: &Path) {
         (false, _) => &[],
     };
     features_beside(&out, features);
+    // And which libc those features were compiled against. Written last, beside
+    // the digest and the feature list, by the one run of the script that wrote
+    // the bytes all three describe.
+    libc_beside(&out, product.libc);
 }
 
 // ---------------------------------------------------------------------------
@@ -706,11 +1103,16 @@ fn runtime_archive(manifest: &Path) {
 ///   or all three, and `Stencil::identity` names whichever it has.
 ///
 ///   The two Linux libraries are **cross-compiled**: `clang -target
-///   {aarch64,x86_64}-unknown-linux-gnu` with clang's own headers and no
+///   {aarch64,x86_64}-unknown-linux-musl` with clang's own headers and no
 ///   sysroot, which works because the generated C includes `<stdint.h>` and
 ///   declares the one libc function it uses (`sources::memcpy_decl`). A host
 ///   whose `cc` cannot do that gets empty blobs for those two and a full one
 ///   for its own, which is `can_build`'s whole job.
+///
+///   `-musl` and not `-gnu`, and the triple is `abi::StencilTarget::triple`'s
+///   rather than this comment's: a stencil is bytes that get linked into an
+///   artifact whose libc is musl, so naming gnu here would have been the one
+///   place in the toolchain still describing a glibc Linux.
 fn stencil_library(manifest: &Path) {
     let dir = manifest.join("src/compiler/backend/stencil");
     for file in

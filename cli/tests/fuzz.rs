@@ -1020,6 +1020,27 @@ mod native {
         })
     }
 
+    /// The product's link line, staged once for this process.
+    ///
+    /// `build/link.rs::product_link_args` writes whatever the link needs —
+    /// today an eleven-file musl sysroot, about 6.6 MB — into the directory it
+    /// is handed, and returns arguments that name it *relatively*, so the
+    /// driver has to run there. One directory for the whole fuzzer rather than
+    /// one per case: every other path a case passes is absolute, and the
+    /// searches below link as many programs as their budget buys.
+    fn staged() -> &'static (PathBuf, Vec<String>) {
+        static STAGED: OnceLock<(PathBuf, Vec<String>)> = OnceLock::new();
+        STAGED.get_or_init(|| {
+            crate::harness::sweep::once();
+            let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+                .join(format!("fuzz-native-{}", std::process::id()))
+                .join("link-flags");
+            std::fs::create_dir_all(&dir).unwrap();
+            let args = buri::build::link::product_link_args(&dir);
+            (dir, args)
+        })
+    }
+
     /// The backend, through `backend::select` where `select` answers.
     ///
     /// It answers for `(native, Debug)` and refuses `(native, Release)`, which
@@ -1110,16 +1131,23 @@ mod native {
                 objects.push(path);
             }
             let binary = dir.join("program");
-            let cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
-            let mut link = Command::new(cc);
+            // `build/link.rs`'s own driver and trailing arguments. The old
+            // hand-written `-lpthread -ldl -lm` was a second idea of the
+            // product's link line, and on Linux the product's is now a
+            // static-PIE musl link against a sysroot this binary carries —
+            // which is not a thing a list of `-l`s can restate.
+            let (link_dir, link_args) = staged();
+            let driver = buri::build::link::product_link_driver().unwrap_or_else(|| {
+                PathBuf::from(std::env::var("CC").unwrap_or_else(|_| String::from("cc")))
+            });
+            let mut link = Command::new(driver);
+            link.current_dir(link_dir);
             link.arg("-o").arg(&binary);
             for object in &objects {
                 link.arg(object);
             }
             link.arg(archive());
-            if cfg!(target_os = "linux") {
-                link.args(["-lpthread", "-ldl", "-lm"]);
-            }
+            link.args(link_args);
             let Ok(linked) = link.output() else { continue };
             if !linked.status.success() {
                 continue;

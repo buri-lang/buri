@@ -409,10 +409,6 @@ fn prepared(
     program
 }
 
-fn cc() -> String {
-    std::env::var("CC").unwrap_or_else(|_| String::from("cc"))
-}
-
 fn messages(diagnostics: &Diagnostics) -> String {
     diagnostics.items.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("; ")
 }
@@ -521,15 +517,17 @@ fn run_native(row: &str, native: Native, checked: &Checked, paths: &[String]) ->
         objects.push(path);
     }
     let binary = dir.join("program");
-    let mut link = Command::new(cc());
+    // `build/link.rs`'s driver and its trailing arguments, rather than a list
+    // spelled out again: on Linux those are now a whole static-PIE musl link
+    // (`shared::product_cc`), and a harness that linked the old three `-l`s
+    // would be asking the driver for a `libpthread.a` musl does not ship.
+    let mut link = crate::shared::product_cc();
     link.arg("-o").arg(&binary);
     for object in &objects {
         link.arg(object);
     }
     link.arg(archive());
-    if cfg!(target_os = "linux") {
-        link.args(["-lpthread", "-ldl", "-lm"]);
-    }
+    link.args(crate::shared::product_link_args());
     let linked = link.output().unwrap();
     assert!(
         linked.status.success(),

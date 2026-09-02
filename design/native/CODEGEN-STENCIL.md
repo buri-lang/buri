@@ -1041,8 +1041,9 @@ unreachable from here, and none of them is a missing effort:
 * `runtime_native::ARCHIVE` is one archive for one triple — `cli/build.rs`
   builds `libburi_rt.a` with `--target <host>` — so there is no Linux
   `libburi_rt.a` to link against even if the linker were willing.
-* `rustc` on this machine has no `*-unknown-linux-gnu` standard library
-  installed, so one cannot be produced here either; and there is no `qemu`, no
+* `rustc` on this machine has no Linux standard library installed —
+  `*-unknown-linux-gnu` when this was written, `*-unknown-linux-musl` since the
+  static switch — so one cannot be produced here either; and there is no `qemu`, no
   `docker`, and no initialised `podman` machine.
 
 That is exactly where `cli/benches/compiler.rs`'s `lower+linux-*` rows already
@@ -1342,24 +1343,106 @@ default toolchain needs is one tool rather than two.
 **Linux**, in order: `mold`, `ld.lld`, the system default.
 
 ```
-cc -fuse-ld=mold -o <artifact> <units...> libburi_rt.a -static-pie \
-   -Wl,--gc-sections -Wl,--build-id=none
+cc -fuse-ld=mold -o <artifact> <units...> libburi_rt.a \
+   -Wl,--build-id=none -Wl,--gc-sections \
+   --target=<arch>-unknown-linux-musl -B musl/lib -L musl/lib \
+   -static-pie -unwindlib=none -lunwind
 ```
+
+That is the line as it is issued, and the order is part of it: everything after
+the objects and the archive, because `-lunwind` resolves against what precedes
+it. `musl/lib` is **relative** — the link runs in `.buri/link/<link-key>/`, and
+an absolute path in a command line is one more thing that differs between two
+machines comparing artifacts byte for byte (ARCHITECTURE.md §7).
 
 mold is a drop-in for GNU ld and accepts its options; it is chosen first because
 it is 3-10x faster than lld on the benchmarks its README publishes, with the
 honest caveat that the advantage is core-count-dependent — mold saturates every
 core and lld often does not, so on two cores the gap is much smaller.
 `--build-id=none` because a build id is a hash of content we are about to compare
-byte for byte, and one fewer thing in the way.
+byte for byte, and one fewer thing in the way. `--gc-sections` is `-dead_strip`'s
+counterpart: relinking a CI job's own objects with and without it, debug
+information removed from both, measured 373 936 bytes against 673 440.
+
+Four of those flags are the libc's rather than the linker's, and each is the
+narrowest thing that would work:
+
+- **`--target=<arch>-unknown-linux-musl`** tells the driver which libc's
+  conventions to link for. It is also the one flag whose absence is silent: a
+  driver that ignores it links glibc and the artifact still runs *here*.
+- **`-B musl/lib -L musl/lib`** put the staged sysroot in front of the driver's
+  own search path — `-B` for the crt objects, `-L` for `-lc` — and nothing else
+  points anywhere. **There is deliberately no `--sysroot`**, and that is a
+  measurement rather than an omission: it was the obvious flag and it makes the
+  link *fail*. clang locates its GCC installation relative to the sysroot, a
+  staged directory has none, and the link ended at `mold: fatal: cannot open
+  crtbeginS.o` — then, once those crt objects were baked too, at `mold: fatal:
+  library not found: gcc`. The flag buys nothing the two prefixes do not already
+  buy, because a link reads no headers. Which files a link needs, and in what
+  order, stays the driver's business; `-nostdlib` with a hand-assembled crt
+  sequence was the alternative and was rejected on exactly that.
+- **`-static-pie`, not `-static`.** Both backends emit position-independent code
+  and musl ships the `rcrt1.o` that self-relocates a static PIE before `main`.
+  The same flag in debug and release: a *dynamic* musl executable needs a
+  `ld-musl-*.so.1` that no glibc distribution has, so the profile-dependent
+  variant would be a development build that runs in fewer places than the
+  release one.
+- **`-unwindlib=none -lunwind`** is the one library the driver must not choose.
+  Its default is glibc's `libgcc_eh.a`, which is not libc-neutral: a link that
+  keeps it ends at `undefined symbol: _dl_find_object`, glibc's unwinder
+  reaching for a glibc-only loader entry point from inside a binary that has
+  just left glibc behind. `-lgcc` and `-lc` stay the driver's — `-lgcc` is
+  compiler builtins, arithmetic that knows nothing about a libc and which
+  **musl's own `libc.a` needs** in order to print a long double.
+
+`-lpthread -ldl -lm` used to be on this line and are gone. musl folds all three
+into `libc.a` and ships no `libpthread.a` stub, so against the staged sysroot
+`-lpthread` is `cannot find -lpthread` and the link stops there. They survive on
+one path only, which is `BURI_MUSL=off`.
+
+**Which libc**, beside "which linker", and on Linux it is the question that
+decides whether the artifact is portable at all. Three tiers, in order, with
+`BURI_MUSL` (`baked` | `system` | `off`) forcing the choice the way
+`BURI_LINKER` forces the flavour:
+
+1. **Baked.** `cli/build.rs` copied musl's `libc.a`, `libunwind.a` and the nine
+   crt objects out of this rustc's own `self-contained/` directory — the one
+   `rustup target add <arch>-unknown-linux-musl` installs — and `build/link.rs`
+   stages them into the link directory. It needs a driver that understands
+   `--target=<musl triple>`, which is one memoized `clang -c` probe. This is the
+   state every correctly built toolchain is in.
+2. **System.** The host is itself musl (Alpine: `cc -dumpmachine` says so) or
+   carries a `musl-clang`/`musl-gcc` wrapper, in which case the wrapper *becomes
+   the driver*, `-static-pie` still goes on the line, and nothing points it
+   anywhere: the machine's musl is already the driver's own libc.
+3. **Neither is a refusal**, naming both fixes. There is no silent glibc
+   fallback, because the failure it would hide is invisible until the artifact
+   is copied to another machine — which is after every test in this repository
+   has passed.
+
+`BURI_MUSL=off` links glibc dynamically and is the escape hatch for a machine
+that has neither and wants a binary anyway; the executable it produces runs
+where that glibc does and nowhere older. The archive's own libc is checked
+against the link's: a glibc runtime archive on a musl command line is refused
+rather than discovered as `undefined reference to __libc_start_main`.
 
 **macOS**: the system `ld`. `ld64.lld` when `--linker=lld` names it or when no
 system linker is found.
 
 ```
-cc -o <artifact> <units...> libburi_rt.a \
-   -Wl,-no_uuid -Wl,-dead_strip -Wl,-platform_version,macos,<min>,<sdk>
+cc -fuse-ld=lld -o <artifact> <units...> libburi_rt.a \
+   -Wl,-dead_strip -Wl,-oso_prefix,.
 ```
+
+No `-no_uuid`: it was there until macOS 26's dyld began rejecting binaries
+without an `LC_UUID`, and ld64's UUID is a content digest, so two identical
+links carry one UUID and keeping it costs no reproducibility. No
+`-platform_version` either — the driver computes it from the selected SDK and
+passes its own, and a second one is an error rather than an override.
+`-oso_prefix,.` is ARCHITECTURE.md §7's third source of nondeterminism on the
+linker's side: ld64 records an absolute `N_OSO` path for every input carrying
+debug information, the runtime archive is one, and the link runs *in* the link
+directory, so `.` strips the checkout's path out of the artifact.
 
 mold is **not** an option on macOS: it is ELF-only, has no `macho/` directory,
 and fails with "mold does not support macOS". The Mach-O fork, `sold`, was
@@ -1373,11 +1456,13 @@ The system linker is the default anyway because Apple's is what every macOS SDK
 assumption is built around, it closed most of the historical speed gap in Xcode
 15, and it is guaranteed present wherever a C toolchain is.
 
-`-no_uuid` is not optional: ARCHITECTURE.md §7 compares linked artifacts byte for
-byte, and `LC_UUID` is the one field that would differ every time. `-dead_strip`
-is not decoration either: §4 sets `MH_SUBSECTIONS_VIA_SYMBOLS`, and the two
-together are why every intra-unit call in an emitted object is a relocation
-rather than a baked displacement.
+`-dead_strip` is not decoration: §4 sets `MH_SUBSECTIONS_VIA_SYMBOLS`, and the
+two together are why every intra-unit call in an emitted object is a relocation
+rather than a baked displacement. Linking the test programs without it once
+measured a backend the build system does not produce — every program in
+`native/stencil.rs` passed while `buri test` failed 977 of 997 conformance
+tests on the same emitter — which is why the harnesses now ask
+`build/link.rs::product_link_args` for this line rather than spelling it out.
 
 **Fallback.** With neither mold nor lld present, `cc` uses whatever the system
 provides and everything works, more slowly. There is **no** case in which the

@@ -407,7 +407,7 @@ const PACKAGES: &[Case] = &[
     // The seventh: a literal that leaves its type name out is the same
     // `StructLit` node by the time either backend sees it — the head is read
     // by the checker and never reaches a backend — so this file is here to say
-    // that out loud on the native one too (SPEC 12.3).
+    // that out loud on the native one too (design/grammar-rationale.md 12.3).
     included("semantics/anonymous.buri"),
     // The eighth: `core/host/testing`'s ten doubles. Seven of them are handles
     // over `cli/runtime/testing.rs`'s table; `TestAlloc` is the two
@@ -664,15 +664,17 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
         objects.push(path);
     }
     let binary = dir.join("program");
-    let mut cc = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".to_string()));
+    // `build/link.rs`'s driver and its trailing arguments — the product's link
+    // line and not a second idea of it (`shared::product_cc`). On Linux it is
+    // a static-PIE musl link, which is not something a harness can spell out
+    // in three `-l`s.
+    let mut cc = crate::shared::product_cc();
     cc.arg("-o").arg(&binary);
     for o in &objects {
         cc.arg(o);
     }
     cc.arg(archive());
-    if cfg!(target_os = "linux") {
-        cc.args(["-lpthread", "-ldl", "-lm"]);
-    }
+    cc.args(crate::shared::product_link_args());
     let built = cc.output().unwrap();
     assert!(
         built.status.success(),

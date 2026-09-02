@@ -174,10 +174,11 @@ fn cc() -> String {
 
 /// Compile, link, run, and answer `(stdout, stderr, exit status)`.
 ///
-/// The link is a plain `cc` over the emitted objects and the runtime archive,
-/// which is exactly the command `native/runtime.rs`'s module comment writes
-/// out. `build/link.rs` owns the real linker selection; this is the same
-/// command line spelled in the test that needs it.
+/// The link is `build/link.rs`'s own driver over the emitted objects and the
+/// runtime archive, with `build/link.rs`'s own trailing arguments — which on
+/// Linux is a static-PIE musl link against the sysroot this toolchain carries.
+/// It used to be that command line spelled out again here; `shared::product_cc`
+/// says why it is a call now.
 fn build_and_run(name: &str, source: &str) -> (String, String, Option<i32>) {
     build_and_run_with(name, source, None)
 }
@@ -259,7 +260,21 @@ pub fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile)
         let c = dir.join("probe.c");
         std::fs::write(&c, text).unwrap();
         let o = dir.join("probe.o");
-        let built = Command::new(cc()).arg("-c").arg(&c).arg("-o").arg(&o).output().unwrap();
+        // The product's driver, because on the `musl-clang` tier the driver is
+        // the answer to "which libc" and an object compiled by anything else
+        // saw glibc's headers — and the product's compile arguments, because on
+        // the *baked* tier the driver is the host's own and `--target=` is the
+        // whole of how it is pointed at musl. Without the second half this
+        // probe is compiled for glibc and linked against musl, which holds only
+        // for as long as no probe names a type whose layout a libc chooses.
+        let built = crate::shared::product_cc()
+            .arg("-c")
+            .args(crate::shared::product_compile_args())
+            .arg(&c)
+            .arg("-o")
+            .arg(&o)
+            .output()
+            .unwrap();
         assert!(
             built.status.success(),
             "the probe did not compile:\n{}",
@@ -269,17 +284,19 @@ pub fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile)
     }
 
     let binary = dir.join("program");
-    let mut link = Command::new(cc());
+    // `build/link.rs`'s own driver and flags. Spelling them out here was fine
+    // while the Linux line was three `-l`s that glibc had mostly folded in
+    // anyway; it stopped being fine when the Linux artifact became a
+    // static-PIE musl one, which is a whole sysroot and a `--target=` rather
+    // than a list. A harness that links more permissively than the product is
+    // a harness that cannot see the product's bugs.
+    let mut link = crate::shared::product_cc();
     link.arg("-o").arg(&binary);
     for object in &objects {
         link.arg(object);
     }
     link.arg(archive());
-    if cfg!(target_os = "linux") {
-        // Harmless where glibc has folded them in, and required where it has
-        // not: `std` in the runtime archive reaches for all three.
-        link.args(["-lpthread", "-ldl", "-lm"]);
-    }
+    link.args(crate::shared::product_link_args());
     let linked = link.output().unwrap();
     assert!(
         linked.status.success(),
@@ -1895,12 +1912,19 @@ export fn main(): Result<(), Str> {
 /// The identity is what invalidates a cached object when the toolchain's LLVM
 /// moves, and the trait's documentation names this backend as the one for
 /// which a constant would be a lie.
+///
+/// It carries the triples for a second reason the version cannot cover: the
+/// platform and the arch in `actions::codegen_key` are the same two values
+/// under `-gnu` and under `-musl`, so a rename of the target this backend emits
+/// for would move nothing unless it moves here.
 #[test]
 fn the_identity_names_the_linked_llvm_and_inkwell() {
     use buri::compiler::backend::Backend as _;
     let id = llvm::Llvm.identity();
     assert!(id.starts_with("llvm 21."), "{id}");
     assert!(id.contains("inkwell 0.10"), "{id}");
+    assert!(id.contains("aarch64-unknown-linux-musl"), "{id}");
+    assert!(!id.contains("linux-gnu"), "a glibc triple is in the identity: {id}");
     assert_eq!(llvm::Llvm.name(), "llvm");
 }
 

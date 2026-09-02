@@ -1,7 +1,7 @@
 //! An ELF64 (little-endian) object reader, enough to recover stencils and their
 //! holes — `machobj.rs`'s sibling for the two Linux targets.
 //!
-//! It reads what `clang -target {aarch64,x86_64}-unknown-linux-gnu -c` emits for
+//! It reads what `clang -target {aarch64,x86_64}-unknown-linux-musl -c` emits for
 //! the same generated C `machobj.rs` reads out of a Mach-O, and it answers the
 //! same four questions: the bytes of the code section, the relocation records
 //! against it, the symbol table, and whether anything spilled into a section

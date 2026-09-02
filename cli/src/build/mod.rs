@@ -27,6 +27,11 @@ pub mod actions;
 pub mod buildfile;
 pub mod cache;
 pub mod link;
+/// The musl sysroot `cli/build.rs` baked in: the `libc.a`, unwinder and crt
+/// objects that finish a hermetic Linux link, and the `Libc` this toolchain's
+/// runtime archive was built against. Bytes and accessors only — the flags and
+/// the staging are `link`'s.
+pub mod musl;
 pub mod protogen;
 pub mod protoschema;
 pub mod regenerate;

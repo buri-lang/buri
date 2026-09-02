@@ -286,11 +286,13 @@ fn a_native_float_renders_as_javascript_renders_it() {
     std::fs::write(&archive, ARCHIVE).unwrap();
     std::fs::write(&source, DRIVER).unwrap();
 
-    let mut cc = Command::new(std::env::var("CC").unwrap_or_else(|_| "cc".to_string()));
+    // `build/link.rs`'s own driver and trailing arguments
+    // (`shared::product_cc`), because the archive on the far side of this link
+    // is the product's — a musl one on Linux — and a harness that answered the
+    // libc question differently would not link at all.
+    let mut cc = crate::shared::product_cc();
     cc.arg("-std=c11").arg("-O1").arg("-o").arg(&binary).arg(&source).arg(&archive);
-    if cfg!(target_os = "linux") {
-        cc.args(["-lpthread", "-ldl", "-lm"]);
-    }
+    cc.args(crate::shared::product_link_args());
     let built = cc.output().unwrap();
     assert!(
         built.status.success(),

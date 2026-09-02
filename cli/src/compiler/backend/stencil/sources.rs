@@ -229,7 +229,7 @@ fn op_applies(op: &str, t: Sc) -> bool {
 /// The host build reaches the platform's own `<string.h>`, which is what it has
 /// always done and what keeps the `macos-arm64` library byte-identical to the
 /// one this toolchain shipped before there were three. A cross build has no
-/// Linux sysroot on this machine — `clang -target aarch64-unknown-linux-gnu`
+/// Linux sysroot on this machine — `clang -target aarch64-unknown-linux-musl`
 /// finds its *own* `<stdint.h>` in the resource directory and no libc headers
 /// at all — so it declares the one libc function the generators use and nothing
 /// else. Clang recognises `memcpy` as a builtin from the declaration alone, so
@@ -1838,6 +1838,9 @@ pub fn build(
 ///   been rewritten. This is the ELF counterpart of the `collect-loh` flag.
 /// * The `collect-loh` flag itself is arm64-only and clang rejects it as
 ///   unused elsewhere, so it is not passed to the x86-64 build.
+///
+/// One flag is neither cross-specific nor optional and is passed to every ELF
+/// build, a native Linux one included: `-fPIC`, argued where it is pushed.
 fn compile_flags(cc: &str, target: StencilTarget) -> Result<Vec<String>, String> {
     let mut f: Vec<String> = [
         // The one level that was measured: `-O3` moves the four kernels by 1 %
@@ -1858,6 +1861,53 @@ fn compile_flags(cc: &str, target: StencilTarget) -> Result<Vec<String>, String>
         // survived would describe a pair that has been rewritten.
         f.push(String::from("-mllvm"));
         f.push(String::from("-aarch64-enable-collect-loh=false"));
+    }
+    if target.is_elf() {
+        // **`-fPIC`, said rather than defaulted to.** Every one of these bytes
+        // is copied into an object that is linked into a `-static-pie`
+        // executable (`build/link.rs`'s header), so the code has to be
+        // position-independent — and until this flag it was, for a reason this
+        // file never stated: `CLANG_DEFAULT_PIE_ON_LINUX`, a *build option of
+        // whichever clang the toolchain was built with*. A clang configured
+        // without it emits absolute addressing here, and the failure then
+        // arrives as `relocation R_AARCH64_ABS64 … can not be used; recompile
+        // with -fPIC` out of the linker of somebody else's program, naming a
+        // stencil they did not write. The condition is asked of this file
+        // rather than of the host.
+        //
+        // **`-fPIC` and not `-fPIE`**, though these bytes only ever reach an
+        // executable and `-fPIE` is the tighter claim to make about one. The
+        // difference is not overhead here, it is the *hole vocabulary*: this
+        // file's `H64` declares a hole at **default** visibility precisely so
+        // that clang emits `adrp`+`ldr` through the GOT, which
+        // `extract.rs` reads as `GotAdrp`/`GotLdr` and the patcher retargets at
+        // the constant pool. `-fPIE` invites clang to assume such a symbol is
+        // defined in the image being built and reach it directly — the same
+        // `adrp`+`add` pair `H32` asks for, under a relocation that means
+        // something else — so the sixty-four-bit holes would silently become
+        // thirty-two-bit ones. `-fPIC` is also what the other native backend
+        // asks LLVM for on the same targets (`RelocMode::PIC`,
+        // `llvm/target.rs`), and two backends whose objects meet in one link
+        // should not disagree about what position-independent means. The
+        // `.data.rel.ro` constant pool `stencil/mod.rs` argues for is this same
+        // bargain on the data side.
+        //
+        // **Measured, and it had to be**, because the shard cache keys on the
+        // generated C and deliberately not on these flags ([`shard_library`]):
+        // both Linux scratch directories were removed, `cargo build -p buri
+        // --tests` rebuilt the libraries from empty, and
+        // `stencils-linux-arm64.bin` and `stencils-linux-x86_64.bin` came out
+        // byte-identical to the ones the implicit default produced, digests
+        // included. So `Stencil::identity` did not move and no cached object
+        // was invalidated: the flag states what was already true on this
+        // toolchain's clang, which is the only condition under which adding it
+        // is free.
+        //
+        // Not passed on the Mach-O target, where it would be a different
+        // question: `arm64-apple-darwin` is PIC-only, the driver has no
+        // `-fno-PIC` to have defaulted away from, and the flag would be a
+        // no-op that invited a reader to look for a Mach-O reason for it.
+        f.push(String::from("-fPIC"));
     }
     if target != StencilTarget::MacosArm64 {
         // `--target=`, with two dashes: the one-dash spelling takes the triple
@@ -1934,6 +1984,14 @@ fn shard_library(
 ) -> Result<Vec<Stencil>, String> {
     let c = dir.join(format!("s{i}.c"));
     let obj = dir.join(format!("s{i}.o"));
+    // The generated C is the whole of the cache key, and `flags` deliberately
+    // is not part of it: the scratch directory outlives a `build.rs` rerun, so
+    // an edit that changes only how `cc` is invoked — the target triple, say —
+    // reuses the objects the previous flags produced until `OUT_DIR` is
+    // cleared. That is fine for the flags that have ever changed here (the
+    // `-gnu`-to-`-musl` rename produced identical objects, which is why it is
+    // fine and not merely unnoticed) and it is why the one measurement that
+    // settles such a change has to be taken from an empty scratch directory.
     let unchanged =
         std::fs::read(&c).map(|old| old == src.as_bytes()).unwrap_or(false) && obj.exists();
     if !unchanged {

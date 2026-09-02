@@ -65,6 +65,89 @@ pub fn ran(binary: &Path) -> Ran {
 }
 
 // ---------------------------------------------------------------------------
+// The product's link line
+// ---------------------------------------------------------------------------
+//
+// **A harness that links more permissively than the product is a harness that
+// cannot see the product's bugs**, and one that links *differently* from it
+// measures a toolchain nobody ships. `build/link.rs` says the same sentence
+// over `product_link_args`, and this is the pair of functions that carries its
+// answer into a `Command`.
+//
+// Every suite in this binary used to spell the flags out again — `-dead_strip`
+// on macOS, `-Wl,--gc-sections -lpthread -ldl -lm` on Linux — and the Linux
+// half of that spelling stopped being true the day the Linux artifact became a
+// static-PIE musl one: musl folds pthread, dl and m into `libc.a` and ships no
+// `libpthread.a` stub, so the old line is now `cannot find -lpthread` against
+// the sysroot the product links with. There is nothing to keep in sync here
+// any more; there is one call.
+
+/// The driver `build/link.rs` would spawn, in the directory its arguments are
+/// relative to.
+///
+/// **Both halves matter.** The driver, because the `musl-clang` tier answers
+/// "which libc" with the *program*: a harness that kept spawning `$CC` there
+/// would link glibc while the product linked musl. The directory, because the
+/// arguments name `musl/lib` relatively — that is the product's own
+/// reproducibility discipline (ARCHITECTURE.md §7), and a link run somewhere
+/// else would not find the staged sysroot at all.
+///
+/// Every other path a harness passes — the objects, the archive, `-o` — is
+/// absolute, which is what lets one staging directory serve every link in the
+/// process instead of one per program. That is not a micro-optimisation: the
+/// sysroot is eleven files and about 6.6 MB, and the corpus census links
+/// thirty-six programs while the fuzzer links as many as its budget buys.
+pub fn product_cc() -> Command {
+    let mut cmd = Command::new(
+        buri::build::link::product_link_driver()
+            .unwrap_or_else(|| PathBuf::from(std::env::var("CC").unwrap_or_else(|_| "cc".into()))),
+    );
+    cmd.current_dir(&staged().0);
+    cmd
+}
+
+/// The `--target=` a *compile* needs to agree with the link below it.
+///
+/// `build/link.rs::product_compile_args` is the answer and this is the memo
+/// for it: the two `-c` probe compiles in this binary would otherwise be
+/// compiled for the driver's default target — glibc on a Debian host — and
+/// linked against the baked musl sysroot. Empty everywhere except the baked
+/// tier, where it is one flag; the reasoning for that scoping is over there,
+/// beside the link flags it has to agree with.
+pub fn product_compile_args() -> &'static [String] {
+    static ARGS: OnceLock<Vec<String>> = OnceLock::new();
+    ARGS.get_or_init(buri::build::link::product_compile_args)
+}
+
+/// The arguments the product passes **after** the objects and the archive.
+///
+/// Order is part of the claim: `-lunwind` resolves against what precedes it,
+/// so a harness that put these first would be linking a different command
+/// line. Empty on a host that cannot link at all — no `cc`, or the hermetic
+/// refusal — which is not permissiveness, because the link that follows is
+/// about to fail for that same reason.
+pub fn product_link_args() -> &'static [String] {
+    &staged().1
+}
+
+/// The staging directory and the arguments for it, once per process.
+///
+/// Named for the process like every other tree in here, and swept by the next
+/// run for the reason `harness/sweep.rs` gives: 6.6 MB that nothing deletes is
+/// a disk in two heavy sessions.
+fn staged() -> &'static (PathBuf, Vec<String>) {
+    static STAGED: OnceLock<(PathBuf, Vec<String>)> = OnceLock::new();
+    STAGED.get_or_init(|| {
+        crate::sweep::once();
+        let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("native-link-flags-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let args = buri::build::link::product_link_args(&dir);
+        (dir, args)
+    })
+}
+
+// ---------------------------------------------------------------------------
 // A Buri server, and a client that is not one
 // ---------------------------------------------------------------------------
 //

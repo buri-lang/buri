@@ -10,6 +10,16 @@
 #      into every unit object, and it is the ABSENCE of that section that makes
 #      a Linux linker mark the stack executable — so the property is invisible
 #      in the source and visible only here.
+#   * **The image is a static PIE.** `build/link.rs` links every Linux artifact
+#      `-static-pie` against the musl sysroot baked into the toolchain, and the
+#      whole point of that is that the file runs on a Linux that is not the one
+#      that built it (design/native/ARCHITECTURE.md §9). Nothing in the build
+#      can observe it: a glibc-linked binary builds, links, passes the suite,
+#      and fails only on somebody else's machine — which is why the property is
+#      asserted on the IMAGE, here, and not reasoned about upstream. Three
+#      readings say it, and all three are needed: ELF type DYN (a PIE),
+#      no PT_INTERP (nothing loads an interpreter for it), and no DT_NEEDED
+#      (nothing is left to resolve at run time).
 #
 # The binary this is pointed at is the one
 # `cli/tests/native/stencil.rs::the_products_own_link_produces_a_program_that_runs`
@@ -112,6 +122,37 @@ else
   else
     fail "could not read the .bss size out of: $bss_line"
   fi
+fi
+
+# ---------------------------------------------------------- static PIE ----
+# `readelf -hW`'s Type line. `DYN` and not `EXEC`: the artifact is position
+# independent, which is what `-static-pie` asks for and what `-static` alone
+# would not give. An `EXEC` here means the PIE half was lost.
+type_line=$("$readelf_cmd" -hW "$bin" | grep -E '^[[:space:]]*Type:' || true)
+case "$type_line" in
+  *DYN*) echo "ELF type: DYN (position independent)" ;;
+  "")    fail "could not read the ELF type out of the header" ;;
+  *)     fail "the image is not a PIE:${type_line#*Type:}" ;;
+esac
+
+# No PT_INTERP. A static PIE self-relocates through musl's `rcrt1.o` before
+# `main`; an INTERP header means the kernel would hand the file to
+# `ld-linux.so` or `ld-musl-*.so.1` instead, and that file is exactly what is
+# not guaranteed to exist on the machine the artifact was copied to.
+interp=$("$readelf_cmd" -lW "$bin" | grep -w INTERP || true)
+if [ -n "$interp" ]; then
+  fail "the image has a PT_INTERP header, so it is dynamically loaded: $interp"
+else
+  echo "PT_INTERP: absent"
+fi
+
+# And nothing left to resolve. A DT_NEEDED entry names a shared object the
+# loader must find; a hermetic artifact names none.
+needed=$("$readelf_cmd" -dW "$bin" 2>/dev/null | grep -w NEEDED || true)
+if [ -n "$needed" ]; then
+  fail "the image still needs shared libraries:"$'\n'"$needed"
+else
+  echo "DT_NEEDED: none"
 fi
 
 exit "$status"
