@@ -51,3 +51,22 @@ fn a_generated_repository_builds_and_tests() {
         .says("is inside the Buri repository at");
     assert!(!scratch.path("packages").exists(), "a refused run writes nothing at all");
 }
+
+/// The one collision that is not a refusal. `git init` before `buri init` is
+/// the ordinary way to start, and it can leave a `.gitignore` at the target —
+/// so the command merges the build's entries into it, below the user's lines,
+/// rather than stopping where people actually begin.
+#[test]
+fn an_existing_gitignore_is_merged_into() {
+    let scratch = Scratch::empty("init-gitignore");
+    scratch.write(".gitignore", "# mine\nnode_modules/\n");
+
+    scratch.run(&["init"]).ok().says("wrote REPO.buri").says("updated .gitignore");
+    let merged = scratch.read(".gitignore");
+    assert!(merged.starts_with("# mine\nnode_modules/\n"), "the user's lines come through first");
+    assert!(merged.contains(".buri/"), "the build's entries are appended: {merged}");
+    assert!(merged.contains("\nout\n"), "the build's entries are appended: {merged}");
+
+    // What came out is still a working repository.
+    scratch.run(&["build", "//..."]).ok();
+}

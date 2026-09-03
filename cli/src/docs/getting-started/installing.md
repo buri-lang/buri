@@ -59,7 +59,10 @@ starting with [the language skill](../reference/skills/buri-language.md).
 `buri init` never writes over your work. A `REPO.buri` at the target means the
 directory is already a repository and the command stops; a `REPO.buri` *above*
 the target stops it too, because a repository inside another one is not a root,
-it is a stray build file in somebody else's tree.
+it is a stray build file in somebody else's tree. A `.gitignore` already at
+the target is the one exception — `git init` first is the ordinary way to
+start — and there the build's entries are appended below your lines rather
+than the run refused.
 
 ## Skills in a repository you already have
 

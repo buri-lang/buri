@@ -53,6 +53,9 @@ pub const SKILLS: &[Skill] = &[
 pub enum Outcome {
     Wrote,
     Overwrote,
+    /// A file that kept everything it had and gained what it was missing —
+    /// `buri init` merging into an existing `.gitignore`.
+    Updated,
     /// A `buri-` directory this toolchain no longer ships.
     Removed,
 }
@@ -62,6 +65,7 @@ impl Outcome {
         match self {
             Outcome::Wrote => "wrote",
             Outcome::Overwrote => "overwrote",
+            Outcome::Updated => "updated",
             Outcome::Removed => "removed",
         }
     }

@@ -17,7 +17,12 @@
 //! The one rule here is that **nothing a user wrote is ever written over**. A
 //! `REPO.buri` at the target means the directory is already a repository and
 //! the command refuses; any other collision refuses too, before the first byte
-//! is written, so a refusal never leaves half a scaffold behind.
+//! is written, so a refusal never leaves half a scaffold behind. The single
+//! exception is an existing `.gitignore`, because it is the one scaffold file
+//! whose name git owns — a directory that is already a git repository has one,
+//! and refusing over it would make `buri init` useless exactly where people
+//! start. Entries are line-keyed and order-independent, so the build's entries
+//! are appended below whatever the user wrote, and nothing of theirs moves.
 //!
 //! A `REPO.buri` *above* the target is refused for a different reason, and it
 //! is the one that bites hardest. Nesting one is not a collision — no file is
@@ -46,6 +51,11 @@ pub struct ScaffoldFile {
 /// The file whose presence makes a directory a repository root, and so the one
 /// this command checks for before it does anything at all.
 const REPOSITORY_FILE: &str = "REPO.buri";
+
+/// The one scaffold file an existing copy of does not refuse the run: git owns
+/// this name, so a directory that is already a git repository has one, and the
+/// scaffold's entries are merged into it instead.
+const IGNORE_FILE: &str = ".gitignore";
 
 /// The generated repository, in the order the lines are printed.
 ///
@@ -130,7 +140,7 @@ pub fn generate(root: &Path) -> Result<Vec<(Outcome, PathBuf)>, String> {
     }
     for file in SCAFFOLD {
         let path = root.join(file.path);
-        if path.exists() {
+        if path.exists() && file.path != IGNORE_FILE {
             return Err(format!(
                 "`{}` already exists; `buri init` never writes over a file",
                 path.display()
@@ -147,6 +157,12 @@ pub fn generate(root: &Path) -> Result<Vec<(Outcome, PathBuf)>, String> {
             std::fs::create_dir_all(parent)
                 .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
         }
+        if file.path == IGNORE_FILE && path.exists() {
+            if merge_ignore(&path, file.text)? {
+                done.push((Outcome::Updated, path));
+            }
+            continue;
+        }
         std::fs::write(&path, file.text)
             .map_err(|e| format!("cannot write {}: {e}", path.display()))?;
         done.push((Outcome::Wrote, path));
@@ -156,6 +172,44 @@ pub fn generate(root: &Path) -> Result<Vec<(Outcome, PathBuf)>, String> {
     // the next must end up with the same `.agent/skills`.
     done.extend(skills::install(root)?);
     Ok(done)
+}
+
+/// Appends whatever the scaffold's ignore file has that `path` does not,
+/// leaving every line the user wrote where it stands. Says whether anything
+/// was appended: a `.gitignore` that already ignores everything the build
+/// writes is left byte-for-byte alone, so re-running is not an edit.
+///
+/// Lines are matched whole and trimmed — `out` is `out` however it is
+/// indented, but it is not `out/`, and a near-miss is appended rather than
+/// guessed at, since one redundant entry is harmless and one missing entry is
+/// a build product committed.
+fn merge_ignore(path: &Path, scaffold: &str) -> Result<bool, String> {
+    let existing = std::fs::read_to_string(path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let have: std::collections::HashSet<String> =
+        existing.lines().map(|line| line.trim().to_string()).collect();
+    let is_entry = |line: &&str| {
+        let line = line.trim();
+        !line.is_empty() && !line.starts_with('#')
+    };
+    if scaffold.lines().filter(is_entry).all(|line| have.contains(line.trim())) {
+        return Ok(false);
+    }
+    let mut merged = existing;
+    if !merged.ends_with('\n') && !merged.is_empty() {
+        merged.push('\n');
+    }
+    if !merged.is_empty() {
+        merged.push('\n');
+    }
+    // The whole missing tail of the scaffold, comment included: an entry the
+    // user already has is skipped, so what lands is only what was absent.
+    for line in scaffold.lines().filter(|line| !have.contains(line.trim())) {
+        merged.push_str(line);
+        merged.push('\n');
+    }
+    std::fs::write(path, merged).map_err(|e| format!("cannot write {}: {e}", path.display()))?;
+    Ok(true)
 }
 
 /// The root of the repository `root` would sit inside, if there is one.
@@ -299,6 +353,71 @@ mod tests {
             std::fs::read_to_string(root.join("apps/hello/main.buri")).unwrap(),
             "// somebody's own\n"
         );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// The one collision that is not a refusal: a directory that is already a
+    /// git repository has a `.gitignore`, and `buri init` there must merge the
+    /// build's entries in below the user's lines rather than stop.
+    #[test]
+    fn an_existing_gitignore_is_merged_not_written_over() {
+        let root = scratch("gitignore");
+        std::fs::create_dir_all(&root).unwrap();
+        let theirs = "# mine\nnode_modules/\n";
+        std::fs::write(root.join(IGNORE_FILE), theirs).unwrap();
+
+        let done = generate(&root).unwrap();
+        let merged = std::fs::read_to_string(root.join(IGNORE_FILE)).unwrap();
+        assert!(merged.starts_with(theirs), "the user's lines stay first and untouched");
+        assert!(merged.contains("\n.buri/\n"), "the build's entries are appended: {merged}");
+        assert!(merged.contains("\nout\n"), "the build's entries are appended: {merged}");
+        assert!(
+            done.iter().any(|(outcome, at)| *outcome == Outcome::Updated
+                && *at == root.join(IGNORE_FILE)),
+            "a merge is reported as an update, not a write"
+        );
+        // The rest of the scaffold landed as it does in an empty directory.
+        assert!(root.join(REPOSITORY_FILE).is_file());
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A `.gitignore` that already ignores everything the build writes is left
+    /// byte-for-byte alone — no duplicate entries, no report line, and the
+    /// lines it already has count however they are indented.
+    #[test]
+    fn a_gitignore_already_covering_the_build_is_untouched() {
+        let root = scratch("gitignore-covered");
+        std::fs::create_dir_all(&root).unwrap();
+        let theirs = "node_modules/\n  .buri/\nout";
+        std::fs::write(root.join(IGNORE_FILE), theirs).unwrap();
+
+        let done = generate(&root).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.join(IGNORE_FILE)).unwrap(),
+            theirs,
+            "nothing to add means nothing is touched, trailing newline included"
+        );
+        assert!(
+            !done.iter().any(|(_, at)| *at == root.join(IGNORE_FILE)),
+            "an untouched file is not reported"
+        );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// A merge appends only what is missing: an entry the user already has is
+    /// not repeated, and a file with no final newline gains one before the
+    /// tail rather than gluing onto the last line.
+    #[test]
+    fn a_merge_appends_only_the_missing_entries() {
+        let root = scratch("gitignore-partial");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(IGNORE_FILE), "out").unwrap();
+
+        generate(&root).unwrap();
+        let merged = std::fs::read_to_string(root.join(IGNORE_FILE)).unwrap();
+        assert_eq!(merged.matches("out").count(), 1, "an entry already there is not repeated");
+        assert!(merged.starts_with("out\n"), "the unterminated last line is closed, not glued to");
+        assert!(merged.contains(".buri/\n"), "the missing entry is what lands: {merged}");
         std::fs::remove_dir_all(&root).unwrap();
     }
 
