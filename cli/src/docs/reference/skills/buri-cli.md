@@ -253,7 +253,8 @@ a binary that depends on it, a test suite, a `.gitignore`, and these skills —
 and creates the directory if it is not there. What it writes builds, tests,
 lints and formats clean immediately. It never writes over a file: a `REPO.buri`
 already at the target, or any other collision, stops it with exit 2 before the
-first byte.
+first byte. The one exception is an existing `.gitignore` — git owns that name,
+so the build's entries are appended below its lines instead.
 
 ### `add skills`
 

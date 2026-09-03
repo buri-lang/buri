@@ -78,6 +78,14 @@ next `buri build //...` fails on it. `buri init` in a subdirectory of a
 repository therefore says so and stops.
 
 Any other collision stops it too, and stops it before the first byte is
-written, so a refusal never leaves half a repository behind. The one namespace
-the command shares is `.agent/skills/buri-*`, which belongs to `add skills`
-and follows its rules.
+written, so a refusal never leaves half a repository behind — with one
+exception. A `.gitignore` already at the target does not stop the run, because
+git owns that name: `git init` before `buri init` is the ordinary way to
+start, and refusing over the file git conventions put there would make the
+command useless exactly where people begin. Ignore entries are line-keyed and
+order-independent, so the build's entries are appended below whatever is
+already written — every existing line stays exactly where it was, an entry the
+file already has is not repeated, and a `.gitignore` that already ignores
+everything the build writes is left byte-for-byte alone. The one namespace the
+command shares is `.agent/skills/buri-*`, which belongs to `add skills` and
+follows its rules.
