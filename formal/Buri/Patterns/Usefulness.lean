@@ -209,7 +209,7 @@ its arms -- `exhaust.rs:478`. -/
 def isExhaustive (S : Signature) (limit : Nat) (t : Ty) (arms : List Row) : Bool :=
   !isUseful S limit arms [Pattern.wildcard] [t]
 
-/-- A `let` pattern must be irrefutable (SPEC 14 rule 2), which is the same
+/-- A `let` pattern must be irrefutable (design/static-rules.md rule 2), which is the same
 question asked of a one-row matrix. -/
 def isIrrefutable (S : Signature) (limit : Nat) (t : Ty) (p : Pattern) : Bool :=
   isExhaustive S limit t [[p]]

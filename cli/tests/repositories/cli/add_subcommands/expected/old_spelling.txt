@@ -13,7 +13,7 @@ buri — the toolchain for the Buri language
   buri query      <expr>              ask about the build graph
   buri docs       [topic]             the language, the build system, and this CLI
   buri add        <subcommand>        write what this toolchain ships into an existing repository
-  buri add skills [directory]         write the agent skills for this toolchain into .claude/skills
+  buri add skills [directory]         write the agent skills for this toolchain into .agent/skills
   buri lsp                            language server, over stdio
   buri clean                          drop the local cache
   buri version                        toolchain version, and --verbose its executable's hash

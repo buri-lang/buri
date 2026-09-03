@@ -1,0 +1,5 @@
+# The repository root. Its presence is what `//` resolves against.
+lint {
+    check_during_build: true
+    fail_on_finding: true
+}

@@ -1,7 +1,7 @@
 // FINDING 3: does the capture rule fire on a NON-effect-carrying `self`?
-// `Report` implements no effect, so SPEC 10.6 / SPEC 14 rule 8 should permit
-// the lambda to capture it. `infer.rs:58-60` inserts every `self` into
-// `effect_locals` regardless of `is_effect_carrying`.
+// `Report` implements no effect, so SPEC 10.6 / design/static-rules.md rule 8
+// should permit the lambda to capture it. `infer.rs:58-60` inserts every
+// `self` into `effect_locals` regardless of `is_effect_carrying`.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;

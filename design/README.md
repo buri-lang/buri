@@ -20,6 +20,10 @@ here.
 | [`TODO.md`](./TODO.md) | What is not done: open gaps, deferred work with its reasons, and the decisions to keep saying no to. Completed work is not recorded there. Cite it by heading anchor, never by line number. |
 | [`STANDARD-LIBRARY.md`](./STANDARD-LIBRARY.md) | Why `core/*` contains what it contains, and what the deliberate absences would cost to close. |
 | [`ui-reactivity.md`](./ui-reactivity.md) | Why `ui/*` is shaped the way it is: signals as inert handles, meaning as a role and arrangement as a style, two style tiers, and exhaustive themes. It has shipped, so it keeps the argument and points at the reference; its "As built" section records where compiling it overruled it. |
+| [`grammar-rationale.md`](./grammar-rationale.md) | Every decision that keeps the grammar context-free and unambiguous, with what each one cost. It was section 12 of the specification; a reader writing Buri never needs it, and the compiler's own comments cite it by item number. |
+| [`static-rules.md`](./static-rules.md) | Every well-formedness rule the grammar does not express, numbered. It was section 13 of the specification; each rule is enforced by the checker and reaches a reader through the error catalogue, and the compiler's comments cite it by rule number. |
+| [`non-goals.md`](./non-goals.md) | What the language deliberately does not have, what is deferred and why they are deferred together, and the open trade-offs flagged as open. It was section 14 of the specification. |
+| [`resolved-questions.md`](./resolved-questions.md) | The arguments behind the decisions [`non-goals.md`](./non-goals.md) now states in one line: `for`/`while` and `|>`, specified and cut, and the `I64`-on-JavaScript question that got an answer. Each one constrains the next proposal that asks for the same thing. |
 | [`PERFORMANCE.md`](./PERFORMANCE.md) | What "fast" means for this toolchain, how it is measured, and what the measurements say. The benchmark harness's own READMEs cite it as normative. |
 | [`native/`](./native/) | The native backend's design: architecture, value model, memory, the two native code generators, build and watch, and the decisions taken. |
 

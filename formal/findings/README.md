@@ -14,7 +14,7 @@ cmd/<case>/main.buri    the case
 
 | # | Case | Predicted | Observed | Verdict | Status |
 |---|---|---|---|---|---|
-| 1 | `pure_abort` | pure call not eliminable | aborts, never prints | **spec bug** | **fixed in SPEC** — §10.4 now conditions the elimination clause on terminating without aborting (`cli/src/docs/lang/effects.md`) |
+| 1 | `pure_abort` | pure call not eliminable | aborts, never prints | **spec bug** | **fixed in SPEC** — §10.4 now conditions the elimination clause on terminating without aborting (`cli/src/docs/language/effects.md`) |
 | 2 | — | determinism false across UB | not run | spec bug, by inspection | **fixed in SPEC** — §10.4 now quantifies over *identical* values and excludes undefined behaviour |
 | 3 | `self_in_lambda` | false rejection | rejected | **checker bug** | **fixed** — `inference.rs::check_fn` gates the `SelfParam` arm on `is_effect_carrying`, as the `Normal` arm does |
 | 4 | `hide_generic` → `launder` → `purity_false` | taint predicate not inductive | **purity theorem falsified** | **design hole** | **resolved by decision** — see "The rule chosen" below; all three cases are now rejected |
@@ -47,7 +47,7 @@ investment.
 The checker forbids a lambda from capturing a value whose type could be a
 context at some instantiation, with two soundness-preserving escapes — an
 ordinary trait bound, and a function type — argued in full in
-`cli/src/docs/lang/effects.md` §10.6. The implementation is
+`cli/src/docs/language/effects.md` §10.6. The implementation is
 `inference.rs::satisfies_seen` (the trait-bound escape) and
 `Infer::note_capture_risk` (the capture check itself); all three reproducers
 (`hide_generic`, `launder`, `purity_false`) are rejected as

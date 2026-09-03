@@ -70,7 +70,7 @@ theorem armsOk_exhaustive {S : Signature} {t : Ty} {ps : List Pattern}
     (fun q hq => Pattern.wellFormedB_sound q t (List.all_eq_true.mp hcompiled q hq))
     hexhaustive
 
-/-- The one-armed case: irrefutability of a `let` pattern (SPEC 14 rule 2). -/
+/-- The one-armed case: irrefutability of a `let` pattern (design/static-rules.md rule 2). -/
 theorem armsOk_irrefutable {S : Signature} {t : Ty} {p : Pattern}
     (h : armsOk S t [p] = true) : ∀ v, (S ⊢ᵥ v : t) → Pattern.matches p v = true := by
   intro v hv

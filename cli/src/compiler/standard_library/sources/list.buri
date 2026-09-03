@@ -152,7 +152,7 @@ impl [Str] {
 export fn empty<T>(): [T];
 
 /// `[from, from+1, ..., to-1]`. Counting without a loop and without a `Range`
-/// type — SPEC 15.1 records why neither exists.
+/// type — design/non-goals.md records why neither exists.
 export fn range<C: Alloc>(ctx: C, start: Int, end: Int): [Int];
 
 export fn repeat<T, C: Alloc>(ctx: C, item: T, times: Int): [T];

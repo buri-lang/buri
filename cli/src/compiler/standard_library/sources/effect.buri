@@ -250,8 +250,8 @@ export effect Tasks {
 ///     makes the handler something the *acceptor* invokes; and an acceptor
 ///     grants acceptance and nothing else, so the handler would have been
 ///     handed a value it could do nothing with.
-///   * **the loop is a tail call.** There are no loops (SPEC 15.1), and
-///     `middle/tail_calls.rs` rewrites a self tail call into one, so the
+///   * **the loop is a tail call.** There are no loops (design/non-goals.md),
+///     and `middle/tail_calls.rs` rewrites a self tail call into one, so the
 ///     accept loop costs no stack however long the server runs.
 ///   * **there may be several of it at once.** `core/net/server`'s `run` fans
 ///     the loop out with `Tasks.parallel`, one worker per handler the acceptor

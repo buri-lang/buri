@@ -5,7 +5,7 @@
 //!
 //! * There is no `<<`, `>>`, or `?.` token. Their absence is what keeps
 //!   `Wrapper<Wrapper<Int>>` from mis-lexing and `x?.field` from needing a
-//!   token splitter (SPEC 12.6).
+//!   token splitter (design/grammar-rationale.md 12.6).
 //! * Template interpolation is the only mode-dependent part. The lexer keeps
 //!   one stack of what is currently open — a brace or an interpolation hole —
 //!   so a `}` closing a block inside a hole is told apart from the `}` that
@@ -1519,7 +1519,7 @@ mod tests {
     #[test]
     fn tuple_access_is_three_tokens() {
         // `pair.0` must not lex as IDENT FLOAT — this is why a float literal
-        // has to begin with a digit (SPEC 12.14).
+        // has to begin with a digit (design/grammar-rationale.md 12.14).
         assert_eq!(
             tokens("pair.0"),
             vec![

@@ -277,7 +277,7 @@ impl Tally {
 /// * **A deleted separator between match arms is swallowed by the arm before
 ///   it.** `=> "a"` followed by `(x, y) => "b"` reads as a call of `"a"`, and
 ///   `=> 1` followed by `.Err(e) =>` reads as a field of `1`. This is exactly
-///   the ambiguity the required comma exists to prevent (SPEC 12.12), so the
+///   the ambiguity the required comma exists to prevent (design/grammar-rationale.md 12.12), so the
 ///   text without it is a different program rather than a broken one.
 /// * **A recovered program means something else.** `f(a, g(b)` closes `f` a
 ///   token early, and the checker then has an honest opinion about the arity

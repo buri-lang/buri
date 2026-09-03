@@ -3,7 +3,7 @@
 // A `let` with no annotation is the plainest way to ask a literal to name its
 // own type, and the answer is no: the type of an anonymous literal is read
 // from above and never solved for, so with nothing above it there is nothing
-// to read (SPEC 12.3).
+// to read (design/grammar-rationale.md 12.3).
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;

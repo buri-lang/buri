@@ -1,0 +1,84 @@
+from "core/effect" import { Alloc };
+from "core/math" import * as math;
+from "core/str" import * as str;
+
+derive Eq, Show for Unit;
+/// A length unit. Every conversion goes through metres.
+export enum Unit {
+    Metres,
+    Kilometres,
+    Miles,
+    Feet,
+}
+
+derive Eq, Show for Quantity;
+/// A number with its unit attached, so the two cannot drift apart.
+export struct Quantity {
+    export amount: Float,
+    export unit: Unit,
+}
+
+derive Eq, Show for ParseError;
+/// Each variant carries the word, so a caller can say which one was wrong.
+export enum ParseError {
+    NotANumber(Str),
+    UnknownUnit(Str),
+}
+
+export fn parseUnit(word: Str): Result<Unit, ParseError> {
+    match (word) {
+        "m" => .Ok(.Metres),
+        "km" => .Ok(.Kilometres),
+        "mi" => .Ok(.Miles),
+        "ft" => .Ok(.Feet),
+        other => .Err(.UnknownUnit(other)),
+    }
+}
+
+/// Two words in, a quantity out. `?` gives up on the first failure and hands
+/// the caller its error, which is why both lines read as if nothing could go
+/// wrong.
+export fn parseQuantity(amount: Str, unit: Str): Result<Quantity, ParseError> {
+    let n = amount.toFloat().okOr(ParseError.NotANumber(amount))?;
+    let u = parseUnit(unit)?;
+    .Ok(Quantity { amount: n, unit: u })
+}
+
+impl Unit {
+    // Exported to the rest of this library and withheld by lib.buri, so it is
+    // invisible outside //libs/units.
+    export fn metres(self): Float {
+        match (self) {
+            .Metres => 1.0,
+            .Kilometres => 1000.0,
+            .Miles => 1609.344,
+            .Feet => 0.3048,
+        }
+    }
+
+    export fn symbol(self): Str {
+        match (self) {
+            .Metres => "m",
+            .Kilometres => "km",
+            .Miles => "mi",
+            .Feet => "ft",
+        }
+    }
+}
+
+impl Quantity {
+    /// No `ctx`, so converting a length cannot read, print or allocate.
+    export fn into(self, unit: Unit): Quantity {
+        Quantity {
+            amount: self.amount * self.unit.metres() / unit.metres(),
+            unit: unit,
+        }
+    }
+
+    /// `Alloc` and nothing else: building a `Str` allocates, and that is all
+    /// this does.
+    export fn format<C: Alloc>(self, ctx: C): Str {
+        let rounded = math.round(self.amount * 100.0) / 100.0;
+        str.format(ctx, "${rounded} ${self.unit.symbol()}")
+    }
+}

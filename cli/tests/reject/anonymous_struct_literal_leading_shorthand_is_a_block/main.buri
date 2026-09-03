@@ -2,7 +2,7 @@
 //
 // The other half of the grammar's seam, pinned beside
 // `anonymous_struct_literal_single_shorthand_is_a_block`. A `{` opens a literal
-// only when a `..` or a `name :` follows it (SPEC 12.3), so a literal whose
+// only when a `..` or a `name :` follows it (design/grammar-rationale.md 12.3), so a literal whose
 // first field is shorthand is read as a block, and a block cannot hold a comma.
 //
 // The message is the block's, and pinning it is the point: it is what a reader

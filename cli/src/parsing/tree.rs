@@ -1,10 +1,10 @@
 //! The abstract syntax tree.
 //!
 //! One node per production in `grammar.ebnf`, with the deliberate exception
-//! named in SPEC 12.16: a method call has no node of its own. `sq.area()` is a
-//! `Call` whose callee is a `Field`, and which of the four meanings that `.`
-//! carries — field, tuple index, module member, method — is settled during
-//! name resolution rather than during parsing.
+//! named in design/grammar-rationale.md 12.16: a method call has no node of its
+//! own. `sq.area()` is a `Call` whose callee is a `Field`, and which of the four
+//! meanings that `.` carries — field, tuple index, module member, method — is
+//! settled during name resolution rather than during parsing.
 
 use crate::diagnostics::Span;
 use crate::parsing::flat::{NONE, TypeId, TypeList};

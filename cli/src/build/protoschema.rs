@@ -31,7 +31,7 @@
 //! `features.field_presence`, which defaults to `EXPLICIT` and can be set per
 //! file, per message, or per field. That is the one change with teeth, because
 //! it decides whether a singular field is `Option<T>` or `T` — see
-//! `cli/src/docs/build/proto.md`.
+//! `cli/src/docs/reference/build/proto.md`.
 //!
 //! What is *not* here is refused by name rather than ignored: `service`,
 //! `extend`, `extensions`, groups, `map<>`, the two removed labels, and every

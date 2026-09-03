@@ -674,7 +674,7 @@ fn fsSyncFile(handle: I64, path: Str): Result<(), IoError>;
 /// cannot call `http.text(ctx, ...)` inside itself. It can build a `Response`
 /// literal, because a list literal needs no context; and it can **capture** a
 /// `Response` the test built before it, because a response is plain data. Both
-/// spellings are in `docs/build/testing.md`.
+/// spellings are in `docs/reference/build/testing.md`.
 ///
 /// It carries a handle as well, and that is not a contradiction: the responder
 /// is the behaviour and the handle names the **log**, which is state like any

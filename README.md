@@ -58,6 +58,26 @@ export fn main(): Result<(), Str> {
 points short: 12
 ```
 
+## Finding your way
+
+The documentation is in four parts, and `buri docs` serves all of it from the
+binary.
+
+- **[Getting started](cli/src/docs/getting-started/)** is the reading order for
+  somebody who has never written Buri: why the language is shaped this way, how
+  to install it, and one small program built end to end.
+- **[Guides](cli/src/docs/guides/)** answer "how do I do X" — set up an editor,
+  write a test, compile to JavaScript — and hold the few concepts you have to
+  understand before any of that makes sense, effects above all.
+- **[The language](cli/src/docs/language/)** is the specification: the exact
+  rule, when a guide has told you the shape and you need the letter of it.
+- **[Reference](cli/src/docs/reference/)** is lookup — the standard library, the
+  build system, every CLI command, every error and lint code. Nothing in it is
+  required reading; you arrive at a page because something sent you there.
+
+Getting started and the core guides are the required reading. Everything else
+you consult.
+
 ## Status
 
 Buri is **version 0.3 and pre-release**: no tagged release, every install

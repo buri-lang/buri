@@ -1,10 +1,10 @@
 // Bit manipulation — `core/bits`.
 //
 // `shl` and `shr` are functions rather than operators because there is no `<<`
-// or `>>` token (SPEC 12.6), so the whole of this file is ordinary calls. The
-// wide operations work on `Int`, which is `I64`; the `U8`, `U32` and `U64`
-// forms are named separately because a method's receiver, not an argument,
-// picks the width.
+// or `>>` token (design/grammar-rationale.md 12.6), so the whole of this file
+// is ordinary calls. The wide operations work on `Int`, which is `I64`; the
+// `U8`, `U32` and `U64` forms are named separately because a method's receiver,
+// not an argument, picks the width.
 //
 // Shifting by a count at or beyond the width of the type aborts, so every
 // count below is in range.

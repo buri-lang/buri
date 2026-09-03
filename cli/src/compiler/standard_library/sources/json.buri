@@ -191,9 +191,9 @@ fn matches(cs: [Char], i: Int, word: Str, k: Int, n: Int): Bool {
 // --- Arrays and objects -------------------------------------------------------
 //
 // Both are written as an accumulator plus a recursive step rather than a loop,
-// because there are no loops (SPEC 15.1). The recursion is in tail position,
-// so it costs no stack — unlike the call into `value`, which is why `depth`
-// exists.
+// because there are no loops (design/non-goals.md). The recursion is in tail
+// position, so it costs no stack — unlike the call into `value`, which is why
+// `depth` exists.
 
 fn array<C: Alloc>(
     ctx: C,

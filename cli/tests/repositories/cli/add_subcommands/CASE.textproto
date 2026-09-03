@@ -11,7 +11,7 @@
 #     no hidden entry — and the error names its replacement, which is what
 #     somebody holding a script from the last release needs to read.
 #
-# The refusals come first so that the `.claude/skills` check between them and
+# The refusals come first so that the `.agent/skills` check between them and
 # the run that works means something: a refusal that had written the skills
 # anyway would pass every later step.
 #
@@ -45,7 +45,7 @@ run {
 # Nothing above wrote anything. Without this, every step below would pass for
 # a refusal that installed the skills first.
 path {
-  path: ".claude/skills"
+  path: ".agent/skills"
   exists: false
 }
 
@@ -56,7 +56,7 @@ run {
 }
 
 file {
-  path: ".claude/skills/buri-cli/SKILL.md"
+  path: ".agent/skills/buri-cli/SKILL.md"
   contains: "name: buri-cli"
 }
 

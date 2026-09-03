@@ -1710,7 +1710,7 @@ export fn anonMatch(b: Bool): World {
 ///
 /// The first field is keyed rather than shorthand because that is what tells
 /// the grammar these braces are a literal and not a block whose result is the
-/// parameter (SPEC 12.3).
+/// parameter (design/grammar-rationale.md 12.3).
 export fn anonHidden(shown: Int): Hidden {
     { shown: shown }
 }

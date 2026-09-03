@@ -13,7 +13,7 @@ a `match`:
   arms before it really do cover everything it matches, so deleting it changes
   nothing.
 * **`irrefutable_correct`** -- if the checker accepts a `let` pattern, it
-  matches every value of its type (SPEC 14 rule 2).
+  matches every value of its type (design/static-rules.md rule 2).
 
 Each is a corollary of `isUseful_false_covers`, stated over the *compiled*
 arms and inside the bounded universe -- values whose arrays are no shorter
@@ -99,7 +99,7 @@ theorem unreachable_correct (signature : Signature) (limit : Nat) (t : Ty)
   simp [hmatch]
 
 /-- **Irrefutability is sound.** A `let` pattern the checker accepts matches
-every well-typed value of its type (SPEC 14 rule 2). -/
+every well-typed value of its type (design/static-rules.md rule 2). -/
 theorem irrefutable_correct (signature : Signature) (limit : Nat) (t : Ty) (p : Pattern)
     (hwf : Pattern.WellFormed signature t p)
     (hirrefutable : isIrrefutable signature limit t p = true) :
@@ -169,7 +169,7 @@ theorem exhaustive_correct_unbounded (signature : Signature) (limit : Nat) (t : 
   rwa [Pattern.matches_truncate limit p v (hlen p hp)] at hSource
 
 /-- **Irrefutability, without the array-length restriction.** A `let` pattern
-the checker accepts matches every well-typed value of its type (SPEC 14
+the checker accepts matches every well-typed value of its type (design/static-rules.md
 rule 2). The one-armed case of the theorem above, which is exactly how the
 compiler asks the question: `check` runs the same usefulness algorithm on a
 one-row matrix. -/

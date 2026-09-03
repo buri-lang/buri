@@ -134,7 +134,7 @@ inductive Expr where
   /-- A call to a top-level function at a generic instantiation. -/
   | call : FnId → List Ty → List Expr → Expr
   | node : NodeKind → List Expr → Expr
-  /-- `let p = bound; body`. The pattern must be irrefutable (SPEC 14 rule 2). -/
+  /-- `let p = bound; body`. The pattern must be irrefutable (design/static-rules.md rule 2). -/
   | letE : Pattern → Expr → Expr → Expr
   /-- `match (scrutinee) { arms }`, annotated with the scrutinee's type. -/
   | matchE : Ty → Expr → List (Pattern × Expr) → Expr

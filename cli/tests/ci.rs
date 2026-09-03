@@ -64,9 +64,37 @@ fn workflow() -> String {
 
 /// Every `.rs` file in the repository, minus the build outputs.
 ///
-/// `target/` is skipped because it holds generated sources — the assembled
-/// runtime package among them — and a copy of a file is not a second site.
+/// "The repository" is git's answer — tracked files, plus untracked ones git
+/// would not ignore — because the working tree holds whole *copies* of the
+/// tree that are not it: agent worktrees under `.claude/`, the Nix input
+/// cache under `.direnv/`, the grammar checkout Zed writes under
+/// `editors/zed/grammars/`. Each is ignored by git, each holds `.rs` files,
+/// and a walk that read them reported their `#[ignore]`s as this tree's.
+/// Where git cannot answer, a plain walk stands in, skipping the build
+/// outputs and everything hidden.
 fn rust_sources() -> Vec<PathBuf> {
+    let root = repo_root();
+    let mut out = listed_by_git(&root).unwrap_or_else(|| walked(&root));
+    out.sort();
+    out
+}
+
+fn listed_by_git(root: &Path) -> Option<Vec<PathBuf>> {
+    let output = std::process::Command::new("git")
+        .args(["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.rs"])
+        .current_dir(root)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let listed = String::from_utf8(output.stdout).ok()?;
+    // `--cached` still lists a file deleted from disk but not yet from the
+    // index; what is read below has to exist.
+    Some(listed.split('\0').filter(|p| !p.is_empty()).map(|p| root.join(p)).filter(|p| p.is_file()).collect())
+}
+
+fn walked(root: &Path) -> Vec<PathBuf> {
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let Ok(entries) = std::fs::read_dir(dir) else { return };
         for entry in entries.flatten() {
@@ -74,7 +102,7 @@ fn rust_sources() -> Vec<PathBuf> {
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if path.is_dir() {
-                if name == "target" || name == ".git" || name == "node_modules" {
+                if name == "target" || name == "node_modules" || name.starts_with('.') {
                     continue;
                 }
                 walk(&path, out);
@@ -83,10 +111,8 @@ fn rust_sources() -> Vec<PathBuf> {
             }
         }
     }
-    let root = repo_root();
     let mut out = Vec::new();
-    walk(&root, &mut out);
-    out.sort();
+    walk(root, &mut out);
     out
 }
 

@@ -2,7 +2,7 @@
 //! resolution, visibility, tags, and platforms.
 //!
 //! Five rules produce the shape of a repository, and everything here follows
-//! from them (cli/src/docs/build/overview.md):
+//! from them (cli/src/docs/reference/build/overview.md):
 //!
 //! 1. A directory with a `BUILD.buri` is a package.
 //! 2. `lib.buri` is a library's whole public surface.

@@ -1,0 +1,9 @@
+library {
+    sources: ["convert.buri"]
+    dependencies: ["//libs/units"]
+    visibility: ["//apps/convert"]
+
+    test {
+        sources: ["test/convert.buri"]
+    }
+}

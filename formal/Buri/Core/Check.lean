@@ -37,7 +37,7 @@ Three places, and all three are where the exhaustiveness development is
 consumed:
 
 * `letE` runs the usefulness algorithm on a one-row matrix -- irrefutability,
-  SPEC 14 rule 2;
+  design/static-rules.md rule 2;
 * `matchE` runs it on the compiled arms -- exhaustiveness, SPEC 7.3;
 * both check `Pattern.wellFormedB` on the *compiled* arms as well as the source
   ones, because `exhaustive_correct_unbounded` needs well-formedness of what

@@ -1242,10 +1242,11 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// receiver — one rule, read at three points.
     ///
     /// A bounded type parameter is the half this cannot settle: a generic body
-    /// is checked once for every instantiation at once (SPEC 13.5), so `Self`
-    /// there is the parameter, which is right until the parameter turns out to
-    /// be a context. `rewrite_call_args` in `middle/monomorphize.rs` is that
-    /// correction, made where the instantiation is known.
+    /// is checked once for every instantiation at once
+    /// (guides/compile-speed.md), so `Self` there is the parameter, which is
+    /// right until the parameter turns out to be a context.
+    /// `rewrite_call_args` in `middle/monomorphize.rs` is that correction,
+    /// made where the instantiation is known.
     ///
     /// A row's value is a value, so it is not itself a context; the loop is
     /// belt and braces against a shape that cannot be written, and it stops
@@ -1708,7 +1709,7 @@ impl<'a, 'b> Infer<'a, 'b> {
     }
 
     /// The dot form requires that the expected type is known from context
-    /// (SPEC 14.12).
+    /// (design/static-rules.md rule 12).
     fn check_dot_variant_call(
         &mut self,
         name: &str,
@@ -1845,7 +1846,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         expected: Option<&Ty>,
     ) -> typed::Expr {
         // `{ hi: "hi" }` with no head at all. The type is whatever the literal
-        // is checked against, read top-down and never solved for (SPEC 12.3).
+        // is checked against, read top-down and never solved for
+        // (design/grammar-rationale.md 12.3).
         let Some(head) = head else {
             let Some((con, targs)) = self.anonymous_struct_type(span, expected) else {
                 return self.error_expr(span);
@@ -1854,7 +1856,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         };
         let head_span = self.tree().span(head);
         // The head must be a type path, optionally with type arguments, or the
-        // dot form (SPEC 14.1).
+        // dot form (design/static-rules.md rule 1).
         if !self.tree().is_type_path(head) {
             self.templated("struct-literal-head", head_span);
             return self.error_expr(span);
@@ -2711,7 +2713,8 @@ impl<'a, 'b> Infer<'a, 'b> {
         expected: Option<&Ty>,
     ) -> typed::Expr {
         // A lambda's parameter types come from the expected type at its call
-        // site, which is known before the body is visited (SPEC 13.2).
+        // site, which is known before the body is visited
+        // (guides/compile-speed.md).
         let (want_params, want_ret) = match expected.map(|t| self.resolve(t)) {
             Some(Ty::Fn(ps, r)) if ps.len() == params.len() => (ps, Some(*r)),
             _ => (vec![Ty::Error; params.len()], None),

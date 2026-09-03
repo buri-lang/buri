@@ -1,10 +1,10 @@
 error: a lambda may not capture `p`, whose type `Prop<T>` could be a context [lambda-captures-generic]
-  --> cmd/covariant_param_not_capturable/main.buri:18:3
+  --> cmd/covariant_param_not_capturable/main.buri:19:3
    |
-18 |   fn() => p
+19 |   fn() => p
    |   ^^^^^^^^^
    |
-   = a generic body is checked once, for every instantiation at once (SPEC 13.5), so a type parameter here stands for a context type too — and `fn wrap<T>(x: T, f: fn(T) => ()): fn() => ()` would otherwise launder one into a closure whose type mentions no effect at all
+   = a generic body is checked once, for every instantiation at once (guides/compile-speed.md), so a type parameter here stands for a context type too — and `fn wrap<T>(x: T, f: fn(T) => ()): fn() => ()` would otherwise launder one into a closure whose type mentions no effect at all
    = fix: take it as a parameter of the lambda instead — the `fn(C, A) => B` shape a `*Ctx` combinator passes — or return the value rather than a closure over it
 
      What to do

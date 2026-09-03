@@ -7,7 +7,7 @@
 //! something the graph or the disk already knows — a dependency label is a
 //! package, a source entry is a file beside it, a tag is a block in
 //! `REPO.buri` — and every field name in the file is declared and documented
-//! in `docs/schema/build.proto`, which [`super::schema`] reads.
+//! in `docs/reference/schema/build.proto`, which [`super::schema`] reads.
 //!
 //! So this one module answers four requests: definition, links, completion and
 //! hover. Each jump lands at the top of the file it names — a label names a

@@ -18,10 +18,10 @@ fn repo_root() -> PathBuf {
 /// registered topic — the hand-written root `README.md` first among them.
 ///
 /// Adding a document here is the one-line registration that subjects it to
-/// every test in this file. The `build/` and `guide/` topics do not appear:
-/// `documents()` adds them from the registry, because a topic that is a page
-/// rather than a section of an assembled document would otherwise be checked
-/// by nothing.
+/// every test in this file. The topics that are pages rather than
+/// specification sections do not appear: `documents()` adds them from the
+/// registry, because a topic that is a page rather than a section of an
+/// assembled document would otherwise be checked by nothing.
 const STANDALONE: &[&str] = &[
     "README.md",
     "cli/src/docs/SPEC.md",
@@ -32,28 +32,28 @@ const STANDALONE: &[&str] = &[
 ];
 
 /// Every document these tests run over: the standalone files above, every
-/// `build/` and `guide/` topic as its own file, and the prose half of each
-/// command's reference page. `lang/` topics are covered by `SPEC.md`, which is
+/// topic that is a page in its own right, and the prose half of each command's
+/// reference page. `language/` topics are covered by `SPEC.md`, which is
 /// byte-for-byte their concatenation.
 ///
 /// The command pages are here because they are markdown a reader browses in
-/// `cli/src/docs/cli/` like any other, and nothing else was checking that
-/// their links still resolve — one of them had rotted.
+/// `cli/src/docs/reference/cli/` like any other, and nothing else was checking
+/// that their links still resolve — one of them had rotted.
 fn documents() -> Vec<String> {
     let mut out: Vec<String> = STANDALONE.iter().map(|s| (*s).to_string()).collect();
     for t in topics::TOPICS {
-        if matches!(t.kind, topics::Kind::Build | topics::Kind::Guide) {
-            out.push(format!("cli/src/docs/{}.md", t.id));
+        if t.kind != topics::Kind::Language {
+            out.push(t.path());
         }
     }
     for c in buri::commands::COMMANDS {
-        out.push(format!("cli/src/docs/cli/{}.md", c.name));
+        out.push(format!("cli/src/docs/reference/cli/{}.md", c.name));
     }
     out
 }
 
 /// The one document whose links are still written from the repository root:
-/// `cli/src/docs/SPEC.md` and the `lang/` topics it is assembled from say
+/// `cli/src/docs/SPEC.md` and the `language/` topics it is assembled from say
 /// `./cli/src/docs/…` throughout. Resolving those where the file actually sits
 /// would report every one of them as broken, which is a change to the language
 /// reference rather than to this test. Everything else is checked where a
@@ -63,12 +63,12 @@ const ROOT_RELATIVE: &[&str] = &["cli/src/docs/SPEC.md"];
 /// The assembled document a topic file is a section of, if it is one: a topic
 /// met inside another file has its links written relative to *that* file,
 /// unlike `build/tags`, which a reader meets where it is written. Only
-/// `SPEC.md` is assembled, and its `lang/` sections are covered through it
+/// `SPEC.md` is assembled, and its `language/` sections are covered through it
 /// rather than one by one, so today this answers `None` for every document
 /// below — it is the rule, not a case.
 fn assembled_into(doc: &str) -> Option<&'static assemble::Document> {
-    let id = doc.strip_prefix("cli/src/docs/")?.strip_suffix(".md")?;
-    assemble::document_of(topics::find(id)?)
+    let topic = topics::TOPICS.iter().find(|t| t.path() == doc)?;
+    assemble::document_of(topic)
 }
 
 fn read(rel: &str) -> String {
@@ -198,6 +198,47 @@ fn the_assembled_documents_are_not_stale() {
     );
 }
 
+/// Every file of `cli/tests/tutorial/` appears verbatim as a fence body of
+/// the tutorial page. The harness already compiles the page's fences against
+/// that repository, so a broken import fails on both sides — but a
+/// comment-only divergence compiles happily in both places, and the page and
+/// the repository quietly stop being the same program. Byte equality is the
+/// other half of the invariant `cli/tests/tutorial/README.md` states.
+#[test]
+fn the_tutorial_page_and_its_repository_are_the_same_bytes() {
+    let text = read("cli/src/docs/getting-started/tutorial.md");
+    let bodies: Vec<String> = markdown::fences(&text).into_iter().map(|f| f.body).collect();
+    let mut walk = vec![repo_root().join("cli/tests/tutorial")];
+    let mut checked = 0usize;
+    while let Some(dir) = walk.pop() {
+        let entries = std::fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("reading {}: {e}", dir.display()));
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if path.is_dir() {
+                // `.buri/` and `out/` are what running the repository leaves
+                // behind; the fences show sources.
+                if !name.starts_with('.') && name != "out" {
+                    walk.push(path);
+                }
+            } else if name != "README.md" {
+                let want = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+                assert!(
+                    bodies.iter().any(|b| *b == want),
+                    "{} is not a fence body of tutorial.md.\n  The page and the repository \
+                     have drifted; make them byte-for-byte again, whichever way is true.",
+                    path.display()
+                );
+                checked += 1;
+            }
+        }
+    }
+    assert!(checked >= 11, "only {checked} files compared; the fixture has thinned");
+}
+
 /// Every keyword the grammar names is a keyword the lexer has, and vice versa.
 /// The grammar is hand-written and cannot be generated from the parser, so
 /// this is what keeps the two honest about the one list they must share.
@@ -296,7 +337,7 @@ fn every_manifest_id_is_fetchable() {
 fn docs_work_outside_a_repository() {
     for args in [
         vec!["docs"],
-        vec!["docs", "lang/effects"],
+        vec!["docs", "language/effects"],
         vec!["docs", "search", "effects"],
         vec!["docs", "grammar"],
     ] {
@@ -316,13 +357,13 @@ fn docs_work_outside_a_repository() {
 #[test]
 fn an_unknown_topic_exits_two_with_a_suggestion() {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-        .args(["docs", "lang/effect", "--color=never"])
+        .args(["docs", "language/effect", "--color=never"])
         .current_dir(std::env::temp_dir())
         .output()
         .expect("the buri binary runs");
     assert_eq!(out.status.code(), Some(2));
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.contains("lang/effects"), "expected a suggestion, got:\n{err}");
+    assert!(err.contains("language/effects"), "expected a suggestion, got:\n{err}");
 }
 
 /// No document may name a flag the binary does not accept.
@@ -394,7 +435,7 @@ fn no_document_invents_a_flag() {
     );
 }
 
-/// `buri docs lang/types | head` must not panic. A pipe closing early is the
+/// `buri docs language/types | head` must not panic. A pipe closing early is the
 /// reader saying it has enough, not an error — and it is the first thing
 /// anybody does with a command that prints a page.
 #[test]
@@ -403,7 +444,7 @@ fn a_closed_pipe_is_not_an_error() {
     use std::process::{Command, Stdio};
 
     for args in [
-        vec!["docs", "lang/types"],
+        vec!["docs", "language/types"],
         vec!["docs", "search", "match"],
         vec!["docs", "manifest"],
         vec!["docs"],
@@ -527,7 +568,7 @@ fn a_module_doc_comment_must_come_first() {
 fn every_error_page_is_provoked_by_its_own_example() {
     let mut failures = Vec::new();
     for e in buri::documentation::errors::ERRORS {
-        let doc = format!("cli/src/docs/errors/{}.md", e.code);
+        let doc = format!("cli/src/docs/reference/errors/{}.md", e.code);
         let text = crate::examples::document(&repo_root(), &doc, e.text);
         failures.extend(buri::documentation::examples::run_file_at(&repo_root(), &doc, &text));
     }
@@ -679,9 +720,13 @@ fn copy_tree(from: &Path, to: &Path) {
 ///
 /// Two catalogues, because there are two kinds of diagnostic. A compile error
 /// can be provoked by one program, so it earns a page with that program on it.
-/// A build-graph finding cannot — `dep-cycle` needs two packages — so those
-/// live in the CLI reference's tables, next to the command that reports them,
-/// and in `documentation/lints.rs` where the finding is one `buri lint` reports.
+/// A build-graph finding cannot — `dep-cycle` needs two packages — so it is a
+/// page under `reference/lints/` instead, registered in `documentation/lints.rs`.
+///
+/// There is no third place. A prose table used to be allowed to stand in for a
+/// page, and the CLI reference carried one; the catalogue now lives only in the
+/// lints section, so a code is documented exactly where `buri docs <code>`
+/// serves it from.
 #[test]
 fn every_emitted_code_is_documented() {
     let root = repo_root();
@@ -689,7 +734,6 @@ fn every_emitted_code_is_documented() {
     rust_sources(&root.join("cli/src"), &mut sources);
     assert!(sources.len() > 20, "only {} Rust sources found", sources.len());
 
-    let catalogue = read("cli/src/docs/build/cli.md");
     let mut undocumented: Vec<String> = Vec::new();
     let mut found = 0;
 
@@ -699,8 +743,7 @@ fn every_emitted_code_is_documented() {
             found += 1;
             let has_page = buri::documentation::errors::find(&code).is_some()
                 || buri::documentation::lints::find(&code).is_some();
-            let in_catalogue = catalogue.contains(&format!("`{code}`"));
-            if !has_page && !in_catalogue {
+            if !has_page {
                 undocumented.push(format!(
                     "{}: `{code}` is emitted and appears in neither catalogue",
                     path.strip_prefix(&root).unwrap_or(path).display()
@@ -714,10 +757,9 @@ fn every_emitted_code_is_documented() {
     assert!(
         undocumented.is_empty(),
         "{} code(s) are emitted and documented nowhere:\n  {}\n\nAdd a page under \
-         cli/src/docs/errors/ (and register it in documentation/errors.rs) for a diagnostic one \
-         program can provoke, one under cli/src/docs/lints/ (registered in \
-         documentation/lints.rs) for a `buri lint` finding, or a row in the \
-         cli/src/docs/build/cli.md tables for one about the build graph.",
+         cli/src/docs/reference/errors/ (and register it in documentation/errors.rs) for a \
+         diagnostic one program can provoke, or one under cli/src/docs/reference/lints/ \
+         (registered in documentation/lints.rs) for a `buri lint` finding.",
         undocumented.len(),
         undocumented.join("\n  ")
     );

@@ -1,7 +1,7 @@
 //! Name resolution and signature elaboration.
 //!
 //! Runs in phases, and the phase split is the compile-speed argument of
-//! SPEC 13 made concrete:
+//! guides/compile-speed.md made concrete:
 //!
 //! 0. Register the primitives, their methods, and their trait impls.
 //! 1. Register every module's own declarations, names and arities only.
@@ -1644,7 +1644,7 @@ impl<'a> Checker<'a> {
     }
 
     /// Struct field names and enum variant names must be unique within their
-    /// scope (SPEC 14.6).
+    /// scope (design/static-rules.md rule 6).
     fn check_unique_field_names(&mut self, con: TyConId) {
         // Found under the borrow and reported after it, so that the check
         // reads the declaration in place rather than copying every field of
@@ -1665,7 +1665,8 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// Enum variant names must be unique within their scope (SPEC 14.6).
+    /// Enum variant names must be unique within their scope
+    /// (design/static-rules.md rule 6).
     fn check_unique_variant_names(&mut self, con: TyConId) {
         // A set rather than a `Vec` searched with `contains`: one arm per
         // variant is already the shape a wide enum has, and this was N²/2
@@ -1709,7 +1710,7 @@ impl<'a> Checker<'a> {
     }
 
     /// A recursive enum must have at least one variant that does not recurse,
-    /// or no value of it could ever be built (SPEC 14.14).
+    /// or no value of it could ever be built (design/static-rules.md rule 14).
     fn check_productive(&mut self, con: TyConId, span: Span) {
         let variants = self.tables.tycon(con).variants();
         if variants.is_empty() {

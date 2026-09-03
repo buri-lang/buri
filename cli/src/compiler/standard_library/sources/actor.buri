@@ -378,8 +378,8 @@ impl<R> Reply<R> {
 // state as a **local of its own frame** and threads it through `step`, so
 // nothing else in the program has a name for it and an update is a rebinding
 // rather than a write. It is a self tail call, so an actor that answers a
-// million messages uses one frame (`middle/tail_calls.rs`; SPEC 15.1 has no
-// loops).
+// million messages uses one frame (`middle/tail_calls.rs`; design/non-goals.md
+// has no loops).
 
 /// Every message now in the mailbox, in the order it arrived.
 fn draining<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>, state: S): S {

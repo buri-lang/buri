@@ -18,7 +18,7 @@ use crate::commands::Subcommand;
 pub const SUBCOMMANDS: &[Subcommand] = &[Subcommand {
     name: "skills",
     args: "[directory]",
-    blurb: "write the agent skills for this toolchain into .claude/skills",
+    blurb: "write the agent skills for this toolchain into .agent/skills",
     run: skills::command_add_skills,
 }];
 

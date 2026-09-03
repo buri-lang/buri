@@ -25,8 +25,11 @@ fn repo_root() -> PathBuf {
 }
 
 /// Where a topic's text lives on disk, for the location a failure reports.
-fn topic_path(id: &str) -> String {
-    format!("cli/src/docs/{id}.md")
+///
+/// The registry answers this rather than the id: a `build/*` topic's file is
+/// under `reference/build/`, so concatenating the id would name nothing.
+fn topic_path(topic: &topics::Topic) -> String {
+    topic.path()
 }
 
 /// Every markdown document under `dir`, laid out, on a blessing run.
@@ -130,7 +133,7 @@ fn check_kind(kind: topics::Kind) {
     let mut topics = 0;
     for t in topics::TOPICS.iter().filter(|t| t.kind == kind) {
         topics += 1;
-        let path = topic_path(t.id);
+        let path = topic_path(t);
         let text = document(&root, &path, t.text);
         failures.extend(examples::run_file_at(&root, &path, &text));
     }
@@ -145,13 +148,23 @@ fn check_kind(kind: topics::Kind) {
 }
 
 #[test]
+fn getting_started_examples() {
+    check_kind(topics::Kind::GettingStarted);
+}
+
+#[test]
 fn language_reference_examples() {
-    check_kind(topics::Kind::Lang);
+    check_kind(topics::Kind::Language);
 }
 
 #[test]
 fn build_system_examples() {
     check_kind(topics::Kind::Build);
+}
+
+#[test]
+fn reference_examples() {
+    check_kind(topics::Kind::Reference);
 }
 
 #[test]
@@ -184,7 +197,7 @@ fn cli_reference_examples() {
     let root = repo_root();
     let mut failures = Vec::new();
     for c in buri::commands::COMMANDS {
-        let path = format!("cli/src/docs/cli/{}.md", c.name);
+        let path = format!("cli/src/docs/reference/cli/{}.md", c.name);
         let text = document(&root, &path, c.doc);
         failures.extend(examples::run_file_at(&root, &path, &text));
     }
@@ -216,7 +229,7 @@ fn untested_examples_say_why_and_do_not_multiply() {
     let mut ignored = Vec::new();
     let mut silent = Vec::new();
     for t in topics::TOPICS {
-        for block in examples::extract(&topic_path(t.id), t.text).blocks {
+        for block in examples::extract(&topic_path(t), t.text).blocks {
             let examples::Claim::Ignore { why } = &block.claim else {
                 continue;
             };
@@ -254,7 +267,7 @@ fn most_examples_are_actually_compiled() {
     let mut compiled = 0;
     let mut ignored = 0;
     for t in topics::TOPICS {
-        for block in examples::extract(&topic_path(t.id), t.text).blocks {
+        for block in examples::extract(&topic_path(t), t.text).blocks {
             if block.claim.is_ignored() {
                 ignored += 1;
             } else {
@@ -358,20 +371,20 @@ fn every_example_is_laid_out_the_way_the_formatter_writes_source() {
     };
 
     for t in topics::TOPICS {
-        census(&topic_path(t.id), &document(&root, &topic_path(t.id), t.text));
+        census(&topic_path(t), &document(&root, &topic_path(t), t.text));
     }
     for c in buri::commands::COMMANDS {
-        let rel = format!("cli/src/docs/cli/{}.md", c.name);
+        let rel = format!("cli/src/docs/reference/cli/{}.md", c.name);
         census(&rel, &document(&root, &rel, c.doc));
     }
     // The catalogs. Their pages are markdown like any other, and the program on
     // an error page is the one a reader copies to reproduce the error.
     for e in buri::documentation::errors::ERRORS {
-        let rel = format!("cli/src/docs/errors/{}.md", e.code);
+        let rel = format!("cli/src/docs/reference/errors/{}.md", e.code);
         census(&rel, &document(&root, &rel, e.text));
     }
     for l in buri::documentation::lints::LINTS {
-        let rel = format!("cli/src/docs/lints/{}.md", l.code);
+        let rel = format!("cli/src/docs/reference/lints/{}.md", l.code);
         census(&rel, &document(&root, &rel, l.text));
     }
     census("README.md", &document(&root, "README.md", ""));

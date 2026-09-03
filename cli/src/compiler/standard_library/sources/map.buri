@@ -216,7 +216,7 @@ impl<K: Hash + Eq, V> Map<K, V> {
         let blank = list.repeat(ctx, list.empty<(K, V)>(), count);
         // `acc` is annotated because the accumulator's type comes from `blank`,
         // which the checker has not reached yet: type information flows
-        // left-to-right (SPEC 13.2).
+        // left-to-right (guides/compile-speed.md).
         let next = all.foldCtx(
             ctx,
             fn(c, acc: [[(K, V)]], e) => {

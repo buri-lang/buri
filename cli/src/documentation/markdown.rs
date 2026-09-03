@@ -1014,14 +1014,14 @@ mod tests {
 
     #[test]
     fn links_are_extracted_with_their_anchors() {
-        let text = "see [tags](cli/src/docs/build/tags.md#why-forbids) and `[not a link](x)`\n";
+        let text = "see [tags](cli/src/docs/reference/build/tags.md#why-forbids) and `[not a link](x)`\n";
         let l = links(text);
         assert_eq!(l.len(), 1);
         assert_eq!(l[0].text, "tags");
         assert_eq!(
             l[0].destination,
             Destination::File {
-                path: "cli/src/docs/build/tags.md".into(),
+                path: "cli/src/docs/reference/build/tags.md".into(),
                 anchor: Some("why-forbids".into()),
             }
         );

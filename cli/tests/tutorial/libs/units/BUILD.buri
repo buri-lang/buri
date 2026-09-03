@@ -1,0 +1,8 @@
+library {
+    sources: ["units.buri"]
+    visibility: ["//libs/convert"]
+
+    test {
+        sources: ["test/units.buri"]
+    }
+}

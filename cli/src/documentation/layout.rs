@@ -177,38 +177,73 @@ fn indent(text: &str) -> String {
 // Writing it back
 // ---------------------------------------------------------------------------
 
+/// The canonical layout of one textproto fence, or `None` where the parser
+/// refuses it — a page about a build-file error shows the error, and what the
+/// parser cannot read whole it does not vouch for.
+///
+/// A build file in a page is held to the same printer `buri format` runs over
+/// a checked-in `BUILD.buri`, four-space indent and all, because what a reader
+/// copies out of the page is the house style.
+fn textproto_canonical(body: &str) -> Option<String> {
+    let parsed = crate::build::textproto::parse(body, crate::diagnostics::FileId(0));
+    if !parsed.errors.is_empty() {
+        return None;
+    }
+    Some(crate::build::textproto::print(&parsed.document))
+}
+
 /// One document with every drifted fence rewritten, or `None` when nothing
-/// moved.
+/// moved. A `buri` fence is laid out by the formatter, hidden lines and all;
+/// a `textproto` fence by the build-file printer.
 ///
 /// Only the fence bodies change. The prose is the author's.
 pub fn format_document(file: &str, text: &str) -> Option<String> {
-    let blocks = crate::documentation::examples::extract(file, text).blocks;
-    let mut lines: Vec<String> = text.lines().map(String::from).collect();
-    let mut changed = false;
-    // Back to front: a rewrite that changes a fence's line count moves every
-    // fence under it.
-    for block in blocks.iter().rev() {
+    // Every edit is measured against the original text, so they are collected
+    // first and applied bottom-up: a rewrite that changes a fence's line count
+    // moves every fence under it.
+    let mut edits: Vec<(usize, usize, Vec<String>)> = Vec::new();
+    for block in &crate::documentation::examples::extract(file, text).blocks {
         let Verdict::Drifted(canonical) = verdict(block) else {
             continue;
         };
         let Some(body) = hide_again(block, &canonical) else {
             continue;
         };
-        let first = block.origin.line.saturating_sub(1);
-        let last = first.saturating_add(block.body.lines().count());
-        if last > lines.len() {
-            continue;
-        }
         let pad = " ".repeat(block.indent);
         let replacement: Vec<String> = body
             .lines()
             .map(|l| if l.is_empty() { String::new() } else { format!("{pad}{l}") })
             .collect();
-        lines.splice(first..last, replacement);
-        changed = true;
+        edits.push((block.origin.line.saturating_sub(1), block.body.lines().count(), replacement));
     }
-    if !changed {
+    for fence in crate::documentation::markdown::fences(text) {
+        if fence.lang != "textproto" {
+            continue;
+        }
+        let Some(canonical) = textproto_canonical(&fence.body) else {
+            continue;
+        };
+        if canonical == fence.body {
+            continue;
+        }
+        let pad = " ".repeat(fence.indent);
+        let replacement: Vec<String> = canonical
+            .lines()
+            .map(|l| if l.is_empty() { String::new() } else { format!("{pad}{l}") })
+            .collect();
+        edits.push((fence.body_line.saturating_sub(1), fence.body.lines().count(), replacement));
+    }
+    if edits.is_empty() {
         return None;
+    }
+    edits.sort_by(|a, b| b.0.cmp(&a.0));
+    let mut lines: Vec<String> = text.lines().map(String::from).collect();
+    for (first, count, replacement) in edits {
+        let last = first.saturating_add(count);
+        if last > lines.len() {
+            continue;
+        }
+        lines.splice(first..last, replacement);
     }
     let mut out = lines.join("\n");
     if text.ends_with('\n') {
@@ -418,7 +453,7 @@ pub fn documents_under(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>)
 
 /// Whether a document has anything for this to do, without parsing it.
 pub fn has_examples(text: &str) -> bool {
-    markdown::fences(text).iter().any(|f| f.lang == "buri")
+    markdown::fences(text).iter().any(|f| f.lang == "buri" || f.lang == "textproto")
 }
 
 #[cfg(test)]
@@ -493,6 +528,24 @@ mod tests {
         let io = out.find("core/io").expect("the hidden import");
         let s = out.find("core/str").expect("the visible one");
         assert!(io < s, "the run is sorted as one:\n{out}");
+    }
+
+    /// A build file in a page is printed the way `buri format` prints a
+    /// checked-in one: a two-space fence is drift, and four spaces come back.
+    #[test]
+    fn a_textproto_fence_is_laid_out_by_the_build_file_printer() {
+        let doc = "```textproto schema=build\nlibrary {\n  dependencies: [\"//lib/a\"]\n}\n```\n";
+        let out = format_document("test.md", doc).expect("two spaces is drift");
+        assert!(out.contains("\n    dependencies:"), "{out}");
+        assert!(format_document("test.md", &out).is_none(), "and then it is a fixed point");
+    }
+
+    /// A page about a broken build file shows the broken build file; the
+    /// printer does not vouch for what the parser refuses.
+    #[test]
+    fn a_textproto_fence_the_parser_refuses_is_left_alone() {
+        let doc = "```textproto ignore why=\"a fragment\"\nlibrary {\n  sources: [\n```\n";
+        assert!(format_document("test.md", doc).is_none());
     }
 
     /// The comment's own marker and column come back, and a blank documentation

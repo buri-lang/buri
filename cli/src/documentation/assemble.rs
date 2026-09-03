@@ -64,21 +64,17 @@ pub const DOCUMENTS: &[Document] = &[
         path: "cli/src/docs/SPEC.md",
         front: topics::LANG_FRONT,
         sections: &[
-            sec("1", "lang/introduction"),
-            sec("2", "lang/notation"),
-            sec("3", "lang/lexical"),
-            sec("4", "lang/modules"),
-            sec("5", "lang/types"),
-            sec("6", "lang/expressions"),
-            sec("7", "lang/patterns"),
-            sec("8", "lang/evaluation"),
-            sec("9", "lang/functions"),
-            sec("10", "lang/effects"),
-            sec("11", "lang/programs"),
-            sec("12", "lang/grammar-rationale"),
-            sec("13", "lang/invariants"),
-            sec("14", "lang/static-rules"),
-            sec("15", "lang/open-questions"),
+            sec("1", "language/introduction"),
+            sec("2", "language/notation"),
+            sec("3", "language/lexical"),
+            sec("4", "language/modules"),
+            sec("5", "language/types"),
+            sec("6", "language/expressions"),
+            sec("7", "language/patterns"),
+            sec("8", "language/evaluation"),
+            sec("9", "language/functions"),
+            sec("10", "language/effects"),
+            sec("11", "language/programs"),
         ],
     },
 ];
@@ -89,8 +85,7 @@ pub const DOCUMENTS: &[Document] = &[
 fn generated_notice(document: &Document) -> String {
     let mut directories: Vec<String> = Vec::new();
     for section in document.sections {
-        let (kind, _) = section.topic.split_once('/').unwrap_or((section.topic, ""));
-        let directory = format!("cli/src/docs/{kind}/");
+        let directory = format!("cli/src/docs/{}/", section.topic().kind.directory());
         if !directories.contains(&directory) {
             directories.push(directory);
         }
@@ -200,23 +195,26 @@ mod tests {
         }
     }
 
-    /// Every `lang/` topic is a section of the specification, and nothing else
-    /// is. A `lang/` topic left out would be served by `buri docs` and missing
-    /// from the document that is supposed to be the whole language.
+    /// Every `language/` topic is a section of the specification, and nothing
+    /// else is. A `language/` topic left out would be served by `buri docs` and
+    /// missing from the document that is supposed to be the whole language.
     ///
-    /// The other two kinds are pages rather than sections, so neither is ever
-    /// assembled: a `guide/` topic is read through `buri docs` or in
-    /// `cli/src/docs/guide/`, and the build system's pages are the files
+    /// The other kinds are pages rather than sections, so none of them is ever
+    /// assembled: a guide is read through `buri docs` or in
+    /// `cli/src/docs/guides/`, and the reference's pages are the files
     /// themselves. That makes this an if and only if.
     #[test]
-    fn only_lang_topics_are_specification_sections() {
+    fn only_language_topics_are_specification_sections() {
         for t in topics::TOPICS {
             let assembled = DOCUMENTS.iter().any(|d| d.sections.iter().any(|s| s.topic == t.id));
             match t.kind {
-                topics::Kind::Lang => {
+                topics::Kind::Language => {
                     assert!(assembled, "`{}` is a language topic but is in no document", t.id);
                 }
-                topics::Kind::Build | topics::Kind::Guide => {
+                topics::Kind::GettingStarted
+                | topics::Kind::Guide
+                | topics::Kind::Build
+                | topics::Kind::Reference => {
                     assert!(
                         !assembled,
                         "`{}` is a {} topic and must not be assembled",

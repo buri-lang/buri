@@ -308,7 +308,7 @@ impl Watch {
     /// asks for a clean exit 0 on Ctrl-C, and that needs a signal handler, which
     /// needs `libc` — a dependency the bar in the workspace manifest does not
     /// admit for a status code. So the exit status of a watch session says
-    /// nothing about the suites, `cli/src/docs/cli/test.md` says so, and `buri
+    /// nothing about the suites, `cli/src/docs/reference/cli/test.md` says so, and `buri
     /// test` without the flag is what a script branches on.
     pub fn drive<F: FnMut(&Trigger) -> Pass>(&self, pass: F) -> i32 {
         self.drive_armed(pass, |_| {})

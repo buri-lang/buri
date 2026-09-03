@@ -4,7 +4,7 @@ defaultTargets = ["Buri"]
 # No dependencies, on purpose -- the same reason `cli/Cargo.toml` has none.
 # Everything used here is in core Lean: List, Nat, Forall2, omega. Mathlib
 # would buy `Finset`, but modelling a context's bindings as a set would paper
-# over the duplicate-binding rule (SPEC 14 rule 33), and `List` + `Nodup` is
+# over the duplicate-binding rule (design/static-rules.md rule 33), and `List` + `Nodup` is
 # what the Rust `Vec<(TraitId, Ty)>` actually is.
 
 [[lean_lib]]

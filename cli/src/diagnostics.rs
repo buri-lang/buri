@@ -414,7 +414,7 @@ impl Diagnostic {
     /// A diagnostic whose wording is the page's rather than this call site's.
     ///
     /// The severity, the message, the label, the note and the fix all come from
-    /// the frontmatter of `cli/src/docs/errors/<code>.md` (or `lints/`), and
+    /// the frontmatter of `cli/src/docs/reference/errors/<code>.md` (or `reference/lints/`), and
     /// what the call site supplies is the data: `.bind("function", name)` fills
     /// the `{function}` the page's fix is written around. One code is one
     /// message, so a rule whose two sites need different sentences is two
@@ -438,7 +438,7 @@ impl Diagnostic {
             None => debug_panic(&format!(
                 "`{code}` has no documentation page with frontmatter, so \
                  `Diagnostic::templated` has no message to print. Add \
-                 cli/src/docs/errors/{code}.md with a `---` block, and register it in \
+                 cli/src/docs/reference/errors/{code}.md with a `---` block, and register it in \
                  documentation/errors.rs"
             )),
         }
@@ -1556,7 +1556,7 @@ mod tests {
     /// The one thing a migration has to preserve: the same inputs produce the
     /// same bytes. `type-args-on-a-value` is the worked case — its message and
     /// its fix moved from `semantics/expressions.rs` into the frontmatter of
-    /// `docs/errors/type-args-on-a-value.md` and nothing about what a user
+    /// `docs/reference/errors/type-args-on-a-value.md` and nothing about what a user
     /// reads changed.
     #[test]
     fn a_templated_diagnostic_renders_what_the_call_site_used_to_build() {
