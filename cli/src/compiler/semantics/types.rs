@@ -4,7 +4,7 @@
 //! trait conformance is declared rather than inferred from shape. That is what
 //! makes checking `T: Ord` one lookup in one table keyed by `(trait, type)`
 //! rather than a search (SPEC 5.12.1), and it is why nothing in this module
-//! needs a fixpoint (SPEC 13.6).
+//! needs a fixpoint (guides/compile-speed.md).
 
 use crate::diagnostics::{Invariant as _, Span};
 use crate::hash::Map as HashMap;
@@ -130,7 +130,7 @@ impl Prim {
     /// 32 bits is a `number` and loses nothing. The four wider ones are
     /// `BigInt`s, which are exact at the type's own width — `Int` is `I64` and
     /// a nanosecond timestamp is past 2^53 today, and `I128` was never
-    /// representable at all (SPEC 15, open question 8).
+    /// representable at all (design/resolved-questions.md).
     pub fn is_bigint(self) -> bool {
         self.is_integer() && self.bits() >= 64
     }
@@ -181,10 +181,10 @@ impl Prim {
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Ty {
     /// An inference variable. Local to one function body — no inference
-    /// crosses a function boundary (SPEC 13.3).
+    /// crosses a function boundary (guides/compile-speed.md).
     Var(TyVarId),
     /// A rigid generic parameter, by index into the item's generic list. A
-    /// generic body is checked once, polymorphically (SPEC 13.5).
+    /// generic body is checked once, polymorphically (guides/compile-speed.md).
     Param(u32),
     /// A nominal type: a primitive, a struct, or an enum.
     Con(TyConId, Vec<Ty>),
@@ -209,7 +209,7 @@ impl Ty {
     }
 
     /// The head type constructor, which is all method resolution needs
-    /// (SPEC 13.2).
+    /// (guides/compile-speed.md).
     pub fn head(&self) -> Option<TyConId> {
         match self {
             Ty::Con(id, _) => Some(*id),
@@ -1091,10 +1091,10 @@ impl Tables {
     /// `is_effect_carrying` answers the question a *signature* asks: does this
     /// type, as written, mention an effect? That is the right question for the
     /// `ctx` rule, and the wrong one for the capture rule, because a generic
-    /// body is checked once and polymorphically (SPEC 13.5) — so at the point
-    /// the capture rule runs, `T` is opaque and nothing rules out `T := C` for
-    /// a context type `C`. A predicate that answers "no" for `T` is not an
-    /// inductive invariant:
+    /// body is checked once and polymorphically (guides/compile-speed.md) — so
+    /// at the point the capture rule runs, `T` is opaque and nothing rules out
+    /// `T := C` for a context type `C`. A predicate that answers "no" for `T`
+    /// is not an inductive invariant:
     ///
     /// ```text
     /// fn wrap<T>(x: T, f: fn(T) => ()): fn() => () { fn() => f(x) }
@@ -1395,11 +1395,11 @@ impl Subst {
     /// Every variable still unbound once a body has been checked stands for a
     /// type nothing in the body constrains, and becomes `()`.
     ///
-    /// Inference is local to one body (SPEC 13.3), so a variable left unbound
-    /// at the end of one is unbound for good: no later body can narrow it, and
-    /// no signature carries it outwards. A compiler must still name a type for
-    /// it, and `()` is the one with a single value and no structure — which is
-    /// what a value the body never inspects has.
+    /// Inference is local to one body (guides/compile-speed.md), so a variable
+    /// left unbound at the end of one is unbound for good: no later body can
+    /// narrow it, and no signature carries it outwards. A compiler must still
+    /// name a type for it, and `()` is the one with a single value and no
+    /// structure — which is what a value the body never inspects has.
     ///
     /// This costs no representation. `middle::layout` already gives `Ty::Var`
     /// and `Ty::Unit` the same zero layout, so the artifact is the one that was

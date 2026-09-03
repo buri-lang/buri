@@ -159,10 +159,11 @@ impl<'a> Checker<'a> {
     ///
     /// That is true today and nothing states it: `I64` gets `Neg`, which the
     /// unsigned types lack, and every other trait a primitive gets is given to
-    /// all of them alike. SPEC 14 rule 22 keeps a user from adding to another
-    /// type's set from outside its defining module, so the set cannot be
-    /// widened later — but a new trait added *here*, given to `U64` and not to
-    /// `I64`, would silently break defaulting. This fails the build instead.
+    /// all of them alike. design/static-rules.md rule 22 keeps a user from
+    /// adding to another type's set from outside its defining module, so the
+    /// set cannot be widened later — but a new trait added *here*, given to
+    /// `U64` and not to `I64`, would silently break defaulting. This fails the
+    /// build instead.
     ///
     /// The check reads the real impl table rather than a list, so it cannot
     /// drift from what was registered.

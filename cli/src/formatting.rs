@@ -2776,7 +2776,7 @@ fn breakable(t: &Tree, e: ExprId) -> bool {
 }
 
 
-/// A block-like expression may not head a postfix chain (SPEC 12.13), so it
+/// A block-like expression may not head a postfix chain (design/grammar-rationale.md 12.13), so it
 /// gets parentheses; so does anything that binds looser than a postfix
 /// operator.
 fn needs_parens(t: &Tree, e: ExprId) -> bool {
@@ -2856,7 +2856,7 @@ fn binop_prec(op: BinOp) -> u8 {
 fn expr_prec(t: &Tree, e: ExprId) -> u8 {
     match t.expr(e) {
         // A lambda's body extends maximally to the right, so it is never a
-        // bare operand (SPEC 12.11).
+        // bare operand (design/grammar-rationale.md 12.11).
         ExprView::Lambda { .. } => 0,
         ExprView::Binary { op, .. } => binop_prec(op),
         ExprView::Unary { .. } => 10,

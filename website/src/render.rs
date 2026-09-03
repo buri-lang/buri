@@ -8,7 +8,7 @@
 use crate::highlight::escaped;
 use crate::links::{href_from, Resolver, Target};
 use crate::markdown;
-use crate::pages::{Content, Page, Site, Source, SECTIONS};
+use crate::pages::{Content, Page, Site, Source, GROUPS, SECTIONS};
 use crate::themes;
 
 /// What one rendered page pointed at, so that `--check` can walk it without
@@ -50,7 +50,47 @@ pub fn document(site: &Site, page: &Page) -> (String, PageLinks) {
             }
             rendered.html
         }
-        Content::Listing(section) => listing(site, page, &resolver, &mut targets, *section),
+        Content::Listing(section) => {
+            let entry = SECTIONS.get(*section);
+            let title = entry.map_or("", |s| s.title);
+            let blurb = entry.map_or("", |s| s.blurb);
+            let mut out = titled(title, blurb, &resolver, &mut targets, &mut anchors);
+            out.push_str(&entries(site, page, site.in_section(*section), &mut targets));
+            out
+        }
+        Content::Groups => {
+            let entry = page.section.and_then(|index| SECTIONS.get(index));
+            let title = entry.map_or("", |s| s.title);
+            let blurb = entry.map_or("", |s| s.blurb);
+            let mut out = titled(title, blurb, &resolver, &mut targets, &mut anchors);
+            for (index, group) in GROUPS.iter().enumerate() {
+                let anchor = buri::documentation::markdown::slug(group.title);
+                // A group whose whole navigation is its own index page is that
+                // link: listing it under a heading of the same name would say
+                // the name twice and the sentence twice.
+                let heading = match &group.index {
+                    Some(catalogue) => {
+                        link(page, catalogue.route, group.title, false, &mut targets)
+                    }
+                    None => markdown::title(group.title),
+                };
+                out.push_str(&format!("<h2 id=\"{}\">{heading}</h2>\n", escaped(&anchor)));
+                anchors.push(anchor);
+                let blurb = markdown::render_inline(group.blurb, &resolver);
+                targets.extend(blurb.links);
+                out.push_str(&format!("<p>{}</p>\n", blurb.html));
+                if group.index.is_none() {
+                    out.push_str(&entries(site, page, site.navigation_of(index), &mut targets));
+                }
+            }
+            out
+        }
+        Content::GroupListing(group) => {
+            let blurb = GROUPS.get(*group).map_or("", |g| g.blurb);
+            let mut out = titled(&page.title, blurb, &resolver, &mut targets, &mut anchors);
+            out.push_str(&entries(site, page, site.in_group(*group), &mut targets));
+            out
+        }
     };
 
     let mut facts = String::new();
@@ -219,6 +259,12 @@ fn picker() -> String {
 
 /// The section the reader is in, listed page by page. On the front page there
 /// is no section to list, so the sections themselves are.
+///
+/// The reference is listed by group instead. It is the one section whose pages
+/// do not fit a list — a sidebar holding every error code holds nothing a
+/// reader can find, and the code pages themselves want the same sidebar as the
+/// rest of the reference rather than a list of their two hundred and twenty
+/// siblings.
 fn sidebar(site: &Site, page: &Page, targets: &mut Vec<Target>) -> String {
     let mut out = String::from("<nav class=\"sidebar\" aria-label=\"Documentation\">\n");
     match page.section.and_then(|index| SECTIONS.get(index).map(|s| (index, s))) {
@@ -228,13 +274,29 @@ fn sidebar(site: &Site, page: &Page, targets: &mut Vec<Target>) -> String {
                 "<li>{}</li>\n",
                 link(page, section.slug, "Overview", page.route == section.slug, targets)
             ));
-            for other in site.in_section(index) {
-                out.push_str(&format!(
-                    "<li>{}</li>\n",
-                    link(page, &other.route, &other.title, other.route == page.route, targets)
-                ));
+            if !grouped(index) {
+                for other in site.in_section(index) {
+                    out.push_str(&format!(
+                        "<li>{}</li>\n",
+                        link(page, &other.route, &other.title, other.route == page.route, targets)
+                    ));
+                }
             }
             out.push_str("</ul>\n</div>\n");
+            if grouped(index) {
+                for (group, entry) in GROUPS.iter().enumerate() {
+                    out.push_str(&format!("<div>\n<h2>{}</h2>\n<ul>\n", escaped(entry.title)));
+                    for other in site.navigation_of(group) {
+                        let here = other.route == page.route
+                            || (page.group == Some(group) && !page.listed && other.is_index());
+                        out.push_str(&format!(
+                            "<li>{}</li>\n",
+                            link(page, &other.route, &other.title, here, targets)
+                        ));
+                    }
+                    out.push_str("</ul>\n</div>\n");
+                }
+            }
         }
         None => {
             out.push_str("<div>\n<h2>Sections</h2>\n<ul>\n");
@@ -251,6 +313,13 @@ fn sidebar(site: &Site, page: &Page, targets: &mut Vec<Target>) -> String {
     out
 }
 
+/// Whether a section navigates by group. Read from the pages themselves, so
+/// the answer is "some page in it is in a group" rather than a second list of
+/// which section that is.
+fn grouped(section: usize) -> bool {
+    SECTIONS.get(section).is_some_and(|s| s.slug == "reference")
+}
+
 fn crumbs(page: &Page, targets: &mut Vec<Target>) -> String {
     let Some(section) = page.section.and_then(|index| SECTIONS.get(index)) else {
         return String::new();
@@ -258,7 +327,20 @@ fn crumbs(page: &Page, targets: &mut Vec<Target>) -> String {
     if page.route == section.slug {
         return String::new();
     }
-    let mut out = format!("<p class=\"crumbs\">{}", link(page, section.slug, section.title, false, targets));
+    let mut out =
+        format!("<p class=\"crumbs\">{}", link(page, section.slug, section.title, false, targets));
+    if let Some(group) = page.group.and_then(|index| GROUPS.get(index)) {
+        match &group.index {
+            Some(catalogue) if catalogue.route != page.route => {
+                out.push_str(&format!(
+                    " · {}",
+                    link(page, catalogue.route, group.title, false, targets)
+                ));
+            }
+            Some(_) => {}
+            None => out.push_str(&format!(" · {}", escaped(group.title))),
+        }
+    }
     if !page.label.is_empty() {
         out.push_str(&format!(" · <code>{}</code>", escaped(&page.label)));
     }
@@ -295,21 +377,37 @@ fn colophon(page: &Page, targets: &mut Vec<Target>) -> String {
     )
 }
 
-/// A section's own page: what is in it, in the order the navigation has it.
-fn listing(
-    site: &Site,
-    page: &Page,
+/// The heading and the blurb an index page opens with.
+fn titled(
+    title: &str,
+    blurb: &str,
     resolver: &Resolver<'_>,
     targets: &mut Vec<Target>,
-    section: usize,
+    anchors: &mut Vec<String>,
 ) -> String {
-    let Some(entry) = SECTIONS.get(section) else { return String::new() };
-    let mut out = format!("<h1 id=\"{slug}\">{title}</h1>\n", slug = escaped(entry.slug), title = escaped(entry.title));
-    let blurb = markdown::render_inline(entry.blurb, resolver);
+    let anchor = buri::documentation::markdown::slug(title);
+    let mut out = format!(
+        "<h1 id=\"{}\">{}</h1>\n",
+        escaped(&anchor),
+        markdown::title(title)
+    );
+    anchors.push(anchor);
+    let blurb = markdown::render_inline(blurb, resolver);
     targets.extend(blurb.links);
     out.push_str(&format!("<p>{}</p>\n", blurb.html));
-    out.push_str("<ul class=\"listing\">\n");
-    for other in site.in_section(section) {
+    out
+}
+
+/// A list of pages, each with what it is: the body of every index page the
+/// site writes, whether it is listing a section, a group, or a catalogue.
+fn entries<'a>(
+    site: &Site,
+    page: &Page,
+    pages: impl Iterator<Item = &'a Page>,
+    targets: &mut Vec<Target>,
+) -> String {
+    let mut out = String::from("<ul class=\"listing\">\n");
+    for other in pages {
         out.push_str("<li>\n");
         out.push_str(&link(page, &other.route, &other.title, false, targets));
         if !other.label.is_empty() {
@@ -473,15 +571,17 @@ mod tests {
     /// chrome a page carries.
     fn a_page() -> (Site, Page) {
         let page = Page {
-            route: "guide/installing".to_string(),
+            route: "getting-started/installing".to_string(),
             title: "Installing".to_string(),
-            label: "guide/installing".to_string(),
+            label: "getting-started/installing".to_string(),
             summary: "How to install.".to_string(),
             source: Source {
-                path: "cli/src/docs/guide/installing.md".to_string(),
+                path: "cli/src/docs/getting-started/installing.md".to_string(),
                 directory: false,
             },
             section: None,
+            group: None,
+            listed: true,
             content: Content::Prose("Some prose.\n".to_string()),
             see_also: Vec::new(),
             facts: Vec::new(),
@@ -496,6 +596,8 @@ mod tests {
                 summary: page.summary.clone(),
                 source: page.source.clone(),
                 section: None,
+                group: None,
+                listed: true,
                 content: Content::Prose(String::new()),
                 see_also: Vec::new(),
                 facts: Vec::new(),

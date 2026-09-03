@@ -6,11 +6,11 @@
 //! documentation and the toolchain from being separately versioned, which is
 //! how a doc goes stale without anybody noticing.
 //!
-//! `cli/src/docs/SPEC.md` is *generated* from the `lang/` topics by
+//! `cli/src/docs/SPEC.md` is *generated* from the `language/` topics by
 //! `buri docs assemble`, so the file a reader meets on GitHub and the pages
-//! `buri docs` serves are the same bytes. The specification is every `lang/`
-//! topic; every `build/` and `guide/` topic is a page in its own right, read
-//! here or through `buri docs`.
+//! `buri docs` serves are the same bytes. The specification is every
+//! `language/` topic; every other topic is a page in its own right, read here
+//! or through `buri docs`.
 //!
 //! Adding a topic is one line in `TOPICS`, plus — if it belongs in an
 //! assembled document — one line in `assemble::DOCUMENTS`.
@@ -19,21 +19,43 @@ use crate::documentation::markdown;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Kind {
-    /// The language reference: `cli/src/docs/SPEC.md`.
-    Lang,
-    /// The build system, the monorepo, and the CLI.
-    Build,
-    /// Prose that introduces rather than specifies. Each is a page in its own
-    /// right, and none of them is assembled into a document.
+    /// A tutorial: what somebody meeting the language reads first.
+    GettingStarted,
+    /// A task, or a concept you have to know to perform one.
     Guide,
+    /// The language reference: `cli/src/docs/SPEC.md`.
+    Language,
+    /// The build system and the monorepo — reference, not required reading.
+    Build,
+    /// Reference prose that is not about the build system. Lookup material:
+    /// nothing here has to be read before writing a program.
+    Reference,
 }
 
 impl Kind {
     pub fn label(self) -> &'static str {
         match self {
-            Kind::Lang => "language",
-            Kind::Build => "build system",
+            Kind::GettingStarted => "getting started",
             Kind::Guide => "guide",
+            Kind::Language => "language",
+            Kind::Build => "build system",
+            Kind::Reference => "reference",
+        }
+    }
+
+    /// Where this kind's files live under `cli/src/docs/`.
+    ///
+    /// Deliberately not the id's prefix. A `build/*` topic keeps its short,
+    /// long-published id and lives under `reference/build/`, so anything that
+    /// wants the file — `include_str!`'s sibling in the tests, the website's
+    /// edit links — has to ask here rather than split the id on `/`.
+    pub fn directory(self) -> &'static str {
+        match self {
+            Kind::GettingStarted => "getting-started",
+            Kind::Guide => "guides",
+            Kind::Language => "language",
+            Kind::Build => "reference/build",
+            Kind::Reference => "reference",
         }
     }
 }
@@ -68,109 +90,164 @@ const fn tagged(
 }
 
 pub const TOPICS: &[Topic] = &[
-    // -- The language reference, in specification order --------------------
-    t("lang/introduction", "Introduction", Kind::Lang, include_str!("../docs/lang/introduction.md")),
-    t("lang/notation", "Notation and conformance", Kind::Lang, include_str!("../docs/lang/notation.md")),
+    // -- Getting started ----------------------------------------------------
     tagged(
-        "lang/lexical",
-        "Source text and lexical structure",
-        Kind::Lang,
-        include_str!("../docs/lang/lexical.md"),
-        &["comment", "identifier", "keyword", "literal", "string", "interpolation", "utf-8"],
-        &["lang/grammar-rationale"],
+        "getting-started/why-buri",
+        "Why Buri",
+        Kind::GettingStarted,
+        include_str!("../docs/getting-started/why-buri.md"),
+        &["goals", "safe", "fast", "friendly", "immutable", "effects", "grammar", "name"],
+        &["getting-started/installing", "getting-started/first-program", "language/introduction"],
     ),
     tagged(
-        "lang/modules",
+        "getting-started/installing",
+        "Installing",
+        Kind::GettingStarted,
+        include_str!("../docs/getting-started/installing.md"),
+        &["install", "nix", "homebrew", "cargo", "init", "scaffold", "skills", "agent"],
+        &["getting-started/first-program", "guides/editor-setup"],
+    ),
+    t(
+        "getting-started/first-program",
+        "Your first program",
+        Kind::GettingStarted,
+        include_str!("../docs/getting-started/first-program.md"),
+    ),
+    t(
+        "getting-started/tutorial",
+        "Tutorial: a small program, end to end",
+        Kind::GettingStarted,
+        include_str!("../docs/getting-started/tutorial.md"),
+    ),
+    // -- The language reference, in specification order --------------------
+    t(
+        "language/introduction",
+        "Introduction",
+        Kind::Language,
+        include_str!("../docs/language/introduction.md"),
+    ),
+    t(
+        "language/notation",
+        "Notation and conformance",
+        Kind::Language,
+        include_str!("../docs/language/notation.md"),
+    ),
+    tagged(
+        "language/lexical",
+        "Source text and lexical structure",
+        Kind::Language,
+        include_str!("../docs/language/lexical.md"),
+        &["comment", "identifier", "keyword", "literal", "string", "interpolation", "utf-8"],
+        &["language/notation"],
+    ),
+    tagged(
+        "language/modules",
         "Modules",
-        Kind::Lang,
-        include_str!("../docs/lang/modules.md"),
+        Kind::Language,
+        include_str!("../docs/language/modules.md"),
         &["import", "export", "re-export", "module path", "visibility"],
         &["build/libraries"],
     ),
     tagged(
-        "lang/types",
+        "language/types",
         "Types",
-        Kind::Lang,
-        include_str!("../docs/lang/types.md"),
+        Kind::Language,
+        include_str!("../docs/language/types.md"),
         &["struct", "enum", "tuple", "array", "generic", "trait", "derive", "Int", "Float", "number"],
-        &["lang/expressions"],
+        &["language/expressions"],
     ),
     tagged(
-        "lang/expressions",
+        "language/expressions",
         "Expressions",
-        Kind::Lang,
-        include_str!("../docs/lang/expressions.md"),
+        Kind::Language,
+        include_str!("../docs/language/expressions.md"),
         &["if", "match", "method", "call", "lambda", "operator", "precedence", "?", "??", "abort"],
-        &["lang/patterns"],
+        &["language/patterns"],
     ),
     tagged(
-        "lang/patterns",
+        "language/patterns",
         "Patterns",
-        Kind::Lang,
-        include_str!("../docs/lang/patterns.md"),
+        Kind::Language,
+        include_str!("../docs/language/patterns.md"),
         &["match", "exhaustive", "destructure", "wildcard"],
-        &["lang/expressions"],
+        &["language/expressions"],
     ),
     tagged(
-        "lang/evaluation",
+        "language/evaluation",
         "Evaluation",
-        Kind::Lang,
-        include_str!("../docs/lang/evaluation.md"),
+        Kind::Language,
+        include_str!("../docs/language/evaluation.md"),
         &["strict", "order", "immutability", "tail call", "recursion", "closure"],
         &[],
     ),
-    t("lang/functions", "Functions", Kind::Lang, include_str!("../docs/lang/functions.md")),
+    t(
+        "language/functions",
+        "Functions",
+        Kind::Language,
+        include_str!("../docs/language/functions.md"),
+    ),
     tagged(
-        "lang/effects",
+        "language/effects",
         "Effects and purity",
-        Kind::Lang,
-        include_str!("../docs/lang/effects.md"),
+        Kind::Language,
+        include_str!("../docs/language/effects.md"),
         &["ctx", "context", "capability", "pure", "io", "allocation", "Alloc", "side effect"],
-        &["lang/programs", "build/testing"],
+        &["language/programs", "build/testing"],
     ),
     tagged(
-        "lang/programs",
+        "language/programs",
         "Programs",
-        Kind::Lang,
-        include_str!("../docs/lang/programs.md"),
+        Kind::Language,
+        include_str!("../docs/language/programs.md"),
         &["main", "entry point", "platform", "host", "test"],
-        &["lang/effects"],
+        &["language/effects"],
+    ),
+    // -- Reference -----------------------------------------------------------
+    // What every command shares — how a target is named, the two global flags,
+    // the exit codes, and the shape of a diagnostic — which no single command's
+    // page can carry. The file sits beside the directory of per-command prose
+    // it heads: `reference/cli.md` is this topic and `reference/cli/build.md`
+    // is `buri docs cli/build`.
+    tagged(
+        "reference/cli",
+        "The CLI",
+        Kind::Reference,
+        include_str!("../docs/reference/cli.md"),
+        &[
+            "target pattern",
+            "label",
+            "global flag",
+            "color",
+            "error-format",
+            "json",
+            "exit code",
+            "diagnostic",
+            "agent",
+        ],
+        &["build/repo-config"],
     ),
     tagged(
-        "lang/grammar-rationale",
-        "Why the grammar is context-free and unambiguous",
-        Kind::Lang,
-        include_str!("../docs/lang/grammar-rationale.md"),
-        &["type arguments", "parser", "ambiguity", "LR(1)"],
-        &["lang/lexical"],
-    ),
-    t("lang/invariants", "Compilation invariants", Kind::Lang, include_str!("../docs/lang/invariants.md")),
-    t(
-        "lang/static-rules",
-        "Static rules not expressed in the grammar",
-        Kind::Lang,
-        include_str!("../docs/lang/static-rules.md"),
-    ),
-    t(
-        "lang/open-questions",
-        "Non-goals and open questions",
-        Kind::Lang,
-        include_str!("../docs/lang/open-questions.md"),
+        "reference/standard-library",
+        "The standard library",
+        Kind::Reference,
+        include_str!("../docs/reference/standard-library.md"),
+        &["core", "stdlib", "std", "list", "map", "json", "crypto", "alloc", "allocator", "simd"],
+        &["language/effects", "guides/user-interfaces"],
     ),
     // -- The build system --------------------------------------------------
     tagged(
         "build/overview",
-        "The Buri build system",
+        "The build model",
         Kind::Build,
-        include_str!("../docs/build/overview.md"),
+        include_str!("../docs/reference/build/overview.md"),
         &["monorepo", "target", "package", "label", "dependency"],
-        &["build/build-files"],
+        &["guides/build-system", "build/build-files"],
     ),
     tagged(
         "build/build-files",
         "BUILD.buri",
         Kind::Build,
-        include_str!("../docs/build/build-files.md"),
+        include_str!("../docs/reference/build/build-files.md"),
         &["sources", "dependencies", "binary", "library", "textproto", "visibility"],
         &["build/repo-config"],
     ),
@@ -178,100 +255,196 @@ pub const TOPICS: &[Topic] = &[
         "build/libraries",
         "Libraries: `lib.buri` and the public surface",
         Kind::Build,
-        include_str!("../docs/build/libraries.md"),
+        include_str!("../docs/reference/build/libraries.md"),
         &["lib.buri", "re-export", "internal", "api"],
-        &["lang/modules"],
+        &["language/modules"],
     ),
     tagged(
         "build/tags",
         "Tags, platforms, and policy",
         Kind::Build,
-        include_str!("../docs/build/tags.md"),
+        include_str!("../docs/reference/build/tags.md"),
         &["forbids", "policy", "platform", "js", "linux", "macos"],
-        &[],
+        &["guides/tags-policy"],
     ),
     tagged(
         "build/testing",
-        "Testing",
+        "Test targets and the testing host",
         Kind::Build,
-        include_str!("../docs/build/testing.md"),
+        include_str!("../docs/reference/build/testing.md"),
         &["test", "assert", "golden", "hermetic", "double", "fake"],
-        &["lang/effects"],
+        &["guides/testing", "language/effects"],
     ),
     tagged(
         "build/repo-config",
         "REPO.buri",
         Kind::Build,
-        include_str!("../docs/build/repo-config.md"),
+        include_str!("../docs/reference/build/repo-config.md"),
         &["tag", "root", "repository", "policy"],
         &["build/build-files"],
-    ),
-    tagged(
-        "build/cli",
-        "The buri CLI",
-        Kind::Build,
-        include_str!("../docs/build/cli.md"),
-        &["command", "flag", "exit code", "build", "run", "query"],
-        &["build/repo-config"],
     ),
     tagged(
         "build/proto",
         "Importing a `.proto` schema",
         Kind::Build,
-        include_str!("../docs/build/proto.md"),
+        include_str!("../docs/reference/build/proto.md"),
         &["proto", "protobuf", "schema", "wire format", "varint", "oneof", "serialization", "json"],
-        &["build/build-files"],
+        &["build/build-files", "guides/proto"],
     ),
     tagged(
         "build/hermeticity",
         "Hermeticity, actions, and the cache",
         Kind::Build,
-        include_str!("../docs/build/hermeticity.md"),
+        include_str!("../docs/reference/build/hermeticity.md"),
         &["cache", "reproducible", "incremental", "action", "sandbox"],
-        &[],
+        &["guides/reproducibility"],
     ),
-    // -- The guide ---------------------------------------------------------
-    // Pages, reached by `buri docs` or read in `cli/src/docs/guide/`. None of
+    // -- The guides ---------------------------------------------------------
+    // Pages, reached by `buri docs` or read in `cli/src/docs/guides/`. None of
     // them is assembled into a document; the root `README.md` is hand-written
     // and keeps its own copy of what it needs.
-    t("guide/installing", "Installing", Kind::Guide, include_str!("../docs/guide/installing.md")),
-    t("guide/goals", "Goals", Kind::Guide, include_str!("../docs/guide/goals.md")),
-    t("guide/whats-in", "What's in v0.3", Kind::Guide, include_str!("../docs/guide/whats-in.md")),
-    t("guide/three-ideas", "Three ideas", Kind::Guide, include_str!("../docs/guide/three-ideas.md")),
-    t("guide/numbers", "Numbers: two names, one set of types", Kind::Guide, include_str!("../docs/guide/numbers.md")),
+    tagged(
+        "guides/build-system",
+        "Using the build system",
+        Kind::Guide,
+        include_str!("../docs/guides/build-system.md"),
+        &["BUILD.buri", "package", "label", "visibility", "dependency", "gen", "monorepo"],
+        &["guides/testing", "build/overview"],
+    ),
+    tagged(
+        "guides/testing",
+        "Testing your code",
+        Kind::Guide,
+        include_str!("../docs/guides/testing.md"),
+        &["test", "assert", "double", "fake", "fixture", "golden", "filter", "watch"],
+        &["build/testing", "guides/effects"],
+    ),
+    tagged(
+        "guides/editor-setup",
+        "Set up your editor",
+        Kind::Guide,
+        include_str!("../docs/guides/editor-setup.md"),
+        &["lsp", "language server", "editor", "ide", "zed", "highlighting", "tree-sitter"],
+        &[],
+    ),
+    tagged(
+        "guides/effects",
+        "Effects and capabilities",
+        Kind::Guide,
+        include_str!("../docs/guides/effects.md"),
+        &["ctx", "context", "capability", "host", "attenuation", "pure", "purity", "mock", "alloc"],
+        &["language/effects", "build/testing"],
+    ),
     t(
-        "guide/methods-and-traits",
+        "guides/numbers",
+        "Numbers: two names, one set of types",
+        Kind::Guide,
+        include_str!("../docs/guides/numbers.md"),
+    ),
+    t(
+        "guides/methods-and-traits",
         "Methods, and traits as interfaces",
         Kind::Guide,
-        include_str!("../docs/guide/methods-and-traits.md"),
-    ),
-    t(
-        "guide/restricting-effects",
-        "Restricting what propagates",
-        Kind::Guide,
-        include_str!("../docs/guide/restricting-effects.md"),
+        include_str!("../docs/guides/methods-and-traits.md"),
     ),
     tagged(
-        "guide/standard-library",
-        "The standard library",
+        "guides/compile-speed",
+        "How Buri compiles fast",
         Kind::Guide,
-        include_str!("../docs/guide/standard-library.md"),
-        &["core", "stdlib", "std", "list", "map", "json", "crypto", "alloc", "allocator", "simd"],
-        &["lang/effects", "guide/user-interfaces"],
+        include_str!("../docs/guides/compile-speed.md"),
+        &[
+            "compile speed",
+            "fast",
+            "incremental",
+            "parallel",
+            "inference",
+            "signature",
+            "monomorphization",
+            "invariant",
+        ],
+        &["language/functions", "build/hermeticity"],
     ),
     tagged(
-        "guide/user-interfaces",
+        "guides/user-interfaces",
         "User interfaces",
         Kind::Guide,
-        include_str!("../docs/guide/user-interfaces.md"),
+        include_str!("../docs/guides/user-interfaces.md"),
         &["ui", "signal", "reactive", "node", "style", "theme", "dom", "browser", "web"],
-        &["guide/standard-library"],
+        &["reference/standard-library"],
+    ),
+    tagged(
+        "guides/concurrency",
+        "Tasks and actors",
+        Kind::Guide,
+        include_str!("../docs/guides/concurrency.md"),
+        &[
+            "concurrency",
+            "parallel",
+            "task",
+            "actor",
+            "mailbox",
+            "message",
+            "state",
+            "ask",
+            "send",
+        ],
+        &["guides/web-server", "language/effects"],
+    ),
+    tagged(
+        "guides/compile-to-js",
+        "Compile to JavaScript",
+        Kind::Guide,
+        include_str!("../docs/guides/compile-to-js.md"),
+        &["javascript", "js", "node", "bun", "browser", "web", "esm", "mjs"],
+        &["build/build-files", "build/tags"],
+    ),
+    tagged(
+        "guides/web-server",
+        "Build a web server",
+        Kind::Guide,
+        include_str!("../docs/guides/web-server.md"),
+        &[
+            "server",
+            "http",
+            "listen",
+            "socket",
+            "websocket",
+            "route",
+            "handler",
+            "port",
+            "tls",
+        ],
+        &["guides/concurrency", "reference/standard-library"],
+    ),
+    tagged(
+        "guides/proto",
+        "Import a .proto schema",
+        Kind::Guide,
+        include_str!("../docs/guides/proto.md"),
+        &["proto", "protobuf", "schema", "codegen", "serialization"],
+        &["build/proto"],
+    ),
+    tagged(
+        "guides/tags-policy",
+        "Enforce policy with tags",
+        Kind::Guide,
+        include_str!("../docs/guides/tags-policy.md"),
+        &["policy", "forbids", "boundary", "layering", "deployment"],
+        &["build/tags"],
+    ),
+    tagged(
+        "guides/reproducibility",
+        "Reproducible builds",
+        Kind::Guide,
+        include_str!("../docs/guides/reproducibility.md"),
+        &["cache", "incremental", "explain", "deterministic", "hermetic"],
+        &["build/hermeticity"],
     ),
 ];
 
 /// The front matter an assembled document opens with, under the generated-file
 /// notice `assemble` writes: a title, and whatever precedes its first section.
-pub const LANG_FRONT: &str = include_str!("../docs/lang/_front.md");
+pub const LANG_FRONT: &str = include_str!("../docs/language/_front.md");
 
 /// The normative grammar, and the source the tree-sitter grammar is generated
 /// from (`documentation::grammar`). It is hand-written because it is the
@@ -284,8 +457,8 @@ pub const LANG_FRONT: &str = include_str!("../docs/lang/_front.md");
 pub const GRAMMAR: &str = include_str!("../docs/grammar.ebnf");
 
 /// The build-file schemas, likewise normative and hand-written.
-pub const BUILD_PROTO: &str = include_str!("../docs/schema/build.proto");
-pub const REPO_PROTO: &str = include_str!("../docs/schema/repo.proto");
+pub const BUILD_PROTO: &str = include_str!("../docs/reference/schema/build.proto");
+pub const REPO_PROTO: &str = include_str!("../docs/reference/schema/repo.proto");
 
 pub fn find(id: &str) -> Option<&'static Topic> {
     TOPICS.iter().find(|t| t.id == id)
@@ -295,6 +468,15 @@ impl Topic {
     /// The first sentence, for an index listing or a search result.
     pub fn summary(&self) -> String {
         markdown::summary(self.text)
+    }
+
+    /// The file this topic's text is `include_str!`d from, relative to the
+    /// repository root. The one place a topic's path is derived, so a moved
+    /// directory is one edit in `Kind::directory` rather than a search for
+    /// every caller that concatenated an id.
+    pub fn path(&self) -> String {
+        let name = self.id.rsplit('/').next().unwrap_or(self.id);
+        format!("cli/src/docs/{}/{name}.md", self.kind.directory())
     }
 }
 

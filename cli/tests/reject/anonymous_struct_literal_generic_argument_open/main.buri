@@ -3,7 +3,7 @@
 // The struct is known — the parameter says `Holder` — and only its argument is
 // open. That is still refused: `Holder<Int>` is a type a reader can see and
 // `Holder<?>` is one the fields would have to decide, and this feature reads a
-// type rather than deciding one (SPEC 12.3).
+// type rather than deciding one (design/grammar-rationale.md 12.3).
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;

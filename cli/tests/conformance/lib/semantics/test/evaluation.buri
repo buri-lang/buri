@@ -508,7 +508,7 @@ test "a let is evaluated where it is written, not where it is used" {
 // A test source is the one place an expression may stand as a statement, and
 // the rule is about its type, not its shape: a `match`, an `if` and a block of
 // type `()` qualify exactly as a call does. Each carries the `;` that tells a
-// block's statement from its result (SPEC 12.2) — the last test here is the
+// block's statement from its result (design/grammar-rationale.md 12.2) — the last test here is the
 // same `match` without one, which is the result expression instead.
 //
 // The transcripts are the observation: a statement that was parsed away rather

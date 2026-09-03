@@ -815,7 +815,7 @@ to change silently, which is exactly what "commitment" is supposed to mean.
 ### 7.2 The three allocator types
 
 `GeneralPurpose`, `Arena` and `FixedBuffer`
-(`cli/src/docs/guide/standard-library.md` "Allocators") are budgets and
+(`cli/src/docs/reference/standard-library.md` "Allocators") are budgets and
 accounting policies over the one real allocator. They are not three allocators.
 
 - **`GeneralPurpose`** — unbounded, counts. `allocate` returns

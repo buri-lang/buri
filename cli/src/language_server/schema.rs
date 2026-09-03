@@ -1,7 +1,7 @@
 //! What the build schema says about a field, read out of the schema itself.
 //!
 //! `BUILD.buri` and `REPO.buri` parse as two messages whose normative
-//! definitions are `docs/schema/build.proto` and `docs/schema/repo.proto`, and
+//! definitions are `docs/reference/schema/build.proto` and `docs/reference/schema/repo.proto`, and
 //! every field in them is documented there — in prose written for the person
 //! editing the file. That prose had no way of reaching an editor: `textproto`
 //! knows a field's name and `buildfile` knows its meaning in code, and neither

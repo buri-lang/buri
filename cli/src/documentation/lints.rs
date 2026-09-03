@@ -6,7 +6,7 @@
 //! a finding a reader cannot look up is one they can only silence.
 //!
 //! The shape is `errors.rs`'s, deliberately: one markdown file per code under
-//! `src/docs/lints/`, its wording in the frontmatter at the top, its body the
+//! `src/docs/reference/lints/`, its wording in the frontmatter at the top, its body the
 //! explanation. What differs is the severity — a lint finding is usually a
 //! warning, and says so in its page rather than at its emission site.
 
@@ -39,7 +39,7 @@ macro_rules! l {
         LintDoc {
             code: $code,
             listed_title: $title,
-            text: include_str!(concat!("../docs/lints/", $code, ".md")),
+            text: include_str!(concat!("../docs/reference/lints/", $code, ".md")),
             see_also: $see,
         }
     };
@@ -53,7 +53,9 @@ pub const LINTS: &[LintDoc] = &[
     ]),
     l!("deep-nesting", "Branches nest shallowly"),
     l!("dep-cycle", "Two targets may not depend on each other", &["build/build-files"]),
-    l!("discarded-result", "Every deliberately dropped `Result` is reported", &["build/cli"]),
+    l!("discarded-result", "Every deliberately dropped `Result` is reported", &[
+        "language/expressions"
+    ]),
     l!("duplicate-import", "A module is imported once"),
     l!("duplicate-source", "A source file is listed by one rule", &["build/build-files"]),
     l!("empty-test-suite", "A `test` block declares the sources it tests"),

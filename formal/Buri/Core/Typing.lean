@@ -16,7 +16,7 @@ relates the two.
 `letE` and `matchE` each carry a premise that is a statement about *values*
 rather than about syntax:
 
-* `let p = e` requires `∀ v : t, Pattern.matches p v` -- irrefutability, SPEC 14
+* `let p = e` requires `∀ v : t, Pattern.matches p v` -- irrefutability, design/static-rules.md
   rule 2;
 * `match` requires `∀ v : t, ∃ arm, Pattern.matches arm v` -- exhaustiveness,
   SPEC 7.3.

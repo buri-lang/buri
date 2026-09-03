@@ -164,10 +164,11 @@ fn language_server() {
 /// Every method a 3.17 client can send is answered by the dispatch, and is
 /// sent by at least one recorded session.
 ///
-/// `cli/src/docs/cli/lsp.md`'s table says "there is no third column of things
-/// left for later", and until this test nothing held it to that: the claim was
-/// prose, the enumeration was prose, and `$/progress` sat with neither an arm
-/// nor a golden while the table read complete. The list is
+/// The LSP page used to carry a table of every request with the claim that
+/// "there is no third column of things left for later", and nothing held it to
+/// that until this test: the claim was prose, the enumeration was prose, and
+/// `$/progress` sat with neither an arm nor a golden while the table read
+/// complete. The list is
 /// `language_server::CLIENT_TO_SERVER`, beside the dispatch it describes.
 ///
 /// The answer has to come from a **running server**. The first version of this

@@ -1,0 +1,64 @@
+from "core/effect" import { Alloc, Env, Stdout };
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/str" import * as str;
+from "//libs/units" import { ParseError, parseQuantity, parseUnit, Quantity, Unit };
+
+derive Eq, Show for Request;
+/// One conversion to perform.
+export struct Request {
+    export quantity: Quantity,
+    export target: Unit,
+}
+
+derive Eq, Show for ConvertError;
+/// Everything that can go wrong between the command line and the answer.
+export enum ConvertError {
+    Usage,
+    Bad(ParseError),
+    CouldNotPrint,
+}
+
+impl ConvertError {
+    /// No `ctx`: every arm is a literal, and a literal allocates nothing.
+    export fn message(self): Str {
+        match (self) {
+            .Usage => "usage: convert <amount> <from> <to>",
+            .Bad(.NotANumber(_)) => "the amount is not a number",
+            .Bad(.UnknownUnit(_)) => "the units are m, km, mi and ft",
+            .CouldNotPrint => "could not write to standard output",
+        }
+    }
+}
+
+// //libs/units has its own error type, and `?` does not convert between error
+// types, so the conversion is written once here.
+fn bad(e: ParseError): ConvertError {
+    ConvertError.Bad(e)
+}
+
+/// Three words in, a request out. No `ctx`, so this cannot read the command
+/// line itself — it is handed the words.
+export fn parseRequest(words: [Str]): Result<Request, ConvertError> {
+    match (words) {
+        [amount, source, target] => {
+            let quantity = parseQuantity(amount, source).mapErr(bad)?;
+            let unit = parseUnit(target).mapErr(bad)?;
+            .Ok(Request { quantity: quantity, target: unit })
+        },
+        _ => .Err(.Usage),
+    }
+}
+
+/// The line the program prints.
+export fn describe<C: Alloc>(ctx: C, request: Request): Str {
+    let before = request.quantity.format(ctx);
+    let after = request.quantity.into(request.target).format(ctx);
+    str.format(ctx, "${before} = ${after}")
+}
+
+/// The edge: the one function here that reads the world and writes to it.
+export fn run<C: Alloc + Env + Stdout>(ctx: C): Result<(), ConvertError> {
+    let request = parseRequest(env.args(ctx))?;
+    io.println(ctx, describe(ctx, request)).mapErr(fn(e) => ConvertError.CouldNotPrint)
+}

@@ -1,0 +1,16 @@
+from "core/effect" import { Alloc, Env, Stdout };
+from "core/host" import * as host;
+from "//libs/convert" import { run };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Env: host.env,
+        Stdout: host.stdout,
+    };
+
+    match (run(ctx)) {
+        .Ok(_) => .Ok(()),
+        .Err(e) => .Err(e.message()),
+    }
+}

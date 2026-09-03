@@ -240,7 +240,7 @@ pub const RETIRED: &[(&str, &str)] = &[(
 
 /// Writes to standard output, treating a closed pipe as success.
 ///
-/// `buri docs lang/types | head` is the first thing anybody does, and the
+/// `buri docs language/types | head` is the first thing anybody does, and the
 /// `print!` macro panics when the reader goes away. Nothing has gone wrong in
 /// that case — the caller got what it asked for — so exit quietly.
 #[expect(

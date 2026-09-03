@@ -52,7 +52,7 @@ macro_rules! e {
         ErrorDoc {
             code: $code,
             listed_title: $title,
-            text: include_str!(concat!("../docs/errors/", $code, ".md")),
+            text: include_str!(concat!("../docs/reference/errors/", $code, ".md")),
             see_also: $see,
         }
     };
@@ -76,11 +76,11 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!(
         "circular-type-alias",
         "A type alias expands to a type, not back to itself",
-        &["lang/types"]
+        &["language/types"]
     ),
     e!("coalesce-operand", "`??` supplies a default for an absent or failed value"),
     e!("colon-colon-not-an-operator", "A module's members are reached with `.`"),
-    e!("const-declaration", "A module-level binding is written with `let`", &["lang/lexical"]),
+    e!("const-declaration", "A module-level binding is written with `let`", &["language/lexical"]),
     e!("context-binding-not-an-effect", "A context binding names an effect"),
     e!("context-call-with-arguments", "A context declaration takes no parameters"),
     e!("context-declaration-not-allowed", "A `context` declaration lives where a context may be built"),
@@ -92,7 +92,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("ctx-not-first", "`ctx` comes first, or immediately after `self`"),
     e!("declaration-without-a-body", "A declaration outside a trait or effect has a body"),
     e!("derive-not-a-trait", "A `derive` names a declared trait"),
-    e!("derive-only-trait", "Some traits are derived, never implemented", &["guide/standard-library"]),
+    e!("derive-only-trait", "Some traits are derived, never implemented", &["reference/standard-library"]),
     e!("derive-operator-not-a-newtype", "A derived arithmetic operator wraps exactly one value"),
     e!("derive-operator-not-numeric", "A derived arithmetic operator is the operation on the wrapped value"),
     e!("derive-target-not-a-type", "A `derive` names a declared type"),
@@ -111,7 +111,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("duplicate-test-name", "A test name is used once per file"),
     e!("effect-and-trait", "No type implements both an effect and a trait"),
     e!("effect-carrying-bound", "A type that carries an effect satisfies no trait bound"),
-    e!("effect-method-call", "An effect is performed through a function, not a method", &["lang/effects"]),
+    e!("effect-method-call", "An effect is performed through a function, not a method", &["language/effects"]),
     e!("effect-outside-platform", "Only a platform module declares an effect"),
     e!("effect-param-not-ctx", "An effect-carrying parameter is `self` or `ctx`"),
     e!("entry-point-listed", "An entry point is named by its rule, never listed", &["build/build-files"]),
@@ -132,7 +132,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("impl-head-not-a-type", "An `impl` names a declared type"),
     e!("impl-method-export", "An `impl` method is not separately exported"),
     e!("impl-outside-its-module", "An `impl` or a `derive` lives in its type's own module"),
-    e!("import-path-without-a-file", "A module that is not a surface is named by its file", &["lang/modules"]),
+    e!("import-path-without-a-file", "A module that is not a surface is named by its file", &["language/modules"]),
     e!("incomplete-impl", "An `impl` supplies every method of its trait"),
     e!("integer-not-in-base", "An integer literal is written in the base its prefix names"),
     e!("integer-too-wide", "An integer literal fits in 128 bits"),
@@ -218,20 +218,20 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("reserved-word", "Reserved words are not identifiers"),
     e!("retired-test-data", "A suite's filesystem is written in the suite", &["build/build-files", "build/testing"]),
     e!("rest-pattern-not-last", "A rest pattern comes last"),
-    e!("result-discarded", "A `Result` may not be discarded", &["build/cli"]),
+    e!("result-discarded", "A `Result` may not be discarded", &["language/expressions"]),
     e!("self-not-first", "`self` is the first parameter or nothing"),
     e!("self-outside-a-method", "`self` is legal only in a method body"),
     e!("self-type-outside-impl", "`Self` names the implementing type"),
-    e!("self-with-a-type", "`self` is written without a type", &["lang/expressions"]),
+    e!("self-with-a-type", "`self` is written without a type", &["language/expressions"]),
     e!("signature-mismatch", "An `impl` supplies the signature its trait declares"),
     e!("statement-not-unit", "A statement's value is used or bound"),
     e!("struct-literal-head", "A struct literal is headed by a type"),
     e!(
         "struct-literal-type",
         "An anonymous literal takes its type from its surroundings",
-        &["lang/types"]
+        &["language/types"]
     ),
-    e!("style-not-static", "A conditional style is known at compile time", &["guide/user-interfaces"]),
+    e!("style-not-static", "A conditional style is known at compile time", &["guides/user-interfaces"]),
     e!("tag-name-not-a-string", "A tag is named by a quoted string", &["build/tags"]),
     e!("tag-not-a-block", "A `tag` is a block in REPO.buri", &["build/tags"]),
     e!("tag-violation", "Two tags that forbid each other stay out of one closure", &["build/tags"]),
@@ -286,7 +286,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("unterminated-comment", "A block comment is closed"),
     e!("unterminated-string", "A string literal closes on the line it opens"),
     e!("unterminated-unicode-escape", "A Unicode escape closes its brace"),
-    e!("variant-export", "An exported enum exports every variant", &["lang/types"]),
+    e!("variant-export", "An exported enum exports every variant", &["language/types"]),
     e!("visibility-violation", "A dependency is visible to the package that names it", &["build/build-files"]),
     e!("web-output-with-a-js-block", "A page is always an ES module", &["build/build-files"]),
     e!("wrong-argument-count", "A call passes exactly the arguments the function declares"),

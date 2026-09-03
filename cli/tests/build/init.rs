@@ -20,7 +20,7 @@ fn a_generated_repository_builds_and_tests() {
     scratch.run(&["init"]).ok().says("wrote REPO.buri").says("wrote apps/hello/main.buri");
     assert!(scratch.path(".gitignore").is_file(), "the ignore file lands with its dot");
     assert!(
-        scratch.path(".claude/skills/buri-cli/SKILL.md").is_file(),
+        scratch.path(".agent/skills/buri-cli/SKILL.md").is_file(),
         "`buri init` installs the agent skills"
     );
 

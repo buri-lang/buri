@@ -38,14 +38,14 @@ pub struct Skill {
 const OFFICIAL: &str = "buri-";
 
 /// Where a skill lands under the directory the command was pointed at.
-const SKILLS_DIRECTORY: &str = ".claude/skills";
+const SKILLS_DIRECTORY: &str = ".agent/skills";
 
 pub const SKILLS: &[Skill] = &[
-    Skill { name: "buri-language", text: include_str!("../../docs/skills/buri-language.md") },
-    Skill { name: "buri-types", text: include_str!("../../docs/skills/buri-types.md") },
-    Skill { name: "buri-build", text: include_str!("../../docs/skills/buri-build.md") },
-    Skill { name: "buri-testing", text: include_str!("../../docs/skills/buri-testing.md") },
-    Skill { name: "buri-cli", text: include_str!("../../docs/skills/buri-cli.md") },
+    Skill { name: "buri-language", text: include_str!("../../docs/reference/skills/buri-language.md") },
+    Skill { name: "buri-types", text: include_str!("../../docs/reference/skills/buri-types.md") },
+    Skill { name: "buri-build", text: include_str!("../../docs/reference/skills/buri-build.md") },
+    Skill { name: "buri-testing", text: include_str!("../../docs/reference/skills/buri-testing.md") },
+    Skill { name: "buri-cli", text: include_str!("../../docs/reference/skills/buri-cli.md") },
 ];
 
 /// What happened to one path, in the word the command prints for it.

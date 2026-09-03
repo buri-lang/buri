@@ -1,7 +1,7 @@
 //! A `.proto` schema, as a Buri module.
 //!
 //! The mapping this writes is normative, and it is written down in
-//! `cli/src/docs/build/proto.md` rather than left to be read off the output.
+//! `cli/src/docs/reference/build/proto.md` rather than left to be read off the output.
 //! In summary:
 //!
 //! ```text

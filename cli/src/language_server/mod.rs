@@ -515,7 +515,7 @@ fn log_trace(text: &str, verbose: Option<&str>) -> Value {
 /// as running both ways.
 ///
 /// It is here, beside the dispatch it describes, because the coverage claim
-/// used to live only in `cli/src/docs/cli/lsp.md`'s prose — where nothing
+/// used to live only in the LSP page's prose — where nothing
 /// checked it, and where one method (`$/progress`) had neither an arm nor a
 /// golden for a whole campaign. `repositories::the_protocol_surface_is_covered`
 /// holds every name here to a dispatch arm or a named refusal, *and* to at

@@ -42,7 +42,7 @@ coverage.
 
 Even with pattern typing, the `wildcard`-with-incomplete-constructor-set branch
 needs a *witness*: a value built at a constructor the matrix does not mention.
-That is inhabitation, and it is where SPEC 14 rule 14 (recursive types must be
+That is inhabitation, and it is where design/static-rules.md rule 14 (recursive types must be
 productive) stops being stylistic. At a non-enumerable type it additionally
 needs a literal outside a finite set -- true, but a separate argument.
 

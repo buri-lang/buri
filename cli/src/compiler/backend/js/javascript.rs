@@ -149,7 +149,7 @@ impl UnOp {
 pub enum Expr {
     Num(f64),
     /// Emitted with an `n` suffix. `Int` is `I64` on every target, so ordinary
-    /// integer code lands here (SPEC 15, open question 8).
+    /// integer code lands here (design/resolved-questions.md).
     BigInt(String),
     Str(String),
     Bool(bool),

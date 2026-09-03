@@ -1,6 +1,6 @@
 //! `BUILD.buri` and `REPO.buri`, typed.
 //!
-//! The normative schemas are `cli/src/docs/schema/build.proto` and
+//! The normative schemas are `cli/src/docs/reference/schema/build.proto` and
 //! `repo.proto`. This module is the reader for them: it walks the textproto
 //! tree and produces typed values, rejecting an unknown field with a line
 //! number rather than ignoring it. That is the point of the schema being a real
@@ -167,25 +167,6 @@ impl Arch {
     }
 }
 
-/// **`Cjs` is read and not acted on.** `module: CJS` parses, is stored in
-/// `OutputTarget::Js`, and is then consulted by nobody: every destructuring of
-/// that variant outside this file is `Js { .. }`, and the backend emits an ES
-/// module either way. So a build file that asks for CommonJS gets an `.mjs`
-/// and is not told.
-///
-/// Written down rather than fixed here because the fix is a decision, not a
-/// cleanup: either the backend grows a CommonJS emitter, or the value leaves
-/// `build.proto` and the schema's unknown-value diagnostic refuses it. The
-/// second is the smaller change and would alter a pinned expectation in
-/// `repositories/build-files/web_output`, which is a wave that owns the
-/// schema's business rather than this one.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum JsModule {
-    #[default]
-    Esm,
-    Cjs,
-}
-
 /// A platform that produces a machine artifact.
 ///
 /// `Platform::Js` is deliberately not one of these. JavaScript is not built per
@@ -208,17 +189,17 @@ impl NativePlatform {
     }
 }
 
-/// What an output is built for. The two variants carry exactly the fields their
-/// side has: an `arch` only exists for a native build, and a module kind only
-/// exists for a JavaScript one.
+/// What an output is built for. A variant carries exactly the fields its side
+/// has: an `arch` only exists for a native build. `Js` carries nothing — an
+/// ES module is the only kind of module this toolchain emits, so there is no
+/// module field to record.
 #[derive(Clone, Debug)]
 pub enum OutputTarget {
     Native { platform: NativePlatform, arch: Option<Spanned<Arch>> },
-    Js { module: JsModule },
-    /// A browser page. It carries neither an `arch` nor a module kind: a
-    /// machine architecture is meaningless for JavaScript, and a browser
-    /// loads an ES module — there is no `<script type="commonjs">` — so the
-    /// one field `Js` has would have exactly one legal value here.
+    Js,
+    /// A browser page. It carries no `arch`: a machine architecture is
+    /// meaningless for JavaScript, and a browser loads an ES module — there
+    /// is no `<script type="commonjs">`.
     Web,
 }
 
@@ -237,13 +218,13 @@ pub struct Output {
 impl Output {
     /// The default output: this toolchain emits JavaScript.
     pub fn js(span: Span) -> Output {
-        Output { target: OutputTarget::Js { module: JsModule::Esm }, artifact_name: None, span }
+        Output { target: OutputTarget::Js, artifact_name: None, span }
     }
 
     /// An output for a platform chosen at run time, as `buri test` does.
     pub fn for_platform(platform: Platform, span: Span) -> Output {
         let target = match platform {
-            Platform::Js => OutputTarget::Js { module: JsModule::Esm },
+            Platform::Js => OutputTarget::Js,
             Platform::Linux => {
                 OutputTarget::Native { platform: NativePlatform::Linux, arch: None }
             }
@@ -258,7 +239,7 @@ impl Output {
     pub fn platform(&self) -> Platform {
         match &self.target {
             OutputTarget::Native { platform, .. } => platform.platform(),
-            OutputTarget::Js { .. } => Platform::Js,
+            OutputTarget::Js => Platform::Js,
             OutputTarget::Web => Platform::Web,
         }
     }
@@ -266,14 +247,14 @@ impl Output {
     pub fn arch(&self) -> Option<Arch> {
         match &self.target {
             OutputTarget::Native { arch, .. } => arch.as_ref().map(|a| a.value),
-            OutputTarget::Js { .. } | OutputTarget::Web => None,
+            OutputTarget::Js | OutputTarget::Web => None,
         }
     }
 
     /// `linux-x86_64`, `js`, `web` — the directory under `.buri/out/`.
     pub fn dir(&self) -> String {
         match &self.target {
-            OutputTarget::Js { .. } => "js".to_string(),
+            OutputTarget::Js => "js".to_string(),
             OutputTarget::Web => "web".to_string(),
             OutputTarget::Native { platform, arch: Some(a) } => {
                 format!("{}-{}", platform.platform().slug(), a.value.slug())
@@ -658,29 +639,27 @@ impl Reader {
                 });
 
                 let artifact_name = self.string(m, "artifact_name");
-                let mut js_module = JsModule::Esm;
                 let mut js_block: Option<Span> = None;
                 if let Some((js_message, js_span)) = self.sub_message(m, "js") {
                     js_block = Some(js_span);
                     self.check_known(js_message, textproto::schema_order("js"), &[], "a `js` block");
+                    // An ES module is the only kind this toolchain emits, so
+                    // the field records nothing — it is validated and dropped.
                     if let Some(module_field) = js_message.get("module") {
                         match &module_field.value {
-                            Value::Ident(s, sp) => match s.as_str() {
-                                "ESM" | "MODULE_UNSPECIFIED" => js_module = JsModule::Esm,
-                                "CJS" => js_module = JsModule::Cjs,
-                                _ => {
-                                    self.templated("unknown-bare-word", *sp)
-                                        .bind("value", s.clone())
-                                        .bind("expected", "a module kind")
-                                        .bind("expected_plural", "module kinds")
-                                        .bind("choices", "ESM and CJS");
-                                }
-                            },
+                            Value::Ident(s, _) if s == "ESM" || s == "MODULE_UNSPECIFIED" => {}
+                            Value::Ident(s, sp) => {
+                                self.templated("unknown-bare-word", *sp)
+                                    .bind("value", s.clone())
+                                    .bind("expected", "a module kind")
+                                    .bind("expected_plural", "module kinds")
+                                    .bind("choices", "ESM");
+                            }
                             other => {
                                 self.templated("not-a-bare-word", other.span())
                                     .bind("field", "module")
-                                    .bind("expected", "ESM or CJS")
-                                    .bind("choices", "ESM or CJS");
+                                    .bind("expected", "ESM")
+                                    .bind("choices", "ESM");
                             }
                         }
                     }
@@ -702,7 +681,7 @@ impl Reader {
                                 .bind("platform", "JS")
                                 .bind("artifact", "JavaScript");
                         }
-                        OutputTarget::Js { module: js_module }
+                        OutputTarget::Js
                     }
                     Platform::Linux => {
                         OutputTarget::Native { platform: NativePlatform::Linux, arch }
@@ -1020,11 +999,25 @@ library {
         assert_eq!(b.outputs[0].arch(), None);
         assert!(b.outputs[0].matches_selector("web"));
 
-        let src = "binary {\n  outputs: [{ platform: WEB  arch: ARM64  js { module: CJS } }]\n}\n";
+        let src = "binary {\n  outputs: [{ platform: WEB  arch: ARM64  js { module: ESM } }]\n}\n";
         let read = read_build_file(src, FileId(0));
         assert_eq!(read.errors.len(), 2, "{:#?}", read.errors);
         assert!(read.errors.iter().any(|e| e.message.contains("no architecture")));
         assert!(read.errors.iter().any(|e| e.message.contains("no `js` block")));
+    }
+
+    /// `CJS` used to parse and then be consulted by nobody — the backend emits
+    /// an ES module either way. Now the value is refused where it is written,
+    /// so a build file cannot ask for an artifact it will not get.
+    #[test]
+    fn a_module_kind_other_than_esm_is_refused() {
+        let src = "binary {\n  outputs: [{ platform: JS  js { module: ESM } }]\n}\n";
+        assert!(read_build_file(src, FileId(0)).errors.is_empty());
+
+        let src = "binary {\n  outputs: [{ platform: JS  js { module: CJS } }]\n}\n";
+        let read = read_build_file(src, FileId(0));
+        assert_eq!(read.errors.len(), 1, "{:#?}", read.errors);
+        assert!(read.errors[0].message.contains("CJS"), "{:#?}", read.errors);
     }
 
     #[test]

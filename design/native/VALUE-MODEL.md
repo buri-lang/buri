@@ -667,7 +667,7 @@ the thing that makes reference counting slow. MEMORY.md §5 gives the sequences.
 
 SPEC §6.2 and §6.2.2 were written as though JavaScript were the only backend.
 The amendment that fixed them **shipped in wave 3c**, so the text is not
-reproduced here: `buri docs lang/expressions` serves it, and SPEC §6.2, §6.2.1
+reproduced here: `buri docs language/expressions` serves it, and SPEC §6.2, §6.2.1
 and §6.2.2 are where it landed. It was written to the sources rather than to the
 assembled `SPEC.md`, which `buri docs assemble` would have edited back out on
 the next run. This section had four numbered drafts of that text; a citation to

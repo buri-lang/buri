@@ -3,7 +3,7 @@
 //! `shl` and `shr` are functions rather than operators because there is no
 //! `<<` or `>>` token: longest-match lexing would turn the `>>` closing nested
 //! type arguments into a shift. Removing the operators removes the problem
-//! rather than papering over it with a position-dependent lexer (SPEC 12.6).
+//! rather than papering over it with a position-dependent lexer (design/grammar-rationale.md 12.6).
 
 /// Shifting by a count at or beyond the width of the type aborts. Overflow is
 /// undefined, but a shift count has no defensible answer at all, and the guard

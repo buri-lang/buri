@@ -22,9 +22,9 @@
      The syntactic grammar below is context-free and UNAMBIGUOUS: no string
      of tokens has two parse trees. No production requires knowledge of what a
      name refers to; no production requires "feedback" from the type checker
-     or from name resolution. See SPEC.md section 12 for the specific design
-     decisions that buy this property, and section 14 for the well-formedness
-     rules that are deliberately NOT encoded here.
+     or from name resolution. See design/grammar-rationale.md for the specific
+     design decisions that buy this property, and design/static-rules.md for the
+     well-formedness rules that are deliberately NOT encoded here.
 
      It is LR(1) / LALR(1) everywhere but one place. `GenericExpr` -- type
      arguments in expression position, `f<A>(x)` -- shares its first token
@@ -568,8 +568,8 @@ FieldInit       ::= name=IDENT ":" value=Expr
 FieldShorthand  ::= name=IDENT
 
 (* A literal with no head at all. Its type is the one the expression is checked
-   against, so it is settled by the checker (SPEC 14.1) and not here: no
-   production below consults a type, and none needs to.
+   against, so it is settled by the checker (design/static-rules.md rule 1) and
+   not here: no production below consults a type, and none needs to.
 
    A bare `{` otherwise opens a Block, and a Block is `{ Stmt* Expr? }`. So the
    rule is the two tokens after the `{`: a `..`, or a `name ":"`. Neither can
@@ -631,7 +631,7 @@ MatchArm        ::= pattern=Pattern Guard? "=>" value=Expr
 Guard           ::= "if" Expr
 
 (* There are no loops. Iteration is recursion (guaranteed tail-call
-   eliminated) or a fold. See SPEC.md 15.1. *)
+   eliminated) or a fold. See design/non-goals.md. *)
 
 
 (* --------------------------------------------------------------------------

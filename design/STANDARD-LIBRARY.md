@@ -1,8 +1,8 @@
 # Standard library: the decisions behind it
 
 The user-facing map of `core/*` — which modules exist, what each costs, and
-what is absent — is `cli/src/docs/guide/standard-library.md`, served as
-`buri docs guide/standard-library`. The reference for any module is the module
+what is absent — is `cli/src/docs/reference/standard-library.md`, served as
+`buri docs reference/standard-library`. The reference for any module is the module
 itself (`buri docs std core/list`, rendered from the source the compiler
 checked).
 

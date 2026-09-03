@@ -3,7 +3,7 @@
 // The expected type is known and is an enum, so the literal is refused for a
 // different reason than a missing one: a type alone does not say which variant
 // is being built. The dot form names it, and the fix points at it rather than
-// at the type name (SPEC 12.3).
+// at the type name (design/grammar-rationale.md 12.3).
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;

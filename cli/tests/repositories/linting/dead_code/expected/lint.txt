@@ -7,26 +7,40 @@ warning: nothing reaches `toDollars` [dead-code]
    = production code is reached from a library's surface or from a binary's `main`, and a declaration nothing reaches is a declaration nothing runs
    = fix: delete it, or re-export it from lib/money/lib.buri to put it on the library's surface
 
-     An export nothing in production reaches is one of two things, and they have
-     opposite fixes. Decide which before you touch it.
+     Inside a library, export means "visible to the rest of this library", and
+     lib.buri decides what leaves it. So an export that lib.buri does not
+     re-export, and that no sibling module in the package imports, is reached by
+     nothing at all: not by a consumer, which cannot see it, and not by the
+     library itself, which never names it. The word in front of the declaration
+     says otherwise, which is why this is worth a sentence rather than a shrug.
 
-     Dead code — nothing uses it, tests included. Delete it, along with anything
-     that only existed to support it. Don't keep it "just in case"; version
-     control remembers.
+     There are two fixes and they are opposites, so decide which one this is
+     before you edit.
 
-     Reached only by tests — production never calls it, but a test does. The
-     export exists to let the test see an internal. That is not allowed: it
-     couples the test to the implementation and makes the module's public
-     surface lie. Drive the behaviour through the real entry point instead, so
-     the test exercises it the way production does. If the logic is substantial
-     enough to deserve its own focused test, that is the signal it wants to be
-     its own class or module — extract it, and the tested method becomes a
-     legitimate public member of the new unit, not a back door punched into this
-     one.
+     It is meant to be published. Name it in the lib.buri re-export that already
+     carries its module's other names, and the finding ends. A name on the
+     surface is never reported, because the reader this analysis can see is not
+     the only reader there is.
 
-     Either way the export goes away. The wrong move is to silence the report by
-     adding the file to knip's entry list or snoozing it — that just preserves
-     the leak. The only real exception is a genuine public API surface that knip
-     can't see is consumed (a published package entry); make that explicit in
-     knip's entry/config, not by ignoring the smell.
+     It is dead. Delete it, along with whatever existed only to support it.
+     Version control remembers it, and a declaration kept "just in case" costs
+     every later reader the work of deciding whether it matters.
+
+     What is not a fix is reaching for it from a test. A test source cannot be
+     imported and is not a use; an export that exists so a test can see an
+     internal couples the test to the implementation and makes the library's
+     surface lie. Drive the behaviour through the function the library actually
+     publishes. If the logic is substantial enough to want a test of its own,
+     that is the signal it should be its own module, published on the surface in
+     its own right.
+
+     The rule asks only about module-level declarations. A field's or a
+     variant's export is about the shape of a type, and whether anything reads
+     it is unused-field's and unused-variant's question. Three things also quiet
+     it, each because the evidence is not there: a binary has no surface, so
+     nothing in one is asked; a module taken whole by import * as reaches every
+     name it exports, so nothing in that module is asked; and a package one of
+     whose modules the parser could not read whole is not asked at all, because
+     the import that reaches this name may be in the run of declarations the
+     parser skipped.
 

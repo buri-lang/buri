@@ -317,12 +317,12 @@ from "core/effect" export {
 /// allocate a response body, print a line, read a clock, start a task. Nothing
 /// about that authority passes through `Listen` — `run`'s workers call the
 /// handler themselves — which is the reason the effect has five small methods
-/// and not one big one.
-/// `S` is **the state one socket carries**, and on a server with no
-/// `websocket` it is a type nothing constrains — which the checker settles as
-/// `()` (SPEC 13.3: a variable no constraint reached is unit), so a program
-/// that is not a WebSocket server writes exactly what it wrote before this
-/// field existed and never spells the parameter at all.
+/// and not one big one. `S` is **the state one socket carries**, and on a
+/// server with no `websocket` it is a type nothing constrains — which the
+/// checker settles as `()` (guides/compile-speed.md: a variable no constraint
+/// reached is unit), so a program that is not a WebSocket server writes
+/// exactly what it wrote before this field existed and never spells the
+/// parameter at all.
 export struct Server<C, S> {
     /// The port to hold. `0` asks the operating system to choose one, and
     /// `bind` answers with the number it chose.
@@ -542,8 +542,9 @@ struct Worker<C, S> {
 /// accept on the one listener and the acceptor hands each connection to
 /// whichever asks first, so a handler that takes a second holds up its own
 /// connection and no other. The loop itself is `answering` below and is a tail
-/// call: there are no loops (SPEC 15.1) and `middle/tail_calls.rs` rewrites a
-/// self tail call into one, so each worker costs one frame however long it runs.
+/// call: there are no loops (design/non-goals.md) and `middle/tail_calls.rs`
+/// rewrites a self tail call into one, so each worker costs one frame however
+/// long it runs.
 ///
 /// **One handler is no fan-out at all**, and that is worth the branch: an
 /// acceptor that hosts one — every test double in this repository, and the
@@ -711,7 +712,7 @@ fn opened<C: Listen, S>(
 /// One message, then the next, then the close.
 ///
 /// A self tail call, so a socket that carries a million messages costs one
-/// frame — `answering`'s property, one level down (SPEC 15.1;
+/// frame — `answering`'s property, one level down (design/non-goals.md;
 /// `middle/tail_calls.rs`).
 ///
 /// **`.Err` is a close too.** A socket that is already gone when this asks —

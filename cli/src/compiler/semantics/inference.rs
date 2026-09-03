@@ -6,7 +6,7 @@
 //! receiver's type. What keeps it a traversal rather than a fixpoint is that
 //! method resolution needs only the receiver's *head type constructor*, that
 //! type information flows outside-in and left-to-right, and that there is no
-//! overloading (SPEC 13.2).
+//! overloading (guides/compile-speed.md).
 
 use crate::compiler::modules::Role;
 use crate::compiler::semantics::resolve::{Bodies, Checker};
@@ -25,8 +25,9 @@ pub fn check_all(c: &mut Checker) {
     for i in 0..c.tables.ctx_decls.len() {
         check_context_decl(c, ContextDeclId(i as u32));
     }
-    // Function bodies check independently and in any order (SPEC 13.3), which
-    // is what lets a scoped analysis check some of them and not others.
+    // Function bodies check independently and in any order
+    // (guides/compile-speed.md), which is what lets a scoped analysis check
+    // some of them and not others.
     for i in 0..c.tables.fns.len() {
         let fid = FnId(i as u32);
         if wanted(c, fid) {
@@ -152,11 +153,11 @@ fn check_fn(c: &mut Checker, fid: FnId) {
         inf.bind(&p.name, local);
         inf.params.push(local);
         // The capture rule is scoped to *effect-carrying* values (SPEC 10.6,
-        // SPEC 14 rule 8). `ctx` is one by construction — the `ctx` rule
-        // admits nothing else there — but `self` is whatever the receiver
-        // type is, and an ordinary struct's methods must still be able to
-        // write `fn(x) => x > self.n`. So `self` is gated on its type, exactly
-        // as a normal parameter is in `check_ctx_rule`.
+        // design/static-rules.md rule 8). `ctx` is one by construction — the
+        // `ctx` rule admits nothing else there — but `self` is whatever the
+        // receiver type is, and an ordinary struct's methods must still be
+        // able to write `fn(x) => x > self.n`. So `self` is gated on its type,
+        // exactly as a normal parameter is in `check_ctx_rule`.
         if p.role == ParamRole::Ctx {
             inf.effect_locals.insert(local);
         } else {
@@ -352,10 +353,10 @@ pub struct Infer<'a, 'b> {
     /// capture (SPEC 10.6).
     pub(crate) effect_locals: std::collections::HashSet<LocalId>,
     /// Locals whose type mentions a type parameter in a position that would
-    /// hold an effect if the parameter were instantiated at a context type.
-    /// A lambda may not capture one of these either: the body is checked once,
-    /// polymorphically (SPEC 13.5), so this is the last point at which the
-    /// question can be asked at all. See `Tables::may_carry_effect`.
+    /// hold an effect if the parameter were instantiated at a context type. A
+    /// lambda may not capture one of these either: the body is checked once,
+    /// polymorphically (guides/compile-speed.md), so this is the last point at
+    /// which the question can be asked at all. See `Tables::may_carry_effect`.
     pub(crate) poly_locals: std::collections::HashSet<LocalId>,
     pub(crate) lambda_depth: u32,
     pub(crate) obligations: Vec<(Ty, TraitId, Span)>,
@@ -379,7 +380,7 @@ pub struct Infer<'a, 'b> {
     /// The or-pattern being checked, if any.
     pub(crate) or_scope: Option<OrScope>,
     /// Names bound by the pattern currently being checked, so a duplicate
-    /// within one pattern is caught (SPEC 14.6).
+    /// within one pattern is caught (design/static-rules.md rule 6).
     pub(crate) pattern_names: Vec<String>,
 }
 

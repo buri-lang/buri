@@ -45,6 +45,23 @@ impl ItemKind {
         }
     }
 
+    /// What a page calls the section holding items of this kind. Public
+    /// because the website writes its own module pages — it needs headings a
+    /// reader can link to — and two lists of the same nine words would drift.
+    pub fn heading(self) -> &'static str {
+        match self {
+            ItemKind::Struct => "Structs",
+            ItemKind::Enum => "Enums",
+            ItemKind::TypeAlias => "Type aliases",
+            ItemKind::Trait => "Traits",
+            ItemKind::Effect => "Effects",
+            ItemKind::Const => "Constants",
+            ItemKind::Context => "Contexts",
+            ItemKind::Method => "Methods",
+            ItemKind::Function => "Functions",
+        }
+    }
+
     /// The order a reference lists them: what a type *is* before what it can
     /// do, and the free functions last.
     fn rank(self) -> u8 {
@@ -136,7 +153,7 @@ impl Api {
     }
 
     /// Whether the item is one for which "Pure" is a statement about it.
-    fn is_callable(&self) -> bool {
+    pub fn is_callable(&self) -> bool {
         matches!(self, Api::Method { .. } | Api::Function { .. })
     }
 }
@@ -398,6 +415,14 @@ fn trait_or_effect(t: &crate::parsing::flat::Tree, d: &tree::TraitDecl) -> ApiIt
 // Rendering
 // ---------------------------------------------------------------------------
 
+/// What the absence of a context parameter promises, said once under the
+/// heading rather than on each of the two hundred functions below it. Public
+/// for the website's own module pages, so that the terminal and the site make
+/// the reader the same promise in the same words.
+pub const PURITY: &str = "*Pure* means the function takes no context parameter, so it cannot \
+                          allocate, read, write, or observe anything — the guarantee is the \
+                          absence of an argument rather than an annotation.";
+
 /// One module as a markdown page.
 pub fn render(m: &ApiModule) -> String {
     let mut out = String::new();
@@ -416,34 +441,15 @@ pub fn render(m: &ApiModule) -> String {
     let mut last: Option<ItemKind> = None;
     for item in &m.items {
         if last != Some(item.kind()) {
-            let _ = writeln!(out, "## {}\n", heading(item.kind()));
+            let _ = writeln!(out, "## {}\n", item.kind().heading());
             if item.api.is_callable() {
-                let _ = writeln!(
-                    out,
-                    "*Pure* means the function takes no context parameter, so it cannot \
-                     allocate, read, write, or observe anything — the guarantee is the \
-                     absence of an argument rather than an annotation.\n"
-                );
+                let _ = writeln!(out, "{PURITY}\n");
             }
             last = Some(item.kind());
         }
         write_item(&mut out, item);
     }
     out
-}
-
-fn heading(kind: ItemKind) -> &'static str {
-    match kind {
-        ItemKind::Struct => "Structs",
-        ItemKind::Enum => "Enums",
-        ItemKind::TypeAlias => "Type aliases",
-        ItemKind::Trait => "Traits",
-        ItemKind::Effect => "Effects",
-        ItemKind::Const => "Constants",
-        ItemKind::Context => "Contexts",
-        ItemKind::Method => "Methods",
-        ItemKind::Function => "Functions",
-    }
 }
 
 fn write_item(out: &mut String, item: &ApiItem) {

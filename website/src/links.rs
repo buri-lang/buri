@@ -1,10 +1,10 @@
 //! Where a link in a documentation page points once the page is a web page.
 //!
 //! A doc link is written relative to the file it is in — `./tags.md#lint`,
-//! `../SPEC.md`, `./design/` — because that is what resolves on GitHub, and
-//! `cli/tests/docs` holds the corpus to it. The site keeps every one of them
-//! working: a destination that names a page becomes a link to that page, and
-//! everything else becomes a link to the file or directory on GitHub.
+//! `../language/effects.md`, `./design/` — because that is what resolves on
+//! GitHub, and `cli/tests/docs` holds the corpus to it. The site keeps every
+//! one of them working: a destination that names a page becomes a link to that
+//! page, and everything else becomes a link to the file or directory on GitHub.
 
 use crate::pages::{Page, Site};
 
@@ -92,11 +92,12 @@ impl<'a> Resolver<'a> {
 
 /// The file a page's links are written relative to.
 ///
-/// `cli/src/docs/SPEC.md` and the `lang/` topics it is assembled from write
-/// theirs from the repository root, and everything else writes them from
-/// where the file sits. That is not this crate's rule — it is the corpus's,
-/// stated as `ROOT_RELATIVE` in `cli/tests/docs/documents.rs`, and read here
-/// from the other side so that the two agree about what resolves.
+/// The `language/` topics write theirs from the repository root, because they
+/// are read as sections of the assembled `cli/src/docs/SPEC.md`; everything
+/// else writes them from where the file sits. That is not this crate's rule —
+/// it is the corpus's, stated as `ROOT_RELATIVE` in
+/// `cli/tests/docs/documents.rs`, and read here from the other side so that the
+/// two agree about what resolves.
 fn base_of(page: &Page) -> String {
     if is_root_relative(&page.source.path) {
         return String::new();
@@ -110,7 +111,7 @@ fn base_of(page: &Page) -> String {
 }
 
 fn is_root_relative(source: &str) -> bool {
-    source == "cli/src/docs/SPEC.md" || source.starts_with("cli/src/docs/lang/")
+    source.starts_with("cli/src/docs/language/")
 }
 
 /// The `href` a target is written as, from a page at `route`.
@@ -210,17 +211,29 @@ mod tests {
 
     #[test]
     fn a_relative_path_resolves_against_the_file_it_was_written_in() {
-        assert_eq!(resolve("cli/src/docs/build/tags.md", "./testing.md"), "cli/src/docs/build/testing.md");
-        assert_eq!(resolve("cli/src/docs/lang/types.md", "../SPEC.md"), "cli/src/docs/SPEC.md");
+        assert_eq!(
+            resolve("cli/src/docs/reference/build/tags.md", "./testing.md"),
+            "cli/src/docs/reference/build/testing.md"
+        );
+        assert_eq!(
+            resolve("cli/src/docs/language/types.md", "../grammar.ebnf"),
+            "cli/src/docs/grammar.ebnf"
+        );
         assert_eq!(resolve("README.md", "./cli/src/docs/grammar.ebnf"), "cli/src/docs/grammar.ebnf");
-        assert_eq!(resolve("cli/src/docs/build/tags.md", "../../../tests/example/"), "cli/tests/example");
+        assert_eq!(
+            resolve("cli/src/docs/reference/build/tags.md", "../../../../tests/example/"),
+            "cli/tests/example"
+        );
     }
 
     #[test]
     fn an_href_climbs_out_of_the_directory_the_page_is_written_into() {
-        assert_eq!(relative("", "guide/installing"), "guide/installing/");
-        assert_eq!(relative("errors/circular-import", "language/lexical"), "../../language/lexical/");
-        assert_eq!(relative("guide/installing", ""), "../../");
+        assert_eq!(relative("", "getting-started/installing"), "getting-started/installing/");
+        assert_eq!(
+            relative("reference/errors/circular-import", "language/lexical"),
+            "../../../language/lexical/"
+        );
+        assert_eq!(relative("getting-started/installing", ""), "../../");
         assert_eq!(relative("", ""), "./");
     }
 
@@ -228,7 +241,13 @@ mod tests {
     /// the two directions are one another's inverse.
     #[test]
     fn every_href_reads_back_as_the_route_it_names() {
-        let routes = ["", "guide", "guide/installing", "errors/circular-import", "reference/grammar"];
+        let routes = [
+            "",
+            "guides",
+            "getting-started/installing",
+            "reference/errors/circular-import",
+            "reference/grammar",
+        ];
         for from in routes {
             for to in routes {
                 let href = relative(from, to);

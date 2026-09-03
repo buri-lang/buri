@@ -137,7 +137,7 @@ impl<'a> Renderer<'a> {
     }
 
     fn heading(&mut self, level: usize, title: &str) {
-        let anchor = slug(title);
+        let anchor = self.unique(&slug(title));
         let level = level.clamp(1, 6);
         let body = self.inline(title);
         self.out.push_str(&format!(
@@ -148,6 +148,22 @@ impl<'a> Renderer<'a> {
         ));
         self.links.push(Target::SameDocument { anchor: anchor.clone() });
         self.anchors.push(anchor);
+    }
+
+    /// The id a heading gets when the slug is already on the page: GitHub's
+    /// `-1`, `-2`, and so on. The CLI reference puts thirteen commands on one
+    /// page and each of them opens at "What it does", so without this the page
+    /// would carry thirteen elements with one id and every link to any of them
+    /// would land on the first.
+    fn unique(&self, base: &str) -> String {
+        let first = base.to_string();
+        if !self.anchors.contains(&first) {
+            return first;
+        }
+        (1u32..)
+            .map(|n| format!("{base}-{n}"))
+            .find(|candidate| !self.anchors.contains(candidate))
+            .unwrap_or(first)
     }
 
     /// A fenced block, from its opener to the first closer at or below its own
@@ -664,6 +680,8 @@ mod tests {
             summary: String::new(),
             source: Source { path: source.to_string(), directory: false },
             section: None,
+            group: None,
+            listed: true,
             content: Content::Prose(String::new()),
             see_also: Vec::new(),
             facts: Vec::new(),
@@ -672,15 +690,15 @@ mod tests {
         Site {
             root: PathBuf::from("/nowhere"),
             pages: vec![
-                page("build/tags", "cli/src/docs/build/tags.md"),
-                page("build/testing", "cli/src/docs/build/testing.md"),
+                page("reference/build/tags", "cli/src/docs/reference/build/tags.md"),
+                page("reference/build/testing", "cli/src/docs/reference/build/testing.md"),
             ],
         }
     }
 
     fn rendered(text: &str) -> Rendered {
         let site = site();
-        let page = site.page("build/tags").expect("the fixture has this page");
+        let page = site.page("reference/build/tags").expect("the fixture has this page");
         let resolver = Resolver::for_page(&site, page);
         render(text, &resolver)
     }
@@ -695,12 +713,16 @@ mod tests {
     #[test]
     fn a_doc_link_to_another_page_becomes_a_link_to_that_page() {
         let out = rendered("See [testing](./testing.md#golden).\n");
-        assert!(out.html.contains("href=\"../../build/testing/#golden\""), "{}", out.html);
+        assert!(
+            out.html.contains("href=\"../../../reference/build/testing/#golden\""),
+            "{}",
+            out.html
+        );
     }
 
     #[test]
     fn a_doc_link_to_something_the_site_does_not_publish_goes_to_github() {
-        let out = rendered("See [the design notes](../../../../design/).\n");
+        let out = rendered("See [the design notes](../../../../../design/).\n");
         assert!(
             out.html.contains("https://github.com/buri-lang/buri/tree/main/design"),
             "{}",

@@ -229,7 +229,7 @@ impl Kind {
     }
 
     /// Brace-terminated and self-delimiting: an operand of a binary operator,
-    /// but never the head of a postfix chain (SPEC 12.11, 12.13).
+    /// but never the head of a postfix chain (design/grammar-rationale.md 12.11, 12.13).
     pub fn is_block_like(self) -> bool {
         matches!(self, Kind::Block | Kind::If | Kind::Match | Kind::ContextExpr)
     }
@@ -765,7 +765,7 @@ impl Tree {
     }
 
     /// Whether an expression is a type path: a name, the dot form, or either
-    /// of those under type arguments or a qualifier (SPEC 14.1).
+    /// of those under type arguments or a qualifier (design/static-rules.md rule 1).
     ///
     /// Iterative rather than recursive because `Generic` and `Field` chain, and
     /// the flat tree makes walking a chain a loop rather than a call.

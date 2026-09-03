@@ -2,22 +2,22 @@
 //!
 //! Recursive descent over the LR(1) grammar in `grammar.ebnf`. No production
 //! consults name resolution or types, so this is one pass with no feedback and
-//! files parse independently (SPEC 13.1).
+//! files parse independently (guides/compile-speed.md).
 //!
 //! The three places the grammar earns its unambiguity, and where that shows up
 //! here:
 //!
 //! * `unary` handles block-like expressions separately from postfix chains, so
-//!   `match (x) { ... }.field` does not parse (SPEC 12.13).
+//!   `match (x) { ... }.field` does not parse (design/grammar-rationale.md 12.13).
 //! * A `{` following a postfix expression is always a struct literal. A bare
 //!   `{` is a block unless the two tokens after it cannot open one — `..`,
 //!   `name :` or `name ,` — in which case it is an anonymous struct literal,
 //!   whose type comes from what the expression is checked against. `{ }` and
 //!   `{ name }` are the only strings both readings accept, and both stay
 //!   blocks, so the choice is two tokens of lookahead and the grammar stays
-//!   LR(1) (SPEC 12.3).
+//!   LR(1) (design/grammar-rationale.md 12.3).
 //! * `pattern_primary` decides binding-versus-variant on the token *after* an
-//!   identifier, never on what the identifier means (SPEC 12.7).
+//!   identifier, never on what the identifier means (design/grammar-rationale.md 12.7).
 
 use crate::diagnostics::{Diagnostic, FileId, Span};
 use crate::parsing::flat::{
@@ -282,7 +282,7 @@ fn starts_param(t: TokenKind) -> bool {
 ///
 /// [`starts_expr`] less the three tokens that continue the expression before
 /// them. A `.`, a `(` or a `[` after a block-like expression is the postfix
-/// chain the grammar refuses (SPEC 12.13), and reading it as the next
+/// chain the grammar refuses (design/grammar-rationale.md 12.13), and reading it as the next
 /// statement would report the chain rather than the refusal.
 fn starts_statement(t: TokenKind) -> bool {
     starts_expr(t) && !matches!(t, TokenKind::Dot | TokenKind::LParen | TokenKind::LBracket)
@@ -838,7 +838,7 @@ impl<'a> Parser<'a> {
         self.tree.push(Kind::Error, [0; 4], span, at)
     }
 
-    /// The chain SPEC 12.13 refuses, named where a reader would otherwise be
+    /// The chain design/grammar-rationale.md 12.13 refuses, named where a reader would otherwise be
     /// told the enclosing block is missing its `}`.
     ///
     /// Only in statement position: a block-like *arm body* followed by `.` is
@@ -2272,7 +2272,7 @@ impl<'a> Parser<'a> {
     fn expr_inner(&mut self) -> PResult<ExprId> {
         // A lambda is top-level-only: its body extends as far right as
         // possible, so allowing it as an operand would make
-        // `2 * fn(x) => x + 1` ambiguous (SPEC 12.11).
+        // `2 * fn(x) => x + 1` ambiguous (design/grammar-rationale.md 12.11).
         if self.is_keyword(Keyword::Fn) {
             return self.lambda();
         }
@@ -2451,7 +2451,7 @@ impl<'a> Parser<'a> {
 
         // Block-like expressions are operands but never postfix-chain heads,
         // which is what stops `if (c) { a } else { b } { x: 1 }` from having
-        // two parses (SPEC 12.13). They are returned without entering
+        // two parses (design/grammar-rationale.md 12.13). They are returned without entering
         // `postfix_ops`.
         if self.is(Punctuation::LBrace) {
             if self.at_anonymous_struct_lit() {
@@ -2482,7 +2482,7 @@ impl<'a> Parser<'a> {
         let at = self.tree.next_node();
         let start = self.expect_keyword(Keyword::If)?;
         // The condition is parenthesized, so the `{` that follows is always a
-        // block (SPEC 12.1).
+        // block (design/grammar-rationale.md 12.1).
         let open = self.expect(Punctuation::LParen)?;
         let cond = self.expr()?;
         self.expect_close(Punctuation::RParen, "`if` condition", open)?;
@@ -2538,7 +2538,8 @@ impl<'a> Parser<'a> {
             }
             // Arms are comma-separated, always — the comma is required even
             // after a brace-terminated body, because without it `A => x`
-            // followed by `-1 =>` would greedily parse as `x - 1` (SPEC 12.12).
+            // followed by `-1 =>` would greedily parse as `x - 1`
+            // (design/grammar-rationale.md 12.12).
             if !self.more_elements(Punctuation::RBrace, "a match arm", starts_pattern) {
                 break;
             }
@@ -2897,7 +2898,8 @@ impl<'a> Parser<'a> {
     ///
     /// Shared by the two literals that have one. `head` is the type path for
     /// `World { ... }` and [`NONE`] for the anonymous `{ ... }`, whose type
-    /// comes from what the expression is checked against instead (SPEC 12.3).
+    /// comes from what the expression is checked against instead
+    /// (design/grammar-rationale.md 12.3).
     /// `start` is where the whole literal begins, which is the head's own start
     /// where there is a head and the `{` where there is not.
     fn struct_lit_body(&mut self, head: u32, start: Span, at: u32) -> PResult<ExprId> {
@@ -2937,7 +2939,7 @@ impl<'a> Parser<'a> {
     /// are things no statement and no expression can begin with, so a `{`
     /// followed by either is a literal and every other `{` is a block. No
     /// backtracking, no lookahead past the second token, and nothing that
-    /// consults a name or a type (SPEC 12.3).
+    /// consults a name or a type (design/grammar-rationale.md 12.3).
     ///
     /// Shorthand *after* the first field is unaffected — `{ hi: hi, hello }` is
     /// a literal — because by then the `{` has already been decided. What the
@@ -3113,7 +3115,7 @@ impl<'a> Parser<'a> {
             TokenKind::Ident => {
                 let first = self.expect_name()?;
                 // The token *after* the identifier decides what this is, never
-                // what the identifier means (SPEC 12.7).
+                // what the identifier means (design/grammar-rationale.md 12.7).
                 if self.is(Punctuation::Dot) {
                     let nbase = self.scratch.names.len();
                     self.scratch.names.push(Location::of(first));
@@ -3546,7 +3548,7 @@ mod tests {
     #[test]
     fn expression_statements_parse_and_are_checked_later() {
         // The grammar admits `Expr ";"`; restricting it to test sources and to
-        // type `()` is a static rule, not a grammar one (SPEC 12.2).
+        // type `()` is a static rule, not a grammar one (design/grammar-rationale.md 12.2).
         let m = ok(r#"test "t" { assert.eq(a, b); }"#);
         assert_eq!(m.items.len(), 1);
     }

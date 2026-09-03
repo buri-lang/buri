@@ -9,7 +9,7 @@
 //! Two properties are deliberate:
 //!
 //!   * **It works outside a repository.** Topics, the grammar, and the schemas
-//!     are compiled in, so `buri docs lang/effects` answers in an empty
+//!     are compiled in, so `buri docs language/effects` answers in an empty
 //!     directory. Only a `//...` argument needs a workspace.
 //!   * **Every kind of documentation is one `DocSource`.** Prose today; the
 //!     CLI reference, the standard library, and the error catalog next. Adding
@@ -154,7 +154,8 @@ pub trait DocSource {
     fn entries(&self) -> Vec<Entry>;
 }
 
-/// Prose topics: the language reference, the build system, the guide.
+/// Prose topics: getting started, the guides, the language reference, and the
+/// reference sections.
 pub struct Prose;
 
 impl DocSource for Prose {
@@ -256,7 +257,7 @@ impl DocSource for Cli {
             title: format!("buri {}", c.name),
             kind: "command",
             body: crate::commands::reference(c),
-            see_also: vec!["build/cli".to_string()],
+            see_also: vec!["build/repo-config".to_string()],
         })
     }
 
@@ -869,21 +870,24 @@ fn index(presentation: &Presentation) -> String {
     let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
     let _ = writeln!(out, "{bold}buri docs{reset} — the language, the build system, and this CLI\n");
 
-    for (kind, heading) in [
-        (Kind::Guide, "Start here"),
-        (Kind::Lang, "The language"),
-        (Kind::Build, "The build system and the CLI"),
+    // Diátaxis, in the order a reader needs it: learn, then do, then the
+    // normative text, then the material nobody has to read front to back.
+    for (kinds, heading) in [
+        (&[Kind::GettingStarted][..], "Getting started"),
+        (&[Kind::Guide][..], "Guides"),
+        (&[Kind::Language][..], "The language"),
+        (&[Kind::Reference, Kind::Build][..], "Reference"),
     ] {
         let _ = writeln!(out, "{bold}{heading}{reset}");
-        for t in topics::TOPICS.iter().filter(|t| t.kind == kind) {
-            let _ = writeln!(out, "  {:<26} {}", t.id, t.title);
+        for t in topics::TOPICS.iter().filter(|t| kinds.contains(&t.kind)) {
+            let _ = writeln!(out, "  {:<30} {}", t.id, t.title);
         }
         out.push('\n');
     }
 
     let _ = writeln!(out, "{bold}This CLI{reset}");
     for c in crate::commands::COMMANDS.iter().filter(|c| !c.hidden) {
-        let _ = writeln!(out, "  cli/{:<22} {}", c.name, c.blurb);
+        let _ = writeln!(out, "  cli/{:<26} {}", c.name, c.blurb);
     }
     out.push('\n');
 
@@ -919,7 +923,7 @@ fn index(presentation: &Presentation) -> String {
 
     let _ = writeln!(out, "{bold}Normative artifacts{reset}");
     for (id, title, _) in NORMATIVE {
-        let _ = writeln!(out, "  {id:<26} {title}");
+        let _ = writeln!(out, "  {id:<30} {title}");
     }
 
     let _ = writeln!(
@@ -953,7 +957,7 @@ fn score(needle: &str, words: &[&str], id: &str, title: &str, tags: &[&str], bod
     let mut score = 0i64;
     // A multi-word query is usually a phrase — "tail call" means the section
     // about tail calls, not every page that says "call". Score the phrase
-    // first and heavily, or `lang/expressions` wins every query containing a
+    // first and heavily, or `language/expressions` wins every query containing a
     // common word.
     if words.len() > 1 {
         if title.contains(needle) {
@@ -1273,7 +1277,7 @@ fn command_assemble(check_only: bool) -> i32 {
 fn repo_root_of(from: &std::path::Path) -> Option<std::path::PathBuf> {
     let mut dir = Some(from);
     while let Some(d) = dir {
-        if d.join("cli/src/docs/SPEC.md").is_file() && d.join("cli/src/docs/lang").is_dir() {
+        if d.join("cli/src/docs/SPEC.md").is_file() && d.join("cli/src/docs/language").is_dir() {
             return Some(d.to_path_buf());
         }
         dir = d.parent();
@@ -1322,7 +1326,7 @@ mod tests {
 
     #[test]
     fn a_page_renders_in_every_style() {
-        let page = Prose.resolve("lang/effects").expect("lang/effects exists");
+        let page = Prose.resolve("language/effects").expect("language/effects exists");
         for render in [Render::Human { color: false }, Render::Markdown, Render::Json] {
             let out = emit(&page, &Presentation { render, ..presentation() });
             assert!(!out.trim().is_empty(), "{render:?} rendered nothing");
@@ -1334,7 +1338,7 @@ mod tests {
 
     #[test]
     fn dense_is_shorter_but_keeps_the_examples() {
-        let page = Prose.resolve("lang/effects").unwrap();
+        let page = Prose.resolve("language/effects").unwrap();
         let full = emit(&page, &Presentation { render: Render::Markdown, ..presentation() });
         let dense = emit(
             &page,
@@ -1352,12 +1356,12 @@ mod tests {
     #[test]
     fn search_finds_the_obvious_things() {
         for (query, want) in [
-            ("effects", "lang/effects"),
-            ("ctx", "lang/effects"),
-            ("exhaustive", "lang/patterns"),
+            ("effects", "language/effects"),
+            ("ctx", "language/effects"),
+            ("exhaustive", "language/patterns"),
             ("tags", "build/tags"),
             ("cache", "build/hermeticity"),
-            ("tail call", "lang/evaluation"),
+            ("tail call", "language/evaluation"),
             ("public surface", "build/libraries"),
         ] {
             let needle = query.to_lowercase();

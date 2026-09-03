@@ -5,7 +5,7 @@
 // `T`, and the first argument is checked against an inference variable —
 // solving it from the literal's own fields is the inference this feature is
 // deliberately not, so the fix says that rather than naming a type
-// (SPEC 12.3).
+// (design/grammar-rationale.md 12.3).
 //
 // The neighbouring case where the annotation *does* reach through the call is
 // not an error and is in the conformance suite: `let w: World = identity({ hi:

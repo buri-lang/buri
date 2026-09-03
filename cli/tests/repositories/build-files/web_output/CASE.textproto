@@ -137,7 +137,7 @@ edit {
 edit {
   file: "cmd/counter/BUILD.buri"
   replace: "{ platform: WEB }"
-  with: "{ platform: WEB  arch: ARM64  js { module: CJS } }"
+  with: "{ platform: WEB  arch: ARM64  js { module: ESM } }"
 }
 
 run {
@@ -148,7 +148,7 @@ run {
 
 edit {
   file: "cmd/counter/BUILD.buri"
-  replace: "{ platform: WEB  arch: ARM64  js { module: CJS } }"
+  replace: "{ platform: WEB  arch: ARM64  js { module: ESM } }"
   with: "{ platform: WEB }"
 }
 

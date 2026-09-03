@@ -1,9 +1,10 @@
 //! Monomorphization.
 //!
 //! A generic body is checked once, polymorphically; instantiating it is a
-//! codegen concern (SPEC 13.5). This pass walks out from the entry point and
-//! produces one concrete function per `(function, type arguments)` pair it
-//! reaches, resolving every trait and effect call to a direct one on the way.
+//! codegen concern (guides/compile-speed.md). This pass walks out from the
+//! entry point and produces one concrete function per `(function, type
+//! arguments)` pair it reaches, resolving every trait and effect call to a
+//! direct one on the way.
 //!
 //! Because Buri has no dynamic dispatch — no trait objects, no virtual calls —
 //! the call graph of direct calls is fully known once this runs, which is what
@@ -888,14 +889,14 @@ impl<'a> Monomorphizer<'a> {
     /// **adapted** where *this instantiation* is what moved `Self`.
     ///
     /// `Self` is the implementing type, and `semantics/expressions.rs`'s
-    /// `implementing_ty` reads it off the context's bindings wherever the front
-    /// end can see a context. It cannot see one through a bounded type
+    /// `implementing_ty` reads it off the context's bindings wherever the
+    /// front end can see a context. It cannot see one through a bounded type
     /// parameter: `fn serveOnce<C: Listen + ...>(ctx: C, ...)` is checked once
-    /// for every instantiation at once (SPEC 13.5), so `Self` there is `C` —
-    /// right when `C` is the implementation, and wrong when `C` turns out to be
-    /// a context, which satisfies an effect by *naming* an implementation
-    /// rather than by being one. Here `C` is known, so here is where that is
-    /// put right.
+    /// for every instantiation at once (guides/compile-speed.md), so `Self`
+    /// there is `C` — right when `C` is the implementation, and wrong when `C`
+    /// turns out to be a context, which satisfies an effect by *naming* an
+    /// implementation rather than by being one. Here `C` is known, so here is
+    /// where that is put right.
     ///
     /// # Why the callback is adapted rather than retyped
     ///
