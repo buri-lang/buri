@@ -334,6 +334,125 @@ test "two maps with the same entries are equal whatever order they were built in
     assert.isFalse(forwards.equals(ctx, backwards.insert(ctx, 7, 700)));
 }
 
+// --- alter / mapValues ----------------------------------------------------------------
+
+test "alter inserts where there was nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap
+        .empty<Str, Int>()
+        .alter(ctx, "a", fn(v) => .Some(v.withDefault(0) + 1));
+    assert.eq(assert.some(m.get("a")), 1);
+    assert.eq(m.len(), 1);
+}
+
+test "alter replaces what was there" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap
+        .of(ctx, [("a", 1)])
+        .alter(ctx, "a", fn(v) => .Some(v.withDefault(0) + 1));
+    assert.eq(assert.some(m.get("a")), 2);
+    assert.eq(m.len(), 1);
+}
+
+// The branch that answers `.None` is the empty-inner pruning a nested map
+// otherwise writes by hand.
+test "alter removes when it answers None" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap.of(ctx, [("a", 1), ("b", 2)]).alter(ctx, "a", fn(_v) => .None);
+    assert.isTrue(m.get("a").isNone());
+    assert.eq(m.keys(ctx), ["b"]);
+    assert.eq(m.len(), 1);
+}
+
+test "alter answering None for a key that is not there changes nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let before = ordmap.of(ctx, [("a", 1)]);
+    let after = before.alter(ctx, "z", fn(_v) => .None);
+    assert.eq(after.len(), 1);
+    assert.isTrue(after.equals(ctx, before));
+}
+
+// What `f` is handed is what is stored, so a counter needs no `get` of its own.
+test "alter is handed the stored value" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let counts = ["a", "b", "a", "a"].foldCtx(
+        ctx,
+        fn(c, acc: OrdMap<Str, Int>, w) => {
+            acc.alter(c, w, fn(v) => .Some(v.withDefault(0) + 1))
+        },
+        ordmap.empty<Str, Int>(),
+    );
+    assert.eq(assert.some(counts.get("a")), 3);
+    assert.eq(assert.some(counts.get("b")), 1);
+}
+
+test "mapValues keeps the keys and their order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap
+        .of(ctx, [("b", 2), ("a", 1), ("c", 3)])
+        .mapValues(ctx, fn(v) => v * 10);
+    assert.eq(m.keys(ctx), ["a", "b", "c"]);
+    assert.eq(m.values(ctx), [10, 20, 30]);
+    assert.eq(m.len(), 3);
+}
+
+test "mapValues may change the value type" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap.of(ctx, [("a", 1), ("b", 2)]).mapValues(ctx, fn(v) => v > 1);
+    assert.eq(m.values(ctx), [false, true]);
+}
+
+test "mapValues of the empty map is empty" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap.empty<Str, Int>().mapValues(ctx, fn(v) => v + 1);
+    assert.isTrue(m.isEmpty());
+}
+
+// --- groupBy / indexBy ------------------------------------------------------------
+
+test "groupBy collects by key, in key order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let words = ["ant", "bee", "ape", "bat"];
+    let m = ordmap.groupBy(ctx, words, fn(w: Str) => w.slice(0, 1));
+    assert.eq(m.keys(ctx), ["a", "b"]);
+    assert.eq(assert.some(m.get("a")), ["ant", "ape"]);
+    assert.eq(assert.some(m.get("b")), ["bee", "bat"]);
+}
+
+test "groupBy of the empty list is the empty map" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(ordmap.groupBy(ctx, list.empty<Int>(), fn(n: Int) => n).isEmpty());
+}
+
+test "indexBy keeps one element per key, the last one winning" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap.indexBy(ctx, ["ant", "bee", "ape"], fn(w: Str) => w.slice(0, 1));
+    assert.eq(m.keys(ctx), ["a", "b"]);
+    assert.eq(assert.some(m.get("a")), "ape");
+}
+
 // --- against a sorted list ----------------------------------------------------------
 
 /// One step of the randomized comparison: a key drawn from a range small enough

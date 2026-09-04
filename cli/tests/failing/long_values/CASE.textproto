@@ -2,13 +2,18 @@
 # decision worth a record: a hundred-character string is printed whole, and a
 # forty-element list is one line however wide.
 #
-# The two ways a report can meet a newline are here together, because they are
-# not the same: a *value* holding one is rendered by `$show`, which puts a
-# `Str` through `JSON.stringify`, so the newline arrives escaped and the line
-# holds. A *message* — `assert.fail`'s argument, or an abort's sentence — is
-# printed as it stands, over as many lines as it has, and *every* one of them
-# is indented under the `FAIL` line: a flush-left second line would read as
-# the report having ended.
+# The two ways a report can meet a newline are not the same: a *value* holding
+# one is rendered by `$show`, which puts a `Str` through `JSON.stringify`, so
+# the newline arrives escaped and the line holds. A *message* — an abort's
+# sentence, or `assert.notEmpty`'s — is printed as it stands, over as many
+# lines as it has, and *every* one of them is indented under the `FAIL` line: a
+# flush-left second line would read as the report having ended.
+#
+# Only the first of those two is a case here now. `assert.fail` was the one
+# thing that let a *program* write a message of its own, and it is gone — a
+# test that has to fail says which assertion failed instead. The multi-line
+# half of the rule is pinned by `commands/test.rs`'s
+# `every_line_of_a_message_is_indented`, against the two literal strings.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.

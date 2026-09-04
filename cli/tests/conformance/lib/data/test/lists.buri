@@ -1133,3 +1133,247 @@ test "a list put into a tuple beside another use of it is not written through" {
     assert.eq(xs, [1, 2]);
     assert.eq(pair.1, 2);
 }
+
+// --- mapResult / mapOption / filterMap -----------------------------------------
+
+fn small(n: Int): Result<Int, Int> {
+    if (n < 10) { .Ok(n * 2) } else { .Err(n) }
+}
+
+fn evenHalf(n: Int): Option<Int> {
+    if (n % 2 == 0) { .Some(n / 2) } else { .None }
+}
+
+test "mapResult maps every element when no step fails" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.ok([1, 2, 3].mapResult(ctx, small)), [2, 4, 6]);
+}
+
+// The first failure is the one reported, which is what makes the traversal a
+// replacement for a fold that has to stop.
+test "mapResult answers the first Err and no later one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.err([1, 20, 30].mapResult(ctx, small)), 20);
+}
+
+test "mapResult of the empty list is Ok of the empty list" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.ok(list.empty<Int>().mapResult(ctx, small)), []);
+}
+
+test "mapOption maps every element when none is missing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.some([2, 4].mapOption(ctx, evenHalf)), [1, 2]);
+}
+
+test "mapOption is None when one element is missing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.none([2, 3, 4].mapOption(ctx, evenHalf));
+}
+
+test "mapOption of the empty list is Some of the empty list" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.some(list.empty<Int>().mapOption(ctx, evenHalf)), []);
+}
+
+test "filterMap keeps the Some payloads and drops the rest" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq([1, 2, 3, 4].filterMap(ctx, evenHalf), [1, 2]);
+}
+
+test "filterMap of a list with nothing to keep is empty" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq([1, 3].filterMap(ctx, evenHalf), list.empty<Int>());
+    assert.eq(list.empty<Int>().filterMap(ctx, evenHalf), list.empty<Int>());
+}
+
+// --- the *Ctx traversals ---------------------------------------------------------
+//
+// The step that needs the context is the one a validation actually has: it
+// allocates as it goes, and a lambda may not capture a context (SPEC 10.6), so
+// the walk hands it one. Every helper below allocates, which is what makes
+// these different tests rather than the same ones spelled twice.
+
+fn twice<C: Alloc>(ctx: C, n: Int): Result<[Int], Int> {
+    if (n < 10) { .Ok(list.repeat(ctx, n, 2)) } else { .Err(n) }
+}
+
+fn twiceIfEven<C: Alloc>(ctx: C, n: Int): Option<[Int]> {
+    if (n % 2 == 0) { .Some(list.repeat(ctx, n, 2)) } else { .None }
+}
+
+test "mapResultCtx maps with the context in hand" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.ok([1, 2].mapResultCtx(ctx, twice)), [[1, 1], [2, 2]]);
+    assert.eq(
+        assert.ok(list.empty<Int>().mapResultCtx(ctx, twice)),
+        list.empty<[Int]>(),
+    );
+}
+
+test "mapResultCtx answers the first Err" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.err([1, 20, 30].mapResultCtx(ctx, twice)), 20);
+}
+
+test "mapOptionCtx maps with the context, and is None at the first miss" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.some([2, 4].mapOptionCtx(ctx, twiceIfEven)), [[2, 2], [4, 4]]);
+    assert.none([2, 3].mapOptionCtx(ctx, twiceIfEven));
+    assert.eq(
+        assert.some(list.empty<Int>().mapOptionCtx(ctx, twiceIfEven)),
+        list.empty<[Int]>(),
+    );
+}
+
+test "filterMapCtx keeps what the context-taking step answers Some for" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq([1, 2, 3, 4].filterMapCtx(ctx, twiceIfEven), [[2, 2], [4, 4]]);
+    assert.eq([1, 3].filterMapCtx(ctx, twiceIfEven), list.empty<[Int]>());
+    assert.eq(list.empty<Int>().filterMapCtx(ctx, twiceIfEven), list.empty<[Int]>());
+}
+
+// --- removeAt / windows / uniqueBy / generate -----------------------------------
+
+test "removeAt drops the element at the index" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq([1, 2, 3].removeAt(ctx, 0), [2, 3]);
+    assert.eq([1, 2, 3].removeAt(ctx, 1), [1, 3]);
+    assert.eq([1, 2, 3].removeAt(ctx, 2), [1, 2]);
+}
+
+// Total at every index, like `get`: there is no way to remove out of bounds
+// and no way to abort by trying.
+test "removeAt outside the list removes nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq([1, 2, 3].removeAt(ctx, 3), [1, 2, 3]);
+    assert.eq([1, 2, 3].removeAt(ctx, -1), [1, 2, 3]);
+    assert.eq(list.empty<Int>().removeAt(ctx, 0), list.empty<Int>());
+}
+
+test "windows are the runs of the given size, one position apart" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq([1, 2, 3, 4].windows(ctx, 2), [[1, 2], [2, 3], [3, 4]]);
+    assert.eq([1, 2, 3].windows(ctx, 3), [[1, 2, 3]]);
+}
+
+test "a list shorter than the window has none, and neither does size zero" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq([1, 2].windows(ctx, 3), list.empty<[Int]>());
+    assert.eq([1, 2].windows(ctx, 0), list.empty<[Int]>());
+    assert.eq([1, 2].windows(ctx, -1), list.empty<[Int]>());
+    assert.eq(list.empty<Int>().windows(ctx, 2), list.empty<[Int]>());
+}
+
+test "uniqueBy keeps the first of each run and the list's own order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq([3, 1, 3, 2, 1].uniqueBy(ctx, order.int), [3, 1, 2]);
+    assert.eq(["b", "a", "b"].uniqueBy(ctx, order.str), ["b", "a"]);
+    assert.eq(list.empty<Int>().uniqueBy(ctx, order.int), list.empty<Int>());
+}
+
+// The comparator decides what "the same" means, so a case-insensitive one
+// answers a different set from `order.str`.
+test "uniqueBy is unique by its comparator" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let byLength = order.by(fn(s: Str) => s.len(), order.int);
+    assert.eq(["ab", "cd", "e"].uniqueBy(ctx, byLength), ["ab", "e"]);
+}
+
+test "generate builds the list from the position" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(list.generate(ctx, 4, fn(i) => i * i), [0, 1, 4, 9]);
+    assert.eq(list.generate(ctx, 1, fn(i) => i), [0]);
+}
+
+test "generate of zero or fewer is empty" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(list.generate(ctx, 0, fn(i) => i), list.empty<Int>());
+    assert.eq(list.generate(ctx, -3, fn(i) => i), list.empty<Int>());
+}
+
+// --- isSortedBy / maxBy / minBy -------------------------------------------------
+
+test "isSortedBy is true when no neighbouring pair is out of order" {
+    assert.isTrue([1, 2, 2, 3].isSortedBy(order.int));
+    assert.isFalse([1, 3, 2].isSortedBy(order.int));
+}
+
+test "a list of fewer than two elements is sorted" {
+    assert.isTrue(list.empty<Int>().isSortedBy(order.int));
+    assert.isTrue([1].isSortedBy(order.int));
+}
+
+// The predicate `sort` answers, which is the invariant worth having.
+test "a sorted list is sorted by the order it was sorted with" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = [5, 1, 4, 1, 3];
+    assert.isTrue(xs.sortBy(ctx, order.int).isSortedBy(order.int));
+    assert.isTrue(
+        xs.sortBy(ctx, order.reverse(order.int)).isSortedBy(order.reverse(order.int)),
+    );
+}
+
+test "maxBy and minBy answer by the comparator" {
+    assert.eq(assert.some([3, 1, 2].maxBy(order.int)), 3);
+    assert.eq(assert.some([3, 1, 2].minBy(order.int)), 1);
+    assert.eq(
+        assert.some(["bb", "a"].maxBy(order.by(fn(s: Str) => s.len(), order.int))),
+        "bb",
+    );
+}
+
+test "maxBy and minBy of the empty list are None" {
+    assert.none(list.empty<Int>().maxBy(order.int));
+    assert.none(list.empty<Int>().minBy(order.int));
+}
+
+// Ties go to the earlier element, which is what `maximum` does and what makes
+// the answer independent of the sort.
+test "maxBy and minBy keep the first of equal elements" {
+    let byLength = order.by(fn(s: Str) => s.len(), order.int);
+    assert.eq(assert.some(["ab", "cd"].maxBy(byLength)), "ab");
+    assert.eq(assert.some(["ab", "cd"].minBy(byLength)), "ab");
+}

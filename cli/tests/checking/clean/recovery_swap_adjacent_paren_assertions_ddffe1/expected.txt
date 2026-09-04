@@ -1,0 +1,9 @@
+error: expected `=>`, found `x` [unexpected-token]
+  --> main.buri:40:42
+   |
+40 |     assert.isEmpty([1].filter(ctx, fn(x) x => > 9));
+   |                                          ^
+   |
+   = expected: `=>`
+   = actual: `x`
+   = fix: write `=>` here

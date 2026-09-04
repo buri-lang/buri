@@ -2509,13 +2509,25 @@ from "core/testing/assert" import * as assert;
 | `assert.eq(a, b)` | Fails unless `a == b`. Requires `Eq`, and `Show` for the message. |
 | `assert.notEq(a, b)` | The negation. |
 | `assert.isTrue(b)` / `assert.isFalse(b)` | On a `Bool`. |
-| `assert.fail(msg)` | Fails unconditionally, with `msg`. |
+| `assert.contains(xs, x)` | Fails unless `x` is an element of `xs`. |
+| `assert.isEmpty(xs)` / `assert.notEmpty(xs)` | On a list. |
+| `assert.len(xs, n)` | Fails unless `xs` holds exactly `n` elements. |
+| `assert.gt(a, b)` / `ge` / `lt` / `le` | The comparisons, on an `Ord`. |
+| `assert.approxEq(a, b, tolerance)` | On `Float`, within an absolute tolerance. |
 | `assert.ok(r)` | Fails unless `r` is `.Ok`; **returns the wrapped value**. |
 | `assert.err(r)` | Fails unless `r` is `.Err`; returns the error. |
 | `assert.some(o)` | Fails unless `o` is `.Some`; returns the wrapped value. |
 
-The first four return `()`; the last three return a value, and are how a
-`Result` is consumed in a test, since `Result` is still must-use here:
+The reason there are so many of them is the message: each names the two values
+it compared, where `assert.isTrue(xs.contains(x))` says only "expected true,
+got false". There is **no `assert.fail`** — it returned `()` rather than a
+bottom type, so a match arm that used it could not produce a value and a test
+had to fabricate one to type-check. A test that has to fail asserts on the
+value it has instead.
+
+Everything above the last three returns `()`; those three return a value, and
+are how a `Result` is consumed in a test, since `Result` is still must-use
+here:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 test "reads the config it wrote" {
@@ -2547,7 +2559,7 @@ produces `()` is one too.
 assert.eq(total, 42);              // statement: type is ()
 match (parsed) {                   // statement: every arm is ()
   .Some(n) => assert.eq(n, 42),
-  .None => assert.fail("no value"),
+  .None => assert.eq(parsed, .Some(42)),
 };                                 // ← the `;` is what makes it a statement
 // assert.ok(loadConfig(ctx));     // ERROR if it returns Config — bind it or drop
                                    // it explicitly with `let _ =`

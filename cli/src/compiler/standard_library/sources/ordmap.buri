@@ -110,6 +110,39 @@ export fn empty<K, V>(): OrdMap<K, V> {
     OrdMap { root: .Leaf(list.empty<(K, V)>()), size: 0 }
 }
 
+/// The elements of `xs` collected under `key(x)`, each group in the order the
+/// elements arrived in and the keys in key order.
+///
+/// A free function rather than a method on `[T]`, because the answer is a map
+/// and `core/list` is the bottom of the dependency order. `core/map` has the
+/// same pair for an unordered answer; this is the one whose `entries` come out
+/// sorted, which is what a grouped report wants.
+export fn groupBy<A, K: Ord, C: Alloc>(
+    ctx: C,
+    xs: [A],
+    key: fn(A) => K,
+): OrdMap<K, [A]> {
+    xs.foldCtx(
+        ctx,
+        fn(c, acc: OrdMap<K, [A]>, x) => {
+            let k = key(x);
+            let group = acc.get(k).withDefault(list.empty<A>());
+            acc.insert(c, k, group.push(c, x))
+        },
+        empty<K, [A]>(),
+    )
+}
+
+/// One element per key rather than a group of them: `key(x)` to `x`, with a
+/// later element replacing an earlier one that answered the same key.
+export fn indexBy<A, K: Ord, C: Alloc>(ctx: C, xs: [A], key: fn(A) => K): OrdMap<K, A> {
+    xs.foldCtx(
+        ctx,
+        fn(c, acc: OrdMap<K, A>, x) => acc.insert(c, key(x), x),
+        empty<K, A>(),
+    )
+}
+
 /// A map holding the given entries, later ones winning.
 export fn of<K: Ord, V, C: Alloc>(ctx: C, entries: [(K, V)]): OrdMap<K, V> {
     entries.foldCtx(
@@ -652,6 +685,73 @@ impl<K: Ord, V> OrdMap<K, V> {
         } else {
             self
         }
+    }
+
+    /// Insert, replace or remove in one call: `f` is handed what is stored
+    /// under `key` — `.Some(v)` or `.None` — and what it answers is what is
+    /// stored afterwards, with `.None` meaning "not there".
+    ///
+    /// The four cases a get-then-insert dance writes out by hand. A counter is
+    /// `alter(ctx, k, fn(n) => .Some(n.withDefault(0) + 1))`; pruning an empty
+    /// inner collection is the branch that answers `.None`, which is what
+    /// keeps a map of maps from filling with empty ones.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/ordmap" import * as ordmap;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let counts = ordmap.of(ctx, [("a", 1)]);
+    ///     // One call whether or not the key is there, and one that removes.
+    ///     let bumped = counts
+    ///         .alter(ctx, "a", fn(n) => .Some(n.withDefault(0) + 1))
+    ///         .alter(ctx, "b", fn(n) => .Some(n.withDefault(0) + 1))
+    ///         .alter(ctx, "a", fn(_n) => .None);
+    ///     let keys = bumped.keys(ctx).join(ctx, " ");
+    ///     let b = bumped.get("b").withDefault(0);
+    ///     let _ = io.println(ctx, "${keys}=${b}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// b=1
+    /// ```
+    export fn alter<C: Alloc>(
+        self,
+        ctx: C,
+        key: K,
+        f: fn(Option<V>) => Option<V>,
+    ): OrdMap<K, V> {
+        match (f(self.get(key))) {
+            .Some(v) => self.insert(ctx, key, v),
+            .None => self.remove(ctx, key),
+        }
+    }
+
+    /// The same keys, every value put through `f`.
+    ///
+    /// The keys are not touched, so the order cannot change — but the tree is
+    /// rebuilt rather than copied node for node, which costs O(n log n) rather
+    /// than the O(n) a structural map would. It is still one call instead of a
+    /// fold that re-inserts every entry by hand.
+    export fn mapValues<W, C: Alloc>(self, ctx: C, f: fn(V) => W): OrdMap<K, W> {
+        self
+            .entries(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: OrdMap<K, W>, e) => {
+                    let (k, v) = e;
+                    acc.insert(c, k, f(v))
+                },
+                empty<K, W>(),
+            )
     }
 
     /// The entry with the smallest key. Pure: it is a walk down the left spine.

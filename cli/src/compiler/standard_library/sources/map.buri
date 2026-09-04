@@ -231,6 +231,65 @@ impl<K: Hash + Eq, V> Map<K, V> {
     }
 }
 
+/// The elements of `xs` collected under `key(x)`, each group in the order the
+/// elements arrived in.
+///
+/// A free function here rather than a method on `[T]`, because the answer is a
+/// map: `core/list` is the bottom of the dependency order and cannot name one.
+/// Its shape is `of`'s — context first, then the data.
+///
+/// ```buri run
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/map" import * as map;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let words = ["ant", "bee", "ape", "bat"];
+///     let byLetter = map.groupBy(ctx, words, fn(w: Str) => w.slice(0, 1));
+///     let a = byLetter.get("a").withDefault([]).join(ctx, " ");
+///     let _ = io.println(ctx, "a: ${a}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// a: ant ape
+/// ```
+export fn groupBy<A, K: Hash + Eq, C: Alloc>(
+    ctx: C,
+    xs: [A],
+    key: fn(A) => K,
+): Map<K, [A]> {
+    xs.foldCtx(
+        ctx,
+        fn(c, acc: Map<K, [A]>, x) => {
+            let k = key(x);
+            let group = acc.get(k).withDefault(list.empty<A>());
+            acc.insert(c, k, group.push(c, x))
+        },
+        empty<K, [A]>(),
+    )
+}
+
+/// One element per key rather than a group of them: `key(x)` to `x`, with a
+/// later element replacing an earlier one that answered the same key.
+///
+/// The index a list is looked up through. `groupBy` is the shape to reach for
+/// when the key is not unique — this one *silently* keeps the last, because a
+/// map holds one value per key and there is nowhere to put the other.
+export fn indexBy<A, K: Hash + Eq, C: Alloc>(
+    ctx: C,
+    xs: [A],
+    key: fn(A) => K,
+): Map<K, A> {
+    xs.foldCtx(ctx, fn(c, acc: Map<K, A>, x) => acc.insert(c, key(x), x), empty<K, A>())
+}
+
 /// A map holding the given entries, later ones winning.
 export fn of<K: Hash + Eq, V, C: Alloc>(ctx: C, entries: [(K, V)]): Map<K, V> {
     entries.foldCtx(

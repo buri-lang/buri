@@ -55,6 +55,86 @@ export fn reverse<T>(cmp: fn(T, T) => Order): fn(T, T) => Order {
     fn(a, b) => cmp(b, a)
 }
 
+/// Reverses a comparator when `descending` is true, and hands it back
+/// untouched when it is false.
+///
+/// The direction of a sort is usually data — a column's `ORDER BY ... DESC`,
+/// a flag on a request — and the alternative to this is an `if` around two
+/// otherwise identical `sortBy` calls.
+export fn reverseIf<T>(descending: Bool, cmp: fn(T, T) => Order): fn(T, T) => Order {
+    if (descending) { reverse(cmp) } else { cmp }
+}
+
+/// Compares by a key rather than by the whole value: `cmp(key(a), key(b))`.
+///
+/// Both arguments are function values, which is what makes a comparator
+/// something you build at runtime rather than write out — a lambda may capture
+/// a function value, since a function value carries no effect (SPEC 10.6).
+///
+/// ```buri run
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/order" import * as order;
+///
+/// struct Row {
+///     name: Str,
+///     score: Int,
+/// }
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let rows = [
+///         Row { name: "b", score: 2 },
+///         Row { name: "a", score: 2 },
+///         Row { name: "c", score: 1 },
+///     ];
+///     // By score descending, then by name — the tie-break is a second
+///     // comparator rather than a longer `match`.
+///     let by = order.chain([
+///         order.reverseIf(true, order.by(fn(r: Row) => r.score, order.int)),
+///         order.by(fn(r: Row) => r.name, order.str),
+///     ]);
+///     let names = rows.sortBy(ctx, by).map(ctx, fn(r) => r.name).join(ctx, " ");
+///     let _ = io.println(ctx, names).ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// a b c
+/// ```
+export fn by<T, K>(key: fn(T) => K, cmp: fn(K, K) => Order): fn(T, T) => Order {
+    fn(a, b) => cmp(key(a), key(b))
+}
+
+/// Comparators in priority order: the first that does not answer `.Equal`
+/// decides, and an empty list answers `.Equal` for every pair.
+///
+/// `Order.then` is the two-comparator case written by hand; this is the same
+/// thing for a list whose length the program decides.
+export fn chain<T>(cmps: [fn(T, T) => Order]): fn(T, T) => Order {
+    fn(a, b) => chainAt(cmps, 0, a, b)
+}
+
+/// Walked by index rather than folded, because a fold's lambda would have to
+/// capture `a` and `b` — and a lambda may not capture a value whose type could
+/// be a context, which an unbounded `T` could (SPEC 10.6).
+fn chainAt<T>(cmps: [fn(T, T) => Order], at: Int, a: T, b: T): Order {
+    match (cmps.get(at)) {
+        .None => .Equal,
+        .Some(cmp) => {
+            match (cmp(a, b)) {
+                .Equal => chainAt(cmps, at + 1, a, b),
+                decided => decided,
+            }
+        },
+    }
+}
+
 impl Order {
     export fn isLess(self): Bool {
         match (self) {
@@ -81,6 +161,52 @@ export fn int(a: Int, b: Int): Order {
 
 export fn float(a: Float, b: Float): Order {
     if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }
+}
+
+/// Every `Float` ordered, with `NaN` last and nothing left `.Equal` by
+/// accident.
+///
+/// `float` is IEEE's, and IEEE leaves a `NaN` unordered against everything:
+/// `NaN < x`, `NaN > x` and `x > NaN` are all false (SPEC 6.2), so `float`
+/// answers `.Equal` for a pair it could not order and a `sortBy` over data
+/// holding one silently keeps whatever order it found. This is the comparator
+/// to sort with when the data can hold a `NaN` — and floats that came from
+/// arithmetic can.
+///
+/// **`-0.0` and `0.0` compare `.Equal`, and so do any two `NaN`s.** That is
+/// the total order Buri's `==` describes rather than IEEE's `totalOrder`
+/// predicate: `==` is an equivalence relation here, `-0.0 == 0.0` and
+/// `NaN == NaN` are both true (SPEC 6.2), and a comparator that disagreed with
+/// `==` would make `sort` and `contains` answer different questions about the
+/// same pair.
+///
+/// Neither ordered nor equal means exactly one of the two is a `NaN`, which is
+/// what the last two branches are reading: the `NaN` is the greater, whichever
+/// side it is on.
+export fn totalFloat(a: Float, b: Float): Order {
+    if (a < b) {
+        .Less
+    } else if (a > b) {
+        .Greater
+    } else if (a == b) {
+        .Equal
+    } else if (isNan(a)) {
+        .Greater
+    } else {
+        .Less
+    }
+}
+
+/// Whether `x` is a `NaN`, asked without reaching for `core/math` — this
+/// module is loaded by every compilation and `core/math` is not.
+///
+/// `x != x` is not the question: SPEC 6.2 makes `==` an equivalence relation,
+/// so `NaN == NaN` is true. The *ordering* operators are still IEEE's, and
+/// `x >= x` is the one that holds of every other value, both infinities
+/// included.
+fn isNan(x: Float): Bool {
+    let ordered = x >= x;
+    ordered == false
 }
 
 /// Lexicographic by Unicode scalar value, which for a valid string is UTF-8

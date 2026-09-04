@@ -1,0 +1,87 @@
+// core/testing/assert — the assertions that pass.
+//
+// The other half is `cli/tests/failing/assertion_kinds`, which fails every one
+// of them on purpose and records the message. Here is the half a conformance
+// suite can make: an assertion that holds is a no-op on both backends, at the
+// boundary as well as in the middle — an empty list, an element at either end,
+// a bound that is met exactly.
+//
+// A passing assertion has no value to inspect, so what each test asserts is
+// that the run *reaches the line after it*.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+
+// --- contains ---------------------------------------------------------------------
+
+test "contains finds an element at either end and in the middle" {
+    assert.contains([1, 2, 3], 1);
+    assert.contains([1, 2, 3], 2);
+    assert.contains([1, 2, 3], 3);
+    assert.eq([1, 2, 3].len(), 3);
+}
+
+test "contains works at any Eq element type" {
+    assert.contains(["a", "b"], "b");
+    assert.contains([true], true);
+    assert.contains([[1, 2], [3]], [3]);
+    assert.eq([[1, 2], [3]].len(), 2);
+}
+
+// --- isEmpty / notEmpty -------------------------------------------------------------
+
+test "isEmpty holds for the empty list however it was built" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isEmpty(list.empty<Int>());
+    assert.isEmpty([1].filter(ctx, fn(x) => x > 9));
+    assert.eq(list.empty<Int>().len(), 0);
+}
+
+test "notEmpty holds for a list of one" {
+    assert.notEmpty([1]);
+    assert.notEmpty(["a", "b"]);
+    assert.eq([1].len(), 1);
+}
+
+// --- len ------------------------------------------------------------------------
+
+test "len holds at zero and at the length the list has" {
+    assert.len(list.empty<Int>(), 0);
+    assert.len([1], 1);
+    assert.len([1, 2, 3], 3);
+    assert.eq([1, 2, 3].len(), 3);
+}
+
+// --- gt / ge / lt / le --------------------------------------------------------------
+
+test "the comparisons hold where the operators do" {
+    assert.gt(5, 3);
+    assert.ge(5, 3);
+    assert.ge(3, 3);
+    assert.lt(3, 5);
+    assert.le(3, 5);
+    assert.le(3, 3);
+    assert.eq(5 > 3, true);
+}
+
+test "the comparisons are the type's own Ord" {
+    assert.gt("b", "a");
+    assert.lt('a', 'b');
+    assert.gt(true, false);
+    assert.ge(1.5, 1.5);
+    assert.eq("b" > "a", true);
+}
+
+// --- approxEq ----------------------------------------------------------------------
+
+test "approxEq holds within the tolerance, in both directions" {
+    assert.approxEq(0.1 + 0.2, 0.3, 0.000001);
+    assert.approxEq(1.0, 1.25, 0.25);
+    assert.approxEq(1.25, 1.0, 0.25);
+    assert.approxEq(1.0, 1.0, 0.0);
+    assert.eq(1.0, 1.0);
+
