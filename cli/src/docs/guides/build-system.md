@@ -82,9 +82,10 @@ of the build.
 The surface is a file, not a field:
 
 ```buri repo=cli/tests/example package=//lib/money
-// The public surface of //lib/money. A dependent can import these names and no
-// others; `toCents` below is exported by cents.buri but not from here, so it is
-// visible inside this library and nowhere else.
+//! The public surface of //lib/money. A dependent can import these names and no
+//! others; `toCents` below is exported by cents.buri but not from here, so it is
+//! visible inside this library and nowhere else.
+
 from "//lib/money/cents.buri" export {
     add, Cents, format, fromCents, fromDollars, isZero,
 };
@@ -118,9 +119,9 @@ impl Cents {
         Cents(self.0 + other.0)
     }
 
-    // Exported from this module, so `parse.buri` can reach it. Not re-exported
-    // from lib.buri, so it is invisible outside //lib/money — as a free function
-    // and as a method.
+    /// Exported from this module, so `parse.buri` can reach it. Not re-exported
+    /// from lib.buri, so it is invisible outside //lib/money — as a free function
+    /// and as a method.
     export fn toCents(self): I64 {
         self.0
     }

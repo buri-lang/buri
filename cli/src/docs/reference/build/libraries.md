@@ -50,8 +50,8 @@ impl Cents {
         Cents(self.0 + other.0)
     }
 
-    // Exported so `parse.buri` can reach it, since the field is module-private.
-    // Absent from lib.buri, so it stops at the library boundary.
+    /// Exported so `parse.buri` can reach it, since the field is module-private.
+    /// Absent from lib.buri, so it stops at the library boundary.
     export fn toCents(self): I64 {
         self.0
     }

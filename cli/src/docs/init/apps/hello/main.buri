@@ -1,5 +1,5 @@
-// The entry point. The context it builds is this program's entire effect
-// budget: it can allocate and it can print, and nothing else.
+//! The entry point. The context it builds is this program's entire effect
+//! budget: it can allocate and it can print, and nothing else.
 
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
