@@ -697,6 +697,37 @@ precedence rule is a decision and not a default.
 
 Nick's decision (do this): the above API works with me, with the comments I provided. If possible, it would be great if the parsed arguments in the run function were actually of the correct struct type, so the run function could be type safe. but if that requires a new language feature (e.g., reflection) let's go with what you recommended above. It seems like, though that many proposed exported functions (like parse, fire, help, render, errorText) aren't necessary (at least by looking at the example it seems like they're not necessary)? Only export necessary functions from this library.
 
+
+Shipped as `core/cli` (`sources/cli.buri`), and where it diverges from the sketch above:
+
+- **The exported surface is `Arity`, `Flag`, `Arg`, `Command<C>`, `Cli<C>`, `Arguments` and
+  `run` — one function.** `parse`, `fire`, `help` and `errorText` are private, and so are the
+  types only they would have exposed (`ParseError`, `Selection<C>`). `render` is not written:
+  it could only be reached through an export, and there is none to give it. Nothing was kept
+  back that a test needs — a spec is tested by handing `core/host/testing`'s
+  `env().arguments([...])` to `run` with a captured `Stdout`/`Stderr`, which is the whole
+  conformance package (`cli/tests/conformance/lib/cli/test/arguments.buri`, 25 blocks).
+- **The typed handler is not possible without a new language feature**, as suspected. `derive`
+  only attaches a conformance to a type that already exists, and generics do not reach it
+  either: one `Cli` holds *one* `[Command<C>]`, so a per-command argument type would have to be
+  the same type in every element — which is exactly what a per-command argument struct is not.
+  Existentials plus a macro would do it; reflection would do it. Neither exists, so `Arguments`
+  is the dynamic accessor bag the recommendation argued for.
+- `Parsed` is `Arguments` and `Command.args` is `Command.arguments`, per the two inline
+  decisions above.
+- `Arguments`' fields are private and its accessors are five rather than four: `on`, `value`,
+  `many`, `arg` and `positionals` (every positional the command was given, which is what a
+  variadic command reads). `many` needs no `ctx` — the values are already a list in a private
+  `Map<Str, [Str]>`.
+- **An empty argument list prints the help and answers `.Ok(())`.** A tool invoked with nothing
+  to do is asking what it can do. Global flags and *then* no command is still `NoCommand`,
+  which is an error.
+- A value taken from the next token is refused when that token begins with `--`, so
+  `--out --help` is `MissingValue` rather than an `--out` whose value is `--help`; `-` and `-1`
+  are still values. Short flags do not cluster.
+- Global flags are accepted only before the subcommand, which is what the sketch's comment on
+  `Cli.flags` said; after it, only the command's own.
+
 ---
 
 ## 10. Filesystem
