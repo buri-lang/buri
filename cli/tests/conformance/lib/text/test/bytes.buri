@@ -196,3 +196,148 @@ test "the sign of a zero is preserved, which the NaN rule does not touch" {
     // Numerically equal all the same, which is why the bytes are the question.
     assert.eq(positive, negative);
 }
+
+// --- Fixed-width integers ------------------------------------------------------
+
+test "eight octets, both ends first" {
+    let x: U64 = 0x0123456789abcdef;
+    assert.eq(bytes.fromU64Be(x), [0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef]);
+    assert.eq(bytes.fromU64Le(x), [0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01]);
+}
+
+test "four octets, both ends first" {
+    let x: U32 = 0xdeadbeef;
+    assert.eq(bytes.fromU32Be(x), [0xde, 0xad, 0xbe, 0xef]);
+    assert.eq(bytes.fromU32Le(x), [0xef, 0xbe, 0xad, 0xde]);
+}
+
+// The top bit set is where a signed reading would go wrong, and where a
+// JavaScript backend holding a U64 as a BigInt has to agree with a native one
+// holding it as a machine word.
+test "the whole width round-trips, including the top bit" {
+    let values: [U64] = [
+        0,
+        1,
+        0x7fffffffffffffff,
+        0x8000000000000000,
+        0xffffffffffffffff,
+    ];
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let back = values.mapCtx(ctx, fn(_c, x) => bytes.toU64Be(bytes.fromU64Be(x), 0));
+    assert.eq(back, values.mapCtx(ctx, fn(_c, x) => Option.Some(x)));
+    let backLe = values.mapCtx(ctx, fn(_c, x) => bytes.toU64Le(bytes.fromU64Le(x), 0));
+    assert.eq(backLe, values.mapCtx(ctx, fn(_c, x) => Option.Some(x)));
+}
+
+test "thirty-two bits round-trip the same way" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let values: [U32] = [0, 1, 0x7fffffff, 0x80000000, 0xffffffff];
+    let back = values.mapCtx(ctx, fn(_c, x) => bytes.toU32Le(bytes.fromU32Le(x), 0));
+    assert.eq(back, values.mapCtx(ctx, fn(_c, x) => Option.Some(x)));
+}
+
+test "reading past the end is .None rather than a short number" {
+    assert.none(bytes.toU64Be([1, 2, 3], 0));
+    assert.none(bytes.toU64Le([1, 2, 3, 4, 5, 6, 7], 0));
+    assert.none(bytes.toU32Be([1, 2, 3, 4], 1));
+    assert.none(bytes.toU32Le([1, 2, 3, 4], 0 - 1));
+}
+
+test "an offset reads from where it points" {
+    let raw: [U8] = [0xff, 0xff, 0x00, 0x00, 0x01, 0x00];
+    assert.eq(assert.some(bytes.toU32Be(raw, 2)), 0x00000100);
+    assert.eq(assert.some(bytes.toU32Le(raw, 2)), 0x00010000);
+}
+
+// --- The reader ------------------------------------------------------------------
+
+test "a reader starts at the first octet and knows when it is done" {
+    let r = bytes.reader([1, 2]);
+    assert.isFalse(r.isDone());
+    assert.eq(r.at, 0);
+    assert.isTrue(bytes.reader(list.empty<U8>()).isDone());
+    // `readerAt` is the same reader wound forward, for a frame whose header
+    // somebody else read.
+    assert.isTrue(bytes.readerAt([1, 2], 2).isDone());
+}
+
+test "taking answers the next reader rather than advancing this one" {
+    let r = bytes.reader([7, 8]);
+    let (first, next) = assert.ok(r.takeByte());
+    assert.eq(first, 7);
+    assert.eq(next.at, 1);
+    // The reader it was taken from is unchanged, so a decoder that looks ahead
+    // and changes its mind keeps the one it started with.
+    assert.eq(r.at, 0);
+    assert.eq(assert.ok(r.takeByte()).0, 7);
+}
+
+test "a reader walks a sequence of varints" {
+    // 1, 300, 0: 300 is two octets, which is what makes this a walk rather than
+    // an index.
+    let r = bytes.reader([1, 0xac, 0x02, 0]);
+    let (a, afterA) = assert.ok(r.takeVarint());
+    let (b, afterB) = assert.ok(afterA.takeVarint());
+    let (c, afterC) = assert.ok(afterB.takeVarint());
+    assert.eq([a, b, c], [1, 300, 0]);
+    assert.isTrue(afterC.isDone());
+}
+
+test "a slice is copied out and the reader moves past it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let r = bytes.reader([1, 2, 3, 4]);
+    let (head, rest) = assert.ok(r.takeSlice(ctx, 3));
+    assert.eq(head, [1, 2, 3]);
+    assert.eq(rest.at, 3);
+    // Zero octets is a slice, not an error.
+    assert.eq(assert.ok(rest.takeSlice(ctx, 0)).0, list.empty<U8>());
+}
+
+test "a length-prefixed frame is one call" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Two frames back to back: "hi" and the empty one.
+    let r = bytes.reader([2, 104, 105, 0]);
+    let (body, rest) = assert.ok(r.takeFramed(ctx));
+    assert.eq(assert.ok(bytes.fromUtf8(ctx, body)), "hi");
+    let (empty, end) = assert.ok(rest.takeFramed(ctx));
+    assert.eq(empty, list.empty<U8>());
+    assert.isTrue(end.isDone());
+}
+
+test "a truncated read reports the index it began at" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Off the end entirely.
+    assert.eq(assert.err(bytes.readerAt([1, 2], 2).takeByte()), DecodeError(2));
+    // A slice longer than what is left, and a negative one.
+    assert.eq(
+        assert.err(bytes.readerAt([1, 2, 3], 1).takeSlice(ctx, 3)),
+        DecodeError(1),
+    );
+    assert.eq(
+        assert.err(bytes.reader([1, 2, 3]).takeSlice(ctx, 0 - 1)),
+        DecodeError(0),
+    );
+    // A frame whose length is longer than its body: the index is where the
+    // frame began, not where its body did.
+    assert.eq(
+        assert.err(bytes.readerAt([0, 9, 1, 2], 1).takeFramed(ctx)),
+        DecodeError(1),
+    );
+    // A frame whose length is not there at all.
+    assert.eq(assert.err(bytes.readerAt([0, 0x80], 1).takeFramed(ctx)), DecodeError(1));
+}
+
+test "a reader is a value, so two of them compare" {
+    assert.eq(bytes.reader([1, 2]), bytes.readerAt([1, 2], 0));
+    assert.notEq(bytes.reader([1, 2]), bytes.readerAt([1, 2], 1));
+}
