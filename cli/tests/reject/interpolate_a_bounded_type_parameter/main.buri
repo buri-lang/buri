@@ -1,0 +1,25 @@
+// EXPECT: `T` cannot be interpolated
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/order" import { Show };
+from "core/str" import * as str;
+
+derive Show for Point;
+struct Point {
+    x: Int,
+}
+
+// A `T: Show` says a rendering exists, not that it is the structural one: an
+// instantiation whose `Show` is hand-written would be rendered as though it
+// were not. So the bound alone does not open a hole (SPEC 3.6), and
+// `${x.show(ctx)}` is what is written here.
+fn label<T: Show, C: Alloc>(ctx: C, x: T): Str {
+  str.format(ctx, "value ${x}")
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, label(ctx, Point { x: 1 })).ignore();
+  .Ok(())
+}
