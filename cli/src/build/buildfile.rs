@@ -339,15 +339,99 @@ pub struct Tag {
 
 /// How hard the lint catalogue is run for this repository.
 ///
-/// Both fields false is the whole of the default, and is exactly what a
-/// `REPO.buri` with no `lint` block means — so this is a value rather than an
-/// option, and no site has to ask whether the block was written.
+/// Both booleans false and every rule enabled is the whole of the default, and
+/// is exactly what a `REPO.buri` with no `lint` block means — so this is a
+/// value rather than an option, and no site has to ask whether the block was
+/// written.
 #[derive(Clone, Debug, Default)]
 pub struct LintConfig {
     /// `buri build` and `buri test` run the catalogue too.
     pub check_during_build: bool,
     /// A finding fails whichever command reported it.
     pub fail_on_finding: bool,
+    /// Which of the catalogue's rules this repository listens to.
+    pub rules: LintRules,
+}
+
+/// What a rule the `rules` block does not name is.
+///
+/// An enum rather than a bool because it is read at a distance from the
+/// overrides beneath it: `default: DISABLED` turns the block into an allow
+/// list, and a reader scanning past `default: false` would have to work out
+/// what a false *default* meant before knowing which way round the file was.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum RuleDefault {
+    #[default]
+    Enabled,
+    Disabled,
+}
+
+impl RuleDefault {
+    fn parse(s: &str) -> Option<RuleDefault> {
+        Some(match s {
+            // The proto zero value. An unset enum field is the documented
+            // default, which is the same thing `ENABLED` says out loud.
+            "ENABLED" | "RULE_DEFAULT_UNSPECIFIED" => RuleDefault::Enabled,
+            "DISABLED" => RuleDefault::Disabled,
+            _ => return None,
+        })
+    }
+
+    const NAMES: &'static [&'static str] = &["ENABLED", "DISABLED", "RULE_DEFAULT_UNSPECIFIED"];
+}
+
+/// `lint { rules { … } }`: which of the catalogue's rules this repository is
+/// asking to be told about.
+///
+/// One rule of arithmetic, and everything about the block follows from it:
+/// **`enabled(rule) = override.unwrap_or(default)`**. So an absent block is an
+/// absent override over the `ENABLED` default and changes nothing, and
+/// `default: DISABLED` with a handful of rules written `true` is an allow list
+/// without needing a second spelling for one.
+#[derive(Clone, Debug, Default)]
+pub struct LintRules {
+    /// What a rule the block does not name is.
+    pub default: RuleDefault,
+    /// The rules the block does name, keyed by **code** rather than by the
+    /// field name that carried it: a code is what a finding prints and what
+    /// every other part of the toolchain calls a rule, and the underscored
+    /// spelling exists only because a textproto field name cannot hold a
+    /// hyphen.
+    pub overrides: std::collections::BTreeMap<&'static str, bool>,
+}
+
+impl LintRules {
+    /// Whether this repository listens to a rule. The one rule of arithmetic,
+    /// and the only way any part of the toolchain asks the question.
+    pub fn enabled(&self, code: &str) -> bool {
+        match self.overrides.get(code) {
+            Some(written) => *written,
+            None => self.default == RuleDefault::Enabled,
+        }
+    }
+
+    /// Every code this repository has turned off, in catalogue order.
+    ///
+    /// Over the catalogue rather than over the overrides, because
+    /// `default: DISABLED` turns off the rules nobody wrote down.
+    pub fn disabled(&self) -> Vec<&'static str> {
+        crate::documentation::lints::LINTS
+            .iter()
+            .map(|l| l.code)
+            .filter(|code| !self.enabled(code))
+            .collect()
+    }
+
+    /// Whether every rule in the catalogue runs, which is what a `REPO.buri`
+    /// with no `rules` block says and what an empty one says too.
+    ///
+    /// Asked of the answer rather than of the fields: a block that writes
+    /// `default: DISABLED` and then turns every rule back on has said nothing,
+    /// and a reader of a report should not be told about a block that changed
+    /// its mind.
+    pub fn everything_runs(&self) -> bool {
+        self.disabled().is_empty()
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -538,6 +622,52 @@ impl Reader {
             }
         }
         out
+    }
+
+    /// A `rules` block: the `default` every override is read against, and one
+    /// bool per lint code.
+    ///
+    /// The field set is `documentation::lints`' own — see
+    /// [`crate::documentation::lints::rule_fields`] — so a code added to the
+    /// catalogue is nameable here on the same commit, and a name the catalogue
+    /// does not have is the `unknown-field` any other undeclared field gets,
+    /// with the nearest rule offered as the fix.
+    fn lint_rules(&mut self, message: &Message) -> LintRules {
+        use crate::documentation::lints;
+        self.check_known(message, textproto::schema_order("rules"), &[], "a `rules` block");
+        let mut rules = LintRules::default();
+        if let Some(f) = message.get("default") {
+            match &f.value {
+                Value::Ident(s, sp) => match RuleDefault::parse(s) {
+                    Some(d) => rules.default = d,
+                    None => {
+                        let near = nearest(s, RuleDefault::NAMES);
+                        let d = self
+                            .templated("unknown-bare-word", *sp)
+                            .bind("value", s.clone())
+                            .bind("expected", "a rule default")
+                            .bind("expected_plural", "rule defaults")
+                            .bind("choices", "ENABLED and DISABLED");
+                        if let Some(n) = near {
+                            d.fix(format!("did you mean `{n}`?"));
+                        }
+                    }
+                },
+                other => {
+                    self.templated("not-a-bare-word", other.span())
+                        .bind("field", "default")
+                        .bind("expected", "a rule default")
+                        .bind("choices", "ENABLED or DISABLED");
+                }
+            }
+        }
+        for l in lints::LINTS {
+            let field = lints::rule_field(l.code);
+            if let Some(written) = self.bool_field(message, &field) {
+                rules.overrides.insert(l.code, written);
+            }
+        }
+        rules
     }
 
     fn sub_message<'a>(&mut self, message: &'a Message, name: &str) -> Option<(&'a Message, Span)> {
@@ -902,6 +1032,9 @@ pub fn read_repo_config(text: &str, file: FileId) -> ReadResult<RepoConfig> {
         reader.check_known(m, textproto::schema_order("lint"), &[], "a `lint` block");
         lint.check_during_build = reader.bool_field(m, "check_during_build").unwrap_or(false);
         lint.fail_on_finding = reader.bool_field(m, "fail_on_finding").unwrap_or(false);
+        if let Some((rules, _)) = reader.sub_message(m, "rules") {
+            lint.rules = reader.lint_rules(rules);
+        }
     }
 
     ReadResult {
@@ -1113,6 +1246,105 @@ library {
             assert!(named, "{src:?}: {:#?}", read.errors);
             assert!(!read.value.lint.check_during_build);
         }
+    }
+
+    /// The block as the schema declares it, read: a default, and two rules
+    /// written off by name.
+    #[test]
+    fn a_rules_block_is_read() {
+        let src = "lint {\n  check_during_build: true\n  rules {\n    default: ENABLED\n    \
+                   discarded_result: false\n    hex_digit_table: false\n  }\n}\n";
+        let read = read_repo_config(src, FileId(0));
+        assert!(read.errors.is_empty(), "{:#?}", read.errors);
+        let rules = &read.value.lint.rules;
+        assert_eq!(rules.default, RuleDefault::Enabled);
+        assert!(!rules.enabled("discarded-result"));
+        assert!(!rules.enabled("hex-digit-table"));
+        // Everything else is what it was.
+        assert!(rules.enabled("unused-import"));
+        assert!(!rules.everything_runs());
+        assert_eq!(rules.disabled(), ["discarded-result", "hex-digit-table"]);
+    }
+
+    /// `enabled(rule) = override.unwrap_or(default)`, and the one interesting
+    /// consequence: a disabled default plus a rule written `true` is an allow
+    /// list, spelled in the same two fields rather than in a mode of its own.
+    #[test]
+    fn a_disabled_default_is_an_allow_list() {
+        let src = "lint {\n  rules {\n    default: DISABLED\n    unused_import: true\n  }\n}\n";
+        let read = read_repo_config(src, FileId(0));
+        assert!(read.errors.is_empty(), "{:#?}", read.errors);
+        let rules = &read.value.lint.rules;
+        assert_eq!(rules.default, RuleDefault::Disabled);
+        assert!(rules.enabled("unused-import"));
+        assert!(!rules.enabled("unused-variable"));
+        assert_eq!(rules.disabled().len(), crate::documentation::lints::LINTS.len() - 1);
+    }
+
+    /// No block, and an empty one, are the same claim: the whole catalogue
+    /// runs. So is a block that writes every rule it names `true`.
+    #[test]
+    fn every_rule_runs_until_one_is_written_off() {
+        for src in [
+            "lint { fail_on_finding: true }\n",
+            "lint { rules {} }\n",
+            "lint { rules { default: ENABLED } }\n",
+            "lint { rules { unused_import: true } }\n",
+        ] {
+            let read = read_repo_config(src, FileId(0));
+            assert!(read.errors.is_empty(), "{src:?}: {:#?}", read.errors);
+            assert!(read.value.lint.rules.everything_runs(), "{src:?}");
+            assert!(read.value.lint.rules.disabled().is_empty(), "{src:?}");
+            for l in crate::documentation::lints::LINTS {
+                assert!(read.value.lint.rules.enabled(l.code), "{src:?}: {}", l.code);
+            }
+        }
+    }
+
+    /// A misspelled rule is the same closed-field refusal every other block
+    /// gets, with the rule it is one letter from as the fix. This is the whole
+    /// reason the field set is generated from the catalogue: a typo cannot
+    /// read as a rule quietly left on.
+    #[test]
+    fn a_misspelled_rule_is_an_unknown_field() {
+        let read = read_repo_config("lint { rules { unused_improt: false } }\n", FileId(0));
+        let d = read.errors.first().expect("`unused_improt` is not a rule");
+        assert_eq!(d.message, "unknown field `unused_improt` in a `rules` block");
+        assert!(d.fix.as_deref().is_some_and(|f| f.contains("unused_import")), "{:#?}", d.fix);
+        assert!(read.value.lint.rules.everything_runs());
+
+        // A code spelled the way a finding prints it is not a field name
+        // either: a textproto field cannot hold a hyphen, and the near miss
+        // says which spelling this file wants.
+        let read = read_repo_config("lint { rules { unused-import: false } }\n", FileId(0));
+        assert!(!read.errors.is_empty());
+    }
+
+    /// The default is one of two words, and a third is refused where it is
+    /// written rather than read as either of them.
+    #[test]
+    fn a_rule_default_that_is_not_one_is_rejected() {
+        let read = read_repo_config("lint { rules { default: ENABLE } }\n", FileId(0));
+        let d = read.errors.first().expect("`ENABLE` is not a rule default");
+        assert!(d.message.contains("`ENABLE` is not a rule default"), "{}", d.message);
+        assert!(d.fix.as_deref().is_some_and(|f| f.contains("ENABLED")), "{:#?}", d.fix);
+        // And the file is read as if it had not been written, rather than as
+        // an allow list nobody asked for.
+        assert!(read.value.lint.rules.everything_runs());
+
+        let read = read_repo_config("lint { rules { default: false } }\n", FileId(0));
+        assert!(!read.errors.is_empty(), "a bool is not a rule default");
+        assert!(read.value.lint.rules.everything_runs());
+    }
+
+    /// A rule takes `true` or `false` and nothing else, the same way the two
+    /// booleans above it do.
+    #[test]
+    fn a_rule_that_is_not_a_bool_is_rejected() {
+        let read = read_repo_config("lint { rules { dead_code: \"no\" } }\n", FileId(0));
+        let named = read.errors.iter().any(|e| e.message.contains("`true` or `false`"));
+        assert!(named, "{:#?}", read.errors);
+        assert!(read.value.lint.rules.enabled("dead-code"));
     }
 
     /// The toolchain pin was removed, so a `REPO.buri` still carrying one is a

@@ -15,6 +15,18 @@
 //! wrong answer rather than a slow one. The parse reuse inside one run comes
 //! from [`crate::build::sources`] instead.
 //!
+//! A record holds what the **catalogue** found, and not what this repository
+//! chose to hear about: `REPO.buri`'s `rules` block is applied on the way out
+//! of [`crate::commands::lint::findings_for`], after a record has been read
+//! back. That is one decision and it settles two questions. A record written
+//! while a rule was off cannot serve a verdict for that rule once it is back
+//! on, because the record never held the *filtered* answer; and a rule turned
+//! off after a record was written is dropped from what that record replays.
+//! The rule set is therefore not in the key — it does not need to be, and
+//! putting it there would claim the record depends on something it does not.
+//! Editing `REPO.buri` re-analyses every target regardless: its bytes are in
+//! the graph hash below, because a build file decides what a closure is.
+//!
 //! The key is an ordinary [`ActionKey`], so the toolchain version is in it by
 //! construction and a record another `buri` wrote is unreachable rather than
 //! trusted; entries land in `.buri/cache`, which `buri clean` drops and which

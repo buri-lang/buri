@@ -1,0 +1,52 @@
+# A rule name the catalogue does not have is the `unknown-field` diagnostic any
+# other undeclared field gets, with the rule it is one letter from as the fix.
+# It is refused before any command does its work — `build`, `test` and `lint`
+# all stop at the same diagnostic with the same exit code, because a repository
+# whose policy file does not parse has no policy to run under.
+#
+# This is the half that makes the field set worth generating from the
+# catalogue. A linter whose configuration accepts any name silences a rule
+# whenever somebody misspells one, and says nothing; here the typo is the file
+# refusing to read.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a misspelled rule in REPO.buri's rules block: unknown-field with the near miss, and every command refuses to start"
+
+run {
+  args: ["build", "//lib/money", "--verbose"]
+  exit: 2
+  golden: "build.txt"
+}
+
+run {
+  args: ["test", "//lib/money"]
+  exit: 2
+  golden: "test.txt"
+}
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 2
+  golden: "lint.txt"
+}
+
+# Taking the suggestion.
+edit {
+  file: "REPO.buri"
+  replace: "unused_varible: false"
+  with: "unused_variable: false"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean_lint.txt"
+}
+
+run {
+  args: ["build", "//...", "--verbose"]
+  exit: 0
+  golden: "clean_build.txt"
+}

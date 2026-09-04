@@ -277,7 +277,9 @@ mod tests {
     #[test]
     fn every_block_a_build_file_writes_is_found() {
         let schema = schema();
-        for name in ["library", "binary", "test", "testing", "outputs", "js", "tag", "lint"] {
+        for name in
+            ["library", "binary", "test", "testing", "outputs", "js", "tag", "lint", "rules"]
+        {
             assert!(schema.block(name).is_some(), "no message for `{name}`");
         }
         // Nested messages, reached through the field that holds them.
@@ -291,7 +293,9 @@ mod tests {
     #[test]
     fn the_field_lists_agree_with_the_formatter() {
         let schema = schema();
-        for block in ["", "library", "binary", "test", "testing", "outputs", "js", "tag", "lint"] {
+        for block in
+            ["", "library", "binary", "test", "testing", "outputs", "js", "tag", "lint", "rules"]
+        {
             let mut ordered: Vec<&str> = crate::build::textproto::schema_order(block).to_vec();
             let mut declared: Vec<&str> =
                 schema.fields(block).iter().map(|f| f.name.as_str()).collect();
@@ -299,6 +303,43 @@ mod tests {
             declared.sort_unstable();
             assert_eq!(ordered, declared, "`{block}`");
         }
+    }
+
+    /// The catalogue and the schema name the same rules.
+    ///
+    /// This is the lockstep `lint { rules }` rests on. The toolchain reads a
+    /// `rules` block against `documentation::lints::rule_fields`, which *is*
+    /// the catalogue, so the field a repository writes cannot be missing from
+    /// the reader. This file is the other half — what a person reads and what
+    /// an editor completes and hovers — and it is written by hand. A lint
+    /// added to the catalogue without a field here fails on the next line,
+    /// rather than shipping as a rule the schema does not admit and an editor
+    /// will not offer.
+    #[test]
+    fn every_lint_has_a_field_in_the_repo_schema() {
+        use crate::documentation::lints;
+        let schema = schema();
+        let declared: Vec<&str> =
+            schema.fields("rules").iter().map(|f| f.name.as_str()).collect();
+        for l in lints::LINTS {
+            let field = lints::rule_field(l.code);
+            assert!(
+                declared.contains(&field.as_str()),
+                "`{}` has no `{field}` field in repo.proto",
+                l.code
+            );
+            assert!(schema.is_boolean("rules", &field), "`{field}` is not a bool");
+        }
+        // And nothing else: a field here that is not a rule is one a
+        // `REPO.buri` could write and the toolchain would refuse.
+        assert_eq!(
+            declared.len(),
+            lints::LINTS.len() + 1,
+            "repo.proto declares a `rules` field that is not `default` and not a lint"
+        );
+        let default = schema.enumeration("rules", "default").expect("RuleDefault");
+        let names: Vec<&str> = default.constants.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["RULE_DEFAULT_UNSPECIFIED", "ENABLED", "DISABLED"]);
     }
 
     #[test]

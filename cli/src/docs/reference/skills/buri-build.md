@@ -77,16 +77,21 @@ lint {
 }
 ```
 
-`lint` says where the lint catalogue runs and what a finding costs, and nothing
-else: `check_during_build` makes `buri build` and `buri test` run it too,
-`fail_on_finding` makes a finding fail whichever command reported it. Both
-default to false, both only tighten, and there is no field that turns a check
-off, exempts a directory or downgrades a finding. `buri lint` exits nonzero on
-any finding whatever this file says.
+`lint` says where the lint catalogue runs, what a finding costs, and which of
+its rules run: `check_during_build` makes `buri build` and `buri test` run it
+too, `fail_on_finding` makes a finding fail whichever command reported it, and
+`rules { default: ENABLED|DISABLED, <lint_code>: bool }` turns rules off or on
+by name — `enabled(rule) = override.unwrap_or(default)`, one field per lint code
+with the hyphens underscored, so `default: DISABLED` plus a few `true` is an
+allow list. Both booleans default to false, every rule defaults to on, an
+unknown rule name is `unknown-field`, and a command whose repository turned
+rules off prints which. `buri lint` exits nonzero on any finding whatever this
+file says.
 
-There is no `flags`, no toolchain pin, no `name`, no defaults block, no per-rule
-lint configuration, no dependency versions, no profiles, and no environment. A
-repository-wide knob is a dialect; a knob goes on the command or on the rule.
+There is no `flags`, no toolchain pin, no `name`, no defaults block, no
+per-directory or per-file lint exemption, no dependency versions, no profiles,
+and no environment. A repository-wide knob is a dialect; a knob goes on the
+command or on the rule.
 
 ## `BUILD.buri`
 

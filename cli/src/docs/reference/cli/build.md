@@ -19,8 +19,14 @@ compiler did not say.
 
 The reason to turn the first on is that this is the command you run, and a
 structural finding is cheapest to act on while the shape it is about is still
-being made. The two fields, and why neither of them has an opposite, are in
+being made. The two fields are in
 [`repo-config.md`](../build/repo-config.md#lint).
+
+A rule the same block turns off in [`rules`](../build/repo-config.md#rules) is
+not reported here either — one answer to "does this rule run", wherever the
+catalogue runs from — and a build that ran under a smaller catalogue prints
+which rules were turned off, so a quiet build is never quiet for a reason
+nothing on the screen gives.
 
 ## Caching
 
