@@ -385,6 +385,7 @@ comfortable; nothing more needed.
   the same `Value` type** (`storage_simulator/labels.buri:7` vs
   `database_simulator/labels.buri:18`). `.show(ctx)` is called twice in the whole
   repo. → letting a `T: Show` into a hole is the biggest ergonomic win here.
+  Nick's decision (do this): do the above recommendation to use `T: Show` for the holes
 - **No text/report builder.** Reports are `[Str]` then `.join(ctx, "\n")`, with a
   private `bullet()` defined separately in each simulator
   (`storage_simulator/report.buri:83`, `database_simulator/report.buri:90`) and
@@ -412,6 +413,8 @@ discover later: such a call's context must satisfy `Alloc`, so
 form needs only `Stdout`. That is the real cost, it is visible in the signature,
 and it is what buys ~25 hand-written `*Label` functions back.
 
+Nick's decision (do this): You can use `T: Show` for the holes, but if `ctx` is required the user must manually do the conversion
+
 The rest of §8, ranked:
 
 - **`core/path` — do it, and not `fs.join`.** Path manipulation is pure string
@@ -423,6 +426,8 @@ The rest of §8, ranked:
   line is thin evidence, and `padStart`/`padEnd` already exist and were never
   reached for, which makes this look like a discovery problem (§13) before it is
   an API one. Revisit after the generated stdlib docs land.
+
+Nick's decision (do this): Also defer the core/text and core/log suggestions. But for the path, I'd suggest creating a new Path type that has all the methods. That way any Path is validly formatted. All IO file operations should require a Path and not a Str.
 
 ---
 
@@ -474,6 +479,219 @@ one `[Flag]` drives parse, help, and re-render and they cannot drift. No
 (`design/STANDARD-LIBRARY.md` §3) — so accessors return `Option<Str>` and the
 caller uses `str.toInt`.
 
+Nick's decision (do this): the standard library should provide two utilities - one to get the CLI args unparsed as a `[Str]`, but it should also provide an opinionated way to create a CLI with parsed args and also implement things like `--help`, `--version`, and other common CLI args. You should provide immediately below some code snippet examples of the interface and the usage of this opinionated CLI parsing + command firing thing.
+
+**The raw half already ships.** `effect Env` declares `args(self): [Str]`
+(`effect.buri:166`), `core/env` is the two-line wrapper over it, and both hosts
+already drop the program's own name (`cli/runtime/host.rs`'s `skip(1)`,
+`js/runtime.js`'s `process.argv.slice(2)`). The unparsed utility therefore needs
+no addition — it needs pointing at:
+
+```buri
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: host.alloc, Env: host.env, Stdout: host.stdout };
+    let argv: [Str] = env.args(ctx);          // no program name, no parsing
+    let _ = io.println(ctx, "${argv.len()} arguments").ignore();
+    .Ok(())
+}
+```
+
+One consequence lands on the opinionated half: **there is no `argv[0]`**, so
+`--help` has to be _told_ what to call the program. That is a field on the spec
+below, not something a parser can recover.
+
+### Proposed `core/cli` — an interface sketch, not shipped code
+
+One `Cli` value still drives parse, `--help`, error rendering and the replay
+line, so they cannot drift — the recommendation above, kept. What is new is that
+the spec also carries _what to run_: a `Command` holds its handler the way
+`server.Server` holds `onRequest`, so firing is a library call rather than the
+caller's `match` over a command name.
+
+```buri
+// ---- the spec ------------------------------------------------------------
+
+export enum Arity { Switch, Value(Str), Many(Str) }   // the Str names it in --help
+
+export struct Flag {
+    export long: Str,
+    export short: Option<Char>,
+    export arity: Arity,
+    export help: Str,
+}
+
+export struct Arg { export name: Str, export help: Str, export required: Bool }
+
+/// One subcommand and the function that fires when it is chosen. `C` is the
+/// caller's own context, exactly as `server.Server`'s `onRequest`: a handler
+/// may do anything the context it was written beside can do — print, read a
+/// file, `proc.exit` — and `core/cli` never learns what that is.
+export struct Command<C> {
+    export name: Str,
+    export about: Str,
+    export run: fn(C, Parsed) => Result<(), Str>,
+    export flags: Option<[Flag]>,
+    export args: Option<[Arg]>,
+}
+
+export struct Cli<C> {
+    export name: Str,      // there is no argv[0]; --help is told the name
+    export version: Str,   // what --version prints
+    export about: Str,
+    export commands: [Command<C>],
+    export flags: Option<[Flag]>,   // global, accepted before the subcommand
+}
+
+// ---- what a parse answers ------------------------------------------------
+
+export struct Parsed {
+    export values: Map<Str, Str>,
+    export switches: Set<Str>,
+    export positional: [Str],
+}
+
+impl Parsed {
+    export fn on(self, long: Str): Bool;             // a switch was given
+    export fn value(self, long: Str): Option<Str>;   // caller uses str.toInt
+    export fn arg(self, name: Str): Option<Str>;     // a declared positional
+    export fn many<C: Alloc>(self, ctx: C, long: Str): [Str];
+}
+
+export enum ParseError {
+    UnknownFlag(Str), MissingValue(Str), UnexpectedValue(Str),
+    UnknownCommand(Str), NoCommand, MissingArg(Str),
+}
+derive Eq, Show for ParseError;
+
+/// `--help` and `--version` are handled here and are not errors: the parse
+/// answers the *text* and does not print it, which keeps every function below
+/// at the `Alloc` tier and testable with no host.
+export enum Selection<C> {
+    Fire { command: Command<C>, parsed: Parsed },
+    Print(Str),
+}
+
+export fn parse<C: Alloc, X>(
+    ctx: C, spec: Cli<X>, argv: [Str],
+): Result<Selection<X>, ParseError>;
+export fn help<C: Alloc, X>(ctx: C, spec: Cli<X>, command: Option<Str>): Str;
+export fn errorText<C: Alloc>(ctx: C, e: ParseError): Str;
+export fn render<C: Alloc>(ctx: C, flags: [Flag], parsed: Parsed): [Str];  // replay
+
+// ---- firing --------------------------------------------------------------
+
+/// `fire`, with the arguments read for you. The one call a `main` needs.
+export fn run<C: Alloc + Env + Stdout + Stderr>(ctx: C, spec: Cli<C>): Result<(), Str>;
+
+/// Parse `argv` and fire the command it names. `Env` is absent from the bound
+/// on purpose: a test hands this an argv and needs no host.
+///
+/// `.Ok(())` is exit 0. A parse error goes to stderr with the usage under it
+/// and comes back as `.Err`, which `main`'s contract turns into exit 1; a
+/// command that owns a *particular* status calls `proc.exit` itself.
+export fn fire<C: Alloc + Stdout + Stderr>(
+    ctx: C,
+    spec: Cli<C>,
+    argv: [Str],
+): Result<(), Str> {
+    match (parse(ctx, spec, argv)) {
+        .Ok(.Print(text)) => {
+            let _ = io.println(ctx, "${text}").ignore();
+            .Ok(())
+        },
+        .Ok(.Fire { command, parsed }) => {
+            let go = command.run;
+            go(ctx, parsed)
+        },
+        .Err(e) => {
+            let message = errorText(ctx, e);
+            let _ = io.eprintln(ctx, "${spec.name}: ${message}").ignore();
+            let _ = io.eprintln(ctx, "${help(ctx, spec, .None)}").ignore();
+            .Err(message)
+        },
+    }
+}
+```
+
+Usage — a tool with two subcommands, wired end to end:
+
+```buri
+from "core/cli" import * as cli;
+from "core/fs" import * as fs;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+fn countLines<C: Alloc + Fs + Stdout>(ctx: C, parsed: cli.Parsed): Result<(), Str> {
+    let path = parsed.arg("file").withDefault("-");
+    let body = fs
+        .readText(ctx, path)
+        .mapErrCtx(ctx, fn(c, e) => str.format(c, "${path}: ${e}"))?;
+    match (parsed.on("quiet")) {
+        true => .Ok(()),
+        false => {
+            let _ = io.println(ctx, "${body.lines(ctx).len()}").ignore();
+            .Ok(())
+        },
+    }
+}
+
+fn hashFile<C: Alloc + Fs + Stdout>(ctx: C, parsed: cli.Parsed): Result<(), Str> {
+    // ... same shape: read the arg, do the work, print, `.Ok(())`
+    .Ok(())
+}
+
+// The spec is a value, so it is a function of the context, exactly as
+// `core/actor`'s `counter()` is.
+fn tool<C: Alloc + Fs + Stdout>(): cli.Cli<C> {
+    cli.Cli {
+        name: "wc2",
+        version: "0.1.0",
+        about: "counts and hashes files",
+        flags: .Some([
+            cli.Flag { long: "quiet", short: .Some('q'), arity: .Switch,
+                       help: "print nothing on success" },
+        ]),
+        commands: [
+            cli.Command {
+                name: "count",
+                about: "count the lines in a file",
+                args: .Some([cli.Arg { name: "file", help: "file to read",
+                                       required: true }]),
+                run: fn(c, parsed) => countLines(c, parsed),
+            },
+            cli.Command {
+                name: "hash",
+                about: "print a file's digest",
+                args: .Some([cli.Arg { name: "file", help: "file to read",
+                                       required: true }]),
+                run: fn(c, parsed) => hashFile(c, parsed),
+            },
+        ],
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc, Env: host.env, Fs: host.fs,
+        Stdout: host.stdout, Stderr: host.stderr,
+    };
+    cli.run(ctx, tool())
+}
+```
+
+`wc2 --help`, `wc2 count --help` and `wc2 --version` are answered inside `parse`
+and exit 0. `wc2 count` with no file is `.MissingArg("file")` — rendered to
+stderr with the usage under it, exit 1. `wc2 count README.md` fires
+`countLines`, and that handler's own `.Err` is the message `main` exits 1 with.
+The env-var fallback stays outside all of this, as argued above: a caller that
+wants one merges `env.get` into the value it read from `Parsed`, because the
+precedence rule is a decision and not a default.
+
 ---
 
 ## 10. Filesystem
@@ -514,6 +732,128 @@ Recommendation: two library functions, one language proposal, one already done.
   `core/host/testing` beside `TestFs`, which collapses two of the three copies
   without waiting for it.
 
+#### What "forwarding base" means, and why it is a language gap
+
+The gap is one sentence: **an `impl` block must supply every method the effect
+declares, and there is no way to say "the rest come from the field."** So a
+wrapper that changes _one_ operation restates the other eleven. A read-only
+filesystem — the runtime kind that satisfies `Fs` and refuses writes, not SPEC
+10.8's attenuator that stops satisfying `Fs` at all — is the smallest honest
+example:
+
+```buri
+// TODAY. Twelve methods written out so that six can be refused.
+export struct ReadOnly<C>(C);
+
+impl<C: Fs> Fs for ReadOnly<C> {
+    // The five that forward, written out because they must be.
+    fn readFile(self, path: Str): Result<Str, IoError> {
+        self.0.readFile(path)
+    }
+
+    fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+        self.0.readFileBytes(path)
+    }
+
+    fn fileExists(self, path: Str): Bool {
+        self.0.fileExists(path)
+    }
+
+    fn readDir(self, path: Str): Result<[Str], IoError> {
+        self.0.readDir(path)
+    }
+
+    fn syncFile(self, path: Str): Result<(), IoError> {
+        self.0.syncFile(path)
+    }
+
+    // The one this type exists for.
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
+        .Err(.ReadOnly)
+    }
+
+    // ...and writeFileBytes, appendFile, renameFile, removeFile, removeDir and
+    // makeDir: six more one-line bodies, each with its whole signature typed
+    // out again from `effect Fs`.
+}
+```
+
+`storage_simulator/faults.buri:54-126` is the same shape with _nothing_ refused
+— a fault injector that forwards all twelve and only counts them.
+
+**The stdlib pays the same tax, sixteen times over.** `core/alloc`'s `Scoped<C>`
+is a wrapper whose `Alloc` is a scope's arena and whose every other effect is
+the inner context's. One block is interesting; the rest is transcription:
+
+```buri
+// alloc.buri:547 — "The one implementation that does not forward."
+impl<C> Alloc for Scoped<C> {
+    fn allocate(self, bytes: Int): Region {
+        Region(arenaAllocate(self.1, bytes))
+    }
+}
+
+// alloc.buri:553 — "Everything below here forwards, and says nothing else."
+impl<C: Stdout> Stdout for Scoped<C> {
+    fn print(self, text: Template): Result<(), IoError> {
+        self.0.print(text)
+    }
+
+    fn println(self, text: Template): Result<(), IoError> {
+        self.0.println(text)
+    }
+
+    fn writeBytes(self, b: [U8]): Result<(), IoError> {
+        self.0.writeBytes(b)
+    }
+}
+
+// ...then Stderr, Stdin, Fs, Net, Clock, Rand, Env, Proc, Tasks, Listen,
+// Sockets, Ui and Watch — twelve more blocks, `alloc.buri:555-768`, every body
+// `self.0.<the same name>(<the same arguments>)`.
+```
+
+The cost is not the typing. It is that **a new method on an existing effect is a
+silent hole in every wrapper until a human notices**: `alloc.buri:445` already
+says "a new effect in `core/effect` is a new block here", which is a comment
+asking somebody to remember.
+
+**Proposal (language, not library): delegation on an `impl`.** The `impl` names
+where the unwritten methods come from and supplies only the ones that differ.
+SPEC 10.1's "an `impl` supplies every method" is the rule that gains the
+exception; SPEC 10.8 is where the motivation lives.
+
+```buri
+// PROPOSED SYNTAX — does not exist today.
+impl<C: Fs> Fs for ReadOnly<C> via self.0 {
+    fn writeFile(self, path: Str, body: Str): Result<(), IoError> { .Err(.ReadOnly) }
+    fn writeFileBytes(self, path: Str, b: [U8]): Result<(), IoError> { .Err(.ReadOnly) }
+    fn appendFile(self, path: Str, b: [U8]): Result<(), IoError> { .Err(.ReadOnly) }
+    fn renameFile(self, source: Str, dest: Str): Result<(), IoError> { .Err(.ReadOnly) }
+    fn removeFile(self, path: Str): Result<(), IoError> { .Err(.ReadOnly) }
+    fn removeDir(self, path: Str): Result<(), IoError> { .Err(.ReadOnly) }
+    fn makeDir(self, path: Str): Result<(), IoError> { .Err(.ReadOnly) }
+}
+
+// and sixteen of Scoped's seventeen blocks become one line each:
+impl<C: Stdout> Stdout for Scoped<C> via self.0 {}
+impl<C: Fs> Fs for Scoped<C> via self.0 {}
+impl<C: Env> Env for Scoped<C> via self.0 {}
+// ...
+```
+
+`via self.0` reads as what it does — every method not written here is
+`self.0.<name>(<args>)` — and it needs no new carve-out: the generated bodies
+are exactly the ones SPEC 10.2 already permits an implementor to write by hand.
+A method added to `effect Fs` then reaches every delegating wrapper for free,
+and a wrapper that _must_ see the new method says so by naming it.
+
+**The alternative is a derive** — `derive Fs via 0 for Scoped;` beside the
+struct instead of an empty `impl`. Shorter for the pure-forwarding case, but it
+cannot express the common one ("forward everything _except_ these seven")
+without also growing an override block, at which point it is the proposal above
+with different punctuation. Prefer `via` on the `impl`.
+
 ---
 
 ## 11. Testing
@@ -535,6 +875,8 @@ can give. Thirteen consecutive `assert.isTrue(x.contains(...))` at
 diffing `assert.eq` for `[T]` (the failure renderer already walks the type
 structurally, so the diff is reachable).
 
+Nick's decision (do this): add the above additions to `assert`
+
 **`assert.fail` returns `()`, not the bottom type** (`assert.buri:43`), while the
 private `failExpected` does return bottom (`:89`). So a failing match arm cannot
 produce a value and a test must fabricate one:
@@ -552,6 +894,8 @@ constructors go away. The one thing to check before shipping: today's
 which admits any expression of type `()`), so inference must settle `R` at `()`
 in statement position or every existing call site breaks. If it does not, this is
 a compat break worth a `failWith` under a second name instead.
+
+Nick's decision (do this): remove `assert.fail` instead of adding a bottom type, and potentially also remove `assert.failExpected`.
 
 Then widen the assertion set — all in `assert.buri`, all `()`-returning, all
 taking no `ctx` because rendering is the runner's:
