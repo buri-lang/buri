@@ -1,0 +1,23 @@
+error: there is nothing named `fs` in scope [unresolved-name]
+  --> cmd/namespace_module_not_imported/main.buri:12:11
+   |
+12 |   let _ = fs.readText(ctx, "wal");
+   |           ^^
+   |
+   = did you mean `Fs`?
+   = fix: correct the spelling, or declare it
+
+     What to do
+     ──────────
+
+     Correct the spelling, or declare it. The diagnostic offers the nearest name
+     in scope.
+
+     Why
+     ───
+
+     There is no prelude and no ambient scope: the names available in a module
+     are the ones it declares plus the ones its own imports name. That is what
+     makes the suggestion trustworthy — the set it is drawn from is exactly the
+     set the file put there.
+

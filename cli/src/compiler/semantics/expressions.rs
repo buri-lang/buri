@@ -1621,25 +1621,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         if self.host_grant_refused(base, name, name_span) {
             return true;
         }
-        let path = self.c.loaded.module(ns).path.clone();
-        let mut exports: Vec<String> = self.c.scope(ns).exports.keys().cloned().collect();
-        exports.sort();
-        // A surface of a dozen names is worth reading here; `core/list`'s is
-        // not, and the fix already points at the page that lists it.
-        let listed = match exports.len() {
-            0 => "nothing".to_string(),
-            1..=12 => diagnostics::names(&exports),
-            n => format!("{n} names"),
-        };
-        let near = self.c.nearest_export(ns, name);
-        let d = self
-            .templated("no-such-member", name_span)
-            .bind("path", path)
-            .bind("name", name)
-            .bind("exports", listed);
-        if let Some(n) = near {
-            d.notes.push(format!("did you mean `{n}`?"));
-        }
+        self.c.report_no_such_member(ns, name, name_span);
         true
     }
 
