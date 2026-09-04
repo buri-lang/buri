@@ -169,7 +169,7 @@ pub fn build_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     let (program, tables) = lowered(source);
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    let mut backend = Stencil;
+    let mut backend = Stencil::default();
     let units = match backend.emit(&program, &tables, &opts) {
         Ok(units) => units,
         Err(d) => panic!(
@@ -256,11 +256,65 @@ fn emitted(name: &str, source: &str) -> Vec<(String, Vec<u8>)> {
     let (program, tables) = lowered(source);
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    let units = Stencil
+    let units = Stencil::default()
         .emit(&program, &tables, &opts)
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
     units.into_iter().map(|u| (u.name, u.bytes)).collect()
 }
+
+/// A program with enough of every shape the emitter's hot paths handle to be
+/// worth comparing bytes over: a recursive enum (so `middle::layout` boxes a
+/// field and `walk_rc` has a box to release), a struct of counted fields,
+/// lists of them, strings built at run time, and the closure surface over all
+/// of it.
+///
+/// Every claim about *how* this backend emits — that it reuses a lowering the
+/// build already computed, that it compiles its units on a thread each, that a
+/// folded twin is found by index rather than by name — is a claim that the
+/// bytes did not move. This is the program those claims are made about, and it
+/// is deliberately the shape the profile found: reference operations over
+/// compound types, which is what `walk_rc` is, and enum payloads, which is
+/// what carries a `Layout`'s per-variant offsets.
+const EMITTER_SHAPES: &str = r#"
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/host" import { stdout };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+enum Tree {
+    Leaf,
+    Node(Tree, Int, Tree),
+}
+
+struct Row {
+    key: Str,
+    values: [Int],
+}
+
+fn total(t: Tree): Int {
+    match (t) {
+        .Leaf => 0,
+        .Node(l, k, r) => total(l) + k + total(r),
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: alloc.generalPurpose() };
+    let tree: Tree = .Node(.Node(.Leaf, 1, .Leaf), 2, .Node(.Leaf, 4, .Leaf));
+    let rows = list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => Row {
+        key: str.format(c, "k${i}"),
+        values: list.range(c, 0, 3).map(c, fn(j) => i * j),
+    });
+    let sum = rows.fold(fn(acc, r) => acc + r.values.sum(), 0);
+    let kept = rows.filter(ctx, fn(r) => r.values.len() == 3);
+    let keys = kept.map(ctx, fn(r) => r.key).join(ctx, ",");
+    let walked = total(tree);
+    let _ = io.println(stdout, str.format(ctx, "${walked} ${sum} ${keys}")).ignore();
+    .Ok(())
+}
+"#;
 
 /// The diagnostics a program this backend cannot compile produces.
 fn refusal(name: &str, source: &str) -> Vec<String> {
@@ -268,8 +322,8 @@ fn refusal(name: &str, source: &str) -> Vec<String> {
     let (program, tables) = lowered(source);
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    let mut missing = Stencil.missing_intrinsics(&program, &tables);
-    match Stencil.emit(&program, &tables, &opts) {
+    let mut missing = Stencil::default().missing_intrinsics(&program, &tables);
+    match Stencil::default().emit(&program, &tables, &opts) {
         Ok(_) if missing.is_empty() => panic!("the backend compiled a program it should refuse"),
         Ok(_) => missing,
         Err(d) => {
@@ -291,6 +345,154 @@ fn run_with(name: &str, source: &str, probe: Option<&str>) -> Ran {
     crate::shared::ran(&build_with(name, source, probe))
 }
 
+
+// -----------------------------------------------------------------------
+// How the emission is arranged, and the bytes that must not move for it
+// -----------------------------------------------------------------------
+
+/// `Backend::adopt_lowering` is a **hint**: the build hands over the
+/// `ir::Program` it lowered for the unit keys, and the object bytes are the
+/// ones the backend would have produced from a lowering of its own.
+///
+/// This is the property the whole optimisation rests on. `middle::lower` is a
+/// pure function of the program, so the two lowerings agreed by construction
+/// and recomputing one was pure waste — one second of an eight-second
+/// `buri test //...` on a real repository, two whole-program `middle::rc`
+/// analyses and two `middle::lower::run_with`s. What is asserted here is the
+/// "by construction" half, over a program with a recursive enum, boxed
+/// payloads, counted struct fields and a closure surface in it.
+#[test]
+fn an_adopted_lowering_emits_the_bytes_the_backend_would_have_lowered_itself() {
+    if !supported() {
+        return;
+    }
+    let (program, tables) = lowered(EMITTER_SHAPES);
+    let target = Target { platform: host_platform(), arch: None };
+    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+
+    let alone = Stencil::default()
+        .emit(&program, &tables, &opts)
+        .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
+
+    let mut adopting = Stencil::default();
+    adopting.adopt_lowering(buri::compiler::middle::lower::run(&program, &tables));
+    let adopted = adopting
+        .emit(&program, &tables, &opts)
+        .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
+
+    assert_eq!(alone.len(), adopted.len(), "the unit count moved");
+    assert!(!alone.is_empty(), "the program emitted no units");
+    for (a, b) in alone.iter().zip(&adopted) {
+        assert_eq!(a.name, b.name, "the unit order moved");
+        assert_eq!(a.bytes, b.bytes, "the bytes of {} moved", a.name);
+    }
+}
+
+/// A lowering is adopted for **one** emission.
+///
+/// The hint is stateful, so the failure it has to be impossible to reach is a
+/// second emission served the first one's IR. `emit_units` takes the adopted
+/// lowering rather than cloning it, and this is that contract asserted from
+/// outside: the same backend value emits two different programs and answers
+/// each one's own bytes.
+#[test]
+fn a_backend_that_adopted_a_lowering_lowers_the_next_program_for_itself() {
+    if !supported() {
+        return;
+    }
+    let target = Target { platform: host_platform(), arch: None };
+    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let (first, first_tables) = lowered(EMITTER_SHAPES);
+    let (second, second_tables) = lowered(
+        r#"
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/host" import { stdout };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: alloc.generalPurpose() };
+    let n = list.range(ctx, 0, 5).fold(fn(a, v) => a + v, 0);
+    let _ = io.println(stdout, str.format(ctx, "${n}")).ignore();
+    .Ok(())
+}
+"#,
+    );
+
+    let expected = Stencil::default()
+        .emit(&second, &second_tables, &opts)
+        .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
+
+    let mut backend = Stencil::default();
+    backend.adopt_lowering(buri::compiler::middle::lower::run(&first, &first_tables));
+    let _ = backend
+        .emit(&first, &first_tables, &opts)
+        .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
+    // No second `adopt_lowering`: the first one was consumed, and this
+    // emission has to lower the program it was actually handed.
+    let after = backend
+        .emit(&second, &second_tables, &opts)
+        .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
+
+    assert_eq!(after.len(), expected.len());
+    for (a, b) in after.iter().zip(&expected) {
+        assert_eq!(a.name, b.name);
+        assert_eq!(a.bytes, b.bytes, "the bytes of {} moved", a.name);
+    }
+}
+
+/// The units are compiled on a thread each, and a build's output is compared
+/// byte for byte, so two emissions of one program must be the same objects in
+/// the same order.
+///
+/// `parallel::map` returns its results in input order and `compile_unit` is a
+/// pure function of the whole-program tables — a `Jit`, a `Region` and a
+/// `Layouts` memo of its own per unit. This is that promise asserted rather
+/// than argued: it is what would break if a future unit read something another
+/// unit wrote.
+#[test]
+fn emitting_one_program_twice_gives_the_same_objects_in_the_same_order() {
+    if !supported() {
+        return;
+    }
+    let (program, tables) = lowered(EMITTER_SHAPES);
+    let target = Target { platform: host_platform(), arch: None };
+    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let once = Stencil::default()
+        .emit(&program, &tables, &opts)
+        .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
+    let twice = Stencil::default()
+        .emit(&program, &tables, &opts)
+        .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
+    let names: Vec<&str> = once.iter().map(|u| u.name.as_str()).collect();
+    assert!(names.len() > 1, "one unit cannot show an ordering: {names:?}");
+    assert_eq!(names, twice.iter().map(|u| u.name.as_str()).collect::<Vec<_>>());
+    for (a, b) in once.iter().zip(&twice) {
+        assert_eq!(a.bytes, b.bytes, "the bytes of {} moved between emissions", a.name);
+    }
+}
+
+/// And the program those bytes are of runs, and prints what it computes.
+///
+/// The three tests above compare one emission against another, which cannot
+/// tell a pair of identically wrong answers from a pair of right ones. This is
+/// the one that says the answer is right: the tree walk releases a boxed
+/// payload, the closure surface folds and filters over a struct holding a
+/// `Str` and a `[Int]`, and every block allocated is freed at exit.
+#[test]
+fn the_emitter_shapes_program_runs_and_frees_everything() {
+    if !supported() {
+        return;
+    }
+    let ran = run_with("emitter-shapes", EMITTER_SHAPES, Some(ALLOC_PROBE));
+    assert_eq!(ran.status, 0, "{}", ran.stderr);
+    assert_eq!(ran.stdout, "7 18 k0,k1,k2,k3\n", "{}", ran.stderr);
+    let (total, live) = probed(&ran.stderr);
+    assert!(total > 0, "the program allocated nothing");
+    assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
+}
 
 /// The first program: a hand-written `main` sets up the Buri stack, calls a
 /// frame-threaded body, and the runtime prints. Every other claim in this file
@@ -649,7 +851,7 @@ fn fnv(bytes: &[u8]) -> u64 {
 /// what the emitted bytes *are*.
 #[test]
 fn the_identity_moves_with_the_library() {
-    let id = Stencil.identity();
+    let id = Stencil::default().identity();
     assert!(id.starts_with("stencil "), "{id}");
 }
 
@@ -1319,13 +1521,13 @@ fn compile_corpus(path: &str) -> Compiled {
     }
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
-    let missing = Stencil.missing_intrinsics(&program, &analysis.checked.tables);
+    let missing = Stencil::default().missing_intrinsics(&program, &analysis.checked.tables);
     if !missing.is_empty() {
         return Compiled::Refused(format!("missing {}", missing.join(", ")));
     }
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    match Stencil.emit(&program, &analysis.checked.tables, &opts) {
+    match Stencil::default().emit(&program, &analysis.checked.tables, &opts) {
         Ok(units) => Compiled::Units(units),
         Err(d) => Compiled::Refused(messages(&d).join("; ")),
     }
@@ -2192,7 +2394,7 @@ export fn main(): Result<(), Str> {
 "#;
     let (program, tables) = lowered(source);
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
-    let units = Stencil
+    let units = Stencil::default()
         .emit(&program, &tables, &opts)
         .unwrap_or_else(|d| panic!("the backend refused the program: {:?}", messages(&d)));
     assert!(!units.is_empty(), "no codegen units were emitted");
@@ -2401,7 +2603,7 @@ export fn main(): Result<(), Str> {
     for (name, source) in programs {
         let (program, tables) = lowered(source);
         let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
-        let units = Stencil
+        let units = Stencil::default()
             .emit(&program, &tables, &opts)
             .unwrap_or_else(|d| panic!("the backend refused {name}: {:?}", messages(&d)));
 
@@ -3009,7 +3211,7 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
 
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    let units = Stencil
+    let units = Stencil::default()
         .emit(&program, &analysis.checked.tables, &opts)
         .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
     let dir = workspace(name);
@@ -3086,7 +3288,7 @@ fn cross_units(source: &str, arch: Arch) -> Option<Vec<buri::compiler::backend::
     let (program, tables) = lowered(source);
     let target = Target { platform: Platform::Linux, arch: Some(arch) };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
-    match Stencil.emit(&program, &tables, &opts) {
+    match Stencil::default().emit(&program, &tables, &opts) {
         Ok(units) => Some(units),
         Err(d) => {
             // A refusal is an answer too — a toolchain whose clang could not
@@ -3274,7 +3476,7 @@ fn the_carrier_door_is_emitted_for_every_target() {
             continue;
         }
         let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
-        let units = Stencil
+        let units = Stencil::default()
             .emit(&program, &tables, &opts)
             .unwrap_or_else(|d| panic!("{} refused: {:?}", stencil_target.slug(), messages(&d)));
         let bytes = units.first().map(|u| u.bytes.clone()).unwrap_or_default();
@@ -3313,7 +3515,7 @@ fn an_unsupported_cross_target_is_refused_with_a_reason() {
             target: Target { platform: Platform::Linux, arch: Some(Arch::X86_64) },
             unit_prefix: "",
         };
-        let out = Stencil.emit(&program, &tables, &opts);
+        let out = Stencil::default().emit(&program, &tables, &opts);
         assert!(
             out.is_ok(),
             "linux-x86_64 was refused: {:?}",
@@ -3326,7 +3528,7 @@ fn an_unsupported_cross_target_is_refused_with_a_reason() {
         target: Target { platform: Platform::Macos, arch: Some(Arch::X86_64) },
         unit_prefix: "",
     };
-    let msgs = Stencil.emit(&program, &tables, &mac).err().map(|d| messages(&d)).unwrap_or_default();
+    let msgs = Stencil::default().emit(&program, &tables, &mac).err().map(|d| messages(&d)).unwrap_or_default();
     assert!(
         msgs.iter().any(|m| m.contains("macos-x86_64")),
         "macos-x86_64 was not refused by name: {msgs:?}"
@@ -3467,7 +3669,7 @@ fn cross_emission_throughput() {
         let opts = Options { profile: Profile::Debug, target, unit_prefix: "cmd/app" };
         // One untimed emission, so the stencil library's decode is not inside
         // the measurement.
-        let units = match Stencil.emit(&program, &tables, &opts) {
+        let units = match Stencil::default().emit(&program, &tables, &opts) {
             Ok(u) => u,
             Err(d) => {
                 eprintln!("{name}: stencil refused: {:?}", messages(&d));
@@ -3477,7 +3679,7 @@ fn cross_emission_throughput() {
         let n_units = units.len();
         let t0 = Instant::now();
         for _ in 0..reps {
-            let _ = Stencil.emit(&program, &tables, &opts);
+            let _ = Stencil::default().emit(&program, &tables, &opts);
         }
         let ms = t0.elapsed().as_secs_f64() * 1000.0 / f64::from(reps);
         let per_second = lines / (ms / 1000.0);

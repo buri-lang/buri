@@ -1052,7 +1052,7 @@ mod native {
         // debug-profile backend is named here rather than selected.
         #[cfg(feature = "backend-stencil")]
         if name == "stencil" {
-            return Some(Box::new(backend::stencil::Stencil));
+            return Some(Box::new(backend::stencil::Stencil::default()));
         }
         let _ = name;
         match backend::select(target, profile) {

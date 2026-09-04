@@ -1178,13 +1178,20 @@ fn objects_named(
     // reaches a native backend and that one reaches JavaScript, and which
     // passes a target gets must not be a fact stated twice.
     let plan = prepare(program, back_target);
-    // Lowered here for the *keys* only. `Backend::emit` lowers again for the
-    // bytes, because `middle::lower` is deterministic and a pure function of the
-    // program, so the two agree by construction. Handing the `ir::Program`
-    // straight to the backend would save the second lowering, and it would mean
-    // a second entry point on the trait — the backends have one (`emit_lowered`)
-    // and it is deliberately not on `Backend`, so that there is one seam rather
-    // than one seam and a shortcut.
+    // Lowered here for the unit *keys*, and then handed to the backend through
+    // [`Backend::adopt_lowering`] so that the bytes are emitted from this same
+    // IR instead of from a second copy of it. `middle::lower` is deterministic
+    // and a pure function of the program, so the two agreed by construction —
+    // and agreeing by construction is what made recomputing it pure waste. It
+    // was one second of an eight-second `buri test //...` on a real repository:
+    // `middle::rc::analyze` twice over the whole program and
+    // `middle::lower::run_with` twice.
+    //
+    // This is a *hint*, not a second entry point: emission is still
+    // `emit_units` and it still takes the `Program`. A backend that ignores the
+    // hint — every backend but `stencil` — compiles the same bytes it always
+    // did.
+    //
     // Against the plan `prepare` already produced. `lower::run` would compute
     // an identical one — it is a pure function of the program, and nothing has
     // taken the program by `&mut` since — so this is the same lowering with one
@@ -1237,9 +1244,21 @@ fn objects_named(
         })
         .collect();
 
+    // Moved into the emission below, which is the last reader of it: the keys
+    // are computed and `unit_hashes` has already borrowed it.
+    let mut lowered_for_backend = Some(lowered);
     let cache = Cache::open(&session.root);
     let emitted = codegen_units_for(&cache, &keys, flags.force, |wanted| {
         let opts = BackendOptions { profile, target: back_target, unit_prefix: prefix };
+        backend.adopt_lowering(lowered_for_backend.take().unwrap_or_else(|| {
+            // Only reachable if the closure runs twice, which
+            // `codegen_units_for` does not do. Lowering again is the honest
+            // answer rather than an empty program.
+            match &plan {
+                Some(plan) => lower::run_with(program, tables, plan),
+                None => lower::run(program, tables),
+            }
+        }));
         // `Units::Only` is a membership test per unit, so a build that wants
         // every unit — a first build, or `--force` — says so rather than
         // scanning a list of every unit once per unit.

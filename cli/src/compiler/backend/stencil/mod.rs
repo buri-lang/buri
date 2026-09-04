@@ -285,8 +285,14 @@ fn load(t: abi::StencilTarget) -> Result<&'static library::Library, String> {
 }
 
 /// The copy-and-patch backend.
+///
+/// The one field is [`Backend::adopt_lowering`]'s: the IR the build already
+/// lowered for this program, held until the next emission takes it. Empty is
+/// the ordinary state and means "lower it here".
 #[derive(Default)]
-pub struct Stencil;
+pub struct Stencil {
+    adopted: Option<ir::Program>,
+}
 
 impl Backend for Stencil {
     fn name(&self) -> &'static str {
@@ -368,6 +374,10 @@ impl Backend for Stencil {
         self.emit_units(program, tables, opts, Units::All)
     }
 
+    fn adopt_lowering(&mut self, lowered: ir::Program) {
+        self.adopted = Some(lowered);
+    }
+
     /// One object per codegen unit, which is the granularity
     /// `build::actions::codegen_units` caches at.
     ///
@@ -390,7 +400,20 @@ impl Backend for Stencil {
             Ok(l) => l,
             Err(e) => return Err(one(e)),
         };
-        let lowered = lower::run(program, tables);
+        // `take`, not `clone`: a lowering is adopted for one emission, so a
+        // second call with a different program lowers for itself rather than
+        // reusing the first one's IR.
+        let lowered = match self.adopted.take() {
+            Some(lowered) => {
+                debug_assert_eq!(
+                    lowered.funcs.len(),
+                    program.funcs.len(),
+                    "an adopted lowering must be this program's"
+                );
+                lowered
+            }
+            None => lower::run(program, tables),
+        };
         if cfg!(debug_assertions) {
             let problems = ir::verify(&lowered);
             if !problems.is_empty() {
@@ -418,6 +441,8 @@ impl Backend for Stencil {
         // for the same reason.
         let frames = jit::frame_sigs(&lowered, tables);
 
+        let cycles =
+            std::sync::Arc::new(crate::compiler::middle::layout::Cycles::new(tables));
         let whole = Whole {
             lib,
             program: &lowered,
@@ -425,16 +450,33 @@ impl Backend for Stencil {
             frames: &frames,
             root: &root,
             target,
+            cycles: &cycles,
         };
+        // One unit per core. `compile_unit` is a pure function of `Whole` and
+        // the unit's member list — it builds a `Jit` of its own, patches into a
+        // `Region` of its own, and reads nothing another unit writes — which is
+        // `parallel`'s contract exactly, and which is why the whole-program
+        // work above (the lowering, `frame_sigs`) is above the loop rather than
+        // inside it. Results come back in input order, so the objects a build
+        // hands the linker are the same bytes in the same order however many
+        // cores the machine has.
+        //
+        // It was the largest single phase left in a native `buri test`: 2.8s of
+        // an 8.2s run over 173 units on a real repository, all of it on one
+        // thread while the other nine sat idle.
+        let wanted: Vec<usize> = (0..lowered.units.len())
+            .filter(|i| units.wants(u32::try_from(*i).unwrap_or(0)))
+            .collect();
+        let compiled = crate::parallel::map(wanted.len(), |k| {
+            let index = wanted.get(k).copied().unwrap_or(0);
+            let name = lowered.units.get(index).map_or("", String::as_str);
+            let mine = members.get(index).unwrap_or(&empty);
+            compile_unit(&whole, name, mine)
+        });
         let mut out = Vec::new();
         let mut errors: Vec<String> = Vec::new();
-        for (index, name) in lowered.units.iter().enumerate() {
-            let unit = u32::try_from(index).unwrap_or(0);
-            if !units.wants(unit) {
-                continue;
-            }
-            let mine = members.get(index).unwrap_or(&empty);
-            match compile_unit(&whole, name, mine) {
+        for result in compiled {
+            match result {
                 Ok(emitted) => out.push(emitted),
                 Err(mut e) => errors.append(&mut e),
             }
@@ -570,6 +612,10 @@ struct Whole<'a> {
     frames: &'a [jit::FrameSig],
     root: &'a Root,
     target: abi::StencilTarget,
+    /// The recursion analysis every unit's `Layouts` is built over, computed
+    /// once here — `layout.rs`'s [`Cycles`] header is the argument, and
+    /// `jit::Jit::new` is where it lands.
+    cycles: &'a std::sync::Arc<crate::compiler::middle::layout::Cycles>,
 }
 
 fn compile_unit(
@@ -577,8 +623,8 @@ fn compile_unit(
     name: &str,
     members: &[usize],
 ) -> Result<Emitted, Vec<String>> {
-    let Whole { lib, program, tables, frames, root, target } = *w;
-    let mut j = jit::Jit::new(lib, tables, frames, target);
+    let Whole { lib, program, tables, frames, root, target, cycles } = *w;
+    let mut j = jit::Jit::new(lib, tables, frames, target, std::sync::Arc::clone(cycles));
     j.compile_unit(program, members);
 
     // A refused IR shape is a diagnostic naming the shape, never an artifact
@@ -875,14 +921,14 @@ mod tests {
 
     #[test]
     fn the_backend_is_named_in_every_key_it_produces() {
-        assert_eq!(Stencil.name(), "stencil");
+        assert_eq!(Stencil::default().name(), "stencil");
     }
 
     /// The identity has to move when the stencils do, because the stencils are
     /// most of what the emitted bytes are.
     #[test]
     fn the_identity_is_the_librarys_hash() {
-        let id = Stencil.identity();
+        let id = Stencil::default().identity();
         assert!(id.starts_with("stencil "), "{id}");
         // One digest per target, space-separated after the name.
         assert_eq!(id.len(), "stencil".len() + abi::StencilTarget::ALL.len() * (1 + 64));
@@ -903,6 +949,37 @@ mod tests {
                     assert_ne!(blob(a).1, blob(b).1, "{} and {}", a.slug(), b.slug());
                 }
             }
+        }
+    }
+
+    /// `Library::fold_twin` answers by index what the emitter used to ask by
+    /// name, and the two must agree for **every** stencil in every library
+    /// this toolchain baked.
+    ///
+    /// A twin that the index missed is a fold that stops being applied — the
+    /// emitted code stays correct and gets bigger and slower, which is exactly
+    /// the kind of regression no other test in this file would notice.
+    #[test]
+    fn every_fold_twin_is_found_by_index_and_by_name() {
+        for t in abi::StencilTarget::ALL {
+            if !available_for(t) {
+                continue;
+            }
+            let lib = load(t).expect("a library this toolchain baked decodes");
+            let mut twins = 0usize;
+            for (i, st) in lib.stencils.iter().enumerate() {
+                for (k, suffix) in library::FOLD_SUFFIXES.iter().enumerate() {
+                    let by_name = lib.get(&format!("{}{suffix}", st.name)).map(|f| &f.name);
+                    let by_index = lib.fold_twin(i, k).map(|f| &f.name);
+                    assert_eq!(by_name, by_index, "{} {}{suffix}", t.slug(), st.name);
+                    twins += usize::from(by_index.is_some());
+                }
+            }
+            // A library with no twins at all would make the assertion above
+            // vacuous. The folds are an AArch64 `imm12` question
+            // (`extract::fold_addressing`), so it is the arm64 libraries that
+            // have to have some.
+            assert_eq!(twins > 0, t.is_arm64(), "{} has {twins} folded twins", t.slug());
         }
     }
 

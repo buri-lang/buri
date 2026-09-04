@@ -269,17 +269,28 @@ fn find(uf: &[u32], mut v: u32) -> u32 {
 // ---------------------------------------------------------------------------
 
 impl<'a> Jit<'a> {
+    /// `cycles` is [`crate::compiler::middle::layout::Cycles`] over the same
+    /// tables, computed **once for the emission** and handed to every unit.
+    ///
+    /// It used to be built here, which is `Layouts::new`, which is a walk of
+    /// every constructor in the program followed by a strongly-connected-
+    /// components pass — per unit. `layout.rs`'s own header says what that
+    /// costs ("building one per unit made a native build quadratic in the
+    /// number of units", `design/PERFORMANCE.md` §6.4) and names
+    /// `Layouts::with_cycles` as the answer; the LLVM backend took it and this
+    /// one had not.
     pub(crate) fn new(
         lib: &'a Library,
         tables: &'a Tables,
         frames: &'a [FrameSig],
         target: StencilTarget,
+        cycles: std::sync::Arc<crate::compiler::middle::layout::Cycles>,
     ) -> Jit<'a> {
         Jit {
             lib,
             target,
             region: Region::new(),
-            layouts: Layouts::new(tables),
+            layouts: Layouts::with_cycles(tables, cycles),
             tables,
             frames,
             entries: Vec::new(),
@@ -332,11 +343,16 @@ impl<'a> Jit<'a> {
     /// clang's layout decision, not the emitter's, and it flips with the
     /// comparison; `None` when the two twins disagree, so that the caller never
     /// has to know which one `emit` will pick.
-    pub(crate) fn elidable_arm(&self, key: &str) -> Option<String> {
-        let s = self.lib.get(key)?;
-        let n = s.holes.get(s.tail?)?.name.clone();
-        if let Some(f) = self.lib.get(&format!("{key}+fold")) {
-            if f.holes.get(f.tail?).map(|h| h.name.clone()) != Some(n.clone()) {
+    ///
+    /// Borrowed out of the library rather than copied out of it, and the fold
+    /// twin asked for by index: this is called twice per conditional branch
+    /// the backend emits, and it used to allocate a `String` for the name, a
+    /// second for the comparison and a third for `key+fold`.
+    pub(crate) fn elidable_arm(&self, key: &str) -> Option<&'a str> {
+        let (at, s) = self.lib.at(key)?;
+        let n = s.holes.get(s.tail?)?.name.as_str();
+        if let Some(f) = self.lib.fold_twin(at, super::library::FOLD_PLAIN) {
+            if f.holes.get(f.tail?).map(|h| h.name.as_str()) != Some(n) {
                 return None;
             }
         }
@@ -367,6 +383,29 @@ impl<'a> Jit<'a> {
     /// is not the type wanted (a `[T]`'s element, a closure's return).
     pub(crate) fn layouts_of(&mut self, ty: Ty) -> Layout {
         self.layouts.of(ty)
+    }
+
+    /// The same answer, shared rather than copied — and without the `Ty` clone
+    /// the owning form needs.
+    ///
+    /// `layout.rs`'s own note on [`Layouts::shared`] states the rule this
+    /// exists for: "every caller in a loop over instructions must use this",
+    /// because a `Layout` carries one `Vec<u32>` per variant and copying it
+    /// per instruction is quadratic in the width of the widest enum a program
+    /// touches. The reference-counting walk is that loop — it asks for a
+    /// layout per field of per variant of per value it releases — and it was
+    /// the largest single cost in emitting `core/ordmap`.
+    pub(crate) fn layout_shared(&mut self, ty: &Ty) -> std::rc::Rc<Layout> {
+        self.layouts.shared(ty)
+    }
+
+    /// [`Jit::layout_of`], shared.
+    pub(crate) fn layout_id_shared(
+        &mut self,
+        prog: &ir::Program,
+        id: ir::TypeId,
+    ) -> std::rc::Rc<Layout> {
+        self.layouts.shared(&prog.type_info(id).ty)
     }
 
     /// Whether `middle::layout` put `field` behind a pointer inside `owner`,
@@ -730,8 +769,8 @@ impl<'a> Jit<'a> {
     /// instruction would be most of this compiler's running time.
     pub(crate) fn emit(&mut self, key: &str, binds: &[(&str, V)]) {
         let lib: &'a Library = self.lib;
-        let mut s = match lib.get(key) {
-            Some(s) => s,
+        let (at, mut s) = match lib.at(key) {
+            Some(found) => found,
             None => crate::diagnostics::ice(&format!(
                 "stencil: no stencil {key} in {}",
                 lib.config
@@ -741,8 +780,13 @@ impl<'a> Jit<'a> {
         // would put in an `imm12` field has to be a multiple of the field's
         // scale and inside its reach, and the two folds are independent, so a
         // stencil can have both, either or neither.
-        for suffix in ["+ifold+fold", "+fold", "+ifold"] {
-            let Some(f) = lib.get(&format!("{key}{suffix}")) else { continue };
+        //
+        // Asked by index rather than by name: `Library::fold_twin` resolved
+        // `key+ifold+fold`, `key+fold` and `key+ifold` once for the whole
+        // library, and this is the loop that used to build those three names
+        // with `format!` per emitted instruction.
+        for k in 0..super::library::FOLD_SUFFIXES_LEN {
+            let Some(f) = lib.fold_twin(at, k) else { continue };
             let fits = f.holes.iter().all(|h| {
                 h.lo12.is_empty()
                     || match binds.iter().find(|(n, _)| *n == h.name.as_str()) {

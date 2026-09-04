@@ -373,7 +373,7 @@ fn emit_selected(
     // units.
     let by_unit = program.funcs_by_unit();
     let observed = emit::observe(program, opts.profile);
-    let cycles = Rc::new(layout::Cycles::new(tables));
+    let cycles = std::sync::Arc::new(layout::Cycles::new(tables));
     let no_members: Vec<usize> = Vec::new();
 
     let mut out = Vec::with_capacity(program.units.len());
@@ -513,7 +513,7 @@ pub fn emit_ir_text(
     let ctx = Context::create();
     let name = program.unit_name(unit).to_string();
     let observed = emit::observe(program, opts.profile);
-    let cycles = Rc::new(layout::Cycles::new(tables));
+    let cycles = std::sync::Arc::new(layout::Cycles::new(tables));
     let mut emitter =
         emit::Unit::new(&ctx, program, tables, &name, opts.profile, &observed, cycles);
     emitter.module.set_triple(&inkwell::targets::TargetTriple::create(&triple));

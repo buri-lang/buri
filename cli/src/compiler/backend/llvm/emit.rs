@@ -190,7 +190,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         name: &str,
         profile: Profile,
         observed: &'a [Observed],
-        cycles: std::rc::Rc<layout::Cycles>,
+        cycles: std::sync::Arc<layout::Cycles>,
     ) -> Unit<'ctx, 'a> {
         Unit {
             ctx,
