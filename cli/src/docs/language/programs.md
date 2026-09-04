@@ -102,7 +102,7 @@ rather than the one value a process has.
 | `alloc()` | `Alloc` | Real, from a per-test arena the runner reclaims. |
 | `stdout()`, `stderr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` is how a test reads it back. |
 | `stdin()` | `Stdin` | At end of input, so a suite never blocks on a pipe nobody is writing to. |
-| `fs()` | `Fs` | In-memory and empty. Writes are visible to that test and discarded after it. |
+| `fs()` | `FsRead`, `FsWrite` | In-memory and empty. Writes are visible to that test and discarded after it. |
 | `net()` | `Net` | Refuses every request until `respond` says what to answer. |
 | `clock()` | `Clock` | At zero, and advances only when the test advances it. |
 | `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
@@ -115,6 +115,11 @@ to the constructor — `clock().at(1000)`, `rand().seed(7)`,
 `env().variables([...]).arguments([...])`, `stdin().lines([...])`,
 `fs().files([...])`, `fs().readOnly()`, `net().respond(...)` — so a chain reads
 in the order it is applied and the value it was called on is unchanged.
+
+`fs()` is one double answering **two** effects, so a context that reads and
+writes binds the one value under both names — `let disk = fs(); ... FsRead:
+disk, FsWrite: disk` — and two calls to `fs()` are two filesystems that share
+nothing.
 
 Because a `testing` path may be imported only by a test source, nothing in a
 shipped program can obtain any of them. And because effects are ordinary
@@ -147,12 +152,15 @@ The first four return `()`; the last three return a value, and are how a
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 test "reads the config it wrote" {
+    let disk = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: memory(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.writeText(ctx, "cfg", "port=8080")); // returns (), so a statement
-    let text = assert.ok(fs.readText(ctx, "cfg")); // returns Str, so a binding
+    let cfg = path.of(ctx, "cfg");
+    assert.ok(fs.writeText(ctx, cfg, "port=8080")); // returns (), so a statement
+    let text = assert.ok(fs.readText(ctx, cfg)); // returns Str, so a binding
     assert.eq(text, "port=8080");
 }
 ```
@@ -199,11 +207,12 @@ implements it. There is one form, and `main` and a test use the same one.
 **As an expression**, anonymous:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Stdout };
+# from "core/fs" import { FsRead };
 let ctx = context {
   Alloc:  host.alloc,
   Stdout: host.stdout,
-  Fs:     rooted(host.fs, "/srv/app"),
+  FsRead: rooted(host.fsRead, "/srv/app"),
 };
 ```
 
@@ -211,13 +220,14 @@ let ctx = context {
 or exported from a test-only module and shared across files:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Clock, Env, Fs, Net, Rand, Stderr, Stdout };
+# from "core/effect" import { Alloc, Clock, Env, Net, Rand, Stderr, Stdout };
+# from "core/fs" import { FsRead };
 
 context Sandbox {
     Alloc: alloc(),
     Stdout: stdout(),
     Stderr: stderr(),
-    Fs: fs(),
+    FsRead: fs(),
     Net: net(),
     Clock: clock(),
     Rand: rand(),
@@ -226,26 +236,30 @@ context Sandbox {
 ```
 
 A named context is **constructed by calling it** — `Sandbox()` — and each call
-builds a fresh one. The parentheses are not decoration: a test's `Fs` and its
-captured `Stdout` accumulate what the test does to them, so two tests sharing
-one value would share its state. A context declaration takes no parameters; what
+builds a fresh one. The parentheses are not decoration: a test's filesystem and
+its captured `Stdout` accumulate what the test does to them, so two tests
+sharing one value would share its state. That is also why `Sandbox` binds
+`FsRead` and not `FsWrite`: each binding is its own expression, so a declaration
+naming both halves would call `fs()` twice and hand the test two unrelated
+filesystems. A test that writes and reads back binds one `fs()` to both names in
+a `context` **expression**, where a `let` can hold it. A context declaration takes no parameters; what
 varies between call sites is expressed by overriding, not by arguments.
 
 **Either form may begin with a spread**, which takes every binding from another
 context and lets the ones that follow replace them:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Fs };
+# from "core/fs" import { FsRead };
 
 context Fixture {
     ..Sandbox(),
-    Fs: fs().files([("config.toml", "port=8080")]),
+    FsRead: fs().files([("config.toml", "port=8080")]),
 }
 
 test "rejects a port above 65535" {
     let ctx = context {
         ..Fixture(),
-        Fs: fs().files([("config.toml", "port=99999")]),
+        FsRead: fs().files([("config.toml", "port=99999")]),
     };
     let e = assert.err(loadConfig(ctx, "config.toml"));
     assert.eq(e, ConfigError.PortOutOfRange);

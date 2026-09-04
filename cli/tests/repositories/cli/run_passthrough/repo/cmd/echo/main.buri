@@ -6,9 +6,9 @@
 // filesystem and the real environment.
 
 from "core/effect" import { Alloc, Env, Proc, Stdout };
-from "core/fs" import { FsRead };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
+from "core/fs" import { FsRead };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/path" import * as path;

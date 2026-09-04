@@ -7,8 +7,8 @@
 // backends read the same bytes and neither needs a runner to be handed them.
 
 from "core/effect" import { Alloc };
-from "core/fs" import { FsRead };
 from "core/fs" import * as fs;
+from "core/fs" import { FsRead };
 from "core/host/testing" import { alloc, fs as memory };
 from "core/path" import * as path;
 from "core/testing/assert" import * as assert;

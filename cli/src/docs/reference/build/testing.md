@@ -148,7 +148,7 @@ fresh clock every call, so a test never inherits another test's.
 | `alloc()` | `Alloc` | Real, with a per-test arena the runner reclaims. |
 | `stdout()`, `stderr()` | `Stdout`, `Stderr` | Captured, and never printed; `captured()` reads either one back. |
 | `stdin()` | `Stdin` | At end of input, so a suite never blocks on a pipe nobody is writing to. |
-| `fs()` | `Fs` | In-memory and empty. Writes are visible to that test and discarded after it. |
+| `fs()` | `FsRead`, `FsWrite` | In-memory and empty. Writes are visible to that test and discarded after it. |
 | `net()` | `Net` | **Refuses** every request with `.Refused`, until `respond` says what to answer. |
 | `clock()` | `Clock` | At zero. `sleepMillis` advances it without sleeping. |
 | `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
@@ -175,6 +175,13 @@ unchanged:
 | `net().respond(fn(Request) => Result<Response, NetError>)` | A network answering every request through that function |
 | `tasks().anyOrder()`, `.everyOrder()`, `.seed(n)` | A scheduler running its tasks in one order, in every order, or in the one that seed names |
 
+`fs()` is the one member answering **two** effects, because the filesystem is
+two: a context that reads and writes binds the one double under both names —
+`let disk = fs(); ... FsRead: disk, FsWrite: disk` — and two calls to `fs()`
+would be two filesystems with nothing in common. A named `context` declaration
+therefore binds only one half, since its bindings are separate expressions with
+no `let` between them to share a value.
+
 `sockets()` has no builder, because there is nothing to configure: a socket is
 minted rather than declared, and `sockets().open()` is the method that does it.
 
@@ -198,8 +205,8 @@ because both write into the one map a file lives in.
 the fold keeps what made it a wrapper: it attenuates the *same* filesystem
 rather than a copy, so a read through the attenuated handle answers whatever the
 filesystem holds now. Writing the wrapper by hand still works, and still has a
-use the method does not cover — it attenuates any `Fs`, including one a test
-wrote, and the method attenuates only this one.
+use the method does not cover — it attenuates any `FsWrite`, including one a
+test wrote, and the method attenuates only this one.
 
 ### Reading the environment back
 
@@ -216,7 +223,8 @@ The outcome of a test is the return value **plus the environment read back**.
 what a call finds comes from `files`, and what a call fails with comes from
 there.
 
-Neither needs the `Fs` effect bound: asserting on what a function wrote is
+None of the three needs either half of the filesystem bound: asserting on what a
+function wrote is
 reading an environment back rather than performing an effect. `snapshot()` is
 sorted rather than in write order so that a function which reorders two writes
 that do not interact does not fail the test, and it lists files only — a
@@ -339,7 +347,7 @@ and answer them in the order they completed:
 
 | Log | Answers |
 |---|---|
-| `fs().calls()` | `[FsCall]` — one per call to any of the eleven methods of `Fs` |
+| `fs().calls()` | `[FsCall]` — one per call to any of the twelve methods of `FsRead` and `FsWrite` |
 | `net().calls()` | `[NetCall]` — one per request, whole: method, URL, headers and body |
 | `stdin().calls()` | `[StdinCall]` — one per `readLine` or `readBytes`, with what it asked for |
 | `sockets().sent()` | `[(Socket, Message)]` — one per message pushed, oldest first |
@@ -347,19 +355,23 @@ and answer them in the order they completed:
 A test writes the call it expects with the constructor of the same name, and
 these are ordinary functions of `core/host/testing`: `readFile(path)`,
 `writeFile(path, body)`, `renameFile(source, destination)`, `fetch(request)`,
-`readBytes(n)` — one per method, taking the call's own arguments. They derive
+`readBytes(n)` — one per method, taking the call's own arguments. A path in one
+of them is the `Str` a `Path` spells, which is what `text()` answers and what a
+`FsCall` records. They derive
 `Eq`, which is what an assertion compares, and `Show`, which is what a failing
 one prints.
 
 ```buri role=test
-from "core/effect" import { Alloc, Fs, IoError, Net, NetError, Response };
+from "core/effect" import { Alloc, Net, NetError, Response };
 # from "core/fs" import * as fs;
+from "core/fs" import { FsRead };
 from "core/host/testing" import { alloc, fetch, fs, net, readFile };
 from "core/net/http" import * as http;
+from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
 
-# fn cached<C: Alloc + Fs + Net>(ctx: C, url: Str): Result<Response, NetError> {
-#     match (fs.readText(ctx, "cache")) {
+# fn cached<C: Alloc + FsRead + Net>(ctx: C, url: Str): Result<Response, NetError> {
+#     match (fs.readText(ctx, path.of(ctx, "cache"))) {
 #         .Ok(_body) => .Ok(http.status(200)),
 #         .Err(_e) => http.get(ctx, url),
 #     }
@@ -370,7 +382,7 @@ test "a miss consults the cache once and then goes upstream" {
     let upstream = net().respond(fn(_request) => .Ok(http.status(200)));
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
         Net: upstream,
     };
     let _ = assert.ok(cached(ctx, "https://example.test/thing"));
@@ -385,7 +397,7 @@ test "a hit never reaches the network at all" {
     let upstream = net();
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
         Net: upstream,
     };
     let _ = assert.ok(cached(ctx, "https://example.test/thing"));
@@ -426,32 +438,45 @@ number. Matching is the `Eq` those records derive, which is what makes a fault
 readable: it is spelled exactly as `calls()` reports the call it names.
 
 ```buri role=test
-from "core/effect" import { Alloc, Fs, IoError };
+from "core/effect" import { Alloc, IoError };
 # from "core/fs" import * as fs;
+from "core/fs" import { FsWrite, Path };
 from "core/host/testing" import { alloc, appendFile, fs };
+from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
 
-# fn commit<C: Alloc + Fs>(ctx: C, entries: [[U8]], i: Int): Result<(), IoError> {
+# fn commit<C: Alloc + FsWrite>(
+#     ctx: C,
+#     at: Path,
+#     entries: [[U8]],
+#     i: Int,
+# ): Result<(), IoError> {
 #     match (entries.get(i)) {
 #         .None => .Ok(()),
 #         .Some(entry) => {
-#             match (fs.append(ctx, "wal", entry)) {
+#             match (fs.append(ctx, at, entry)) {
 #                 .Err(e) => .Err(e),
-#                 .Ok(_written) => commit(ctx, entries, i + 1),
+#                 .Ok(_written) => commit(ctx, at, entries, i + 1),
 #             }
 #         },
 #     }
 # }
 
 test "the third append fails and nothing after it is written" {
+    // `commit` writes and never reads, so the context binds `FsWrite` alone —
+    // and the read-back below needs no effect at all.
     let wal = fs().faults([
         appendFile("wal", [99]).failsOnCall(1, .Other("disk full")),
     ]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: wal,
+        FsWrite: wal,
     };
-    assert.eq(assert.err(commit(ctx, [[97], [98], [99]], 0)), .Other("disk full"));
+    let at = path.of(ctx, "wal");
+    assert.eq(
+        assert.err(commit(ctx, at, [[97], [98], [99]], 0)),
+        .Other("disk full"),
+    );
     assert.eq(assert.ok(wal.read("wal")), "ab");
 }
 ```

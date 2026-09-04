@@ -200,7 +200,7 @@ message TestSuite {
   repeated string dependencies = 2;
 
   // Field 3 was `data` — files the runner read from disk and handed the suite
-  // as its in-memory `Fs`. Retired: only a runner could hand a suite those
+  // as its in-memory filesystem. Retired: only a runner could hand a suite those
   // entries, so `data()` was empty in a linked test binary and the two backends
   // answered differently. A suite writes its own filesystem now, with
   // `fs().files([...])` from `core/host/testing`. The number is not reused.

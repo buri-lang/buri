@@ -94,6 +94,7 @@ from "core/effect" import { Alloc, IoError };
 from "core/path" import { Path };
 
 from "core/effect" export { IoError };
+
 from "core/path" export { Path };
 
 /// Looking at what is on the filesystem.
@@ -259,7 +260,7 @@ export fn writeAtomic<C: Alloc + FsWrite>(
                 .None => .Ok(()),
                 .Some(directory) => ctx.syncFile(directory),
             }
-        }
+        },
     }
 }
 
