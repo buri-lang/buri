@@ -1483,8 +1483,35 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         }
     }
 
+    /// The empty `[T]`: `{ null, 0 }`, and **not a block**.
+    ///
+    /// The null descriptor `cli/runtime/list.rs`'s `block` answers, which the
+    /// stencil backend already writes as two immediates and which
+    /// VALUE-MODEL.md §4 states — "an empty `[T]` allocates nothing, which is
+    /// what makes `list.empty` free". `repr.rs` marks a list's `ptr`
+    /// `Counted::Nullable` for exactly this reason and says so at length: a
+    /// runtime entry that can answer an empty list already hands one back —
+    /// `xs.slice(ctx, 2, 2)` — so the null test is in every `incref` and
+    /// `decref` of a list whether or not this arm ever produces one.
+    ///
+    /// This used to call `buri_rt_alloc(0)`, on the reasoning that `ptr` had to
+    /// be a real payload start because `repr.rs` claimed `NonNull`. It does
+    /// not claim that, and the zero-byte block was not free: it is a block the
+    /// heap check counts, so a program with a *shared* under-decrement over an
+    /// empty list leaked one block here and none on the debug backend. The
+    /// backends now account for the same program identically, which is what
+    /// `cli/tests/fuzz.rs`'s ownership search compares.
+    fn empty_list(&mut self, id: ir::TypeId) -> BasicValueEnum<'ctx> {
+        let slots = self.reprs.of(self.program, id).slots.clone();
+        let values =
+            [self.ptr_ty().const_null().into(), self.ctx.i64_type().const_zero().into()];
+        repr::assemble(self.ctx, &self.builder, &slots, &values)
+    }
+
     /// `[T]` of exactly these elements: **one allocation** (VALUE-MODEL.md
     /// §4), `16 + n * stride(T)` charged, elements stored contiguously.
+    ///
+    /// **No elements is no allocation** — [`Unit::empty_list`].
     fn make_array(
         &mut self,
         state: &mut Function<'ctx>,
@@ -1493,6 +1520,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         elems: &[ir::ValueId],
     ) {
         let ir::Type::Agg(id) = code.ty_of(dest) else { return };
+        if elems.is_empty() {
+            let value = self.empty_list(id);
+            self.set(state, dest, value);
+            return;
+        }
         let (list_slots, element) = {
             let r = self.reprs.of(self.program, id);
             (r.slots.clone(), self.reprs.of(self.program, id).ty.clone())
@@ -5359,29 +5391,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.set(state, dest, want.const_zero());
                 true
             }
-            // `list.empty()` is `Inst::MakeArray` with no elements, spelled
-            // out: a block of no bytes, so that `ptr` is a real payload start
-            // and the count behind it is the one `incref` and `decref` expect.
-            // **Not** the null descriptor `cli/runtime/list.rs`'s `block`
-            // answers — `repr.rs` marks a list's `ptr` `Counted::NonNull`, and
-            // a null one would make the first `decref` read a header at `-16`.
+            // `list.empty()` is `Inst::MakeArray` with no elements, and it goes
+            // to the same place: the null descriptor, which allocates nothing.
             "list.empty" => {
-                let alloc = self.rt_alloc();
-                state.observed.allocates = true;
-                let size = self.ctx.i64_type().const_zero();
-                let block = match self.builder.build_call(alloc, &[size.into()], "empty") {
-                    Ok(call) => {
-                        attrs::set_call_convention(call, attrs::C);
-                        call.try_as_basic_value()
-                            .basic()
-                            .and_then(|v| v.try_into().ok())
-                            .unwrap_or_else(|| self.ptr_ty().const_null())
-                    }
-                    Err(_) => self.ptr_ty().const_null(),
-                };
-                let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
-                let values = [block.into(), self.ctx.i64_type().const_zero().into()];
-                let value = repr::assemble(self.ctx, &self.builder, &slots, &values);
+                let ir::Type::Agg(id) = code.ty_of(dest) else { return false };
+                let value = self.empty_list(id);
                 self.set(state, dest, value);
                 true
             }

@@ -242,12 +242,12 @@ impl<'a> Reprs<'a> {
             // start and the header is at `ptr - 16` (§4).
             //
             // **`Nullable`, not `NonNull`.** VALUE-MODEL.md §4 says a list is
-            // one block and this backend's own `MakeArray` always allocates
-            // one, so `NonNull` describes every list *this file* builds. It
-            // does not describe every list that reaches it: `cli/runtime/
-            // list.rs`'s `block` answers a null `ptr` for a list of no
-            // elements — "an empty `[T]` allocates nothing, which is what makes
-            // `list.empty` free" — so `xs.slice(ctx, 2, 2)` comes back with one.
+            // one block, so `NonNull` describes every *non-empty* list. It
+            // does not describe every list that reaches this backend:
+            // `cli/runtime/list.rs`'s `block` answers a null `ptr` for a list
+            // of no elements — "an empty `[T]` allocates nothing, which is what
+            // makes `list.empty` free" — so `xs.slice(ctx, 2, 2)` comes back
+            // with one, and so does `emit.rs`'s own `empty_list`.
             // A `NonNull` claim on that value is a `load` at `null - 16` in the
             // first `incref` or `decref` that touches it, which is a segfault
             // rather than a wrong answer.

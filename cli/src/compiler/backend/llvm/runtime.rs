@@ -225,8 +225,8 @@ pub const BURI_OK: i64 = -1;
 ///    of, and a call would cost more than the sequence it stands for.
 ///  * **`list.empty`.** `cli/runtime/list.rs`'s `block` answers a **null**
 ///    `ptr` for an empty list, and there is no exported symbol for it anyway;
-///    `[]` is `Inst::MakeArray` with no elements, which this backend already
-///    emits as a real one-block allocation.
+///    `[]` is `Inst::MakeArray` with no elements, and this backend answers both
+///    with the same two immediates ([`super::emit::Unit::empty_list`]).
 ///  * **`json.*`, and every `list.*` entry taking a closure** — `map`,
 ///    `filter`, `fold`, `any`, `all`, `find`, `findIndex`, `count`, `sortBy`,
 ///    `zip`, `flatten`. `cli/runtime/list.rs`'s header states why they are not
