@@ -1161,7 +1161,7 @@ impl Jit<'_> {
             return false;
         }
         let ir::Type::Agg(id) = o.dest.1 else { return false };
-        let l = self.layout_of(prog, id);
+        let l = self.layout_id_shared(prog, id);
         let Some(opt) = super::runtime::OptRepr::of(&l) else { return false };
         let d = o.dest.0;
         let absent = st.label();
@@ -1199,7 +1199,7 @@ impl Jit<'_> {
         let Some(src) = self.block_at(prog, xs, xt) else { return false };
         let Some(c) = self.thunked(prog, st, fslot, fty, 1) else { return false };
         let ir::Type::Agg(id) = o.dest.1 else { return false };
-        let l = self.layout_of(prog, id);
+        let l = self.layout_id_shared(prog, id);
         let (d, pay) = (o.dest.0, payload_at(&l, 0));
 
         let i = st.scratch + t(0);
@@ -1277,7 +1277,7 @@ impl Jit<'_> {
         let want = 1 + usize::from(ctx.is_some()) + 1;
         let Some(c) = self.thunked(prog, st, fslot, fty, want) else { return false };
         let ir::Type::Agg(id) = o.dest.1 else { return false };
-        let l = self.layout_of(prog, id);
+        let l = self.layout_id_shared(prog, id);
         let (res, ok_at) = (o.dest.0, payload_at(&l, 0));
         let acc_w = self.slot_bytes_of(prog, it);
         let acc_ty = self.counted(prog, it);

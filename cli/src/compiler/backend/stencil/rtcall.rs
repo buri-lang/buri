@@ -253,7 +253,7 @@ impl Jit<'_> {
                 let ir::Type::Agg(id) = dty else {
                     return Err(format!("{}: an `Option` destination that is not one", entry.key));
                 };
-                let l = self.layout_of(prog, id);
+                let l = self.layout_id_shared(prog, id);
                 let Some(o) = OptRepr::of(&l) else {
                     return Err(format!("{}: an `Option` destination that is not one", entry.key));
                 };
@@ -303,7 +303,7 @@ impl Jit<'_> {
                 let ir::Type::Agg(id) = dty else {
                     return Err(format!("{}: a `Result` destination that is not one", entry.key));
                 };
-                let l = self.layout_of(prog, id);
+                let l = self.layout_id_shared(prog, id);
                 let Some((ok, err, err_ty)) = self.result_shape(prog, dty) else {
                     return Err(format!("{}: a `Result` destination that is not one", entry.key));
                 };
@@ -386,7 +386,7 @@ impl Jit<'_> {
         // occupies the whole slot, which is what the `w` shape wrote.
         let narrow = match (entry.ret, dest) {
             (Ret::Tag, Some((_, ir::Type::Agg(id)))) => {
-                let l = self.layout_of(prog, id);
+                let l = self.layout_id_shared(prog, id);
                 match &l.repr {
                     Repr::Enum { repr: EnumRepr::Bare { tag }, .. }
                     | Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, .. } => {
@@ -885,7 +885,7 @@ impl Jit<'_> {
                 Leaf { offset: 8, width: 8, float: false },
             ],
             ir::Type::Agg(id) => {
-                let size = self.layout_of(prog, id).size;
+                let size = self.layout_id_shared(prog, id).size;
                 if !size.is_multiple_of(8) {
                     return Err(format!("an aggregate of {size} bytes at a runtime boundary"));
                 }

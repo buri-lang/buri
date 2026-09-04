@@ -169,7 +169,7 @@ pub struct Reprs<'a> {
 impl<'a> Reprs<'a> {
     /// `cycles` is the recursion analysis of these same `tables`, taken once
     /// for the emission rather than once per unit: see [`Cycles`].
-    pub fn new(tables: &'a Tables, cycles: Rc<Cycles>) -> Reprs<'a> {
+    pub fn new(tables: &'a Tables, cycles: std::sync::Arc<Cycles>) -> Reprs<'a> {
         Reprs {
             tables,
             layouts: Layouts::with_cycles(tables, cycles),

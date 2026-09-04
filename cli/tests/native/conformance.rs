@@ -706,7 +706,7 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
 
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    let mut backend = Stencil;
+    let mut backend = Stencil::default();
     let missing = backend.missing_intrinsics(&program, &analysis.checked.tables);
     assert!(missing.is_empty(), "{name}: the backend is missing {missing:?}");
     let units = match backend.emit(&program, &analysis.checked.tables, &opts) {
@@ -785,13 +785,13 @@ fn refusal(name: &str, source: &str) -> Result<String, String> {
     }
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
-    let missing = Stencil.missing_intrinsics(&program, &analysis.checked.tables);
+    let missing = Stencil::default().missing_intrinsics(&program, &analysis.checked.tables);
     if !missing.is_empty() {
         return Ok(missing.join("; "));
     }
     let target = Target { platform: host_platform(), arch: None };
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
-    match Stencil.emit(&program, &analysis.checked.tables, &opts) {
+    match Stencil::default().emit(&program, &analysis.checked.tables, &opts) {
         Ok(_) => Ok(String::new()),
         Err(d) => {
             Ok(d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>().join("; "))
@@ -825,7 +825,7 @@ fn missing_for(name: &str, source: &str) -> Result<Vec<String>, String> {
     }
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
-    Ok(Stencil.missing_intrinsics(&program, &analysis.checked.tables))
+    Ok(Stencil::default().missing_intrinsics(&program, &analysis.checked.tables))
 }
 
 /// `calendar/date.buri` names `lib/calendar/test/date.buri`: the corpus
