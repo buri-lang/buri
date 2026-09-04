@@ -1,0 +1,41 @@
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_insert_stray_brace_app_27ac32/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: expected an identifier, found `,` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_27ac32/main.buri:40:10
+   |
+40 |         ., Ok(written) => written,
+   |          ^
+   |
+   = expected: an identifier
+   = actual: `,`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: there is no type `Ok` [unresolved-type-in-pattern]
+  --> lib/recovery_insert_stray_brace_app_27ac32/main.buri:40:12
+   |
+40 |         ., Ok(written) => written,
+   |            ^^^^^^^^^^^
+   |
+   = a bare identifier in a pattern is always a binding; a variant is written `.Variant` or `Enum.Variant`
+   = fix: write `.Variant` for a variant, or a lowerCamelCase name to bind the value
+error: there is nothing named `written` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_27ac32/main.buri:40:27
+   |
+40 |         ., Ok(written) => written,
+   |                           ^^^^^^^
+   |
+   = did you mean `write`?
+   = fix: correct the spelling, or declare it
+error: this arm is unreachable [unreachable-arm]
+  --> lib/recovery_insert_stray_brace_app_27ac32/main.buri:41:9
+   |
+41 |         .Err(_error) => 0,
+   |         ^^^^^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it

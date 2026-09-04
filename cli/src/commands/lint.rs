@@ -825,6 +825,8 @@ fn check_hygiene(
     check_unused_contexts(session, target, analysis, &unchecked, diagnostics);
     check_unused_context_bounds(session, target, analysis, &unchecked, diagnostics);
     check_discarded_results(own, analysis, diagnostics);
+    check_hand_rolled_discards(own, analysis, &unchecked, diagnostics);
+    check_hand_rolled_comparators(session, own, analysis, &unchecked, diagnostics);
     check_unused_variables(own, analysis, &unchecked, diagnostics);
     check_deep_nesting(own, analysis, diagnostics);
     check_tests_assert(own, analysis, &unchecked, diagnostics);
@@ -2710,6 +2712,272 @@ fn calls_into(
     }
     out.sort_by_key(|(session, _)| (session.file.0, session.start));
     out
+}
+
+// ---------------------------------------------------------------------------
+// The rules that name the standard library
+// ---------------------------------------------------------------------------
+
+/// Whether a type is the enum `name` declares in `module`.
+///
+/// By declaring module as well as by name, so that a repository's own `Order`
+/// — the language permits one, in a module of its own — is not mistaken for
+/// `core/order`'s and told to call a function that would not take it.
+fn declared_by(
+    analysis: &crate::compiler::driver::Analysis,
+    ty: &crate::compiler::semantics::types::Ty,
+    module: &str,
+    name: &str,
+) -> bool {
+    let crate::compiler::semantics::types::Ty::Con(id, _) = ty else { return false };
+    let con = analysis.checked.tables.tycon(*id);
+    con.name == name
+        && analysis.loaded.modules.get(con.module.index()).is_some_and(|m| m.path == module)
+}
+
+/// The expression a block of one tail and no statements is, so that a rule
+/// about `if (a < b) { .Less }` reads the same whether the branch was written
+/// with braces or without them.
+fn tail_of(e: &typed::Expr) -> &typed::Expr {
+    match &e.kind {
+        typed::ExprKind::Block { stmts, tail: Some(t) } if stmts.is_empty() => tail_of(t),
+        _ => e,
+    }
+}
+
+/// Which variant of `core/order`'s `Order` an expression is, where it is one
+/// of the three written down whole.
+fn order_variant<'a>(
+    analysis: &'a crate::compiler::driver::Analysis,
+    e: &typed::Expr,
+) -> Option<&'a str> {
+    let written = tail_of(e);
+    let typed::ExprKind::EnumLit { con, variant, args, .. } = &written.kind else { return None };
+    if !args.is_empty() || !declared_by(analysis, &written.ty, "core/order", "Order") {
+        return None;
+    }
+    analysis.checked.tables.tycon(*con).variants().get(*variant).map(|v| v.name.as_str())
+}
+
+/// A two-operand primitive operation: which operation, at which primitive, on
+/// which pair. Every caller asks what the operation *is* before reading the
+/// pair, so this does not decide which operations count as comparisons.
+type Operands<'a> = (
+    typed::PrimOp,
+    crate::compiler::semantics::types::Prim,
+    &'a typed::Expr,
+    &'a typed::Expr,
+);
+
+fn prim_operation(e: &typed::Expr) -> Option<Operands<'_>> {
+    let typed::ExprKind::Prim { op, prim, args } = &tail_of(e).kind else { return None };
+    let [lhs, rhs] = args.as_slice() else { return None };
+    Some((*op, *prim, lhs, rhs))
+}
+
+/// The `core/order` function that answers a comparison at this primitive,
+/// spelled the way the fix line names it.
+///
+/// Only the primitives the library has an exact comparator for. `order.int`
+/// takes an `Int`, so a rule that offered it for a `U8` would be offering a
+/// call that does not type-check — which is why the narrower integers, the
+/// narrower floats and `Template` are not here.
+fn comparator_for(prim: crate::compiler::semantics::types::Prim) -> Option<&'static str> {
+    use crate::compiler::semantics::types::Prim;
+    match prim {
+        Prim::I64 => Some("order.int"),
+        Prim::F64 => Some("order.float"),
+        Prim::Bool => Some("order.bool"),
+        Prim::Char => Some("order.char"),
+        Prim::Str => Some("order.str"),
+        _ => None,
+    }
+}
+
+/// Whether two expressions are written the same way, read off the source
+/// rather than off the tree.
+///
+/// The question a comparator asks is "are these the same two operands, in the
+/// same order, in both comparisons" — and the text is the answer a reader
+/// would give. Two spellings of one value are not the same text and so are not
+/// matched, which is the conservative direction: this rule declines rather
+/// than guesses.
+fn same_text(session: &Session, a: Span, b: Span) -> bool {
+    if a.file != b.file {
+        return false;
+    }
+    let text = session.map.text(a.file);
+    let (left, right) =
+        (text.get(a.start as usize..a.end as usize), text.get(b.start as usize..b.end as usize));
+    match (left, right) {
+        (Some(l), Some(r)) => l == r,
+        _ => false,
+    }
+}
+
+/// `hand-rolled-comparator`. A function that answers an `Order` by comparing
+/// two primitives with `<` and `>` has written out `core/order`'s own body.
+///
+/// **The shape is the whole rule, and it is held to the ascending direction.**
+/// `if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }` is
+/// `order.int(a, b)`; the same chain with `.Greater` and `.Less` swapped is a
+/// *reversed* comparator and means something else, so it is not a finding. A
+/// chain with a fourth branch — the `isNotANumber` a total float order needs —
+/// is not this shape either, and neither is one whose last branch recurses
+/// rather than answering `.Equal`.
+///
+/// Only the primitives `core/order` has an exact comparator for, and only
+/// where both comparisons name the same two operands in the same order: the
+/// fix is a call, and a call this cannot spell is one it does not offer.
+fn check_hand_rolled_comparators(
+    session: &Session,
+    own: PackageId,
+    analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
+    diagnostics: &mut Diagnostics,
+) {
+    let mine = editable_modules_of(analysis, own);
+    let mut found: Vec<(Span, &'static str)> = Vec::new();
+    for (fid, body) in &analysis.checked.bodies {
+        let info = analysis.checked.tables.fn_info(*fid);
+        if !mine.contains(&info.module) || unchecked.body(*fid) {
+            continue;
+        }
+        if !declared_by(analysis, &info.ret, "core/order", "Order") {
+            continue;
+        }
+        let Some(named) = comparator_chain(session, analysis, &body.expr) else { continue };
+        found.push((info.span, named));
+    }
+    found.sort_by_key(|(span, _)| (span.file.0, span.start));
+    for (span, named) in found {
+        diagnostics.push(
+            Diagnostic::templated("hand-rolled-comparator", span).with_bind("comparator", named),
+        );
+    }
+}
+
+/// The `core/order` function a body spells out, or `None` where the body is
+/// not one of the two chains.
+fn comparator_chain(
+    session: &Session,
+    analysis: &crate::compiler::driver::Analysis,
+    body: &typed::Expr,
+) -> Option<&'static str> {
+    let typed::ExprKind::If { cond, then, else_ } = &tail_of(body).kind else { return None };
+    let (op, prim, lhs, rhs) = prim_operation(cond)?;
+    let named = comparator_for(prim)?;
+    let typed::ExprKind::If { cond: second, then: then2, else_: last } = &tail_of(else_).kind
+    else {
+        return None;
+    };
+    match op {
+        // `if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }`.
+        typed::PrimOp::Lt => {
+            let (op2, prim2, lhs2, rhs2) = prim_operation(second)?;
+            let same = op2 == typed::PrimOp::Gt
+                && prim2 == prim
+                && same_text(session, lhs.span, lhs2.span)
+                && same_text(session, rhs.span, rhs2.span);
+            let spoken = order_variant(analysis, then)? == "Less"
+                && order_variant(analysis, then2)? == "Greater"
+                && order_variant(analysis, last)? == "Equal";
+            (same && spoken).then_some(named)
+        }
+        // `if (a == b) { .Equal } else if (a) { .Greater } else { .Less }`,
+        // which is `order.bool` and only reads as an order at all for a
+        // `Bool` — the type is what says `false` is the smaller of the two.
+        //
+        // The second branch tests one operand alone, and it has to be the
+        // *first* one: `a` is the half whose truth decides, and a chain that
+        // tested `b` there would be the reverse order. Where the two halves
+        // are written the same way there is no first one, and this declines.
+        typed::PrimOp::Eq if prim == crate::compiler::semantics::types::Prim::Bool => {
+            let same = same_text(session, lhs.span, tail_of(second).span)
+                && !same_text(session, rhs.span, tail_of(second).span);
+            let spoken = order_variant(analysis, then)? == "Equal"
+                && order_variant(analysis, then2)? == "Greater"
+                && order_variant(analysis, last)? == "Less";
+            (same && spoken).then_some(named)
+        }
+        _ => None,
+    }
+}
+
+/// `discarded-result-by-hand`. The four-line `match` whose every arm answers
+/// `()` is `core/result.ignore`, written out.
+///
+/// The rule exists because the *other* rule created it. `discarded-result`
+/// reports `ignore`, so a repository whose gate is "lint clean" is a
+/// repository whose authors write this match instead — and the drop is then
+/// scattered where only a reader who thought to look would find it, which is
+/// the thing `discarded-result` was written to prevent. Both forms are
+/// reported, so neither is a way around the other.
+///
+/// **The shape cannot mean anything else.** Two arms, `.Ok` and `.Err`, no
+/// guards, nothing read out of either payload, and both bodies the unit value:
+/// nothing is done in either branch and the `Result` is gone. A match that
+/// answers anything in either arm is a match that handles something, and is
+/// not this.
+fn check_hand_rolled_discards(
+    own: PackageId,
+    analysis: &crate::compiler::driver::Analysis,
+    unchecked: &Unchecked,
+    diagnostics: &mut Diagnostics,
+) {
+    let mine = editable_modules_of(analysis, own);
+    let mut found: Vec<Span> = Vec::new();
+    for (fid, body) in &analysis.checked.bodies {
+        let info = analysis.checked.tables.fn_info(*fid);
+        if !mine.contains(&info.module) || unchecked.body(*fid) {
+            continue;
+        }
+        typed::walk(&body.expr, &mut |e| {
+            if discards_by_hand(analysis, e) {
+                found.push(e.span);
+            }
+        });
+    }
+    found.sort_by_key(|span| (span.file.0, span.start));
+    for span in found {
+        diagnostics.push(Diagnostic::templated("discarded-result-by-hand", span));
+    }
+}
+
+/// Whether an expression is the two-armed `match` that drops a `Result`.
+fn discards_by_hand(analysis: &crate::compiler::driver::Analysis, e: &typed::Expr) -> bool {
+    let typed::ExprKind::Match { scrutinee, arms } = &e.kind else { return false };
+    if !declared_by(analysis, &scrutinee.ty, "core/result", "Result") {
+        return false;
+    }
+    let [first, second] = arms.as_slice() else { return false };
+    if first.guard.is_some() || second.guard.is_some() {
+        return false;
+    }
+    if !matches!(tail_of(&first.body).kind, typed::ExprKind::Unit)
+        || !matches!(tail_of(&second.body).kind, typed::ExprKind::Unit)
+    {
+        return false;
+    }
+    let named = |p: &typed::Pattern| -> Option<String> {
+        let typed::PatKind::Variant { con, variant, fields } = &p.kind else { return None };
+        // Nothing may be read out of the payload: `.Err(.NotFound)` is a match
+        // on which failure it was rather than a drop of it.
+        let plain = |f: &typed::FieldPat| {
+            matches!(
+                f.pattern.kind,
+                typed::PatKind::Wild | typed::PatKind::Bind { sub: None, .. }
+            )
+        };
+        if !fields.iter().all(plain) {
+            return None;
+        }
+        analysis.checked.tables.tycon(*con).variants().get(*variant).map(|v| v.name.clone())
+    };
+    let (Some(a), Some(b)) = (named(&first.pattern), named(&second.pattern)) else {
+        return false;
+    };
+    (a == "Ok" && b == "Err") || (a == "Err" && b == "Ok")
 }
 
 /// `test-without-assertion`. Read syntactically — "the body contains no

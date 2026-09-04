@@ -1,0 +1,33 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_insert_stray_brace_app_17d210/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_insert_stray_brace_app_17d210/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain
+error: expected an expression, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_17d210/main.buri:63:16
+   |
+63 |     let said = @ [
+   |                ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here
+error: there is nothing named `said` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_17d210/main.buri:71:23
+   |
+71 |         .println(ctx, said.join(ctx, " "))
+   |                       ^^^^
+   |
+   = did you mean `main`?
+   = fix: correct the spelling, or declare it

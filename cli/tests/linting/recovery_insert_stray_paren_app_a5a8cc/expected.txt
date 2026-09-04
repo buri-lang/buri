@@ -1,0 +1,35 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_insert_stray_paren_app_a5a8cc/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_insert_stray_paren_app_a5a8cc/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_app_a5a8cc/main.buri:35:23
+   |
+35 |     } else if (left > extra right) {
+   |                       ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this `if` condition is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_app_a5a8cc/main.buri:35:29
+   |
+35 |     } else if (left > extra right) {
+   |                             ^^^^^
+   |
+  --> lib/recovery_insert_stray_paren_app_a5a8cc/main.buri:35:15
+   |
+35 |     } else if (left > extra right) {
+   |               ^ opened here
+   |
+   = fix: write `)` here

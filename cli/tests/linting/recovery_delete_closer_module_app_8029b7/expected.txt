@@ -1,0 +1,20 @@
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_delete_closer_module_app_8029b7/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_8029b7/main.buri:45:28
+   |
+45 | fn forget(held: Option<Int>: () {
+   |                            ^
+   |
+  --> lib/recovery_delete_closer_module_app_8029b7/main.buri:45:10
+   |
+45 | fn forget(held: Option<Int>: () {
+   |          ^ opened here
+   |
+   = fix: write `)` here

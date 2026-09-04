@@ -1,0 +1,39 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the four-line `match` whose every arm answers `()`: discarded-result-by-hand, beside the three matches on a `Result` that are not it — one that handles the failure, one that reads the success, and an `Option` whose arms are `()` as well"
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# What the diagnostic asks for first: handle the error. `?` hands the failure
+# to a caller who answers a `Result` already, which is the shape `say`'s only
+# caller is in — and the finding goes with the `match`, rather than moving to
+# an `ignore()` that would be reported in its turn.
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "fn say<C: Stdout>(ctx: C, line: Str): () {\n    match (write(ctx, line)) {\n        .Ok(_written) => (),\n        .Err(_error) => (),\n    }\n}\n"
+  with: "fn say<C: Stdout>(ctx: C, line: Str): Result<(), Str> {\n    let _ = write(ctx, line)?;\n    .Ok(())\n}\n"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "    let _ = say(ctx, \"one\");\n"
+  with: "    let _ = say(ctx, \"one\")?;\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

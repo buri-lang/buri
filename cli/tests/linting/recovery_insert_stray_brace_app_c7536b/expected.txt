@@ -1,0 +1,20 @@
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_insert_stray_brace_app_c7536b/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: this `match` scrutinee is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_app_c7536b/main.buri:32:28
+   |
+32 |     match (write(ctx, line)@ ) {
+   |                            ^
+   |
+  --> lib/recovery_insert_stray_brace_app_c7536b/main.buri:32:11
+   |
+32 |     match (write(ctx, line)@ ) {
+   |           ^ opened here
+   |
+   = fix: write `)` here

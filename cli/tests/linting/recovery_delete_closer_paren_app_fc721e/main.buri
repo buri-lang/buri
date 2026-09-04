@@ -1,0 +1,61 @@
+// The four-line `match` whose every arm answers `()` is `core/result.ignore`
+// written out: discarded-result-by-hand. It is reported because the rule that
+// reports `ignore` made this shape the way around itself — a repository whose
+// gate is "lint clean" writes these instead, and the drop is then scattered
+// where nobody can grep for it.
+//
+// The three below it are not findings, and each is a different reason.
+// `count` answers something in both arms, so something was handled. `first`
+// reads what the success carried. `forget` is over an `Option`: every arm of
+// it answers `()` too, and it is still not this shape, because the rule is
+// about a failure nobody read.
+
+from "core/effect" import { Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str> {
+    match (io.println(ctx, line) {
+        .Ok(_written) => .Ok(line.len()),
+        .Err(_error) => .Err("could not write to standard output"),
+    }
+}
+
+fn say<C: Stdout>(ctx: C, line: Str): () {
+    match (write(ctx, line)) {
+        .Ok(_written) => (),
+        .Err(_error) => (),
+    }
+}
+
+fn count<C: Stdout>(ctx: C, line: Str): Int {
+    match (write(ctx, line)) {
+        .Ok(_written) => 0,
+        .Err(_error) => 1,
+    }
+}
+
+fn first<C: Stdout>(ctx: C, line: Str): Int {
+    match (write(ctx, line)) {
+        .Ok(written) => written,
+        .Err(_error) => 0,
+    }
+}
+
+fn forget(held: Option<Int>): () {
+    match (held) {
+        .Some(_value) => (),
+        .None => (),
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Stdout: host.stdout,
+    };
+    let _ = say(ctx, "one");
+    let failures = count(ctx, "two");
+    let written = first(ctx, "three");
+    let _ = forget(.Some(failures + written));
+    .Ok(())
+}

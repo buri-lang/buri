@@ -1,0 +1,23 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_delete_separator_paren_app_83f0b5/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_delete_separator_paren_app_83f0b5/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain
+error: a call argument ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_paren_app_83f0b5/main.buri:67:32
+   |
+67 |         label(compareFloats(1.0 2.0)),
+   |                                ^
+   |
+   = fix: write `,` here

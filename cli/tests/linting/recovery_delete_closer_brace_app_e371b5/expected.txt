@@ -1,0 +1,36 @@
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_delete_closer_brace_app_e371b5/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: a `match` used as a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_closer_brace_app_e371b5/main.buri:29:2
+   |
+29 | }
+   |  ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `count` [unexpected-token]
+  --> lib/recovery_delete_closer_brace_app_e371b5/main.buri:31:4
+   |
+31 | fn count<C: Stdout>(ctx: C, line: Str): Int {
+   |    ^^^^^
+   |
+   = expected: `(`
+   = actual: `count`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_e371b5/main.buri:62:1
+   |
+62 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_app_e371b5/main.buri:24:42
+   |
+24 | fn say<C: Stdout>(ctx: C, line: Str): () {
+   |                                          ^ opened here
+   |
+   = fix: write `}` here

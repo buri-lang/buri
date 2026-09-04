@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_paren_app_89d7ce/main.buri:25:12
+   |
+25 |     match (? write(ctx, line)) {
+   |            ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here

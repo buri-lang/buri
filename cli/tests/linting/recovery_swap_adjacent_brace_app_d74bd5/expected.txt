@@ -1,0 +1,28 @@
+error: `if` requires an `else` branch [if-without-else]
+  --> lib/recovery_swap_adjacent_brace_app_d74bd5/main.buri:21:23
+   |
+21 |     if (left < right) { .Less else } if (left > right) { .Greater } else { .Equal }
+   |                       ^^^^^^^^^^^^^^
+   |
+   = `if` is an expression, so both branches must produce a value of the same type
+   = fix: add `else { ... }`; an `if` is an expression, so it has a value either way
+error: this `if` branch is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_d74bd5/main.buri:21:31
+   |
+21 |     if (left < right) { .Less else } if (left > right) { .Greater } else { .Equal }
+   |                               ^^^^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_d74bd5/main.buri:21:23
+   |
+21 |     if (left < right) { .Less else } if (left > right) { .Greater } else { .Equal }
+   |                       ^ opened here
+   |
+   = fix: write `}` here
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_swap_adjacent_brace_app_d74bd5/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain

@@ -1,0 +1,17 @@
+error: expected `{`, found `.` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_173e1e/main.buri:21:23
+   |
+21 |     if (left < right) . {Less } else if (left > right) { .Greater } else { .Equal }
+   |                       ^
+   |
+   = expected: `{`
+   = actual: `.`
+   = fix: write `{` here
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_swap_adjacent_brace_app_173e1e/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain

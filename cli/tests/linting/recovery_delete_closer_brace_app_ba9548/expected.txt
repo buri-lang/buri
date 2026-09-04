@@ -1,0 +1,21 @@
+error: expected an identifier, found `.` [unexpected-token]
+  --> lib/recovery_delete_closer_brace_app_ba9548/main.buri:26:9
+   |
+26 |         .Ok(_written) => (),
+   |         ^
+   |
+   = expected: an identifier
+   = actual: `.`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_ba9548/main.buri:62:1
+   |
+62 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_app_ba9548/main.buri:24:42
+   |
+24 | fn say<C: Stdout>(ctx: C, line: Str): () {
+   |                                          ^ opened here
+   |
+   = fix: write `}` here
