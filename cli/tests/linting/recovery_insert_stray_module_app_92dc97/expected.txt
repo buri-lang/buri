@@ -1,0 +1,60 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_insert_stray_module_app_92dc97/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_insert_stray_module_app_92dc97/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain
+error: expected a function body, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_module_app_92dc97/main.buri:50:31
+   |
+50 | fn label(ordered: Order): Str ? {
+   |                               ^
+   |
+   = expected: a function body
+   = actual: `?`
+   = fix: write `{ ... }` after the return type
+error: there is nothing named `label` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_module_app_92dc97/main.buri:64:9
+   |
+64 |         label(compareInts(1, 2)),
+   |         ^^^^^
+   |
+   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `label` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_module_app_92dc97/main.buri:65:9
+   |
+65 |         label(compareBools(true, false)),
+   |         ^^^^^
+   |
+   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `label` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_module_app_92dc97/main.buri:66:9
+   |
+66 |         label(compareDescending(1, 2)),
+   |         ^^^^^
+   |
+   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `label` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_module_app_92dc97/main.buri:67:9
+   |
+67 |         label(compareFloats(1.0, 2.0)),
+   |         ^^^^^
+   |
+   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `label` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_module_app_92dc97/main.buri:68:9
+   |
+68 |         label(compareOctets(1, 2)),
+   |         ^^^^^
+   |
+   = fix: declare `label`, or import it — a name is in scope only from this module's own declarations and its imports

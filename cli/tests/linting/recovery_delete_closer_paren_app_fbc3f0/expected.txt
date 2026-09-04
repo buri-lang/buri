@@ -1,0 +1,45 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_delete_closer_paren_app_fbc3f0/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_delete_closer_paren_app_fbc3f0/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain
+warning: `compareFloats` is 42 lines long [oversized-function]
+  --> lib/recovery_delete_closer_paren_app_fbc3f0/main.buri:32:4
+   |
+32 | fn compareFloats(left: Float, right: Float): Order {
+   |    ^^^^^^^^^^^^^
+   |
+   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+   = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: expected an identifier, found `if` [unexpected-token]
+  --> lib/recovery_delete_closer_paren_app_fbc3f0/main.buri:38:9
+   |
+38 |         if (math.isNan(right)) { .Equal } else { .Greater }
+   |         ^^
+   |
+   = expected: an identifier
+   = actual: `if`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_fbc3f0/main.buri:74:1
+   |
+74 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_app_fbc3f0/main.buri:32:52
+   |
+32 | fn compareFloats(left: Float, right: Float): Order {
+   |                                                    ^ opened here
+   |
+   = fix: write `}` here

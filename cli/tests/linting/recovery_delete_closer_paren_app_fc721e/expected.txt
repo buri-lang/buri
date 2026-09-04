@@ -1,0 +1,29 @@
+warning: `write` is 45 lines long [oversized-function]
+  --> lib/recovery_delete_closer_paren_app_fc721e/main.buri:17:4
+   |
+17 | fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str> {
+   |    ^^^^^
+   |
+   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+   = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: expected an identifier, found `.` [unexpected-token]
+  --> lib/recovery_delete_closer_paren_app_fc721e/main.buri:19:9
+   |
+19 |         .Ok(_written) => .Ok(line.len()),
+   |         ^
+   |
+   = expected: an identifier
+   = actual: `.`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_paren_app_fc721e/main.buri:62:1
+   |
+62 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_paren_app_fc721e/main.buri:17:58
+   |
+17 | fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str> {
+   |                                                          ^ opened here
+   |
+   = fix: write `}` here

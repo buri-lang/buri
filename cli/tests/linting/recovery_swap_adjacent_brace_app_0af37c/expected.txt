@@ -1,0 +1,43 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_swap_adjacent_brace_app_0af37c/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_swap_adjacent_brace_app_0af37c/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain
+error: this `match` does not cover `.Equal` [match-not-exhaustive]
+  --> lib/recovery_swap_adjacent_brace_app_0af37c/main.buri:51:5
+   |
+51 |     match (ordered) {
+   |     ^^^^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Equal`, or a `_` arm for everything left
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_swap_adjacent_brace_app_0af37c/main.buri:52:14
+   |
+52 |         .Less "less" =>,
+   |              ^
+   |
+   = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_0af37c/main.buri:52:22
+   |
+52 |         .Less "less" =>,
+   |                      ^^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_0af37c/main.buri:51:21
+   |
+51 |     match (ordered) {
+   |                     ^ opened here
+   |
+   = fix: write `}` here

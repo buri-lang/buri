@@ -1,0 +1,25 @@
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_swap_adjacent_module_app_90b2bb/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: expected `:`, found `(` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_90b2bb/main.buri:45:29
+   |
+45 | fn forget(held: Option<Int>)( :) {
+   |                             ^
+   |
+   = expected: `:`
+   = actual: `(`
+   = fix: write `:` here
+error: there is nothing named `forget` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_module_app_90b2bb/main.buri:59:13
+   |
+59 |     let _ = forget(.Some(failures + written));
+   |             ^^^^^^
+   |
+   = did you mean `first`?
+   = fix: correct the spelling, or declare it

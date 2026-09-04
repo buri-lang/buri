@@ -1,0 +1,43 @@
+---
+title: The four-line `match` that drops a `Result` is the anti-pattern
+severity: warning
+message: this drops a `Result` by hand
+note: "every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines"
+fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+---
+```
+match (io.println(ctx, line)) {
+    .Ok(_written) => (),
+    .Err(_error) => (),
+}
+```
+
+Nothing in those four lines handles anything. Both arms answer `()`, the
+failure is gone, and the only thing the `match` did was spell out
+`core/result.ignore` — whose body, in `core/result`, is these same four lines.
+
+**The real fix is to handle the error.** A write that failed is a thing that
+happened, and the program usually has an answer for it: `match` on the `Result`
+and *do something* in the `.Err` arm — count it, report it, fall back — or `?`
+to hand it to a caller who can. That is what a dropped `Result` almost always
+wants, and it is the first thing to try here.
+
+If the drop is genuinely deliberate — a cache write whose failure changes
+nothing a caller could act on, a best-effort `remove` of a file that may not be
+there — then `ignore()` is how to say so. It is one call, it is greppable, and
+`buri docs lint discarded-result` is the rule that collects every one of them
+into a single report.
+
+**Yes, the explicit form is reported too, and that is the point.** This rule
+exists because the other one made this shape attractive. `discarded-result` names
+`ignore()`, so a repository whose gate is "lint clean" is a repository whose
+authors reach for the four-line `match` instead — and the drop is then
+scattered where only a reader who thought to look would find it, which is
+exactly what `discarded-result` was written to prevent. Both forms are reported
+now, so writing this one out buys nothing. What the report asks is that
+somebody decided, not that the count reaches zero.
+
+The rule fires on the shape and nothing near it: two arms, `.Ok` and `.Err`, no
+guards, nothing read out of either payload, and both bodies the unit value. A
+match that answers anything in either arm is a match that handles something,
+and is not a finding.

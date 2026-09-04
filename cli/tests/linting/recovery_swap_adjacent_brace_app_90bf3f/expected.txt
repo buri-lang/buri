@@ -1,0 +1,29 @@
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_swap_adjacent_brace_app_90bf3f/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_90bf3f/main.buri:46:18
+   |
+46 |     match (held{ )
+   |                  ^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_90bf3f/main.buri:46:16
+   |
+46 |     match (held{ )
+   |                ^ opened here
+   |
+   = fix: write `}` here
+error: expected `{`, found `.` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_90bf3f/main.buri:47:9
+   |
+47 |         .Some(_value) => (),
+   |         ^
+   |
+   = expected: `{`
+   = actual: `.`
+   = fix: write `{` here

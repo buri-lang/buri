@@ -1,0 +1,17 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_swap_adjacent_brace_app_1b1623/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+error: expected `{`, found `.` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_1b1623/main.buri:25:68
+   |
+25 |     if (left == right) { .Equal } else if (left) { .Greater } else . {Less }
+   |                                                                    ^
+   |
+   = expected: `{`
+   = actual: `.`
+   = fix: write `{` here
