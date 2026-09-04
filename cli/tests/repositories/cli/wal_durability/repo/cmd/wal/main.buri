@@ -8,8 +8,8 @@
 
 from "core/bytes" import * as bytes;
 from "core/effect" import { Alloc, IoError, Stdout };
-from "core/fs" import { FsRead, FsWrite };
 from "core/fs" import * as fs;
+from "core/fs" import { FsRead, FsWrite };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/path" import * as path;
@@ -54,7 +54,13 @@ export fn main(): Result<(), Str> {
     // make the directory entry durable so the swap survives too.
     let wrote = word(fs.writeBytes(ctx, path.of(ctx, "wal/checkpoint.tmp"), [30]));
     let syncedTemporary = word(fs.sync(ctx, path.of(ctx, "wal/checkpoint.tmp")));
-    let renamed = word(fs.rename(ctx, path.of(ctx, "wal/checkpoint.tmp"), path.of(ctx, "wal/checkpoint")));
+    let renamed = word(
+        fs.rename(
+            ctx,
+            path.of(ctx, "wal/checkpoint.tmp"),
+            path.of(ctx, "wal/checkpoint"),
+        ),
+    );
     let syncedDirectory = word(fs.sync(ctx, path.of(ctx, "wal")));
     let temporaryGone = if (fs.exists(ctx, path.of(ctx, "wal/checkpoint.tmp"))) {
         "no"

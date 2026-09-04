@@ -47,7 +47,7 @@ function __cmd_x_main_buri$main(){
     if(count_27[0]===0){
       $t3=count_27[1];
     }else if(count_27[0]===1){
-      $t3=ui_signal$Signal_get$ptczbt(count_27[1],c_28);
+      $t3=ui_signal$Signal_get$jtsyc5(count_27[1],c_28);
     }else if(count_27[0]===2){
       $t3=count_27[1](c_28);
     }else{
@@ -140,6 +140,6 @@ function __cmd_x_main_buri$Card_color(self_0){
 function ui_node$column$u3rqgv(styles_0,children_1){
   return [[3,[$k26,[0,styles_0]],children_1]];
 }
-function ui_signal$Signal_get$ptczbt(self_0,ctx_1){
+function ui_signal$Signal_get$jtsyc5(self_0,ctx_1){
   return $ui_effect_Scope_read(ctx_1,self_0[0]);
 }

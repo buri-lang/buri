@@ -1174,37 +1174,49 @@ mod read_loop_tests {
 // The host surface: files, directories, arguments and variables
 // ---------------------------------------------------------------------------
 
-/// A program that uses every part of `Fs` a scratch directory needs, plus both
-/// operations of `Env`.
+/// A program that uses every part of the filesystem a scratch directory needs,
+/// plus both operations of `Env`.
 ///
 /// **Every path is relative**, so the run below decides where the program
 /// works by choosing its working directory rather than by baking one into the
 /// source — which is what lets the fixture be a constant and the row be
-/// hermetic.
+/// hermetic. They are also `Path` values rather than strings: `core/fs` takes
+/// nothing else, and `path.of` is where the text becomes one. That is what
+/// makes this row a check on the *native* half of the change too — a `Path` is
+/// a one-field struct, so it flattens to the three C parameters a `Str` was,
+/// and if that were wrong every call below would read a different file.
+///
+/// It binds `FsRead` and `FsWrite` separately, which is what the split costs a
+/// program that does both — and buys the one below it, which binds neither.
 ///
 /// It ends by removing what it made, which is the half `makeDir` had no
 /// inverse for until buri-lang/buri#38: the last two lines are the assertion
 /// that a program can leave the filesystem as it found it.
 fn host_surface() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Env, Fs, Stdout };
+        r#"from "core/effect" import { Alloc, Env, Stdout };
 from "core/env" import * as env;
+from "core/fs" import { FsRead, FsWrite };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/io" import * as io;
+from "core/path" import * as filepath;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Env: host.env,
-        Fs: host.fs,
+        FsRead: host.fsRead,
+        FsWrite: host.fsWrite,
         Stdout: host.stdout,
     };
-    let _made = fs.makeDir(ctx, "scratch/run").mapErr(fn(_e) => "makeDir")?;
-    let _wrote = fs.writeText(ctx, "scratch/run/note.txt", "hello").mapErr(fn(_e) => "write")?;
-    let body = fs.readText(ctx, "scratch/run/note.txt").mapErr(fn(_e) => "read")?;
+    let run = filepath.of(ctx, "scratch/run");
+    let note = run.join(ctx, "note.txt");
+    let _made = fs.makeDir(ctx, run).mapErr(fn(_e) => "makeDir")?;
+    let _wrote = fs.writeText(ctx, note, "hello").mapErr(fn(_e) => "write")?;
+    let body = fs.readText(ctx, note).mapErr(fn(_e) => "read")?;
     let _p1 = io.println(ctx, "read ${body}").mapErr(fn(_e) => "print")?;
-    let names = fs.listDir(ctx, "scratch/run").mapErr(fn(_e) => "listDir")?;
+    let names = fs.listDir(ctx, run).mapErr(fn(_e) => "listDir")?;
     let _p2 = io.println(ctx, "dir ${names.join(ctx, ",")}").mapErr(fn(_e) => "print")?;
     let args = env.args(ctx);
     let _p3 = io.println(ctx, "args ${args.join(ctx, ",")}").mapErr(fn(_e) => "print")?;
@@ -1213,19 +1225,114 @@ export fn main(): Result<(), Str> {
         .None => "absent",
     };
     let _p4 = io.println(ctx, "var ${seen}").mapErr(fn(_e) => "print")?;
-    let held = match (fs.removeDir(ctx, "scratch/run")) {
+    let held = match (fs.removeDir(ctx, run)) {
         .Ok(_gone) => "removed a directory that still held a file",
         .Err(_error) => "not empty",
     };
     let _p5 = io.println(ctx, "held ${held}").mapErr(fn(_e) => "print")?;
-    let _gone = fs.remove(ctx, "scratch/run/note.txt").mapErr(fn(_e) => "remove")?;
-    let _inner = fs.removeDir(ctx, "scratch/run").mapErr(fn(_e) => "removeDir run")?;
-    let _outer = fs.removeDir(ctx, "scratch").mapErr(fn(_e) => "removeDir scratch")?;
-    let left = fs.exists(ctx, "scratch");
+    let _gone = fs.remove(ctx, note).mapErr(fn(_e) => "remove")?;
+    let _inner = fs.removeDir(ctx, run).mapErr(fn(_e) => "removeDir run")?;
+    let scratch = match (run.parent()) {
+        .Some(up) => up,
+        .None => filepath.of(ctx, "scratch"),
+    };
+    let _outer = fs.removeDir(ctx, scratch).mapErr(fn(_e) => "removeDir scratch")?;
+    let left = fs.exists(ctx, scratch);
     io.println(ctx, "left ${left}").mapErr(fn(_e) => "print")
 }
 "#,
     )
+}
+
+/// The same filesystem, read-only: one binding, and the writing half of
+/// `core/fs` is unreachable from anywhere this program can go.
+///
+/// It exists to run the *other* signature natively. `writeAtomic` and
+/// `readBytesIfExists` are written out of the effect methods rather than being
+/// methods of their own, so what a native run adds over the fake is that the
+/// four calls an atomic write is really happened against a real filesystem —
+/// including the `sync` of the directory, which the in-memory double has
+/// nothing to flush for.
+fn read_only_surface() -> String {
+    String::from(
+        r#"from "core/effect" import { Alloc, Stdout };
+from "core/fs" import { FsRead, FsWrite, Path };
+from "core/fs" import * as fs;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/path" import * as filepath;
+from "core/str" import * as str;
+
+/// Names `FsRead` and nothing else: no call this makes can write, and the
+/// compiler is what says so.
+fn describe<C: Alloc + FsRead>(ctx: C, at: Path): Str {
+    match (fs.readBytesIfExists(ctx, at)) {
+        .Err(_e) => "unreadable",
+        .Ok(.None) => "absent",
+        .Ok(.Some(body)) => str.format(ctx, "${body.len()} octets"),
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        FsRead: host.fsRead,
+        FsWrite: host.fsWrite,
+        Stdout: host.stdout,
+    };
+    let db = filepath.of(ctx, "atomic.db");
+    let before = describe(ctx, db);
+    let _p1 = io.println(ctx, "before ${before}").mapErr(fn(_e) => "print")?;
+    let _wrote = fs.writeAtomic(ctx, db, [1, 2, 3]).mapErr(fn(_e) => "writeAtomic")?;
+    let after = describe(ctx, db);
+    let _p2 = io.println(ctx, "after ${after}").mapErr(fn(_e) => "print")?;
+    let temporary = match (db.withSuffix(ctx, ".tmp")) {
+        .Some(t) => fs.exists(ctx, t),
+        .None => true,
+    };
+    let _p3 = io.println(ctx, "temporary ${temporary}").mapErr(fn(_e) => "print")?;
+    let _gone = fs.remove(ctx, db).mapErr(fn(_e) => "remove")?;
+    io.println(ctx, "stem ${db.stem().withDefault("?")}").mapErr(fn(_e) => "print")
+}
+"#,
+    )
+}
+
+/// **`writeAtomic` and `readBytesIfExists` do on a real filesystem what the
+/// in-memory double says they do.**
+///
+/// The fake answers the same four calls in `conformance/lib/semantics/test/
+/// effects.buri`; what this adds is that `rename(2)` and the two `fsync`s
+/// really ran, and that the temporary is not left behind on the way.
+#[test]
+fn a_native_binary_writes_atomically_and_reads_what_may_not_be_there() {
+    unless_ready!();
+    let binary = built("e2e-atomic-surface", &read_only_surface());
+    let dir = binary.parent().expect("the program is in a workspace of its own");
+    let out = std::process::Command::new(&binary)
+        .current_dir(dir)
+        .output()
+        .expect("the program did not start");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        vec![
+            // `.NotFound` on the read became `.None` rather than an error.
+            "before absent",
+            "after 3 octets",
+            // The sibling temporary was renamed away rather than left.
+            "temporary false",
+            // A pure `Path` method, answered natively.
+            "stem atomic",
+        ],
+        "stderr:\n{stderr}"
+    );
 }
 
 /// **A native binary reads and writes files, makes and removes directories,

@@ -126,16 +126,17 @@ from "core/effect" import {
     Alloc, Clock, Env, Frame, Header, IoError, Method, Net, NetError, Proc, Rand,
     Region, Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
+
 // The filesystem's two effects, declared in `core/fs` because their methods
 // name a `Path`.
 from "core/fs" import { FsRead, FsWrite };
-from "core/path" import { Path };
 
 // The one module above `core/effect` this one imports, and it is the surface
 // rather than the authority: `Socket` and `Message` are inert data that
 // `core/net/server` declares, and a double whose readers spoke in `Int`s and
 // framing tags would be a double a test had to translate out of.
 from "core/net/server" import { Message, Socket };
+from "core/path" import { Path };
 
 // --- Alloc --------------------------------------------------------------------
 

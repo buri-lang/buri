@@ -50,8 +50,9 @@ impl Entry {
 }
 
 // `main` takes no arguments. It builds the one context the program has, and
-// those two bindings are the whole effect budget: no `Fs`, so nothing this
-// program transitively calls can open a file.
+// those two bindings are the whole effect budget: neither half of the
+// filesystem is here, so nothing this program transitively calls can read a
+// file, let alone write one.
 export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
@@ -117,12 +118,18 @@ its context parameter:
 #     NotFound,
 # }
 
-effect Fs {
+// The real pair, in `core/fs`. Reading and writing are two effects because
+// they are two grants: a program that reads its configuration has not thereby
+// earned the right to delete it.
+effect FsRead {
     fn readFile(self, path: Str): Result<Str, IoError>;
+}
+
+effect FsWrite {
     fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
 }
 
-fn loadUser<C: Alloc + Fs>(ctx: C, id: Str): Result<User, LoadError>;
+fn loadUser<C: Alloc + FsRead>(ctx: C, id: Str): Result<User, LoadError>;
 ```
 
 The compiler enforces where an effect may arrive: **an effect-carrying
@@ -140,15 +147,16 @@ value bounded by `Net`. Giving a callee less is naming fewer bounds, and the
 bound is what the callee is confined to:
 
 ```buri
-# from "core/effect" import { Fs, Stdout };
+# from "core/effect" import { Stdout };
 # from "core/fs" import * as fs;
+# from "core/fs" import { FsRead, Path };
 # from "core/io" import * as io;
 
-// A caller may hand this the context that also carries `Fs`. The value is the
-// same one; the bound is what this function can do with it.
-fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
+// A caller may hand this the context that also carries `FsRead`. The value is
+// the same one; the bound is what this function can do with it.
+fn logOnly<C: Stdout>(ctx: C, msg: Str, at: Path): () {
     let _ = io.println(ctx, msg).ignore();
-    let _f = fs.readText(ctx, "/etc/passwd"); // ERROR: `C` does not satisfy `Fs`
+    let _f = fs.readText(ctx, at); // ERROR: `C` does not satisfy `FsRead`
 }
 ```
 

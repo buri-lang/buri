@@ -126,12 +126,8 @@ fn extensionDot(name: Str): Option<Int> {
     match (lastDot(name, 0, .None)) {
         .None => .None,
         .Some(at) => {
-            if (at == 0 || at + 1 == name.len()) {
-                .None
-            } else {
-                .Some(at)
-            }
-        }
+            if (at == 0 || at + 1 == name.len()) { .None } else { .Some(at) }
+        },
     }
 }
 
@@ -219,11 +215,7 @@ impl Path {
     /// path.
     export fn fileName(self): Option<Str> {
         let last = lastComponent(self.0);
-        if (last == "" || last == "." || last == "..") {
-            .None
-        } else {
-            .Some(last)
-        }
+        if (last == "" || last == "." || last == "..") { .None } else { .Some(last) }
     }
 
     /// The file name without its extension. The whole name where there is no
@@ -231,9 +223,11 @@ impl Path {
     export fn stem(self): Option<Str> {
         match (self.fileName()) {
             .None => .None,
-            .Some(name) => match (extensionDot(name)) {
-                .None => .Some(name),
-                .Some(at) => .Some(name.slice(0, at)),
+            .Some(name) => {
+                match (extensionDot(name)) {
+                    .None => .Some(name),
+                    .Some(at) => .Some(name.slice(0, at)),
+                }
             },
         }
     }
@@ -255,9 +249,11 @@ impl Path {
     export fn extension(self): Option<Str> {
         match (self.fileName()) {
             .None => .None,
-            .Some(name) => match (extensionDot(name)) {
-                .None => .None,
-                .Some(at) => .Some(name.slice(at + 1, name.len())),
+            .Some(name) => {
+                match (extensionDot(name)) {
+                    .None => .None,
+                    .Some(at) => .Some(name.slice(at + 1, name.len())),
+                }
             },
         }
     }

@@ -475,13 +475,12 @@ fn no_conformance_context_asks_for_a_bound_it_does_not_use() {
 /// holds the body-reading rules to it.
 ///
 /// `unused-context-bound` is what makes the question live. `core/fs` declares
-/// six functions whose `Alloc` bound the body never exercises — `readText` is
-/// `ctx.readFile(path)`, which is an `Fs` method and nothing else — so a rule
-/// that walked every body in the closure would report six findings inside the
-/// standard library for a repository that merely reads a file. Measured with
-/// the module filter lifted, it reports exactly those six.
+/// several functions whose `Alloc` bound the body never exercises — `readText`
+/// is `ctx.readFile(path)`, which is an `FsRead` method and nothing else — so a
+/// rule that walked every body in the closure would report findings inside the
+/// standard library for a repository that merely reads a file.
 ///
-/// The repository below reaches all six through one import, and the assertion
+/// The repository below reaches them through one import, and the assertion
 /// is in two halves so that neither can pass by the rule having gone silent:
 /// nothing outside the repository is named, **and** the one dead bound the
 /// repository itself wrote is reported.
@@ -515,25 +514,32 @@ fn a_finding_never_names_a_file_the_author_cannot_edit() {
     );
 }
 
-/// `fs.readText<C: Alloc + Fs>` demands both of `read`'s bounds; `fs.exists<C:
-/// Fs>` demands one of `touch`'s. So exactly one finding is this repository's,
-/// and the six inside `core/fs` are nobody's.
-const FS_BOUNDS: &str = r#"from "core/effect" import { Alloc, Fs };
+/// `fs.readText<C: Alloc + FsRead>` demands both of `read`'s bounds;
+/// `fs.exists<C: FsRead>` demands one of `touch`'s. So exactly one finding is
+/// this repository's, and the ones inside `core/fs` are nobody's.
+///
+/// Both take a `Path` rather than the text of one, which is what keeps
+/// `touch`'s `Alloc` dead: making a `Path` allocates, so a version of this
+/// that called `filepath.of` inside `touch` would be a repository with no dead
+/// bound to report.
+const FS_BOUNDS: &str = r#"from "core/effect" import { Alloc };
+from "core/fs" import { FsRead, Path };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
+from "core/path" import * as filepath;
 
-fn read<C: Alloc + Fs>(ctx: C, path: Str): Bool {
-  fs.readText(ctx, path).isOk()
+fn read<C: Alloc + FsRead>(ctx: C, at: Path): Bool {
+  fs.readText(ctx, at).isOk()
 }
 
-fn touch<C: Alloc + Fs>(ctx: C, path: Str): Bool {
-  fs.exists(ctx, path)
+fn touch<C: Alloc + FsRead>(ctx: C, at: Path): Bool {
+  fs.exists(ctx, at)
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Fs: host.fs };
-  let _ = read(ctx, "a.txt");
-  let _ = touch(ctx, "b.txt");
+  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead };
+  let _ = read(ctx, filepath.of(ctx, "a.txt"));
+  let _ = touch(ctx, filepath.of(ctx, "b.txt"));
   .Ok(())
 }
 "#;

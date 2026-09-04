@@ -27,7 +27,7 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Thirty-seven of the forty-six files are in it** — the number the harness
+//! **Thirty-eight of the forty-seven files are in it** — the number the harness
 //! prints, re-derived from it rather than incremented by hand, and one the
 //! prose has drifted from more than once. The ordinals in the paragraphs below
 //! record *when* a file joined the set and are not a running total of it;
@@ -477,6 +477,11 @@ const PACKAGES: &[Case] = &[
     // surface each of these two was waiting for.
     included("crypto/sha256.buri"),
     included("text/bytes.buri"),
+    // `core/path` is pure string work over a `Str` the module normalized once,
+    // so it reaches nothing but `core/str` and `core/list` and needed nothing
+    // from either backend. It is in the corpus rather than beside `core/fs`'s
+    // blocks for that reason: a path is not a filesystem.
+    included("text/path.buri"),
     excluded(
         "numbers/floats.buri",
         "core/math's thirteen *transcendentals*, whose answers IEEE 754 does \

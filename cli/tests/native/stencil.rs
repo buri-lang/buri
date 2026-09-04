@@ -1340,7 +1340,7 @@ fn compile_corpus(path: &str) -> Compiled {
 /// the refusal for every file that is not here.
 ///
 /// It is **`native/conformance.rs`'s `PACKAGES`**, entry for entry: the
-/// thirty-six files that file's native set holds. The nine that are not here
+/// thirty-seven files that file's native set holds. The nine that are not here
 /// are the nine it excludes, for the three reasons it records — an inexact
 /// numeric conversion (three files), `json.*` (two) and `core/math`'s
 /// transcendentals (one) — plus the three `ui/*` files no native backend
@@ -1382,6 +1382,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "semantics/traits.buri",
     "semantics/variance.buri",
     "text/bytes.buri",
+    "text/path.buri",
     "vectors/simd.buri",
 ];
 

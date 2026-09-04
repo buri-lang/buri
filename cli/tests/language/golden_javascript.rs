@@ -277,23 +277,25 @@ fn generated_javascript_matches_its_record() {
 /// programs that touch no host at all.
 ///
 /// So both directions are asserted, over one program holding both kinds:
-/// `load` reaches `host.HostFs.readFile` and `count` reaches nothing. Both are
+/// `load` reaches `host.HostFsRead.readFile` and `count` reaches nothing. Both are
 /// recursive, because an inlined function leaves no declaration to look at.
 #[test]
 fn only_the_functions_that_can_park_are_async() {
     let program = "\
-from \"core/effect\" import { Alloc, Fs, Stdout };
+from \"core/effect\" import { Alloc, Stdout };
+from \"core/fs\" import { FsRead, Path };
 from \"core/fs\" import * as fs;
 from \"core/host\" import * as host;
 from \"core/io\" import * as io;
+from \"core/path\" import * as filepath;
 
 // Reaches a host call that blocks, so this one waits.
-fn load<C: Alloc + Fs>(ctx: C, path: Str, n: Int): Int {
+fn load<C: Alloc + FsRead>(ctx: C, at: Path, n: Int): Int {
   if (n <= 0) {
     0
   } else {
-    let head = fs.readText(ctx, path).withDefault(\"\");
-    head.len() + load(ctx, path, n - 1)
+    let head = fs.readText(ctx, at).withDefault(\"\");
+    head.len() + load(ctx, at, n - 1)
   }
 }
 
@@ -303,8 +305,8 @@ fn count(n: Int, acc: Int): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
-  let total = load(ctx, \"a.txt\", 3);
+  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead, Stdout: host.stdout };
+  let total = load(ctx, filepath.of(ctx, \"a.txt\"), 3);
   let _ = io.println(ctx, \"${total} ${count(4, 0)}\").ignore();
   .Ok(())
 }
@@ -326,7 +328,7 @@ export fn main(): Result<(), Str> {
     let load = line("function __cmd_x_main_buri$load", "declaration of `load`");
     assert!(
         load.starts_with("async function "),
-        "`load` reaches `host.HostFs.readFile`, so it waits:\n{load}\n\n{generated}"
+        "`load` reaches `host.HostFsRead.readFile`, so it waits:\n{load}\n\n{generated}"
     );
     let count = line("function __cmd_x_main_buri$count", "declaration of `count`");
     assert!(
@@ -494,7 +496,7 @@ export fn main(): Result<(), Str> {
     );
 
     // And it writes, which is the half that was broken: a program reaching
-    // neither `Fs` nor `Stdin` used to get no prologue and abort inside
+    // neither the filesystem nor `Stdin` used to get no prologue and abort inside
     // `$writeRaw` with "this platform grants no filesystem".
     let out = scratch.exec_js("cmd/x");
     out.ok();
@@ -509,7 +511,7 @@ export fn main(): Result<(), Str> {
     // answer matters: a page has no descriptor to write to, and a bundler
     // would try to resolve `node:module` for it.
     let page = "\
-// PLATFORM: WEB — a page, and one that reaches neither `Fs` nor `writeBytes`.
+// PLATFORM: WEB — a page, and one that reaches neither the filesystem nor `writeBytes`.
 from \"core/effect\" import { Alloc, Stdout };
 from \"core/host\" import * as host;
 from \"core/io\" import * as io;
@@ -532,11 +534,11 @@ export fn main(): Result<(), Str> {
         std::fs::read_to_string(page_scratch.artifact_in("web", "cmd/page")).unwrap();
     assert!(
         !page_artifact.contains("node:module"),
-        "a page reaching neither `Fs` nor `writeBytes` names `node:module`\n\n{page_artifact}"
+        "a page reaching neither the filesystem nor `writeBytes` names `node:module`\n\n{page_artifact}"
     );
     assert!(
         !page_artifact.contains("const $require="),
-        "a page reaching neither `Fs` nor `writeBytes` carries the prologue\n\n{page_artifact}"
+        "a page reaching neither the filesystem nor `writeBytes` carries the prologue\n\n{page_artifact}"
     );
 }
 
