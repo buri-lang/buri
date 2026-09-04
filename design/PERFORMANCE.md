@@ -1682,6 +1682,23 @@ a second attempt in any of the four. A retry is not a fix and this page is not
 where that gets fixed, but the suite's wall time is a number this section
 quotes, so the test that owns it is named.
 
+**It is fixed, and the two rows above are the last ones taken before it was.**
+The test was one serial loop of five thousand seven hundred `analyze_snippet`
+calls, and `analyze_snippet` builds a `SourceMap` and a parse cache from
+nothing — so each two-hundred-byte mutated snippet re-parsed the whole standard
+library. Neither half of that was the corpus's fault: the cases are independent
+pure functions of their own text, and both structures are built to be reused.
+`cli/tests/recovery.rs` now computes every per-file baseline up front, fans the
+cases out over `buri::parallel::map_with`, and gives each worker one `SourceMap`
+and one parse cache to keep — so the standard library is parsed once per core
+rather than once per case, and the verdicts come back in index order to be
+folded into the report on one thread. **Nothing about the population, the
+ceilings or the table changed**: the tables print byte for byte what they
+printed before. On the machine of §6 the whole `recovery` suite went from
+**77.9 s to 9.0 s**, and this test from 65.1 s to 8.9 s. CI's four-core runner
+read 162.9 s for the suite and is not re-measured here; what it now has to do is
+15% less work, divided four ways rather than run down one.
+
 The row worth pausing on is the digests. Forty pinned manifests were re-pinned
 at generator revision 7 and **all forty regenerate to their recorded SHA-256 at
 `0c66339d`** — `--validate --set=scale-full`, exit 0 — which is the whole
