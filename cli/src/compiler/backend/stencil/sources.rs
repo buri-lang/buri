@@ -220,6 +220,40 @@ fn op_applies(op: &str, t: Sc) -> bool {
     }
 }
 
+/// One [`BIN_OPS`] row as a C expression over two already-read operands.
+///
+/// Every site that spells a binary operation goes through here, and the reason
+/// is `eq`/`ne` at a float. SPEC 7.2 rules that `NaN == NaN` is **true** in
+/// this language, so float equality is not C's: both native backends spell it
+/// as `a == b || (a != a && b != b)`, which is the same three comparisons.
+/// `<`, `<=`, `>` and `>=` stay IEEE-754 and so stay C's, which is the
+/// disagreement at `NaN` the language documents.
+///
+/// It was written *once* and read *twice* — the `bin/*` stencil that
+/// materialises the boolean, and the `brcmp/*` supernode that consumes the
+/// same comparison in the branch. Only the first had it, so `a == b` was an
+/// equivalence as a value and IEEE-754 as an `if` condition, in the same
+/// program (buri-lang/buri#40). A shared helper is what stops the two
+/// spellings drifting again.
+///
+/// **`|` and `&`, not `||` and `&&`**, and that is a codegen requirement rather
+/// than a style. A short-circuit turns the condition into three basic blocks,
+/// and clang then lays a `brcmp` out with an *internal* branch into the arm
+/// that `extract::fold_cond_adjacent` deletes — so the equal case jumped to the
+/// arm the unequal one should have taken, and `1.5 == 1.5` was false in an `if`
+/// while `NaN == NaN` was true. The three comparisons have no side effects and
+/// each answers 0 or 1, so the flat form is the same value in one basic block:
+/// three `fcmp`/`cset` pairs and the single conditional branch the fold expects.
+/// `extract::fold_cond` refuses a shape it cannot see through, so a future
+/// operand that does branch is slower rather than wrong.
+fn binary_expr(t: Sc, name: &str, cop: &str, ra: &str, rb: &str) -> String {
+    if t.float && (name == "eq" || name == "ne") {
+        let eq = format!("((({ra}) == ({rb})) | ((({ra}) != ({ra})) & (({rb}) != ({rb}))))");
+        return if name == "eq" { eq } else { format!("!{eq}") };
+    }
+    format!("({ra}) {cop} ({rb})")
+}
+
 // ---------------------------------------------------------------------------
 // C emission
 // ---------------------------------------------------------------------------
@@ -734,20 +768,7 @@ fn arithmetic(o: &mut Out, level: Level) -> Result<(), String> {
                         let rt = if is_cmp { U64 } else { t };
                         let ra = read(t, *a, "A");
                         let rb = read(t, *b, "B");
-                        // SPEC 7.2 rules that `NaN == NaN` is **true** in this
-                        // language, so float equality is not C's. Both native
-                        // backends spell it in one place — `float_equality` —
-                        // as `a == b || (a != a && b != b)`, and this is the
-                        // same three comparisons. Getting it from C's `==` is
-                        // how `codegen`'s two NaN conformance tests failed.
-                        let expr = if t.float && (name == "eq" || name == "ne") {
-                            let eq = format!(
-                                "(({ra}) == ({rb}) || (({ra}) != ({ra}) && ({rb}) != ({rb})))"
-                            );
-                            if name == "eq" { eq } else { format!("!{eq}") }
-                        } else {
-                            format!("({ra}) {cop} ({rb})")
-                        };
+                        let expr = binary_expr(t, name, cop, &ra, &rb);
                         let guard = if (name == "div" || name == "rem") && !t.float {
                             format!("if (({}) == 0) buri_rt_abort_div_zero();\n  ", rb)
                         } else {
@@ -1061,10 +1082,14 @@ fn control(o: &mut Out, level: Level) {
                     for b in &locs {
                         let ra = read(t, *a, "A");
                         let rb = read(t, *b, "B");
+                        // The same expression the `bin/*` stencil computes —
+                        // see [`binary_expr`] for why a float `eq`/`ne` is not
+                        // C's, and why fusing the branch has to keep it.
+                        let test = binary_expr(t, name, cop, &ra, &rb);
                         o.push(
                             &format!("brcmp/{name}/{}/{}{}", t.tag, a.tag(), b.tag()),
                             format!(
-                                "void $NAME(ARGS) {{ if (({ra}) {cop} ({rb})) \
+                                "void $NAME(ARGS) {{ if ({test}) \
                                  {{ __attribute__((musttail)) return _JIT_T(PASS); }} \
                                  else {{ __attribute__((musttail)) return _JIT_F(PASS); }} }}"
                             ),
