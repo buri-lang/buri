@@ -1979,27 +1979,37 @@ mod tests {
         assert_eq!(symbol_for("list.map"), "buri_rt_list_map");
     }
 
-    /// **Every operation of `Fs`, `Env` and `Stdin` has a row here too.**
+    /// **Every operation of `FsRead`, `FsWrite`, `Env` and `Stdin` has a row
+    /// here too.**
     ///
     /// buri-lang/buri#36, on this side of `cli/tests/README.md`'s bar. The two
     /// runtime tables are deliberately not copies of each other — this one
     /// reconstructs the C argument list and the other does not — so "the host
     /// surface is complete" has to be asserted twice or it is asserted for one
-    /// backend and hoped for the other. The list is read off `core/effect`, so
-    /// the operation declared next is covered by the commit that declares it.
+    /// backend and hoped for the other. The list is read off the declaring
+    /// module — the filesystem's two effects live in `core/fs` since the
+    /// read/write split, the rest in `core/effect` — so the operation declared
+    /// next is covered by the commit that declares it.
     #[test]
     fn every_operation_of_the_host_file_and_environment_effects_has_a_row() {
-        let source = crate::compiler::standard_library::MODULES
-            .iter()
-            .find(|m| m.path == "core/effect")
-            .map(|m| m.source)
-            .expect("`core/effect` is a module");
+        let module = |path: &str| {
+            crate::compiler::standard_library::MODULES
+                .iter()
+                .find(|m| m.path == path)
+                .map(|m| m.source)
+                .unwrap_or_else(|| panic!("`{path}` is a module"))
+        };
         let mut checked = 0usize;
-        for (effect, host) in [("Fs", "HostFs"), ("Env", "HostEnv"), ("Stdin", "HostStdin")] {
+        for (source, effect, host) in [
+            (module("core/fs"), "FsRead", "HostFs"),
+            (module("core/fs"), "FsWrite", "HostFs"),
+            (module("core/effect"), "Env", "HostEnv"),
+            (module("core/effect"), "Stdin", "HostStdin"),
+        ] {
             let body = source
                 .split(&format!("export effect {effect} {{"))
                 .nth(1)
-                .unwrap_or_else(|| panic!("no `effect {effect}` in `core/effect`"))
+                .unwrap_or_else(|| panic!("no `effect {effect}` in its declaring module"))
                 .split("\n}")
                 .next()
                 .unwrap_or_else(|| panic!("`effect {effect}` never closes"));

@@ -412,7 +412,7 @@ fn emit_selected(
             &module_name,
             opts.profile,
             &observed,
-            Rc::clone(&cycles),
+            std::sync::Arc::clone(&cycles),
         );
         if let Some(counted) = counted {
             emitter.use_rc_classifier(Rc::clone(counted));
