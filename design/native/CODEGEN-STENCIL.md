@@ -538,6 +538,73 @@ host one. Neither half of this subsection is this backend's alone: both were
 written for the removed one and are true of both writers, which is why §13 lists
 them among what stayed.
 
+### 4.2 What the emission does once, and what it does per unit, 2026-09-03
+
+The emitter's own work is copying stencils, and it always was fast. What was
+slow was everything arranged *around* the copying, and all four of the findings
+below came out of one profile — a real repository's `buri test //...`, eighteen
+packages, 173 codegen units — where the whole of the compile was 5.8 s and the
+whole of the *running* was 1.2 s. §6.9 of `design/PERFORMANCE.md` is the
+measurement; this is what it changed.
+
+**One lowering, not two.** `build::actions::objects_named` lowers the program to
+hash the unit keys, and `emit_units` used to lower it again for the bytes. The
+comment that stood there said the two agreed by construction, which is true —
+`middle::lower` is a pure function of the program — and is exactly why the
+second one was waste. It is now handed over through
+`Backend::adopt_lowering`, a **hint** rather than a second entry point: emission
+is still `emit_units` and it still takes a `Program`, so a backend that ignores
+the hint compiles what it always did. Each lowering carries a whole-program
+`middle::rc::analyze` inside it, and that pair was **1.0 s of an 8.2 s suite**.
+The hint is consumed rather than copied, so a second emission of a different
+program lowers for itself; two tests in `cli/tests/native/stencil.rs` hold both
+halves — the bytes are the ones the backend would have lowered, and a backend
+that adopted once does not serve the next program a stale IR.
+
+**One `Cycles`, not one per unit.** `Jit::new` built its `Layouts` with
+`Layouts::new`, which walks every constructor in the program and runs Tarjan
+over them. `layout.rs`'s own header names that as the mistake it is — "building
+one per unit made a native build quadratic in the number of units",
+`design/PERFORMANCE.md` §6.4 — and names `Layouts::with_cycles` as the answer.
+The LLVM backend had taken it and this one had not. The analysis is now computed
+once per emission and shared, which is what turned its `Rc` into an `Arc`: it is
+the one handle inside a `Layouts` that crosses a thread.
+
+**The units are compiled on a thread each.** `compile_unit` is a pure function
+of the whole-program tables — a `Jit`, a `Region` and a `Layouts` memo of its
+own, reading nothing another unit writes — which is `crate::parallel`'s contract
+exactly, and the whole-program work above the loop (the lowering, `frame_sigs`,
+`Cycles`) is what makes it one. `parallel::map` returns results in input order,
+so §4.1's byte-for-byte reproducibility is unaffected by how the work divided,
+and `emitting_one_program_twice_gives_the_same_objects_in_the_same_order` is
+that stated as a test.
+
+The ceiling this puts the emission against is **the largest single unit**, and
+on that repository it is `core/ordmap` at 11,267 monomorphized functions — the
+whole of the parallel emission's remaining time. Splitting a unit is a build
+system question (a unit is a cache key and an object file, ARCHITECTURE.md §5),
+so what closed the gap instead was making a function cheaper to emit:
+
+**A `Layout` is shared, not copied, and a `Ty` is borrowed, not cloned.**
+`Layouts::shared` exists because a `Layout` carries one `Vec<u32>` per variant,
+and its note says "every caller in a loop over instructions must use this". The
+reference-counting walk *is* that loop — `walk_rc` asks for a layout per field
+of per variant of every value it releases, and `rc` cloned the value's `Ty`
+once per reference operation in the program — and nothing in this backend used
+the shared form. The walk, the copy walk, the counted-type classifier and every
+`MakeStruct`/`GetField`/`GetPayload`/`MakeEnum`/`GetTag` now do.
+
+**A folded twin is found by index, not by name.** `Jit::emit` asks for
+`key+ifold+fold`, `key+fold` and `key+ifold` on **every stencil it copies**, and
+it asked by building three `String`s with `format!` and hashing each one — three
+allocations per machine instruction this backend emits. The names are a function
+of the library alone, so `Library::fold_twin` resolves them once, on first use,
+for the whole library; `every_fold_twin_is_found_by_index_and_by_name` is the
+standing check that the index and the names agree for every stencil of every
+library this toolchain bakes. `Jit::elidable_arm`, which the emitter asks twice
+per conditional branch, borrows its answer out of the library for the same
+reason.
+
 ## 5. The runtime boundary
 
 Every operation `middle::lower` leaves as a `Body::Runtime` or an
