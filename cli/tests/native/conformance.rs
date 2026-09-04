@@ -27,11 +27,11 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Thirty-six of the forty-five files are in it** — the number the harness
+//! **Thirty-seven of the forty-six files are in it** — the number the harness
 //! prints, re-derived from it rather than incremented by hand, and one the
 //! prose has drifted from more than once. The ordinals in the paragraphs below
 //! record *when* a file joined the set and are not a running total of it;
-//! `actor/scoped.buri` is the latest, and its own entry says why it is in.
+//! `codegen/ordering.buri` is the latest, and its own entry says why it is in.
 //! `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
 //! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
@@ -376,6 +376,13 @@ const PACKAGES: &[Case] = &[
     // always been. They were excluded for `imports //lib/codegen`, which was
     // never a statement about the backend — see [`repository`].
     included("codegen/equality.buri"),
+    // The other half of what a derived conformance means, and the file that
+    // `deriveArrayCompare` landing made runnable: `derive Ord` where the field
+    // is a `[T]` used to be a program the front end accepted and this backend
+    // refused by name (buri-lang/buri#27). Its element types are the three that
+    // reach different leaves — a scalar, a `Str` and a struct — so it is also
+    // the check that the derived order and `Str.compare` agree.
+    included("codegen/ordering.buri"),
     included("codegen/tail_calls.buri"),
     // The closure trampoline's pilot. It is in the native set by construction:
     // `list.mapCtxStep` exists so that the *native* boundary — the runtime

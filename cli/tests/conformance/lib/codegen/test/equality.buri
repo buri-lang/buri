@@ -18,8 +18,10 @@
 
 from "core/testing/assert" import * as assert;
 from "//lib/codegen" import {
-    Deep, Flat, Floaty, Holder, Hollow, Listy, mkDeep, mkFloaty, mkHolder, mkHollow,
-    mkListy, mkNest, mkPair, Nest, notANumber, Pair, Wide,
+    Deep, Flat, floatEqAsCondition, floatEqAsGuard, floatEqAsValue,
+    floatEqBoundThenCondition, floatEqNegatedCondition, floatLeAsCondition,
+    floatLtAsCondition, floatNeAsCondition, Floaty, Holder, Hollow, Listy, mkDeep,
+    mkFloaty, mkHolder, mkHollow, mkListy, mkNest, mkPair, Nest, notANumber, Pair, Wide,
 };
 
 // --- structs -------------------------------------------------------------------------
@@ -149,4 +151,66 @@ test "!= is the negation of ==" {
     assert.isTrue(mkPair(1, "x") != mkPair(1, "y"));
     assert.isTrue(Wide.One(1) != Wide.Two(1, "a"));
     assert.isFalse(mkListy([]) != mkListy([]));
+}
+
+// --- the same comparison, read from every position ------------------------------------
+//
+// SPEC 7.2's equivalence is one answer, and a backend has more than one place
+// to spell it: the boolean a comparison materialises, and the fused
+// compare-and-branch a terminator absorbs it into. The stencil backend had the
+// first and not the second, so `floatEqAsValue(nan, nan)` was true while
+// `floatEqAsCondition(nan, nan)` was false in the same program
+// (buri-lang/buri#40). Every position below is the identical source comparison.
+
+test "float equality means the same thing wherever it is read" {
+    let n = notANumber();
+    assert.isTrue(floatEqAsValue(n, n));
+    assert.isTrue(floatEqAsCondition(n, n));
+    assert.isTrue(floatEqBoundThenCondition(n, n));
+    assert.isTrue(floatEqAsGuard(n, n));
+    assert.isTrue(floatEqNegatedCondition(n, n));
+}
+
+test "two separately made NaNs are equal in every position too" {
+    // Reflexivity above, and here two values that are not the same value —
+    // which is what makes this a question about the comparison rather than
+    // about identity.
+    assert.isTrue(floatEqAsValue(notANumber(), notANumber()));
+    assert.isTrue(floatEqAsCondition(notANumber(), notANumber()));
+    assert.isTrue(floatEqBoundThenCondition(notANumber(), notANumber()));
+    assert.isTrue(floatEqAsGuard(notANumber(), notANumber()));
+    assert.isTrue(floatEqNegatedCondition(notANumber(), notANumber()));
+}
+
+test "ordinary floats are unmoved by the equivalence" {
+    // The half a fix breaks if it reaches for the equivalence and drops the
+    // comparison it was meant to keep.
+    assert.isTrue(floatEqAsCondition(1.5, 1.5));
+    assert.isFalse(floatEqAsCondition(1.5, 2.5));
+    assert.isTrue(floatEqAsCondition(0.0, -0.0));
+    assert.isTrue(floatEqBoundThenCondition(1.5, 1.5));
+    assert.isFalse(floatEqBoundThenCondition(1.5, 2.5));
+    assert.isTrue(floatEqAsGuard(1.5, 1.5));
+    assert.isFalse(floatEqAsGuard(1.5, 2.5));
+}
+
+test "!= in a condition is the equivalence's complement" {
+    let n = notANumber();
+    assert.isFalse(floatNeAsCondition(n, n));
+    assert.isFalse(floatNeAsCondition(1.5, 1.5));
+    assert.isTrue(floatNeAsCondition(1.5, 2.5));
+}
+
+test "the ordering comparisons stay IEEE-754 at NaN" {
+    // `<` and friends disagree with `==` at a NaN, and that disagreement is the
+    // language's — so a fix that made every float comparison an equivalence
+    // would be caught here rather than by the cases above.
+    let n = notANumber();
+    assert.isFalse(floatLtAsCondition(n, n));
+    assert.isFalse(floatLeAsCondition(n, n));
+    assert.isFalse(floatLtAsCondition(n, 1.0));
+    assert.isFalse(floatLtAsCondition(1.0, n));
+    assert.isFalse(floatLeAsCondition(n, 1.0));
+    assert.isTrue(floatLtAsCondition(1.0, 2.0));
+    assert.isTrue(floatLeAsCondition(1.0, 1.0));
 }
