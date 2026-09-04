@@ -1938,22 +1938,48 @@ different local names. Measured across part sizes from 256 to 2048 the emission
 wall is the same to within the noise and the object bytes move about 0.2% per
 halving, so 512 is the smallest part that costs about one per cent.
 
+**On the bench, the corpus §6.9 could not help is the one that moves.** §6.6's
+protocol: `--only=mixed --set=native --targets=macos-arm64 --json`, A/B/A/B,
+each cell the better of that compiler's two run medians.
+
+| corpus | before | after | Δ |
+|---|---:|---:|---:|
+| `mixed/10k` | 27.63 ms | 26.65 ms | −3.5% |
+| `mixed-many-files/10k` | 19.60 ms | 19.66 ms | +0.3% |
+| **`mixed-few-files/10k`** | **40.16 ms** | **33.63 ms** | **−16.3%** |
+| `mixed-libs/10k` | 27.20 ms | 26.37 ms | −3.1% |
+| `mixed-deep-graph/10k` | 28.15 ms | 27.74 ms | −1.4% |
+| `mixed-wide-graph/10k` | 27.08 ms | 26.50 ms | −2.1% |
+| **median** | | | **−2.6%** |
+
+`mixed-few-files` is **the same row §6.9 singled out as the finding rather than
+the outlier**: it is the corpus with the fewest codegen units, so it is the one
+with the least for a per-*unit* pool to spread over, and it was the one that
+gained least there — −30.3% where the other five halved. Dividing the inside of
+a unit is precisely the thing that reaches it, and it gains six times what any
+other corpus here does. The controls agree that this is the change and not the
+afternoon: `lex` moved a median −0.4% over the same six corpora, `lex+parse`
+−0.2%, `sema` −0.1%, none of which this touches. One `sema` cell read +9.4% and
+is what this machine's drift looks like; the medians are what the rows are read
+from.
+
 **What the floor is now, and it is a different shape.** 67 ms of the biggest
 unit is its assembly: 27 ms in the object writer, 22 ms building a symbol table
 and 402,000 relocations, 13 ms concatenating the parts, 5 ms hashing. Every one
 of those is one unit's own and serial by construction.
 
 **One finding is recorded and deliberately not acted on.** The `codegen` key
-`compile_unit` computes — 164 ms of the 614, a quarter of the biggest unit —
-is **thrown away**. `build::actions::codegen_units_for` matches the emitted
-object by *name* and keeps the key it was already handed, which
+the stencil backend computes — 164 ms of the 614, a quarter of the biggest
+unit — is **thrown away**. `build::actions::codegen_units_for` matches the
+emitted object by *name* and keeps the key it was already handed, which
 `unit_hashes` computed in parallel above the emission from the same
-`render_func` text; the backend's answer is never read. Half of it is recovered
-here by rendering in the parts (the text is a concatenation, so the digest is
-unchanged), and the other half would need `Backend::emit`'s contract to say
-that the key is the caller's — which is a build-system change, and this one was
-chosen for leaving the cache story alone. `llvm/mod.rs` computes the same
-discarded key the same way.
+`render_func` text; the backend's own answer is never read. The larger half of
+the 164 ms is recovered here by rendering in the parts — the unit's text is
+those texts concatenated, so the digest is unchanged — and the remaining 64 ms
+would need `Backend::emit`'s contract to say that the key is the caller's,
+which is a build-system change and this one was chosen for leaving the cache
+story alone. `llvm/mod.rs` computes the same discarded key the same way, so it
+is one finding and not this backend's.
 
 ---
 

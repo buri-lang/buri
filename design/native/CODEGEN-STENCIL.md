@@ -622,8 +622,10 @@ same order. That is what this is.
 
 **A part is a contiguous run of a unit's members, emitted into a region of its
 own.** `mod.rs::cut` cuts the unit's members — which `funcs_by_unit` yields in
-ascending index — into runs of `PART_MEMBERS`; every part builds its own `Jit`,
-its own `Region` and its own helper table, and `region::Emitted::append`
+ascending index — into `ceil(members / PART_MEMBERS)` runs of equal size, evenly
+rather than into full parts and a remainder, because a last part holding one
+function is a worker's turn spent on setup. Every part builds its own `Jit`, its
+own `Region` and its own helper table, and `region::Emitted::append`
 concatenates the regions in part order afterwards.
 
 **The property that makes it legal is one this backend already had.** A part is
@@ -982,9 +984,10 @@ refusals rather than as a smaller closure.
 **A diagnostic naming the shape, never an artifact that aborts when it reaches
 it.** The prototype emitted an `unsupported` stencil and skipped the tests that
 reached one, because it was measuring throughput on the part it could compile. A
-backend cannot: `compile_unit` finishes the emission — so that one build reports
-*every* refusal rather than the first — and then produces no object at all,
-with one error per distinct shape.
+backend cannot: every part of the unit finishes its emission, and
+`assemble_unit` collects the parts' refusals in part order — so that one build
+reports *every* refusal rather than the first — and then produces no object at
+all, with one error per distinct shape.
 
 `Backend::missing_intrinsics` is the cheaper, earlier form of the same answer,
 and the two are different questions: the hook says "this backend has no body for

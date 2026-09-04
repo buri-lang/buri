@@ -2421,7 +2421,7 @@ impl<'a> Jit<'a> {
         st: &mut Fn2,
     ) {
         let fs = self.frame_sig_of(fi);
-        // `fi` is a member of the unit `Jit::compile_unit` is walking, which
+        // `fi` is a member of the part `Jit::compile_part` is walking, which
         // `ir::Program::funcs_by_unit` drew from this same table; a function
         // with no signature returns nothing, which is what the arms below that
         // read `nrets` already treat as "not the two-operand shape".
