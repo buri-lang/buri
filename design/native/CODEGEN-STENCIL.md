@@ -605,6 +605,78 @@ library this toolchain bakes. `Jit::elidable_arm`, which the emitter asks twice
 per conditional branch, borrows its answer out of the library for the same
 reason.
 
+### 4.3 A unit is emitted in parts, 2026-09-04
+
+§4.2 left the emission against one wall: **the largest single unit**. Units
+compile on a thread each, so an emission cannot finish before its biggest unit
+does, and on the repository §4.2 was measured against that is `core/ordmap`
+instantiated at one program's key types — 11,267 functions, 1.10 s, which was
+the whole of a ten-thread emission.
+
+Two ways past it were available and only one of them is cheap. Splitting the
+unit is a build-system change: a unit is a cache key and an object file
+(ARCHITECTURE.md §5), so a smaller unit is a different cache, a different
+manifest and a different link line. Dividing the *inside* of a unit is not: the
+object is still one object, under the same key, holding the same symbols in the
+same order. That is what this is.
+
+**A part is a contiguous run of a unit's members, emitted into a region of its
+own.** `mod.rs::cut` cuts the unit's members — which `funcs_by_unit` yields in
+ascending index — into runs of `PART_MEMBERS`; every part builds its own `Jit`,
+its own `Region` and its own helper table, and `region::Emitted::append`
+concatenates the regions in part order afterwards.
+
+**The property that makes it legal is one this backend already had.** A part is
+emitted at a base of zero, and so is the next one, and moving a part is adding
+one number to each offset it carries — because *no address is ever baked into
+this backend's code*. §4's first bullet is the reason: every call is a
+relocation against `ir::Func::symbol` whether or not the unit owns the callee,
+a constant-pool reference is an `ARM64_RELOC_PAGE21`/`PAGEOFF12` pair the linker
+resolves, and the one thing that is resolved at emit time — a function-local
+branch — is resolved inside the part, where the distance between two blocks of
+one function is the same whatever the base is. So `append` moves a relocation's
+site by its section's base, moves a `Target::Pool` addend by the pool's, and
+rewrites no bytes at all.
+
+**What a part cannot share with the parts beside it, and what that costs.**
+Three things are per-`Jit` and become per-part: the constant pool's
+deduplication (`Region::pool_index`), the map of where a stencil's spilled
+constants were copied (`Jit::spilled`, x86-64 only), and the generated glue
+(`glue.rs`). The glue is the one that needs a decision, because a helper's
+symbol is minted from its index and two parts do not know what the other asked
+for — so `glue::symbol` takes *two* numbers, the part and the index, and two
+parts that both drop a `[Str]` get a copy each under different local names.
+Measured on a synthetic of the §6.9 shape, the whole of that costs about **1%**
+of the object bytes at `PART_MEMBERS = 512`, and about 0.2% more per halving.
+
+**What is kept per worker rather than per part**, because it is a memo and not
+an answer: the `Layouts` table and the counted-type classifier, handed between
+the parts one worker emits as `jit::Scratch` through `parallel::map_with`. They
+are caches of a pure function of the type tables, which is that function's
+scratch contract exactly; paying for them per part would have been most of what
+the division bought.
+
+**One flat work list, not a pool per unit.** Every unit's parts go into one
+`parallel::map_with` and the per-unit pool that assembles the objects runs after
+it. A pool inside a pool would start `cores × cores` threads, and it would still
+queue the big unit's parts behind that unit's own turn rather than beside every
+other unit's work.
+
+**What is still serial, and why.** Everything downstream of the concatenation is
+one unit's own and stays on the unit's thread: the symbol table, the relocation
+list, the object writer, and the `codegen` key's digest. The key's *text* moved
+into the parts — it is `render_func` over the part's members, and concatenating
+the parts' texts in part order is the same string byte for byte — but the digest
+of it is one stream and stays where it was. On the synthetic's biggest unit that
+leaves about 65 ms of assembly against about 500 ms of body emission, which is
+the next thing in the way rather than a thing to fix now.
+
+The two standing checks are in `cli/tests/native/stencil.rs`:
+`a_unit_of_several_parts_emits_the_same_bytes_twice` builds a unit of at least
+three parts and asserts the bytes and the `codegen` key are identical across two
+emissions, and `a_unit_of_several_parts_links_and_runs` links that object and
+executes it — because every way a part boundary goes wrong is a linking way.
+
 ## 5. The runtime boundary
 
 Every operation `middle::lower` leaves as a `Body::Runtime` or an

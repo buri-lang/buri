@@ -31,7 +31,8 @@ use buri::compiler::backend::{LinkOptions, Linker};
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
 use buri::compiler::backend::{Backend, Emitted, Options, Profile, Target};
 use buri::compiler::backend::stencil::{
-    abi as stencil_abi, unavailable_reason as stencil_unavailable_reason, Stencil,
+    self as stencil, abi as stencil_abi, unavailable_reason as stencil_unavailable_reason,
+    Stencil,
 };
 use buri::compiler::driver;
 use buri::compiler::middle::{self, monomorphize};
@@ -472,6 +473,120 @@ fn emitting_one_program_twice_gives_the_same_objects_in_the_same_order() {
     for (a, b) in once.iter().zip(&twice) {
         assert_eq!(a.bytes, b.bytes, "the bytes of {} moved between emissions", a.name);
     }
+}
+
+/// A module of `n` functions, each of which allocates, calls a closure and
+/// drops a list — so the unit it becomes needs glue as well as bodies.
+///
+/// Built rather than written out because the point of it is its *size*: one
+/// module is one codegen unit, and a unit is cut into parts of
+/// `stencil::PART_MEMBERS` members. Every function here also lifts a lambda, so
+/// `n` source functions are more than `n` members and the count below is what
+/// the tests assert on rather than this number.
+fn many_functions(n: usize) -> String {
+    let mut s = String::from(
+        "from \"core/effect\" import { Alloc, Stdout };\n\
+         from \"core/host\" import * as host;\n\
+         from \"core/io\" import * as io;\n\n",
+    );
+    for i in 0..n {
+        s.push_str(&format!(
+            "fn f{i}<C: Alloc>(ctx: C, x: Int): Int {{\n    \
+             let xs = [\"a{i}\", \"b\"];\n    \
+             xs.map(ctx, fn (t: Str) => t.len()).len() + x + {i}\n}}\n"
+        ));
+    }
+    s.push_str(
+        "export fn main(): Result<(), Str> {\n    \
+         let ctx = context {\n        \
+         Alloc: host.alloc,\n        \
+         Stdout: host.stdout,\n    \
+         };\n    let total = 0;\n",
+    );
+    for i in 0..n {
+        s.push_str(&format!("    let total = f{i}(ctx, total);\n"));
+    }
+    s.push_str("    let _ = io.println(ctx, \"${total}\").ignore();\n    .Ok(())\n}\n");
+    s
+}
+
+/// What [`many_functions`]'s program prints: each `f{i}` adds the two-element
+/// list's length and its own index to the running total.
+fn many_functions_answer(n: usize) -> u64 {
+    let mut total = 0u64;
+    for i in 0..n {
+        total = total + 2 + i as u64;
+    }
+    total
+}
+
+/// How many functions the biggest codegen unit of `source` has, once lowered.
+fn biggest_unit(source: &str) -> usize {
+    let (program, tables) = lowered(source);
+    let ir = buri::compiler::middle::lower::run(&program, &tables);
+    ir.funcs_by_unit().iter().map(Vec::len).max().unwrap_or(0)
+}
+
+/// A unit larger than one part is emitted in pieces, on a thread each, and
+/// concatenated — and the concatenation is the same bytes every time.
+///
+/// This is the determinism test above at the *other* grain. That one divides
+/// the work between units and would still pass if a unit's own division were
+/// scheduling-dependent; this one builds a single unit big enough to be cut
+/// into several parts (`stencil::PART_MEMBERS`) and asks the same question of
+/// it. What would break it is a part reading the region's base, a helper
+/// symbol minted from something other than its part's index, or a pool offset
+/// rebased against the wrong section.
+#[test]
+fn a_unit_of_several_parts_emits_the_same_bytes_twice() {
+    if !supported() {
+        return;
+    }
+    // Enough source functions that the unit is several parts however the
+    // lowering counts them, and small enough that the test is a second.
+    let source = many_functions(stencil::PART_MEMBERS * 3 / 2);
+    let biggest = biggest_unit(&source);
+    assert!(
+        biggest > stencil::PART_MEMBERS * 2,
+        "the point of this test is a unit of at least three parts, and the \
+         biggest is {biggest} members against a part of {}",
+        stencil::PART_MEMBERS
+    );
+    let (program, tables) = lowered(&source);
+    let target = Target { platform: host_platform(), arch: None };
+    let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
+    let once = Stencil::default()
+        .emit(&program, &tables, &opts)
+        .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
+    let twice = Stencil::default()
+        .emit(&program, &tables, &opts)
+        .unwrap_or_else(|d| panic!("refused: {:?}", messages(&d)));
+    assert_eq!(
+        once.iter().map(|u| u.name.as_str()).collect::<Vec<_>>(),
+        twice.iter().map(|u| u.name.as_str()).collect::<Vec<_>>()
+    );
+    for (a, b) in once.iter().zip(&twice) {
+        assert_eq!(a.key, b.key, "the `codegen` key of {} moved between emissions", a.name);
+        assert_eq!(a.bytes, b.bytes, "the bytes of {} moved between emissions", a.name);
+    }
+}
+
+/// And the program that unit belongs to links and prints the right number.
+///
+/// Two emissions agreeing cannot tell a pair of identically wrong answers
+/// apart, and the ways a part boundary goes wrong are all *linking* ways: a
+/// call from one part to a function in another, a helper two parts both wanted,
+/// a constant-pool reference whose addend was rebased against the code. So the
+/// object goes through `cc` and the result is executed.
+#[test]
+fn a_unit_of_several_parts_links_and_runs() {
+    if !supported() {
+        return;
+    }
+    let n = stencil::PART_MEMBERS * 3 / 2;
+    let ran = run("many-parts", &many_functions(n));
+    assert_eq!(ran.status, 0, "{}", ran.stderr);
+    assert_eq!(ran.stdout, format!("{}\n", many_functions_answer(n)), "{}", ran.stderr);
 }
 
 /// And the program those bytes are of runs, and prints what it computes.

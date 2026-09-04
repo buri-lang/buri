@@ -1866,7 +1866,9 @@ by the **largest single unit** — on this repository `core/ordmap`, 11,267
 monomorphized functions, which is 1.10 s of the 1.10 s. Splitting a unit is a
 build-system question (a unit is a cache key and an object file,
 `design/native/ARCHITECTURE.md` §5), so the next win on that line is either
-making a function cheaper to emit again or making a unit smaller. Above it,
+making a function cheaper to emit again or making a unit smaller. **§6.10 is
+that ceiling taken down**, by a third route neither of those names: the unit is
+not split, its *emission* is. Above it,
 `actions::prepare` is now the largest single-threaded phase at 1.40 s, of which
 0.79 s is `middle::rc::analyze` — and it is *still* the whole-program analysis
 the emitter no longer duplicates, so halving it would be worth as much again.
@@ -1876,6 +1878,82 @@ the emitter no longer duplicates, so halving it would be worth as much again.
 cache and then to disk; and `commands/test.rs`'s `run_blocks` re-`exec`s that
 binary once per failing block, which on this repository is four spawns of 102 MB
 for three failures rather than one. Neither is a stencil.
+
+### 6.10 The largest unit stops being the ceiling, 2026-09-04
+
+§6.9 left the emission bounded by one unit, and named the two ways past it that
+it could see: make a function cheaper, or make a unit smaller. There is a third,
+and it is the one that does not touch the build system — **divide the emission
+of a unit without dividing the unit**. `design/native/CODEGEN-STENCIL.md` §4.3
+is the mechanism; this is the measurement.
+
+**The measurement is on a synthetic, and that is a caveat rather than a
+footnote.** §6.9's repository no longer compiles against this toolchain: the
+filesystem effect was split into `FsRead` and `FsWrite` in the meantime
+(`core/fs`), and nine of its eighteen packages are written against the
+un-split one, so the half that still compiles emits about 20 ms in total and
+can say nothing about a 1.10 s unit. What replaces it is a program *shaped*
+like the finding — one module instantiating `core/ordmap` at two hundred key
+and value types, which puts **14,200 monomorphized functions in `core_ordmap`**
+against the real repository's 11,267 — and the numbers below should be read as
+that shape rather than as that repository.
+
+**Where the 0.61 s in the biggest unit went**, from a timer compiled into a
+throwaway toolchain, minimum of several runs:
+
+| Within one unit's emission | ms | share |
+|---|---:|---:|
+| the members' bodies (`Jit::compile_part`'s loop) | 405 | 66% |
+| the `codegen` key's **text** (`render_func` per member) | 100 | 16% |
+| the `codegen` key's **digest**, and the `String` the old render allocated per function | 64 | 10% |
+| the symbol table and the relocation list | 19 | 3% |
+| the Mach-O writer | 17 | 3% |
+| the generated glue — 2,801 helpers | 8 | 1% |
+| `Jit::plan` and `Jit::resolve` | 1 | <1% |
+| **total** | **614** | |
+
+Two thirds of it is the per-function loop, which is the ideal shape: many small
+functions, no shared mutable state that is not a memo. So the members are cut
+into contiguous parts of 512 and the parts of *every* unit are one flat work
+list, with the per-unit assembly — symbols, relocations, writer, digest — left
+where it was.
+
+| | before | after |
+|---|---:|---:|
+| **the whole emission** (throwaway timer, min of 5 alternating) | **585 ms** | **211 ms** |
+| the biggest unit's assembly, which is now the floor | — | 67 ms |
+| cold `buri build //...`, two *shipping* toolchains, A/B/A/B ×6, min | **2,022 ms** | **1,565 ms** |
+| the same, medians | 2,058 ms | 1,631 ms |
+| object bytes in the action cache | 96,680 KB | 97,732 KB |
+
+**0.36× on the phase and 0.77× on the wall**, and the gap between those two
+numbers is the point: the emission was 29% of this build and is now 13% of it,
+so the next thing in the way is somewhere else.
+
+**The 1.1% of object bytes is what the division costs and is not free.** Three
+things are per-`Jit` and become per-part — the constant pool's deduplication,
+the map of a stencil's spilled constants, and the generated glue — and the glue
+is the one that shows: two parts that both drop a `[Str]` get a copy each under
+different local names. Measured across part sizes from 256 to 2048 the emission
+wall is the same to within the noise and the object bytes move about 0.2% per
+halving, so 512 is the smallest part that costs about one per cent.
+
+**What the floor is now, and it is a different shape.** 67 ms of the biggest
+unit is its assembly: 27 ms in the object writer, 22 ms building a symbol table
+and 402,000 relocations, 13 ms concatenating the parts, 5 ms hashing. Every one
+of those is one unit's own and serial by construction.
+
+**One finding is recorded and deliberately not acted on.** The `codegen` key
+`compile_unit` computes — 164 ms of the 614, a quarter of the biggest unit —
+is **thrown away**. `build::actions::codegen_units_for` matches the emitted
+object by *name* and keeps the key it was already handed, which
+`unit_hashes` computed in parallel above the emission from the same
+`render_func` text; the backend's answer is never read. Half of it is recovered
+here by rendering in the parts (the text is a concatenation, so the digest is
+unchanged), and the other half would need `Backend::emit`'s contract to say
+that the key is the caller's — which is a build-system change, and this one was
+chosen for leaving the cache story alone. `llvm/mod.rs` computes the same
+discarded key the same way.
 
 ---
 
