@@ -1340,7 +1340,7 @@ fn compile_corpus(path: &str) -> Compiled {
 /// the refusal for every file that is not here.
 ///
 /// It is **`native/conformance.rs`'s `PACKAGES`**, entry for entry: the
-/// thirty-six files that file's native set holds. The nine that are not here
+/// thirty-eight files that file's native set holds. The nine that are not here
 /// are the nine it excludes, for the three reasons it records — an inexact
 /// numeric conversion (three files), `json.*` (two) and `core/math`'s
 /// transcendentals (one) — plus the three `ui/*` files no native backend
@@ -1349,6 +1349,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "actor/counter.buri",
     "actor/scoped.buri",
     "calendar/date.buri",
+    "calendar/duration.buri",
     "canary/canary.buri",
     "codegen/bitwise.buri",
     "codegen/equality.buri",
@@ -1384,6 +1385,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "semantics/traits.buri",
     "semantics/variance.buri",
     "text/bytes.buri",
+    "text/hex.buri",
     "vectors/simd.buri",
 ];
 
@@ -1422,7 +1424,7 @@ const CORPUS_COMPILES: &[&str] = &[
 /// the two tests below want two different amounts of the same work. CI's
 /// liveness step runs the ratchet **alone**, ahead of everything, to find out
 /// whether this host has a backend at all — and a ratchet that linked and ran
-/// thirty-six programs to answer that would put the whole corpus through the
+/// thirty-eight programs to answer that would put the whole corpus through the
 /// gate twice, once there and once in the step after it. So the ratchet asks
 /// for [`Depth::Compile`] and the run test asks for [`Depth::Run`]; under
 /// `cargo test` the two children overlap and the deeper one sets the wall time.
@@ -1538,7 +1540,7 @@ struct Report {
 ///
 /// Once, rather than once per test: what this replaces was two serial walks of
 /// the corpus, each running the whole front end, monomorphizer and backend over
-/// every file, and the second of them linking and running thirty-six programs
+/// every file, and the second of them linking and running thirty-eight programs
 /// one after another. A memo per depth is what makes a second `#[test]` asking
 /// the same question free under `cargo test`; under `cargo nextest`, which puts
 /// every test in a process of its own, each pays for its own child — which is
@@ -1947,7 +1949,7 @@ fn the_corpus_census_is_a_ratchet() {
 /// got the answers wrong would pass the census next door. A failed assertion
 /// ends the process (SPEC 6.9), so the exit status is the result.
 ///
-/// `native/conformance.rs::the_native_set_passes` now runs the same thirty-six
+/// `native/conformance.rs::the_native_set_passes` now runs the same thirty-eight
 /// files through the same backend and reports the block count with them, so
 /// this is the narrower of two readings of one corpus. It stays because CI's
 /// Linux/arm64 job selects `stencil::` by name and this is the test in that

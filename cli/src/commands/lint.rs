@@ -814,6 +814,8 @@ fn check_hygiene(
             check_unused_imports(session, m, diagnostics);
             check_duplicate_imports(m, diagnostics);
             check_warning_comments(session, m, diagnostics);
+            check_hex_digit_tables(session, m, diagnostics);
+            check_time_unit_conversions(session, m, diagnostics);
             check_function_shapes(session, m, diagnostics);
         }
     }
@@ -964,6 +966,186 @@ fn markers_in(text: &str, from: usize, to: usize, out: &mut Vec<(usize, &'static
             at = end;
         }
     }
+}
+
+/// The sixteen hexadecimal digits, in the order a table of them is written.
+const HEX_DIGITS: [char; 16] =
+    ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
+
+/// `hex-digit-table`. A program that writes the digits out has written the
+/// half of a hexadecimal encoder that `core/char` already is, and the half
+/// underneath it — the shift, the mask, the index — comes with it every time.
+///
+/// Read off the tokens rather than off the tree, for `warning-comment`'s
+/// reason turned around: this is about a *literal*, and a literal is one token
+/// whether or not the declaration around it type-checked. Two shapes are the
+/// table, and they are the two ways to write a sequence of characters down: a
+/// string of them, and a list of character literals.
+///
+/// **Nothing else is the table.** Sixteen characters in that order are not a
+/// coincidence anybody has to weigh — the run has to match digit for digit, in
+/// one case, with nothing between them but the commas of a list.
+fn check_hex_digit_tables(session: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
+    use crate::parsing::lexer::TokenKind;
+    let text = session.map.text(m.file);
+    let lexed = crate::parsing::lexer::lex(text, m.file);
+    let count = lexed.tokens.len();
+    let alphabet: String = HEX_DIGITS.iter().collect();
+    let mut at = 0usize;
+    while at < count {
+        let found = match lexed.tokens.kind(at) {
+            // A string of them, which is how the standard library's own two
+            // used to be written.
+            TokenKind::Str => {
+                let spelled = lexed.tokens.str_at(at).to_ascii_lowercase();
+                if spelled.contains(&alphabet) { Some(at + 1) } else { None }
+            }
+            // A list of character literals, which is how both of the worked
+            // monorepo's copies are.
+            TokenKind::Char => hex_digit_run(&lexed.tokens, at, count),
+            _ => None,
+        };
+        match found {
+            Some(end) => {
+                diagnostics
+                    .push(Diagnostic::templated("hex-digit-table", lexed.tokens.span(at)));
+                at = end;
+            }
+            None => at += 1,
+        }
+    }
+}
+
+/// The index just past a run of the sixteen digits as character literals, or
+/// `None` where the run beginning here is not one.
+fn hex_digit_run(
+    tokens: &crate::parsing::lexer::Tokens<'_>,
+    from: usize,
+    count: usize,
+) -> Option<usize> {
+    use crate::parsing::lexer::TokenKind;
+    let mut at = from;
+    for want in HEX_DIGITS {
+        if at >= count || tokens.kind(at) != TokenKind::Char {
+            return None;
+        }
+        if tokens.ch(at).to_ascii_lowercase() != want {
+            return None;
+        }
+        at += 1;
+        // A list separator, and nothing else: `['0', '1']` and `['0' '1']` are
+        // not the same run of tokens, and only one of them is a table.
+        if at < count && tokens.kind(at) == TokenKind::Comma {
+            at += 1;
+        }
+    }
+    Some(at)
+}
+
+/// The unit a name spells, and what to call it in a message.
+///
+/// Longest first, so `MILLISECONDS` is read as milliseconds rather than as the
+/// `SECONDS` inside it.
+const TIME_UNITS: &[(&str, &str)] = &[
+    ("NANOSECONDS", "nanoseconds"),
+    ("NANOSECOND", "nanoseconds"),
+    ("NANOS", "nanoseconds"),
+    ("MICROSECONDS", "microseconds"),
+    ("MICROSECOND", "microseconds"),
+    ("MICROS", "microseconds"),
+    ("MILLISECONDS", "milliseconds"),
+    ("MILLISECOND", "milliseconds"),
+    ("MILLIS", "milliseconds"),
+    ("SECONDS", "seconds"),
+    ("SECOND", "seconds"),
+    ("SECS", "seconds"),
+    ("MINUTES", "minutes"),
+    ("MINUTE", "minutes"),
+    ("MINS", "minutes"),
+    ("HOURS", "hours"),
+    ("HOUR", "hours"),
+    ("DAYS", "days"),
+    ("DAY", "days"),
+];
+
+/// How many nanoseconds a millisecond holds, which is the one factor this rule
+/// reads out of an expression.
+const NANOS_PER_MILLISECOND: u128 = 1_000_000;
+
+/// `time-unit-conversion`. Two shapes, one rule: a constant whose *name* is a
+/// conversion between two units of time, and a count of milliseconds
+/// multiplied out to nanoseconds in place.
+///
+/// **Both are held to a name.** A `let` fires only where the identifier reads
+/// `<UNIT>_PER_<UNIT>` out of the vocabulary above, and a multiplication only
+/// where the other operand is an identifier that says milliseconds. A bare
+/// `1_000_000` is a million of something and this rule does not guess which,
+/// which is why a `PPM_DENOMINATOR` and a test asserting `a / 1000000` are not
+/// findings.
+fn check_time_unit_conversions(session: &Session, m: &ModuleData, diagnostics: &mut Diagnostics) {
+    use crate::parsing::lexer::TokenKind;
+    let text = session.map.text(m.file);
+    let lexed = crate::parsing::lexer::lex(text, m.file);
+    let count = lexed.tokens.len();
+    let mut found: Vec<(Span, String)> = Vec::new();
+    for at in 0..count {
+        // `let NANOS_PER_MILLISECOND = ...`: the name is the conversion, and
+        // `core/time` exports that constant under that name already.
+        if lexed.tokens.kind(at) == TokenKind::KeywordLet
+            && at + 1 < count
+            && lexed.tokens.kind(at + 1) == TokenKind::Ident
+        {
+            if let Some(units) = conversion_named(lexed.tokens.text(at + 1)) {
+                found.push((lexed.tokens.span(at + 1), units));
+                continue;
+            }
+        }
+        if lexed.tokens.kind(at) != TokenKind::Star || at == 0 || at + 1 >= count {
+            continue;
+        }
+        let (before, after) = (at - 1, at + 1);
+        let converted = (names_milliseconds(&lexed.tokens, before)
+            && is_a_million(&lexed.tokens, after))
+            || (is_a_million(&lexed.tokens, before) && names_milliseconds(&lexed.tokens, after));
+        if converted {
+            let span = Span::new(
+                m.file,
+                lexed.tokens.span(before).start as usize,
+                lexed.tokens.span(after).end as usize,
+            );
+            found.push((span, "milliseconds to nanoseconds".to_string()));
+        }
+    }
+    for (span, units) in found {
+        diagnostics.push(
+            Diagnostic::templated("time-unit-conversion", span).with_bind("units", units),
+        );
+    }
+}
+
+/// Whether a token is an identifier that says milliseconds.
+fn names_milliseconds(tokens: &crate::parsing::lexer::Tokens<'_>, at: usize) -> bool {
+    tokens.kind(at) == crate::parsing::lexer::TokenKind::Ident
+        && tokens.text(at).to_ascii_uppercase().contains("MILLI")
+}
+
+fn is_a_million(tokens: &crate::parsing::lexer::Tokens<'_>, at: usize) -> bool {
+    tokens.kind(at) == crate::parsing::lexer::TokenKind::Int
+        && tokens.int(at) == NANOS_PER_MILLISECOND
+}
+
+/// The conversion a name spells, as "<from> to <to>", or `None` where the name
+/// is not `<UNIT>_PER_<UNIT>`.
+///
+/// `NANOS_PER_MILLISECOND` is how many nanoseconds one millisecond holds, so it
+/// converts milliseconds *to* nanoseconds: the half after `_PER_` is what a
+/// caller has, and the half before it is what the multiply gives back.
+fn conversion_named(name: &str) -> Option<String> {
+    let upper = name.to_ascii_uppercase();
+    let (numerator, denominator) = upper.split_once("_PER_")?;
+    let unit = |part: &str| TIME_UNITS.iter().find(|(k, _)| *k == part).map(|(_, u)| *u);
+    let (to, from) = (unit(numerator)?, unit(denominator)?);
+    Some(format!("{from} to {to}"))
 }
 
 /// `unused-variable`. A `let` names a value for the code below it, so a name

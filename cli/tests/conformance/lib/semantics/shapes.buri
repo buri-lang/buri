@@ -742,7 +742,9 @@ export fn stamp<C: Clock>(ctx: C): Instant {
 }
 
 export fn elapsed<C: Clock>(ctx: C, earlier: Instant): Int {
-    time.since(ctx, earlier)
+    // `since` answers a `Duration`, which is nanoseconds; this reports the
+    // milliseconds the clock actually moves in.
+    time.since(ctx, earlier).millis()
 }
 
 export fn fetchBody<C: Alloc + Net>(ctx: C, url: Str): Result<Str, NetError> {

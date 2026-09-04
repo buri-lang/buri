@@ -1,0 +1,33 @@
+warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
+  --> lib/recovery_swap_adjacent_bracket_app_590916/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `char.fromDigit(n, 16)` is a digit and `char.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `char.fromDigit`, `num.toHex` or `bytes.toHex`
+error: an array element ends with `,` [missing-separator]
+  --> lib/recovery_swap_adjacent_bracket_app_590916/main.buri:40:42
+   |
+40 |     str.fromChars(ctx, [nibble(octet, 16)nibble ,(octet, 1)])
+   |                                          ^
+   |
+   = fix: write `,` here
+error: expected `Char`, found `fn(I64, I64) => Char` [type-mismatch]
+  --> lib/recovery_swap_adjacent_bracket_app_590916/main.buri:40:42
+   |
+40 |     str.fromChars(ctx, [nibble(octet, 16)nibble ,(octet, 1)])
+   |                                          ^^^^^^ the element type is `Char`
+   |
+   = expected: `Char`
+   = actual: `fn(I64, I64) => Char`
+   = fix: produce a `Char` here, or change what surrounds it to accept a `fn(I64, I64) => Char`
+error: expected `Char`, found `(I64, Int)` [type-mismatch]
+  --> lib/recovery_swap_adjacent_bracket_app_590916/main.buri:40:50
+   |
+40 |     str.fromChars(ctx, [nibble(octet, 16)nibble ,(octet, 1)])
+   |                                                  ^^^^^^^^^^ the element type is `Char`
+   |
+   = expected: `Char`
+   = actual: `(I64, Int)`
+   = fix: produce a `Char` here, or change what surrounds it to accept a `(I64, Int)`

@@ -1,0 +1,253 @@
+// Hexadecimal, and the general radix underneath it: `char.fromDigit` and
+// `char.isHexDigit`, `num.toHex`, `str.toRadix`, and `core/bytes`' pair.
+//
+// One file, because these are four modules answering one question and the
+// interesting assertions are the ones that cross between them: a number
+// rendered by `num.toHex` and read back by `str.toRadix`, and a byte string
+// rendered by `bytes.toHex` two digits at a time that has to agree with
+// `num.toHex` at a width of two.
+
+from "core/bytes" import * as bytes;
+from "core/char" import * as char;
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/num" import * as num;
+from "core/testing/assert" import * as assert;
+
+// --- char.fromDigit -----------------------------------------------------------
+
+test "fromDigit is the digit's character, lowercase" {
+    assert.eq(assert.some(char.fromDigit(0, 16)), '0');
+    assert.eq(assert.some(char.fromDigit(9, 16)), '9');
+    assert.eq(assert.some(char.fromDigit(10, 16)), 'a');
+    assert.eq(assert.some(char.fromDigit(15, 16)), 'f');
+}
+
+test "fromDigit reaches base 36" {
+    assert.eq(assert.some(char.fromDigit(35, 36)), 'z');
+    assert.eq(assert.some(char.fromDigit(1, 2)), '1');
+}
+
+test "fromDigit refuses a digit the radix does not have" {
+    assert.none(char.fromDigit(16, 16));
+    assert.none(char.fromDigit(2, 2));
+    assert.none(char.fromDigit(-1, 16));
+}
+
+test "fromDigit refuses a radix outside 2 to 36" {
+    assert.none(char.fromDigit(0, 1));
+    assert.none(char.fromDigit(0, 37));
+    assert.none(char.fromDigit(0, 0));
+}
+
+test "fromDigit inverts toDigit over every base-36 digit" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let mismatched = list
+        .range(ctx, 0, 36)
+        .filter(ctx, fn(n) => {
+            match (char.fromDigit(n, 36)) {
+                .None => true,
+                .Some(c) => c.toDigit(36) != .Some(n),
+            }
+        });
+    assert.eq(mismatched.len(), 0);
+}
+
+// --- char.isHexDigit ----------------------------------------------------------
+
+test "isHexDigit accepts both cases" {
+    assert.isTrue('0'.isHexDigit());
+    assert.isTrue('9'.isHexDigit());
+    assert.isTrue('a'.isHexDigit());
+    assert.isTrue('f'.isHexDigit());
+    assert.isTrue('A'.isHexDigit());
+    assert.isTrue('F'.isHexDigit());
+}
+
+test "isHexDigit refuses what is not a hexadecimal digit" {
+    assert.isFalse('g'.isHexDigit());
+    assert.isFalse('G'.isHexDigit());
+    assert.isFalse('z'.isHexDigit());
+    assert.isFalse(' '.isHexDigit());
+    assert.isFalse('-'.isHexDigit());
+}
+
+// --- num.toHex ----------------------------------------------------------------
+
+test "toHex renders the shortest form when no width is asked for" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(num.toHex(ctx, 0, 0), "0");
+    assert.eq(num.toHex(ctx, 15, 0), "f");
+    assert.eq(num.toHex(ctx, 255, 0), "ff");
+    assert.eq(num.toHex(ctx, 4886718345, 0), "123456789");
+}
+
+test "toHex pads to the width and never truncates past it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(num.toHex(ctx, 255, 4), "00ff");
+    assert.eq(num.toHex(ctx, 0, 8), "00000000");
+    // The width is a floor: nine digits of value do not fit in four.
+    assert.eq(num.toHex(ctx, 4886718345, 4), "123456789");
+    assert.eq(num.toHex(ctx, 255, -3), "ff");
+}
+
+test "toHex renders a negative number as its two's complement" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(num.toHex(ctx, -1, 0), "ffffffffffffffff");
+    assert.eq(num.toHex(ctx, -1, 4), "ffffffffffffffff");
+    assert.eq(num.toHex(ctx, -256, 0), "ffffffffffffff00");
+}
+
+test "toHex reaches both ends of the range" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(num.toHex(ctx, num.maxValue<I64>(), 16), "7fffffffffffffff");
+    assert.eq(num.toHex(ctx, num.minValue<I64>(), 16), "8000000000000000");
+}
+
+test "toHex pads wider than the type is" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(num.toHex(ctx, 255, 20), "000000000000000000ff");
+}
+
+test "sixteen digits of a U64 is toHex at a width of sixteen" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The shape a program writes out as a sixteen-call unrolled `nibble`: one
+    // 64-bit value, sixteen lowercase digits. A `U64` past the signed maximum
+    // wraps to a negative `Int` and renders as the same bit pattern, which is
+    // what lets one function cover the whole unsigned range.
+    let big: U64 = 18446744073709551615;
+    let half: U64 = 9223372036854775808;
+    let small: U64 = 291;
+    assert.eq(num.toHex(ctx, big.wrapToI64(), 16), "ffffffffffffffff");
+    assert.eq(num.toHex(ctx, half.wrapToI64(), 16), "8000000000000000");
+    assert.eq(num.toHex(ctx, small.wrapToI64(), 16), "0000000000000123");
+}
+
+// --- str.toRadix --------------------------------------------------------------
+
+test "toRadix reads hexadecimal in either case" {
+    assert.eq(assert.some("ff".toRadix(16)), 255);
+    assert.eq(assert.some("FF".toRadix(16)), 255);
+    assert.eq(assert.some("dEaDbEeF".toRadix(16)), 3735928559);
+    assert.eq(assert.some("0".toRadix(16)), 0);
+}
+
+test "toRadix reads the other bases" {
+    assert.eq(assert.some("101".toRadix(2)), 5);
+    assert.eq(assert.some("777".toRadix(8)), 511);
+    assert.eq(assert.some("42".toRadix(10)), 42);
+    assert.eq(assert.some("z".toRadix(36)), 35);
+    assert.eq(assert.some("zz".toRadix(36)), 1295);
+}
+
+test "toRadix reads a leading minus and nothing else" {
+    assert.eq(assert.some("-ff".toRadix(16)), -255);
+    assert.eq(assert.some("-1".toRadix(2)), -1);
+    assert.none("+1".toRadix(10));
+    assert.none("-".toRadix(10));
+    assert.none("--1".toRadix(10));
+}
+
+test "toRadix refuses a digit the radix does not have" {
+    assert.none("8".toRadix(8));
+    assert.none("2".toRadix(2));
+    assert.none("g".toRadix(16));
+    assert.none("0x1f".toRadix(16));
+}
+
+test "toRadix refuses anything that is not only digits" {
+    assert.none("".toRadix(10));
+    assert.none(" 1".toRadix(10));
+    assert.none("1 ".toRadix(10));
+    assert.none("1.0".toRadix(10));
+    assert.none("1_000".toRadix(10));
+}
+
+test "toRadix refuses a radix outside 2 to 36" {
+    assert.none("1".toRadix(1));
+    assert.none("1".toRadix(37));
+    assert.none("1".toRadix(0));
+    assert.none("1".toRadix(-16));
+}
+
+test "toRadix answers None rather than a value Int cannot hold" {
+    assert.eq(assert.some("7fffffffffffffff".toRadix(16)), num.maxValue<I64>());
+    assert.eq(assert.some("-8000000000000000".toRadix(16)), num.minValue<I64>());
+    assert.none("8000000000000000".toRadix(16));
+    assert.none("-8000000000000001".toRadix(16));
+    assert.none("ffffffffffffffff".toRadix(16));
+}
+
+test "toRadix in base ten agrees with toInt" {
+    assert.eq("42".toRadix(10), "42".toInt());
+    assert.eq("-42".toRadix(10), "-42".toInt());
+    assert.eq("0".toRadix(10), "0".toInt());
+    assert.eq("abc".toRadix(10), "abc".toInt());
+    assert.eq("".toRadix(10), "".toInt());
+}
+
+// --- the two directions meet ---------------------------------------------------
+
+test "toRadix reads back what toHex wrote" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let values = [0, 1, 15, 16, 255, 4886718345, num.maxValue<I64>()];
+    let broken = values.filterCtx(ctx, fn(c, v) => {
+        num.toHex(c, v, 0).toRadix(16) != .Some(v)
+    });
+    assert.eq(broken.len(), 0);
+}
+
+// --- bytes.toHex and bytes.fromHex ----------------------------------------------
+
+test "toHex is two lowercase digits a byte" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bytes.toHex(ctx, [0, 1, 15, 16, 255]), "00010f10ff");
+    assert.eq(bytes.toHex(ctx, []), "");
+    assert.eq(bytes.toHex(ctx, [171]), "ab");
+}
+
+test "toHex of one byte is toHex of the number at width two" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let disagreed = list
+        .range(ctx, 0, 256)
+        .filterCtx(ctx, fn(c, n) => {
+            bytes.toHex(c, [n.wrapToU8()]) != num.toHex(c, n, 2)
+        });
+    assert.eq(disagreed.len(), 0);
+}
+
+test "fromHex reads back every byte toHex wrote" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let all = list.range(ctx, 0, 256).map(ctx, fn(n) => n.wrapToU8());
+    assert.eq(assert.ok(bytes.fromHex(ctx, bytes.toHex(ctx, all))), all);
+}
+
+test "fromHex reads uppercase too" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.ok(bytes.fromHex(ctx, "ABCD")), [171, 205]);
+}

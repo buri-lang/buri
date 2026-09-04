@@ -1,0 +1,25 @@
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_insert_stray_module_app_40bdc7/main.buri:10:5
+   |
+10 | let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+error: expected a declaration, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_module_app_40bdc7/main.buri:16:1
+   |
+16 | @ fn deadlineNanos(startedNanos: I64): I64 {
+   | ^
+   |
+   = expected: a declaration
+   = actual: `@`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_insert_stray_module_app_40bdc7/main.buri:17:20
+   |
+17 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name

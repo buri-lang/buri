@@ -9,6 +9,7 @@ from "core/date" import { Date, DateTime, Duration, Weekday };
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
+from "core/time" import * as time;
 from "core/time" import { Instant };
 
 fn d(y: Int, m: Int, day: Int): Date {
@@ -178,13 +179,21 @@ test "instants and date-times are inverses" {
 test "durations are lengths and instants are points" {
     let a = Instant(1000);
     let b = Instant(1000 + 90 * 1000);
-    assert.eq(date.between(a, b), Duration(90000));
+    assert.eq(date.between(a, b), time.seconds(90));
     assert.eq(date.between(a, b).seconds(), 90);
     assert.eq(date.between(a, b).minutes(), 1);
-    assert.eq(date.between(b, a), Duration(-90000));
-    assert.eq(date.plus(a, Duration(90000)), b);
-    assert.eq(Duration(date.MILLIS_PER_DAY).days(), 1);
-    assert.eq(Duration(date.MILLIS_PER_HOUR).hours(), 1);
+    assert.eq(date.between(b, a), time.seconds(-90));
+    assert.eq(date.plus(a, time.seconds(90)), b);
+    assert.eq(time.millis(date.MILLIS_PER_DAY).days(), 1);
+    assert.eq(time.millis(date.MILLIS_PER_HOUR).hours(), 1);
+}
+
+test "the calendar's Duration is core/time's, re-exported and not a copy" {
+    // Imported here from `core/date` and there from `core/time`: one type, so
+    // a value built by one module's constructor is read by the other's getter.
+    let borrowed: Duration = time.seconds(1);
+    assert.eq(borrowed.millis(), 1000);
+    assert.eq(date.between(Instant(0), Instant(1000)), borrowed);
 }
 
 // --- ISO 8601 ----------------------------------------------------------------------

@@ -1,0 +1,47 @@
+---
+title: A length of time is a `Duration`, not an integer and a factor
+severity: warning
+message: this spells the {units} conversion out in integers
+note: "`core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past"
+fix: build a `Duration` and let the unit live in the type rather than in the name
+---
+A count of milliseconds in an `I64` is a number that only means something
+because of what it is called. The name has to carry the unit —
+`IDLE_TIMEOUT_MILLIS`, `nanos`, `elapsedMs` — and every boundary between two
+units is a multiply somebody wrote out, which means every one of them is a
+place the unit can be dropped, doubled or overflowed without the type system
+having anything to say.
+
+`core/time` has the type that carries it:
+
+```
+let idle = time.minutes(5);
+let deadline = started.plus(idle);
+if (now.hasPassed(deadline)) { … }
+```
+
+`seconds`, `millis`, `micros`, `nanos`, `minutes` and `hours` are the
+constructors; `add`, `sub`, `mul`, `negate` and `abs` are the arithmetic;
+`nanos()`, `millis()` and the rest read a length back out in whatever unit the
+caller wants. The conversion factors are exported too — `NANOS_PER_MILLISECOND`
+and its siblings — for the one case that really is arithmetic on a raw count.
+
+Two things come with the type, and they are the reason this is a lint and not a
+style note:
+
+1. **The arithmetic saturates.** Overflow is undefined behaviour, and a
+   deadline is where a program can least afford it. The shape this replaces is
+   a `checkedMul` out to nanoseconds, then a `checkedSub` against now, then a
+   decision taken from whichever sign survived — written out once per package
+   that needs a timeout. `Duration` saturates, so a length too large to hold is
+   the largest length rather than a negative one, and the whole check is
+   `now.hasPassed(deadline)`.
+2. **The unit stops being a naming convention.** `Duration` and `Instant` are
+   different types on purpose: a length can be added to a point, two points
+   make a length, and two points added together are a type error rather than a
+   bug found in production.
+
+This rule fires on a constant *named* as a conversion — `NANOS_PER_MILLISECOND`,
+`MILLIS_PER_SECOND` — and on a count of milliseconds multiplied by a million in
+place. A million that is not named as milliseconds is not a finding: parts per
+million is a real number, and this rule does not guess.
