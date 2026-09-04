@@ -280,11 +280,11 @@ and toolchain are unchanged is not re-run and reports as **cached**. Because
 there is no mutable global state and no observable ordering, the runner may
 shard and reorder freely, and there is no flag to turn that off.
 
-A suite runs natively on the host unless something sends it to JavaScript: its
-own `test { platforms }`, `--output=js`, or the fallback for a
-program the native backend cannot yet take, which prints one line on stderr per
-suite. A platform this toolchain cannot build for is an **error** when a suite
-named it and a fallback when nobody did.
+A suite runs natively on the host. Two things send it to JavaScript, and both
+are somebody saying so: `test { platforms: [JS] }`, or `--output=js`. Nothing
+else does — a program the backend has no body for, or a toolchain that cannot
+build for this host, is an **error** (`native-run-not-available`, or
+`platform-not-implemented` where the suite named the platform), never a reroute.
 
 Suites that name no platform are compiled into one binary per tag-compatible
 batch and linked once. Verdicts, caching and reports are still per suite; a
@@ -296,5 +296,5 @@ batch.
 `empty-test-suite` (a `test` block with no `sources`),
 `test-without-assertion` (nothing reachable from the test calls into
 `core/testing/assert` — transitive, so asserting through a helper is fine),
-`test-title-newline`, and at run time `test-timeout` and
-`platform-not-implemented`.
+`test-title-newline`, and at run time `test-timeout`,
+`platform-not-implemented` and `native-run-not-available`.

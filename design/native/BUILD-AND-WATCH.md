@@ -400,11 +400,15 @@ It degrades rather than breaks, and what "degrades" means changed when this
 backend took the debug seat. A host with no `cc`, or one with no library for its
 target, gets an **empty** library; `stencil::AVAILABLE` reads the emptiness and
 the backend reports itself unavailable, exactly as `runtime_native::AVAILABLE`
-does for the archive. `actions::native_ready` is then false, `host_platform()`
-answers `Js`, and a suite that names no platform is compiled and run as
-JavaScript with the reason printed. That is a real degradation rather than a
-no-op — it used to be a no-op, because `select` returned Cranelift and this
-backend was never asked — and it is the same degradation a toolchain built
+does for the archive. `actions::native_ready` is then false and `host_platform()`
+answers `Js`, so a build still produces a JavaScript artifact. `buri test` does
+**not** quietly follow: a suite that names no platform is refused with
+`native-run-not-available`, naming the platform and the profile, because a suite
+run on a backend nobody chose reports a pass about the other backend
+(ARCHITECTURE.md §4). `--output=js`, or `test { platforms: [JS] }`, is how a
+suite runs there on purpose. That is a real degradation rather than a no-op — it
+used to be a no-op, because `select` returned Cranelift and this backend was
+never asked — and it is the same degradation a toolchain built
 `--no-default-features` has always had.
 
 **`backend-llvm` is off by default.** It needs LLVM 21 installed and
@@ -725,8 +729,9 @@ from the first native wave. It is Xcode's command-line tools on macOS
 (`xcode-select --install`) and `build-essential` on Debian-likes. `cli/build.rs`
 also uses it to generate the stencil library (§2), and that is the one place the
 requirement got sharper: a host without `cc` still builds a `buri`, and gets an
-empty library, a backend that reports itself unavailable, and JavaScript for
-every suite that does not name a platform.
+empty library, a backend that reports itself unavailable, a JavaScript artifact
+from a build, and a `native-run-not-available` refusal from every suite that
+does not name a platform.
 
 Everything below is for the two things the default build does not do: build the
 **LLVM** backend, and link with something faster than the system linker.

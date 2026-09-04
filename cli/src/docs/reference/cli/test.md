@@ -31,21 +31,24 @@ Natively, on the host, in the development profile. A suite that says otherwise i
 `test { platforms }` gets what it asked for, and `--output=js` says it for one
 invocation without editing a build file.
 
-Where a native run is not available because this toolchain has no native
-backend for the host in this profile, the suite runs on JavaScript instead,
-with one line on standard error naming the suite and the reason. The fallback
-is decided per suite, so one suite on the frontier does not move the rest of
-the run.
+Those two are the whole list. Nothing else moves a suite: a suite that named no
+platform runs natively or does not run.
 
-A platform this toolchain cannot produce a binary for is an *error* when a suite
-named it and a fallback when nobody did. That asymmetry is the whole rule: a
-platform written down is a request, and the default is a preference.
+Where a native run is not available because this toolchain has no backend for
+the host in this profile, no runtime archive, or no C compiler to link with, the
+suite is **refused** with `native-run-not-available`, naming the platform and
+the profile that were asked for. `--release` is the case worth knowing about:
+the release profile routes to LLVM, so a toolchain built without
+`backend-llvm` refuses `buri test --release` rather than quietly handing it to
+the development backend.
 
-**A program the native backend has no body for is an error either way.** It used
-to be a fallback, and it was the wrong one: the suite then passed on a backend
-nobody chose, which is how a named gap turns into a wrong answer rather than
-into a report. A suite that belongs on JavaScript says so with
-`test { platforms: [JS] }`, and anything else is a toolchain bug worth hearing
+**A program the native backend has no body for is refused too**, naming the
+intrinsic and the backend. Both used to be a fallback onto JavaScript with a
+line on standard error, and it was the wrong one: the suite then passed on a
+backend nobody chose, which is how a named gap turns into a wrong answer rather
+than into a report — and the line saying so went to a stream that nobody reads
+when a run is green. A suite that belongs on JavaScript says so with
+`test { platforms: [JS] }`; anything else is a toolchain bug worth hearing
 about.
 
 ## Watching

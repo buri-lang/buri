@@ -431,15 +431,30 @@ already checked against. A binary that declares no outputs still gets `JS`.
 The two halves moved apart because the argument for waiting was never about the
 backend, it was about the refusal: `Backend::missing_intrinsics` refuses a
 program reaching something the backend has no body for, which is the right
-refusal and the wrong default — a `buri run` that fails on a program `buri run`
-used to run is not an improvement. A *test* can have it both ways, and now does.
-`run_suite` asks the same hook before it commits, and a suite whose program
-names a gap runs on JavaScript with a line on stderr saying which gap
-(`commands/test.rs`'s `native_gap`). So the refusal is still there for anyone
-who asked for a native run by name, and nobody who did not ask is refused
-anything. The measured reason for spending the fallback is
-`design/PERFORMANCE.md` §6: the native dev loop is now the faster one on both
-halves of a 104k-line edit-test cycle.
+refusal and the wrong default for `buri run` — a `buri run` that fails on a
+program `buri run` used to run is not an improvement.
+
+**A test suite is refused too, and that is the point.** `buri test` had a
+fallback for a while: a suite whose program named a gap, or a toolchain that
+could not link a binary, ran on JavaScript with a line on stderr. It is gone in
+both halves (buri-lang/buri#4). Rerouting is how a *named* gap becomes a wrong
+answer — the suite passes, on a backend nobody chose, and what it proves is that
+the other backend agrees with itself, in a `note:` that a green run's reader
+does not read. So:
+
+- A program the backend has no body for is `commands/test.rs`'s `native_gap`,
+  asked of the monomorphized program before a second is spent on codegen, and
+  reported as an error naming the intrinsic and the backend.
+- A toolchain that cannot build for its own host — `--no-default-features`, a
+  host outside macOS and Linux, no stencil library for the triple, no C
+  compiler, or `--release` without `backend-llvm` — is `not_ready`, reported as
+  `native-run-not-available` and naming the profile that was asked for.
+
+Both name the two ways to say JavaScript out loud, which are the only two ways a
+suite reaches it: `--output=js` for an invocation, `test { platforms: [JS] }`
+for a suite. Nothing else routes a suite anywhere. The measured reason for
+spending the old fallback is `design/PERFORMANCE.md` §6: the native dev loop is
+now the faster one on both halves of a 104k-line edit-test cycle.
 
 `selected_outputs` has no such escape. A binary that declares no outputs is
 asked for an *artifact*, and an artifact that silently changed platform would

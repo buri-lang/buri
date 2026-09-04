@@ -232,6 +232,8 @@ arithmetic. `Ord for [T]` is additive, and is also the library-level answer to
 `derive-ord-array-native-backend` (§13) — worth checking against its five sites
 before that bug is fixed at the backend.
 
+Nick's decision (do this): do the recommendation above
+
 ---
 
 ## 6. List and map operations that are missing
@@ -304,6 +306,8 @@ early-exit `fold`**: `foldResult` already exists (`list.buri:47`) and an early
 exit is `.Err` carrying the answer — that is a doc-comment example, not a
 function.
 
+Nick's decision (do this): do the above recommendation
+
 ---
 
 ## 7. Bytes: a cursor, a builder, a cheap hash
@@ -360,6 +364,8 @@ export fn fromU64Be<C: Alloc>(ctx: C, x: U64): [U8];   // and Le, U32, and toU64
    amortized append to offer over `[[U8]].flatten`, and the honest version needs
    either a mutable region or a rope. `flatten` is already the answer; revisit
    after the native backend has a growable block.
+
+Nick's decision (do this): do the above recommendation
 
 Hex test vectors are **covered by the hex work in flight** — `bytes.fromHex`
 plus `assert.eq` over the decoded bytes is the readable form once `fromHex` is

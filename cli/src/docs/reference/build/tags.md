@@ -235,15 +235,19 @@ it, which means the host's own platform: there is no cross-compilation, so a
 refused with `platform-not-implemented` rather than quietly run through
 JavaScript.
 
-A suite that names no platforms runs on the host natively too, and that is the
-default rather than a refusal: where this toolchain has no native backend, or
-where the suite's program reaches something the backend has no body for yet, the
-run falls back to JavaScript and says so in one line on standard error. The
-difference between the two is who asked. A platform written down is a request,
-and a request this toolchain cannot serve is an error; the default is a
-preference, and a preference gives way rather than turning a suite that used to
-run into one that does not. `buri test --output=js` is how to say it for a whole
-invocation without editing a build file.
+A suite that names no platforms runs on the host natively too, and there is no
+second answer: where this toolchain cannot build a binary for the host, or where
+the suite's program reaches something the backend has no body for yet, the run
+is **refused** — `native-run-not-available` for the first, and a message naming
+the intrinsic and the backend for the second. It is not rerouted. A suite that
+ran on a backend nobody chose would report a pass about the other backend, and
+the line saying so would go to a stream that a green run's reader does not read.
+
+The difference between a declared platform and the default is only how the
+refusal is worded: a suite that wrote `platforms` down has somewhere to delete
+the request from, and a suite that wrote none does not. Both refusals name the
+two ways to ask for JavaScript — `test { platforms: [JS] }` in the build file,
+and `buri test --output=js` for a whole invocation without editing one.
 
 ### One binary for several suites
 
