@@ -352,6 +352,85 @@ fn docs_work_outside_a_repository() {
     }
 }
 
+/// Search has to answer a question and not only a name.
+///
+/// Every query here is an incident from the transcripts that produced the
+/// monorepo: an agent hand-wrote `compareInts` with `core/order.int` shipping,
+/// copied a clock fixture between packages, and aligned columns with tab
+/// characters after `padStart` had been printed into its own context. The
+/// words it would have typed are the words below, and each one used to return
+/// a page about something else — "compare ints" answered with a protobuf
+/// varint encoder.
+///
+/// The assertion is that the page is *among* the results and that the line
+/// offering it is a command that runs. Which of a dozen pages ranks first is a
+/// judgement that will keep changing; leaving the answer out entirely is the
+/// bug this pins.
+#[test]
+fn search_answers_an_intent_and_every_result_is_runnable() {
+    for (query, want) in [
+        (&["compare", "ints"][..], "core/order"),
+        (&["compare", "ints"][..], "core/order.int"),
+        (&["sort", "a", "list"][..], "core/list.sortBy"),
+        (&["fixture"][..], "core/host/testing"),
+        (&["pad"][..], "core/str.padStart"),
+        (&["hex"][..], "core/bytes.toHex"),
+        (&["ignore", "a", "result"][..], "core/result.ignore"),
+    ] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
+            .args(["docs", "search"])
+            .args(query)
+            .arg("--color=never")
+            .current_dir(std::env::temp_dir())
+            .output()
+            .expect("the buri binary runs");
+        assert!(out.status.success(), "`buri docs search {}` failed", query.join(" "));
+        let listing = String::from_utf8_lossy(&out.stdout).to_string();
+
+        // Every result is offered as the command that reads it: the line opens
+        // with `buri docs <id>` and then says what the page is.
+        let offered: Vec<&str> = listing
+            .lines()
+            .filter_map(|l| l.strip_prefix("buri docs "))
+            .filter_map(|l| l.split_whitespace().next())
+            .collect();
+        assert!(
+            offered.contains(&want),
+            "searching `{}` should offer `buri docs {want}`, got:\n{listing}",
+            query.join(" ")
+        );
+
+        // …and a command that is offered is a command that works. Running one
+        // is what says the two halves agree: an id search prints and an id
+        // `buri docs` accepts are the same id.
+        let page = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
+            .args(["docs", want, "--color=never"])
+            .current_dir(std::env::temp_dir())
+            .output()
+            .expect("the buri binary runs");
+        assert!(page.status.success(), "`buri docs {want}` was offered and does not run");
+        assert!(!page.stdout.is_empty(), "`buri docs {want}` printed nothing");
+    }
+}
+
+/// The same promise under `--format=json`, where an agent reads it: one
+/// `command` per hit, spelled out rather than reassembled from the id.
+#[test]
+fn a_json_search_hit_carries_its_command() {
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
+        .args(["docs", "search", "compare", "ints", "--format=json"])
+        .current_dir(std::env::temp_dir())
+        .output()
+        .expect("the buri binary runs");
+    assert!(out.status.success());
+    let json = String::from_utf8_lossy(&out.stdout).to_string();
+    assert_eq!(json.lines().count(), 1, "JSON output must be one line");
+    assert!(
+        json.contains("\"command\":\"buri docs core/order.int\""),
+        "a hit does not carry its command:\n{json}"
+    );
+}
+
 /// An unknown topic is a bad invocation, not a failure of the thing asked
 /// about, so it exits 2 and suggests something.
 #[test]

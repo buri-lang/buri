@@ -11,7 +11,7 @@ Rust-shaped data declarations, Roc-shaped ideas about platforms and effects.
 The normative text ships in the binary: `buri docs language/lexical`,
 `language/modules`, `language/types`, `language/expressions`, `language/patterns`,
 `language/evaluation`, `language/functions`, `language/effects` and
-`language/programs`. `buri docs search <words>` looks in every page at once.
+`language/programs`. `buri docs search <words>` looks in every page at once — in the prose, not only the names, so a question like `buri docs search compare ints` works — and prints each hit as the command that reads it.
 
 ## The twelve things that will trip you up
 
