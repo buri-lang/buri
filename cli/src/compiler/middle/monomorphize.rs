@@ -13,6 +13,15 @@
 //! Reachability doubles as dead code elimination: an instance nothing calls is
 //! never created, so the whole of `core/*` costs nothing in a program that
 //! touches two functions of it.
+//!
+//! Every function this produces carries the symbol it will be defined under,
+//! and **one symbol names one body**. That is the pass's own invariant rather
+//! than a hope about it: `name_of` mangles a symbol from what identifies a
+//! function, `Monomorphizer::instantiation` widens the tag two instantiations
+//! of one generic would otherwise share, and `run` ends by checking that no
+//! two defined functions left here alike — an internal error if any did,
+//! because two bodies under one symbol is a miscompile on every backend and
+//! nothing the author of the program could have done about it.
 
 use crate::compiler::semantics::resolve::Checked;
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind};
@@ -413,6 +422,17 @@ pub struct Monomorphizer<'a> {
     desc_index: HashMap<Ty, usize>,
     ctx_layouts: HashMap<CtxTypeId, Vec<TraitId>>,
     module_paths: Vec<String>,
+    /// Every instantiation symbol minted so far, against the type arguments
+    /// that minted it. See [`Monomorphizer::instantiation`]: it is what makes
+    /// the six-character hash a *tag* rather than an identity — the hash names
+    /// an instantiation only until a second one lands on it, and then both are
+    /// told apart by something wider.
+    ///
+    /// Only symbols carrying a hash are in it. A symbol with no type arguments
+    /// is its module, owner and name, and two of *those* on one key is a
+    /// naming bug rather than a hash collision — [`one_symbol_per_function`]
+    /// is what answers for that, and disambiguating it here would hide it.
+    taken: HashMap<String, u64>,
     /// The locals of the body being rewritten, parked here so that
     /// [`Monomorphizer::rewrite_call_args`] can add the ones the adapter it
     /// builds needs. A `LocalId` is an index into one function's table, so an
@@ -438,6 +458,7 @@ pub fn run(
         desc_index: HashMap::default(),
         ctx_layouts: HashMap::default(),
         module_paths,
+        taken: HashMap::default(),
         locals: Vec::new(),
     };
 
@@ -487,6 +508,31 @@ pub fn run(
                 || crate::compiler::semantics::styles::builds_a_theme(body, theme_con);
         }
     }
+
+    // One function, one symbol — asked of the whole program, once, before
+    // anything reads a symbol.
+    //
+    // Not of a program that failed: a build that stopped on a diagnostic has
+    // functions that were requested and never named against anything, and the
+    // person holding the errors is owed the errors rather than a report about
+    // the compiler. A clean program's symbols are a claim this pass makes, and
+    // this is where it is checked.
+    if !m.diags.has_errors() {
+        if let Some(clash) = one_symbol_per_function(&m.funcs) {
+            crate::ice!(
+                "`{}` names two functions — `{}` and `{}`. A symbol names exactly one \
+                 body, so one of the two would silently answer the other's calls: the \
+                 JavaScript emitter writes two declarations and keeps the second, and a \
+                 native link binds every call to whichever definition the linker kept. \
+                 Whatever mangled the two alike in `middle/monomorphize.rs::name_of` has \
+                 to tell them apart",
+                clash.symbol,
+                clash.first,
+                clash.second
+            );
+        }
+    }
+
     Program {
         funcs: m.funcs,
         roots: program_roots,
@@ -504,6 +550,44 @@ pub fn run(
         inline_styles: reached.inline,
         themes,
     }
+}
+
+/// Two functions that came out of this pass wearing one symbol.
+struct SymbolClash<'a> {
+    symbol: &'a str,
+    /// The debug names of the two, in the order they were requested — module,
+    /// owner and function name, which is what says *which* two they are.
+    first: &'a str,
+    second: &'a str,
+}
+
+/// The first pair of defined functions in `funcs` that share a symbol, if
+/// there is one.
+///
+/// An intrinsic is excluded and only an intrinsic is: it defines nothing —
+/// "the backend declares the runtime import and defines nothing"
+/// (`backend/llvm/emit.rs`) — so two of them under one key are two names for
+/// one runtime entry rather than two bodies fighting over a symbol. `Str`'s
+/// `compare` is reached both inherently and through `Ord` and is a live
+/// example. `language::symbols` sweeps the corpus with the same exclusion, and
+/// the two have to agree: this one is the invariant on every program the
+/// toolchain ever compiles, and that one is the invariant on programs nobody
+/// has run yet.
+///
+/// One pass and one table over the program's functions, keyed by borrowed
+/// symbols, so it costs a hash of each symbol and no allocation.
+fn one_symbol_per_function(funcs: &[Func]) -> Option<SymbolClash<'_>> {
+    let mut seen: HashMap<&str, &str> =
+        HashMap::with_capacity_and_hasher(funcs.len(), std::hash::BuildHasherDefault::default());
+    for func in funcs {
+        if matches!(func.kind, FuncKind::Intrinsic(_)) {
+            continue;
+        }
+        if let Some(first) = seen.insert(&func.symbol, &func.debug_name) {
+            return Some(SymbolClash { symbol: &func.symbol, first, second: &func.debug_name });
+        }
+    }
+    None
 }
 
 #[derive(Clone, Copy)]
@@ -547,7 +631,11 @@ impl<'a> Monomorphizer<'a> {
         slot
     }
 
-    fn name_of(&self, key: &Key) -> (String, String, Span) {
+    /// `&mut` because minting an instantiation's symbol records it: the
+    /// six-character hash below is only unique until it isn't, and
+    /// [`Monomorphizer::instantiation`] needs to know what it has already
+    /// handed out to widen the two that meet.
+    fn name_of(&mut self, key: &Key) -> (String, String, Span) {
         match key {
             Key::Fn(f, targs) => {
                 let info = self.tables().fn_info(*f);
@@ -568,16 +656,16 @@ impl<'a> Monomorphizer<'a> {
                 // are two modules that may both exist (see the
                 // `a_module_beside_a_package_of_its_name` case), and two
                 // functions on one symbol is a miscompile.
-                let mut symbol = format!(
+                let mut symbol = sanitize(&format!(
                     "{}${owner}{}",
                     module.replace(['/', '.'], "_").replace("//", ""),
                     info.name
-                );
+                ));
+                let span = info.span;
                 if !targs.is_empty() {
-                    symbol.push('$');
-                    symbol.push_str(&short_hash(&format!("{targs:?}")));
+                    symbol = self.instantiation(&symbol, &format!("{targs:?}"));
                 }
-                (sanitize(&symbol), debug, info.span)
+                (symbol, debug, span)
             }
             Key::CtxCtor(c) => {
                 let info = self.tables().ctx_decl(*c);
@@ -646,6 +734,80 @@ impl<'a> Monomorphizer<'a> {
         }
     }
 
+    /// The symbol for one instantiation of `base`, tagged by the type
+    /// arguments it was instantiated at.
+    ///
+    /// The tag is [`TAG_DIGITS`] base-36 digits of a 64-bit hash, and six
+    /// digits is a *tag* rather than an identity: 36^6 is 2.18e9 values, so by
+    /// the birthday bound two instantiations of one function land on one tag
+    /// with probability about n² / (2 × 36^6) — one in 435,000 at a hundred
+    /// instantiations of a single generic, one in 4,400 at a thousand, one in
+    /// forty-four at ten thousand, and better than even odds at 55,000.
+    /// (Measured, not only derived: over pseudorandom type-argument renderings
+    /// the first collision arrives at 61,000 on average against the 58,000 a
+    /// uniform hash predicts, so the digits are as good as random and no
+    /// better.) Ten thousand instantiations of *one* generic is a program
+    /// nobody has written yet — the worked monorepo's busiest generic is
+    /// `ui/signal`'s `signal`, at 55 — and a program somebody can write, and
+    /// what it would have got is two bodies under one symbol: the miscompile
+    /// `language::symbols` exists about.
+    ///
+    /// So the tag is widened rather than trusted: an instantiation that lands
+    /// on a tag another already holds takes [`WIDE_DIGITS`] digits instead —
+    /// 36^12, about 62 of the hash's 64 bits, where the same ten thousand
+    /// instantiations collide with probability 1e-11. Widening only the second
+    /// arrival keeps every symbol a build already emitted, which is the point:
+    /// a symbol is a `codegen` cache key and a golden file, and a width change
+    /// rewrites every one of them for a hazard that is rare by construction.
+    ///
+    /// Not a counter, for the reason `language::symbols` gives about context
+    /// constructors: the wide tag is derived from the same type arguments the
+    /// short one is, so it is the same symbol on every machine and after any
+    /// rename. Which of the two colliding instantiations is the wide one does
+    /// follow the order they were reached in, and that order is deterministic
+    /// for a commit — `run` says why — so two builds of one program still
+    /// agree.
+    ///
+    /// A residual 62-bit collision is not handled here and is not silent:
+    /// [`one_symbol_per_function`] is the check that no two bodies left this
+    /// pass wearing one name, whatever the reason.
+    fn instantiation(&mut self, base: &str, targs: &str) -> String {
+        instantiation_symbol(&mut self.taken, base, targs)
+    }
+}
+
+/// [`Monomorphizer::instantiation`], as the two things it is about: the
+/// symbols handed out so far, and the one being minted. A free function so
+/// that a test can hand it a pair of type arguments that *do* collide —
+/// finding two the six-digit tag cannot tell apart takes about sixty thousand
+/// tries, and a test that has two of them in hand should not need a whole
+/// checked program around it to use them.
+///
+/// What is remembered against each symbol is the whole 64-bit hash rather than
+/// the type arguments that produced it: a rendering of type arguments is
+/// unbounded — a nested generic renders to a paragraph — and a table of them
+/// for every instantiation in the program is memory the pass has no other use
+/// for. Two renderings equal in all 64 bits and different in fact would be
+/// read here as one instantiation asked for twice; that is 2^-64, and
+/// [`one_symbol_per_function`] is what happens if it ever comes up.
+fn instantiation_symbol(taken: &mut HashMap<String, u64>, base: &str, targs: &str) -> String {
+    let hash = fnv1a(targs);
+    let mut symbol = format!("{base}${}", base36(hash, TAG_DIGITS));
+    match taken.get(&symbol) {
+        // One name, one tag and the *same* type arguments is not a hash
+        // collision: `request` answers a repeated instantiation out of `index`
+        // long before this, so reaching here means two different functions are
+        // mangling to one name. Widening would paper over a naming bug, so
+        // this leaves it for the check at the end of `run` to say out loud.
+        Some(seen) if *seen == hash => return symbol,
+        Some(_) => symbol = format!("{base}${}", base36(hash, WIDE_DIGITS)),
+        None => {}
+    }
+    taken.insert(symbol.clone(), hash);
+    symbol
+}
+
+impl Monomorphizer<'_> {
     fn build(&mut self, key: Key, slot: usize) {
         match key {
             Key::Fn(f, targs) => self.build_fn(f, targs, slot),
@@ -2254,19 +2416,49 @@ fn sanitize(s: &str) -> String {
 ///
 /// `golden_javascript::generics_over_different_contexts_do_not_share_a_symbol` is the
 /// test that says so.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "`h % 36` is a digit of a base-36 numeral and the alphabet is the 36 characters it names"
-)]
 pub(super) fn short_hash(s: &str) -> String {
+    base36_hash(s, TAG_DIGITS)
+}
+
+/// The width of an instantiation tag: 36^6 = 2,176,782,336 values. See
+/// [`Monomorphizer::instantiation`] for what that is worth and when it is not
+/// enough.
+const TAG_DIGITS: usize = 6;
+
+/// The width of the tag two instantiations that met take instead: 36^12 =
+/// 4.7e18, the low 62 bits of the 64 the hash has. A thirteenth digit would
+/// only carry the two bits above 36^12 that a `u64` still holds, and no
+/// program has enough instantiations for them to matter.
+const WIDE_DIGITS: usize = 12;
+
+/// `digits` base-36 digits of the FNV-1a hash of `s`.
+fn base36_hash(s: &str, digits: usize) -> String {
+    base36(fnv1a(s), digits)
+}
+
+fn fnv1a(s: &str) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for b in s.bytes() {
         h ^= b as u64;
         h = h.wrapping_mul(0x100000001b3);
     }
+    h
+}
+
+/// The low `digits` base-36 digits of `h`, least significant first.
+///
+/// Least significant first is what makes the wide tag an extension of the
+/// short one rather than a different string: the first six digits of a
+/// twelve-digit tag are the six-digit tag, which is why a widened symbol
+/// cannot equal any other instantiation's short one.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "`h % 36` is a digit of a base-36 numeral and the alphabet is the 36 characters it names"
+)]
+fn base36(mut h: u64, digits: usize) -> String {
     let mut out = String::new();
     let alphabet = b"abcdefghijklmnopqrstuvwxyz0123456789";
-    for _ in 0..6 {
+    for _ in 0..digits {
         out.push(alphabet[(h % 36) as usize] as char);
         h /= 36;
     }
@@ -2627,5 +2819,169 @@ mod tests {
             assert!(!err.note().is_empty(), "{err:?} has no note");
             assert!(!err.fix().is_empty(), "{err:?} has no fix");
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // One function, one symbol
+    // -----------------------------------------------------------------------
+    //
+    // `run` ends by asking `one_symbol_per_function` and reports a `Some` as
+    // an internal error, which exits the process — so what is tested here is
+    // the question rather than the answer. `language::symbols` asks the same
+    // question of every repository in the corpus, end to end.
+
+    /// A function that is only a symbol and a name, which is all either the
+    /// check or the report reads.
+    fn func(symbol: &str, debug_name: &str, kind: FuncKind) -> Func {
+        Func {
+            symbol: symbol.to_string(),
+            debug_name: debug_name.to_string(),
+            params: Vec::new(),
+            locals: Vec::new(),
+            kind,
+            ret: Ty::Unit,
+            desc: None,
+            span: Span::NONE,
+        }
+    }
+
+    /// The shape of the bug this exists about: two bodies, one symbol.
+    #[test]
+    fn two_defined_functions_on_one_symbol_are_a_clash() {
+        let funcs = vec![
+            func("__lib_a_buri$ctx$Fixture", "//lib/a:Fixture", FuncKind::Unbuilt),
+            func("__lib_b_buri$other", "//lib/b:other", FuncKind::Unbuilt),
+            func("__lib_a_buri$ctx$Fixture", "//lib/b:Fixture", FuncKind::Unbuilt),
+        ];
+        let clash = one_symbol_per_function(&funcs).expect("the duplicate is not reported");
+        assert_eq!(clash.symbol, "__lib_a_buri$ctx$Fixture");
+        // Both origins, because a report naming one of the two says nothing
+        // about which pair of declarations to go and look at.
+        assert_eq!(clash.first, "//lib/a:Fixture");
+        assert_eq!(clash.second, "//lib/b:Fixture");
+    }
+
+    /// A program whose symbols are all distinct is not reported.
+    #[test]
+    fn distinct_symbols_are_not_a_clash() {
+        let funcs = vec![
+            func("__lib_a_buri$map$u1labt", "//lib/a:map", FuncKind::Unbuilt),
+            func("__lib_a_buri$map$gyu41g", "//lib/a:map", FuncKind::Unbuilt),
+            func("__lib_a_buri$map", "//lib/a:map", FuncKind::Unbuilt),
+        ];
+        assert!(one_symbol_per_function(&funcs).is_none());
+    }
+
+    /// An intrinsic defines nothing, so two of them under one key are two
+    /// names for one runtime entry. `Str.compare`, reached both inherently and
+    /// through `Ord`, is the live example — and the exclusion has to be the
+    /// one `language::symbols` makes, or a green corpus and a passing compiler
+    /// would be saying different things.
+    #[test]
+    fn two_intrinsics_on_one_key_are_not_a_clash() {
+        let intrinsic = || FuncKind::Intrinsic("str.compare".to_string());
+        let funcs = vec![
+            func("str_compare", "core/str:Str.compare", intrinsic()),
+            func("str_compare", "core/cmp:Ord.compare", intrinsic()),
+        ];
+        assert!(one_symbol_per_function(&funcs).is_none());
+        // But an intrinsic that shares a symbol with bodies is still two
+        // bodies under one name, and the bodies are the two.
+        let funcs = vec![
+            func("str_compare", "core/str:Str.compare", intrinsic()),
+            func("str_compare", "//lib/a:compare", FuncKind::Unbuilt),
+            func("str_compare", "//lib/b:compare", FuncKind::Unbuilt),
+        ];
+        let clash = one_symbol_per_function(&funcs).expect("the two bodies are not reported");
+        assert_eq!(clash.first, "//lib/a:compare");
+        assert_eq!(clash.second, "//lib/b:compare");
+    }
+
+    // -----------------------------------------------------------------------
+    // The instantiation tag
+    // -----------------------------------------------------------------------
+
+    /// Six digits of the alphabet the doc names, and the wide tag extends the
+    /// short one rather than replacing it — which is what keeps a widened
+    /// symbol from ever equalling another instantiation's short one.
+    #[test]
+    fn a_tag_is_base_36_and_the_wide_one_extends_it() {
+        let targs = "[Con(TyConId(1), [])]";
+        let short = base36_hash(targs, TAG_DIGITS);
+        let wide = base36_hash(targs, WIDE_DIGITS);
+        assert_eq!(short.len(), 6);
+        assert_eq!(wide.len(), 12);
+        assert!(wide.starts_with(&short), "`{wide}` does not extend `{short}`");
+        assert!(
+            short.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()),
+            "`{short}` is not base 36"
+        );
+        assert_eq!(short_hash(targs), short);
+    }
+
+    /// Two instantiations of one function whose type arguments land on one
+    /// six-digit tag get two symbols.
+    ///
+    /// The pair is real rather than contrived: `TyConId(188648)` and
+    /// `TyConId(325966)` are the first two renderings of that shape the tag
+    /// cannot tell apart, which is what a program with tens of thousands of
+    /// instantiations of a single generic would eventually hand this.
+    #[test]
+    fn two_instantiations_on_one_tag_are_told_apart() {
+        let a = "[Con(TyConId(188648), [])]";
+        let b = "[Con(TyConId(325966), [])]";
+        assert_eq!(base36_hash(a, TAG_DIGITS), base36_hash(b, TAG_DIGITS));
+
+        let mut taken = HashMap::default();
+        let first = instantiation_symbol(&mut taken, "__lib_a_buri$map", a);
+        let second = instantiation_symbol(&mut taken, "__lib_a_buri$map", b);
+        assert_ne!(first, second);
+        // The one that got there first keeps the symbol it would have had, so
+        // a collision costs the caches and goldens of one instantiation rather
+        // than of every generic in the program.
+        assert_eq!(first, "__lib_a_buri$map$gyu41g");
+        assert_eq!(second, "__lib_a_buri$map$gyu41gkxaqh5");
+
+        let funcs = vec![
+            func(&first, "//lib/a:map", FuncKind::Unbuilt),
+            func(&second, "//lib/a:map", FuncKind::Unbuilt),
+        ];
+        assert!(one_symbol_per_function(&funcs).is_none());
+    }
+
+    /// Asking twice for one instantiation is one symbol, not a collision with
+    /// itself — `request` answers a repeat out of `index` and never reaches
+    /// here, and if it ever does, the answer is the same symbol.
+    #[test]
+    fn one_instantiation_asked_twice_keeps_its_tag() {
+        let targs = "[Con(TyConId(1), [])]";
+        let mut taken = HashMap::default();
+        let first = instantiation_symbol(&mut taken, "__lib_a_buri$map", targs);
+        let again = instantiation_symbol(&mut taken, "__lib_a_buri$map", targs);
+        assert_eq!(first, again);
+        assert_eq!(taken.len(), 1);
+    }
+
+    /// Two *different functions* mangled alike are not disambiguated here.
+    ///
+    /// It is the context-constructor bug in generic clothing: the tag is the
+    /// same because the type arguments are the same, and the base is the same
+    /// because something upstream forgot to qualify one of them. Widening
+    /// would hide it under a longer name; leaving it is what lets the check at
+    /// the end of `run` say which two declarations are at fault.
+    #[test]
+    fn two_functions_mangled_alike_are_left_for_the_check() {
+        let targs = "[Con(TyConId(1), [])]";
+        let mut taken = HashMap::default();
+        let one = instantiation_symbol(&mut taken, "__lib_buri$map", targs);
+        let two = instantiation_symbol(&mut taken, "__lib_buri$map", targs);
+        assert_eq!(one, two);
+        let funcs = vec![
+            func(&one, "//lib/a:map", FuncKind::Unbuilt),
+            func(&two, "//lib/b:map", FuncKind::Unbuilt),
+        ];
+        let clash = one_symbol_per_function(&funcs).expect("the naming bug is not reported");
+        assert_eq!(clash.first, "//lib/a:map");
+        assert_eq!(clash.second, "//lib/b:map");
     }
 }

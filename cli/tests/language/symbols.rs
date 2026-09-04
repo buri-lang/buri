@@ -30,6 +30,16 @@
 //! `commands/test.rs`'s `run_batch` builds for a `buri test` naming more than
 //! one package.
 //!
+//! The compiler asks the same question of itself: `monomorphize::run` ends by
+//! calling `one_symbol_per_function` over the program it just built and
+//! reports a duplicate as an internal error, so a naming bug is loud on the
+//! *first* program that trips it rather than on the first program in this
+//! corpus that does. [`unique_symbols`] below is that check, spelled out here
+//! rather than called, so that the two are written down independently and a
+//! mistake in one is a failing test rather than a shared blind spot — and the
+//! exclusion has to be the same in both, which is why the note on each says
+//! so.
+//!
 //! ```text
 //! cargo test -p buri --test language symbols::
 //! ```
