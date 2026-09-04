@@ -254,6 +254,26 @@ impl Cache {
         std::fs::read(self.path(key)).ok()
     }
 
+    /// Where an entry is, when there is one, for a reader that would rather
+    /// stream it than hold it.
+    ///
+    /// [`Cache::get`] is the right answer for the entries that are small and
+    /// are parsed as a whole — an object file, a lint record. It is the wrong
+    /// answer for a linked artifact: a debug test binary for a real repository
+    /// is about a hundred megabytes, and `get` allocates all of it in order to
+    /// hand it to a comparison that then reads the *other* file into memory
+    /// too. `build::link::place_from` takes this path instead and works in
+    /// chunks.
+    ///
+    /// Reading through the returned path inherits `get`'s freedom from the
+    /// lock, and for the same reason: entries arrive by `rename`, so a reader
+    /// that has opened one holds that whole entry even if a concurrent writer
+    /// renames another over the name.
+    pub fn entry(&self, key: &ActionKey) -> Option<PathBuf> {
+        let path = self.path(key);
+        path.is_file().then_some(path)
+    }
+
     /// "All commands are safe to run concurrently; a file lock serializes cache
     /// writes" (CLI.md). This is that lock.
     pub fn put(&self, key: &ActionKey, data: &[u8]) {
@@ -274,6 +294,54 @@ impl Cache {
         // even in the window where the lock has been abandoned.
         let tmp = p.with_extension(format!("tmp{}", std::process::id()));
         if std::fs::write(&tmp, data).is_ok() {
+            let _ = std::fs::rename(&tmp, &p);
+        }
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    /// [`Cache::put`] for bytes that are already a file: stores the entry by
+    /// **moving** `src` into it.
+    ///
+    /// The artifact this exists for is the linked executable, and a debug test
+    /// binary for a real repository is about a hundred megabytes. It used to
+    /// reach disk three times per link — the driver's output, the output path,
+    /// and a cache entry written from a full read of that output — and two of
+    /// those were the same bytes being copied through this process. The
+    /// driver's output is now moved here directly, so the artifact is written
+    /// once by the linker and copied once to where it runs from.
+    ///
+    /// **Nothing about the store's integrity moves with it.** The entry is
+    /// still a file of its own that arrives whole, by the same
+    /// write-then-`rename` this file's [`Cache::put`] uses, so a reader sees
+    /// an entry or no entry and never a partial one. The file that gets
+    /// *executed* is a separate inode written by `build::link::place_from` —
+    /// not a hard link and not a clone of the entry — so an artifact that is
+    /// running, being overwritten by the next build, or stripped by hand
+    /// cannot reach the bytes the cache is keyed on. That is what makes moving
+    /// the file in safe where hard-linking it out would not have been.
+    ///
+    /// `src` is a file this process owns (`build::link::Staged`), so the move
+    /// is a rename within `.buri/` — one directory entry — and cannot take a
+    /// file another process is still writing. A rename that fails anyway (a
+    /// `.buri` split across two filesystems is the only way it can) falls back
+    /// to a copy, which is the write this exists to avoid but is still a
+    /// correct answer.
+    pub fn put_file(&self, key: &ActionKey, src: &Path) {
+        let p = self.path(key);
+        if let Some(parent) = p.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _guard = match Lock::acquire(&self.dir) {
+            LockOutcome::Held(lock) => Some(lock),
+            LockOutcome::ProceedUnlocked => None,
+        };
+        let tmp = p.with_extension(format!("tmp{}", std::process::id()));
+        let staged = std::fs::rename(src, &tmp).is_ok()
+            || (std::fs::copy(src, &tmp).is_ok() && {
+                let _ = std::fs::remove_file(src);
+                true
+            });
+        if staged {
             let _ = std::fs::rename(&tmp, &p);
         }
         let _ = std::fs::remove_file(&tmp);
