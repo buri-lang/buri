@@ -3817,7 +3817,7 @@ fn wrappedMatch(held: Option<Wrapper>): Int {
   match (held) { .None => 0, .Some(w) => w.octets.len() }
 }
 
-fn built(): [U8] { [1, 2, 3].map(alloc, fn(n) => n.toU8()) }
+fn built(): [U8] { [1, 2, 3].map(alloc, fn(n) => n.wrapToU8()) }
 
 export fn main(): Result<(), Str> {
   let a = defaulted(.Some(built()));
