@@ -923,8 +923,8 @@ impl<'a> Jit<'a> {
 // an `Option` and a `Result` and leave early, `sortBy` is a stable bottom-up
 // merge over two blocks, and `zip` and `flatten` read a *second* element layout
 // that no runtime entry could be handed (`cli/runtime/list.rs`'s header).
-// `deriveArrayEq` and `deriveArrayShow` are here rather than in `emit.rs`
-// because they are the same loop over the same code pointer.
+// `deriveArrayEq`, `deriveArrayCompare` and `deriveArrayShow` are here rather
+// than in `emit.rs` because they are the same loop over the same code pointer.
 //
 // Every one of them calls the step through the closure's `code` word — the
 // thunk `glue.rs` generates — rather than directly. The direct call is
@@ -1104,6 +1104,7 @@ impl Jit<'_> {
             "list.zip" => self.list_zip(prog, st, o),
             "list.flatten" => self.list_flatten(prog, st, o),
             "deriveArrayEq" => self.derive_array_eq(prog, st, o),
+            "deriveArrayCompare" => self.derive_array_compare(prog, st, o),
             "deriveArrayShow" => self.derive_array_show(prog, st, o),
             _ => false,
         }
@@ -1765,6 +1766,104 @@ impl Jit<'_> {
         self.addk(st, i, i, 1);
         self.emit("jump", &[("JIT_T", V::Blk(head))]);
         st.place(done, self.region.code_addr());
+        st.place(end, self.region.code_addr());
+        true
+    }
+
+    /// `deriveArrayCompare` — a derived `Ord` where the field is a `[T]`.
+    ///
+    /// `middle/derives.rs`'s header states the shape: `([T], [T], fn(T, T) ->
+    /// Order) -> Order`, the same code pointer [`Jit::derive_array_eq`] takes
+    /// with a different carried answer.
+    ///
+    /// The order is lexicographic and it is `$cmp`'s array arm step for step
+    /// (`backend/js/runtime.js`): the first `min(m, n)` elements decide it, and
+    /// where every one of them is `Equal` the **lengths** do — so `[1]` is
+    /// below `[1, 2]` and a prefix is below what extends it. That is the half
+    /// `deriveArrayEq` has no equivalent of, and it is why the loop bound here
+    /// is the shorter length rather than a refusal on unequal ones.
+    ///
+    /// The answer is read at the *tag's* width through [`Jit::load_disc`],
+    /// because an `Order` is one byte in an eight-byte slot and the other seven
+    /// are whatever the callee's return area last held — `list_sort` compares
+    /// the same value the same way and for the same reason.
+    fn derive_array_compare(&mut self, prog: &ir::Program, st: &mut Fn2, o: &Operands) -> bool {
+        let (Some(&(xs, xt)), Some(&(ys, _)), Some(&(fslot, fty))) =
+            (o.args.first(), o.args.get(1), o.args.get(2))
+        else {
+            return false;
+        };
+        let Some(src) = self.block_at(prog, xs, xt) else { return false };
+        let Some(c) = self.thunked(prog, st, fslot, fty, 2) else { return false };
+        let Some(order_ty) = super::rtcall::source_ty(prog, o.dest.1) else { return false };
+        let order = self.layouts_of(order_ty);
+        let d = o.dest.0;
+        let sc = st.scratch;
+        let (n, i, answer) = (sc + t(0), sc + t(1), sc + t(2));
+
+        // The shorter of the two lengths, which is what makes the paired
+        // indexing below in bounds.
+        self.mv(n, xs + 8, 8);
+        self.clamp(st, n, ys + 8);
+        self.imm_to(i, 0);
+        let head = st.label();
+        let lengths = st.label();
+        let next = st.label();
+        let less = st.label();
+        let greater = st.label();
+        let end = st.label();
+        st.place(head, self.region.code_addr());
+        self.br_lt(i, n, V::Fall, V::Blk(lengths), Some("JIT_T"));
+        let Some(&p0) = c.params.first() else { return false };
+        let Some(&p1) = c.params.get(1) else { return false };
+        self.elem_load(p0, xs, i, src.stride, src.size);
+        self.elem_load(p1, ys, i, src.stride, src.size);
+        if src.counted {
+            let e = src.elem.clone();
+            self.retain_value(st, &e, p0);
+            self.retain_value(st, &e, p1);
+        }
+        self.thunk_call(&c);
+        self.load_disc(&order, c.ret, answer);
+        let brkey = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+        self.emit(
+            &brkey,
+            &[
+                ("JIT_A", V::I(u64::from(answer))),
+                ("JIT_K", V::I(super::rtcall::EQUAL)),
+                ("JIT_T", V::Blk(next)),
+                ("JIT_F", V::Fall),
+            ],
+        );
+        // Not `Equal`, so this element is the answer. The variant is stored
+        // rather than the callee's return slot copied, because only the tag
+        // byte of that slot is defined.
+        let brkey = self.arm_key("brcmp/eq/u64/fi", "JIT_T");
+        self.emit(
+            &brkey,
+            &[
+                ("JIT_A", V::I(u64::from(answer))),
+                ("JIT_K", V::I(super::rtcall::LESS)),
+                ("JIT_T", V::Blk(less)),
+                ("JIT_F", V::Fall),
+            ],
+        );
+        self.emit("jump", &[("JIT_T", V::Blk(greater))]);
+        st.place(next, self.region.code_addr());
+        self.addk(st, i, i, 1);
+        self.emit("jump", &[("JIT_T", V::Blk(head))]);
+
+        // Every shared element compared `Equal`, so the lengths decide.
+        st.place(lengths, self.region.code_addr());
+        self.br_lt(xs + 8, ys + 8, V::Blk(less), V::Fall, Some("JIT_F"));
+        self.br_lt(ys + 8, xs + 8, V::Blk(greater), V::Fall, Some("JIT_F"));
+        self.store_disc(&order, d, super::rtcall::EQUAL as usize);
+        self.emit("jump", &[("JIT_T", V::Blk(end))]);
+        st.place(less, self.region.code_addr());
+        self.store_disc(&order, d, super::rtcall::LESS as usize);
+        self.emit("jump", &[("JIT_T", V::Blk(end))]);
+        st.place(greater, self.region.code_addr());
+        self.store_disc(&order, d, super::rtcall::GREATER as usize);
         st.place(end, self.region.code_addr());
         true
     }
