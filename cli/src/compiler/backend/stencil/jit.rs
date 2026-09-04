@@ -187,6 +187,35 @@ pub struct Jit<'a> {
     /// type. Memoised because the question is asked once per reference
     /// operation and answering it walks the type; see `Lower::rc_counted`.
     pub(crate) counted_memo: HashMap<Ty, bool>,
+    /// Which part of its unit this is, which is the namespace this part's
+    /// generated helpers take their local symbols from
+    /// ([`super::glue::symbol`]).
+    part: usize,
+}
+
+/// The two memo tables a `Jit` is worth keeping across the parts one worker
+/// emits.
+///
+/// Both are caches of a pure function of the type tables — a layout, and
+/// whether a type owns a counted block — so an answer computed for one part is
+/// the answer for the next one, and neither is an answer that *accumulates*.
+/// That is `parallel::map_with`'s scratch contract exactly, and it is why the
+/// parts of a unit cost one memo per **worker** rather than one per part:
+/// filling a `Layouts` is the largest thing in a `Jit` that is not the emitted
+/// bytes, and a part is small enough that paying for it per part would be most
+/// of what dividing the unit bought.
+pub(crate) struct Scratch<'a> {
+    layouts: Layouts<'a>,
+    counted: HashMap<Ty, bool>,
+}
+
+impl<'a> Scratch<'a> {
+    pub(crate) fn new(
+        tables: &'a Tables,
+        cycles: std::sync::Arc<crate::compiler::middle::layout::Cycles>,
+    ) -> Scratch<'a> {
+        Scratch { layouts: Layouts::with_cycles(tables, cycles), counted: HashMap::new() }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -284,13 +313,14 @@ impl<'a> Jit<'a> {
         tables: &'a Tables,
         frames: &'a [FrameSig],
         target: StencilTarget,
-        cycles: std::sync::Arc<crate::compiler::middle::layout::Cycles>,
+        scratch: Scratch<'a>,
+        part: usize,
     ) -> Jit<'a> {
         Jit {
             lib,
             target,
             region: Region::new(),
-            layouts: Layouts::with_cycles(tables, cycles),
+            layouts: scratch.layouts,
             tables,
             frames,
             entries: Vec::new(),
@@ -304,33 +334,46 @@ impl<'a> Jit<'a> {
             helper_ix: HashMap::new(),
             helper_at: Vec::new(),
             spilled: HashMap::new(),
-            counted_memo: HashMap::new(),
+            counted_memo: scratch.counted,
+            part,
         }
+    }
+
+    /// The two memo tables back, for the next part this worker emits.
+    ///
+    /// Everything else a `Jit` holds is *this part's* — a region, a fixup list,
+    /// a helper table whose indices are symbol names, a map of where this
+    /// part's pool put a stencil's spilled constants — and is dropped here
+    /// rather than reset, so a field added later cannot leak into the next part
+    /// by being forgotten.
+    pub(crate) fn into_scratch(self) -> Scratch<'a> {
+        Scratch { layouts: self.layouts, counted: self.counted_memo }
     }
 
     /// The symbol of a generated helper, registering it the first time it is
     /// asked for.
     ///
-    /// A **local** symbol of this unit, so two units that both need the drop
-    /// glue for `[Str]` get a copy each and neither collides, which is what a
-    /// local symbol is for.
+    /// A **local** symbol of this part, so two parts — or two units — that both
+    /// need the drop glue for `[Str]` get a copy each and neither collides,
+    /// which is what a local symbol is for.
     pub(crate) fn helper(&mut self, h: super::glue::Helper) -> String {
         if let Some(i) = self.helper_ix.get(&h) {
-            return super::glue::symbol(*i);
+            return super::glue::symbol(self.part, *i);
         }
         let i = self.helpers.len();
         self.helper_ix.insert(h.clone(), i);
         self.helpers.push(h);
         self.helper_at.push(0);
-        super::glue::symbol(i)
+        super::glue::symbol(self.part, i)
     }
 
-    /// Every helper this unit generated, as `(symbol, section offset)`.
+    /// Every helper this part generated, as `(symbol, offset within the
+    /// part)`.
     pub fn helper_symbols(&self) -> Vec<(String, u64)> {
         self.helper_at
             .iter()
             .enumerate()
-            .map(|(i, at)| (super::glue::symbol(i), *at))
+            .map(|(i, at)| (super::glue::symbol(self.part, i), *at))
             .collect()
     }
 
@@ -453,12 +496,12 @@ impl<'a> Jit<'a> {
         round8(self.width(prog, t)).max(8)
     }
 
-    /// The per-unit tables, sized from the program.
+    /// The per-part tables, sized from the program.
     ///
     /// The frame layouts a call site needs are *not* computed here: they are a
     /// whole-program function of the program alone, so `emit_units` computes
-    /// them once and every unit borrows the same slice. What is left is the two
-    /// vectors that are genuinely this unit's — where each function was laid
+    /// them once and every part borrows the same slice. What is left is the two
+    /// vectors that are genuinely this part's — where each function was laid
     /// out, and whether it has been emitted — and both are a `memset`.
     pub fn plan(&mut self, prog: &ir::Program) {
         self.entries = vec![0; prog.funcs.len()];
@@ -596,14 +639,24 @@ impl Fn2 {
 }
 
 impl<'a> Jit<'a> {
-    /// One codegen unit: the members' bodies, back to back, and the
-    /// function-local branches resolved.
+    /// One **part** of a codegen unit: the members' bodies, back to back, the
+    /// glue they asked for behind them, and the function-local branches
+    /// resolved.
     ///
-    /// `members` is the unit's functions in ascending index, which is the order
-    /// `ir::Program::funcs_by_unit` yields and therefore the order the object's
-    /// symbols come out in. Deterministic emission is a cache requirement, not
-    /// a nicety: `--check-reproducible` compares two builds byte for byte.
-    pub fn compile_unit(&mut self, prog: &ir::Program, members: &[usize]) {
+    /// `members` is a contiguous run of the unit's functions in ascending
+    /// index, which is the order `ir::Program::funcs_by_unit` yields and
+    /// therefore the order the object's symbols come out in. The whole unit is
+    /// the parts' regions concatenated in part order
+    /// ([`super::region::Emitted::append`]), so the symbols come out in the
+    /// order a single-threaded emission would have produced. Deterministic
+    /// emission is a cache requirement, not a nicety: `--check-reproducible`
+    /// compares two builds byte for byte.
+    ///
+    /// **Nothing here reads the region's base**, which is what makes a part
+    /// movable. A function's own branches are resolved before the next function
+    /// is laid out and are relative; every other address this backend emits is
+    /// a relocation.
+    pub fn compile_part(&mut self, prog: &ir::Program, members: &[usize]) {
         self.plan(prog);
         for i in members {
             self.function(prog, *i);
@@ -1277,6 +1330,12 @@ impl<'a> Jit<'a> {
 
     /// Whether a function, or anything reachable from it, contains an
     /// `unsupported` stencil — the honest predicate for "this test can be run".
+    ///
+    /// **This part's** answer, and a unit is emitted in parts (`mod.rs`), so a
+    /// caller wanting the unit's would have to `or` the parts' vectors together
+    /// before running the fixpoint. Nothing asks today: the emission path reads
+    /// [`Jit::reasons`] instead, which `assemble_unit` does collect across the
+    /// parts, and refuses the whole unit where any part refused anything.
     pub fn reachable_dirty(&self, prog: &ir::Program) -> Vec<bool> {
         let n = prog.funcs.len();
         let mut edges: Vec<Vec<u32>> = vec![Vec::new(); n];
@@ -1322,9 +1381,10 @@ impl<'a> Jit<'a> {
         bad
     }
 
-    /// Where `f` was emitted inside this unit's section. `plan` gives every
-    /// function of the program an entry — zero for one this unit does not own,
+    /// Where `f` was emitted inside this **part's** region. `plan` gives every
+    /// function of the program an entry — zero for one this part does not own,
     /// which is also what a `FuncIdx` from outside the program would read.
+    /// `mod.rs::assemble_unit` adds the part's base to make it the unit's.
     pub fn entry_of(&self, f: usize) -> u64 {
         ent(&self.entries, f, 0)
     }
