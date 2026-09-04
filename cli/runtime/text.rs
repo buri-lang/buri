@@ -21,11 +21,16 @@
 //!   doing so — which is `lib.rs` §3's "a result is owned" applied to a value
 //!   whose block it shares rather than owns. A literal has a null base and the
 //!   incref is a no-op, so a literal still touches no allocator.
-//! * **Comparison and hashing are in UTF-16.** `$str_compare` is JavaScript's
-//!   `<`, which orders by code unit, and `$hashInto` mixes `charCodeAt(i)`.
-//!   Those differ from byte order and from scalar order for strings mixing
-//!   astral characters with U+E000..U+FFFF, and VALUE-MODEL.md §12 asks for
-//!   *identical* answers rather than defensible ones.
+//! * **Comparison is by scalar value; hashing is in UTF-16.** The two are not
+//!   the same choice and do not have to be. An *order* is something a caller
+//!   reads and reasons about, so it is the one the type indexes in — scalar
+//!   value, which for valid UTF-8 is byte order, so `buri_rt_str_compare` is a
+//!   `memcmp` and `$str_compare` spells the same order out rather than using
+//!   JavaScript's UTF-16 `<`. A *hash* is only ever compared with another hash
+//!   of the same run, so its unit is free, and `$hashInto` mixes
+//!   `charCodeAt(i)` because that is what JavaScript can do cheaply;
+//!   `buri_rt_hash_str` transcodes to match it. VALUE-MODEL.md §12 asks for
+//!   identical answers, and both of these give them.
 //!
 //! # The ABI, in one paragraph
 //!
@@ -465,11 +470,18 @@ pub unsafe extern "C" fn buri_rt_str_split_once(
 
 /// `str.compare(self, other) -> Order`, as the tag `0 | 1 | 2`.
 ///
-/// **UTF-16 code-unit order**, because `$str_compare` is JavaScript's `<` and
-/// that is what `<` does. It agrees with byte order and with scalar order
-/// except where one string has an astral character exactly where the other has
-/// one in U+E000..U+FFFF — a surrogate code unit is `0xD800..=0xDFFF`, which
-/// sorts *below* those.
+/// **Unicode scalar value order**, which for a valid string is exactly UTF-8
+/// byte order — so this is a `memcmp` and a length tie-break, with nothing
+/// decoded. It is what `str::cmp` answers in Rust, `<` answers in Go and `<`
+/// answers in Python, and it is what `str.len()` and `charAt` already count in.
+///
+/// It used to be UTF-16 code-unit order, transcoding on the fly so that the
+/// answer would match JavaScript's `<`. That parity was real and the order was
+/// not defensible: it put every astral character *below* every character in
+/// U+E000..U+FFFF, disagreeing with the unit the type indexes in and with
+/// every non-JavaScript neighbour, and nothing said so. `$str_compare` now
+/// spells this order out instead, so the two backends still agree and the
+/// order they agree on is the one a caller can guess.
 ///
 /// # Safety
 /// Both ranges are readable.
@@ -483,8 +495,8 @@ pub unsafe extern "C" fn buri_rt_str_compare(
     olen: u64,
 ) -> i32 {
     // SAFETY: the caller promises both ranges.
-    let (a, b) = unsafe { (text(ptr, len), text(optr, olen)) };
-    match a.encode_utf16().cmp(b.encode_utf16()) {
+    let (a, b) = unsafe { (view(ptr, len), view(optr, olen)) };
+    match a.cmp(b) {
         std::cmp::Ordering::Less => 0,
         std::cmp::Ordering::Equal => 1,
         std::cmp::Ordering::Greater => 2,
@@ -1233,17 +1245,36 @@ mod tests {
         assert_eq!(check("99999999999999999999", &mut out), BURI_ABSENT);
     }
 
+    /// The order this used to answer was UTF-16's, and this test asserted it:
+    /// `"\u{fffd}"` above `"\u{10000}"`, with a comment saying byte order would
+    /// say the opposite. Byte order is now what the language specifies, so the
+    /// expectation is inverted rather than the case dropped — the case is the
+    /// only one that discriminates the two orders.
     #[test]
-    fn comparison_orders_by_utf16_code_unit() {
-        // U+FFFD is a single code unit; U+10000 is a surrogate pair starting at
-        // 0xD800, which sorts below it. Byte order would say the opposite.
-        let (ap, al) = borrowed("\u{fffd}");
-        let (bp, bl) = borrowed("\u{10000}");
-        // SAFETY: both ranges are live for the length of the test.
-        let c = unsafe {
-            buri_rt_str_compare(std::ptr::null_mut(), ap, al, std::ptr::null_mut(), bp, bl)
+    fn comparison_orders_by_scalar_value() {
+        let cmp = |a: &str, b: &str| {
+            let (ap, al) = borrowed(a);
+            let (bp, bl) = borrowed(b);
+            // SAFETY: both ranges are live for the length of the call.
+            unsafe {
+                buri_rt_str_compare(std::ptr::null_mut(), ap, al, std::ptr::null_mut(), bp, bl)
+            }
         };
-        assert_eq!(c, 2, "U+FFFD sorts after U+10000 in UTF-16 order");
+        // U+FFFD is one code unit and U+10000 is a surrogate pair starting at
+        // 0xD800, so UTF-16 puts the astral one first. The scalar values say
+        // 0xFFFD < 0x10000, and so does UTF-8.
+        assert_eq!(cmp("\u{fffd}", "\u{10000}"), 0, "U+FFFD sorts before U+10000");
+        assert_eq!(cmp("\u{10000}", "\u{fffd}"), 2);
+        // The issue's own case: U+E000 is a private-use character below every
+        // astral one.
+        assert_eq!(cmp("\u{1f600}", "\u{e000}"), 2, "an emoji sorts after U+E000");
+        assert_eq!(cmp("\u{e000}", "\u{1f600}"), 0);
+        // The ordinary cases are unmoved.
+        assert_eq!(cmp("apple", "banana"), 0);
+        assert_eq!(cmp("apple", "apple"), 1);
+        assert_eq!(cmp("banana", "apple"), 2);
+        assert_eq!(cmp("app", "apple"), 0);
+        assert_eq!(cmp("", "a"), 0);
     }
 
     #[test]

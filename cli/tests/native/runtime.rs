@@ -220,11 +220,16 @@ fn the_rendering_contract_matches_javascript() {
 /// `core/str` at the C boundary — `cli/runtime/text.rs`.
 ///
 /// Each line is a rule that would be easy to get subtly wrong, and each is
-/// `backend/js/runtime.js`'s answer rather than a defensible one: scalar
-/// indices instead of byte offsets, views instead of copies, JavaScript's
-/// whitespace set instead of Unicode's, UTF-16 order instead of byte order, and
-/// the `Option` discriminant of `cli/runtime/lib.rs` §2 rule 3 — `-1` present,
-/// `0` absent.
+/// `backend/js/runtime.js`'s answer: scalar indices instead of byte offsets,
+/// views instead of copies, JavaScript's whitespace set instead of Unicode's,
+/// and the `Option` discriminant of `cli/runtime/lib.rs` §2 rule 3 — `-1`
+/// present, `0` absent.
+///
+/// "JavaScript's answer" is not the same as "what a JavaScript operator does",
+/// and `compare` is where the two came apart. It used to be UTF-16 order here
+/// because `$str_compare` was JavaScript's `<`; the order is the language's
+/// rather than the host's, `$str_compare` spells the scalar order out, and this
+/// side is a plain byte comparison. buri-lang/buri#35.
 #[test]
 fn the_string_surface_matches_javascript() {
     if skip() {
@@ -250,9 +255,12 @@ fn the_string_surface_matches_javascript() {
             // `.None`, which is why the runtime's empty string has an address.
             "splitonce -1 [][b]\n",
             "splitonce-none 0\n",
-            // `Less = 0`, `Equal = 1`, `Greater = 2`; the third pair is UTF-16
-            // order, where a surrogate pair sorts below U+FFFD.
-            "compare 0 1 2\n",
+            // `Less = 0`, `Equal = 1`, `Greater = 2`. The third pair is the one
+            // that discriminates the candidate orders: it answered `2` while
+            // this compared UTF-16 code units, where a surrogate pair sorts
+            // below U+FFFD, and answers `0` now that it compares scalar values
+            // — which for valid UTF-8 is the bytes. buri-lang/buri#35.
+            "compare 0 1 0\n",
             "eq 1 0\n",
             "toint -1 42\n",
             "toint-wide -1 9223372036854775807\n",

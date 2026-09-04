@@ -286,6 +286,49 @@ test "compare orders the empty string first" {
     assert.isTrue("".compare("").isEqual());
 }
 
+// The order is **Unicode scalar value**, which for a valid string is UTF-8 byte
+// order — the unit `len` counts and `charAt` hands back. Every case above is
+// ASCII, where all three candidate orders agree; these are the ones that
+// discriminate, and they are the whole of what `core/str`'s `compare` promises
+// beyond "lexicographic".
+//
+// A JavaScript string is UTF-16 and `<` on one orders code units, so an astral
+// scalar — a surrogate pair beginning at U+D800 — sorts *below* U+E000..U+FFFF
+// there. Buri says the opposite on both backends, so these cases are also what
+// stops the JavaScript backend quietly reverting to `<`.
+//
+// U+FFFD (�) is the character from that band these use, because it is one a
+// reader can see. buri-lang/buri#35 reports the same thing about U+E000, which
+// is in the same band, sorts the same way, and is a private-use character with
+// no glyph — and a test whose subject is invisible in its own source is a test
+// nobody can check. The formatter writes a printable scalar as itself rather
+// than as an escape, so `\u{e000}` is not available as a spelling.
+
+test "compare orders an astral character above the top of the plane" {
+    // U+FFFD is 65533 and U+1F600 is 128512, so the emoji sorts above it.
+    // Every scalar in U+E000..U+FFFF answers the same way, and JavaScript's
+    // `<` answers the opposite for all of them.
+    assert.isTrue("�".compare("😀").isLess());
+    assert.eq("😀".compare("�"), Order.Greater);
+}
+
+test "compare orders across the first astral scalar" {
+    // U+10000 is the lowest scalar written as a surrogate pair, so this is the
+    // pair the two candidate orders disagree about by the smallest margin
+    // there is.
+    assert.isTrue("�".compare("𐀀").isLess());
+    assert.eq("𐀀".compare("�"), Order.Greater);
+}
+
+test "compare decides past a shared prefix" {
+    assert.isTrue("x�y".compare("x😀y").isLess());
+    assert.isTrue("😀a".compare("😀b").isLess());
+}
+
+test "compare orders a non-ASCII prefix before its extension" {
+    assert.isTrue("😀".compare("😀a").isLess());
+}
+
 // --- toInt / toFloat ----------------------------------------------------------
 
 test "toInt parses a decimal integer" {
@@ -958,9 +1001,26 @@ test "chars compare by code point" {
     assert.notEq('a', 'b');
 }
 
+// A `Char` is a Unicode scalar value, so `<` on one is its integer order —
+// including above the basic multilingual plane, where a JavaScript `<` on the
+// one-character string a `Char` is spelled as would answer the other way.
+test "chars compare by code point above the basic multilingual plane" {
+    assert.isTrue('�' < '😀');
+    assert.isTrue('�' < '𐀀');
+    assert.isTrue('😀' > '￿');
+}
+
 test "order.char compares characters" {
     assert.isTrue(order.char('a', 'b').isLess());
     assert.isTrue(order.char('b', 'b').isEqual());
+}
+
+// `order.char` is written as an integer comparison on `toU32`, and `<` is the
+// `Ord` conformance. They are two spellings of one order, which is only
+// observable where the two candidate orders differ.
+test "order.char agrees with the relational operators on astral input" {
+    assert.isTrue(order.char('�', '😀').isLess());
+    assert.eq(order.char('😀', '�'), Order.Greater);
 }
 
 // --- structural equality on strings -------------------------------------------
@@ -981,4 +1041,9 @@ test "strings compare with the relational operators" {
     assert.isTrue("banana" > "apple");
     assert.isTrue("a" <= "a");
     assert.isTrue("a" >= "a");
+    // buri-lang/buri#35's own line, and the one that fails if `<` on a `Str`
+    // ever goes back to being JavaScript's: there a surrogate pair beginning
+    // at U+D800 puts the emoji first.
+    assert.isFalse("😀" < "�");
+    assert.isTrue("�" < "😀");
 }

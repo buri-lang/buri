@@ -175,6 +175,12 @@ function $cmp(a, b) {
     }
     return a.length < b.length ? 0 : a.length > b.length ? 2 : 1;
   }
+  // `Str` and `Char` are both JavaScript strings, and `<` on one is UTF-16
+  // code-unit order rather than the scalar order the language specifies. This
+  // is the derived path — a struct field, a list element, a tuple — and it has
+  // to answer what `Str.compare` answers, or an `[Str]` and an `[(Str, Int)]`
+  // would sort differently.
+  if (typeof a === "string") return $str_compare(a, b);
   // Floats order -0.0 equal to 0.0 and report NaN as unordered, which falls
   // out of the comparisons below.
   return a < b ? 0 : a > b ? 2 : 1;
@@ -924,8 +930,42 @@ function $str_splitOnce(s, sep) {
   return i < 0 ? undefined : $some([s.slice(0, i), s.slice(i + sep.length)]);
 }
 
+// `Str.compare`, and through `Ord` every `<`, `sort` and `OrdMap` key order.
+//
+// **Unicode scalar value order**, which for a valid string is byte-for-byte
+// UTF-8 order — the same answer `str::cmp` gives in Rust, `<` gives in Go and
+// `<` gives in Python, and the same answer `buri_rt_str_compare` gives on the
+// native backends. It is deliberately *not* JavaScript's own `<`, which
+// compares UTF-16 code units: an astral scalar is a surrogate pair beginning
+// at 0xD800, so `<` puts every astral character *below* every character in
+// U+E000..U+FFFF, where the scalar values say the opposite. `"\u{1F600}" <
+// "\u{E000}"` is the case that names it — true in JavaScript, false here.
+//
+// The fast path is every string with no surrogate in it, which is every ASCII
+// string and every BMP one: there `<` already is scalar order, one code unit
+// per scalar. Only a string carrying a surrogate pays for the scan.
 function $str_compare(a, b) {
-  return a < b ? 0 : a > b ? 2 : 1;
+  if (a === b) return 1;
+  if (!$wide(a) && !$wide(b)) return a < b ? 0 : 2;
+  const n = a.length < b.length ? a.length : b.length;
+  for (let i = 0; i < n; i++) {
+    const x = a.charCodeAt(i);
+    const y = b.charCodeAt(i);
+    if (x === y) continue;
+    // Re-rank the two differing code units so that they order the way the
+    // scalars they encode do. A surrogate stands for something above U+FFFF,
+    // so it belongs above the whole 0xE000..0xFFFF block rather than below it;
+    // sliding that block down by 0x800 and the surrogates up by 0x2000 puts
+    // 0x0000..0xD7FF, then 0xD800..0xF7FF (was 0xE000..0xFFFF), then
+    // 0xF800..0xFFFF (the surrogates) in one increasing run. Two surrogates at
+    // the same index are either both leads or both trails — the units before
+    // them are equal — so comparing them shifted is comparing the scalars.
+    const p = x >= 0xe000 ? x - 0x800 : x >= 0xd800 ? x + 0x2000 : x;
+    const q = y >= 0xe000 ? y - 0x800 : y >= 0xd800 ? y + 0x2000 : y;
+    return p < q ? 0 : 2;
+  }
+  // One is a prefix of the other, in code units and so in scalars too.
+  return a.length < b.length ? 0 : a.length > b.length ? 2 : 1;
 }
 
 const $i64Min = -(2n ** 63n);

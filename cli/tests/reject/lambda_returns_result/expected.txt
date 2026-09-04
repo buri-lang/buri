@@ -1,0 +1,38 @@
+error: expected `U8`, found `Result<U8, RangeError>` [type-mismatch]
+  --> cmd/lambda_returns_result/main.buri:17:24
+   |
+17 |   ns.map(ctx, fn(n) => n.toU8())
+   |                        ^^^^^^^^ the expected return type is `U8`
+   |
+   = expected: `U8`
+   = actual: `Result<U8, RangeError>`
+   = fix: produce a `U8` here, or change what surrounds it to accept a `Result<U8, RangeError>`
+
+     What to do
+     ──────────
+
+     Convert explicitly. The diagnostic names the conversion: .toI64() is exact
+     for every I32, while a narrowing one returns a Result because not every
+     value fits.
+
+     A bare numeric literal is reported as Int or Float, the type it takes when
+     nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
+     let x: U8 = 1 — and it becomes any type of the same kind.
+
+     Why
+     ───
+
+     No promotion of any kind, in either direction. A language that widened
+     silently would make the width of an arithmetic result a property of the
+     expression's shape rather than of what was written, and the one place it
+     matters is the one place nobody looks.
+
+error: expected `U8`, found `Result<U8, RangeError>` [type-mismatch]
+  --> cmd/lambda_returns_result/main.buri:23:31
+   |
+23 |   ns.mapCtx(ctx, fn(_c, n) => n.toU8())
+   |                               ^^^^^^^^ the expected return type is `U8`
+   |
+   = expected: `U8`
+   = actual: `Result<U8, RangeError>`
+   = fix: produce a `U8` here, or change what surrounds it to accept a `Result<U8, RangeError>`

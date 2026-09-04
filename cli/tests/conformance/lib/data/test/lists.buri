@@ -274,6 +274,24 @@ test "map on the empty list is empty" {
     assert.eq(list.empty<Int>().map(ctx, fn(x) => x * 2), list.empty<Int>());
 }
 
+// A callback that answers a `Result` builds a list *of* `Result`s. It is the
+// half of the rule `cli/tests/reject/lambda_returns_result` states that a
+// reject case cannot show: refusing `[U8]` there has to leave this compiling,
+// because a fallible conversion over a list is a thing people write and the
+// element type is then the `Result` rather than its payload.
+test "map with a fallible callback answers a list of results" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let ns: [I64] = [200, 300];
+    let rs = ns.map(ctx, fn(n) => n.toU8());
+    // 300 does not fit in a `U8`, and the failure survives to the caller
+    // instead of being replaced by a zero.
+    assert.eq(rs.map(ctx, fn(r) => r.isOk()), [true, false]);
+    let vals: [U8] = [200, 0];
+    assert.eq(rs.map(ctx, fn(r) => r.withDefault(0)), vals);
+}
+
 test "mapCtx threads the context into the callback" {
     let ctx = context {
         Alloc: alloc(),
@@ -493,6 +511,19 @@ test "sort of strings is lexicographic" {
         Alloc: alloc(),
     };
     assert.eq(["pear", "apple", "fig"].sort(ctx), ["apple", "fig", "pear"]);
+}
+
+// `sort` is `Ord`, and for `Str` that is `core/str`'s `compare`: lexicographic
+// by Unicode scalar value, on both backends. U+FFE5 and U+FFFD are near the top
+// of the basic multilingual plane and U+1F600 is above it, which is exactly
+// where the scalar order and the UTF-16 one a JavaScript `<` would give part
+// company — there the emoji would sort first, because a surrogate pair begins
+// at U+D800.
+test "sort of strings orders by scalar value above the basic multilingual plane" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(["😀", "￥", "a", "�"].sort(ctx), ["a", "￥", "�", "😀"]);
 }
 
 test "sort keeps duplicates" {
