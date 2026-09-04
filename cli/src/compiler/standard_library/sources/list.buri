@@ -122,6 +122,12 @@ impl<T> [T] {
 }
 
 impl<T: Ord> [T] {
+    /// `sortBy` with the type's own `Ord`, and stable like it.
+    ///
+    /// For `[Str]` that is `core/str`'s `compare`: lexicographic by Unicode
+    /// scalar value, which for a valid string is UTF-8 byte order, on both
+    /// backends. It is not JavaScript's UTF-16 order, so an emoji sorts after
+    /// a character in U+E000..U+FFFF rather than before it.
     export fn sort<C: Alloc>(self, ctx: C): [T] {
         self.sortBy(ctx, fn(a, b) => a.compare(b))
     }

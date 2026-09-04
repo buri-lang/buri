@@ -52,6 +52,15 @@ prelude, so `derive Eq for Point;` works in a module that imports nothing.
 [`core/json`](../../compiler/standard_library/sources/json.buri),
 [`core/proto`](../../compiler/standard_library/sources/proto.buri).
 
+- **`core/str`** — a `Str` is measured in Unicode scalar values everywhere: `len`
+  counts them, `charAt` and `slice` index by them, and `compare` orders by them.
+  That last one is worth reading before relying on it, because a reader has two
+  plausible orders to guess between and they disagree above the basic
+  multilingual plane: it is scalar order — byte-for-byte UTF-8 order for a valid
+  string, as in Rust, Go and Python — and *not* the UTF-16 code-unit order a
+  JavaScript `<` gives, on either backend. `<`, `[Str].sort`, `core/order`'s
+  `str` and an `OrdMap<Str, _>`'s key order are all that one comparison.
+
 - **`core/bytes`** — UTF-8, hex, base64, varints. Free functions rather than
   methods on `[U8]`: a method may only be declared in its type's defining
   module, and `[T]`'s is `core/list`. Decoding is strict, and validates before

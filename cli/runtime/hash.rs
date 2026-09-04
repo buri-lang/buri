@@ -114,20 +114,19 @@ pub extern "C" fn buri_rt_hash_char(h: u64, c: u32) -> u64 {
 
 /// `Ord` on a `Char`, as the `Order` tag `0 | 1 | 2`.
 ///
-/// A `Char` is a one-character *string* on JavaScript, so `<` compares its
-/// UTF-16 code units — and that is not the same as comparing scalar values. An
-/// astral scalar is a surrogate pair beginning at `0xD800`, so every character
-/// in U+E000..U+FFFF sorts *above* every astral one, where the code points say
-/// the opposite. Here rather than in `text.rs` because it shares that file's
-/// reason for existing and this one's UTF-16 machinery.
+/// **Scalar value order**, which is what `Char` *is*: the comparison is on the
+/// code points, and VALUE-MODEL.md §1 already said so.
+///
+/// It transcoded to UTF-16 first and compared the units, to match a JavaScript
+/// backend where a `Char` is a one-character string and `<` on one is UTF-16.
+/// That put every character in U+E000..U+FFFF above every astral one, which is
+/// not what a code point says and is not what the native backends' own
+/// `compare_prim` — an integer comparison on the scalar — was answering. So the
+/// parity it bought was against `$cmp` only, `$cmp` now routes text through
+/// `$str_compare`, and this is the order both sides mean.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_char_compare(a: u32, b: u32) -> i32 {
-    let one = |c: u32| {
-        let ch = char::from_u32(c).unwrap_or(char::REPLACEMENT_CHARACTER);
-        let mut buf = [0u16; 2];
-        ch.encode_utf16(&mut buf).to_vec()
-    };
-    match one(a).cmp(&one(b)) {
+    match a.cmp(&b) {
         std::cmp::Ordering::Less => 0,
         std::cmp::Ordering::Equal => 1,
         std::cmp::Ordering::Greater => 2,
@@ -177,14 +176,18 @@ mod tests {
         assert_eq!(astral, by_hand);
     }
 
-    /// The row that cannot be guessed, on the ordering side: U+FFFD is one code
-    /// unit and U+10000 is a surrogate pair starting at `0xD800`, so the first
-    /// sorts *after* the second even though its scalar value is smaller.
+    /// The row that discriminates the two candidate orders. It asserted the
+    /// UTF-16 one — U+FFFD *after* U+10000, because a surrogate pair begins at
+    /// `0xD800` — and the language's order is the scalar one, so the
+    /// expectation is inverted rather than the case dropped.
     #[test]
-    fn characters_order_by_utf16_code_unit() {
+    fn characters_order_by_scalar_value() {
         assert_eq!(buri_rt_char_compare('a' as u32, 'b' as u32), 0);
         assert_eq!(buri_rt_char_compare('a' as u32, 'a' as u32), 1);
-        assert_eq!(buri_rt_char_compare(0xFFFD, 0x1_0000), 2);
+        assert_eq!(buri_rt_char_compare(0xFFFD, 0x1_0000), 0);
+        assert_eq!(buri_rt_char_compare(0x1_0000, 0xFFFD), 2);
+        // The issue's pair, as characters rather than as strings.
+        assert_eq!(buri_rt_char_compare(0x1_F600, 0xE000), 2);
     }
 
     #[test]

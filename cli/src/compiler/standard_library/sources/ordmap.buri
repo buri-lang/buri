@@ -28,12 +28,12 @@
 //! `start` and `end` rather than `from` and `to` because `from` is a keyword,
 //! and because `list.range` already names its bounds that way.
 //!
-//! **`prefix` is `Str` only, and means a prefix of the key's code units.** It
-//! is declared on `OrdMap<Str, V>` rather than on every key type, because
+//! **`prefix` is `Str` only, and means a prefix of the key's scalar values.**
+//! It is declared on `OrdMap<Str, V>` rather than on every key type, because
 //! "prefix" is a fact about strings and not about ordered values in general.
-//! `Str.compare` is lexicographic over UTF-16 code units and `startsWith` asks
-//! about the same units, and those two agreeing is what makes the matching keys
-//! one contiguous run: a key that is at least `p` and does not start with `p`
+//! `Str.compare` is lexicographic over Unicode scalar values and `startsWith`
+//! asks about the same units, and those two agreeing is what makes the matching
+//! keys one contiguous run: a key that is at least `p` and does not start with `p`
 //! must differ from `p` somewhere inside `p`, and is therefore greater than
 //! every key that does start with `p`. So `prefix` is a `range` whose upper end
 //! is a predicate rather than a key — it invents no successor string, and

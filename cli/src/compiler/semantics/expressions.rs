@@ -2724,7 +2724,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             ptypes.push(ty);
         }
         let declared_ret = ret.map(|id| self.c.elaborate(self.module, &self.generics, id));
-        let expect_ret = declared_ret.clone().or(want_ret);
+        let expect_ret = declared_ret.clone().or_else(|| want_ret.clone());
         // `?` is the only early exit, and it returns from the *enclosing
         // function* — a lambda is one, so its return type is what `?` is
         // checked against while its body is being visited.
@@ -2738,6 +2738,42 @@ impl<'a, 'b> Infer<'a, 'b> {
         if let Some(r) = &declared_ret {
             let body_span = self.tree().span(body);
             self.unify_at(body_span, &body_hir.ty.clone(), r, "the declared return type");
+        }
+        // A lambda whose body answers a `Result` the callback's own return
+        // type is not, reported — because `ret_ty` below would otherwise take
+        // the *expected* type and throw the body's away, and a `Result` thrown
+        // away is the one thing the language says can never happen.
+        //
+        // `xs.map(ctx, fn(n) => n.toU8())` is the case that named this: `[B]`
+        // is unified with the expected `[U8]` before the argument is visited,
+        // so `want_ret` is already `U8` when the body is, the expectation
+        // `check_expr` carries is a hint a mismatch does not disturb, and the
+        // lambda then claimed `fn(I64) => U8` while its body built a
+        // `Result<U8, RangeError>`. Nothing downstream could see through that
+        // claim: the argument check compared the lie against `fn(A) => B` and
+        // agreed, and the program ran with a byte read out of a value that was
+        // never one — every `.toU8()` silently a zero.
+        //
+        // Stated over the *must-use* family rather than over every mismatch,
+        // and deliberately: a lambda body is still allowed to answer a
+        // `Template` where a `Str` is wanted (§3.3 — there is no `Template` at
+        // run time) and to answer a value where `()` is wanted (the reactive
+        // callbacks in `ui/`, whose value is discarded). Those two are the
+        // leniency this position has always had, they cost nothing at run
+        // time, and neither is a value the language promises was consumed.
+        // Dropping a `Result` is, so it is the one this refuses.
+        if declared_ret.is_none() {
+            if let Some(r) = want_ret.clone() {
+                if self.is_known_result(&body_hir.ty) && !self.is_known_result(&r) {
+                    let body_span = self.tree().span(body);
+                    self.unify_at(
+                        body_span,
+                        &body_hir.ty.clone(),
+                        &r,
+                        "the expected return type",
+                    );
+                }
+            }
         }
         // A lambda with no annotation gets its type from its body, but if `?`
         // pinned the placeholder, that is what it is.

@@ -1,0 +1,30 @@
+// EXPECT: expected `U8`, found `Result<U8, RangeError>`
+from "core/effect" import { Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+// The rule is about the position rather than about `list.map`: a callback
+// parameter of any function says what its lambda answers, and a `Result` is
+// not it. `apply` is an ordinary user-written higher-order function and no
+// part of the standard library.
+fn apply(f: fn(I64) => U8): U8 {
+  f(200)
+}
+
+fn viaCallback(): U8 {
+  apply(fn(n) => n.toU8())
+}
+
+// An annotated `let` is the third way the expected type arrives, and it is
+// held to the same rule.
+fn viaBinding(): U8 {
+  let f: fn(I64) => U8 = fn(n) => n.toU8();
+  f(201)
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Stdout: host.stdout };
+  let sum = viaCallback() + viaBinding();
+  let _ = io.println(ctx, "${sum}").ignore();
+  .Ok(())
+}
