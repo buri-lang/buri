@@ -517,6 +517,18 @@ Two consequences:
   expressible — and so is a broken one. `derive` cannot be wrong in that way;
   hand-written implementations are a place to be deliberate.
 
+- **`Ord` on a `Str` is by Unicode scalar value**, which is the unit `len`
+  counts and `charAt` hands back, and which for a valid string is byte-for-byte
+  UTF-8 order. It is not UTF-16 code-unit order — what a JavaScript `<` on a
+  string gives, which puts every astral character below every character in
+  U+E000..U+FFFF — and both backends answer the scalar order. It is the order
+  `sort`, an `OrdMap<Str, _>` and `core/order`'s `str` all carry, since each of
+  them is this one comparison. `Ord` on a `Char` is the scalar's integer order,
+  which is the same rule one scalar at a time. `buri docs core/str` states it
+  beside `compare`, with the case that tells the two apart. There is no
+  locale-aware comparison in the language: collation is a table and a set of
+  options rather than a total order an operator can carry.
+
 ### 5.12 Traits
 
 A trait is an **interface**: a named set of method signatures that a type may

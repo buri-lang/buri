@@ -1078,6 +1078,51 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// Row 17: text orders by Unicode scalar value on both backends.
+///
+/// The row that has to be measured rather than reasoned about, because the two
+/// backends reach it from opposite directions and each has a *cheaper* answer
+/// that is the wrong one. A JavaScript string is UTF-16, so `<` on one orders
+/// by code unit and puts every astral scalar below every scalar in
+/// U+E000..U+FFFF — a surrogate pair begins at 0xD800. A native `Str` is UTF-8,
+/// so a `memcmp` orders by scalar value and says the opposite. The language
+/// says scalar value (`core/str`'s `compare`), so `$str_compare` spells that
+/// order out instead of using `<` and `buri_rt_str_compare` is the `memcmp`.
+///
+/// Every input here straddles the boundary the two orders disagree on. `sort`
+/// and `Char` are in the same program because they are the same conformance:
+/// `[Str].sort` is `Ord`, `<` is `Ord`, and a `Char` is a one-character string
+/// on JavaScript, so all three used to come out of `<`.
+#[test]
+fn row_17_text_orders_by_scalar_value() {
+    rows_or_skip!();
+    agree(
+        "row 17",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+export fn main(): Result<(), Str> {
+  // U+E000 is private use and U+1F600 is an emoji: 57344 below 128512.
+  // JavaScript's `<` answers the other way round.
+  let a = "\u{e000}" < "\u{1f600}";
+  // The pair `cli/runtime/text.rs` pins, from the other side of U+FFFF.
+  let b = "\u{fffd}" < "\u{10000}";
+  // A shared prefix, so the decision is made past it.
+  let c = "x\u{e000}" < "x\u{1f600}";
+  // A `Char` is a scalar, and orders like one.
+  let d = '\u{e000}' < '\u{1f600}';
+  // Sorting is the same conformance, so it moves with them.
+  let e = ["\u{1f600}", "\u{e000}", "a"].sort(alloc) == ["a", "\u{e000}", "\u{1f600}"];
+  let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
+  .Ok(())
+}
+"#,
+        "true true true true true\n",
+    );
+}
+
 /// Row 15: `char.toUpper` where the full case mapping is not one scalar.
 ///
 /// `"ß".toUpperCase()` is `"SS"`, and JavaScript hands that back as a `Char` —
@@ -3382,5 +3427,5 @@ fn every_row_of_the_table_names_a_test_that_exists() {
     }
     // A table this failed to find would "pass" having checked nothing,
     // which is the failure a self-checking document has.
-    assert_eq!(rows, 16, "§12 has {rows} numbered rows rather than sixteen");
+    assert_eq!(rows, 17, "§12 has {rows} numbered rows rather than seventeen");
 }

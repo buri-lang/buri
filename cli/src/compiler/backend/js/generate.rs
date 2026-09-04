@@ -2445,6 +2445,33 @@ impl<'a> Gen<'a> {
             }
             PrimOp::Eq => two(BinOp::StrictEq, &mut args),
             PrimOp::Ne => two(BinOp::StrictNe, &mut args),
+            // Text is the one primitive whose *order* JavaScript's operators
+            // get wrong, the way a float is the one whose equality they do.
+            // A `Str`, a `Template` and a `Char` are all JavaScript strings, so
+            // `<` on one compares UTF-16 code units — and the language orders
+            // text by Unicode scalar value (`str.buri`'s `compare`), which is
+            // the other answer wherever an astral scalar meets one in
+            // U+E000..U+FFFF. `$str_compare` is that order.
+            //
+            // `Order::Equal` is the tag 1, so the relation is the tag against
+            // 1: one call and one comparison, which is the trick
+            // `llvm/emit.rs::string_binary` plays on the native side against
+            // `buri_rt_str_compare`. Equality is left above, because `===` on
+            // two strings is already the right question.
+            PrimOp::Lt | PrimOp::Le | PrimOp::Gt | PrimOp::Ge
+                if matches!(p, Prim::Str | Prim::Template | Prim::Char) =>
+            {
+                let b = args.pop().or_ice(BINARY_ARITY);
+                let a = args.pop().or_ice(BINARY_ARITY);
+                let tag = Expr::call(Expr::ident("$str_compare"), vec![a, b]);
+                let against = match op {
+                    PrimOp::Lt => BinOp::Lt,
+                    PrimOp::Le => BinOp::Le,
+                    PrimOp::Gt => BinOp::Gt,
+                    _ => BinOp::Ge,
+                };
+                Expr::bin(against, tag, Expr::Num(1.0))
+            }
             PrimOp::Lt => two(BinOp::Lt, &mut args),
             PrimOp::Le => two(BinOp::Le, &mut args),
             PrimOp::Gt => two(BinOp::Gt, &mut args),

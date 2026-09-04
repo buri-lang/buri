@@ -47,6 +47,50 @@ impl Str {
     /// neither half is a copy.
     export fn splitOnce(self, separator: Str): Option<(Str, Str)>;
 
+    /// Lexicographic, **by Unicode scalar value** — the same unit `len` counts
+    /// and `charAt` hands back. For a valid string that is byte-for-byte UTF-8
+    /// order, so the first byte the two differ at decides, and a string that is
+    /// a prefix of another sorts before it.
+    ///
+    /// This is the order `<`, `<=`, `>`, `>=`, `[Str].sort`, `core/order.str`
+    /// and an `OrdMap<Str, _>`'s key order all answer, since every one of them
+    /// is this method through `Ord`.
+    ///
+    /// Worth stating because a reader has two other orders to guess from and
+    /// they disagree above the basic multilingual plane. It is *not* UTF-16
+    /// code-unit order, which is what JavaScript's `<` on a string gives: an
+    /// astral scalar is written there as a surrogate pair beginning at U+D800,
+    /// so JavaScript puts every astral character below every character in
+    /// U+E000..U+FFFF. Buri says the opposite, on both backends, and agrees
+    /// with Rust's `str::cmp`, Go's `<` and Python's `<`:
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     // U+FFFD is 65533 and U+1F600 is 128512, so the emoji sorts above
+    ///     // the replacement character. JavaScript's `<` on a string answers
+    ///     // the other way. Every scalar in U+E000..U+FFFF behaves like the
+    ///     // first one here.
+    ///     let below = "�" < "😀";
+    ///     let _ = io.println(ctx, "${below}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// true
+    /// ```
+    ///
+    /// There is no locale-aware or case-insensitive comparison here and there
+    /// is not meant to be: collation is a table and a set of options, not a
+    /// total order a `<` can carry. Fold with `toLower` first for a
+    /// case-insensitive ordering.
     export fn compare(self, other: Str): Order;
 
     export fn toInt(self): Option<Int>;

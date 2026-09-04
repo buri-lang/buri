@@ -61,9 +61,10 @@ export struct DecodeError(export Int);
 
 /// The UTF-8 encoding of a string.
 ///
-/// An intrinsic rather than Buri: a string is UTF-16 on this backend, and the
-/// encoding is the platform's business rather than something to rebuild on top
-/// of `charAt`.
+/// An intrinsic rather than Buri: how a string is stored is the platform's
+/// business — UTF-8 natively, UTF-16 code units on JavaScript — so the encoding
+/// is a transcode the platform already has rather than something to rebuild on
+/// top of `charAt`.
 export fn toUtf8<C: Alloc>(ctx: C, s: Str): [U8];
 
 /// The string those bytes encode, or where they stopped being one.
