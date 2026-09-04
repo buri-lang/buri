@@ -1,0 +1,14 @@
+// The `core/hash` conformance package.
+//
+// Four algorithms, each pinned to the vectors its publisher wrote down rather
+// than to whatever this implementation happened to answer the first time it
+// ran: FNV-1a's reference vectors, the CRC-32C check value together with RFC
+// 3720 B.4's three iSCSI cases, and the SipHash-2-4 reference implementation's
+// table. An agreement with a published number is a claim two implementations
+// can be compared on; an agreement with a recorded output is a claim about
+// nothing.
+//
+// It is also a hard test of the *language*: U32 and U64 wrapping arithmetic,
+// exclusive-or, both shifts, rotation built from two of them, tail recursion
+// over an eight-octet word, and the same answers on a backend where a U64 is a
+// machine word and on one where it is a BigInt.

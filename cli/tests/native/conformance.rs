@@ -477,6 +477,11 @@ const PACKAGES: &[Case] = &[
     // byte-pattern entries — are `cli/runtime/bytes.rs` now, which is the one
     // surface each of these two was waiting for.
     included("crypto/sha256.buri"),
+    // `core/hash` — FNV-1a, CRC-32C and SipHash-2-4 against their published
+    // vectors. Native on the same terms `crypto/sha256.buri` is: ordinary Buri
+    // over U32 and U64 wrapping arithmetic, the two shifts and tail recursion,
+    // reaching no host, with every answer a number somebody else published.
+    included("checksum/checksum.buri"),
     // The seeded `Entropy` double and the two doors onto it. Native from the
     // day it landed: `TestEntropy` shares `Slot::Rand` with `TestRand` in
     // `cli/runtime/testing.rs`, so the sequence this file writes down is the

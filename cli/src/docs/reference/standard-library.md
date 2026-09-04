@@ -74,6 +74,22 @@ prelude, so `derive Eq for Point;` works in a module that imports nothing.
   writes the ten bytes protoc writes, and every digit of a value past 2^53
   survives on every backend.
 
+  A **`Reader`** is the index a `readVarint(b, at)` threads, given a name:
+  `takeByte`, `takeVarint`, `takeSlice` and `takeFramed`, each answering the
+  value and the *next* reader rather than moving this one. It is a value like
+  everything else, so a decoder that looks ahead and changes its mind keeps the
+  reader it started from. The methods that only move the cursor are pure; the
+  two that answer a `[U8]` name `Alloc`, because a Buri list is a value and not
+  a view, so slicing one copies. There is **no `Builder`** for the same reason:
+  a value cannot be appended to in place, and `[[U8]].flatten` is what building
+  looks like here.
+
+  `fromU64Be` and its seven relatives are both ends of both widths, in both
+  directions, and writing one is *pure* — an array literal of a fixed size
+  allocates nothing a context has to grant. Reading answers an `Option`, because
+  a number assembled out of octets that were not there is a wrong answer wearing
+  the shape of a right one.
+
 - **`core/json`** — a `Json` tree, `parse`, and `stringify`. **An object is an
   ordered association list, not a map**, so key order round-trips, no `Hash`
   bound is needed, and `get` is O(n). Every number is a `Float`, which is what
@@ -195,6 +211,32 @@ Neither door is a secret. Both are uniform and both are predictable — for `Gen
 from a single draw, which is what publishing the algorithm means. What is *not*
 guessable is [`core/crypto`](#cryptography)'s, below.
 
+### Checksums
+
+[`core/hash`](../../compiler/standard_library/sources/hash.buri) — `fnv1a32`,
+`fnv1a64`, `crc32c` and `siphash24`, pure over `[U8]`.
+
+**This is not [`core/crypto`](#cryptography), and that is the whole reason it is
+a module of its own.** Nothing here is a digest: given a target value, producing
+a message that hashes to it is arithmetic rather than work. What they are for is
+the case a digest is the wrong size for — a flipped bit in a log record, a
+bucket index, a fingerprint two runs of a simulator can be compared on. Four
+octets of guard on a record is a decision a storage format makes on purpose, and
+before this module existed the cost of that decision was FNV-1a written out by
+hand in every repository that made it.
+
+`crc32c` is the one to write into a record, because it is what a storage
+format's readers already expect. `siphash24` is the only one that takes a key,
+and the key is the point: an unkeyed hash behind a map whose keys arrive from
+outside is a way to be handed a thousand of them that all land in one bucket.
+
+Each is written in Buri and pinned to the vectors its publisher wrote down —
+Noll's for FNV-1a, the CRC-32C check value and RFC 3720 B.4's iSCSI cases, and
+the SipHash-2-4 reference table — so the answer is the same on both backends and
+is the same answer another implementation gives. That also makes the package a
+hard test of the language: U32 and U64 wrapping arithmetic, both shifts, and the
+same numbers where a `U64` is a machine word and where it is a `BigInt`.
+
 ### Cryptography
 
 [`core/crypto`](../../compiler/standard_library/sources/crypto.buri) — SHA-256,
@@ -243,6 +285,11 @@ Deliberately absent, and not by oversight:
 - **No key derivation and no password hashing.**
 
 `sha256` is **not a password hash**. It is fast, which is the wrong property.
+
+It is also the wrong size for a flipped-bit guard: thirty-two octets of frame on
+a log record where four would do. That is what [`core/hash`](#checksums) is for,
+and the two modules are separate so that a program says which it meant by which
+it imports.
 
 ### User interfaces
 
