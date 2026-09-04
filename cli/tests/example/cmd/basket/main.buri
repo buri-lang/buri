@@ -7,7 +7,7 @@
 // a fact about the output's platform rather than about the code. `Ui` and
 // `Watch` are exported by `core/host` under `platform: WEB` and by nothing
 // else, so this file does not compile for a native output, and //cmd/server's
-// `host.fsRead` does not compile for this one. The error lands on the line that
+// `host.fs` does not compile for this one. The error lands on the line that
 // asked, at build time.
 
 from "core/effect" import { Alloc, Net };
@@ -37,8 +37,8 @@ from "//cmd/basket/view.buri" export { page };
 ///
 /// Four effects, and `Stdout` is deliberately not among them even though WEB
 /// grants it: a budget is what a program asks for, not what a platform would
-/// allow, and a page that never names `host.stdout` cannot print. `host.fsRead`
-/// and `host.fsWrite` are not among them for the other reason — a page has no
+/// allow, and a page that never names `host.stdout` cannot print. `host.fs`
+/// and `host.fs` are not among them for the other reason — a page has no
 /// filesystem, so WEB exports neither and asking would not compile.
 ///
 /// `host.net` is the one that changed sides. It was withheld from WEB while a

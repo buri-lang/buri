@@ -48,7 +48,7 @@ capture an effect-carrying value ([effects](../language/effects.md)).
 
 There is no detached spawn and no handle to join: every task has finished before
 `parallel` returns. That is what keeps "a program that never names
-`host.fsRead` cannot read a file" true of the program's lifetime and not only of
+`host.fs` cannot read a file" true of the program's lifetime and not only of
 its call graph.
 
 How much of it actually overlaps is the platform's business and deliberately not

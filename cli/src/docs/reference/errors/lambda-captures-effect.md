@@ -25,10 +25,11 @@ hold for every function except the ones written as lambdas.
 ## A program that provokes it
 
 ```buri fail code=lambda-captures-effect
-# from "core/effect" import { Alloc, Fs };
+# from "core/effect" import { Alloc };
 # from "core/fs" import * as fs;
+# from "core/fs" import { FsRead, Path };
 
-fn checkAll<C: Alloc + Fs>(ctx: C, paths: [Str]): [Bool] {
+fn checkAll<C: Alloc + FsRead>(ctx: C, paths: [Path]): [Bool] {
     paths.map(ctx, fn(p) => fs.exists(ctx, p))
 }
 ```

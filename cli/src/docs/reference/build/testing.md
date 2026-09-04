@@ -473,10 +473,7 @@ test "the third append fails and nothing after it is written" {
         FsWrite: wal,
     };
     let at = path.of(ctx, "wal");
-    assert.eq(
-        assert.err(commit(ctx, at, [[97], [98], [99]], 0)),
-        .Other("disk full"),
-    );
+    assert.eq(assert.err(commit(ctx, at, [[97], [98], [99]], 0)), .Other("disk full"));
     assert.eq(assert.ok(wal.read("wal")), "ab");
 }
 ```

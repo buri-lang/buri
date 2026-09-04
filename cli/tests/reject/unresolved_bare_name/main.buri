@@ -9,7 +9,7 @@ from "core/host" import * as host;
 from "core/fs" import * as fs;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fsRead };
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fs };
   let _ = appendBytes(ctx, "wal");
   .Ok(())
 }

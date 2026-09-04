@@ -1,0 +1,24 @@
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
+from "//lib/ledger" import { Entry };
+
+/// The on-disk line format, append-only: memo, tab, rendered amount.
+/// Internal to //lib/store — see lib.buri.
+///
+/// A free function, not a method: `Entry` is declared in //lib/ledger, and a
+/// method must live in its type's defining module. You cannot add operations to
+/// another library's types, which is what keeps `x.f()` a single lookup.
+///
+/// `e.amount.format(ctx)` uses //lib/money without importing a name from it:
+/// `amount` is a `Cents`, and a method resolves through its type's defining
+/// module. That still counts as using the library, so //lib/money is a direct
+/// dep of this target — see BUILD-FILES.md, "Dependencies".
+fn encodeLine<C: Alloc>(ctx: C, e: Entry): Str {
+    str.format(ctx, "${e.memo}\t${e.amount.format(ctx)}")
+
+export fn encode<C: Alloc>(ctx: C, entries: [Entry]): Str {
+    // `mapCtx`, not `map`: a lambda may not capture an effect-carrying value
+    // (SPEC 10.6), so the context is threaded through the combinator instead of
+    // closed over.
+    entries.mapCtx(ctx, fn(c, e) => encodeLine(c, e)).join(ctx, "\n")
+}

@@ -18,7 +18,7 @@ impl<C: FsRead> Holder<C> {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead, Stdout: host.stdout };
+  let ctx = context { Alloc: host.alloc, FsRead: host.fs, Stdout: host.stdout };
   let found = Holder { inner: ctx }.checkAll(ctx, [filepath.of(ctx, "a")]).len();
   let _ = io.println(ctx, "${found}").ignore();
   .Ok(())

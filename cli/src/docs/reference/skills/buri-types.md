@@ -24,10 +24,8 @@ compiler checked.
 `Int = I64`, `Float = F64`, `Uint = U64`, `Byte = U8` are **aliases, not
 distinct types** — a function declared with `Int` and one declared with `I64`
 interoperate with no conversion. There is no `null`; absence is `Option<T>`.
-
-Everyday code writes `Int` and `Float`. Code with a size on the wire writes
-`U8`, `I32`, `F32` and gets exactly that. There is no third category and no
-numeric tower.
+Everyday code writes `Int` and `Float`; code with a size on the wire writes
+`U8`, `I32`, `F32` and gets exactly that. There is no numeric tower.
 
 ## Composites
 
@@ -71,10 +69,9 @@ let e: [Int] = list.empty<Int>();
 
 Inside such a function, **only the bound's methods are callable** on the
 parameter, and nothing else. Generic code needing an operation no trait
-provides takes it as a function argument: `sortBy(xs, cmp)`.
-
-There is one constraint mechanism: `<T: Ord + Show>` and `<C: Alloc + Fs>` are
-the same feature.
+provides takes it as a function argument: `sortBy(xs, cmp)`. There is one
+constraint mechanism: `<T: Ord + Show>` and `<C: Alloc + FsRead>` are the same
+feature.
 
 ## Traits
 
@@ -175,9 +172,13 @@ trait method as a function: `Ord.compare(x, y)`.
 ## Effects
 
 An **effect** is an interface declared with `effect` instead of `trait`. Only
-platform modules may declare one. `core/effect` declares `Alloc`, `Fs`, `Net`,
+platform modules may declare one. `core/effect` declares `Alloc`, `Net`,
 `Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks` (all but
 `WEB`), `Listen` and `Sockets` (`LINUX` and `MACOS` — a page is served).
+`core/fs` is a platform module too and declares the filesystem's two, `FsRead`
+and `FsWrite`: a program that reads its configuration has not thereby earned
+the right to delete it. They are there rather than in `core/effect` because
+every method names a `Path` (`core/path`), which `core/fs` re-exports.
 
 An effect is a trait in every other respect but three:
 
@@ -192,9 +193,12 @@ An effect is a trait in every other respect but three:
   `core/tasks`, `core/net/server` and `ui/signal`, and a method on the value is
   `effect-method-call`. Only `core/*` and an `impl` supplying an effect keep
   the method form, which is what lets a wrapper delegate with
-  `self.0.readFile(path)`. **A print answers `Result<(), IoError>`**, so a
-  dropped one is `let _ = io.println(ctx, "hi").ignore();` and `buri lint`
-  reports it like any other drop.
+  `self.0.readFile(path)`. Every `core/fs` function takes a `Path`, built once
+  with `path.of(ctx, text)`: a `Str` would take any `Str`, and the file a
+  separator too many did not open comes back `.NotFound` exactly like a missing
+  one. **A print answers `Result<(), IoError>`**, so a dropped one is
+  `let _ = io.println(ctx, "hi").ignore();` and `buri lint` reports it like any
+  other drop.
 
 ### The `ctx` rule
 
@@ -202,10 +206,10 @@ An effect is a trait in every other respect but three:
 other name, never any other position, at most one of each.
 
 ```buri
-fn readText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError>   // ok
+fn readText<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, IoError>  // ok
 fn render<C: Alloc>(self, ctx: C): Str                        // ok
-fn sneaky<C: Fs>(a: Int, handle: C): Bool                             // ERROR
-fn twoWorlds<A: Fs, B: Net>(ctx: A, other: B): ()                     // ERROR
+fn sneaky<C: FsRead>(a: Int, handle: C): Bool                           // ERROR
+fn twoWorlds<A: FsRead, B: Net>(ctx: A, other: B): ()                   // ERROR
 ```
 
 The convention is enforced, not merely followed: **receiver first, context
@@ -215,8 +219,7 @@ second, everything else after**.
 > effect-carrying `self`.
 
 That is the purity theorem in usable form. Purity is not a keyword — it is the
-absence of one argument, in a fixed position, with a fixed name, and the check
-never reads a function body.
+absence of one argument, in a fixed position and with a fixed name.
 
 ### The three tiers
 
@@ -227,9 +230,8 @@ never reads a function body.
 | **Effectful** | `ctx` bounded by anything else | `fs.readText(ctx, p)` |
 
 The rule that decides it: an operation whose result size is fixed is pure, one
-whose result size depends on runtime data names `Alloc`. Fixed-size
-construction — literals, tuples, enum payloads, closures, `Template`s — never
-requires `Alloc`.
+whose result size depends on runtime data names `Alloc`. Fixed-size construction
+— literals, tuples, enum payloads, closures, `Template`s — never requires it.
 
 ### The capture rule
 
@@ -247,8 +249,8 @@ The library provides `list.mapCtx`, `list.filterCtx`, `result.mapCtx`,
 `result.andThenCtx` and friends; explicit recursion always works. The rule also
 reaches a value whose type *could* be a context — an unbounded `T`, or one
 bounded only by effects — so a closure-builder over a bare type parameter takes
-the value as a parameter rather than closing over it. A `T` with an ordinary
-trait bound, and any function type, are exempt.
+the value as a parameter. A `T` with an ordinary trait bound, and any function
+type, are exempt.
 
 ## Contexts
 
@@ -256,11 +258,11 @@ A context binds each effect to a value implementing it. One form, used by both
 `main` and a test.
 
 ```buri
-let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
+let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fs };
 
 context Fixture {
     Alloc: alloc(),
-    Fs: fs().files([("config.toml", "port=8080")]),
+    FsRead: fs().files([("config.toml", "port=8080")]),
 }
 ```
 
@@ -286,14 +288,13 @@ is transitive because `C` stays opaque downstream.
 ```buri
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
     let _ = io.println(ctx, msg).ignore();
-    // fs.readText(ctx, "/etc/passwd")   // ERROR: C is not bounded by Fs
+    // fs.readText(ctx, at)              // ERROR: C is not bounded by FsRead
 }
 ```
 
 **Attenuation** — wrap the context in a type satisfying fewer effects, so the
 callee holds a value that genuinely lacks the rest. It narrows the whole
-context, never one effect out of it, which is what keeps the `ctx` rule
-satisfiable. Use confinement by default and attenuation at trust boundaries.
-`core/alloc`'s `GeneralPurpose`, `Arena` and `FixedBuffer` are importable
-anywhere, because `Alloc` is the one effect whose implementation grants
-nothing.
+context, never one effect out of it. Use confinement by default and attenuation
+at trust boundaries. `core/alloc`'s `GeneralPurpose`, `Arena` and `FixedBuffer`
+are importable anywhere, because `Alloc` is the one effect whose implementation
+grants nothing.

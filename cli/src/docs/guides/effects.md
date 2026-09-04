@@ -61,7 +61,7 @@ looking and splits *which* effect from *what* it does into two names.
 
 The implementations that really do something live in `core/host`, which exports
 one value per effect the platform grants — `host.alloc`, `host.stdout`,
-`host.fsRead`, `host.fsWrite`, `host.net` and the rest — and **only the module
+`host.fs`, `host.fs`, `host.net` and the rest — and **only the module
 that exports `main`
 may import it**. `main` takes no parameters. It names the effects the program is
 to have, binds each to an implementation, and hands the result down:
@@ -82,7 +82,7 @@ export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Stdout: host.stdout,
-        FsRead: host.fsRead,
+        FsRead: host.fs,
     };
     let text = load(ctx, path.of(ctx, "notes.txt"))?;
     io.println(ctx, text).mapErr(fn(e) => "could not print")
@@ -121,7 +121,7 @@ export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Stdout: host.stdout,
-        FsRead: host.fsRead,
+        FsRead: host.fs,
     };
     // same value, confined by its bound
     let _ = logOnly(ctx, "starting", path.of(ctx, "notes.txt"));

@@ -8,7 +8,7 @@ from "core/fs" import * as fs;
 from "core/path" import * as filepath;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fsRead };
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fs };
   let _ = fs.copy(ctx, filepath.of(ctx, "wal"), filepath.of(ctx, "wal.bak"));
   .Ok(())
 }

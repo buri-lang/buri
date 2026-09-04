@@ -336,7 +336,8 @@ fn parse_block(
         if effect_binding(e).is_none() {
             return Err(fail(
                 format!("`{e}` is not an effect this harness can build"),
-                "the effects are alloc, stdout, stderr, stdin, fs, net, clock, rand, env, proc",
+                "the effects are alloc, stdout, stderr, stdin, fsread, fswrite, net, clock, \
+                 rand, env, proc, tasks, listen, sockets",
             ));
         }
     }
@@ -547,7 +548,8 @@ pub fn rendered(body: &str) -> String {
 // Assembly
 // ---------------------------------------------------------------------------
 
-/// `(effect name, effect type, host value)`.
+/// `(the effect type, qualified by the alias the wrapper imports it under, and
+/// the host value)`.
 ///
 /// The set is what a fence's generated `main` can actually *bind*, which is a
 /// smaller thing than what `core/effect` declares. The three UI effects are
@@ -560,21 +562,29 @@ pub fn rendered(body: &str) -> String {
 /// `core/net/server` — though a fence that actually *served* would never
 /// return, so what the rows buy is the shape of a call rather than a running
 /// server.
+///
+/// **The type is qualified because the effects are not all in one module.**
+/// `core/fs` declares `FsRead` and `FsWrite` — their methods name a `Path`, and
+/// `core/path` names `Alloc`, so `core/effect` is below the type they take —
+/// and a row that named only `FsRead` would build a wrapper importing it from
+/// the module that does not have it. `fs` is deliberately not a row: the
+/// filesystem is two grants, and a fence says which one it wants.
 fn effect_binding(name: &str) -> Option<(&'static str, &'static str)> {
     Some(match name {
-        "alloc" => ("Alloc", "alloc"),
-        "stdout" => ("Stdout", "stdout"),
-        "stderr" => ("Stderr", "stderr"),
-        "stdin" => ("Stdin", "stdin"),
-        "fs" => ("Fs", "fs"),
-        "net" => ("Net", "net"),
-        "clock" => ("Clock", "clock"),
-        "rand" => ("Rand", "rand"),
-        "env" => ("Env", "env"),
-        "proc" => ("Proc", "proc"),
-        "tasks" => ("Tasks", "tasks"),
-        "listen" => ("Listen", "listen"),
-        "sockets" => ("Sockets", "sockets"),
+        "alloc" => ("__effect.Alloc", "alloc"),
+        "stdout" => ("__effect.Stdout", "stdout"),
+        "stderr" => ("__effect.Stderr", "stderr"),
+        "stdin" => ("__effect.Stdin", "stdin"),
+        "fsread" => ("__fs.FsRead", "fs"),
+        "fswrite" => ("__fs.FsWrite", "fs"),
+        "net" => ("__effect.Net", "net"),
+        "clock" => ("__effect.Clock", "clock"),
+        "rand" => ("__effect.Rand", "rand"),
+        "env" => ("__effect.Env", "env"),
+        "proc" => ("__effect.Proc", "proc"),
+        "tasks" => ("__effect.Tasks", "tasks"),
+        "listen" => ("__effect.Listen", "listen"),
+        "sockets" => ("__effect.Sockets", "sockets"),
         _ => return None,
     })
 }
@@ -684,6 +694,10 @@ pub fn assemble(
         Wrap::Module => {}
         Wrap::Body | Wrap::Expr => {
             body.push_str("from \"core/effect\" import * as __effect;\n");
+            // `core/fs` beside it, and hidden for the same reason: it is where
+            // `FsRead` and `FsWrite` are declared, so a fence naming either has
+            // to reach a second module for a name it never writes.
+            body.push_str("from \"core/fs\" import * as __fs;\n");
             body.push_str("from \"core/host\" import * as __host;\n");
             // `core/io` under its ordinary name, and it is the one import here
             // that is not `__`-prefixed — deliberately, because a fragment
@@ -699,7 +713,7 @@ pub fn assemble(
             for e in &block.effects {
                 let (trait_name, host_value) = effect_binding(e)
                     .or_ice("`parse_block` refuses a block naming an effect with no binding");
-                body.push_str(&format!("    __effect.{trait_name}: __host.{host_value},\n"));
+                body.push_str(&format!("    {trait_name}: __host.{host_value},\n"));
             }
             body.push_str("  };\n");
             if block.wrap == Wrap::Expr {

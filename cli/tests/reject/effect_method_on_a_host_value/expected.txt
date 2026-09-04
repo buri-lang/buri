@@ -68,62 +68,69 @@ error: `Stdout` is an effect, so `println` is not called on a context [effect-me
      *supplies* an effect is where the operation is implemented, which is what
      keeps an attenuating wrapper writable:
 
-       # from "core/effect" import { Fs, IoError };
+       # from "core/effect" import { IoError };
+       # from "core/fs" import { FsRead, FsWrite, Path };
 
        struct ReadOnly<C>(C);
 
-       impl<C: Fs> Fs for ReadOnly<C> {
-           fn readFile(self, path: Str): Result<Str, IoError> {
+       impl<C: FsRead> FsRead for ReadOnly<C> {
+           fn readFile(self, path: Path): Result<Str, IoError> {
                self.0.readFile(path)
            }
 
-           fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
-               .Err(.ReadOnly)
-           }
-
-           fn fileExists(self, path: Str): Bool {
+           fn fileExists(self, path: Path): Bool {
                self.0.fileExists(path)
            }
 
-           fn readDir(self, path: Str): Result<[Str], IoError> {
+           fn readDir(self, path: Path): Result<[Str], IoError> {
                self.0.readDir(path)
            }
 
-           fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+           fn readFileBytes(self, path: Path): Result<[U8], IoError> {
                self.0.readFileBytes(path)
            }
+       }
 
-           fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+       // Nothing here forwards, so this half needs no bound on `C` at all — which is
+       // what the filesystem being two effects buys a decorator: the half that
+       // refuses restates eight methods and the half that forwards restates four,
+       // and neither had to know about the other.
+       impl<C> FsWrite for ReadOnly<C> {
+           fn writeFile(self, path: Path, body: Str): Result<(), IoError> {
                .Err(.ReadOnly)
            }
 
-           fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+           fn writeFileBytes(self, path: Path, body: [U8]): Result<(), IoError> {
                .Err(.ReadOnly)
            }
 
-           fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+           fn appendFile(self, path: Path, body: [U8]): Result<(), IoError> {
                .Err(.ReadOnly)
            }
 
-           fn removeFile(self, path: Str): Result<(), IoError> {
+           fn renameFile(self, source: Path, destination: Path): Result<(), IoError> {
                .Err(.ReadOnly)
            }
 
-           fn removeDir(self, path: Str): Result<(), IoError> {
+           fn removeFile(self, path: Path): Result<(), IoError> {
                .Err(.ReadOnly)
            }
 
-           fn makeDir(self, path: Str): Result<(), IoError> {
+           fn removeDir(self, path: Path): Result<(), IoError> {
                .Err(.ReadOnly)
            }
 
-           fn syncFile(self, path: Str): Result<(), IoError> {
+           fn makeDir(self, path: Path): Result<(), IoError> {
+               .Err(.ReadOnly)
+           }
+
+           fn syncFile(self, path: Path): Result<(), IoError> {
                .Err(.ReadOnly)
            }
        }
 
      That delegation cannot become fs.readText(self.0, path), because the
-     wrapper is bounded Alloc + Fs and this impl carries only C: Fs. The
+     wrapper is bounded Alloc + FsRead and this impl carries only C: FsRead. The
      carve-out grants nothing new: an implementor can reach only an inner
      context somebody already handed it.
 

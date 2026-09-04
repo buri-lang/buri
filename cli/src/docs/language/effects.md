@@ -249,8 +249,8 @@ Both are fixed positions with fixed names, so you never scan a signature.
 ### 10.3 Where effects come from
 
 The platform. `core/host` exports one value per effect the platform grants —
-`host.alloc`, `host.stdout`, `host.stderr`, `host.stdin`, `host.fsRead`,
-`host.fsWrite`, `host.net`, `host.clock`, `host.rand`, `host.env`, `host.proc`,
+`host.alloc`, `host.stdout`, `host.stderr`, `host.stdin`, `host.fs`,
+`host.fs`, `host.net`, `host.clock`, `host.rand`, `host.env`, `host.proc`,
 `host.tasks`, on a native
 platform `host.listen` and `host.sockets`, and on a platform with a document
 `host.ui` and `host.watch` — and it is importable only from the module that
@@ -265,7 +265,7 @@ export fn main(): Result<(), Str> {
   let ctx = context {
     Alloc:  host.alloc,
     Stdout: host.stdout,
-    FsRead: host.fsRead,
+    FsRead: host.fs,
   };
   ...
 }
@@ -287,7 +287,7 @@ and `JS`, and withheld from `WEB`, which is the same three as `FsRead`, `FsWrite
 returns only when the last task has finished, and a page has an interface that a
 wait is visible in. A page's concurrency is its event loop.
 
-The context above reads files and cannot write one: `host.fsWrite` is nowhere in
+The context above reads files and cannot write one: `host.fs` is nowhere in
 it, so nothing it reaches can be bounded by `FsWrite`. Binding one half of the
 filesystem and not the other is the ordinary case rather than a precaution.
 
@@ -571,7 +571,7 @@ export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Stdout: host.stdout,
-        FsRead: host.fsRead,
+        FsRead: host.fs,
     };
     let _ = logOnly(ctx, "starting"); // same value, confined by its bound
     .Ok(())

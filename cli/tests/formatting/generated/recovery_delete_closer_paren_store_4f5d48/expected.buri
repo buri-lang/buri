@@ -1,0 +1,65 @@
+// This suite inherits //lib/store's `server` tag, so it is checked as server
+// code. It declares no `platforms`, so it runs once, on the host — which the
+// `server` tag admits, and which is now a native binary rather than a
+// JavaScript one.
+//
+// `fs()` is an in-memory filesystem, rooted at the package directory and
+// holding exactly what this file gives it. Writes are visible to the test that
+// made them and discarded when it ends.
+//
+// `FsRead` and `FsWrite` are two effects, so a suite that writes and then
+// reads binds one double to both — which is why each block names its
+// filesystem before it builds the context. Two `fs()` calls would be two
+// filesystems, and the write would land in the one the read does not see.
+//
+// The golden the third test reads used to be a file on disk, named in
+// `test { data: [...] }` and read by the runner. That field is retired: only a
+// runner could hand a suite those entries, so a suite declaring one was refused
+// a native run. The golden is a value here now, which is where the other two
+// expected values already were.
+
+from "core/effect" import { Alloc };
+from "core/fs" import { FsRead, FsWrite };
+from "core/host/testing" import { alloc, fs };
+from "core/path" import * as path;
+from "core/testing/assert" import * as assert;
+from "//lib/ledger" import { entry };
+from "//lib/money" import { fromCents };
+from "//lib/store" import { append, readLog };
+
+test "append writes the log format" {
+    let disk = fs();
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
+    };
+    let log = path.of(ctx, "ledger.log");
+    assert.ok(append(ctx, log, [entry("coffee", fromCents(450))]));
+    assert.eq(assert.ok(readLog(ctx, log)), "coffee\t$4.50");
+}
+
+// Reading is all this one does, so the context binds `FsRead` and nothing that
+// could write.
+test "reading a missing log is an error, not an abort" {
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: fs(),
+    };
+    let _ = assert.err(readLog(ctx, path.of(ctx, "nope.log"));
+}
+
+test "the golden log round-trips" {
+    // As a file would hold it: ending in a newline, which the encoder does not
+    // emit.
+    let disk = fs().files([("test/golden/log.txt", "books\t$32.00\n")]);
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
+    };
+    let want = assert.ok(readLog(ctx, path.of(ctx, "test/golden/log.txt")));
+    let out = path.of(ctx, "out.log");
+    assert.ok(append(ctx, out, [entry("books", fromCents(3200))]));
+    assert.eq(assert.ok(readLog(ctx, out)), want.trim());
+}

@@ -1,11 +1,11 @@
-error: `WEB` does not grant `fsRead` [host-not-granted]
-  --> cmd/host_effect_not_granted_on_web/main.buri:25:18
+error: `WEB` does not grant `fs` [host-not-granted]
+  --> cmd/host_effect_not_granted_on_web/main.buri:26:18
    |
-25 |     FsRead: host.fsRead,
-   |                  ^^^^^^
+26 |     FsRead: host.fs,
+   |                  ^^
    |
    = a platform is the set of effects its host exports; a page has no filesystem to read
-   = fix: drop `FsRead` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS
+   = fix: drop `FsRead` or `FsWrite` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS
 
      What to do
      ──────────

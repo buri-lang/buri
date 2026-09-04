@@ -194,7 +194,7 @@ pub enum Ret {
     /// (`native/llvm.rs`'s `a_hot_function_has_no_allocas`). Printing is the
     /// hot path and a stream failure's actionable half is the variant; a
     /// filesystem failure's is often only in the string, because `ENOTEMPTY`
-    /// and `EISDIR` have no variant at all. So `Fs` carries the message and the
+    /// and `EISDIR` have no variant at all. So the filesystem carries the message and the
     /// streams do not, and `cli/runtime/host.rs`'s writers take no `out_err`.
     ResMsg,
     /// A `Result<T, E>`: an `i32` discriminant, `.Ok`'s payload through a
@@ -428,7 +428,7 @@ pub const ENTRIES: &[Entry] = &[
     // `Result<(), IoError>` on all five, which is [`Ret::Res`] with the
     // out-pointer omitted — `()` occupies no bytes — so the C signature is the
     // arguments, a trailing `out_err`, and an `i32` discriminant. The same
-    // shape `Fs`'s writers have, and for the same reason: a stream a program
+    // shape the filesystem's writers have, and for the same reason: a stream a program
     // cannot write to is a failure the program can act on, and a signature
     // saying `()` was claiming otherwise.
     e("host.HostStdout.print", "buri_rt_host_stdout_print", Ret::Res),
@@ -456,10 +456,15 @@ pub const ENTRIES: &[Entry] = &[
     // [`Ret::ResMsg`], the column below — which is why these eleven carry it and
     // the five stream writers above deliberately do not.
     //
-    // `self` is `HostFsRead` or `HostFsWrite`, both empty structs, so it
-    // flattens to nothing and no row here needs a `ctx` column: neither effect
-    // declares a context parameter, and the allocation these do is
-    // `buri_rt_alloc`'s.
+    // `self` is `HostFs`, an empty struct, so it flattens to nothing and no row
+    // here needs a `ctx` column: neither `FsRead` nor `FsWrite` declares a
+    // context parameter, and the allocation these do is `buri_rt_alloc`'s.
+    //
+    // **One host type for two effects**, which is what keeps these keys — and
+    // therefore `lib.rs` §1's symbol rule — where they were. A `HostFsRead`
+    // would mangle `readFile` to `buri_rt_host_fs_read_read_file`, and the
+    // filesystem being two grants is a fact about a *context* rather than about
+    // the platform, which has one.
     //
     // **A `Path` argument is the same three C parameters a `Str` was**, and
     // that is rule 1 of `lib.rs` §2 rather than a coincidence: a parameter is
@@ -470,17 +475,17 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `fileExists` is the one that is not a `Result` — it answers `Bool` and
     // cannot fail — which is why it sits with the scalars below and not here.
-    e("host.HostFsRead.readFile", "buri_rt_host_fs_read_file", Ret::ResMsg),
-    e("host.HostFsRead.readDir", "buri_rt_host_fs_read_dir", Ret::ResMsg),
-    e("host.HostFsRead.readFileBytes", "buri_rt_host_fs_read_file_bytes", Ret::ResMsg),
-    e("host.HostFsWrite.writeFile", "buri_rt_host_fs_write_file", Ret::ResMsg),
-    e("host.HostFsWrite.writeFileBytes", "buri_rt_host_fs_write_file_bytes", Ret::ResMsg),
-    e("host.HostFsWrite.appendFile", "buri_rt_host_fs_append_file", Ret::ResMsg),
-    e("host.HostFsWrite.renameFile", "buri_rt_host_fs_rename_file", Ret::ResMsg),
-    e("host.HostFsWrite.removeFile", "buri_rt_host_fs_remove_file", Ret::ResMsg),
-    e("host.HostFsWrite.removeDir", "buri_rt_host_fs_remove_dir", Ret::ResMsg),
-    e("host.HostFsWrite.makeDir", "buri_rt_host_fs_make_dir", Ret::ResMsg),
-    e("host.HostFsWrite.syncFile", "buri_rt_host_fs_sync_file", Ret::ResMsg),
+    e("host.HostFs.readFile", "buri_rt_host_fs_read_file", Ret::ResMsg),
+    e("host.HostFs.readDir", "buri_rt_host_fs_read_dir", Ret::ResMsg),
+    e("host.HostFs.readFileBytes", "buri_rt_host_fs_read_file_bytes", Ret::ResMsg),
+    e("host.HostFs.writeFile", "buri_rt_host_fs_write_file", Ret::ResMsg),
+    e("host.HostFs.writeFileBytes", "buri_rt_host_fs_write_file_bytes", Ret::ResMsg),
+    e("host.HostFs.appendFile", "buri_rt_host_fs_append_file", Ret::ResMsg),
+    e("host.HostFs.renameFile", "buri_rt_host_fs_rename_file", Ret::ResMsg),
+    e("host.HostFs.removeFile", "buri_rt_host_fs_remove_file", Ret::ResMsg),
+    e("host.HostFs.removeDir", "buri_rt_host_fs_remove_dir", Ret::ResMsg),
+    e("host.HostFs.makeDir", "buri_rt_host_fs_make_dir", Ret::ResMsg),
+    e("host.HostFs.syncFile", "buri_rt_host_fs_sync_file", Ret::ResMsg),
     // -- Env, and Stdin beside it -------------------------------------------
     //
     // Four rows and no new shape between them, which is what made them the
@@ -498,7 +503,7 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostStdin.readLine", "buri_rt_host_stdin_read_line", Ret::Opt),
     e("host.HostStdin.readBytes", "buri_rt_host_stdin_read_bytes", Ret::Opt),
     // -- the scalar capabilities --------------------------------------------
-    e("host.HostFsRead.fileExists", "buri_rt_host_fs_file_exists", Ret::Scalar),
+    e("host.HostFs.fileExists", "buri_rt_host_fs_file_exists", Ret::Scalar),
     e("host.HostClock.nowMillis", "buri_rt_host_clock_now_millis", Ret::Scalar),
     e("host.HostClock.sleepMillis", "buri_rt_host_clock_sleep_millis", Ret::Void),
     e("host.HostRand.nextInt", "buri_rt_host_rand_next_int", Ret::Scalar),
@@ -689,7 +694,7 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `TestFs`'s eleven methods answer a `Result<T, IoError>`, which was the
     // shape this table had no `Ret` for; §2.1 is that shape and [`Ret::Res`] is
-    // the row for it. `host.HostFsRead.readFile` is still absent, and for a
+    // the row for it. `host.HostFs.readFile` is still absent, and for a
     // different reason: the archive has a body for it and this table has no
     // row, which is a gap rather than a shape.
     //
@@ -736,7 +741,7 @@ pub const ENTRIES: &[Entry] = &[
     // than a `TestFs`. That value is a handle and a fault plan since the plan
     // landed, and an argument crosses as its leaves — so a row taking `self`
     // would be handed three values where it expects one, which is the crash
-    // `TestNet.calls` found first. The eleven methods of `Fs` are Buri bodies
+    // `TestNet.calls` found first. The eleven filesystem methods are Buri bodies
     // over these rows; `host_testing.buri` says why the plan is in the program.
     //
     // `snapshot` is `Ret::Out` over a `[(Str, Str)]` — one block of two-`Str`
@@ -938,7 +943,7 @@ mod tests {
         for entry in ENTRIES {
             assert_eq!(symbol_for(entry.key), entry.symbol, "{}", entry.key);
         }
-        assert_eq!(symbol_for("host.HostFsRead.readFile"), "buri_rt_host_fs_read_file");
+        assert_eq!(symbol_for("host.HostFs.readFile"), "buri_rt_host_fs_read_file");
         assert_eq!(symbol_for("host.HostStdout.println"), "buri_rt_host_stdout_println");
         assert_eq!(symbol_for("str.splitOnce"), "buri_rt_str_split_once");
     }
@@ -961,7 +966,7 @@ mod tests {
             // native binary that could not touch a file or read its own
             // arguments (buri-lang/buri#36). They are rows now, and the two
             // halves of that gap were different: `Env` and `Stdin` were waiting
-            // on nothing but the row, and `Fs` was waiting on §2.1's message
+            // on nothing but the row, and the filesystem was waiting on §2.1's message
             // shape, because `IoError.Other(Str)` is what a real filesystem
             // answers for every kind the six classified variants do not name.
             //
@@ -1186,11 +1191,20 @@ mod tests {
     /// The `core/effect` source, which is where an effect's operations are
     /// declared and therefore the only list worth checking a table against.
     fn effect_source() -> &'static str {
+        module_source("core/effect")
+    }
+
+    /// One standard-library module's text.
+    ///
+    /// Two modules declare effects that this table has rows for: `core/effect`,
+    /// and `core/fs`, which declares `FsRead` and `FsWrite` because their
+    /// methods name a `Path` and `core/path` names `Alloc`.
+    fn module_source(path: &str) -> &'static str {
         crate::compiler::standard_library::MODULES
             .iter()
-            .find(|m| m.path == "core/effect")
-            .map(|m| m.source)
-            .expect("`core/effect` is a module")
+            .find(|m| m.path == path)
+            .unwrap_or_else(|| panic!("`{path}` is a module"))
+            .source
     }
 
     /// The method names one `effect` block declares, in declaration order.
@@ -1199,12 +1213,12 @@ mod tests {
     /// [`the_context_column_is_the_declarations_ctx_parameter`] scans one: a
     /// method added to the effect and forgotten here would be exactly the gap
     /// this is checking for.
-    fn effect_methods(effect: &str) -> Vec<String> {
-        let source = effect_source();
+    fn effect_methods(module: &str, effect: &str) -> Vec<String> {
+        let source = module_source(module);
         let body = source
             .split(&format!("export effect {effect} {{"))
             .nth(1)
-            .unwrap_or_else(|| panic!("no `effect {effect}` in `core/effect`"))
+            .unwrap_or_else(|| panic!("no `effect {effect}` in `{module}`"))
             .split("\n}")
             .next()
             .unwrap_or_else(|| panic!("`effect {effect}` never closes"));
@@ -1217,23 +1231,32 @@ mod tests {
         out
     }
 
-    /// **Every operation of `Fs`, `Env` and `Stdin` has a row.**
+    /// **Every operation of the filesystem, `Env` and `Stdin` has a row.**
     ///
     /// This is buri-lang/buri#36 as an assertion. `cli/runtime/host.rs` had a
     /// body for all sixteen and this table had a row for one of them
-    /// (`fileExists`), so a native binary that bound `Fs: host.fs` was refused
+    /// (`fileExists`), so a native binary that bound the filesystem was refused
     /// before code generation — one line naming nine operations — while the
     /// same program ran on JavaScript. The archive was never the gap; the rows
     /// were, and this is what says they still are not.
     ///
     /// Read off the effect rather than listed here, so that buri-lang/buri#38's
     /// `removeDir` — and the next operation after it — is covered by the commit
-    /// that declares it rather than by somebody remembering this test.
+    /// that declares it rather than by somebody remembering this test. The
+    /// filesystem is two rows of that scan now and not one, which is the same
+    /// mechanism catching the split: `FsRead` and `FsWrite` are declared in
+    /// `core/fs`, and a method of either with no entry is a native program
+    /// refused.
     #[test]
     fn every_operation_of_the_host_file_and_environment_effects_has_a_row() {
         let mut checked = 0usize;
-        for (effect, host) in [("Fs", "HostFs"), ("Env", "HostEnv"), ("Stdin", "HostStdin")] {
-            let methods = effect_methods(effect);
+        for (module, effect, host) in [
+            ("core/fs", "FsRead", "HostFs"),
+            ("core/fs", "FsWrite", "HostFs"),
+            ("core/effect", "Env", "HostEnv"),
+            ("core/effect", "Stdin", "HostStdin"),
+        ] {
+            let methods = effect_methods(module, effect);
             assert!(
                 methods.len() >= 2,
                 "the scan found only {} operations of `{effect}`",
@@ -1260,7 +1283,7 @@ mod tests {
     /// written down here and not left to a reader to reconstruct.
     ///
     /// Two claims, and the second is the one worth the test. Every fallible
-    /// operation of `Fs` carries a message, because `ENOTEMPTY` and `EISDIR`
+    /// operation of the filesystem carries a message, because `ENOTEMPTY` and `EISDIR`
     /// have no `IoError` variant at all and the string is the only place the
     /// failure says which it was. **The five stream writers do not**, and
     /// `cli/runtime/host.rs`'s `reported` is the other half of that: those five
@@ -1322,7 +1345,8 @@ mod tests {
     /// from. So this reads `core/effect`: exactly one variant of `IoError`
     /// carries anything, it is the last, and what it carries is one `Str`. An
     /// eighth variant with a payload, or a payload on any of the first six,
-    /// takes `Fs` back out of the message shape and every row above with it.
+    /// takes the filesystem back out of the message shape and every row above
+    /// with it.
     #[test]
     fn the_message_shape_is_the_one_io_error_has() {
         let source = effect_source();

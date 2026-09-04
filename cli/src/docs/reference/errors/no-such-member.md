@@ -27,10 +27,12 @@ one part that was right.
 ## A program that provokes it
 
 ```buri fail code=no-such-member
-from "core/effect" import { Alloc, Fs };
+from "core/effect" import { Alloc };
 from "core/fs" import * as fs;
+from "core/fs" import { FsWrite };
+from "core/path" import * as path;
 
-export fn appendWal<C: Alloc + Fs>(ctx: C): Bool {
-    fs.appendBytes(ctx, "wal")
+export fn appendWal<C: Alloc + FsWrite>(ctx: C): Bool {
+    fs.appendBytes(ctx, path.of(ctx, "wal"))
 }
 ```

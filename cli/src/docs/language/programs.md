@@ -212,7 +212,7 @@ implements it. There is one form, and `main` and a test use the same one.
 let ctx = context {
   Alloc:  host.alloc,
   Stdout: host.stdout,
-  FsRead: rooted(host.fsRead, "/srv/app"),
+  FsRead: rooted(host.fs, "/srv/app"),
 };
 ```
 

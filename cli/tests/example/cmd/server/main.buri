@@ -21,7 +21,7 @@ from "//cmd/server/routes.buri" import { route };
 
 /// The context is this program's complete effect budget. Under `platform: JS`
 /// this same body would fail to build: a browser platform's `core/host` has no
-/// filesystem to export, so `host.fsRead` does not resolve — and the error
+/// filesystem to export, so `host.fs` does not resolve — and the error
 /// lands on that line rather than at runtime.
 ///
 /// The filesystem is two bindings because it is two authorities. `append`
@@ -32,8 +32,8 @@ export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Stdout: host.stdout,
-        FsRead: host.fsRead,
-        FsWrite: host.fsWrite,
+        FsRead: host.fs,
+        FsWrite: host.fs,
         Env: host.env,
     };
 

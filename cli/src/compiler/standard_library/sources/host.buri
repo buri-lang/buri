@@ -58,17 +58,19 @@ impl Stdin for HostStdin {
     fn readBytes(self, n: Int): Option<[U8]>;
 }
 
-/// Reading the platform's filesystem.
+/// The platform's filesystem.
 ///
-/// **Granted on LINUX, MACOS and JS**, with `HostFsWrite`: a page has no
-/// filesystem to read.
+/// **Granted on LINUX, MACOS and JS.** Not on WEB: a page has no filesystem.
 ///
-/// Two host values rather than one because `FsRead` and `FsWrite` are two
-/// effects, and a context is where the choice is written down: a program that
-/// only reads binds this one and nothing anywhere in its call graph can write.
-export struct HostFsRead {}
+/// One value and two effects, which is the shape the split has: there is one
+/// filesystem under a program, and `FsRead` and `FsWrite` are two authorities
+/// over it rather than two devices. A context is where the choice is written
+/// down — a program that binds `FsRead: host.fs` and no `FsWrite` cannot write
+/// anywhere in its transitive call graph, and a reader of those two lines can
+/// see that without reading anything else.
+export struct HostFs {}
 
-impl FsRead for HostFsRead {
+impl FsRead for HostFs {
     fn readFile(self, path: Path): Result<Str, IoError>;
 
     fn fileExists(self, path: Path): Bool;
@@ -78,11 +80,7 @@ impl FsRead for HostFsRead {
     fn readFileBytes(self, path: Path): Result<[U8], IoError>;
 }
 
-/// Changing the platform's filesystem. `HostFsRead`'s other half, granted on
-/// the same three platforms and bound separately.
-export struct HostFsWrite {}
-
-impl FsWrite for HostFsWrite {
+impl FsWrite for HostFs {
     fn writeFile(self, path: Path, body: Str): Result<(), IoError>;
 
     fn writeFileBytes(self, path: Path, body: [U8]): Result<(), IoError>;
@@ -242,9 +240,7 @@ export let stderr: HostStderr = HostStderr { };
 
 export let stdin: HostStdin = HostStdin { };
 
-export let fsRead: HostFsRead = HostFsRead { };
-
-export let fsWrite: HostFsWrite = HostFsWrite { };
+export let fs: HostFs = HostFs { };
 
 export let net: HostNet = HostNet { };
 

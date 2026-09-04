@@ -11,10 +11,11 @@
 //! difference is one a reader of a context should be able to see:
 //!
 //! ```buri sig
-//! # from "core/effect" import { Alloc };
-//! # from "core/fs" import { FsRead, Path };
+//! # from "core/effect" import { Alloc, IoError };
 //! # from "core/fs" import * as fs;
-//! export fn settings<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, fs.IoError> {
+//! # from "core/fs" import { FsRead, Path };
+//! #
+//! export fn settings<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, IoError> {
 //!     fs.readText(ctx, at)
 //! }
 //! ```
@@ -23,11 +24,11 @@
 //! can write, because nothing it could hand `ctx` to can ask for `FsWrite`
 //! from a context that does not bind it.
 //!
-//! The cost is that a program doing both binds both — `FsRead: host.fsRead,
-//! FsWrite: host.fsWrite` — and that is deliberate rather than a shortcoming
-//! waiting for a language feature. It is also what makes a *decorator* cheap:
-//! a fake or a fault injector that only has to be read from restates four
-//! methods rather than twelve.
+//! The cost is that a program doing both binds both — `FsRead: host.fs,
+//! FsWrite: host.fs`, one filesystem under two authorities — and that is
+//! deliberate rather than a shortcoming waiting for a language feature. It is
+//! also what makes a *decorator* cheap: a fake or a fault injector that only
+//! has to be read from restates four methods rather than twelve.
 //!
 //! ## Every operation takes a `Path`
 //!
@@ -192,12 +193,32 @@ export fn readBytes<C: Alloc + FsRead>(ctx: C, path: Path): Result<[U8], IoError
 /// "forbidden" are different facts and a caller that folded them together
 /// would retry the wrong one.
 ///
-/// ```buri wrap=body ctx=Alloc+FsRead
-/// # from "core/fs" import * as fs;
-/// # from "core/path" import * as path;
-/// # from "core/testing/assert" import * as assert;
-/// let absent = assert.ok(fs.readBytesIfExists(ctx, path.of(ctx, "no-such-file")));
-/// assert.isTrue(absent.isNone());
+/// ```buri run
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/fs" import * as fs;
+/// from "core/fs" import { FsRead };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/path" import * as path;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         FsRead: host.fs,
+///         Stdout: host.stdout,
+///     };
+///     let answer = match (fs.readBytesIfExists(ctx, path.of(ctx, "no-such-file"))) {
+///         .Ok(.None) => "absent",
+///         .Ok(.Some(_body)) => "there",
+///         .Err(_e) => "unreadable",
+///     };
+///     let _ = io.println(ctx, "${answer}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// absent
 /// ```
 export fn readBytesIfExists<C: Alloc + FsRead>(
     ctx: C,

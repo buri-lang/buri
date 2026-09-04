@@ -353,31 +353,31 @@ const EVERY_PLATFORM: &[Platform] = &Platform::ALL;
 /// `every_host_export_is_in_the_grant_table`.
 const HOST_GRANTS: &[HostGrant] = &[
     HostGrant {
-        effect: "Alloc",
+        effect: "`Alloc`",
         exports: &["HostAlloc", "alloc"],
         platforms: EVERY_PLATFORM,
         because: "every platform can allocate",
     },
     HostGrant {
-        effect: "Stdout",
+        effect: "`Stdout`",
         exports: &["HostStdout", "stdout"],
         platforms: EVERY_PLATFORM,
         because: "every platform has somewhere to write a line",
     },
     HostGrant {
-        effect: "Stderr",
+        effect: "`Stderr`",
         exports: &["HostStderr", "stderr"],
         platforms: EVERY_PLATFORM,
         because: "every platform has somewhere to write a line",
     },
     HostGrant {
-        effect: "Clock",
+        effect: "`Clock`",
         exports: &["HostClock", "clock"],
         platforms: EVERY_PLATFORM,
         because: "every platform can read a clock",
     },
     HostGrant {
-        effect: "Rand",
+        effect: "`Rand`",
         exports: &["HostRand", "rand"],
         platforms: EVERY_PLATFORM,
         because: "every platform has a source of randomness",
@@ -389,43 +389,37 @@ const HOST_GRANTS: &[HostGrant] = &[
     // one thread is waiting is a frozen page. WEB grants it now, and the
     // callback-shaped `Fetch` that stood in for it is gone.
     HostGrant {
-        effect: "Net",
+        effect: "`Net`",
         exports: &["HostNet", "net"],
         platforms: EVERY_PLATFORM,
         because: "every platform can make a request",
     },
     // The two halves that vary. A page has no operating system under it, and
     // nothing but a page has a document over it.
-    // The filesystem, in its two halves. They are granted *together* or not at
-    // all — a platform either has a filesystem under it or does not — and the
-    // split is about what a *program* asks for, not about what a platform can
-    // offer. `the_filesystem_halves_are_granted_together` is the assertion.
+    // One row for two effects, because there is one filesystem: `host.fs`
+    // implements `FsRead` and `FsWrite` both, and which of the two authorities
+    // a program takes is a fact about its *context* rather than about what the
+    // platform offers. A platform either has a filesystem under it or does not.
     HostGrant {
-        effect: "FsRead",
-        exports: &["HostFsRead", "fsRead"],
+        effect: "`FsRead` or `FsWrite`",
+        exports: &["HostFs", "fs"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no filesystem to read",
     },
     HostGrant {
-        effect: "FsWrite",
-        exports: &["HostFsWrite", "fsWrite"],
-        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "a page has no filesystem to write to",
-    },
-    HostGrant {
-        effect: "Stdin",
+        effect: "`Stdin`",
         exports: &["HostStdin", "stdin"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no standard input",
     },
     HostGrant {
-        effect: "Env",
+        effect: "`Env`",
         exports: &["HostEnv", "env"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no command line and no environment",
     },
     HostGrant {
-        effect: "Proc",
+        effect: "`Proc`",
         exports: &["HostProc", "proc"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no process to exit; a mounted interface stays live",
@@ -445,7 +439,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     // thing from the other end: tasks are what servers are built out of, and
     // the browser's story is the one that lands with them.
     HostGrant {
-        effect: "Tasks",
+        effect: "`Tasks`",
         exports: &["HostTasks", "tasks"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "`parallel` returns only when the last task has finished, which freezes a \
@@ -464,27 +458,27 @@ const HOST_GRANTS: &[HostGrant] = &[
     // table now has. `design/ui-reactivity.md`'s open item about host
     // subsetting among the non-UI platforms is closed by that.
     HostGrant {
-        effect: "Listen",
+        effect: "`Listen`",
         exports: &["HostListen", "listen"],
         platforms: &[Platform::Linux, Platform::Macos],
         because: "holding a port open is a native program's authority; a page is served \
                   rather than serving, and its host has no way to accept a connection",
     },
     HostGrant {
-        effect: "Sockets",
+        effect: "`Sockets`",
         exports: &["HostSockets", "sockets"],
         platforms: &[Platform::Linux, Platform::Macos],
         because: "writing to an open socket is granted with `Listen`, and a page neither \
                   accepts connections nor holds one to push on",
     },
     HostGrant {
-        effect: "Ui",
+        effect: "`Ui`",
         exports: &["HostUi", "ui"],
         platforms: &[Platform::Web],
         because: "the reactive graph drives a document, and only a page has one",
     },
     HostGrant {
-        effect: "Watch",
+        effect: "`Watch`",
         exports: &["HostWatch", "watch"],
         platforms: &[Platform::Web],
         because: "reading the reactive graph is meaningless where nothing writes it",
@@ -959,7 +953,7 @@ mod tests {
     #[test]
     fn tasks_is_granted_off_the_page_and_nowhere_else() {
         let grant = host_grant_of("tasks").expect("`tasks` is in the grant table");
-        assert_eq!(grant.effect, "Tasks");
+        assert_eq!(grant.effect, "`Tasks`");
         assert_eq!(grant.platforms_phrase(), "LINUX, MACOS, JS");
         for platform in Platform::ALL {
             let granted = platform != Platform::Web;
@@ -1004,8 +998,8 @@ mod tests {
     fn the_server_effects_are_granted_together_and_never_on_a_page() {
         let listen = host_grant_of("listen").expect("`listen` is in the grant table");
         let sockets = host_grant_of("sockets").expect("`sockets` is in the grant table");
-        assert_eq!(listen.effect, "Listen");
-        assert_eq!(sockets.effect, "Sockets");
+        assert_eq!(listen.effect, "`Listen`");
+        assert_eq!(sockets.effect, "`Sockets`");
         assert_eq!(
             listen.platforms, sockets.platforms,
             "`Listen` is granted by [{}] and `Sockets` by [{}]; being a server is one \
@@ -1119,7 +1113,7 @@ mod tests {
     #[test]
     fn an_ungrantable_effect_is_not_told_to_build_elsewhere() {
         let ungrantable = HostGrant {
-            effect: "Nothing",
+            effect: "`Nothing`",
             exports: &["HostNothing", "nothing"],
             platforms: &[],
             because: "nothing implements it",
