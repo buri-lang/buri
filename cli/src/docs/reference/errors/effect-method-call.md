@@ -81,6 +81,10 @@ impl<C: Fs> Fs for ReadOnly<C> {
         .Err(.ReadOnly)
     }
 
+    fn removeDir(self, path: Str): Result<(), IoError> {
+        .Err(.ReadOnly)
+    }
+
     fn makeDir(self, path: Str): Result<(), IoError> {
         .Err(.ReadOnly)
     }

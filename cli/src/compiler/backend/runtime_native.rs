@@ -84,6 +84,78 @@ fn snake_into(segment: &str, out: &mut String) {
 }
 
 use crate::build::musl::{self, Libc};
+use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
+
+/// The byte offset, inside an enum error `E`, of the `Str` its one
+/// message-carrying variant holds — or `None` for an `E` with no such variant.
+///
+/// This is `cli/runtime/lib.rs` §2.1's **message** shape, or rather the half of
+/// it that is a function of `E`'s own layout: *where* the message goes. Whether
+/// a given entry has one at all is the other half and is a column of each
+/// runtime table — the paragraph at the end of this comment is that
+/// distinction, and it is the one place in §2.1 where the two halves come
+/// apart.
+///
+/// §2.1's rule is that the discriminant `0 ..= n` names a variant of `E` and
+/// that the variant it names carries no fields, because there is one
+/// out-pointer and it belongs to `.Ok`. That restriction is what kept every
+/// `Fs` operation out of both runtime tables: `IoError`'s seventh variant is
+/// `Other(Str)`, the one a native `read` of a directory or a `removeDir` of a
+/// non-empty one answers with, and an entry that could not carry its message
+/// would answer `.Other("")` — a failure that says nothing at all, where the
+/// JavaScript backend says `EISDIR` or `ENOTEMPTY`.
+///
+/// So the rule is widened by exactly one shape, and the shape is narrow enough
+/// that a layout decides it:
+///
+/// * the error is a **tagged** enum — a bare one has no payload area at all;
+/// * **exactly one** variant carries fields, and it is the **last**;
+/// * that variant carries **exactly one field**, occupying the whole payload
+///   area, and the area is 24 bytes — which is a `Str` (VALUE-MODEL.md §3) and
+///   nothing else this language lays out that way.
+///
+/// `IoError` answers `Some(8)`. `NetError` answers `None`, because `BadUrl` and
+/// `Transport` both carry a `Str` and two payload variants would need an
+/// out-pointer whose offset depends on which one the discriminant turned out to
+/// name — the switch §2.1 declined to generate, and still declines.
+///
+/// The entry then writes that `Str` on its failure path, and the **caller**
+/// zeroes the area first — so an entry that answered a classified variant and
+/// wrote nothing leaves an empty `Str` rather than whatever the frame held, and
+/// a backend needs no branch: it appends this one address, and on the failure
+/// side it zeroes the bytes *before* the message and leaves the message where
+/// the runtime put it. `cli/runtime/host.rs`'s `fail` is the one function on the
+/// other side of that.
+///
+/// **This answers *where*, never *whether*.** Which entries take the pointer is
+/// a column of each runtime table (`Ret::ResMsg`), because it is a property of
+/// the implementation rather than of `E`: two entries answering one
+/// `Result<Str, IoError>` have different C signatures when one can meet an
+/// `EISDIR` and the other is a map in memory. A row that claims a message for
+/// an `E` this answers `None` for is emitted without one, which leaves the
+/// entry a parameter nobody fills — the safe direction.
+pub fn error_message_offset(err: &Layout) -> Option<u32> {
+    let Repr::Enum { repr: EnumRepr::Tagged { payload, .. }, variants } = &err.repr else {
+        return None;
+    };
+    let (last, rest) = variants.split_last()?;
+    if !rest.iter().all(Vec::is_empty) {
+        return None;
+    }
+    // One field, at the payload area's own start, filling it — 24 bytes, which
+    // is a `Str`.
+    if last.len() != 1 || last.first() != Some(payload) {
+        return None;
+    }
+    if err.size.checked_sub(*payload) != Some(STR_BYTES) {
+        return None;
+    }
+    Some(*payload)
+}
+
+/// `{ base, ptr, len }` — VALUE-MODEL.md §3, restated here because
+/// [`error_message_offset`] recognises a `Str` by the bytes it occupies.
+const STR_BYTES: u32 = 24;
 
 /// `libburi_rt.a` for the host.
 ///
@@ -512,5 +584,93 @@ mod tests {
     fn the_hash_is_of_the_bytes() {
         assert_eq!(archive_hash(), hash_bytes(ARCHIVE));
         assert_eq!(archive_hash().len(), 64);
+    }
+
+    // -- §2.1's message shape ------------------------------------------------
+    //
+    // Over layouts built by hand rather than over `IoError`'s, and deliberately:
+    // what is under test is the *rule*, and every one of the four ways to fail
+    // it has to be reachable from somewhere. `middle/layout.rs` produces the
+    // first of them from `core/effect`'s own declaration, and
+    // `the_message_shape_is_the_one_io_error_has` in `runtime_table.rs` is what
+    // ties the rule to that type.
+
+    use crate::compiler::middle::layout::Scalar;
+
+    /// A tagged enum: a one-byte tag at zero, a payload area at eight, and one
+    /// field list per variant.
+    fn tagged(size: u32, variants: Vec<Vec<u32>>) -> Layout {
+        Layout {
+            size,
+            align: 8,
+            stride: size,
+            fields: Vec::new(),
+            repr: Repr::Enum {
+                repr: EnumRepr::Tagged { tag: Scalar::I8, payload: 8 },
+                variants,
+            },
+        }
+    }
+
+    /// `IoError`: six variants carrying nothing and a seventh carrying a `Str`.
+    #[test]
+    fn one_trailing_str_variant_is_the_message_shape() {
+        let io_error = tagged(32, vec![vec![], vec![], vec![], vec![], vec![], vec![], vec![8]]);
+        assert_eq!(error_message_offset(&io_error), Some(8));
+    }
+
+    /// `NetError`: two variants carry a `Str`, so the out-pointer's offset
+    /// would depend on which one the discriminant named — which is the switch
+    /// §2.1 declines to generate.
+    #[test]
+    fn two_payload_variants_are_not_the_message_shape() {
+        let net_error = tagged(32, vec![vec![], vec![], vec![8], vec![8], vec![]]);
+        assert_eq!(error_message_offset(&net_error), None);
+    }
+
+    /// A payload variant that is not the last one. The rule names the last
+    /// because that is where `Other` is, and a rule that took "the only
+    /// non-empty one" would quietly accept an enum whose indices no longer
+    /// line up with the archive's.
+    #[test]
+    fn a_payload_variant_that_is_not_last_is_not_the_message_shape() {
+        let odd = tagged(32, vec![vec![], vec![8], vec![]]);
+        assert_eq!(error_message_offset(&odd), None);
+    }
+
+    /// A payload that is not 24 bytes is not a `Str`, whatever else it is —
+    /// one `Int` here, which is the shape a `.Code(Int)` variant would have.
+    #[test]
+    fn a_payload_that_is_not_a_str_is_not_the_message_shape() {
+        let int_payload = tagged(16, vec![vec![], vec![8]]);
+        assert_eq!(error_message_offset(&int_payload), None);
+    }
+
+    /// A bare enum has no payload area at all, which is every error the shape
+    /// was restricted to before it existed.
+    #[test]
+    fn a_bare_enum_has_no_message() {
+        let bare = Layout {
+            size: 1,
+            align: 1,
+            stride: 1,
+            fields: Vec::new(),
+            repr: Repr::Enum {
+                repr: EnumRepr::Bare { tag: Scalar::I8 },
+                variants: vec![vec![], vec![], vec![]],
+            },
+        };
+        assert_eq!(error_message_offset(&bare), None);
+        // And neither does an error that is not an enum: `Utf8Error(Int)` is a
+        // struct, and §2.1's *other* shape — a second out-pointer — is what
+        // carries it.
+        let utf8_error = Layout {
+            size: 8,
+            align: 8,
+            stride: 8,
+            fields: vec![0],
+            repr: Repr::Aggregate,
+        };
+        assert_eq!(error_message_offset(&utf8_error), None);
     }
 }

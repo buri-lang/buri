@@ -653,6 +653,56 @@ test "makeDir where a file already sits is AlreadyExists" {
     assert.eq(assert.err(fs.makeDir(ctx, "a")), .AlreadyExists);
 }
 
+/// `removeDir` is `makeDir`'s inverse, and the whole of buri-lang/buri#38: the
+/// effect could create a directory and could not destroy one, so a program that
+/// made a scratch directory per run left one behind per run ever made.
+///
+/// The four rows below are the four answers, and they are the ones a real
+/// filesystem gives — which is what lets one block run against `TestFs` here
+/// and against `HostFs` in `cli/tests/native/e2e.rs`.
+test "removeDir deletes an empty directory" {
+    let ctx = context {
+        Fs: fs().files([]),
+    };
+    assert.ok(fs.makeDir(ctx, "scratch"));
+    assert.isTrue(fs.exists(ctx, "scratch"));
+    assert.ok(fs.removeDir(ctx, "scratch"));
+    assert.isFalse(fs.exists(ctx, "scratch"));
+}
+
+test "removeDir OF A DIRECTORY THAT STILL HOLDS SOMETHING is refused" {
+    let ctx = context {
+        Fs: fs().files([("scratch/note", "N")]),
+    };
+    assert.ok(fs.makeDir(ctx, "scratch"));
+    assert.isTrue(fs.removeDir(ctx, "scratch").isErr());
+    assert.isTrue(fs.exists(ctx, "scratch"));
+}
+
+test "removeDir IS NOT RECURSIVE, so emptying it first is the program's own walk" {
+    let ctx = context {
+        Alloc: alloc(),
+        Fs: fs().files([("scratch/note", "N")]),
+    };
+    assert.ok(fs.makeDir(ctx, "scratch"));
+    assert.ok(fs.remove(ctx, "scratch/note"));
+    assert.ok(fs.removeDir(ctx, "scratch"));
+    assert.isFalse(fs.exists(ctx, "scratch"));
+}
+
+test "removeDir of a path that names nothing is NotFound, and of a file NotADirectory" {
+    let ctx = context {
+        Fs: fs().files([("a", "A")]),
+    };
+    assert.eq(assert.err(fs.removeDir(ctx, "never-there")), .NotFound);
+    assert.eq(assert.err(fs.removeDir(ctx, "a")), .NotADirectory);
+    // The order the two doubles are written to agree on: a directory nobody
+    // recorded is `.NotFound` even where files sit under its name, because a
+    // flat map has no containment and "still holds something" is a question
+    // only about a directory that is really there.
+    assert.eq(assert.err(fs.removeDir(ctx, "never-there/deeper")), .NotFound);
+}
+
 test "sync of a file that is there is Ok" {
     let ctx = context {
         Fs: fs().files([("a", "A")]),
@@ -686,6 +736,7 @@ test "every writing half of the new surface FAILS through readOnly" {
     assert.eq(assert.err(fs.rename(ctx, "a", "b")), .ReadOnly);
     assert.eq(assert.err(fs.remove(ctx, "a")), .ReadOnly);
     assert.eq(assert.err(fs.makeDir(ctx, "d")), .ReadOnly);
+    assert.eq(assert.err(fs.removeDir(ctx, "d")), .ReadOnly);
     assert.eq(assert.ok(fs.readText(ctx, "a")), "A");
 }
 

@@ -572,6 +572,7 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Fs", "appendFile", "core/fs", "fs.append(ctx, path, body)"),
     w("Fs", "renameFile", "core/fs", "fs.rename(ctx, source, destination)"),
     w("Fs", "removeFile", "core/fs", "fs.remove(ctx, path)"),
+    w("Fs", "removeDir", "core/fs", "fs.removeDir(ctx, path)"),
     w("Fs", "makeDir", "core/fs", "fs.makeDir(ctx, path)"),
     w("Fs", "syncFile", "core/fs", "fs.sync(ctx, path)"),
     w("Net", "fetch", "core/net/http", "http.send(ctx, request)"),

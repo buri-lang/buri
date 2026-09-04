@@ -157,6 +157,18 @@ pub enum Ret {
     /// `EnumRepr::Tagged`, nothing at all for `EnumRepr::Niche`, whose `.Some`
     /// is exactly "the payload with its niche pointer non-null".
     Sum,
+    /// [`Ret::Res`], and the entry **also writes `E`'s message** through one
+    /// more trailing out-pointer (`cli/runtime/lib.rs` §2.1's message shape).
+    ///
+    /// A column rather than a fact read off `E`, for the reason
+    /// `backend/runtime_table.rs`'s twin states in full: whether an enum error
+    /// is named by an index is the type's business, and whether an entry has
+    /// anything to *say* when it names the payload-carrying variant is the
+    /// implementation's. `Fs` carries a message because `ENOTEMPTY` and
+    /// `EISDIR` have no `IoError` variant at all; the stream writers do not,
+    /// because the pointer is an address into the destination and a function
+    /// that prints would stop keeping its `Result` in registers.
+    ResMsg,
     /// A `Result<T, E>`: an `i32` discriminant, `.Ok`'s payload through a
     /// trailing out-pointer, and an error variant named by its index
     /// (`cli/runtime/lib.rs` §2.1).
@@ -259,6 +271,131 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_stdout_write_bytes",
         args: &[Arg::Dropped, Arg::List],
         ret: Ret::Res,
+    },
+    // -- Fs, the whole effect ----------------------------------------------
+    //
+    // Twelve operations, and until they landed no native backend had one of
+    // them: a binary that bound `Fs: host.fs` was refused before code
+    // generation while `cli/runtime/host.rs` had a body for every one
+    // (buri-lang/buri#36). What was missing was never the body and never the
+    // shape of the *arguments* — it was the shape of the **error**. All eleven
+    // fallible ones answer `Result<T, IoError>`, and `IoError.Other(Str)` is
+    // what a real filesystem answers for every kind the six classified variants
+    // do not name, so a row before §2.1's message shape would have made every
+    // unclassified failure `.Other("")`.
+    //
+    // *Where* the message goes is not a column: `error_message_offset` reads it
+    // off `IoError`'s layout. *Whether an entry has one* is [`Ret::ResMsg`],
+    // which these eleven carry and the five stream writers above do not.
+    //
+    // `self` is `HostFs`, an empty struct, so `Arg::Dropped` leads every row.
+    // A `Str` body is three parameters and a `[U8]` body is two, which is the
+    // difference between `writeFile` and `writeFileBytes`.
+    Entry {
+        key: "host.HostFs.readFile",
+        symbol: "buri_rt_host_fs_read_file",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.writeFile",
+        symbol: "buri_rt_host_fs_write_file",
+        args: &[Arg::Dropped, Arg::Str, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    // The one operation of `Fs` that cannot fail, so the one that is not a
+    // `Result`: a `Bool` comes back as the `u8` a C boundary has for it.
+    Entry {
+        key: "host.HostFs.fileExists",
+        symbol: "buri_rt_host_fs_file_exists",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::Int(8),
+    },
+    Entry {
+        key: "host.HostFs.readDir",
+        symbol: "buri_rt_host_fs_read_dir",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.readFileBytes",
+        symbol: "buri_rt_host_fs_read_file_bytes",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.writeFileBytes",
+        symbol: "buri_rt_host_fs_write_file_bytes",
+        args: &[Arg::Dropped, Arg::Str, Arg::List],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.appendFile",
+        symbol: "buri_rt_host_fs_append_file",
+        args: &[Arg::Dropped, Arg::Str, Arg::List],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.renameFile",
+        symbol: "buri_rt_host_fs_rename_file",
+        args: &[Arg::Dropped, Arg::Str, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.removeFile",
+        symbol: "buri_rt_host_fs_remove_file",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.removeDir",
+        symbol: "buri_rt_host_fs_remove_dir",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.makeDir",
+        symbol: "buri_rt_host_fs_make_dir",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.syncFile",
+        symbol: "buri_rt_host_fs_sync_file",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    // -- Env, and Stdin beside it -------------------------------------------
+    //
+    // Four rows and no new shape between them, which is what made them the
+    // other half of the same gap: an `Option<Str>`, a `[Str]`, an `Option<Str>`
+    // and an `Option<[U8]>` are `Ret::Sum` and `Ret::Out`, both of which this
+    // table has had since it was written. They were absent because no slice had
+    // wired the host surface up, and a program cannot read its own arguments
+    // without them.
+    Entry {
+        key: "host.HostEnv.variable",
+        symbol: "buri_rt_host_env_variable",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "host.HostEnv.args",
+        symbol: "buri_rt_host_env_args",
+        args: &[Arg::Dropped],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host.HostStdin.readLine",
+        symbol: "buri_rt_host_stdin_read_line",
+        args: &[Arg::Dropped],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "host.HostStdin.readBytes",
+        symbol: "buri_rt_host_stdin_read_bytes",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Sum,
     },
     // -- the scalar capabilities -------------------------------------------
     Entry {
@@ -1235,6 +1372,12 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Res,
     },
     Entry {
+        key: "host_testing.fsRemoveDir",
+        symbol: "buri_rt_host_testing_fs_remove_dir",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    Entry {
         key: "host_testing.fsMakeDir",
         symbol: "buri_rt_host_testing_fs_make_dir",
         args: &[Arg::Scalar, Arg::Str],
@@ -1810,6 +1953,44 @@ mod tests {
         assert_eq!(symbol_for("list.map"), "buri_rt_list_map");
     }
 
+    /// **Every operation of `Fs`, `Env` and `Stdin` has a row here too.**
+    ///
+    /// buri-lang/buri#36, on this side of `cli/tests/README.md`'s bar. The two
+    /// runtime tables are deliberately not copies of each other — this one
+    /// reconstructs the C argument list and the other does not — so "the host
+    /// surface is complete" has to be asserted twice or it is asserted for one
+    /// backend and hoped for the other. The list is read off `core/effect`, so
+    /// the operation declared next is covered by the commit that declares it.
+    #[test]
+    fn every_operation_of_the_host_file_and_environment_effects_has_a_row() {
+        let source = crate::compiler::standard_library::MODULES
+            .iter()
+            .find(|m| m.path == "core/effect")
+            .map(|m| m.source)
+            .expect("`core/effect` is a module");
+        let mut checked = 0usize;
+        for (effect, host) in [("Fs", "HostFs"), ("Env", "HostEnv"), ("Stdin", "HostStdin")] {
+            let body = source
+                .split(&format!("export effect {effect} {{"))
+                .nth(1)
+                .unwrap_or_else(|| panic!("no `effect {effect}` in `core/effect`"))
+                .split("\n}")
+                .next()
+                .unwrap_or_else(|| panic!("`effect {effect}` never closes"));
+            for line in body.lines() {
+                let Some(rest) = line.trim().strip_prefix("fn ") else { continue };
+                let Some(method) = rest.split('(').next() else { continue };
+                let key = format!("host.{host}.{method}");
+                assert!(
+                    entry(&key).is_some(),
+                    "`{key}` is declared on `effect {effect}` and this table has no row"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked >= 16, "only {checked} operations were checked");
+    }
+
     /// A key the archive has no body for must not be in the table. If one of
     /// these ever gains a symbol, this test is the reminder to add its shape
     /// rather than to let the mangler invent it.
@@ -1842,37 +2023,15 @@ mod tests {
             "host_testing.fs",
             "host_testing.TestFs.readFile",
             "host_testing.TestFs.faults",
-            // The archive has no body for `core/fs`'s real filesystem past
-            // `fileExists` (`cli/runtime/host.rs`). Not a missing *shape*:
-            // `TestFs`'s three are the same `Result<T, IoError>` and are in the
-            // table above, under `Ret::Res`.
-            "host.HostFs.readFile",
-            "host.HostFs.writeFile",
-            "host.HostFs.readDir",
-            "host.HostFs.readFileBytes",
-            "host.HostFs.writeFileBytes",
-            "host.HostFs.appendFile",
-            "host.HostFs.renameFile",
-            "host.HostFs.removeFile",
-            "host.HostFs.makeDir",
-            "host.HostFs.syncFile",
-            // `HostEnv`'s two and `HostStdin`'s two make the statement the
-            // ten above make, and they are here because until this slice they
-            // made none: `cli/runtime/host.rs` has a body for each
-            // (`buri_rt_host_env_variable`, `buri_rt_host_env_args`,
-            // `buri_rt_host_stdin_read_line`, `buri_rt_host_stdin_read_bytes`),
-            // neither runtime table has a row, and neither list named them — so
-            // four keys were unmentioned, and an unmentioned key is an omission
-            // rather than a decision. Naming them is what makes "no row" a
-            // statement, which is the whole job of this list. The row itself
-            // waits on the same slice the `HostFs` ten wait on, and on nothing
-            // else: the shapes are expressible today (`Ret::Opt` carries
-            // `Option<Str>` and `Option<[U8]>`, `Ret::Out` carries `[Str]`), so
-            // what is missing is the row and not a widening of §2.1.
-            "host.HostEnv.variable",
-            "host.HostEnv.args",
-            "host.HostStdin.readLine",
-            "host.HostStdin.readBytes",
+            // `host.HostFs`'s twelve, `host.HostEnv`'s two and
+            // `host.HostStdin`'s two used to be here — sixteen keys with a body
+            // in `cli/runtime/host.rs`, no row in either runtime table, and a
+            // native binary that could not touch a file or read its own
+            // arguments (buri-lang/buri#36). They are rows now, and the two
+            // halves of that gap were different: `Env` and `Stdin` were waiting
+            // on nothing but the row, and `Fs` was waiting on §2.1's message
+            // shape.
+            //
             // `host.HostNet.fetch` has a body in the archive and no row, and
             // not because nobody got to it: `Ret::Res` names the error variant
             // by index and `lib.rs` §2.1 restricts that variant to carrying no
