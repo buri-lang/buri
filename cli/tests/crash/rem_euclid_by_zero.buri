@@ -1,0 +1,17 @@
+// CRASH: division by zero
+//
+// `num.remEuclid` is written in terms of `%`, and `%` by zero aborts with the
+// same message `/` does (`int_remainder_by_zero.buri`): there is no remainder
+// to give either.
+from "core/effect" import { Alloc, Stdout, Env };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/num" import * as num;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
+  let zero = env.args(ctx).len();
+  let _ = io.println(ctx, "${num.remEuclid(-7, zero)}").ignore();
+  .Ok(())
+}
