@@ -1,6 +1,6 @@
-from "core/effect" import { Alloc, Fs };
+from "core/effect" import { Alloc };
 from "core/fs" import * as fs;
-from "core/fs" import { IoError };
+from "core/fs" import { FsRead, FsWrite, IoError, Path };
 from "//lib/ledger" import { Entry };
 from "//lib/store/codec.buri" import { encode };
 
@@ -10,12 +10,15 @@ export enum StoreError {
     Io(IoError),
 }
 
-/// Every function here names `Fs` in its bounds, so the disk is visible in the
-/// signature. The tag on this library is the second line of defence, not the
-/// only one: a `main` whose bounds omit `Fs` cannot reach these at all.
-export fn append<C: Alloc + Fs>(
+/// Every function here names a filesystem effect in its bounds, so the disk is
+/// visible in the signature — and *which half* of it. This one reads the log
+/// before it writes it, so it names both; `readLog` below names only `FsRead`,
+/// and nothing it can reach is able to write. The tag on this library is the
+/// second line of defence, not the only one: a `main` whose bounds omit these
+/// cannot reach them at all.
+export fn append<C: Alloc + FsRead + FsWrite>(
     ctx: C,
-    path: Str,
+    path: Path,
     entries: [Entry],
 ): Result<(), StoreError> {
     let existing = fs.readText(ctx, path).withDefault("");
@@ -23,7 +26,7 @@ export fn append<C: Alloc + Fs>(
     fs.writeText(ctx, path, body).mapErr(fn(e) => StoreError.Io(e))
 }
 
-export fn readLog<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, StoreError> {
+export fn readLog<C: Alloc + FsRead>(ctx: C, path: Path): Result<Str, StoreError> {
     // `?` does not convert error types (SPEC.md 6.8), so the mapping is explicit.
     fs.readText(ctx, path).mapErr(fn(e) => StoreError.Io(e))
 }

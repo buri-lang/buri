@@ -47,9 +47,9 @@ It arrives as a parameter rather than by capture because a lambda may not
 capture an effect-carrying value ([effects](../language/effects.md)).
 
 There is no detached spawn and no handle to join: every task has finished before
-`parallel` returns. That is what keeps "a program that never names `host.fs`
-cannot read a file" true of the program's lifetime and not only of its call
-graph.
+`parallel` returns. That is what keeps "a program that never names
+`host.fs` cannot read a file" true of the program's lifetime and not only of
+its call graph.
 
 How much of it actually overlaps is the platform's business and deliberately not
 the signature's:

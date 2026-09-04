@@ -138,7 +138,10 @@ not name it is a proof that nothing it calls, however deep, can.
 Every member of `core/host/testing` is a function you call, and each call mints
 a fresh double, so nothing leaks from one test to the next. The defaults are
 chosen to fail loudly rather than plausibly: `fs()` is an empty in-memory
-filesystem, `net()` refuses every request, `clock()` is stopped at zero, `rand()`
+filesystem — one double answering both `FsRead` and `FsWrite`, so a context
+that reads and writes binds the *same* value under both names, and two calls to
+`fs()` would be two filesystems sharing nothing — `net()` refuses every
+request, `clock()` is stopped at zero, `rand()`
 is seeded, `stdin()` is at end of input, and `stdout()` is captured rather than
 printed.
 
@@ -146,36 +149,48 @@ Configure one by calling a builder on it, which answers a *new* double and
 leaves the old one alone. Then read the environment back at the end of the test:
 
 ```buri role=test
-from "core/effect" import { Alloc, Fs, IoError };
+from "core/effect" import { Alloc, IoError };
 # from "core/fs" import * as fs;
+from "core/fs" import { FsRead, FsWrite, Path };
 from "core/host/testing" import { alloc, fs };
+from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
 
-# fn archive<C: Alloc + Fs>(ctx: C, path: Str): Result<(), IoError> {
-#     match (fs.readText(ctx, path)) {
-#         .Err(e) => .Err(e),
-#         .Ok(body) => fs.writeText(ctx, "{path}.bak", body),
+# fn archive<C: Alloc + FsRead + FsWrite>(ctx: C, at: Path): Result<(), IoError> {
+#     match (at.withSuffix(ctx, ".bak")) {
+#         .None => .Err(.NotFound),
+#         .Some(backup) => {
+#             match (fs.readText(ctx, at)) {
+#                 .Err(e) => .Err(e),
+#                 .Ok(body) => fs.writeText(ctx, backup, body),
+#             }
+#         },
 #     }
 # }
 
 test "archiving leaves the original alone and writes the copy beside it" {
-    let files = fs().files([("notes.txt", "hello")]);
+    // One filesystem, bound under both names: `FsRead: fs(), FsWrite: fs()`
+    // would be two of them, and the copy would land in the one nobody read.
+    let disk = fs().files([("notes.txt", "hello")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(archive(ctx, "notes.txt"));
-    assert.eq(files.snapshot(), [("notes.txt", "hello"), ("notes.txt.bak", "hello")]);
+    assert.ok(archive(ctx, path.of(ctx, "notes.txt")));
+    assert.eq(disk.snapshot(), [("notes.txt", "hello"), ("notes.txt.bak", "hello")]);
 }
 
 test "a read-only filesystem refuses the write, and nothing is written" {
-    let files = fs().files([("notes.txt", "hello")]);
+    let disk = fs().files([("notes.txt", "hello")]);
+    let refused = disk.readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: files.readOnly(),
+        FsRead: refused,
+        FsWrite: refused,
     };
-    assert.eq(assert.err(archive(ctx, "notes.txt")), .ReadOnly);
-    assert.eq(files.snapshot(), [("notes.txt", "hello")]);
+    assert.eq(assert.err(archive(ctx, path.of(ctx, "notes.txt"))), .ReadOnly);
+    assert.eq(disk.snapshot(), [("notes.txt", "hello")]);
 }
 ```
 
@@ -237,27 +252,31 @@ and those are the only two sources — so a reader of a failing test knows which
 half to look in:
 
 ```buri role=test
-from "core/effect" import { Alloc, Fs };
+from "core/effect" import { Alloc };
 # from "core/fs" import * as fs;
+from "core/fs" import { FsRead };
 from "core/host/testing" import { alloc, fs, readFile };
+from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
 
 test "a file that cannot be read is reported rather than skipped" {
-    let files = fs()
+    let disk = fs()
         .files([("config.toml", "name = \"demo\"")])
         .faults([readFile("config.toml").fails(.PermissionDenied)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: disk,
     };
-    assert.eq(assert.err(fs.readText(ctx, "config.toml")), .PermissionDenied);
+    let at = path.of(ctx, "config.toml");
+    assert.eq(assert.err(fs.readText(ctx, at)), .PermissionDenied);
 }
 ```
 
 A fault is spelled as the call it names — `readFile(path)`, `writeFile(path,
-body)`, `fetch(request)` — with `fails(e)` for every occurrence or
-`failsOnCall(n, e)` for the `n`th. **A fault whose call never happens fails the
-test**, so a plan cannot quietly stop describing the code.
+body)`, `fetch(request)` — where the path is the `Str` a `Path` spells, which is
+what `calls()` reports it as. `fails(e)` fails every occurrence and
+`failsOnCall(n, e)` fails the `n`th. **A fault whose call never happens fails
+the test**, so a plan cannot quietly stop describing the code.
 
 A fault fails one call and says nothing about the state between two of them. For
 code that must survive a crash, split each durable operation into a pure
@@ -305,7 +324,8 @@ A helper two suites need is not a test source; it is ordinary library code that
 happens to be test-only, and it lives behind a path with a `testing` segment:
 
 ```buri repo=cli/tests/example package=//lib/ledger role=testing
-# from "core/effect" import { Alloc, Fs };
+# from "core/effect" import { Alloc };
+# from "core/fs" import { FsRead };
 # from "core/host/testing" import { alloc, fs };
 
 // lib/ledger/testing/fixtures.buri — inside //lib/ledger, so it can use the
@@ -327,9 +347,15 @@ export fn sample(): [Entry] {
 /// otherwise write the same three lines.
 export context WithLedger {
     Alloc: alloc(),
-    Fs: fs().files([("ledger.log", "coffee\t$4.50\n")]),
+    FsRead: fs().files([("ledger.log", "coffee\t$4.50\n")]),
 }
 ```
+
+A named context binds `FsRead` and not `FsWrite` for a structural reason: its
+bindings are separate expressions, so naming both halves would call `fs()` twice
+and hand every suite two unrelated filesystems. A fixture that must be written
+to as well as read is a function answering the double, and the suite builds the
+`context` expression where a `let` can hold it.
 
 A `testing { sources: [...] }` block puts it in the build, and a consuming suite
 names `//lib/ledger/testing` in its own `test.dependencies`. Reach for this the

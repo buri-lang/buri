@@ -3,12 +3,15 @@
 // The other control for `namespace_member_missing`: the member exists and the
 // *module* is the part that is missing, so the honest answer is about the base
 // and stays what it always was. `no-such-member` may only be said when an
-// import put the namespace there.
-from "core/effect" import { Alloc, Fs, Stdout };
+// import put the namespace there. `FsRead` is imported *by name*, which binds
+// a type and not a namespace, so `fs` is still unbound; the did-you-mean note
+// names whatever is nearest in scope and is not what this case pins.
+from "core/effect" import { Alloc, Stdout };
+from "core/fs" import { FsRead };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fs };
   let _ = fs.readText(ctx, "wal");
   .Ok(())
 }

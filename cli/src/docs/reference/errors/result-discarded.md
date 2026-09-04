@@ -30,17 +30,19 @@ one-character way around it.
 ## A program that provokes it
 
 ```buri fail code=result-discarded
-# from "core/effect" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Stdout };
 # from "core/fs" import * as fs;
+# from "core/fs" import { FsRead };
 # from "core/host" import * as host;
+# from "core/path" import * as path;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
-        Fs: host.fs,
+        FsRead: host.fs,
         Stdout: host.stdout,
     };
-    let _ = fs.readText(ctx, "config.toml");
+    let _ = fs.readText(ctx, path.of(ctx, "config.toml"));
     .Ok(())
 }
 ```

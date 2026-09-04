@@ -365,12 +365,16 @@ second reserved root. They have a page of their own:
 
 ### The platform
 
-[`core/effect`](../../compiler/standard_library/sources/effect.buri) declares the
-effects; [`core/host`](../../compiler/standard_library/sources/host.buri)
-implements them and may be imported only by the module that exports `main`.
+[`core/effect`](../../compiler/standard_library/sources/effect.buri) declares
+most of the effects and
+[`core/fs`](../../compiler/standard_library/sources/fs.buri) declares the
+filesystem's two;
+[`core/host`](../../compiler/standard_library/sources/host.buri)
+implements them all and may be imported only by the module that exports `main`.
 [`core/alloc`](../../compiler/standard_library/sources/alloc.buri),
 [`core/io`](../../compiler/standard_library/sources/io.buri),
 [`core/fs`](../../compiler/standard_library/sources/fs.buri),
+[`core/path`](../../compiler/standard_library/sources/path.buri),
 [`core/env`](../../compiler/standard_library/sources/env.buri),
 [`core/cli`](../../compiler/standard_library/sources/cli.buri),
 [`core/time`](../../compiler/standard_library/sources/time.buri),
@@ -485,6 +489,35 @@ middle step may take, and a second signal is the operating system's own, so
 `Ctrl-C` twice stops a process that will not drain. A program with no listener
 open is not affected at all: the signals are the platform's only while a port
 is.
+
+`core/fs` is the one that declares its own effects, and it declares **two**.
+`FsRead` is four methods and `FsWrite` is eight, because reading and writing are
+two grants rather than two spellings of one: a program that reads its
+configuration has not thereby earned the right to delete it, and a
+`<C: Alloc + FsRead>` is a promise the compiler keeps for the whole call graph
+below it. They live here rather than in `core/effect` because every method names
+a `Path`, and `core/path` names `Alloc`; `core/fs` re-exports `Path`, so
+`from "core/fs" import { FsRead, Path }` is one import. Beyond the wrappers over
+those twelve methods it has two operations of its own: `readBytesIfExists`,
+which folds `.NotFound` into `.None` in a single call rather than the two an
+`exists` and a read would take, and `writeAtomic`, which is the
+write-sync-rename-sync sequence a crash-safe checkpoint needs, written once.
+
+`core/path` is where a file *is*, as a type. Every `Path` has been through
+`path.of(ctx, text)`, so every one is spelled the one way — `"logs//app/"` and
+`"logs/app"` are one path and compare equal — and a filesystem operation that
+took a `Str` would take any `Str`, including the one an interpolation built with
+a separator too many. The file that string does not open comes back `.NotFound`,
+which reads exactly like a genuinely missing file; the type is what moves that
+conversation to the call site. Normalizing drops empty and `.` components and a
+trailing separator, and deliberately does **not** resolve `..`: where `a` is a
+symbolic link, `a/../b` and `b` name two different files, so `..` stays a
+component and what it means is the filesystem's business. `parent`, `fileName`,
+`stem`, `extension` and `isAbsolute` are views and take no context; `of`, `join`,
+`withSuffix` and `components` build something new and name `Alloc`. `join` never
+substitutes an absolute argument for the receiver — `path.of(ctx, "/srv").join(ctx, "/etc")`
+is `/srv/etc` — because the other behaviour is how a program that joined a
+user's string onto its own directory ends up reading `/etc/passwd`.
 
 `core/tasks` is one function. `parallel(ctx, items, f)` runs `f` over every item
 and answers the results **in the items' order**, whatever order the work
@@ -629,11 +662,12 @@ builds its own allocator has been granted nothing.
 
 ```buri
 from "core/alloc" import * as alloc;
-from "core/effect" import { Alloc, Fs };
+from "core/effect" import { Alloc };
 from "core/fs" import * as fs;
+from "core/fs" import { FsRead, Path };
 
-fn inAScope<C: Alloc + Fs>(ctx: C, path: Str): Bool {
-    alloc.scoped(ctx, fn(c) => fs.exists(c, path))
+fn inAScope<C: Alloc + FsRead>(ctx: C, at: Path): Bool {
+    alloc.scoped(ctx, fn(c) => fs.exists(c, at))
 }
 ```
 

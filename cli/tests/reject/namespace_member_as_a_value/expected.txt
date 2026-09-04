@@ -1,10 +1,10 @@
 error: "core/fs" has no member `appendBytes` [no-such-member]
-  --> cmd/namespace_member_as_a_value/main.buri:11:19
+  --> cmd/namespace_member_as_a_value/main.buri:12:19
    |
-11 |   let append = fs.appendBytes;
+12 |   let append = fs.appendBytes;
    |                   ^^^^^^^^^^^
    |
-   = the module exports 13 names
+   = the module exports 18 names
    = did you mean `readBytes`?
    = fix: correct the member name, or check `buri docs core/fs`
 

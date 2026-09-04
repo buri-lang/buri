@@ -1308,22 +1308,24 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
 /// clock, a terminal — is ready.
 ///
 /// This is the seed of the `can_park` column, and it is a list of *keys*
-/// rather than of effects on purpose. `Fs` is an effect; `host.HostFs` and
-/// `host_testing.TestFs` are two implementations of it, and only the first
+/// rather than of effects on purpose. `FsRead` is an effect; `host.HostFs`
+/// and `host_testing.TestFs` are two implementations of it, and only the first
 /// one waits. A per-instantiation answer can tell them apart because they are
 /// different `Func` slots, and that difference is the whole point of asking
 /// the question here rather than at the signature.
 ///
 /// Everything absent is *not* suspending, so an omission is the direction that
 /// costs correctness rather than performance. That is why the whole
-/// `host.HostFs` surface is in by prefix rather than method by method, and why
-/// a new blocking host operation belongs here on the day it is added.
+/// `host.HostFs`/`host.HostFs` surface is in by prefix rather than
+/// method by method, and why a new blocking host operation belongs here on the
+/// day it is added. The prefix stops at `host.HostFs` so that both halves of
+/// the filesystem are covered by the one string.
 pub fn suspends(key: &str) -> bool {
-    key.starts_with("host.HostFs.")
+    key.starts_with("host.HostFs")
         // Every `Listen` operation waits on something outside the program: a
         // bind resolves a name, an accept waits for a client — the longest wait
         // a program can make — and a respond writes to a socket a peer may be
-        // reading slowly. By prefix for `host.HostFs`'s reason, and because a
+        // reading slowly. By prefix for the filesystem's reason, and because a
         // fifth operation added here should not need an edit there to be
         // correct. `host.HostSockets` is deliberately absent: a frame is
         // enqueued rather than delivered, which is the whole of what
@@ -5520,20 +5522,22 @@ export fn main(): Result<(), Str> {
     #[test]
     fn a_compiled_program_agrees() {
         let src = r#"
-from "core/effect" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Stdout };
+from "core/fs" import { FsRead, Path };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/io" import * as io;
+from "core/path" import * as filepath;
 
 export fn double(n: Int): Int { n * 2 }
 
-export fn load<C: Alloc + Fs>(ctx: C, path: Str): Str {
-  match (fs.readText(ctx, path)) { .Ok(text) => text, .Err(_) => "" }
+export fn load<C: Alloc + FsRead>(ctx: C, at: Path): Str {
+  match (fs.readText(ctx, at)) { .Ok(text) => text, .Err(_) => "" }
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
-  let text = load(ctx, "a.txt");
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fs };
+  let text = load(ctx, filepath.of(ctx, "a.txt"));
   let _ = io.println(ctx, "${text}${double(2)}").ignore();
   .Ok(())
 }

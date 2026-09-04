@@ -102,10 +102,15 @@
 //! ```
 
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Proc, Rand,
+    Alloc, Clock, Env, Header, IoError, Listen, Listener, Net, NetError, Proc, Rand,
     Received, Region, Request, Response, Serve, ServeError, Sockets, Stderr, Stdin,
     Stdout, Tasks,
 };
+
+// The filesystem's two effects, and the type their methods take. Declared in
+// `core/fs` rather than `core/effect`; see that module's header.
+from "core/fs" import { FsRead, FsWrite };
+from "core/path" import { Path };
 
 // --- The door onto the effect -------------------------------------------------
 
@@ -440,7 +445,7 @@ export fn copyAcross<T>(value: T): T {
 ///   * **the arena is an opaque `I64`**, so the second field is a handle rather
 ///     than a second capability.
 ///
-/// What it satisfies it satisfies **conditionally**: `Scoped<C>` is an `Fs`
+/// What it satisfies it satisfies **conditionally**: `Scoped<C>` is an `FsRead`
 /// only where `C` is one, a `Clock` only where `C` is one, and so on for every
 /// effect the platform declares. There are no blanket implementations in this
 /// language and no delegation, so each of those is written out below, once. A
@@ -586,52 +591,54 @@ impl<C: Stdin> Stdin for Scoped<C> {
     }
 }
 
-impl<C: Fs> Fs for Scoped<C> {
-    fn readFile(self, path: Str): Result<Str, IoError> {
+impl<C: FsRead> FsRead for Scoped<C> {
+    fn readFile(self, path: Path): Result<Str, IoError> {
         self.0.readFile(path)
     }
 
-    fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
-        self.0.writeFile(path, body)
-    }
-
-    fn fileExists(self, path: Str): Bool {
+    fn fileExists(self, path: Path): Bool {
         self.0.fileExists(path)
     }
 
-    fn readDir(self, path: Str): Result<[Str], IoError> {
+    fn readDir(self, path: Path): Result<[Str], IoError> {
         self.0.readDir(path)
     }
 
-    fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+    fn readFileBytes(self, path: Path): Result<[U8], IoError> {
         self.0.readFileBytes(path)
     }
+}
 
-    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+impl<C: FsWrite> FsWrite for Scoped<C> {
+    fn writeFile(self, path: Path, body: Str): Result<(), IoError> {
+        self.0.writeFile(path, body)
+    }
+
+    fn writeFileBytes(self, path: Path, body: [U8]): Result<(), IoError> {
         self.0.writeFileBytes(path, body)
     }
 
-    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+    fn appendFile(self, path: Path, body: [U8]): Result<(), IoError> {
         self.0.appendFile(path, body)
     }
 
-    fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+    fn renameFile(self, source: Path, destination: Path): Result<(), IoError> {
         self.0.renameFile(source, destination)
     }
 
-    fn removeFile(self, path: Str): Result<(), IoError> {
+    fn removeFile(self, path: Path): Result<(), IoError> {
         self.0.removeFile(path)
     }
 
-    fn removeDir(self, path: Str): Result<(), IoError> {
+    fn removeDir(self, path: Path): Result<(), IoError> {
         self.0.removeDir(path)
     }
 
-    fn makeDir(self, path: Str): Result<(), IoError> {
+    fn makeDir(self, path: Path): Result<(), IoError> {
         self.0.makeDir(path)
     }
 
-    fn syncFile(self, path: Str): Result<(), IoError> {
+    fn syncFile(self, path: Path): Result<(), IoError> {
         self.0.syncFile(path)
     }
 }

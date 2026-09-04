@@ -1,11 +1,11 @@
 error: `WEB` does not grant `HostFs` [host-not-granted]
-  --> cmd/counter/main.buri:28:13
+  --> cmd/counter/main.buri:29:17
    |
-28 |         Fs: host.HostFs {},
-   |             ^^^^^^^^^^^
+29 |         FsRead: host.HostFs {},
+   |                 ^^^^^^^^^^^
    |
    = a platform is the set of effects its host exports; a page has no filesystem to read
-   = fix: drop `Fs` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS
+   = fix: drop `FsRead` or `FsWrite` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS
 
      What to do
      ──────────

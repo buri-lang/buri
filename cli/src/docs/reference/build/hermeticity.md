@@ -48,8 +48,9 @@ leaving as an absence:
   `host-import`, pinned by the reject corpus. So no code that participates in an
   action has a *name* for ambient state.
 - **A test's capabilities are fakes.** A suite is handed a context the runner
-  builds: an in-memory `Fs` holding exactly what the suite gave it, a clock the
-  test sets, a seeded `Rand`, a seeded `Entropy`, an `Env` of the test's own pairs
+  builds: an in-memory filesystem holding exactly what the suite gave it — one
+  store behind both `FsRead` and `FsWrite` — a clock the test sets, a seeded
+  `Rand`, a seeded `Entropy`, an `Env` of the test's own pairs
   ([`testing.md`](./testing.md)). There is no real capability
   to withhold.
 - **The action set is closed.** Four kinds — `interface`, `compile`, `link`,

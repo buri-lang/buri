@@ -11,10 +11,15 @@
 //! that asked for it.
 
 from "core/effect" import {
-    Alloc, Clock, Entropy, Env, Fs, Header, IoError, Listen, Listener, Net, NetError,
-    Proc, Rand, Received, Region, Request, Response, Serve, ServeError, Sockets, Stderr,
+    Alloc, Clock, Entropy, Env, Header, IoError, Listen, Listener, Net, NetError, Proc,
+    Rand, Received, Region, Request, Response, Serve, ServeError, Sockets, Stderr,
     Stdin, Stdout, Tasks,
 };
+
+// The filesystem's two effects are declared in `core/fs` rather than
+// `core/effect`, because their methods name `Path`. See that module's header.
+from "core/fs" import { FsRead, FsWrite };
+from "core/path" import { Path };
 
 // One `Request` now. `ui/effect` used to declare a second — the
 // callback-shaped client's, aliased here to `UiRequest` because this was the
@@ -53,32 +58,44 @@ impl Stdin for HostStdin {
     fn readBytes(self, n: Int): Option<[U8]>;
 }
 
+/// The platform's filesystem.
+///
+/// **Granted on LINUX, MACOS and JS.** Not on WEB: a page has no filesystem.
+///
+/// One value and two effects, which is the shape the split has: there is one
+/// filesystem under a program, and `FsRead` and `FsWrite` are two authorities
+/// over it rather than two devices. A context is where the choice is written
+/// down — a program that binds `FsRead: host.fs` and no `FsWrite` cannot write
+/// anywhere in its transitive call graph, and a reader of those two lines can
+/// see that without reading anything else.
 export struct HostFs {}
 
-impl Fs for HostFs {
-    fn readFile(self, path: Str): Result<Str, IoError>;
+impl FsRead for HostFs {
+    fn readFile(self, path: Path): Result<Str, IoError>;
 
-    fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
+    fn fileExists(self, path: Path): Bool;
 
-    fn fileExists(self, path: Str): Bool;
+    fn readDir(self, path: Path): Result<[Str], IoError>;
 
-    fn readDir(self, path: Str): Result<[Str], IoError>;
+    fn readFileBytes(self, path: Path): Result<[U8], IoError>;
+}
 
-    fn readFileBytes(self, path: Str): Result<[U8], IoError>;
+impl FsWrite for HostFs {
+    fn writeFile(self, path: Path, body: Str): Result<(), IoError>;
 
-    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
+    fn writeFileBytes(self, path: Path, body: [U8]): Result<(), IoError>;
 
-    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
+    fn appendFile(self, path: Path, body: [U8]): Result<(), IoError>;
 
-    fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
+    fn renameFile(self, source: Path, destination: Path): Result<(), IoError>;
 
-    fn removeFile(self, path: Str): Result<(), IoError>;
+    fn removeFile(self, path: Path): Result<(), IoError>;
 
-    fn removeDir(self, path: Str): Result<(), IoError>;
+    fn removeDir(self, path: Path): Result<(), IoError>;
 
-    fn makeDir(self, path: Str): Result<(), IoError>;
+    fn makeDir(self, path: Path): Result<(), IoError>;
 
-    fn syncFile(self, path: Str): Result<(), IoError>;
+    fn syncFile(self, path: Path): Result<(), IoError>;
 }
 
 export struct HostNet {}

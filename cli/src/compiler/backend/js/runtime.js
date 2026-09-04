@@ -1917,13 +1917,25 @@ function $fsOrNull() {
 // module and no browser platform grants `Fs` (`standard_library`'s grant
 // table), so the abort below is unreachable from a `WEB` artifact and is what
 // a mis-grant would say out loud rather than silently.
+// A `Path` is a one-field struct, and generated code represents a struct as an
+// array of its fields — so what arrives here is `[text]` and what node wants is
+// the text. Unwrapping is the whole of the conversion, because `core/path`
+// normalized the spelling before the value became a `Path` (VALUE-MODEL.md §5
+// on the native side flattens the same one field to the same three C
+// parameters a `Str` was, which is why `cli/runtime/host.rs` needed no edit at
+// all for this).
+function $osPath(p) {
+  return p[0];
+}
+
 function $fsp() {
   if (typeof $require === "function") return $require("node:fs/promises");
   if (typeof require === "function") return require("node:fs/promises");
   $abort("this platform grants no filesystem");
 }
 
-async function $host_HostFs_readFile(self, p) {
+async function $host_HostFs_readFile(self, at) {
+  const p = $osPath(at);
   try {
     return $ok(await $fsp().readFile(p, "utf8"));
   } catch (e) {
@@ -1931,7 +1943,8 @@ async function $host_HostFs_readFile(self, p) {
   }
 }
 
-async function $host_HostFs_writeFile(self, p, b) {
+async function $host_HostFs_writeFile(self, at, b) {
+  const p = $osPath(at);
   try {
     await $fsp().writeFile(p, b);
     return $ok(0);
@@ -1942,7 +1955,8 @@ async function $host_HostFs_writeFile(self, p, b) {
 
 // `access` rather than a `stat`: the question is whether the name resolves,
 // and the answer to every failure is the same `false`.
-async function $host_HostFs_fileExists(self, p) {
+async function $host_HostFs_fileExists(self, at) {
+  const p = $osPath(at);
   try {
     await $fsp().access(p);
     return true;
@@ -1951,7 +1965,8 @@ async function $host_HostFs_fileExists(self, p) {
   }
 }
 
-async function $host_HostFs_readDir(self, p) {
+async function $host_HostFs_readDir(self, at) {
+  const p = $osPath(at);
   try {
     return $ok(await $fsp().readdir(p));
   } catch (e) {
@@ -1959,7 +1974,8 @@ async function $host_HostFs_readDir(self, p) {
   }
 }
 
-async function $host_HostFs_readFileBytes(self, p) {
+async function $host_HostFs_readFileBytes(self, at) {
+  const p = $osPath(at);
   try {
     return $ok(Array.from(await $fsp().readFile(p)));
   } catch (e) {
@@ -1967,7 +1983,8 @@ async function $host_HostFs_readFileBytes(self, p) {
   }
 }
 
-async function $host_HostFs_writeFileBytes(self, p, b) {
+async function $host_HostFs_writeFileBytes(self, at, b) {
+  const p = $osPath(at);
   try {
     await $fsp().writeFile(p, Uint8Array.from(b));
     return $ok(0);
@@ -1978,7 +1995,8 @@ async function $host_HostFs_writeFileBytes(self, p, b) {
 
 // `"a"` is `O_APPEND | O_CREAT`, so the position is taken and the octets
 // written as one operation and the file appears when it was absent.
-async function $host_HostFs_appendFile(self, p, b) {
+async function $host_HostFs_appendFile(self, at, b) {
+  const p = $osPath(at);
   try {
     await $fsp().appendFile(p, Uint8Array.from(b));
     return $ok(0);
@@ -1987,7 +2005,9 @@ async function $host_HostFs_appendFile(self, p, b) {
   }
 }
 
-async function $host_HostFs_renameFile(self, from, to) {
+async function $host_HostFs_renameFile(self, source, destination) {
+  const from = $osPath(source);
+  const to = $osPath(destination);
   try {
     await $fsp().rename(from, to);
     return $ok(0);
@@ -1996,7 +2016,8 @@ async function $host_HostFs_renameFile(self, from, to) {
   }
 }
 
-async function $host_HostFs_removeFile(self, p) {
+async function $host_HostFs_removeFile(self, at) {
+  const p = $osPath(at);
   try {
     await $fsp().unlink(p);
     return $ok(0);
@@ -2009,7 +2030,8 @@ async function $host_HostFs_removeFile(self, p) {
 // `ENOTEMPTY`, which `$ioErr` has no classified variant for and so reports as
 // `.Other` carrying the platform's own sentence. `core/fs`'s `removeDir` is
 // where the argument for having no recursive form lives.
-async function $host_HostFs_removeDir(self, p) {
+async function $host_HostFs_removeDir(self, at) {
+  const p = $osPath(at);
   try {
     await $fsp().rmdir(p);
     return $ok(0);
@@ -2020,7 +2042,8 @@ async function $host_HostFs_removeDir(self, p) {
 
 // `recursive` is what makes the parents and the already-there case both work;
 // a path naming a file is still `EEXIST`, which is `.AlreadyExists`.
-async function $host_HostFs_makeDir(self, p) {
+async function $host_HostFs_makeDir(self, at) {
+  const p = $osPath(at);
   try {
     await $fsp().mkdir(p, { recursive: true });
     return $ok(0);
@@ -2032,7 +2055,8 @@ async function $host_HostFs_makeDir(self, p) {
 // `fsync` on a directory flushes its entries, which is what makes a preceding
 // rename durable. Opened read-only: `fsync(2)` needs no write access, and a
 // directory cannot be opened for writing at all.
-async function $host_HostFs_syncFile(self, p) {
+async function $host_HostFs_syncFile(self, at) {
+  const p = $osPath(at);
   let fh;
   try {
     fh = await $fsp().open(p, "r");

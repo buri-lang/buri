@@ -5,8 +5,9 @@ place. The mechanism is a parameter named `ctx` and the bounds written on its
 type; everything below follows from those two things.
 
 ```buri
-# from "core/effect" import { Alloc, Fs };
+# from "core/effect" import { Alloc };
 # from "core/fs" import * as fs;
+# from "core/fs" import { FsRead, Path };
 
 // No `ctx`, so this cannot allocate, print, read a file, or open a socket —
 // and neither can anything it calls.
@@ -14,24 +15,36 @@ fn shortfall(score: Int, needed: Int): Int {
     needed - score
 }
 
-// `Alloc + Fs` is the whole of what this may do. `Stdout` is not on the list,
-// so it cannot print, however much its caller can.
-fn load<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, Str> {
-    fs.readText(ctx, path).mapErr(fn(e) => "could not read the file")
+// `Alloc + FsRead` is the whole of what this may do. `FsWrite` is not on the
+// list, so it cannot delete the file it just read; `Stdout` is not either, so
+// it cannot print, however much its caller can.
+fn load<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, Str> {
+    fs.readText(ctx, at).mapErr(fn(e) => "could not read the file")
 }
 ```
 
 ## An effect is an interface, and the set of them is fixed
 
 An **effect** is an interface declared with `effect` instead of `trait`, and its
-methods are the operations it grants. `core/effect` declares all of them —
-`Alloc`, `Fs`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`,
-`Proc`, `Tasks`, `Listen` and `Sockets` — and **only a platform module may
-declare an effect**, so the set of things a Buri program can do to the world is
-closed. Your own code cannot add to it.
+methods are the operations it grants. `core/effect` declares most of them —
+`Alloc`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`, `Proc`,
+`Tasks`, `Listen` and `Sockets` — and `core/fs`, a platform module too, declares
+the filesystem's `FsRead` and `FsWrite`. **Only a platform module may declare an
+effect**, so the set of things a Buri program can do to the world is closed.
+Your own code cannot add to it.
+
+The filesystem is two effects rather than one because it is two grants: a
+program that reads its configuration has not thereby earned the right to delete
+it. `<C: Alloc + FsRead>` is therefore a sentence the compiler holds a whole
+call graph to — nothing that function passes `ctx` to can ask for `FsWrite` from
+a context that does not bind it — and a program doing both binds both, which is
+the price of the distinction being visible at all. The two live in `core/fs`
+rather than in `core/effect` because every one of their methods names a `Path`,
+and `core/path` names `Alloc`, so the declarations sit on the side of that
+dependency where they can say what they mean.
 
 Otherwise an effect is a trait: same declaration shape, same nominal
-conformance, same `impl`, same bounds. `<C: Alloc + Fs>` and `<T: Ord + Show>`
+conformance, same `impl`, same bounds. `<C: Alloc + FsRead>` and `<T: Ord + Show>`
 are the same feature, and the language has no second constraint mechanism. Two
 rules keep effects and traits apart — an effect-carrying value may be passed
 only as `self` or `ctx`, and no type may implement both an effect and a trait,
@@ -48,33 +61,38 @@ looking and splits *which* effect from *what* it does into two names.
 
 The implementations that really do something live in `core/host`, which exports
 one value per effect the platform grants — `host.alloc`, `host.stdout`,
-`host.fs`, `host.net` and the rest — and **only the module that exports `main`
+`host.fs`, `host.fs`, `host.net` and the rest — and **only the module
+that exports `main`
 may import it**. `main` takes no parameters. It names the effects the program is
 to have, binds each to an implementation, and hands the result down:
 
 ```buri
-# from "core/effect" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Stdout };
 # from "core/fs" import * as fs;
+# from "core/fs" import { FsRead, Path };
 from "core/host" import * as host;
 # from "core/io" import * as io;
+# from "core/path" import * as path;
 
-# fn load<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, Str> {
-#     fs.readText(ctx, path).mapErr(fn(e) => "could not read the file")
+# fn load<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, Str> {
+#     fs.readText(ctx, at).mapErr(fn(e) => "could not read the file")
 # }
 
 export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Stdout: host.stdout,
-        Fs: host.fs,
+        FsRead: host.fs,
     };
-    let text = load(ctx, "notes.txt")?;
+    let text = load(ctx, path.of(ctx, "notes.txt"))?;
     io.println(ctx, text).mapErr(fn(e) => "could not print")
 }
 ```
 
 That `context` block is the program's entire effect budget, auditable by reading
-it. This program cannot open a socket — not in its own code, not in a
+it. It binds `FsRead` and not `FsWrite`, so this program cannot write a file
+either — the half it was not given is as unreachable as the effects it never
+mentioned. This program cannot open a socket — not in its own code, not in a
 dependency, not in a build script — because nothing anywhere can obtain a value
 bounded by `Net`, and there is no ambient `host` to reach for. A platform that
 does not grant an effect does not export it at all, so asking for one you were
@@ -87,23 +105,26 @@ them. It receives the same value and cannot use — or pass on — anything its
 bounds omit:
 
 ```buri
-# from "core/effect" import { Alloc, Fs, Stdout };
+# from "core/effect" import { Alloc, Stdout };
 # from "core/fs" import * as fs;
+# from "core/fs" import { FsRead, Path };
 # from "core/host" import * as host;
 # from "core/io" import * as io;
+# from "core/path" import * as path;
 
-fn logOnly<C: Stdout>(ctx: C, msg: Str): () {
+fn logOnly<C: Stdout>(ctx: C, msg: Str, at: Path): () {
     let _ = io.println(ctx, msg).ignore();
-    let _f = fs.readText(ctx, "/etc/passwd"); // ERROR: `C` does not satisfy `Fs`
+    let _f = fs.readText(ctx, at); // ERROR: `C` does not satisfy `FsRead`
 }
 
 export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Stdout: host.stdout,
-        Fs: host.fs,
+        FsRead: host.fs,
     };
-    let _ = logOnly(ctx, "starting"); // same value, confined by its bound
+    // same value, confined by its bound
+    let _ = logOnly(ctx, "starting", path.of(ctx, "notes.txt"));
     .Ok(())
 }
 ```
@@ -118,8 +139,9 @@ something may later escape the type system — wrap the context in a type that
 satisfies fewer effects:
 
 ```buri
-# from "core/effect" import { Alloc, Fs, IoError, Region };
+# from "core/effect" import { Alloc, IoError, Region };
 # from "core/fs" import * as fs;
+# from "core/fs" import { FsRead, Path };
 
 export struct ReadOnly<C>(C);
 
@@ -131,11 +153,11 @@ impl<C: Alloc> Alloc for ReadOnly<C> {
 }
 
 // ...and reading, but there is deliberately no write here, and no
-// `impl Fs for ReadOnly<C>` anywhere, so a `ReadOnly<C>` never satisfies `Fs`,
-// whatever `C` is.
-impl<C: Alloc + Fs> ReadOnly<C> {
-    export fn readText(self, path: Str): Result<Str, IoError> {
-        fs.readText(self.0, path)
+// `impl FsRead for ReadOnly<C>` anywhere, so a `ReadOnly<C>` satisfies neither
+// half of the filesystem, whatever `C` is.
+impl<C: Alloc + FsRead> ReadOnly<C> {
+    export fn readText(self, at: Path): Result<Str, IoError> {
+        fs.readText(self.0, at)
     }
 }
 ```
@@ -155,23 +177,30 @@ everywhere else. A test builds its context exactly the way `main` does, and the
 code under test does not change, because there was never a global to stub:
 
 ```buri role=test
-# from "core/effect" import { Alloc, Fs };
+# from "core/effect" import { Alloc };
 # from "core/fs" import * as fs;
+# from "core/fs" import { FsRead, Path };
 from "core/host/testing" import { alloc, fs as memory };
+# from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
 
-# fn load<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, Str> {
-#     fs.readText(ctx, path).mapErr(fn(e) => "could not read the file")
+# fn load<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, Str> {
+#     fs.readText(ctx, at).mapErr(fn(e) => "could not read the file")
 # }
 
 test "load reads the file it is given" {
     let ctx = context {
         Alloc: alloc(),
-        Fs: memory().files([("notes.txt", "hello")]),
+        FsRead: memory().files([("notes.txt", "hello")]),
     };
-    assert.eq(load(ctx, "notes.txt"), .Ok("hello"));
+    assert.eq(load(ctx, path.of(ctx, "notes.txt")), .Ok("hello"));
 }
 ```
+
+One `fs()` answers both `FsRead` and `FsWrite`, so a test that writes and then
+reads back binds the *same* value under both names — `let disk = memory(); ...
+FsRead: disk, FsWrite: disk` — because two calls would be two filesystems with
+nothing in common.
 
 There is no mocking framework, and nothing about `load` had to be written for
 testability. [`reference/build/testing.md`](../reference/build/testing.md#the-runners-context)

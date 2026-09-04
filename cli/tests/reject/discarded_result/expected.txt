@@ -1,29 +1,29 @@
 error: a `Result` may not be discarded [result-discarded]
- --> cmd/discarded_result/main.buri:8:3
-  |
-8 |   let _ = fs.readText(ctx, "config.toml");
-  |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
+  --> cmd/discarded_result/main.buri:10:3
+   |
+10 |   let _ = fs.readText(ctx, filepath.of(ctx, "config.toml"));
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: consume it: `?` to propagate, `match` to handle both cases, `.withDefault(...)` to supply one — or, when you really mean to drop it, the explicit and greppable `.ignore()`
 
-    What to do
-    ──────────
+     What to do
+     ──────────
 
-    Consume it: ? to propagate, match to handle both cases, .withDefault(...) to
-    supply one — or, when you really mean to drop it, the explicit and greppable
-    .ignore().
+     Consume it: ? to propagate, match to handle both cases, .withDefault(...)
+     to supply one — or, when you really mean to drop it, the explicit and
+     greppable .ignore().
 
-    Why
-    ───
+     Why
+     ───
 
-    A Result can be thrown away in two places and no third: bound to a _ in a
-    let, or left standing as an expression statement. Both are this error, so
-    must-use is total rather than a convention — and .ignore() is then the
-    single spelling of a deliberate drop, which buri lint reports as
-    discarded-result.
+     A Result can be thrown away in two places and no third: bound to a _ in a
+     let, or left standing as an expression statement. Both are this error, so
+     must-use is total rather than a convention — and .ignore() is then the
+     single spelling of a deliberate drop, which buri lint reports as
+     discarded-result.
 
-    The _ is looked for anywhere in the pattern rather than only at its head. A
-    let (count, _) = (1, mayFail()); drops the failure exactly as thoroughly as
-    a let _ = does, and a rule that read only the head would be a rule with a
-    one-character way around it.
+     The _ is looked for anywhere in the pattern rather than only at its head. A
+     let (count, _) = (1, mayFail()); drops the failure exactly as thoroughly as
+     a let _ = does, and a rule that read only the head would be a rule with a
+     one-character way around it.
 

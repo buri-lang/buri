@@ -1,7 +1,7 @@
 error: there is nothing named `appendBytes` in scope [unresolved-name]
-  --> cmd/unresolved_bare_name/main.buri:12:11
+  --> cmd/unresolved_bare_name/main.buri:13:11
    |
-12 |   let _ = appendBytes(ctx, "wal");
+13 |   let _ = appendBytes(ctx, "wal");
    |           ^^^^^^^^^^^
    |
    = fix: declare `appendBytes`, or import it — a name is in scope only from this module's own declarations and its imports
