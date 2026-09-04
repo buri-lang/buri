@@ -1689,7 +1689,8 @@ impl Drop for Staged {
     }
 }
 
-/// A megabyte, which is the unit both halves of [`place_from`] work in.
+/// A megabyte, which is the unit every part of [`place_from`] works in — the
+/// comparison that decides whether to write, and the write.
 ///
 /// Big enough that a hundred-megabyte artifact is a hundred reads rather than
 /// a hundred thousand, and small enough that comparing two of them is a buffer
@@ -1723,20 +1724,52 @@ fn same_contents(a: &mut std::fs::File, b: &mut std::fs::File) -> std::io::Resul
     }
 }
 
-/// Copies `src` over whatever is at `dest`, keeping that file's identity, and
-/// makes it executable. Answers how many bytes it is.
+/// Writes `src`'s bytes over whatever is at `dest`, keeping that file's
+/// identity, and makes it executable. Answers how many bytes it is.
+///
+/// # The output's identity is the point
 ///
 /// `File::create` truncates rather than replaces, which is the whole point: see
 /// the note in [`Linker::link`] about what macOS charges for a file that has
-/// never been executed before. That is also why this is a copy and not a
-/// `hard_link` or an APFS `clonefile` out of the cache, both of which would be
-/// free: either one replaces the output's inode, which is the charge this
-/// avoids, and a hard link would additionally make the file being executed and
-/// the cache entry describing it *the same bytes* — a cache whose entries can
-/// be mutated by anything that opens the artifact is not a content-addressed
+/// never been executed before. Measured on this repository's own batched test
+/// runner — 108 MB, ad-hoc signed by the linker, on an M-series mac: a file
+/// created fresh costs about **1.2 s** on its first execution *every time it is
+/// created fresh*, even when the bytes are byte for byte the ones the last
+/// file held, and the same file truncated and rewritten costs about **0.2 s**.
+/// The charge is on the identity, not on the contents. `buri test //...`
+/// executes one shared runner file (`actions::claim_runner`), so an
+/// identity lost per link is that charge paid per link.
+///
+/// **So the bytes are written by hand, into the descriptor `File::create`
+/// returned.** Not `hard_link`, not an APFS `clonefile`, not `fs::copy`, and
+/// not `io::copy` — the first three take a *path* and can therefore give
+/// `dest` a new inode, and the fourth dispatches to whatever offload the
+/// standard library has for a pair of files on this platform, which its own
+/// documentation says "may change in the future". Today that dispatch cannot
+/// lose the identity (a `Write for File` only ever has a descriptor, and
+/// `copy_file_range`/`fcopyfile` write *into* one), and today on macOS there is
+/// no dispatch at all — `sys::io::kernel_copy` is Linux-only, so `io::copy`
+/// between two files is a userspace loop over an 8 KiB stack buffer. Neither of
+/// those is a property this function should rest on: what it needs from the
+/// write is that the executed file is the same file afterwards, and a loop is
+/// how that is *stated* rather than inherited. The chunk is [`CHUNK`], so a
+/// hundred-megabyte artifact is a hundred `write`s where `io::copy` on macOS
+/// makes thirteen thousand — measured at 108 MB, 173 ms -> 108 ms.
+///
+/// What the loop gives up is Linux's `copy_file_range`, which on a filesystem
+/// with reflinks is a copy that moves no bytes at all. That is a real cost and
+/// it is the smaller one: the artifact has already been written once by the
+/// linker, so this is the second and last pass over it, and one write path that
+/// is the same on both platforms is worth more than an offload on one of them.
+///
+/// A hard link out of the cache would additionally make the file being executed
+/// and the cache entry describing it *the same bytes* — a cache whose entries
+/// can be mutated by anything that opens the artifact is not a content-addressed
 /// store any more. The output and the entry are separate inodes on every path
 /// through this file, and the saving is taken on the write that produced the
 /// entry instead ([`Staged`]).
+///
+/// # The write that is not made
 ///
 /// A write the file does not need is a write worth not doing. The charge above
 /// is on the first execution *after a write*, so an artifact whose bytes did
@@ -1744,7 +1777,8 @@ fn same_contents(a: &mut std::fs::File, b: &mut std::fs::File) -> std::io::Resul
 /// rebuild of a target the edit did not reach — runs for nothing. The length
 /// is checked first, so the common case is not compared byte by byte; the
 /// *bytes* are then compared rather than the length alone, because skipping a
-/// write is a saving and never a licence to leave stale bytes.
+/// write is a saving and never a licence to leave stale bytes. Neither half
+/// reads a whole artifact into memory: both work a [`CHUNK`] at a time.
 pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
     let mut source = std::fs::File::open(src)?;
     let len = source.metadata()?.len();
@@ -1759,14 +1793,23 @@ pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
         Err(_) => false,
     };
     if !settled {
-        use std::io::Seek;
+        use std::io::{Read, Seek, Write};
         // The comparison above left the source wherever it stopped.
         source.rewind()?;
+        // Truncated, never unlinked: this descriptor is the file that was
+        // already there, and every byte below goes into it.
         let mut file = std::fs::File::create(dest)?;
-        // `io::copy` over two files is the kernel's copy on both platforms this
-        // links for — `fcopyfile` on macOS, `copy_file_range` on Linux — so the
-        // bytes do not travel through this process at all.
-        std::io::copy(&mut source, &mut file)?;
+        let mut chunk = Vec::with_capacity(CHUNK as usize);
+        loop {
+            chunk.clear();
+            // `Read::by_ref` by name: `Write` is in scope for the line below
+            // and brings a `by_ref` of its own.
+            Read::by_ref(&mut source).take(CHUNK).read_to_end(&mut chunk)?;
+            if chunk.is_empty() {
+                break;
+            }
+            file.write_all(&chunk)?;
+        }
     }
     #[cfg(unix)]
     {
@@ -1842,6 +1885,103 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("a temporary directory");
         std::fs::write(dir.join("manifest"), &text).expect("writing the manifest");
         assert_eq!(read_manifest(&dir).as_deref(), Some(rows().as_slice()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Where a placement test works, named for the test so that two of them
+    /// in one process are two directories.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("buri-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a temporary directory");
+        dir
+    }
+
+    /// **The executed output keeps its identity when it is rewritten**, on both
+    /// paths through [`place_from`], and it is never the same file as what it
+    /// was written from.
+    ///
+    /// This is the claim the shared test runner's whole existence rests on.
+    /// macOS charges a first execution per *file identity* — measured on this
+    /// repository's own 108 MB batched runner, about 1.2 s for a file created
+    /// fresh and about 0.2 s for the same file truncated and rewritten, and the
+    /// fresh charge is paid again on every fresh file even when the bytes have
+    /// not moved. `buri test //...` runs one shared runner file, so an output
+    /// that is unlinked and recreated, hard-linked, or `clonefile`d out of the
+    /// cache pays that charge once per link rather than once.
+    ///
+    /// Pinned as `dev` and `ino` before and after rather than as a wall clock:
+    /// the charge is the operating system's and can only be measured in
+    /// seconds, but the identity is this function's and can be stated exactly.
+    #[cfg(unix)]
+    #[test]
+    fn a_placed_artifact_keeps_the_file_it_overwrites() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let dir = scratch("place-identity");
+        let id = |p: &Path| {
+            let m = std::fs::metadata(p).expect("the file exists");
+            (m.dev(), m.ino())
+        };
+        // Longer than one `CHUNK`, so the write loops and ends on a partial
+        // chunk — the two places an off-by-one would live.
+        let a = vec![b'a'; CHUNK as usize + 7];
+        let b = vec![b'b'; CHUNK as usize + 7];
+        let first = dir.join("first");
+        let second = dir.join("second");
+        std::fs::write(&first, &a).expect("writing a source");
+        std::fs::write(&second, &b).expect("writing another source");
+
+        let out = dir.join("artifact");
+        assert_eq!(place_from(&first, &out).expect("the first placement"), a.len() as u64);
+        let identity = id(&out);
+        assert_eq!(std::fs::read(&out).expect("the output"), a);
+        assert_eq!(
+            std::fs::metadata(&out).expect("the output").permissions().mode() & 0o777,
+            0o755,
+            "a placed artifact is not executable"
+        );
+
+        // The differing-bytes path: truncated and rewritten, and it is the
+        // same file afterwards.
+        assert_eq!(place_from(&second, &out).expect("a second placement"), b.len() as u64);
+        assert_eq!(id(&out), identity, "rewriting the output replaced the file");
+        assert_eq!(std::fs::read(&out).expect("the output"), b);
+        assert_ne!(id(&out), id(&second), "the output is a hard link to its source");
+
+        // The identical-bytes path: no write at all, and still the same file.
+        assert_eq!(place_from(&second, &out).expect("a settled placement"), b.len() as u64);
+        assert_eq!(id(&out), identity, "leaving the output alone replaced the file");
+        assert_eq!(std::fs::read(&out).expect("the output"), b);
+
+        // And a shorter artifact does not leave the tail of a longer one
+        // behind, which is what the truncation is for.
+        let short = dir.join("short");
+        std::fs::write(&short, b"cc").expect("writing a short source");
+        assert_eq!(place_from(&short, &out).expect("a shorter placement"), 2);
+        assert_eq!(id(&out), identity, "shrinking the output replaced the file");
+        assert_eq!(std::fs::read(&out).expect("the output"), b"cc");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A [`Staged`] nobody takes removes its file, and one the cache has
+    /// already moved is not an error.
+    ///
+    /// The two are one claim: `--check-reproducible` links twice and keeps
+    /// neither artifact, and a hundred megabytes left in `.buri/link/` per
+    /// discarded link is the cost of getting this wrong in one direction while
+    /// a failed `remove_file` after `Cache::put_file` is the cost of getting it
+    /// wrong in the other.
+    #[test]
+    fn a_staged_artifact_nobody_takes_is_removed() {
+        let dir = scratch("place-staged");
+        let path = dir.join("artifact.1234");
+        std::fs::write(&path, b"an artifact").expect("writing a staged artifact");
+        drop(Staged { path: path.clone() });
+        assert!(!path.exists(), "a dropped Staged left its file behind");
+        // Dropping one whose file is already gone — the cache took it — is the
+        // same code path and is silent.
+        drop(Staged { path: path.clone() });
+        assert!(!path.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
