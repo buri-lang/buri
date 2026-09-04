@@ -839,6 +839,7 @@ fn runtime_archive(manifest: &Path) {
         "BURI_RUNTIME_RUSTC",
         "BURI_RUNTIME_NET",
         "BURI_RUNTIME_NET_H3",
+        "BURI_RUNTIME_CRYPTO",
         "BURI_RUNTIME_RELOCK",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
@@ -953,12 +954,31 @@ fn runtime_archive(manifest: &Path) {
             );
             false
         });
+    // `BURI_RUNTIME_CRYPTO=0` is the runtime's `crypto` feature off: no
+    // `getrandom`, no `buri_rt_host_entropy_bytes` in the archive, and a
+    // program that reaches `Entropy` refused by name before code generation.
+    // On by default for `net`'s reason and unlike `net` in what it costs;
+    // `manifest.toml`'s feature block argues both halves.
+    //
+    // It has no C-compiler probe beside it, and that is the difference worth
+    // noticing: `getrandom` is pure Rust, so the one way this feature is off is
+    // that somebody asked for it to be — or that the whole dependency tree
+    // failed to resolve, which takes the archive with it rather than this
+    // feature alone.
+    let crypto = !matches!(std::env::var("BURI_RUNTIME_CRYPTO").as_deref(), Ok("0"));
     // The opt-in write-back path. Without `--locked` Cargo resolves and updates
     // the assembled package's `Cargo.lock`; this is what carries the result back
     // to the file a reviewer reads.
     let relock = std::env::var_os("BURI_RUNTIME_RELOCK").is_some();
 
-    let offline = match (net, relock) {
+    // Whether there is a dependency tree at all. `net` used to be the whole of
+    // this question and `crypto` is why it no longer is: a `net`-off,
+    // `crypto`-on runtime still resolves one crate, so taking the shortcut on
+    // `net` alone would build `--offline` against a `CARGO_HOME` that may not
+    // hold `getrandom` — a hard failure where every other shape of this is a
+    // degrade.
+    let deps = net || crypto;
+    let offline = match (deps, relock) {
         (false, _) => Some(true),
         (true, true) => Some(false),
         (true, false) => match resolves(&cargo, &rustc, &pkg, &target) {
@@ -974,7 +994,8 @@ fn runtime_archive(manifest: &Path) {
                      registry is unreachable and CARGO_HOME holds none of the crates, or \
                      cli/runtime/manifest.lock no longer matches manifest.toml — \
                      `BURI_RUNTIME_RELOCK=1 cargo build -p buri` fixes the second. \
-                     `BURI_RUNTIME_NET=0` builds the runtime without the networking crates."
+                     `BURI_RUNTIME_NET=0 BURI_RUNTIME_CRYPTO=0` builds the runtime with no \
+                     dependency tree at all."
                 );
                 write_empty(&out);
                 features_beside(&out, &[]);
@@ -1006,14 +1027,33 @@ fn runtime_archive(manifest: &Path) {
     if offline == Some(true) {
         command.arg("--offline");
     }
-    if !net {
-        command.arg("--no-default-features");
+    // The feature set, decided once and used twice: here, on the command line,
+    // and below, in the sidecar beside the archive. One list rather than two
+    // because the sidecar's whole job is to say what the archive was built
+    // with, and two expressions of that are one of them being wrong.
+    //
+    // `--no-default-features` unconditionally, with the set spelled out, rather
+    // than adding to the default: there are two features in `default` now, so
+    // "the default plus this one" and "the default minus that one" would be two
+    // shapes of command line to keep in agreement instead of one.
+    //
+    // `net` first, then `net-h3`, then `crypto` — the manifest's declaration
+    // order, which is also the order a reader would expect. Nothing reads the
+    // sidecar positionally (`runtime_native::declares` is a whole-line lookup),
+    // so this is legibility rather than contract.
+    let mut features: Vec<&str> = Vec::new();
+    if net {
+        features.push("net");
     }
-    // Additive to the default set rather than replacing it: `net-h3` implies
-    // `net` in the manifest, so this one flag is the whole of what an h3
-    // toolchain's command line differs by.
     if h3 {
-        command.args(["--features", "net-h3"]);
+        features.push("net-h3");
+    }
+    if crypto {
+        features.push("crypto");
+    }
+    command.arg("--no-default-features");
+    if !features.is_empty() {
+        command.arg("--features").arg(features.join(","));
     }
     // `ring`'s C, told which target it is for. A no-op on Darwin and on a gnu
     // host that stayed gnu, because the product triple is the host triple there
@@ -1046,21 +1086,11 @@ fn runtime_archive(manifest: &Path) {
         ));
     }
     digest_beside(&out);
-    // What the build asked for and got: `--no-default-features` above is the
-    // only way `net` is off, `--features net-h3` the only way h3 is on, and a
-    // tree that resolved and compiled is one whose features are the ones named
-    // on the command line.
-    //
-    // `net` first and `net-h3` second, one per line, which is the order the
-    // manifest declares them in and the order a reader of the file would
-    // expect. Nothing reads them positionally — `runtime_native::declares` is a
-    // whole-line lookup — so the order is legibility rather than contract.
-    let features: &[&str] = match (net, h3) {
-        (true, true) => &["net", "net-h3"],
-        (true, false) => &["net"],
-        (false, _) => &[],
-    };
-    features_beside(&out, features);
+    // What the build asked for and got. The command line above named exactly
+    // this list and a tree that resolved and compiled is one whose features are
+    // the ones it was given, so the sidecar is that list written down rather
+    // than a second decision about it.
+    features_beside(&out, &features);
     // And which libc those features were compiled against. Written last, beside
     // the digest and the feature list, by the one run of the script that wrote
     // the bytes all three describe.

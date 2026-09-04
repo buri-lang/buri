@@ -139,7 +139,7 @@ is the same in both directions.
 double per effect rather than one pre-assembled world — each real where it can
 be and hermetic everywhere else. It is `core/host`'s surface written out for a
 test: the same names — `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`,
-`clock`, `rand`, `env`, `proc` — **called** rather than referred to.
+`clock`, `rand`, `entropy`, `env`, `proc` — **called** rather than referred to.
 `core/host`'s `clock` is one clock because a process has one; `clock()` is a
 fresh clock every call, so a test never inherits another test's.
 
@@ -152,6 +152,7 @@ fresh clock every call, so a test never inherits another test's.
 | `net()` | `Net` | **Refuses** every request with `.Refused`, until `respond` says what to answer. |
 | `clock()` | `Clock` | At zero. `sleepMillis` advances it without sleeping. |
 | `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
+| `entropy()` | `Entropy` | Seeded at zero, on `rand()`'s own generator — the one double that is the *opposite* of what its effect promises a program, so a token minted in a test is a value an assertion can hold. |
 | `env()` | `Env` | No variables and no arguments. |
 | `proc()` | `Proc` | **Absorbs** the exit instead of taking it, so the test carries on. |
 | `tasks()` | `Tasks` | Runs the tasks one at a time, in **program order**, until a builder says otherwise. |
@@ -165,6 +166,7 @@ unchanged:
 |---|---|
 | `clock().at(1000)` | A clock at that instant |
 | `rand().seed(7)` | A generator at that seed, from the start of its sequence |
+| `entropy().seed(7)` | The same, for `Entropy` — and literally the same sequence, so `crypto.randomBytes` and `random.bytes` at one seed are one answer |
 | `env().variables([(Str, Str)])` | An environment with those variables and this one's arguments |
 | `env().arguments([Str])` | An environment with those arguments and this one's variables |
 | `stdin().lines([Str])` | A stream of those lines, then end of input |

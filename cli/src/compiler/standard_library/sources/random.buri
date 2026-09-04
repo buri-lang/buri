@@ -1,10 +1,24 @@
-//! core/random — randomness.
+//! core/random — randomness, of the reproducible kind.
 //!
 //! A seeded implementation is what makes a failing test reproduce, which is why
 //! the test platform's `rand().seed(Int)` is an ordinary implementation of the
 //! same effect.
+//!
+//! **What this module promises is uniformity, and nothing else.** `Rand` is a
+//! distribution, not a secret: the host's generator is xoshiro256++ natively and
+//! `Math.random` on JavaScript, and an observer who has seen enough output of
+//! either can predict the rest. That is the right property for a shuffle, a
+//! sample, a jittered retry and a test that has to fail the same way twice.
+//!
+//! It is the **wrong** property for anything an attacker would like to guess —
+//! a session token, a password reset link, a nonce, a key. Those want
+//! [`core/crypto`](./crypto.buri)'s `randomBytes` and `token`, which are the
+//! platform's cryptographic generator behind the `Entropy` effect. The two are
+//! separate effects so that a program says which one it meant, and so that the
+//! seeded double a test binds cannot silently stand in for the other.
 
-from "core/effect" import { Rand };
+from "core/effect" import { Alloc, Rand };
+from "core/list" import * as list;
 
 /// Uniform in `[lo, hi)`. An empty range aborts: there is no value to return
 /// and no `Option` in the signature to say so.
@@ -15,4 +29,17 @@ export fn int<C: Rand>(ctx: C, lo: Int, hi: Int): Int {
 /// Uniform in `[0.0, 1.0)`.
 export fn float<C: Rand>(ctx: C): Float {
     ctx.nextFloat()
+}
+
+/// `count` uniform octets.
+///
+/// The loop a program was writing by hand — `random.int(ctx, 0, 256)`, `count`
+/// times — written once. A negative count is the empty list, which is what
+/// `list.range` already answers for a range that runs backwards.
+///
+/// **Not a key, and not a token.** Every word of this module's header applies
+/// to these octets: they are uniform and they are predictable. `crypto.randomBytes`
+/// is the one to reach for when they must not be guessable.
+export fn bytes<C: Alloc + Rand>(ctx: C, count: Int): [U8] {
+    list.range(ctx, 0, count).mapCtx(ctx, fn(c, _i) => c.nextInt(0, 256).wrapToU8())
 }

@@ -55,14 +55,15 @@ path = "lib.rs"
 # platform C driver alongside the objects the backend emitted.
 crate-type = ["staticlib"]
 
-# The runtime's admitted set, in full, and it is **closed**: these six and
-# nothing else, each optional, each behind one of the two features below.
+# The runtime's admitted set, in full, and it is **closed**: these seven and
+# nothing else, each optional, each behind one of the three features below.
 #
 # Six crates for one capability — an asynchronous networking stack — which is
 # a platform interface in exactly the sense the root manifest's bar means, and
 # is the largest single thing in this design that the repository could not
-# reasonably write. Each clears all three clauses, and each is named for what it
-# is rather than for what it belongs to:
+# reasonably write. The seventh, `getrandom`, is one capability of its own and
+# is argued after them. Each clears all three clauses, and each is named for
+# what it is rather than for what it belongs to:
 #
 # * **`tokio`** — the reactor, the timer wheel and the carrier pool. `epoll` and
 #   `kqueue` behind one edge-triggered readiness API, per platform, is the whole
@@ -100,6 +101,34 @@ crate-type = ["staticlib"]
 #   transport protocol rather than a framing. It is the only entry behind
 #   `net-h3` rather than `net`, and the only one that is **off by default**;
 #   the feature block below is where that is argued.
+#
+# ## The seventh, and it buys a different capability
+#
+# * **`getrandom`** — the operating system's cryptographic generator, behind
+#   the `Entropy` effect and `core/crypto`'s `randomBytes` and `token`. It is
+#   the only entry here that is not part of the networking stack, and it is
+#   behind its own `crypto` feature for that reason: a program that mints a
+#   session token has not asked to speak the network, and making it depend on
+#   `net` would be a dependency of the manifest rather than of the program.
+#
+#   **The clause it has to clear is the first one**, because "twenty lines
+#   reading `/dev/urandom`" is a real counter-argument and `cli/runtime/rng.rs`
+#   already contains those twenty lines. The answer is that they are the wrong
+#   twenty lines for this: `rng.rs` reads a *seed*, once, and falls back to the
+#   clock when `/dev/urandom` is not there, because a weak seed for a shuffle
+#   is better than a program that will not start. Neither of those is
+#   acceptable for a key. What is wanted instead is `getrandom(2)` on Linux and
+#   `getentropy(2)` on macOS, with the vDSO path where the C library has one,
+#   the pre-3.17 `/dev/urandom` fallback where the syscall is missing, `EINTR`
+#   retried, a short return filled rather than accepted, and no fallback at all
+#   when every source fails — which is a per-platform interface with a decade
+#   of errata in it rather than an algorithm. Getting it subtly wrong yields
+#   octets that look exactly like the right ones, which is the failure mode the
+#   bar's first clause is about.
+#
+#   It costs almost nothing to ship: `getrandom` is already in `manifest.lock`
+#   twice over as a transitive dependency of `ring` and `rand`, it compiles no
+#   C, and it needs no build tool the toolchain does not already require.
 #
 # **Five of the six are linked; one is still referenced by nothing.** When the
 # crates landed, none of them was: `net.rs` named one type from each and
@@ -186,9 +215,12 @@ rustls = { version = "0.23", optional = true, default-features = false, features
 ring = { version = "0.17", optional = true, default-features = false }
 tungstenite = { version = "0.30", optional = true, default-features = false, features = ["handshake"] }
 quinn = { version = "0.11", optional = true, default-features = false, features = ["rustls-ring", "runtime-tokio"] }
+getrandom = { version = "0.4", optional = true, default-features = false }
 
-# Two features, and they have **opposite defaults**, which is the whole of the
-# argument here.
+# Three features. Two of them are on and one is off, and the split is the whole
+# of the argument here: a feature is in `default` when turning it off costs a
+# *language capability* a user did not choose to do without, and out of it when
+# turning it on is a choice somebody has to make on purpose.
 #
 # `net` is on, and the default is the point: a `cargo install buri` gets a
 # toolchain whose runtime *can* speak the network, because a toolchain that
@@ -236,10 +268,36 @@ quinn = { version = "0.11", optional = true, default-features = false, features 
 # implementation in it rather than two. `assert-runtime-archive.sh` greps for
 # `aws_lc` on every leg, h3 included, which is what keeps that true when
 # `quinn`'s defaults next change.
+#
+# ## `crypto`, which is on for `net`'s reason and is otherwise unlike it
+#
+# `crypto` is in `default` and the argument is `net`'s, word for word: a
+# toolchain whose runtime cannot answer `Entropy` would make "can this program
+# mint a session token" a build-flag question for every user rather than a
+# capability question for every program, and the answer for the overwhelming
+# majority of them would be yes.
+#
+# What is unlike `net` is what it costs to have it: one crate, no C compiler,
+# no native object files, and a few kilobytes of archive. `net` is on by
+# default despite costing 2.7 MB; this is on by default and costs almost
+# nothing, so the interesting half of the decision is the *other* direction —
+# what a `crypto`-off toolchain owes a program.
+#
+# It owes it a refusal at compile time, and that is why the feature exists at
+# all rather than a fallback existing. `cli/build.rs` reads
+# `BURI_RUNTIME_CRYPTO=0`, the archive is built without `getrandom`, the
+# `buri_rt_host_entropy_bytes` symbol is not in it, and
+# `backend::cryptography_gap` refuses the program by name before code
+# generation — `cryptography-not-available`, whose page says to get a different
+# toolchain rather than to edit the program. The one thing a runtime without a
+# cryptographic generator must never do is answer anyway from a weaker one: an
+# `Entropy` served by `rng.rs`'s xoshiro would be indistinguishable from the
+# real thing at every point except the one that matters.
 [features]
-default = ["net"]
+default = ["net", "crypto"]
 net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:ring", "dep:tungstenite"]
 net-h3 = ["net", "dep:quinn"]
+crypto = ["dep:getrandom"]
 
 # The flags that used to be spelled out in `cli/build.rs`'s `rustc` command
 # line, in the one place a `cargo build --release` reads them from. Each is a

@@ -1,0 +1,132 @@
+// core/crypto — the platform's randomness, and the seeded double that stands in
+// for it.
+//
+// `Entropy` is the one effect whose real implementation no test can assert
+// anything about: the whole of what `host.entropy` promises is that nobody can
+// write its answer down in advance. What a test can pin is everything around
+// it — the length, the shape of a token, the refusal, and the fact that the
+// *seeded* implementation the runner binds draws the same sequence on both
+// backends, which is what lets a value that was minted here be written into an
+// assertion at all.
+//
+// The sequence itself is `TestRand`'s. `entropy()` and `rand()` are two handles
+// onto one generator, so `crypto.randomBytes` and `random.bytes` at the same
+// seed are the same octets — the second half of this file is that agreement,
+// asserted rather than assumed.
+
+from "core/bytes" import * as bytes;
+from "core/crypto" import * as crypto;
+from "core/effect" import { Alloc, Entropy, Rand };
+from "core/host/testing" import { alloc, entropy, rand };
+from "core/random" import * as random;
+from "core/testing/assert" import * as assert;
+
+// --- the seeded sequence, which is the same on both backends ------------------
+
+test "the unseeded generator draws the same octets on every backend" {
+    let ctx = context {
+        Alloc: alloc(),
+        Entropy: entropy(),
+    };
+    assert.eq(
+        bytes.toHex(ctx, crypto.randomBytes(ctx, 16)),
+        "2101c54fd1d01ab22574cb378aaef5b1",
+    );
+}
+
+test "a seed picks a different sequence, and picks the same one twice" {
+    let one = context {
+        Alloc: alloc(),
+        Entropy: entropy().seed(7),
+    };
+    let two = context {
+        Alloc: alloc(),
+        Entropy: entropy().seed(7),
+    };
+    assert.eq(
+        bytes.toHex(one, crypto.randomBytes(one, 16)),
+        "e7074345ff94ba57af0afde4a8fe4535",
+    );
+    // A second handle at the same seed starts from the start of the sequence:
+    // `seed` answers a **new** generator rather than reseeding this one.
+    assert.eq(
+        bytes.toHex(two, crypto.randomBytes(two, 16)),
+        "e7074345ff94ba57af0afde4a8fe4535",
+    );
+}
+
+test "one generator is drawn down rather than restarted" {
+    let ctx = context {
+        Alloc: alloc(),
+        Entropy: entropy(),
+    };
+    let first = crypto.randomBytes(ctx, 8);
+    let second = crypto.randomBytes(ctx, 8);
+    assert.eq(bytes.toHex(ctx, first), "2101c54fd1d01ab2");
+    assert.eq(bytes.toHex(ctx, second), "2574cb378aaef5b1");
+}
+
+// --- what a caller gets ---------------------------------------------------------
+
+test "the count is the number of octets, and zero is the empty list" {
+    let ctx = context {
+        Alloc: alloc(),
+        Entropy: entropy(),
+    };
+    assert.eq(crypto.randomBytes(ctx, 0).len(), 0);
+    assert.eq(crypto.randomBytes(ctx, 1).len(), 1);
+    assert.eq(crypto.randomBytes(ctx, 32).len(), 32);
+    // 65536 is WebCrypto's per-call quota, so this is the length that crosses
+    // it. The window is the runtime's business and not the caller's.
+    assert.eq(crypto.randomBytes(ctx, 65537).len(), 65537);
+}
+
+test "a token is hex, twice as long as the entropy it carries" {
+    let ctx = context {
+        Alloc: alloc(),
+        Entropy: entropy().seed(7),
+    };
+    let t = crypto.token(ctx, 16);
+    assert.eq(t.len(), 32);
+    assert.eq(t, "e7074345ff94ba57af0afde4a8fe4535");
+    // Written down as hex and read back as the octets it was made of.
+    assert.eq(bytes.fromHex(ctx, t).withDefault([]).len(), 16);
+}
+
+test "a token of no octets is the empty string" {
+    let ctx = context {
+        Alloc: alloc(),
+        Entropy: entropy(),
+    };
+    assert.eq(crypto.token(ctx, 0), "");
+}
+
+// --- the two generators are one generator ---------------------------------------
+
+test "the seeded Entropy and the seeded Rand draw the same octets" {
+    let secret = context {
+        Alloc: alloc(),
+        Entropy: entropy().seed(99),
+    };
+    let uniform = context {
+        Alloc: alloc(),
+        Rand: rand().seed(99),
+    };
+    // `random.bytes` takes the low byte of each step, which is what
+    // `nextInt(0, 256)` is, and `crypto.randomBytes` takes the same one. The
+    // two modules differ in what they *promise*, not in what the double does.
+    assert.eq(
+        bytes.toHex(secret, crypto.randomBytes(secret, 24)),
+        bytes.toHex(uniform, random.bytes(uniform, 24)),
+    );
+}
+
+test "core/random answers octets of its own, and a negative count is empty" {
+    let ctx = context {
+        Alloc: alloc(),
+        Rand: rand(),
+    };
+    assert.eq(random.bytes(ctx, 4).len(), 4);
+    assert.eq(random.bytes(ctx, 0).len(), 0);
+    assert.eq(random.bytes(ctx, -1).len(), 0);
+}
