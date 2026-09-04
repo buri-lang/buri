@@ -47,6 +47,7 @@
 //! ```
 
 from "core/effect" import { Alloc };
+from "core/num" import * as num;
 from "core/str" import * as str;
 from "core/time" import { Duration, Instant };
 
@@ -182,7 +183,7 @@ export fn midnight(d: Date): DateTime {
 /// Days from 1970-01-01 to this date. Negative before it.
 export fn toDays(d: Date): Int {
     let y = if (d.month <= 2) { d.year - 1 } else { d.year };
-    let era = if (y >= 0) { y } else { y - 399 } / 400;
+    let era = num.divFloor(y, 400);
     let yoe = y - era * 400;
     let mp = (d.month + 9) % 12;
     let doy = (153 * mp + 2) / 5 + d.day - 1;
@@ -193,7 +194,7 @@ export fn toDays(d: Date): Int {
 /// The inverse.
 export fn fromDays(days: Int): Date {
     let z = days + 719468;
-    let era = if (z >= 0) { z } else { z - 146096 } / 146097;
+    let era = num.divFloor(z, 146097);
     let doe = z - era * 146097;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     let y = yoe + era * 400;
@@ -206,7 +207,7 @@ export fn fromDays(days: Int): Date {
 
 /// 1970-01-01 was a Thursday, which is what anchors this.
 export fn weekday(d: Date): Weekday {
-    let n = ((toDays(d) + 3) % 7 + 7) % 7;
+    let n = num.remEuclid(toDays(d) + 3, 7);
     if (n == 0) {
         .Monday
     } else if (n == 1) {
@@ -244,8 +245,8 @@ impl Date {
     /// March. Clamping is a choice, and the other one is worse.
     export fn addMonths(self, n: Int): Date {
         let total = self.year * 12 + (self.month - 1) + n;
-        let year = if (total >= 0) { total / 12 } else { (total - 11) / 12 };
-        let month = total - year * 12 + 1;
+        let year = num.divFloor(total, 12);
+        let month = num.remEuclid(total, 12) + 1;
         let last = daysInMonth(year, month);
         Date {
             year: year,
@@ -267,13 +268,10 @@ impl Date {
 export fn fromInstant(i: Instant): DateTime {
     let millis = i.0;
     // Floor division, so an instant before the epoch lands on the right day
-    // rather than one too late.
-    let days = if (millis >= 0) {
-        millis / MILLIS_PER_DAY
-    } else {
-        (millis - (MILLIS_PER_DAY - 1)) / MILLIS_PER_DAY
-    };
-    let rest = millis - days * MILLIS_PER_DAY;
+    // rather than one too late, and a remainder that is never negative, so the
+    // time of day is a time of day on both sides of the epoch.
+    let days = num.divFloor(millis, MILLIS_PER_DAY);
+    let rest = num.remEuclid(millis, MILLIS_PER_DAY);
     DateTime {
         date: fromDays(days),
         time: Time {

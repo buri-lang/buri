@@ -92,6 +92,31 @@ test "toDays and fromDays are inverses" {
     assert.isTrue(cases.all(fn(c) => date.fromDays(date.toDays(c)) == c));
 }
 
+// The era of Hinnant's algorithm is `num.divFloor(y, 400)`, and the branch that
+// matters is the one below year zero: a truncating `/` there puts the date in
+// the wrong era and every answer that follows it is wrong by a day or more. The
+// calendar is proleptic Gregorian, so these years exist and have answers.
+test "toDays and fromDays are inverses before year zero too" {
+    let cases = [
+        d(0, 1, 1),
+        d(0, 3, 1),
+        d(-1, 12, 31),
+        d(-1, 1, 1),
+        d(-4, 2, 29),
+        d(-399, 6, 15),
+        d(-400, 1, 1),
+        d(-401, 12, 31),
+        d(-1000, 7, 4),
+    ];
+    assert.isTrue(cases.all(fn(c) => date.fromDays(date.toDays(c)) == c));
+}
+
+test "the day before the first of January is the last of December, in every era" {
+    assert.eq(date.fromDays(date.toDays(d(0, 1, 1)) - 1), d(-1, 12, 31));
+    assert.eq(date.fromDays(date.toDays(d(-400, 1, 1)) - 1), d(-401, 12, 31));
+    assert.eq(date.fromDays(date.toDays(d(1, 1, 1)) - 1), d(0, 12, 31));
+}
+
 // --- weekdays -------------------------------------------------------------------
 
 test "the epoch was a Thursday" {
@@ -144,7 +169,36 @@ test "adding months crosses years in both directions" {
     assert.eq(d(2024, 2, 29).addYears(1), d(2025, 2, 28));
 }
 
+// `addMonths` splits a month count into a year and a month with the same floor
+// division `toDays` uses, so it has the same branch below zero — and there the
+// months of the year have to keep running 1 to 12 rather than going negative.
+test "adding months crosses year zero" {
+    assert.eq(d(1, 1, 1).addMonths(-1), d(0, 12, 1));
+    assert.eq(d(0, 12, 1).addMonths(1), d(1, 1, 1));
+    assert.eq(d(0, 1, 1).addMonths(-1), d(-1, 12, 1));
+    assert.eq(d(-1, 12, 1).addMonths(1), d(0, 1, 1));
+    assert.eq(d(1, 1, 1).addMonths(-13), d(-1, 12, 1));
+    assert.eq(d(1, 3, 1).addYears(-2), d(-1, 3, 1));
+}
+
 // --- instants ---------------------------------------------------------------------
+
+// An instant more than a day before the epoch is where `fromInstant`'s floor
+// division and its non-negative remainder are both load-bearing: a truncating
+// pair gives a day that is too late and a negative time of day.
+test "an instant well before the epoch lands on the right day and time" {
+    let dayMillis = 86400000;
+    assert.eq(date.fromInstant(Instant(-dayMillis)).date, d(1969, 12, 31));
+    assert.eq(date.fromInstant(Instant(-dayMillis)).time.hour, 0);
+    assert.eq(date.fromInstant(Instant(-dayMillis - 1)).date, d(1969, 12, 30));
+    assert.eq(date.fromInstant(Instant(-dayMillis - 1)).time.hour, 23);
+    assert.eq(date.fromInstant(Instant(-dayMillis - 1)).time.minute, 59);
+    assert.eq(date.fromInstant(Instant(-dayMillis - 1)).time.second, 59);
+    assert.eq(date.fromInstant(Instant(-dayMillis - 1)).time.milli, 999);
+    // And the round trip, which is what the two of them together promise.
+    let dt = DateTime { date: d(1900, 3, 1), time: assert.some(date.time(0, 0, 0, 1)) };
+    assert.eq(date.fromInstant(date.toInstant(dt)), dt);
+}
 
 test "the epoch instant is the epoch date at midnight" {
     assert.eq(date.fromInstant(Instant(0)), date.midnight(d(1970, 1, 1)));
