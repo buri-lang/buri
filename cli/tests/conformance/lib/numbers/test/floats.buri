@@ -169,12 +169,6 @@ test "isNan, isInfinite and isFinite classify a float" {
     assert.isFalse(math.isFinite(nan()));
 }
 
-test "the INFINITY constant is the same infinity division produces" {
-    assert.eq(math.INFINITY, inf());
-    assert.eq(-math.INFINITY, negInf());
-    assert.isTrue(math.isInfinite(math.INFINITY));
-}
-
 // --- core/math -------------------------------------------------------------------------
 
 test "sqrt" {
