@@ -1,0 +1,17 @@
+warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
+  --> lib/recovery_swap_adjacent_bracket_app_7775cb/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `char.fromDigit(n, 16)` is a digit and `char.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `char.fromDigit`, `num.toHex` or `bytes.toHex`
+error: expected an expression, found `%` [unexpected-token]
+  --> lib/recovery_swap_adjacent_bracket_app_7775cb/main.buri:33:31
+   |
+33 |     match (HEX_DIGITS[value / % shift 16]) {
+   |                               ^
+   |
+   = expected: an expression
+   = actual: `%`
+   = fix: write a value here

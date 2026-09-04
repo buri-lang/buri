@@ -737,6 +737,8 @@ Recommendation: two library functions, one language proposal, one already done.
   `core/host/testing` beside `TestFs`, which collapses two of the three copies
   without waiting for it.
 
+Nick's decision (do this): we can do the writesAtomic and readBytesIfExists and removeDir suggestions. Instead of the forwarding base, perhaps we should split the effects into readonly fs and writable fs. I don't care about the forwarding base because it seems like the current solution is to be explicit.
+
 #### What "forwarding base" means, and why it is a language gap
 
 The gap is one sentence: **an `impl` block must supply every method the effect

@@ -27,7 +27,7 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Thirty-nine of the forty-eight files are in it** — the number the harness
+//! **Forty-one of the fifty files are in it** — the number the harness
 //! prints, re-derived from it rather than incremented by hand, and one the
 //! prose has drifted from more than once. The ordinals in the paragraphs below
 //! record *when* a file joined the set and are not a running total of it;
@@ -336,6 +336,11 @@ const PACKAGES: &[Case] = &[
     // excluded is the thing this ledger records — but the pressure it names is
     // gone from those files and from every other in the corpus.
     included("calendar/date.buri"),
+    // `core/time`'s `Duration` beside the calendar it used to live in: pure
+    // integer arithmetic, a hand-written `Show` over `str.format` and
+    // `padStart`, and the test platform's clock — all of it surface this
+    // backend already had, so the file was in from the day it was written.
+    included("calendar/duration.buri"),
     included("collections/bitset.buri"),
     // It was the one file the backend compiled and got *wrong*, and
     // `a_wrong_answer_is_still_wrong` is what said so until the day three
@@ -489,6 +494,11 @@ const PACKAGES: &[Case] = &[
     // backends have to agree about, with every answer written into the file.
     included("random/gen.buri"),
     included("text/bytes.buri"),
+    // Hexadecimal across four modules — `char.fromDigit`, `num.toHex`,
+    // `str.toRadix` and `core/bytes`' pair. Every conversion in it is exact, so
+    // none of it meets the `Result<T, RangeError>` shape that holds
+    // `numbers/conversions.buri` out.
+    included("text/hex.buri"),
     excluded(
         "numbers/floats.buri",
         "core/math's thirteen *transcendentals*, whose answers IEEE 754 does \

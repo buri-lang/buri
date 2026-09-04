@@ -48,7 +48,15 @@
 
 from "core/effect" import { Alloc };
 from "core/str" import * as str;
-from "core/time" import { Instant };
+from "core/time" import { Duration, Instant };
+
+// One `Duration`, and it is `core/time`'s: a length of time is not a calendar
+// fact, and a method may only be declared in its receiver's defining module
+// (SPEC 6.7.3), so a `Duration` here could never meet an `Instant` there. The
+// name is re-exported rather than moved silently, so `from "core/date" import
+// { Duration }` still resolves — to the same type, with the constructors and
+// the arithmetic it did not use to have.
+from "core/time" export { Duration };
 
 derive Eq, Ord, Show, Hash for Date;
 /// A civil date. Any year, including negative ones: the calendar is proleptic
@@ -94,12 +102,6 @@ export enum Weekday {
     Saturday,
     Sunday,
 }
-
-derive Eq, Ord, Show, Hash for Duration;
-/// A length of time, in milliseconds. Distinct from `Instant`, which is a
-/// point: subtracting two points gives a length, and adding a length to a
-/// point gives a point. Mixing them up is the bug this type exists to prevent.
-export struct Duration(export I64);
 
 export let MILLIS_PER_SECOND: Int = 1000;
 
@@ -294,36 +296,16 @@ export fn toInstant(dt: DateTime): Instant {
     )
 }
 
-impl Duration {
-    export fn millis(self): Int {
-        self.0
-    }
-
-    export fn seconds(self): Int {
-        self.0 / MILLIS_PER_SECOND
-    }
-
-    export fn minutes(self): Int {
-        self.0 / MILLIS_PER_MINUTE
-    }
-
-    export fn hours(self): Int {
-        self.0 / MILLIS_PER_HOUR
-    }
-
-    export fn days(self): Int {
-        self.0 / MILLIS_PER_DAY
-    }
-}
-
-/// The length of time between two instants.
+/// The length of time between two instants. `b.duration(a)` says the same
+/// thing on the receiver, and is the spelling to reach for now that it can be
+/// written.
 export fn between(a: Instant, b: Instant): Duration {
-    Duration(b.0 - a.0)
+    b.duration(a)
 }
 
-/// A point, moved by a length.
+/// A point, moved by a length. `i.plus(d)`, likewise.
 export fn plus(i: Instant, d: Duration): Instant {
-    Instant(i.0 + d.0)
+    i.plus(d)
 }
 
 // -----------------------------------------------------------------------------

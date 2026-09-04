@@ -126,6 +126,15 @@ const FLOOR: usize = 250;
 /// construction — its evidence is a call the checker wrote into the typed
 /// tree, and a body that did not check is not asked at all — so what changed
 /// is which sources the sampler drew, not what any rule says about one.
+///
+/// `hex-digit-table` and `time-unit-conversion`'s two fixtures move it again,
+/// to **26 of 2,000 (1.30%) and 8 of 600**. Those two rules are the first that
+/// read *tokens* rather than the typed tree — a literal is one token whether or
+/// not the declaration around it checked — which is precisely the shape that
+/// could read a gap, so it was asked directly rather than inferred from the
+/// rate: of the seventy-two pinned cases drawn from their fixtures, **not one
+/// reports more of either code than its seed did**. Two new seeds redraw all
+/// two thousand, and what moved is which sources came up.
 const INVENTED_CEILING: usize = 2;
 
 /// What share of the cases may lose a finding whose evidence survived.
@@ -214,9 +223,20 @@ const INVENTED_CEILING: usize = 2;
 /// brought, and every entry still a rule that read a truncated tree or a
 /// broken declaration rather than one going quiet about code it could see.
 ///
-/// Three points, against 2.3% measured: the ratchet is one point of headroom,
-/// which is what makes it a bound and not a description. It is not zero and
-/// cannot be while the proxy is a byte offset.
+/// Re-measured once more with `hex-digit-table` and `time-unit-conversion`'s
+/// two fixtures in the seed set: **38 of 2,000 (1.90%) and 12 of 600**. The
+/// population count fell again, and again that is the redraw rather than a rule
+/// changing its mind. **Four of the twelve are the two new rules**, and each of
+/// the four is the mutation destroying the evidence rather than a rule going
+/// quiet about code it could see: a stray `@` written into the middle of the
+/// sixteen digits is not a run of sixteen digits any more, and
+/// `IDLE_TIMEOUT_MILLIS * 1_000_000` with its `*` swapped in front of it is not
+/// a multiplication with those operands. Both are the `duplicate-import` shape
+/// — half the evidence gone, not overlooked.
+///
+/// Three points, against 1.90% measured and 2.30% at the highest this has been:
+/// the ratchet keeps its headroom, which is what makes it a bound and not a
+/// description. It is not zero and cannot be while the proxy is a byte offset.
 const LOST_A_FINDING_CEILING: usize = 3;
 
 fn corpus_dir() -> PathBuf {

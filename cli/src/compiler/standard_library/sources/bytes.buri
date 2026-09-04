@@ -72,19 +72,24 @@ export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
 
 // --- Hexadecimal ---------------------------------------------------------------
 
-let HEX: Str = "0123456789abcdef";
-
 /// Lowercase, two characters per byte, no separator.
+///
+/// One pass over the digits rather than one over the bytes: a two-character
+/// `Str` per byte and a `join` at the end is `n` allocations that are thrown
+/// away, and hex is what a program reaches for when it wants to print a
+/// megabyte of something. The digits come from `char.fromDigit`, so there is no
+/// table of them here — nor anywhere else.
 export fn toHex<C: Alloc>(ctx: C, b: [U8]): Str {
-    b
-        .mapCtx(ctx, fn(c, x) => {
-            let n = x.toI64();
-            str.fromChars(c, [
-                HEX.charAt(n / 16).withDefault('0'),
-                HEX.charAt(n % 16).withDefault('0'),
-            ])
-        })
-        .join(ctx, "")
+    str.fromChars(
+        ctx,
+        list
+            .range(ctx, 0, b.len() * 2)
+            .map(ctx, fn(i) => {
+                let octet = b.get(i / 2).withDefault(0).toI64();
+                let nibble = if (i % 2 == 0) { octet / 16 } else { octet % 16 };
+                char.fromDigit(nibble, 16).withDefault('0')
+            }),
+    )
 }
 
 /// Reads either case. An odd number of digits, or a character that is not one,

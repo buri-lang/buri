@@ -67,6 +67,17 @@ prelude, so `derive Eq for Point;` works in a module that imports nothing.
   it allocates: an overlong UTF-8 encoding, a truncated sequence, or a
   surrogate is an error at a named index, not a replacement character.
 
+- **Hexadecimal is one story across four modules, and none of it needs a table
+  of digits.** `char.fromDigit(n, radix)` and `char.toDigit(radix)` are
+  inverses over base 2 to base 36, `char.isHexDigit` is the predicate,
+  `num.toHex(ctx, x, width)` renders a number zero-padded and lowercase — the
+  64-bit two's complement, so a negative number is its bit pattern rather than
+  a `-` — and `str.toRadix(text, radix)` reads any of those bases back,
+  answering `.None` rather than a value the `Int` cannot hold.
+  `bytes.toHex`/`bytes.fromHex` are the byte-string pair, and `toHex` walks the
+  digits rather than the bytes so that rendering a megabyte is one allocation
+  and not a million.
+
   The varints live here rather than in `core/proto`, beside hex and base64,
   because a varint is an encoding of a number as bytes, it has exactly one
   definition, and anything speaking a length-prefixed format needs the same
@@ -163,6 +174,25 @@ anything.
 `core/date` uses Hinnant's `days_from_civil`, which is exact over the whole
 range of `Int` using integer arithmetic only. `Duration` is a length and
 `Instant` is a point, and they are different types on purpose.
+
+**Both of those types live in `core/time`.** `Duration` used to be the
+calendar's, which meant `instant.plus(duration)` could not be written at all: a
+method may only be declared in its receiver's defining module, so a length in
+one module and a point in another can never meet on either of them. `core/date`
+re-exports the name, so `from "core/date" import { Duration }` still resolves —
+to the same type.
+
+A `Duration` counts **nanoseconds**; an `Instant` counts milliseconds, which is
+what the clock reports. `time.seconds(30)`, `millis`, `micros`, `nanos`,
+`minutes` and `hours` build one; `add`, `sub`, `mul`, `negate` and `abs` combine
+them. **Every one of those saturates**, because overflow is undefined behaviour
+and a deadline is where a program can least afford it — the shape it replaces is
+a `checkedMul`, then a `checkedSub`, then a decision taken from whichever sign
+survived. `instant.hasPassed(deadline)` is that whole check, and its `Show`
+prints `1.5s`, `300ms`, `750us` or `1ns` — the largest unit the length reaches,
+with the exact fraction, and no `m` or `h` because a fraction of an hour is not
+a decimal and a rendering that rounds is one a reader cannot compare against the
+value.
 
 **There is no timezone database, and there will not be one.** tzdata is
 megabytes that change several times a year, and this toolchain has no

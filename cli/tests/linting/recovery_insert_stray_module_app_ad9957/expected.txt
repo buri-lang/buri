@@ -1,0 +1,24 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> lib/recovery_insert_stray_module_app_ad9957/main.buri:11:26
+   |
+11 | let HEX_DIGITS: [Char] = ? [
+   |                          ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here
+warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
+  --> lib/recovery_insert_stray_module_app_ad9957/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `char.fromDigit(n, 16)` is a digit and `char.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `char.fromDigit`, `num.toHex` or `bytes.toHex`
+error: there is nothing named `HEX_DIGITS` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_module_app_ad9957/main.buri:33:12
+   |
+33 |     match (HEX_DIGITS[value / shift % 16]) {
+   |            ^^^^^^^^^^
+   |
+   = fix: declare `HEX_DIGITS`, or import it — a name is in scope only from this module's own declarations and its imports

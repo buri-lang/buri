@@ -1,0 +1,44 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the sixteen hexadecimal digits written out as a table, and the `nibble` that comes with them: hex-digit-table, and the base64 alphabet beside it that is a table of something else and is not a finding"
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# What the diagnostic names: the table goes, and so does everything that
+# was written to index into it. Two digits of a byte is `num.toHex` at a
+# width of two.
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "let HEX_DIGITS: [Char] = [\n    '0',\n    '1',\n    '2',\n    '3',\n    '4',\n    '5',\n    '6',\n    '7',\n    '8',\n    '9',\n    'a',\n    'b',\n    'c',\n    'd',\n    'e',\n    'f',\n];\n\n"
+  with: ""
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "fn nibble(value: Int, shift: Int): Char {\n    match (HEX_DIGITS[value / shift % 16]) {\n        .Some(digit) => digit,\n        .None => '0',\n    }\n}\n\nfn hexByte<C: Alloc>(ctx: C, octet: Int): Str {\n    str.fromChars(ctx, [nibble(octet, 16), nibble(octet, 1)])\n}\n"
+  with: "fn hexByte<C: Alloc>(ctx: C, octet: Int): Str {\n    num.toHex(ctx, octet, 2)\n}\n"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "from \"core/str\" import * as str;\n"
+  with: "from \"core/num\" import * as num;\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
