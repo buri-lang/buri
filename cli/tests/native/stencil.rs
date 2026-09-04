@@ -1350,6 +1350,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "actor/scoped.buri",
     "calendar/date.buri",
     "canary/canary.buri",
+    "cli/arguments.buri",
     "codegen/bitwise.buri",
     "codegen/equality.buri",
     "codegen/ordering.buri",

@@ -1,0 +1,4 @@
+// The command-line conformance package. Its `test/` directory asserts on what
+// `core/cli` does with an argument list: which verdict a line earns, what the
+// help pages say to the byte, which handler fires, and what a refused line
+// puts on stderr.

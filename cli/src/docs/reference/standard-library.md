@@ -212,6 +212,7 @@ implements them and may be imported only by the module that exports `main`.
 [`core/io`](../../compiler/standard_library/sources/io.buri),
 [`core/fs`](../../compiler/standard_library/sources/fs.buri),
 [`core/env`](../../compiler/standard_library/sources/env.buri),
+[`core/cli`](../../compiler/standard_library/sources/cli.buri),
 [`core/time`](../../compiler/standard_library/sources/time.buri),
 [`core/random`](../../compiler/standard_library/sources/random.buri),
 [`core/net/http`](../../compiler/standard_library/sources/http.buri),
@@ -232,7 +233,32 @@ and [tasks and actors](../guides/concurrency.md) is the concurrency model
 underneath; what follows is the map.
 
 `core/proc` is the thinnest of them: `proc.exit(ctx, code)` is `Proc`'s one
-operation. `core/net/server` is the other half of `core/net/http` — a program
+operation.
+
+`core/env` and `core/cli` are the two halves of a command line. `env.args(ctx)`
+is the raw `[Str]`, with the program's own name already dropped by both hosts —
+so there is no `argv[0]`, and a help page has to be *told* what to call the
+program. `core/cli` is the opinionated half: a `Cli<C>` carries the name, the
+version, the global `Flag`s and a list of `Command<C>`s, and a command carries
+its own flags, its declared `Arg`s **and the function that fires when it is
+chosen** — the arrangement `Server.onRequest` uses, so dispatching is a library
+call rather than the caller's `match` over a command name. One declaration is
+therefore read four ways — the parse, the help page, the version line and the
+message a refused line earns — and they cannot drift apart. `run(ctx, spec)` is
+the only exported function and the one call a `main` needs: it reads the
+arguments, prints the automatic help or version page when one was asked for, or
+fires the command, and a parse error goes to stderr with the usage under it and
+comes back as `.Err`, which `main`'s contract turns into exit 1. A handler is
+handed an `Arguments` and asks it by name — `on`, `value`, `many`, `arg`,
+`positionals` — rather than a struct of its own fields, because `derive` only
+attaches a conformance to a type that already exists and one `Cli` holds *one*
+list of commands, so a per-command argument struct has no type to be. Everything
+under `run` is at the `Alloc` tier, which is what lets a test hand
+`core/host/testing`'s `env().arguments([...])` to it and read the answer out of
+a captured stream. `buri docs core/cli` is the module's own page, with the five
+spellings a flag may be written in and a program worked end to end.
+
+`core/net/server` is the other half of `core/net/http` — a program
 that *is* a server rather than one that talks to one, which is a second
 authority rather than a second spelling. A `Server<C, S>` is the whole
 configuration: a `port`, an `onRequest` handler taking the caller's own context,

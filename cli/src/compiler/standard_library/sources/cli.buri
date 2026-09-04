@@ -1,0 +1,1078 @@
+//! core/cli — a command-line interface, declared once and read four ways.
+//!
+//! `core/env` is the raw half: `env.args(ctx)` is the `[Str]` the process was
+//! given, with the program's own name already dropped. This is the opinionated
+//! half — one `Cli` value that carries the flags, the subcommands, *and the
+//! function each subcommand runs*, so parsing, `--help`, `--version` and the
+//! error message a bad command line earns are all read off the same
+//! declaration and cannot drift apart.
+//!
+//! ```buri run
+//! from "core/cli" import * as cli;
+//! from "core/effect" import { Alloc, Env, Stderr, Stdout };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//!
+//! fn greet<C: Alloc + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
+//!     let who = arguments.arg("name").withDefault("world");
+//!     let mark = match (arguments.on("shout")) {
+//!         true => "!",
+//!         false => ".",
+//!     };
+//!     let _ = io.println(ctx, "hello, ${who}${mark}").ignore();
+//!     .Ok(())
+//! }
+//!
+//! fn count<C: Alloc + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
+//!     let _ = io.println(ctx, "${arguments.positionals().len()}").ignore();
+//!     .Ok(())
+//! }
+//!
+//! // The spec is a value, so it is a function of the context — exactly as
+//! // `core/actor`'s `counter()` is.
+//! fn tool<C: Alloc + Stdout>(): cli.Cli<C> {
+//!     cli.Cli {
+//!         name: "hi",
+//!         version: "1.0.0",
+//!         about: "says hello",
+//!         flags: .Some([
+//!             cli.Flag {
+//!                 long: "shout",
+//!                 short: .Some('s'),
+//!                 arity: .Switch,
+//!                 help: "end with an exclamation mark",
+//!             },
+//!         ]),
+//!         commands: [
+//!             cli.Command {
+//!                 name: "greet",
+//!                 about: "greet somebody by name",
+//!                 arguments: .Some([
+//!                     cli.Arg { name: "name", help: "who to greet", required: false },
+//!                 ]),
+//!                 run: fn(c, arguments) => greet(c, arguments),
+//!             },
+//!             cli.Command {
+//!                 name: "count",
+//!                 about: "count the words it was given",
+//!                 run: fn(c, arguments) => count(c, arguments),
+//!             },
+//!         ],
+//!     }
+//! }
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Env: host.env,
+//!         Stdout: host.stdout,
+//!         Stderr: host.stderr,
+//!     };
+//!     // This example is run with no arguments at all, so what it prints is
+//!     // the help — see "nothing at all is a question" below.
+//!     cli.run(ctx, tool())
+//! }
+//! ```
+//!
+//! ```stdout
+//! hi 1.0.0 — says hello
+//!
+//! usage: hi [options] <command> [arguments]
+//!
+//! commands:
+//!   greet  greet somebody by name
+//!   count  count the words it was given
+//!
+//! options:
+//!   -s, --shout    end with an exclamation mark
+//!       --help     print this help and exit
+//!       --version  print the version and exit
+//! ```
+//!
+//! ## What a command line may look like
+//!
+//! The parse is one walk from the left, in two phases. Before the subcommand's
+//! name it reads the **global** flags — `Cli.flags` — and after it the
+//! command's own, which is what `flags: Option<[Flag]>` on `Cli` means by
+//! "accepted before the subcommand": `hi --shout greet you` is the switch, and
+//! `hi greet --shout you` is an unknown flag. A flag may be written five ways:
+//!
+//! | Written | Means |
+//! |---|---|
+//! | `--long` | the switch `long`, or the flag whose value is the next token |
+//! | `--long=value` | the same flag, with its value attached |
+//! | `-l` | the same, found by `Flag.short` |
+//! | `-l=value` | the same, with its value attached |
+//! | `--` | stop reading flags; every token after it is a positional |
+//!
+//! A value taken from the *next* token may be anything that does not begin
+//! with `--`, so `--out -` and `--n -1` both work and `--out --help` is
+//! `MissingValue` rather than an `--out` whose value is `--help`. Short flags
+//! do not cluster: `-ab` is an unknown flag, not `-a -b`, because a cluster is
+//! ambiguous the moment one of its letters takes a value.
+//!
+//! `--help` and `--version` are recognized wherever a flag may appear and are
+//! not errors — they are answered with *text*, which `run` prints, and answered
+//! where they are read, so `hi greet --help` never reaches the missing `<name>`
+//! under it. They are the two long names a spec cannot take; `-h` and `-v` are
+//! a spec's own to spend. Nothing below the runner reaches a `Stdout`, which is
+//! what keeps the whole of the parse at the `Alloc` tier.
+//!
+//! ## Nothing at all is a question
+//!
+//! **An empty argument list prints the help and answers `.Ok(())`.** A tool
+//! invoked with nothing to do is asking what it can do, and answering with an
+//! error and a usage block is a worse version of the same page. Global flags
+//! and *then* nothing is different — `hi --shout` named no command and meant
+//! to — so that is an error with the usage under it and exit 1.
+//!
+//! ## Testing a spec
+//!
+//! `run` reads `env.args`, and `core/host/testing`'s environment double is
+//! what a test hands it instead — with a captured `Stdout` and `Stderr` to
+//! read the answer back out of. No file, no process, no real host:
+//!
+//! ```buri role=test
+//! from "core/cli" import * as cli;
+//! from "core/effect" import { Alloc, Env, Stderr, Stdout };
+//! from "core/host/testing" import { alloc, env, stderr, stdout };
+//! from "core/io" import * as io;
+//! from "core/testing/assert" import * as assert;
+//!
+//! fn greet<C: Alloc + Stdout>(ctx: C, arguments: cli.Arguments): Result<(), Str> {
+//!     let _ = io
+//!         .println(ctx, "hello, ${arguments.arg("name").withDefault("world")}")
+//!         .ignore();
+//!     .Ok(())
+//! }
+//!
+//! fn tool<C: Alloc + Stdout>(): cli.Cli<C> {
+//!     cli.Cli {
+//!         name: "hi",
+//!         version: "1.0.0",
+//!         about: "says hello",
+//!         commands: [
+//!             cli.Command {
+//!                 name: "greet",
+//!                 about: "greet somebody by name",
+//!                 arguments: .Some([
+//!                     cli.Arg { name: "name", help: "who to greet", required: true },
+//!                 ]),
+//!                 run: fn(c, arguments) => greet(c, arguments),
+//!             },
+//!         ],
+//!     }
+//! }
+//!
+//! test "the command fires with its argument bound" {
+//!     let out = stdout();
+//!     let ctx = context {
+//!         Alloc: alloc(),
+//!         Env: env().arguments(["greet", "buri"]),
+//!         Stdout: out,
+//!         Stderr: stderr(),
+//!     };
+//!     assert.ok(cli.run(ctx, tool()));
+//!     assert.eq(out.captured(), "hello, buri\n");
+//! }
+//!
+//! test "a missing argument is a message on stderr and exit 1" {
+//!     let err = stderr();
+//!     let ctx = context {
+//!         Alloc: alloc(),
+//!         Env: env().arguments(["greet"]),
+//!         Stdout: stdout(),
+//!         Stderr: err,
+//!     };
+//!     assert.eq(assert.err(cli.run(ctx, tool())), "missing argument <name>");
+//!     assert.eq(err.captured().lines(ctx).first(), .Some("hi: missing argument <name>"));
+//! }
+//! ```
+//!
+//! ## What is not here
+//!
+//! **The parsed arguments are not a struct of your fields.** `Arguments` hands
+//! back `Option<Str>` and the caller reaches for `str.toInt`, because a
+//! *typed* handler would need this module to build a type out of a value —
+//! `derive` only attaches a conformance to a type that already exists
+//! (`design/STANDARD-LIBRARY.md` §3), and generics cannot do it either: one
+//! `Cli` holds a list of commands, so every command in it would have to be
+//! the same type, which is exactly what a per-command argument struct is not.
+//! A type-safe handler wants reflection or macros, and this language has
+//! neither. Writing the two lines that read `Arguments` into your own struct
+//! at the top of a handler is the whole of the gap.
+//!
+//! **The environment is not merged for you.** A tool whose `--dir` falls back
+//! to `$BURI_DIR` merges `env.get` into the value it read here itself, because
+//! the precedence rule is a decision — the flag over the variable, or the
+//! variable over the flag, or the variable only when the flag is absent *and*
+//! the file is missing — and a default that guesses is a default that is wrong
+//! somewhere.
+//!
+//! **There is no `argv[0]`.** Both hosts drop the program's own name before a
+//! Buri program sees it, so `Cli.name` is what `--help` calls the program. It
+//! is a field because it cannot be recovered.
+
+from "core/effect" import { Alloc, Env, Stderr, Stdout };
+from "core/env" import * as env;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/map" import * as map;
+from "core/map" import { Map };
+from "core/set" import * as set;
+from "core/set" import { Set };
+from "core/str" import * as str;
+
+// ---------------------------------------------------------------------------
+// The declaration
+// ---------------------------------------------------------------------------
+
+/// How many values a flag takes, and what `--help` calls them.
+///
+/// The `Str` in `Value` and `Many` is the name of the value rather than the
+/// value itself: `.Value("path")` renders as `--out <path>` on the help page,
+/// which is the one place a reader learns what to put there.
+export enum Arity {
+    /// No value. `--quiet`, and `--quiet=loud` is `UnexpectedValue`.
+    Switch,
+    /// One value, and the last one written wins.
+    Value(Str),
+    /// One value per occurrence, kept in the order they were written and read
+    /// back with `Arguments.many`.
+    Many(Str),
+}
+
+/// One flag: how it is written, what it takes, and what it is for.
+export struct Flag {
+    /// Spelled without the dashes — `"quiet"` is written `--quiet`.
+    export long: Str,
+    /// The one-letter spelling, if it has one. `.None` is long-only.
+    export short: Option<Char>,
+    export arity: Arity,
+    /// The sentence `--help` prints beside it.
+    export help: Str,
+}
+
+/// One declared positional argument of a command.
+///
+/// Declaring them is what makes `Arguments.arg("file")` work and what makes a
+/// missing one an error rather than a `.None` a handler has to notice. A
+/// command that takes an unbounded list of them — every file on the line —
+/// declares none and reads `Arguments.positionals` instead.
+export struct Arg {
+    /// Spelled without the angle brackets; `--help` adds those.
+    export name: Str,
+    export help: Str,
+    /// A required argument the line does not supply is `MissingArg`, and the
+    /// command does not fire.
+    export required: Bool,
+}
+
+/// One subcommand and the function that fires when it is chosen.
+///
+/// `C` is the caller's own context, exactly as `core/net/server`'s
+/// `Server.onRequest`: a handler may do anything the context it was written
+/// beside can do — print, read a file, `proc.exit` — and `core/cli` never
+/// learns what that is. It appears only where a caller must *supply* a
+/// context, so a `Command<C>` is data rather than a second context (SPEC
+/// 10.2).
+export struct Command<C> {
+    /// What is written on the command line to choose it.
+    export name: Str,
+    /// The sentence `--help` prints beside it.
+    export about: Str,
+    /// What runs. Its `.Err` is the message `main` exits 1 with; a command
+    /// that owns a *particular* status calls `proc.exit` itself.
+    export run: fn(C, Arguments) => Result<(), Str>,
+    /// Flags accepted after this command's name. `.None` is none of its own.
+    export flags: Option<[Flag]>,
+    /// Positional arguments, bound in the order they are declared.
+    export arguments: Option<[Arg]>,
+}
+
+/// The whole interface: the name, the version, the subcommands, and the flags
+/// that come before one.
+export struct Cli<C> {
+    /// There is no `argv[0]`, so `--help` is told the name.
+    export name: Str,
+    /// What `--version` prints, on its own line and nothing else.
+    export version: Str,
+    /// The sentence at the top of `--help`.
+    export about: Str,
+    export commands: [Command<C>],
+    /// Global flags, accepted *before* the subcommand's name and readable from
+    /// every handler. `.None` is none.
+    export flags: Option<[Flag]>,
+}
+
+// ---------------------------------------------------------------------------
+// What a parse answers
+// ---------------------------------------------------------------------------
+
+/// What one command line said, read back by name.
+///
+/// The fields are not exported: which table a flag landed in is an
+/// implementation of "what was written", not the thing itself, and the five
+/// accessors below are the whole of it.
+export struct Arguments {
+    values: Map<Str, Str>,
+    switches: Set<Str>,
+    multiples: Map<Str, [Str]>,
+    positionalValues: [Str],
+    named: Map<Str, Str>,
+}
+
+impl Arguments {
+    /// Whether a `.Switch` flag was given.
+    export fn on(self, long: Str): Bool {
+        self.switches.has(long)
+    }
+
+    /// The value of a `.Value` flag, spelled by its long name whichever way it
+    /// was written. It is a `Str` because a command line is text: a number is
+    /// `arguments.value("port").andThen(fn(v) => v.toInt())`.
+    export fn value(self, long: Str): Option<Str> {
+        self.values.get(long)
+    }
+
+    /// Every value a `.Many` flag was given, in the order they were written.
+    /// Empty when it was not given at all.
+    export fn many(self, long: Str): [Str] {
+        self.multiples.get(long).withDefault(list.empty<Str>())
+    }
+
+    /// A declared positional, by the `Arg.name` it was declared under.
+    export fn arg(self, name: Str): Option<Str> {
+        self.named.get(name)
+    }
+
+    /// Every positional the command was given, in order — the declared ones
+    /// included. This is what a command that takes a list of files reads.
+    export fn positionals(self): [Str] {
+        self.positionalValues
+    }
+}
+
+/// Why a command line was refused. Not exported: `run` renders it, and the
+/// rendering is the only thing a caller ever sees.
+enum ParseError {
+    /// The token as it was written, dashes and all.
+    UnknownFlag(Str),
+    MissingValue(Str),
+    UnexpectedValue(Str),
+    UnknownCommand(Str),
+    NoCommand,
+    /// The `Arg.name` of the required positional that was not supplied.
+    MissingArg(Str),
+}
+
+/// What the parse decided: fire a command, or print a page.
+///
+/// `--help` and `--version` are answered *here* rather than printed, which is
+/// what keeps `parse` and everything under it at the `Alloc` tier — the runner
+/// is the only thing in this module that needs a `Stdout`.
+enum Selection<C> {
+    Fire { command: Command<C>, arguments: Arguments },
+    Print(Str),
+}
+
+/// One token, read but not yet resolved against a flag list.
+enum Token {
+    /// A flag: how it was written, which spelling was used, and the value that
+    /// was attached to it with `=`, if any.
+    Named { display: Str, long: Option<Str>, short: Option<Char>, value: Option<Str> },
+    /// `--`, after which nothing is a flag.
+    Terminator,
+    /// A command name, or a positional.
+    Plain(Str),
+    /// Shaped like a flag and spelled like nothing — `-ab`, `-ab=c`.
+    Bad(Str),
+}
+
+/// A flag applied, and where the walk continues from.
+struct Step {
+    arguments: Arguments,
+    at: Int,
+}
+
+// ---------------------------------------------------------------------------
+// Running one
+// ---------------------------------------------------------------------------
+
+/// Read the arguments, parse them, and fire the command they name.
+///
+/// The one call a `main` needs, and the only exported function in this module:
+/// everything else it would have exported is reachable through this one, and a
+/// test reaches it by handing `core/host/testing`'s environment double an argv
+/// of its own (see the module header).
+///
+/// `.Ok(())` is exit 0. A parse error goes to stderr with the usage under it
+/// and comes back as `.Err`, which `main`'s contract turns into exit 1
+/// (SPEC 11.4). `--help` and `--version` print and answer `.Ok(())`.
+export fn run<C: Alloc + Env + Stderr + Stdout>(ctx: C, spec: Cli<C>): Result<(), Str> {
+    fire(ctx, spec, env.args(ctx))
+}
+
+/// `run`, with the arguments given rather than read. Private on purpose: it is
+/// the same function with the one authority `run` has removed, and a caller
+/// with an argv in hand is a test, which `core/host/testing` already serves.
+fn fire<C: Alloc + Stderr + Stdout>(
+    ctx: C,
+    spec: Cli<C>,
+    argv: [Str],
+): Result<(), Str> {
+    match (parse(ctx, spec, argv)) {
+        .Ok(.Print(text)) => {
+            let _ = io.println(ctx, "${text}").ignore();
+            .Ok(())
+        },
+        .Ok(.Fire { command, arguments }) => {
+            let go = command.run;
+            go(ctx, arguments)
+        },
+        .Err(e) => {
+            let message = errorText(ctx, e);
+            let _ = io.eprintln(ctx, "${spec.name}: ${message}").ignore();
+            let _ = io.eprintln(ctx, "${help(ctx, spec)}").ignore();
+            .Err(message)
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The parse
+// ---------------------------------------------------------------------------
+
+fn empty(): Arguments {
+    Arguments {
+        values: map.empty<Str, Str>(),
+        switches: set.empty<Str>(),
+        multiples: map.empty<Str, [Str]>(),
+        positionalValues: list.empty<Str>(),
+        named: map.empty<Str, Str>(),
+    }
+}
+
+fn parse<C: Alloc, X>(
+    ctx: C,
+    spec: Cli<X>,
+    argv: [Str],
+): Result<Selection<X>, ParseError> {
+    match (argv.isEmpty()) {
+        true => .Ok(.Print(help(ctx, spec))),
+        false => globals(ctx, spec, argv, 0, empty()),
+    }
+}
+
+/// The first phase: the global flags, up to the subcommand's name.
+fn globals<C: Alloc, X>(
+    ctx: C,
+    spec: Cli<X>,
+    argv: [Str],
+    at: Int,
+    acc: Arguments,
+): Result<Selection<X>, ParseError> {
+    match (argv.get(at)) {
+        .None => .Err(.NoCommand),
+        .Some(token) => {
+            match (classify(token)) {
+                .Terminator => chosen(ctx, spec, argv, at + 1, acc),
+                .Plain(_) => chosen(ctx, spec, argv, at, acc),
+                .Bad(bad) => .Err(.UnknownFlag(bad)),
+                .Named { display, long, short, value } => {
+                    match (reserved(long)) {
+                        .Some(text) => answer(ctx, spec, text),
+                        .None => {
+                            match (
+                                apply(
+                                    ctx,
+                                    flagsOf(spec.flags),
+                                    display,
+                                    long,
+                                    short,
+                                    value,
+                                    argv,
+                                    at,
+                                    acc,
+                                )
+                            ) {
+                                .Err(e) => .Err(e),
+                                .Ok(step) => {
+                                    globals(ctx, spec, argv, step.at, step.arguments)
+                                },
+                            }
+                        },
+                    }
+                },
+            }
+        },
+    }
+}
+
+/// The token at `at` names the command. Look it up, then read its own tail.
+fn chosen<C: Alloc, X>(
+    ctx: C,
+    spec: Cli<X>,
+    argv: [Str],
+    at: Int,
+    acc: Arguments,
+): Result<Selection<X>, ParseError> {
+    match (argv.get(at)) {
+        .None => .Err(.NoCommand),
+        .Some(name) => {
+            match (commandNamed(spec.commands, 0, name)) {
+                .None => .Err(.UnknownCommand(name)),
+                .Some(command) => tail(ctx, spec, command, argv, at + 1, acc, false),
+            }
+        },
+    }
+}
+
+/// The second phase: the command's own flags and its positionals.
+fn tail<C: Alloc, X>(
+    ctx: C,
+    spec: Cli<X>,
+    command: Command<X>,
+    argv: [Str],
+    at: Int,
+    acc: Arguments,
+    stopped: Bool,
+): Result<Selection<X>, ParseError> {
+    match (argv.get(at)) {
+        .None => {
+            match (bind(ctx, argsOf(command.arguments), 0, acc)) {
+                .Err(e) => .Err(e),
+                .Ok(bound) => .Ok(.Fire { command: command, arguments: bound }),
+            }
+        },
+        .Some(token) => {
+            match (stopped) {
+                true => {
+                    tail(
+                        ctx,
+                        spec,
+                        command,
+                        argv,
+                        at + 1,
+                        positional(ctx, acc, token),
+                        true,
+                    )
+                },
+                false => {
+                    match (classify(token)) {
+                        .Terminator => {
+                            tail(ctx, spec, command, argv, at + 1, acc, true)
+                        },
+                        .Plain(word) => {
+                            tail(
+                                ctx,
+                                spec,
+                                command,
+                                argv,
+                                at + 1,
+                                positional(ctx, acc, word),
+                                false,
+                            )
+                        },
+                        .Bad(bad) => .Err(.UnknownFlag(bad)),
+                        .Named { display, long, short, value } => {
+                            match (reserved(long)) {
+                                .Some(which) => {
+                                    match (which == "version") {
+                                        true => .Ok(.Print(spec.version)),
+                                        false => {
+                                            .Ok(.Print(commandHelp(ctx, spec, command)))
+                                        },
+                                    }
+                                },
+                                .None => {
+                                    match (
+                                        apply(
+                                            ctx,
+                                            flagsOf(command.flags),
+                                            display,
+                                            long,
+                                            short,
+                                            value,
+                                            argv,
+                                            at,
+                                            acc,
+                                        )
+                                    ) {
+                                        .Err(e) => .Err(e),
+                                        .Ok(step) => {
+                                            tail(
+                                                ctx,
+                                                spec,
+                                                command,
+                                                argv,
+                                                step.at,
+                                                step.arguments,
+                                                false,
+                                            )
+                                        },
+                                    }
+                                },
+                            }
+                        },
+                    }
+                },
+            }
+        },
+    }
+}
+
+/// `--help` and `--version` are the two long names a spec cannot take, because
+/// every reader already knows them. Read off the name alone, so `--help=x` is
+/// still `--help` rather than `UnexpectedValue`, and a short flag is never one
+/// of them — `-h` and `-v` are a spec's to spend.
+fn reserved(long: Option<Str>): Option<Str> {
+    match (long) {
+        .None => .None,
+        .Some(name) => {
+            match (name == "help") {
+                true => .Some("help"),
+                false => {
+                    match (name == "version") {
+                        true => .Some("version"),
+                        false => .None,
+                    }
+                },
+            }
+        },
+    }
+}
+
+fn answer<C: Alloc, X>(
+    ctx: C,
+    spec: Cli<X>,
+    which: Str,
+): Result<Selection<X>, ParseError> {
+    match (which == "version") {
+        true => .Ok(.Print(spec.version)),
+        false => .Ok(.Print(help(ctx, spec))),
+    }
+}
+
+/// One flag token, resolved against `flags` and folded into the accumulator.
+fn apply<C: Alloc>(
+    ctx: C,
+    flags: [Flag],
+    display: Str,
+    long: Option<Str>,
+    short: Option<Char>,
+    value: Option<Str>,
+    argv: [Str],
+    at: Int,
+    acc: Arguments,
+): Result<Step, ParseError> {
+    let found = match (long) {
+        .Some(name) => longNamed(flags, 0, name),
+        .None => {
+            match (short) {
+                .Some(letter) => shortNamed(flags, 0, letter),
+                .None => .None,
+            }
+        },
+    };
+    match (found) {
+        .None => .Err(.UnknownFlag(display)),
+        .Some(flag) => {
+            match (flag.arity) {
+                .Switch => {
+                    match (value) {
+                        .Some(_) => .Err(.UnexpectedValue(display)),
+                        .None => {
+                            .Ok(Step {
+                                arguments: switched(ctx, acc, flag.long),
+                                at: at + 1,
+                            })
+                        },
+                    }
+                },
+                .Value(_) => {
+                    match (taken(display, value, argv, at)) {
+                        .Err(e) => .Err(e),
+                        .Ok(t) => {
+                            .Ok(Step {
+                                arguments: valued(ctx, acc, flag.long, t.value),
+                                at: t.next,
+                            })
+                        },
+                    }
+                },
+                .Many(_) => {
+                    match (taken(display, value, argv, at)) {
+                        .Err(e) => .Err(e),
+                        .Ok(t) => {
+                            .Ok(Step {
+                                arguments: added(ctx, acc, flag.long, t.value),
+                                at: t.next,
+                            })
+                        },
+                    }
+                },
+            }
+        },
+    }
+}
+
+/// A flag's value, and where the walk continues from: the value attached with
+/// `=` and the token after it, or the next token and the one after that.
+struct Taken {
+    value: Str,
+    next: Int,
+}
+
+fn taken(
+    display: Str,
+    value: Option<Str>,
+    argv: [Str],
+    at: Int,
+): Result<Taken, ParseError> {
+    match (value) {
+        .Some(v) => .Ok(Taken { value: v, next: at + 1 }),
+        .None => {
+            match (argv.get(at + 1)) {
+                .None => .Err(.MissingValue(display)),
+                .Some(word) => {
+                    match (word.startsWith("--")) {
+                        true => .Err(.MissingValue(display)),
+                        false => .Ok(Taken { value: word, next: at + 2 }),
+                    }
+                },
+            }
+        },
+    }
+}
+
+fn switched<C: Alloc>(ctx: C, acc: Arguments, long: Str): Arguments {
+    Arguments { ..acc, switches: acc.switches.insert(ctx, long) }
+}
+
+fn valued<C: Alloc>(ctx: C, acc: Arguments, long: Str, value: Str): Arguments {
+    Arguments { ..acc, values: acc.values.insert(ctx, long, value) }
+}
+
+fn added<C: Alloc>(ctx: C, acc: Arguments, long: Str, value: Str): Arguments {
+    let sofar = acc.multiples.get(long).withDefault(list.empty<Str>());
+    Arguments {
+        ..acc,
+        multiples: acc.multiples.insert(ctx, long, sofar.push(ctx, value)),
+    }
+}
+
+fn positional<C: Alloc>(ctx: C, acc: Arguments, word: Str): Arguments {
+    Arguments { ..acc, positionalValues: acc.positionalValues.push(ctx, word) }
+}
+
+/// Bind the declared positionals, in declaration order, to the positionals the
+/// line supplied. Extra ones are not an error: they stay in `positionals`,
+/// which is what a command that takes a list of files reads.
+fn bind<C: Alloc>(
+    ctx: C,
+    args: [Arg],
+    at: Int,
+    acc: Arguments,
+): Result<Arguments, ParseError> {
+    match (args.get(at)) {
+        .None => .Ok(acc),
+        .Some(arg) => {
+            match (acc.positionalValues.get(at)) {
+                .Some(word) => {
+                    bind(ctx, args, at + 1, Arguments {
+                        ..acc,
+                        named: acc.named.insert(ctx, arg.name, word),
+                    })
+                },
+                .None => {
+                    match (arg.required) {
+                        true => .Err(.MissingArg(arg.name)),
+                        false => bind(ctx, args, at + 1, acc),
+                    }
+                },
+            }
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reading one token
+// ---------------------------------------------------------------------------
+
+fn classify(token: Str): Token {
+    match (token == "--") {
+        true => .Terminator,
+        false => {
+            match (token.startsWith("--")) {
+                true => longToken(token),
+                false => {
+                    match (token.startsWith("-") && token.len() > 1) {
+                        true => shortToken(token),
+                        false => .Plain(token),
+                    }
+                },
+            }
+        },
+    }
+}
+
+fn longToken(token: Str): Token {
+    let rest = token.slice(2, token.len());
+    match (rest.splitOnce("=")) {
+        .Some(split) => {
+            let (name, value) = split;
+            match (name.isEmpty()) {
+                true => .Bad(token),
+                false => {
+                    .Named {
+                        display: token.slice(0, name.len() + 2),
+                        long: .Some(name),
+                        short: .None,
+                        value: .Some(value),
+                    }
+                },
+            }
+        },
+        .None => {
+            .Named { display: token, long: .Some(rest), short: .None, value: .None }
+        },
+    }
+}
+
+fn shortToken(token: Str): Token {
+    let rest = token.slice(1, token.len());
+    match (rest.splitOnce("=")) {
+        .Some(split) => {
+            let (name, value) = split;
+            match (name.charAt(0)) {
+                .Some(letter) => {
+                    match (name.len() == 1) {
+                        true => {
+                            .Named {
+                                display: token.slice(0, 2),
+                                long: .None,
+                                short: .Some(letter),
+                                value: .Some(value),
+                            }
+                        },
+                        false => .Bad(token),
+                    }
+                },
+                .None => .Bad(token),
+            }
+        },
+        .None => {
+            match (rest.len() == 1) {
+                true => {
+                    match (rest.charAt(0)) {
+                        .Some(letter) => {
+                            .Named {
+                                display: token,
+                                long: .None,
+                                short: .Some(letter),
+                                value: .None,
+                            }
+                        },
+                        .None => .Bad(token),
+                    }
+                },
+                false => .Bad(token),
+            }
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Lookups, written out rather than folded, because none of them allocates
+// ---------------------------------------------------------------------------
+
+fn flagsOf(flags: Option<[Flag]>): [Flag] {
+    flags.withDefault(list.empty<Flag>())
+}
+
+fn argsOf(args: Option<[Arg]>): [Arg] {
+    args.withDefault(list.empty<Arg>())
+}
+
+fn longNamed(flags: [Flag], at: Int, name: Str): Option<Flag> {
+    match (flags.get(at)) {
+        .None => .None,
+        .Some(flag) => {
+            match (flag.long == name) {
+                true => .Some(flag),
+                false => longNamed(flags, at + 1, name),
+            }
+        },
+    }
+}
+
+fn shortNamed(flags: [Flag], at: Int, letter: Char): Option<Flag> {
+    match (flags.get(at)) {
+        .None => .None,
+        .Some(flag) => {
+            match (flag.short) {
+                .Some(c) => {
+                    match (c == letter) {
+                        true => .Some(flag),
+                        false => shortNamed(flags, at + 1, letter),
+                    }
+                },
+                .None => shortNamed(flags, at + 1, letter),
+            }
+        },
+    }
+}
+
+fn commandNamed<C>(commands: [Command<C>], at: Int, name: Str): Option<Command<C>> {
+    match (commands.get(at)) {
+        .None => .None,
+        .Some(command) => {
+            match (command.name == name) {
+                true => .Some(command),
+                false => commandNamed(commands, at + 1, name),
+            }
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The help page
+// ---------------------------------------------------------------------------
+
+fn help<C: Alloc, X>(ctx: C, spec: Cli<X>): Str {
+    let head = str.format(ctx, "${spec.name} ${spec.version} — ${spec.about}");
+    let usage = str.format(ctx, "usage: ${spec.name} [options] <command> [arguments]");
+    let commands = spec
+        .commands
+        .mapCtx(ctx, fn(_c, command) => (command.name, command.about));
+    let options = optionRows(ctx, flagsOf(spec.flags), true);
+    let sections = [
+        head,
+        usage,
+        section(ctx, "commands", commands),
+        section(ctx, "options", options),
+    ];
+    page(ctx, sections)
+}
+
+fn commandHelp<C: Alloc, X>(ctx: C, spec: Cli<X>, command: Command<X>): Str {
+    let head = str.format(ctx, "${spec.name} ${command.name} — ${command.about}");
+    let global = match (flagsOf(spec.flags).isEmpty()) {
+        true => "",
+        false => "[global options] ",
+    };
+    let declared = argsOf(command.arguments);
+    let usage = str.format(
+        ctx,
+        "usage: ${spec.name} ${global}${command.name} [options]${slots(ctx, declared)}",
+    );
+    let options = optionRows(ctx, flagsOf(command.flags), false);
+    let sections = [
+        head,
+        usage,
+        section(ctx, "arguments", argRows(ctx, declared)),
+        section(ctx, "options", options),
+    ];
+    page(ctx, sections)
+}
+
+/// One titled two-column section, or nothing at all when it has no rows — a
+/// command with no positionals has no `arguments:` heading rather than an empty
+/// one.
+fn section<C: Alloc>(ctx: C, title: Str, rows: [(Str, Str)]): Str {
+    match (rows.isEmpty()) {
+        true => "",
+        false => str.format(ctx, "${title}:\n${table(ctx, rows)}"),
+    }
+}
+
+/// The sections that have something in them, a blank line between each.
+fn page<C: Alloc>(ctx: C, sections: [Str]): Str {
+    sections.filter(ctx, fn(s) => s.isEmpty().not()).join(ctx, "\n\n")
+}
+
+/// `<file> [tag]` — the declared positionals as the usage line spells them.
+fn slots<C: Alloc>(ctx: C, args: [Arg]): Str {
+    args.foldCtx(
+        ctx,
+        fn(c, out, arg) => {
+            match (arg.required) {
+                true => str.format(c, "${out} <${arg.name}>"),
+                false => str.format(c, "${out} [${arg.name}]"),
+            }
+        },
+        "",
+    )
+}
+
+fn argRows<C: Alloc>(ctx: C, args: [Arg]): [(Str, Str)] {
+    args.mapCtx(ctx, fn(c, arg) => (str.format(c, "<${arg.name}>"), arg.help))
+}
+
+/// The declared flags, then the two every interface has. `--version` is the
+/// top-level page's alone: a subcommand does not have a version of its own.
+fn optionRows<C: Alloc>(ctx: C, flags: [Flag], top: Bool): [(Str, Str)] {
+    let declared = flags.mapCtx(ctx, fn(c, flag) => (flagColumn(c, flag), flag.help));
+    let builtin = match (top) {
+        true => {
+            [
+                ("    --help", "print this help and exit"),
+                ("    --version", "print the version and exit"),
+            ]
+        },
+        false => [("    --help", "print this help and exit")],
+    };
+    declared.concat(ctx, builtin)
+}
+
+fn flagColumn<C: Alloc>(ctx: C, flag: Flag): Str {
+    let head = match (flag.short) {
+        .Some(letter) => {
+            str.format(ctx, "-${str.fromChars(ctx, [letter])}, --${flag.long}")
+        },
+        .None => str.format(ctx, "    --${flag.long}"),
+    };
+    match (flag.arity) {
+        .Switch => head,
+        .Value(name) => str.format(ctx, "${head} <${name}>"),
+        .Many(name) => str.format(ctx, "${head} <${name}>..."),
+    }
+}
+
+/// Two columns, indented two and separated by two, with the left one padded to
+/// the widest entry in *this* table — so every page's columns line up and no
+/// page's depend on another's.
+fn table<C: Alloc>(ctx: C, rows: [(Str, Str)]): Str {
+    let width = rows.foldCtx(
+        ctx,
+        fn(_c, widest, row) => {
+            let (left, _) = row;
+            match (left.len() > widest) {
+                true => left.len(),
+                false => widest,
+            }
+        },
+        0,
+    );
+    let lines = rows.mapCtx(ctx, fn(c, row) => {
+        let (left, right) = row;
+        str.format(c, "  ${left.padEnd(c, width, ' ')}  ${right}")
+    });
+    lines.join(ctx, "\n")
+}
+
+// ---------------------------------------------------------------------------
+// The error line
+// ---------------------------------------------------------------------------
+
+fn errorText<C: Alloc>(ctx: C, e: ParseError): Str {
+    match (e) {
+        .UnknownFlag(token) => str.format(ctx, "unknown flag ${token}"),
+        .MissingValue(token) => str.format(ctx, "${token} needs a value"),
+        .UnexpectedValue(token) => str.format(ctx, "${token} takes no value"),
+        .UnknownCommand(name) => str.format(ctx, "unknown command ${name}"),
+        .NoCommand => "no command given",
+        .MissingArg(name) => str.format(ctx, "missing argument <${name}>"),
+    }
+}

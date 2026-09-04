@@ -27,11 +27,11 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Thirty-seven of the forty-six files are in it** — the number the harness
+//! **Thirty-eight of the forty-seven files are in it** — the number the harness
 //! prints, re-derived from it rather than incremented by hand, and one the
 //! prose has drifted from more than once. The ordinals in the paragraphs below
 //! record *when* a file joined the set and are not a running total of it;
-//! `codegen/ordering.buri` is the latest, and its own entry says why it is in.
+//! `cli/arguments.buri` is the latest, and its own entry says why it is in.
 //! `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
 //! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
@@ -430,6 +430,16 @@ const PACKAGES: &[Case] = &[
     // holding a `[Header]` and a `[U8]`, its derived `Eq` and `Show`, and the
     // `core/bytes` pair underneath the text constructors.
     included("semantics/http.buri"),
+    // `core/cli`, driven end to end through `run` — which means the
+    // environment double, two captured streams, and a handler reached through
+    // a `fn(C, Arguments)` stored in a struct field. Nothing in it is an
+    // intrinsic: the parse is Buri over `[Str]`, `Map` and `Set`, and the help
+    // pages are `str.format` and `padEnd`. It is in the native set for
+    // `semantics/host_testing.buri`'s reason — the doubles are the archive's
+    // table — plus one of its own: a closure called through a struct field is
+    // the shape `codegen/step_trampoline.buri` pilots, and a command's `run`
+    // is that shape in a library.
+    included("cli/arguments.buri"),
     // -- out: the backend has no body for what they reach ---------------
     //
     // Every one of these is reported by `Backend::missing_intrinsics`

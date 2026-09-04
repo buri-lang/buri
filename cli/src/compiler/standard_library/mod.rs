@@ -137,6 +137,12 @@ pub const MODULES: &[StdModule] = &[
     m("core/io", include_str!("sources/io.buri")),
     m("core/fs", include_str!("sources/fs.buri")),
     m("core/env", include_str!("sources/env.buri")),
+    // The parsed half of `core/env`'s `args`. Not a platform module and not an
+    // eager one: it declares no effect — `run` *names* `Env`, `Stdout` and
+    // `Stderr` in its bound the way `core/fs` names `Fs` — and it declares
+    // methods only on its own `Arguments`, so a program that has never heard
+    // of it does not pay to parse it.
+    m("core/cli", include_str!("sources/cli.buri")),
     m("core/time", include_str!("sources/time.buri")),
     m("core/date", include_str!("sources/date.buri")),
     m("core/random", include_str!("sources/random.buri")),
