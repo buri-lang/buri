@@ -136,7 +136,7 @@ use buri::compiler::modules::Role;
 use buri::compiler::semantics::resolve::Checked;
 use buri::diagnostics::{Diagnostics, SourceMap};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
@@ -221,19 +221,7 @@ fn host_target() -> Target {
 /// `tests/harness/mod.rs` does and a machine that has configured one engine
 /// does not silently get another.
 fn engine() -> Option<String> {
-    let configured = std::env::var("BURI_JS").ok();
-    let candidates: Vec<String> = match configured {
-        Some(js) => vec![js],
-        None => vec![String::from("bun"), String::from("node")],
-    };
-    candidates.into_iter().find(|candidate| {
-        Command::new(candidate)
-            .arg("--version")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
-    })
+    crate::shared::js_engine()
 }
 
 /// Why one backend cannot run a program on this host, or `None`.
@@ -535,12 +523,14 @@ fn run_native(row: &str, native: Native, checked: &Checked, paths: &[String]) ->
         native.name,
         String::from_utf8_lossy(&linked.stderr)
     );
-    let out = Command::new(&binary).output().unwrap();
-    Some(Ran {
-        status: out.status.code().unwrap_or(-1),
-        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
-    })
+    // **Under the heap check.** Every row here is a whole program run to
+    // completion, which is exactly the population the runtime's exit audit is
+    // a question about — so agreement about what was *printed* now travels
+    // with agreement about what was *freed*, and the rows pay nothing for it
+    // (`shared::ran_checked`, and `cli/runtime/memory.rs`'s heap-check
+    // section).
+    let ran = crate::shared::ran_checked(&binary);
+    Some(Ran { status: ran.status, stdout: ran.stdout, stderr: ran.stderr })
 }
 
 // -------------------------------------------------------------------
@@ -565,13 +555,40 @@ fn both(row: &str, source: &str) -> (Ran, Vec<(&'static str, Ran)>) {
 /// `expected` is asserted as well as agreement, because two backends that
 /// agree on the wrong answer agree.
 fn agree(row: &str, source: &str, expected: &str) {
+    agree_leaking(row, source, expected, 0, "");
+}
+
+/// [`agree`], for a row whose program is **known to leak**.
+///
+/// The count is exact and is asserted in both directions, which is what keeps
+/// this from being a way to switch the heap check off: a row that leaks a
+/// block more fails, and a row that has stopped leaking fails too and says to
+/// call [`agree`] instead. `why` is what a reader gets in place of a surprise.
+///
+/// One row uses it today. There is no general permission here — a second
+/// caller is a second finding, and it has to say what it is.
+fn agree_leaking(row: &str, source: &str, expected: &str, blocks: u64, why: &str) {
     let (js, natives) = both(row, source);
     assert_eq!(js.stderr, "", "{row}: JavaScript printed to standard error");
     assert_eq!(js.status, 0, "{row}: JavaScript exited {}", js.status);
     assert_eq!(js.stdout, expected, "{row}: JavaScript printed something else");
     for (name, ran) in &natives {
-        assert_eq!(ran.stderr, "", "{row}: `{name}` printed to standard error");
-        assert_eq!(ran.status, 0, "{row}: `{name}` exited {}", ran.status);
+        match crate::shared::leaked_blocks(ran.status, &ran.stderr) {
+            Some(n) if n == blocks && blocks != 0 => {
+                eprintln!("backend agreement: {row} leaks {n} block(s) on `{name}` — {why}");
+            }
+            Some(n) => panic!(
+                "{row}: `{name}` leaked {n} block(s) and this row expects {blocks}. \
+                 `BURI_RT_HEAP_CHECK=trace` prints every surviving block."
+            ),
+            None if blocks != 0 => panic!(
+                "{row}: `{name}` no longer leaks — {why} is fixed, so call `agree` here"
+            ),
+            None => {
+                assert_eq!(ran.stderr, "", "{row}: `{name}` printed to standard error");
+                assert_eq!(ran.status, 0, "{row}: `{name}` exited {}", ran.status);
+            }
+        }
         assert_eq!(
             ran.stdout, js.stdout,
             "{row}: `{name}` and JavaScript disagree.\n  javascript: {:?}\n  {name}: {:?}",
@@ -3593,7 +3610,7 @@ export fn main(): Result<(), Str> {
 #[test]
 fn a_projection_off_a_generic_calls_result_agrees() {
     rows_or_skip!();
-    agree(
+    agree_leaking(
         "projection off a generic call",
         r#"
 from "core/host" import { stdout, alloc };
@@ -3622,6 +3639,13 @@ export fn main(): Result<(), Str> {
 }
 "#,
         "2 2 2\n",
+        1,
+        "a chained projection off an inlined call — `identity(outer()).inner.items` — \
+         never releases the intermediate. The single-step spellings on the two lines \
+         below it are clean, and so is the same chain off a plain call; what leaks is \
+         the `[Leaf]` the *middle* field of the chain holds. Found by the universal \
+         heap check the day it was switched on, and open: the corruption half of \
+         issue #33 is fixed and its under-decrement half is not",
     );
 }
 
@@ -3794,7 +3818,7 @@ export fn main(): Result<(), Str> {
 #[test]
 fn an_option_whose_payload_holds_an_array_agrees() {
     rows_or_skip!();
-    agree(
+    agree_leaking(
         "option holding an array",
         r#"
 from "core/host" import { stdout, alloc };
@@ -3830,6 +3854,13 @@ export fn main(): Result<(), Str> {
 }
 "#,
         "3 3 3 3 0\n",
+        1,
+        "`wrapped(.Some(..))` leaks its payload's list. `Option<T>.withDefault` where \
+         `T` is a **struct holding a list** drops the struct on the `Some` arm without \
+         releasing what the struct holds; the same call at `Option<[U8]>` is clean, and \
+         so is the `match` spelling on the line below it. Found by the ownership \
+         generator in `cli/tests/fuzz.rs`, which is why that generator does not draw \
+         this call — the note there says so",
     );
 }
 
