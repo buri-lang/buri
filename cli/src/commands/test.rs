@@ -837,14 +837,16 @@ fn not_ready(
 
 /// Why a program cannot run natively, in the shape the refusal needs.
 ///
-/// Two variants, because `backend::split_networking` names two causes and they
-/// are not the same kind of news. A key the backend has no body for is a
-/// toolchain bug and a suite that could be declared `platforms: [JS]`; an
-/// operation this toolchain has no networking for is neither — the program is
-/// fine, and running it on JavaScript instead would prove something else.
+/// Three variants, because the causes are not the same kind of news. A key the
+/// backend has no body for is a toolchain bug and a suite that could be
+/// declared `platforms: [JS]`; an operation this toolchain has no networking or
+/// no cryptography for is neither — the program is fine, and running it on
+/// JavaScript instead would prove something else.
 enum Gap {
     /// Operations only a runtime built with networking answers.
-    NoNetworking(Vec<String>),
+    Networking(Vec<String>),
+    /// Operations only a runtime built with cryptography answers.
+    Cryptography(Vec<String>),
     /// A key this backend has no body for, and how many more there were.
     NoBody { backend: &'static str, first: String, more: usize },
 }
@@ -868,7 +870,11 @@ fn native_gap(
     let missing = backend.missing_intrinsics(program, tables);
     let (networking, rest) = crate::compiler::backend::split_networking(&missing);
     if !networking.is_empty() {
-        return Some(Gap::NoNetworking(networking));
+        return Some(Gap::Networking(networking));
+    }
+    let (cryptography, rest) = crate::compiler::backend::split_cryptography(&rest);
+    if !cryptography.is_empty() {
+        return Some(Gap::Cryptography(cryptography));
     }
     let (first, more) = rest.split_first()?;
     Some(Gap::NoBody { backend: backend.name(), first: first.clone(), more: more.len() })
@@ -904,8 +910,14 @@ fn gap_refusal(label: &str, gap: Gap) -> Diagnostics {
         // The page's own words, and its own fix: what this suite needs is a
         // toolchain, and [`GAP_FIX`]'s two suggestions — declare `platforms:
         // [JS]`, or report a bug — are both the wrong instruction for it.
-        Gap::NoNetworking(operations) => {
+        Gap::Networking(operations) => {
             diagnostics.push(crate::compiler::backend::no_networking(&operations, Span::NONE));
+        }
+        // The same argument, one page over: a suite that mints a token needs a
+        // toolchain whose runtime has a cryptographic generator, and neither of
+        // [`GAP_FIX`]'s suggestions is what to do about that.
+        Gap::Cryptography(operations) => {
+            diagnostics.push(crate::compiler::backend::no_cryptography(&operations, Span::NONE));
         }
         Gap::NoBody { backend, first, more } => {
             let more = match more {

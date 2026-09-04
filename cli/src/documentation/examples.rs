@@ -336,7 +336,8 @@ fn parse_block(
         if effect_binding(e).is_none() {
             return Err(fail(
                 format!("`{e}` is not an effect this harness can build"),
-                "the effects are alloc, stdout, stderr, stdin, fs, net, clock, rand, env, proc",
+                "the effects are alloc, stdout, stderr, stdin, fs, net, clock, rand, entropy, \
+                 env, proc",
             ));
         }
     }
@@ -570,6 +571,7 @@ fn effect_binding(name: &str) -> Option<(&'static str, &'static str)> {
         "net" => ("Net", "net"),
         "clock" => ("Clock", "clock"),
         "rand" => ("Rand", "rand"),
+        "entropy" => ("Entropy", "entropy"),
         "env" => ("Env", "env"),
         "proc" => ("Proc", "proc"),
         "tasks" => ("Tasks", "tasks"),

@@ -49,7 +49,7 @@ leaving as an absence:
   action has a *name* for ambient state.
 - **A test's capabilities are fakes.** A suite is handed a context the runner
   builds: an in-memory `Fs` holding exactly what the suite gave it, a clock the
-  test sets, a seeded `Rand`, an `Env` of the test's own pairs
+  test sets, a seeded `Rand`, a seeded `Entropy`, an `Env` of the test's own pairs
   ([`testing.md`](./testing.md)). There is no real capability
   to withhold.
 - **The action set is closed.** Four kinds — `interface`, `compile`, `link`,
@@ -92,7 +92,7 @@ Here is what catches that class instead:
 | The bug | What catches it |
 |---|---|
 | A library or test reaching for ambient state | The type system, at compile time. `host-import` and the effect bounds on `ctx`; the reject corpus pins both. |
-| A test depending on a real clock, a real `Rand`, or a real filesystem | It cannot: those capabilities are injected fakes, and a suite that wanted a real one would have to be handed it. |
+| A test depending on a real clock, a real `Rand`, a real `Entropy`, or a real filesystem | It cannot: those capabilities are injected fakes, and a suite that wanted a real one would have to be handed it. |
 | A toolchain bug that leaks an intrinsic, or a code generator that embeds a path, a hostname, or a date | Two builds of one tree disagreeing — `buri build --check-reproducible`, and `two_checkouts_of_one_tree_build_identical_bytes` in the toolchain's own suite. This is the check the model rests on. |
 | A machine's time zone or locale changing what an action produces | The explicit spawn environment and the frozen clock, checked by building and testing under a perturbed parent environment (`build/hermeticity.rs`). |
 | A stale cache entry | The key: content, never timestamps, and every input in it. |

@@ -495,6 +495,14 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostClock.sleepMillis", "buri_rt_host_clock_sleep_millis", Ret::Void),
     e("host.HostRand.nextInt", "buri_rt_host_rand_next_int", Ret::Scalar),
     e("host.HostRand.nextFloat", "buri_rt_host_rand_next_float", Ret::Scalar),
+    // The one row here whose symbol may not be in the archive: it is behind the
+    // runtime's `crypto` feature, and `runtime_native::crypto_intrinsic` is
+    // what turns a toolchain built without it into a refusal naming the
+    // operation rather than a link error naming this symbol. A row here is a
+    // claim that the *runtime* implements the key, which it does; whether this
+    // toolchain's copy carries it is the feature file's question and is asked
+    // separately, exactly as `host.HostListen.*` is.
+    e("host.HostEntropy.bytes", "buri_rt_host_entropy_bytes", Ret::Out),
     e("host.HostProc.exitWith", "buri_rt_host_proc_exit_with", Ret::NoReturn),
     // `allocate(self, bytes) -> Region`. `self` is `HostAlloc`, an empty
     // struct, so it flattens to nothing and the C call is the one `i64`; the
@@ -864,6 +872,9 @@ pub const ENTRIES: &[Entry] = &[
         "buri_rt_host_testing_test_rand_next_float",
         Ret::Scalar,
     ),
+    e("host_testing.entropy", "buri_rt_host_testing_entropy", Ret::Out),
+    e("host_testing.TestEntropy.seed", "buri_rt_host_testing_test_entropy_seed", Ret::Out),
+    e("host_testing.TestEntropy.bytes", "buri_rt_host_testing_test_entropy_bytes", Ret::Out),
     e("host_testing.env", "buri_rt_host_testing_env", Ret::Out),
     e("host_testing.TestEnv.variables", "buri_rt_host_testing_test_env_variables", Ret::Out),
     e("host_testing.TestEnv.arguments", "buri_rt_host_testing_test_env_arguments", Ret::Out),

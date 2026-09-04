@@ -11,9 +11,9 @@
 //! that asked for it.
 
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Proc, Rand,
-    Received, Region, Request, Response, Serve, ServeError, Sockets, Stderr, Stdin,
-    Stdout, Tasks,
+    Alloc, Clock, Entropy, Env, Fs, Header, IoError, Listen, Listener, Net, NetError,
+    Proc, Rand, Received, Region, Request, Response, Serve, ServeError, Sockets, Stderr,
+    Stdin, Stdout, Tasks,
 };
 
 // One `Request` now. `ui/effect` used to declare a second — the
@@ -101,6 +101,21 @@ impl Rand for HostRand {
     fn nextInt(self, lo: Int, hi: Int): Int;
 
     fn nextFloat(self): Float;
+}
+
+/// The operating system's own generator, for the one thing `HostRand` does not
+/// promise.
+///
+/// **Granted on every platform**, and that is the point of it: an effect whose
+/// availability varied by target would make "can this program mint a token"
+/// a build question rather than a program question. What varies instead is the
+/// *toolchain* — a runtime archive built without the `crypto` feature answers
+/// `cryptography-not-available` before code generation — which is the same
+/// arrangement `net` already has and for the same reason.
+export struct HostEntropy {}
+
+impl Entropy for HostEntropy {
+    fn bytes(self, count: Int): [U8];
 }
 
 export struct HostEnv {}
@@ -230,6 +245,8 @@ export let net: HostNet = HostNet { };
 export let clock: HostClock = HostClock { };
 
 export let rand: HostRand = HostRand { };
+
+export let entropy: HostEntropy = HostEntropy { };
 
 export let env: HostEnv = HostEnv { };
 

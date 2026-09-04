@@ -151,6 +151,29 @@ pub extern "C" fn buri_rt_abort_random_range() -> ! {
     die(&[b"random range is empty"])
 }
 
+/// `entropy count is negative` — `Entropy.bytes` asked for fewer than none.
+///
+/// The same message `$host_HostEntropy_bytes` writes, because the two backends
+/// owe a program the same sentence for the same mistake.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_abort_entropy_count() -> ! {
+    die(&[b"entropy count is negative"])
+}
+
+/// `this platform grants no cryptographic randomness` — the operating system's
+/// generator refused.
+///
+/// **An abort rather than a weaker answer**, which is the whole of the reason
+/// this exists as its own exit: every other source of octets in this archive is
+/// merely uniform, and substituting one here would be undetectable by anything
+/// except an attacker. Two ends of one design — `getrandom` failing on a
+/// stripped-down host, and a JavaScript runtime with no `crypto` global —
+/// arrive at this same sentence.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_abort_entropy_unavailable() -> ! {
+    die(&[b"this platform grants no cryptographic randomness"])
+}
+
 /// An index outside `0 ..< len`.
 ///
 /// Not pinned by the crash corpus: `core/list`'s indexing answers `Option`, so

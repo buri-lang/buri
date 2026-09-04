@@ -148,9 +148,59 @@ export effect Clock {
     fn sleepMillis(self, millis: Int): ();
 }
 
+/// Uniform numbers, and **only** uniform ones.
+///
+/// This effect promises a *distribution*. It says nothing about
+/// unpredictability, and that silence used to be all there was — which was the
+/// bug, because a reader could not tell whether it was a promise nobody had
+/// written down or one nobody was making. It is the second: the host's
+/// implementation is xoshiro256++ natively and `Math.random` on JavaScript, and
+/// an observer who has seen enough output of either can predict the rest.
+///
+/// A program that needs the other promise names `Entropy` below.
+/// A program that wants a generator it can *replay* uses `core/random`'s `Gen`,
+/// which takes a seed and is a value rather than an effect — the same
+/// distribution, none of the authority, and the same numbers twice.
 export effect Rand {
     fn nextInt(self, lo: Int, hi: Int): Int;
     fn nextFloat(self): Float;
+}
+
+/// Octets nobody can predict, from the operating system's own generator.
+///
+/// **This is not `Rand` with a better distribution, and the two are separate
+/// effects on purpose.** `Rand` promises *uniformity*, which is a claim about
+/// the shape of a sequence; this promises *unpredictability*, which is a claim
+/// about somebody who has already seen part of one. A seeded generator can keep
+/// the first promise and cannot keep the second — and `core/host/testing`'s
+/// `rand()` is seeded deliberately, because a hermetic test needs the same
+/// numbers every run. A program minting a session token needs the second
+/// promise, and until this effect existed there was no way to ask for it and no
+/// way to be refused by a platform that could not supply it.
+///
+/// The source is the platform's, never this language's: `getrandom(2)` or
+/// `getentropy(2)` behind `cli/runtime`, and `crypto.getRandomValues` on
+/// JavaScript. Not a generator seeded here and stepped here — the kernel's is
+/// reseeded from the machine, survives a fork, and is the one thing on this
+/// page that a userspace copy would be strictly worse than.
+///
+/// `core/crypto` is the door, not `core/random`: `core/crypto`'s header has said
+/// since it was written that a CSPRNG is a different thing from a seeded
+/// generator and belongs beside the hashes rather than quietly beside `int` and
+/// `float`.
+export effect Entropy {
+    /// `count` octets, each drawn from the platform's generator.
+    ///
+    /// **A failure aborts rather than answering.** Every other fallible
+    /// operation on this page returns a `Result`, and this one does not,
+    /// because the two ways to be wrong are not comparable: a caller who
+    /// ignores a `.Err` from a file read gets a wrong answer, and a caller who
+    /// ignores one from here gets a *guessable key* and no symptom. There is
+    /// also nothing useful to return — fewer octets than were asked for is the
+    /// one answer that must never reach a caller.
+    ///
+    /// A negative `count` aborts. Zero is the empty list.
+    fn bytes(self, count: Int): [U8];
 }
 
 /// The process's environment: its variables and the arguments it was started

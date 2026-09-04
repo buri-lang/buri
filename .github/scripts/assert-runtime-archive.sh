@@ -180,6 +180,19 @@
 #      `rustls-ring` instead. This script is what says so when quinn's defaults
 #      next change.
 #
+#   5. THE ENTROPY DOOR, ON WHICHEVER SIDE OF `crypto` THE ARCHIVE IS ON.
+#      `buri_rt_host_entropy_bytes` is compiled under `#[cfg(feature =
+#      "crypto")]` and is the one symbol the backends emit a call to for
+#      `Entropy`. It is checked by SYMBOL and not by crate, unlike everything in
+#      3 above, because `ring` brings a `getrandom` of its own: a `crypto`-off,
+#      `net`-on archive carries getrandom code regardless, so no claim about the
+#      crate name could be true. The claim about the symbol is exact in both
+#      directions — present with the feature, absent without it — and each
+#      direction names a real failure. Missing with the feature on is a
+#      toolchain whose every `crypto.randomBytes` dies at the system linker;
+#      present with the feature off is a compile-time refusal standing in front
+#      of a body that was there all along.
+#
 # Usage: bash .github/scripts/assert-runtime-archive.sh [target-dir]
 # Runs on macOS and Linux, unchanged.
 #
@@ -426,6 +439,37 @@ else
   if [ "$status" -eq "$before" ]; then
     echo "libburi_rt.a: built without \`net\`, and carries none of the networking crates"
   fi
+fi
+
+# THE `crypto` LEG, AND IT IS CHECKED BY SYMBOL RATHER THAN BY CRATE.
+#
+# The two loops above ask "does this archive carry code from crate X", which is
+# the right question for the networking stack and the wrong one for this
+# feature: `ring` depends on a `getrandom` of its own, so a `crypto`-off,
+# `net`-on archive carries getrandom code either way and neither `present` nor
+# `absent` could say anything true about it.
+#
+# What is unambiguous is the door. `buri_rt_host_entropy_bytes` is compiled only
+# under `#[cfg(feature = "crypto")]`, it is `no_mangle`, and it is the one symbol
+# the backends emit a call to for `Entropy` — so its presence and its absence are
+# exactly the two claims the feature makes. An archive that declared `crypto`
+# and did not export it would be a toolchain whose every `crypto.randomBytes`
+# fails at the system linker; one that did not declare it and exported it anyway
+# would be a compile-time refusal standing in front of a symbol that was there
+# all along.
+entropy_symbol=$(grep -c "buri_rt_host_entropy_bytes" <<<"$symbols" || true)
+if grep -qx "crypto" "$features"; then
+  if [ "$entropy_symbol" -eq 0 ]; then
+    echo "::error::libburi_rt.a was built with the runtime's \`crypto\` feature and exports no \`buri_rt_host_entropy_bytes\`. Every program that calls \`crypto.randomBytes\` or \`crypto.token\` would fail at the system linker, and the compile-time refusal that exists for exactly this case would not fire, because the feature file says the archive has it."
+    status=1
+  else
+    echo "libburi_rt.a: built with \`crypto\`, and the entropy door is in it"
+  fi
+elif [ "$entropy_symbol" -ne 0 ]; then
+  echo "::error::libburi_rt.a exports \`buri_rt_host_entropy_bytes\` and its feature file does not name \`crypto\`. Either cli/build.rs wrote a sidecar for a different build, or the symbol escaped its \`#[cfg]\` — and a toolchain in that state refuses \`Entropy\` at compile time while carrying the body it refused."
+  status=1
+else
+  echo "libburi_rt.a: built without \`crypto\`, and carries no entropy door"
 fi
 
 exit "$status"

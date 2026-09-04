@@ -1,0 +1,22 @@
+// CRASH: entropy count is negative
+// `Entropy.bytes` has nothing to answer for a count below zero, and the one
+// thing it must never answer is fewer octets than were asked for — so there is
+// no `Option` in the signature and no shorter list to fall back on.
+from "core/crypto" import * as crypto;
+from "core/effect" import { Alloc, Entropy, Env, Stdout };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Env: host.env,
+    Entropy: host.entropy,
+  };
+  // Opaque to the compiler, so the call is really made.
+  let count = 0 - 1 - env.args(ctx).len();
+  let _ = io.println(ctx, "${crypto.randomBytes(ctx, count).len()}").ignore();
+  .Ok(())
+}

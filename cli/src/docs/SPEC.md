@@ -1788,11 +1788,20 @@ export effect Net {
 }
 ```
 
-`core/effect` declares `Alloc`, `Fs`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`,
-`Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`, and `Sockets`. **Only platform
-modules may declare effects**; `effect` in ordinary code is a compile error, so
-the set of things a Buri program can do to the world is fixed by its platform
-rather than open-ended.
+`core/effect` declares `Alloc`, `Fs`, `Net`, `Clock`, `Rand`, `Entropy`, `Env`,
+`Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`, and `Sockets`. **Only
+platform modules may declare effects**; `effect` in ordinary code is a compile
+error, so the set of things a Buri program can do to the world is fixed by its
+platform rather than open-ended.
+
+`Rand` and `Entropy` are two effects over what looks like one capability, and
+the split is the clearest example on this page of what an effect is *for*.
+`Rand` promises a distribution and nothing more — the test platform's is seeded,
+so a failing test reproduces — while `Entropy` promises that somebody who has
+watched the output cannot predict the rest. A program says which it meant by
+which it binds, and a program that needed the second and was handed the first
+would have no symptom at all. `core/random` is the door onto one and
+`core/crypto` onto the other.
 
 `Net.fetch` takes one value and answers one value, and those two types are the
 whole of what an HTTP message is in this language — the same `Request` a server

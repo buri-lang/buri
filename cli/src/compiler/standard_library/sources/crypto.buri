@@ -1,4 +1,4 @@
-//! core/crypto — hashing, in Buri.
+//! core/crypto — hashing in Buri, and randomness from the platform.
 //!
 //! SHA-256 and HMAC-SHA-256, written in the language rather than handed to the
 //! platform. That is a deliberate choice and it is the same one the toolchain
@@ -9,18 +9,48 @@
 //! sixty-four rounds of tail recursion, checked against the same NIST vectors
 //! the Rust one uses.
 //!
+//! # Randomness that cannot be guessed
+//!
+//! `randomBytes` and `token` are the second half of this module and they are
+//! **not** written in the language: they perform the `Entropy` effect, and the
+//! octets come from the operating system's generator through `core/host`'s
+//! `entropy`. That is the decision this header used to defer, taken and
+//! written down — a CSPRNG is a platform's to supply, not an algorithm to
+//! reimplement, and the thing that made it a decision rather than a function
+//! was that it needed a new effect for a program to ask for and be refused.
+//!
+//! They live here rather than in `core/random` for the reason this header gave
+//! before either existed: `core/random` is *seeded and reproducible on
+//! purpose*, and a `bytes` beside its `int` and `float` that quietly answered
+//! from a different generator would make the module's one promise untrue.
+//! `core/random.bytes` exists and is uniform; this is the one that is
+//! unpredictable, and a program says which it meant by which it imports.
+//!
+//! **Neither takes a `Gen`, and this is the one place `core/random`'s
+//! seed-or-context rule deliberately does not reach.** `Gen` exists so that a
+//! run can be replayed from a seed; a token that can be replayed is a token
+//! that can be predicted, and the call site would look exactly like the safe
+//! one. The seeded path a test needs exists and is somewhere it can do no harm:
+//! `core/host/testing`'s `entropy()` is a seeded implementation of the same
+//! effect and is reachable only from a test source.
+//!
 //! # What is not here, and will not be by accident
 //!
-//! - **No ciphers.** No AES, no ChaCha. Encryption needs a key schedule, a
-//!   mode, a nonce discipline, and an authentication tag; shipping the block
-//!   function alone is how people end up with ECB.
+//! - **No ciphers, yet, and none by accident.** No AES, no ChaCha. Encryption
+//!   needs a key schedule, a mode, a nonce discipline, and an authentication
+//!   tag; shipping the block function alone is how people end up with ECB. An
+//!   AEAD — one authenticated construction, with the nonce minted by
+//!   `Entropy` rather than by the caller — is the shape it would take, and it
+//!   is a slice of its own rather than a function to add here: it is a second
+//!   host effect on both backends, `crypto.subtle` is `undefined` on a page
+//!   that is not a secure context where `crypto.getRandomValues` is not, and
+//!   `crypto.subtle` is promise-shaped, so every Buri function that could
+//!   reach it becomes an `async` one in the emitted JavaScript. Each of those
+//!   is answerable; none of them is answerable *quietly*.
 //! - **No public-key anything.**
-//! - **No cryptographically secure randomness.** `core/random` is a seeded,
-//!   reproducible generator, and it is that way on purpose — a hermetic test
-//!   needs the same numbers every run. A CSPRNG is a different thing that
-//!   would need a new `Entropy` effect in `core/effect` and a host implementation
-//!   behind it. That is a decision to take deliberately, not a function to add
-//!   quietly beside these.
+//! - **No key derivation and no password hashing.** See the note on `sha256`
+//!   below: a fast hash is the wrong primitive for a password, and the right
+//!   one is memory-hard with a work factor to argue about.
 //!
 //! **`sha256` is not a password hash.** It is fast, which is the wrong
 //! property. Passwords want a memory-hard function with a work factor.
@@ -45,10 +75,37 @@
 //! ```stdout
 //! ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 //! ```
+//!
+//! A token cannot have its value written down here, because the whole of what
+//! it is worth is that nobody can write it down in advance. Its *shape* can:
+//!
+//! ```buri run
+//! from "core/crypto" import * as crypto;
+//! from "core/effect" import { Alloc, Entropy, Stdout };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Entropy: host.entropy,
+//!         Stdout: host.stdout,
+//!     };
+//!     let resume = crypto.token(ctx, 32);
+//!     let _ = io
+//!         .println(ctx, "${crypto.randomBytes(ctx, 32).len()} ${resume.len()}")
+//!         .ignore();
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! 32 64
+//! ```
 
 from "core/bits" import * as bits;
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc };
+from "core/effect" import { Alloc, Entropy };
 from "core/list" import * as list;
 
 derive Eq, Show for Digest;
@@ -327,6 +384,43 @@ export fn hmacSha256<C: Alloc>(ctx: C, key: [U8], message: [U8]): Digest {
     let outer = padded.map(ctx, fn(b) => (b.toI64() ^ 92).wrapToU8());
     let innerDigest = sha256(ctx, inner.concat(ctx, message));
     sha256(ctx, outer.concat(ctx, innerDigest.0))
+}
+
+// --- Randomness ------------------------------------------------------------------
+
+/// `count` octets from the platform's cryptographic generator.
+///
+/// `getrandom(2)` or `getentropy(2)` under a native binary,
+/// `crypto.getRandomValues` under a JavaScript one. Not seeded here, not
+/// steppable from here, and not reproducible: a test that needs the same
+/// octets twice binds `core/host/testing`'s `entropy()`, which is a seeded
+/// implementation of the same effect and is the one place in this language
+/// where these bytes are predictable on purpose.
+///
+/// A negative `count` aborts, and so does a platform that cannot answer.
+/// Neither is a `Result`, and `core/effect`'s `Entropy` says why: fewer octets
+/// than were asked for is the one answer that must never reach a caller.
+export fn randomBytes<C: Entropy>(ctx: C, count: Int): [U8] {
+    ctx.bytes(count)
+}
+
+/// A bearer token: `octets` octets of entropy, written as lowercase hex.
+///
+/// **`octets`, not characters** — the parameter is how much unguessability the
+/// token carries, which is the only number worth choosing, and the string is
+/// twice as long. 16 is a reasonable floor and 32 is what a session's resume
+/// token should be.
+///
+/// Hex rather than base64url, for a reason that is about the caller rather than
+/// about density. A hex token is URL-safe, filename-safe, header-safe and
+/// case-insensitive with no alphabet to argue about and no padding to strip,
+/// and `bytes.fromHex` reads it back. Base64url is a third shorter and every
+/// one of those has to be checked instead.
+///
+/// Compare two of these with `equalsConstantTime` over their bytes, not with
+/// `==` over their text.
+export fn token<C: Alloc + Entropy>(ctx: C, octets: Int): Str {
+    bytes.toHex(ctx, randomBytes(ctx, octets))
 }
 
 // --- Comparison ------------------------------------------------------------------

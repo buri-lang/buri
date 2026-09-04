@@ -1,0 +1,6 @@
+// The randomness conformance package.
+//
+// `core/random`'s seeded half. A `Gen` is a pure value, so every number it
+// answers is a number that can be written into a file — which is the whole
+// claim the module makes, and the only kind of randomness a test can assert
+// about at all.

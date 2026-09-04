@@ -371,6 +371,26 @@ const HOST_GRANTS: &[HostGrant] = &[
         platforms: EVERY_PLATFORM,
         because: "every platform has a source of randomness",
     },
+    // `Entropy` is granted everywhere `Rand` is, and the two rows reading alike
+    // is the point rather than a copy: what separates the effects is what they
+    // *promise*, not where they are available. Every platform this language
+    // targets has an operating-system generator behind it — `getrandom(2)` and
+    // `getentropy(2)` natively, `crypto.getRandomValues` in every JavaScript
+    // runtime and every browser, secure context or not — so there is no
+    // platform to withhold it from and no program that has to ask whether its
+    // target can keep a secret.
+    //
+    // What can be missing is the *toolchain*: a runtime archive built without
+    // the `crypto` feature has no body for `host.HostEntropy.bytes`, and
+    // `backend::cryptography_gap` turns that into a refusal naming the
+    // operation. That is the same arrangement `net` has, and it is a different
+    // question from this table's.
+    HostGrant {
+        effect: "Entropy",
+        exports: &["HostEntropy", "entropy"],
+        platforms: EVERY_PLATFORM,
+        because: "every platform has an operating-system generator behind it",
+    },
     // `Net` was three platforms until a request stopped blocking. The reason
     // it was withheld from WEB was never authority — a page is the one place
     // that can already reach any origin it is allowed to — it was that
@@ -580,6 +600,10 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Clock", "sleepMillis", "core/time", "time.sleepMs(ctx, millis)"),
     w("Rand", "nextInt", "core/random", "random.int(ctx, lo, hi)"),
     w("Rand", "nextFloat", "core/random", "random.float(ctx)"),
+    // `core/crypto` rather than `core/random`, which is the whole argument
+    // `core/crypto`'s header makes: the seeded module and the unguessable one
+    // are different promises and a reader should have to name which they meant.
+    w("Entropy", "bytes", "core/crypto", "crypto.randomBytes(ctx, count)"),
     w("Env", "variable", "core/env", "env.get(ctx, name)"),
     w("Env", "args", "core/env", "env.args(ctx)"),
     w("Proc", "exitWith", "core/proc", "proc.exit(ctx, code)"),

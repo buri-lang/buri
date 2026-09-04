@@ -586,6 +586,13 @@
 mod abort;
 mod bytes;
 mod char;
+/// The operating system's cryptographic generator, behind `Entropy`. Behind
+/// the `crypto` feature in full: without it there is no `getrandom` to call,
+/// the symbol is absent from the archive, and a program that reaches the
+/// effect is refused by name before code generation rather than answered from
+/// a generator that is merely uniform.
+#[cfg(feature = "crypto")]
+mod entropy;
 mod fmt;
 mod hash;
 mod host;
@@ -619,6 +626,8 @@ mod value;
 pub use abort::*;
 pub use bytes::*;
 pub use char::*;
+#[cfg(feature = "crypto")]
+pub use entropy::*;
 pub use fmt::*;
 pub use hash::*;
 pub use host::*;

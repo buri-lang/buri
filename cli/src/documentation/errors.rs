@@ -88,6 +88,10 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("context-not-allowed", "A context may only be built where authority enters"),
     e!("context-not-called", "A context is constructed by calling it"),
     e!("context-spread-operand", "A context spread takes another context"),
+    e!(
+        "cryptography-not-available",
+        "A program that needs unguessable randomness needs a toolchain built with cryptography"
+    ),
     e!("ctx-not-first", "`ctx` comes first, or immediately after `self`"),
     e!("declaration-without-a-body", "A declaration outside a trait or effect has a body"),
     e!("derive-not-a-trait", "A `derive` names a declared trait"),
