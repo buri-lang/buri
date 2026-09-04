@@ -8,6 +8,8 @@ argued with.
 body-less declaration needs a conformance test that calls it, and the cost goes
 on the user-facing page.
 
+Nick's decision (do this): remove the `design/STANDARD-LIBRARY.md` in favor of generating the standard library documention on demand from the actual .buri type definitions in the CLI - that way the code is the source of truth and the documentation (in both the CLI and on the website) is always correct with what's implemented in the compiler.
+
 Monorepo paths are relative to `/Users/nick/Documents/GitHub/monorepo-buri`
 (177 `.buri` files, read-only).
 
@@ -75,6 +77,8 @@ num.toHex<C: Alloc>(ctx, x, width: Int): Str      // zero-padded, lowercase
 str.toRadix(text: Str, radix: Int): Option<Int>   // the general gap
 ```
 
+Nick's decision (do this): please implement this functionality into the standard library. Also, assuming the false positive rate is really low, add lints for this that point developers to use the standard library.
+
 ---
 
 ## 3. Duration, and where it lives
@@ -110,6 +114,8 @@ Built instead:
 Wants: nanosecond `Duration` with `seconds/millis/micros/nanos/minutes/hours`
 constructors, `add/sub/mul/abs/negate`, saturating comparison so the overflow
 dance disappears, `Instant.hasPassed(deadline)`, and `Show` ("1.5s", "300ms").
+
+Nick's decision (do this): implement the wants listed above for the `Duration`. Also, assuming the false positive rate is low, add lints that stear developers to using the standard library for this.
 
 **No timers, no retry.** `tenant/manager.buri:252`: _"Buri has no background
 task, so the server root runs it at the start of every event it handles"_ (same
