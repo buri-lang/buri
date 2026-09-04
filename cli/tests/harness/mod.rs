@@ -516,6 +516,37 @@ impl Scratch {
         self.exec_js_in("js", package_path)
     }
 
+    /// Runs that artifact with both streams redirected to **files** rather
+    /// than to pipes, and answers what the files hold once it is gone.
+    ///
+    /// The two are different objects to a JavaScript host's writer, and its
+    /// exit path treated them differently: output that survived a `process.exit`
+    /// through a pipe was dropped whole through a file (buri-lang/buri#37,
+    /// buri-lang/buri#42). A suite that only ever captures pipes — which is
+    /// what `output()` does — cannot see that difference, so the flushing
+    /// claims are asserted through both.
+    pub fn exec_js_to_files(&self, package_path: &str) -> Run {
+        let artifact = self.artifact_in("js", package_path);
+        let leaf = package_path.rsplit('/').next().unwrap();
+        let out_path = self.path(&format!(".buri/{leaf}.stdout"));
+        let err_path = self.path(&format!(".buri/{leaf}.stderr"));
+        if let Some(parent) = out_path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        let status = Command::new(js_runtime())
+            .arg(&artifact)
+            .stdout(std::fs::File::create(&out_path).unwrap())
+            .stderr(std::fs::File::create(&err_path).unwrap())
+            .status()
+            .expect("the javascript runtime runs");
+        Run {
+            code: status.code().unwrap_or(-1),
+            stdout: std::fs::read_to_string(&out_path).unwrap(),
+            stderr: std::fs::read_to_string(&err_path).unwrap(),
+            what: format!("{} {} > file 2> file", js_runtime(), artifact.display()),
+        }
+    }
+
     /// The same, from a named output directory. A page runs headlessly here:
     /// the runtime supplies a document where the host has none, so `mount`
     /// mounts and whatever `main` printed is printed.
