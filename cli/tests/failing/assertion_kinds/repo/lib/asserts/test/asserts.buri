@@ -1,9 +1,11 @@
 // Every entry point `core/testing/assert` exports, failing, in the order the
-// module declares them. Nine functions, nine reports: `eq`, `notEq`, `isTrue`,
-// `isFalse` and `fail` go through `report`/`failWith`, and `ok`, `err`, `some`
-// and `none` go through `failExpected`, which renders the *expected* side as a
-// variant name rather than as a value.
+// module declares them. Seventeen functions, seventeen reports: `eq`, `notEq`,
+// `isTrue`, `isFalse`, `contains`, `isEmpty`, `len`, `gt`, `ge`, `lt`, `le` and
+// `approxEq` go through `report`, `notEmpty` through `failWith`, and `ok`,
+// `err`, `some` and `none` through `failExpected`, which renders the *expected*
+// side as a variant name rather than as a value.
 
+from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 
 test "eq" {
@@ -22,8 +24,40 @@ test "isFalse" {
     assert.isFalse(true);
 }
 
-test "fail" {
-    assert.fail("a message the test wrote itself");
+test "contains" {
+    assert.contains([1, 2, 3], 9);
+}
+
+test "isEmpty" {
+    assert.isEmpty([1, 2]);
+}
+
+test "notEmpty" {
+    assert.notEmpty(list.empty<Int>());
+}
+
+test "len" {
+    assert.len([1, 2, 3], 2);
+}
+
+test "gt" {
+    assert.gt(3, 5);
+}
+
+test "ge" {
+    assert.ge(3, 5);
+}
+
+test "lt" {
+    assert.lt(5, 3);
+}
+
+test "le" {
+    assert.le(5, 3);
+}
+
+test "approxEq" {
+    assert.approxEq(1.0, 1.5, 0.25);
 }
 
 test "ok" {

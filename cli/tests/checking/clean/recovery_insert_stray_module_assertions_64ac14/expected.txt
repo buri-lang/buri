@@ -1,0 +1,9 @@
+error: expected a string literal, found `?` [unexpected-token]
+  --> main.buri:35:6
+   |
+35 | test ? "isEmpty holds for the empty list however it was built" {
+   |      ^
+   |
+   = expected: a string literal
+   = actual: `?`
+   = fix: quote it, as in `"core/list"`

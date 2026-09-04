@@ -80,8 +80,12 @@ it with `import * as assert`. Two kinds of function live in it:
 
 | | |
 |---|---|
-| `assert.eq`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, `assert.fail` | Answer `()`, so they stand alone as statements |
+| `assert.eq`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.len`, `assert.gt`, `assert.ge`, `assert.lt`, `assert.le`, `assert.approxEq` | Answer `()`, so they stand alone as statements |
 | `assert.ok`, `assert.err`, `assert.some` | Answer the unwrapped value, which is how a test consumes a `Result` or an `Option` |
+
+Reach for the narrowest one: every assertion in the first row names the two
+values it compared, and `assert.isTrue(xs.contains(x))` reports only "expected
+true, got false".
 
 The second kind is what makes a test read forwards: unwrap, then assert on what
 came out.

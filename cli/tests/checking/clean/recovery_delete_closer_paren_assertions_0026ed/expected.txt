@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:39:37
+   |
+39 |     assert.isEmpty(list.empty<Int>();
+   |                                     ^
+   |
+  --> main.buri:39:19
+   |
+39 |     assert.isEmpty(list.empty<Int>();
+   |                   ^ opened here
+   |
+   = fix: write `)` here

@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-separator]
+  --> main.buri:27:25
+   |
+27 |     assert.contains(["a""b" ,], "b");
+   |                         ^
+   |
+   = fix: write `,` here

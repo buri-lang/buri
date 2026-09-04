@@ -44,6 +44,15 @@ the rule was drawn around.
 `Option`, `Result`, `Order` and the comparison and operator traits are in the
 prelude, so `derive Eq for Point;` works in a module that imports nothing.
 
+**A comparator is a value, and `core/order` is where one is built.** `order.by`
+takes the key, `order.chain` takes the tie-breaks in priority order, and
+`order.reverseIf` takes the direction from the data — so a sort key with three
+columns and a `DESC` is a value rather than a `match` written out. `order.int`,
+`float`, `str`, `bool` and `char` are the primitives underneath them, and
+`order.totalFloat` is the one to sort `Float` data with: `order.float` is
+IEEE's, and IEEE leaves a `NaN` unordered, so it answers `.Equal` for a pair it
+could not order.
+
 ### Text
 
 [`core/str`](../../compiler/standard_library/sources/str.buri),
@@ -145,6 +154,27 @@ A keyed range scan over a `Map` costs a sort per query, which is what
 `core/ordmap` exists to avoid. Its keys need `Ord` rather than `Hash + Eq`, and
 a compound key is a struct with `derive Ord` — a derived `Ord` compares fields
 in declaration order, which is what a multi-column index wants.
+
+**A fallible step is a traversal, not a fold.** `xs.mapResult(ctx, f)` and
+`mapOption` map every element or stop at the first that fails, and
+`filterMap` maps and filters in one pass — the three shapes that otherwise get
+written as a `foldResult` at every call site. Each has a `*Ctx` form whose step
+is handed the context, because a validation usually allocates as it goes and a
+lambda may not capture a context. Beside them in `core/list`:
+`removeAt`, `windows`, `generate`, `uniqueBy`, `isSortedBy`, `maxBy`/`minBy`
+and `compareBy` — the last three being the comparator forms of operations
+`core/list` already had for an `Ord`. `uniqueBy` keeps the first of each equal
+class and so is O(n²) in comparisons; `sortBy` and a walk is the O(n log n)
+answer when the order may change.
+
+**Grouping answers a map, so it lives with the map.** `map.groupBy(ctx, xs,
+key)` and `ordmap.groupBy` collect the elements under each key, `indexBy` keeps
+one element per key; they are free functions because `core/list` is the bottom
+of the dependency order and cannot name a map. `OrdMap.alter` is insert,
+replace and remove in one call — a counter, or the empty-inner pruning a map of
+maps needs — and `OrdMap.mapValues` puts every value through a function without
+touching the keys, rebuilding the tree as it goes, which is O(n log n) rather
+than the O(n) a copy node for node would be.
 
 `Queue`, `Map`, `Set`, `OrdMap`, `OrdSet` and `BitSet` provide `equals` rather
 than deriving `Eq`, because a derived `Eq` would compare the *representation*:
@@ -309,7 +339,13 @@ it (SPEC 10.2), so `io.println(ctx, text)` is how a program prints and
 `ctx.println(text)` is refused.
 [`core/testing/assert`](../../compiler/standard_library/sources/assert.buri) and
 [`core/host/testing`](../../compiler/standard_library/sources/host_testing.buri)
-are importable only from a test source.
+are importable only from a test source. `assert` is deliberately wide — `eq`,
+`notEq`, `isTrue`, `isFalse`, `contains`, `isEmpty`, `notEmpty`, `len`, `gt`,
+`ge`, `lt`, `le`, `approxEq`, and the unwrapping `ok`, `err`, `some`, `none` —
+because the report is the point: each names the two values it compared, where
+`assert.isTrue(xs.contains(x))` can only say "expected true, got false". There
+is no `assert.fail`: it answered `()` rather than a bottom type, so a match arm
+that used it could not produce a value and a test had to fabricate one.
 
 [Build a web server](../guides/web-server.md) walks the four of them end to end,
 and [tasks and actors](../guides/concurrency.md) is the concurrency model

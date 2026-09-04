@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:27:36
+   |
+27 |     assert.contains(["a", "b"], "b";
+   |                                    ^
+   |
+  --> main.buri:27:20
+   |
+27 |     assert.contains(["a", "b"], "b";
+   |                    ^ opened here
+   |
+   = fix: write `)` here

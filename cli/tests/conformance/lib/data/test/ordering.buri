@@ -1,0 +1,211 @@
+// core/order — the comparator combinators, and comparison on `[T]`.
+//
+// A comparator is a value here, so the combinators are the vocabulary a sort
+// key is written in: `by` for the key, `chain` for the tie-break, `reverseIf`
+// for a direction the data decides. Every one of them answers a function
+// value, so what these tests assert is the *order the answer sorts by* rather
+// than anything about the closure itself.
+//
+// `totalFloat` is the one with a claim about a value rather than about a
+// shape: `NaN` sorts last, and the comparator agrees with `==` everywhere else
+// (SPEC 6.2).
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/order" import * as order;
+from "core/order" import { Order };
+from "core/testing/assert" import * as assert;
+
+struct Row {
+    name: Str,
+    score: Int,
+}
+
+fn rows(): [Row] {
+    [
+        Row { name: "b", score: 2 },
+        Row { name: "a", score: 2 },
+        Row { name: "c", score: 1 },
+    ]
+}
+
+fn names<C: Alloc>(ctx: C, xs: [Row]): Str {
+    xs.map(ctx, fn(r) => r.name).join(ctx, " ")
+}
+
+// --- by -------------------------------------------------------------------------
+
+test "by compares the keys and nothing else" {
+    let byScore = order.by(fn(r: Row) => r.score, order.int);
+    let low = Row { name: "z", score: 1 };
+    let high = Row { name: "a", score: 2 };
+    assert.eq(byScore(low, high), Order.Less);
+    assert.eq(byScore(high, low), Order.Greater);
+    // Equal keys are equal rows, whatever else differs.
+    assert.eq(byScore(high, Row { name: "q", score: 2 }), Order.Equal);
+}
+
+test "by sorts by the key" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let sorted = rows().sortBy(ctx, order.by(fn(r: Row) => r.name, order.str));
+    assert.eq(names(ctx, sorted), "a b c");
+}
+
+// A key of a key: the comparator `by` takes is itself free to be one.
+test "by nests" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let byNameLength = order.by(
+        fn(r: Row) => r.name,
+        order.by(fn(s: Str) => s.len(), order.int),
+    );
+    let xs = [Row { name: "bbb", score: 0 }, Row { name: "a", score: 0 }];
+    assert.eq(names(ctx, xs.sortBy(ctx, byNameLength)), "a bbb");
+}
+
+// --- chain ----------------------------------------------------------------------
+
+test "chain lets the first comparator that is not Equal decide" {
+    let byScore = order.by(fn(r: Row) => r.score, order.int);
+    let byName = order.by(fn(r: Row) => r.name, order.str);
+    let cmp = order.chain([byScore, byName]);
+    let b = Row { name: "b", score: 2 };
+    let a = Row { name: "a", score: 2 };
+    let c = Row { name: "c", score: 1 };
+    // The scores differ, so the name is never consulted.
+    assert.eq(cmp(c, a), Order.Less);
+    // The scores tie, so the name decides.
+    assert.eq(cmp(b, a), Order.Greater);
+}
+
+test "chain is the sort key a tie-break is written as" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let cmp = order.chain([
+        order.reverseIf(true, order.by(fn(r: Row) => r.score, order.int)),
+        order.by(fn(r: Row) => r.name, order.str),
+    ]);
+    assert.eq(names(ctx, rows().sortBy(ctx, cmp)), "a b c");
+}
+
+test "an empty chain answers Equal for every pair" {
+    let cmp = order.chain(list.empty<fn(Int, Int) => Order>());
+    assert.eq(cmp(1, 2), Order.Equal);
+    assert.eq(cmp(2, 1), Order.Equal);
+}
+
+test "a chain of one is that comparator" {
+    let cmp = order.chain([order.int]);
+    assert.eq(cmp(1, 2), Order.Less);
+    assert.eq(cmp(2, 2), Order.Equal);
+}
+
+// --- reverseIf --------------------------------------------------------------------
+
+test "reverseIf reverses only when told to" {
+    assert.eq(order.reverseIf(true, order.int)(1, 2), Order.Greater);
+    assert.eq(order.reverseIf(false, order.int)(1, 2), Order.Less);
+}
+
+test "reverseIf false is the comparator it was handed" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = [3, 1, 2];
+    assert.eq(xs.sortBy(ctx, order.reverseIf(false, order.int)), [1, 2, 3]);
+    assert.eq(xs.sortBy(ctx, order.reverseIf(true, order.int)), [3, 2, 1]);
+}
+
+// --- totalFloat ---------------------------------------------------------------------
+
+fn nan(): Float {
+    0.0 / 0.0
+}
+
+test "totalFloat orders ordinary floats by value" {
+    assert.eq(order.totalFloat(1.0, 2.0), Order.Less);
+    assert.eq(order.totalFloat(2.0, 1.0), Order.Greater);
+    assert.eq(order.totalFloat(2.0, 2.0), Order.Equal);
+    assert.eq(order.totalFloat(-1.5, 1.5), Order.Less);
+}
+
+// The whole reason the comparator exists: `float` answers `.Equal` here, which
+// is a `NaN` silently sorting as if it were every other value.
+test "totalFloat puts NaN last, where float calls it Equal" {
+    assert.eq(order.totalFloat(nan(), 1.0), Order.Greater);
+    assert.eq(order.totalFloat(1.0, nan()), Order.Less);
+    assert.eq(order.float(nan(), 1.0), Order.Equal);
+}
+
+test "every NaN is Equal to every other, as == says" {
+    assert.eq(order.totalFloat(nan(), nan()), Order.Equal);
+    assert.isTrue(nan() == nan());
+}
+
+// `==` is an equivalence relation on `Float` (SPEC 6.2), so the comparator
+// agrees with it at the signed zeroes rather than splitting them.
+test "totalFloat agrees with == at the signed zeroes" {
+    assert.eq(order.totalFloat(-0.0, 0.0), Order.Equal);
+    assert.eq(order.totalFloat(0.0, -0.0), Order.Equal);
+    assert.isTrue(-0.0 == 0.0);
+}
+
+test "sorting with totalFloat leaves the NaN at the end" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let sorted = [2.0, nan(), 1.0].sortBy(ctx, order.totalFloat);
+    assert.eq(assert.some(sorted.get(0)), 1.0);
+    assert.eq(assert.some(sorted.get(1)), 2.0);
+    assert.isTrue(assert.some(sorted.get(2)) == nan());
+}
+
+// --- compareBy / compare on [T] -------------------------------------------------
+
+test "compareBy is lexicographic, element by element" {
+    assert.eq([1, 2].compareBy([1, 3], order.int), Order.Less);
+    assert.eq([1, 3].compareBy([1, 2], order.int), Order.Greater);
+    assert.eq([1, 2].compareBy([1, 2], order.int), Order.Equal);
+}
+
+test "a prefix sorts below what extends it" {
+    assert.eq([1].compareBy([1, 2], order.int), Order.Less);
+    assert.eq([1, 2].compareBy([1], order.int), Order.Greater);
+    assert.eq(list.empty<Int>().compareBy([1], order.int), Order.Less);
+    assert.eq(list.empty<Int>().compareBy(list.empty<Int>(), order.int), Order.Equal);
+}
+
+// The comparator decides, so a reversed one reverses the answer for every pair
+// the elements decide — and leaves the length rule alone.
+test "compareBy uses the comparator it is given" {
+    assert.eq([1, 2].compareBy([1, 3], order.reverse(order.int)), Order.Greater);
+    assert.eq([1].compareBy([1, 2], order.reverse(order.int)), Order.Less);
+}
+
+test "compare is compareBy with the element type's own order" {
+    assert.eq([1, 2].compare([1, 3]), Order.Less);
+    assert.eq(["a", "b"].compare(["a", "b"]), Order.Equal);
+    assert.eq([true].compare([false]), Order.Greater);
+    assert.eq([[1], [2]].compare([[1], [3]]), Order.Less);
+}
+
+// `[T]` satisfies `Ord` structurally whenever `T` does (SPEC 5.11), so the
+// operators and `sort` answer the same order `compare` does.
+test "the structural order on [T] is the one compare answers" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue([1, 2] < [1, 3]);
+    assert.isTrue([1] < [1, 0]);
+    assert.eq([[3], [1, 2]].sort(ctx), [[1, 2], [3]]);
+    assert.eq(assert.some([[3], [1, 2]].maximum()), [3]);
+    assert.eq(
+        [[3], [1, 2]].sort(ctx),
+        [[1, 2], [3]].sortBy(ctx, fn(a, b) => a.compare(b)),
+    );
+}

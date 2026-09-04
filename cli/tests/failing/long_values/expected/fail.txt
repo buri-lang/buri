@@ -13,10 +13,8 @@ FAIL //lib/wide  test/wide.buri  "a string holding newlines"
     actual:   "first\nsecond\nthird"
     expected: "one line"
   --> lib/wide/test/wide.buri:26:1
-FAIL //lib/wide  test/wide.buri  "a message of three lines"
-  first line
-  second line
-  third line
-  --> lib/wide/test/wide.buri:30:1
+FAIL //lib/wide  test/wide.buri  "a message rather than a diff"
+  assert.notEmpty failed: the list is empty
+  --> lib/wide/test/wide.buri:35:1
 
 0 passed, 4 failed, 0 skipped (0.0s)

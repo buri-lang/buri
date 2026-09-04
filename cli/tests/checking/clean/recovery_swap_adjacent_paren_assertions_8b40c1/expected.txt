@@ -1,0 +1,9 @@
+error: expected an expression, found `+` [unexpected-token]
+  --> main.buri:82:21
+   |
+82 |     assert.approxEq(+ 0.1 0.2, 0.3, 0.000001);
+   |                     ^
+   |
+   = expected: an expression
+   = actual: `+`
+   = fix: write a value here

@@ -61,30 +61,30 @@ test "addition composes" {
 - `test STRING Block`. The name is a string literal because test names are
   prose. A test takes no parameters and returns nothing; it passes unless an
   assertion in it fails, and a failing assertion ends that test and no other.
-- **A title is used once per file** (`duplicate-test-name`). Two files may
-  share a title.
-- A pure assertion needs no context at all — and being able to see which is
-  which from the body is the point.
-- `assert` is not a keyword. The name comes from `import * as assert`.
+- **A title is used once per file** (`duplicate-test-name`); two files may share
+  one. A pure assertion needs no context at all — and being able to see which is
+  which from the body is the point. `assert` is not a keyword either: the name
+  comes from `import * as assert`.
 
 ### Assertions
 
 | Function | Meaning |
 |---|---|
-| `assert.eq(a, b)` | fails unless `a == b`; needs `Eq`, and `Show` for the message |
-| `assert.notEq(a, b)` | the negation |
-| `assert.isTrue(b)` / `assert.isFalse(b)` | on a `Bool` |
-| `assert.fail(msg)` | fails unconditionally |
+| `assert.eq(a, b)` / `notEq` | fails unless `a == b`; needs `Eq`, and `Show` for the message |
+| `assert.isTrue(b)` / `isFalse` | on a `Bool` |
+| `assert.contains(xs, x)`, `isEmpty(xs)` / `notEmpty`, `len(xs, n)` | on a list |
+| `assert.gt(a, b)` / `ge` / `lt` / `le`, `approxEq(a, b, tolerance)` | on an `Ord`, and on `Float` within an absolute tolerance |
 | `assert.ok(r)` | fails unless `r` is `.Ok`; **returns the wrapped value** |
 | `assert.err(r)` | fails unless `r` is `.Err`; returns the error |
 | `assert.some(o)` | fails unless `o` is `.Some`; returns the wrapped value |
 
-The first five return `()`, so they stand alone as statements — a test source is
-the one place the language admits an expression statement, and only when the type
-is `()`. Any expression of that type qualifies, not only a call: a `match` whose
-arms all assert is a statement too, terminated by `;` like the rest. The last
-three return a value, and are how a `Result` is consumed in a test, since
-`Result` is still must-use here.
+Reach for the narrowest that fits: each names both values in its report, where
+`assert.isTrue(xs.contains(x))` says only "expected true, got false". There is no
+`assert.fail`. Everything but the last three answers `()`, so they stand alone as
+statements — a test source is the one place the language admits an expression
+statement, and only when the type is `()`: any expression of that type qualifies,
+not only a call, so a `match` whose arms all assert is a statement too, terminated
+by `;`. The last three return a value, which is how a must-use `Result` is used up.
 
 ```buri
 test "reads the config it wrote" {

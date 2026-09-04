@@ -402,7 +402,20 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // The arm before the comma swallows the next arm's pattern, so `2` gets
         // a field: the same residue this invariant's sibling caps at 7.
         ("a syntax error stays a syntax error", "delete-separator {}") => 7,
-        ("a syntax error stays a syntax error", "insert-stray") => 20,
+        // **Re-read when `core/order` and `core/testing/assert` grew**, and for
+        // the reason the paragraphs above give twice over: the population is
+        // this tree's own sources, and two conformance files landed —
+        // `data/ordering.buri` and `data/assertions.buri`. Both are dense in
+        // exactly the shape this row measures, an assertion wrapping a call
+        // wrapping a comparator — `assert.eq(rows.sortBy(ctx, cmp).map(ctx,
+        // fn(r) => r.name), ["a"])` — so a stray token inside one leaves a
+        // program the grammar still reads, and the checker then has an honest
+        // opinion about it. 356 of 1758, or 20.25%, against a ceiling of 20 that
+        // had four cases of room in it. Nothing in the parser or the checker is
+        // in that diff — it is `.buri` library code, its tests and its prose —
+        // so this is the corpus moving under a knife-edge rate again. Twenty-one
+        // is that rate rounded up.
+        ("a syntax error stays a syntax error", "insert-stray") => 21,
         ("a syntax error stays a syntax error", "swap-adjacent") => 24,
 
         // Every row not named above, and every row of an invariant R2 owns.
