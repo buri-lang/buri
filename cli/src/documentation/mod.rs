@@ -798,7 +798,9 @@ fn lint_index(presentation: &Presentation) -> String {
     let _ = write!(
         out,
         "\n{dim}A lint is what `buri lint` reports: a rule about a program that type checks\n\
-         and is still a mistake. Every finding names its code, and every code has a page.\
+         and is still a mistake. Every finding names its code, and every code has a page.\n\
+         A repository turns one off by that code, for the whole repository, in `REPO.buri`'s\n\
+         `lint {{ rules }}` block, and a report run under one says which rules it turned off.\
          {reset}\n"
     );
     out

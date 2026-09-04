@@ -45,12 +45,15 @@ knob goes on the command (where it is visible in the invocation) or on the rule
 it affects (where it is visible to someone reading that rule), and `REPO.buri`
 gets what genuinely has no other home.
 
-`lint` is here on that test rather than in spite of it. Neither of its fields
-changes what a finding is, what raises one, or what it is called — the catalogue
-is the same in every repository — and neither can make a check quieter. They say
-only where the catalogue is run and what a finding costs. Two repositories
-reading each other's code still agree about what passes; they are allowed to
-disagree about how early they are told, and how loudly.
+`lint` is here on that test rather than in spite of it. Nothing in it changes
+what a finding is, what raises one, or what it is called — the catalogue is the
+same in every repository. Two of its fields say where the catalogue is run and
+what a finding costs; the third says which of its rules this repository listens
+to, once, in the file everybody reads, by the name the finding prints. Two
+repositories reading each other's code still agree about what each finding
+means and what raises it; they are allowed to disagree about how early they are
+told, how loudly, and — with a diff somebody had to review — about which of the
+rules they run.
 
 There is no `flags` field. A repository-wide compiler flag is a dialect, and a
 dialect makes source files mean different things in different repositories — the
@@ -94,14 +97,23 @@ toolchain cannot silently widen code written before it existed — the reason
 
 ## `lint`
 
-Where the lint catalogue runs, and what a finding costs. Two booleans, and a
-`REPO.buri` that writes neither behaves exactly like one with no `lint` block at
-all — so the block is worth writing only to say yes to something:
+Where the lint catalogue runs, what a finding costs, and which of its rules run
+here. A `REPO.buri` that writes none of it behaves exactly like one with no
+`lint` block at all — so the block is worth writing only to say something:
 
 ```textproto schema=repo
 lint {
     check_during_build: true
     fail_on_finding: true
+
+    rules {
+        # What every rule not named below is. Omitted: ENABLED, so an empty
+        # or absent `rules` block changes nothing.
+        default: ENABLED
+
+        discarded_result: false
+        hex_digit_table: false
+    }
 }
 ```
 
@@ -109,6 +121,7 @@ lint {
 |---|---|
 | `check_during_build` | `buri build` and `buri test` run the catalogue too, and report what it finds. Default false: they do not. |
 | `fail_on_finding` | A finding is an error, and fails whichever command reported it. Default false: it is printed and changes no exit code. |
+| `rules` | Which of the catalogue's rules run. Absent, or empty: all of them. |
 
 The first field is the one that matters, and the argument for it is about when a
 finding arrives rather than what it says. `buri build` and `buri test` are the
@@ -129,15 +142,71 @@ wants every finding to stop one.
 
 Neither field changes `buri lint`, which exits nonzero on any finding whatever
 this file says. Running the linter is already the request to be told, and a
-report that exits zero is one no script can act on. What the block decides is
+report that exits zero is one no script can act on. What those two decide is
 whether the other two commands participate at all.
 
-Every field here is a ratchet, and that is the whole shape of the message: each
-one may only make the toolchain stricter — run the checks in more places, or make
-a finding cost more. There is no field that turns a check off, exempts a
-directory, or downgrades a finding, and there is not going to be one. A
-repository may hold itself to more than the catalogue asks. It may not hold
-itself to less.
+### `rules`
+
+Which of the catalogue's rules run here. One field per lint code — the code with
+its hyphens turned into underscores, because a textproto field name cannot hold
+one — and one `default` they are all read against:
+
+```
+enabled(rule) = override.unwrap_or(default)
+```
+
+That is the whole semantics, and everything about the block falls out of it. An
+absent `rules` block is an absent override over the `ENABLED` default, so it
+changes nothing; so does an empty one. `discarded_result: false` turns off one
+rule and leaves every other one alone. And `default: DISABLED` with a handful of
+rules written `true` is an allow list, spelled in the same two fields rather
+than in a mode of its own:
+
+```textproto schema=repo
+lint {
+    check_during_build: true
+
+    rules {
+        # Nothing runs but what is named here.
+        default: DISABLED
+
+        missing_dep: true
+        unused_import: true
+    }
+}
+```
+
+The field set is **generated from the catalogue**, not written down beside it:
+the names a `rules` block accepts are the lint codes this `buri` has, so a rule
+cannot ship without a field, and a field cannot outlive the rule it names.
+`unused_improt: false` is the [`unknown-field`](../errors/unknown-field.md)
+diagnostic every other undeclared field gets, with `unused_import` offered as
+the fix. A misspelled rule is a file that does not read — never a rule quietly
+left on, which is the failure mode every configurable linter has.
+
+A rule turned off here is turned off everywhere at once: `buri lint` does not
+report it, `check_during_build` does not report it, and the editor does not
+underline it. It is dropped from the report rather than downgraded — there is
+still one severity — and it is never dropped quietly. Every command that reports
+findings prints which rules this file turned off:
+
+```
+REPO.buri turns off 2 of 25 lint rules: discarded-result, hex-digit-table
+```
+
+and, under `default: DISABLED`, prints the smaller side instead — the rules that
+still run. A clean report from a repository that has turned rules off is a
+sentence about a smaller catalogue, and the line above it is what says so. The
+alternative is a check that did not run and nothing on the screen that says it
+did not, which is worse than the finding it was hiding.
+
+What the block deliberately cannot do is make that question local. There is no
+per-directory exemption and no per-file suppression comment, so "is this rule on
+here" is answered by one file for the whole repository, and turning a rule off is
+a diff somebody reviews rather than a line somebody adds to the file they were
+already editing. The two booleans above are still ratchets — each may only make
+the toolchain stricter — and `rules` is the one field that is not, which is why
+it is shaped to be loud.
 
 ## What is not here
 
@@ -165,21 +234,22 @@ itself to less.
   file at the root — which defeats the point of putting visibility on the rule.
   There is likewise no repository-wide test timeout: a suite that needs longer
   writes `timeout_seconds` where the person reading that suite will see it.
-- **No per-rule configuration.** The [`lint`](#lint) block is the whole of what a
-  repository may say about the linter, and it says it about the catalogue rather
-  than about any rule in it. There is one catalogue and one severity — every
-  finding is a warning ([`buri lint`](../cli/lint.md)) — the same in every
-  repository. There is no `severity` field, no `enabled` field, no allow list, no
-  per-directory exemption, and no suppression comment. The two fields that exist
-  can only be spelled in the tightening direction: run the checks where `build`
-  and `test` already are, and make a finding cost more. Neither has an opposite.
-  That is what keeps two questions answerable in two places. "Does this code pass
-  lint" is answered by the code, because the catalogue does not vary — a file
-  that passes here passes in the next repository it is copied into. "Does a
-  finding block the build here" is answered by this one file, in two lines, by
-  whoever is looking at it. A configurable linter loses both at once: the first
-  question needs the root file too, and a per-repository `allow` list is how a
-  check that should have been argued about once gets silenced quietly instead.
+- **No per-file or per-directory lint suppression.** [`rules`](#rules) turns a
+  rule off for the *repository*, by name, in this file. There is no suppression
+  comment, no `allow` attribute on a rule in a `BUILD.buri`, and no
+  per-directory exemption — and the three absences are one decision. A
+  repository-wide switch keeps "is this rule on here" answerable by one file
+  that everybody has read, and keeps turning a rule off a diff somebody reviews;
+  a local one turns the same act into a line added by whoever tripped over the
+  finding, in the file they were already editing, which is how a check that
+  should have been argued about once gets silenced instead. There is likewise no
+  `severity` field: one catalogue, one severity — every finding is a warning
+  ([`buri lint`](../cli/lint.md)) — and `fail_on_finding` is the only thing that
+  moves it, for every rule at once. What survives all of this is the property
+  worth having: "does this code pass lint" is still answered by the code plus one
+  short file, because what a finding means never varies — a file that passes
+  under one repository's rules is a file the next repository's rules are read
+  against, and the report says which rules those were.
 - **No compiler flags.** Covered above: a flag list is a dialect.
 - **No dependency versions or lockfile.** There are no external repositories
   yet; the only sources are this repository and the `core/*` that ships with

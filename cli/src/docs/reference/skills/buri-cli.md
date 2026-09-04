@@ -179,11 +179,16 @@ Exits 1 if it reported anything at all: every finding is a warning, and severity
 does not gate the exit code, because running the linter is already the request
 to be told.
 
-None of it is configurable: one catalogue, one severity — warning — the same in
-every repository. There is no per-file suppression comment and no allow list.
-`REPO.buri`'s `lint` block can only tighten: `check_during_build` runs the
-catalogue during `buri build` and `buri test` too, `fail_on_finding` makes a
-finding fail whichever command reported it. Both default to false.
+One catalogue, one severity — warning — the same in every repository, and no
+per-file suppression comment. `REPO.buri`'s `lint` block is where a repository
+decides the rest, for the whole repository at once: `check_during_build` runs
+the catalogue during `buri build` and `buri test` too, `fail_on_finding` makes a
+finding fail whichever command reported it, and `rules { default: ENABLED|
+DISABLED, <lint_code>: bool }` says which rules run —
+`enabled(rule) = override.unwrap_or(default)`, one field per lint code with the
+hyphens underscored, an unknown name refused as `unknown-field`. Both booleans
+default to false, every rule defaults to on, and a report from a repository that
+turned rules off says which ones.
 
 ### `format`
 

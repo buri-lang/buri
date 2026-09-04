@@ -527,7 +527,13 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         "tag" => &["name", "doc", "forbids", "requires"],
         "forbids" => &["tags"],
         "requires" => &["platforms"],
-        "lint" => &["check_during_build", "fail_on_finding"],
+        "lint" => &["check_during_build", "fail_on_finding", "rules"],
+        // The one message whose fields are not written down: `rules` holds a
+        // `default` and one bool per lint code, and the codes are the
+        // catalogue's. Written here as a list it would be a copy that could go
+        // stale, and a lint whose field was forgotten is a lint a repository
+        // cannot name.
+        "rules" => crate::documentation::lints::rule_fields(),
         _ => &[],
     }
 }

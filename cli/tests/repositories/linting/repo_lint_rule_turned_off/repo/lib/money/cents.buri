@@ -1,0 +1,11 @@
+export fn fromCents(n: I64): I64 {
+    n
+}
+
+// `scaled` is bound and nothing below reads it. That is one `unused-variable`
+// finding, and the `rules` block above is what decides whether anybody hears
+// about it.
+export fn format(n: I64): Str {
+    let scaled = n * 100;
+    if (n == 0) { "zero" } else { "some" }
+}

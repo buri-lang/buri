@@ -25,6 +25,10 @@ little more so: it is run more often than anything else, and a test suite is
 where a helper quietly grows past `oversized-function` first. The fields are
 documented in [`repo-config.md`](../build/repo-config.md#lint).
 
+A rule the same block turns off in [`rules`](../build/repo-config.md#rules) is
+not reported here either, and a run under a smaller catalogue says which rules
+those were.
+
 ## Where a suite runs
 
 Natively, on the host, in the development profile. A suite that says otherwise in

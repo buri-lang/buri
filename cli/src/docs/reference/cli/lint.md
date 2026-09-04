@@ -17,14 +17,29 @@ catalogue and one severity, the same in every repository. The code is the page �
 `buri docs lint <code>` reads it, `buri docs lint` lists every one, and the
 lints section of this documentation is the same list.
 
-No check is configurable. `REPO.buri` has a [`lint` block](../build/repo-config.md#lint),
-and everything it can say is about the catalogue as a whole: `check_during_build`
-runs these checks during `buri build` and `buri test`, `fail_on_finding` makes
-what they report fail the command. Both only tighten. There is no per-rule
-severity, no allow list, no per-directory exemption and no per-file suppression
-comment, and [`repo-config.md`](../build/repo-config.md#what-is-not-here) says
-why a linter you can argue with is one whose verdict is no longer a fact about
-the code.
+What a repository decides is in `REPO.buri`'s [`lint`
+block](../build/repo-config.md#lint), and it decides it once, for the whole
+repository: `check_during_build` runs these checks during `buri build` and
+`buri test`, `fail_on_finding` makes what they report fail the command, and
+[`rules`](../build/repo-config.md#rules) turns a rule off by the name the
+finding prints — `enabled(rule) = override.unwrap_or(default)`, with
+`default: DISABLED` giving an allow list. There is still no per-rule severity,
+no per-directory exemption and no per-file suppression comment: a rule is off
+for the repository or it is on, so "is this rule on here" is answered by one
+file rather than by whichever line somebody added to the file they were already
+editing.
+
+A rule turned off is dropped from the report, not downgraded, and never
+silently: whenever this repository is not running the whole catalogue, the
+report says so —
+
+```
+REPO.buri turns off 2 of 25 lint rules: discarded-result, hex-digit-table
+no findings
+```
+
+— because a check that did not run, with nothing on the screen saying it did
+not, is worse than the finding it was hiding.
 
 Import order is not a lint. `buri format` sorts imports, so an unsorted import
 run is not a finding to report — it is a file that has not been formatted.
@@ -116,6 +131,12 @@ That makes `buri lint //...` after a one-file edit re-analyse the targets whose
 closure holds that file, and no others. The report is the same either way, to
 the byte: a record carries findings and nothing else, so a cached finding is
 sorted, promoted and printed by the code that would have printed a fresh one.
+
+A record holds what the *catalogue* found, and which rules this repository runs
+is applied after it is read back. So a `rules` block that turns a rule off
+cannot be defeated by a record written before it did, and turning one back on
+cannot be answered from a record that never held it — which is also why editing
+`REPO.buri` re-analyses everything, as the key below says.
 
 ```
 buri lint //... --explain

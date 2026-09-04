@@ -1,0 +1,16 @@
+# One rule turned off by name, and it is the only finding this repository has.
+# `unused-variable` is not reported by `buri lint`, and not by the
+# `check_during_build` pass either — `fail_on_finding` has nothing left to fail
+# on. Every command that reports findings still says which rule this file
+# turned off: a clean report under a smaller catalogue is a sentence about the
+# catalogue, and the line above it is what says so.
+lint {
+    check_during_build: true
+    fail_on_finding: true
+
+    rules {
+        default: ENABLED
+
+        unused_variable: false
+    }
+}

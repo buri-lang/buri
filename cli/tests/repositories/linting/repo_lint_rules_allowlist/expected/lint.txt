@@ -1,0 +1,12 @@
+REPO.buri runs 1 of 25 lint rules: warning-comment
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/money/cents.buri:5:4
+  |
+5 | // TODO: decide what a negative amount formats as
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+
+    Resolve or remove these markers before merging.
+
