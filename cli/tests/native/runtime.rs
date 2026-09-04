@@ -418,6 +418,13 @@ fn the_filesystem_effect_works() {
 /// the `fs()` double on both backends. Two implementations of one story is the whole
 /// argument for a fake: a divergence is a failure in one of them rather than a
 /// difference between two sets of assertions.
+///
+/// It ends on `removeDir` (buri-lang/buri#38), which is where the story could
+/// not end before: the mode's own `mkdir` had no inverse, so the scratch
+/// directory it opened with stayed. `rmdir-held=6` is `IoError`'s `.Other` and
+/// `rmdir-said=1` is that it came with a sentence — `lib.rs` §2.1's message,
+/// read back through the C boundary rather than through a program, which is the
+/// only tier that can see the out-pointer at all.
 #[test]
 fn a_write_ahead_log_commits_through_append_sync_and_rename() {
     if skip() {
@@ -431,7 +438,8 @@ fn a_write_ahead_log_commits_through_append_sync_and_rename() {
         stdout(&out).trim_end(),
         "mkdir=ok,ok append=ok,ok sync=ok,ok log=1.10.2.20 \
          write=ok synctmp=ok rename=ok syncdir=ok tmp-gone=1 checkpoint=30 \
-         remove=ok remove-again=0 sync-missing=0",
+         remove=ok remove-again=0 sync-missing=0 \
+         rmdir-held=6 rmdir-said=1 drop=ok rmdir=ok root-gone=1",
         "stderr:\n{}",
         stderr(&out)
     );

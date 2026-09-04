@@ -2,8 +2,24 @@
 #
 # The honest boundary is the whole reason this case is short. What `--output`
 # *selects* is what is pinned here; a selector naming a platform this toolchain
-# cannot build for is refused, and the refusal is the same sentence a toolchain
-# with no native backend at all gives.
+# cannot build for is refused, and the refusal **names which of three things is
+# missing** rather than saying one sentence for all of them.
+#
+# That is buri-lang/buri#25 and buri-lang/buri#26, and the goldens below are
+# where the fix is pinned. The old wording was "the linux backend is not
+# implemented", with a fix reading "this toolchain emits JavaScript; build with
+# `--output=js`", and it was false twice over on the machine that printed it:
+# the same rule's host-native output had just been built, so the toolchain
+# plainly emits more than JavaScript, and the reason the cross one was refused
+# was the *host* rather than any backend. `build/actions.rs::native_gap` is the
+# one function all three refusal sites now ask.
+#
+# The **profile** half of the same question is not here and could not be: what
+# `--release` answers for the host's own output depends on how this toolchain
+# was built, so a golden would pin one leg of `cli/tests/README.md`'s bar and
+# fail on the other. `compiler::backend`'s
+# `a_release_refusal_names_the_profile_rather_than_the_platform` is where that
+# half lives, with an arm for each leg.
 #
 # **Which platform that is depends on the machine**, so the case does not name
 # one. `{{CROSS_PLATFORM}}` and `{{CROSS_ARCH}}` are filled in by the harness
@@ -78,3 +94,4 @@ run {
   exit: 1
   golden: "native_all.txt"
 }
+

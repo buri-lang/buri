@@ -111,11 +111,17 @@ macro_rules! unless_ready {
 /// The eight kilobytes that make the port line readable *while the server is
 /// still running*.
 ///
-/// `cli/runtime/host.rs` buffers standard output until `FLUSH_AT` or exit, and
-/// a native Buri program has exactly one channel out of itself — neither
-/// `host.HostFs.*` nor `host.HostEnv.*` has a row in either runtime table. So
-/// a fixture that has to be *heard from* fills the buffer. `shared`'s own
-/// fixtures carry the same padding and the same argument.
+/// `cli/runtime/host.rs` buffers standard output until `FLUSH_AT` or exit, so a
+/// fixture that has to be heard from *while it is still running* fills the
+/// buffer. `shared`'s own fixtures carry the same padding and the same
+/// argument.
+///
+/// Standard output is no longer the only channel out of a native program —
+/// `host.HostFs.*` and `host.HostEnv.*` have rows in both runtime tables since
+/// buri-lang/buri#36, and [`a_native_binary_touches_files_and_reads_its_own_arguments`]
+/// is what says so — but it is still the only *unbuffered-on-demand* one, and a
+/// server that has to announce a port before it blocks has nowhere else to put
+/// the line.
 fn padding() -> String {
     format!(r#"    let pad = "x".repeat(ctx, {});"#, crate::shared::STDOUT_BUFFER)
 }
@@ -1162,4 +1168,124 @@ mod read_loop_tests {
             "the loop waited for its deadline rather than for the close"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// The host surface: files, directories, arguments and variables
+// ---------------------------------------------------------------------------
+
+/// A program that uses every part of `Fs` a scratch directory needs, plus both
+/// operations of `Env`.
+///
+/// **Every path is relative**, so the run below decides where the program
+/// works by choosing its working directory rather than by baking one into the
+/// source — which is what lets the fixture be a constant and the row be
+/// hermetic.
+///
+/// It ends by removing what it made, which is the half `makeDir` had no
+/// inverse for until buri-lang/buri#38: the last two lines are the assertion
+/// that a program can leave the filesystem as it found it.
+fn host_surface() -> String {
+    String::from(
+        r#"from "core/effect" import { Alloc, Env, Fs, Stdout };
+from "core/env" import * as env;
+from "core/fs" import * as fs;
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Env: host.env,
+        Fs: host.fs,
+        Stdout: host.stdout,
+    };
+    let _made = fs.makeDir(ctx, "scratch/run").mapErr(fn(_e) => "makeDir")?;
+    let _wrote = fs.writeText(ctx, "scratch/run/note.txt", "hello").mapErr(fn(_e) => "write")?;
+    let body = fs.readText(ctx, "scratch/run/note.txt").mapErr(fn(_e) => "read")?;
+    let _p1 = io.println(ctx, "read ${body}").mapErr(fn(_e) => "print")?;
+    let names = fs.listDir(ctx, "scratch/run").mapErr(fn(_e) => "listDir")?;
+    let _p2 = io.println(ctx, "dir ${names.join(ctx, ",")}").mapErr(fn(_e) => "print")?;
+    let args = env.args(ctx);
+    let _p3 = io.println(ctx, "args ${args.join(ctx, ",")}").mapErr(fn(_e) => "print")?;
+    let seen = match (env.get(ctx, "BURI_E2E_VARIABLE")) {
+        .Some(value) => value,
+        .None => "absent",
+    };
+    let _p4 = io.println(ctx, "var ${seen}").mapErr(fn(_e) => "print")?;
+    let held = match (fs.removeDir(ctx, "scratch/run")) {
+        .Ok(_gone) => "removed a directory that still held a file",
+        .Err(_error) => "not empty",
+    };
+    let _p5 = io.println(ctx, "held ${held}").mapErr(fn(_e) => "print")?;
+    let _gone = fs.remove(ctx, "scratch/run/note.txt").mapErr(fn(_e) => "remove")?;
+    let _inner = fs.removeDir(ctx, "scratch/run").mapErr(fn(_e) => "removeDir run")?;
+    let _outer = fs.removeDir(ctx, "scratch").mapErr(fn(_e) => "removeDir scratch")?;
+    let left = fs.exists(ctx, "scratch");
+    io.println(ctx, "left ${left}").mapErr(fn(_e) => "print")
+}
+"#,
+    )
+}
+
+/// **A native binary reads and writes files, makes and removes directories,
+/// and sees its own arguments and environment.**
+///
+/// buri-lang/buri#36 and buri-lang/buri#38 in one process. Before them, this
+/// program did not compile at all for a native output: `buri build` refused it
+/// with *"the stencil backend has no implementation of host.HostEnv.args,
+/// host.HostFs.makeDir, …"* — nine operations in one line — while the same
+/// source ran on JavaScript. `cli/runtime/host.rs` had a body for every one of
+/// them; what was missing was the row, and behind the row the one shape
+/// `Result<T, IoError>` needed (`cli/runtime/lib.rs` §2.1's message).
+///
+/// It is here rather than in `stencil.rs` or `llvm.rs` for this file's own
+/// reason: what it asserts is *behaviour*, which no backend decides, so it is
+/// written once and run by whichever native backend the toolchain has. And it
+/// is a whole process rather than a unit row because nothing smaller can say
+/// that a file was really written — a table with the right rows in it and an
+/// archive that never opened the file would pass every other tier here.
+#[test]
+fn a_native_binary_touches_files_and_reads_its_own_arguments() {
+    unless_ready!();
+    let binary = built("e2e-host-surface", &host_surface());
+    let dir = binary.parent().expect("the program is in a workspace of its own");
+    let out = std::process::Command::new(&binary)
+        .current_dir(dir)
+        .args(["alpha", "beta"])
+        .env("BURI_E2E_VARIABLE", "seen")
+        .output()
+        .expect("the program did not start");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        vec![
+            // `writeText` then `readText`: the octets went to a real file and
+            // came back.
+            "read hello",
+            // `readDir` sees what `writeText` created, and nothing else.
+            "dir note.txt",
+            // `Env`'s two, in the order the effect declares them.
+            "args alpha,beta",
+            "var seen",
+            // `removeDir` is `rmdir(2)` and not `rm -r`: a directory that still
+            // holds a file is refused, which is the decision `core/fs`'s
+            // `removeDir` argues and the reason there is no recursive form.
+            "held not empty",
+            // And once it is empty it goes, along with its parent — so the
+            // program left the filesystem as it found it.
+            "left false",
+        ],
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        !dir.join("scratch").exists(),
+        "the program reported removing its scratch directory and it is still there"
+    );
 }

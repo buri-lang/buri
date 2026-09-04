@@ -54,20 +54,16 @@ pub fn build_target(
         // The native path is reachable exactly when there is something to
         // reach: a backend compiled in for this target and profile, a runtime
         // archive for this host, and a host that can link the platform asked
-        // for. Until all three hold the refusal below is what a native output
-        // gets, unchanged in wording, which is what
-        // `repositories/cli/output_selection` pins.
-        if native_ready(target_of(output), profile_of(flags)) {
-            return build_native(session, target, output, flags, diagnostics);
+        // for. Until all three hold, [`native_gap`] is the refusal — and it
+        // names *which* of the three, because the one sentence the three used
+        // to share was false on two of them.
+        match native_gap(target_of(output), profile_of(flags)) {
+            None => return build_native(session, target, output, flags, diagnostics),
+            Some(gap) => {
+                diagnostics.push(no_native_artifact(&gap, output.span));
+                return Err(diagnostics);
+            }
         }
-        diagnostics.push(
-            Diagnostic::error(
-                output.span,
-                format!("the {} backend is not implemented", platform.slug()),
-            )
-            .with_fix("this toolchain emits JavaScript; build with `--output=js`"),
-        );
-        return Err(diagnostics);
     }
 
     // The key covers everything that can affect the artifact, so a hit means
@@ -495,11 +491,17 @@ pub fn emit(
 
     let mut backend = match backend::select(target, profile) {
         Ok(b) => b,
-        Err(message) => {
-            diagnostics.push(
-                Diagnostic::error(Span::NONE, message)
-                    .with_fix("this toolchain emits JavaScript; build with `--output=js`"),
-            );
+        Err(_) => {
+            // The same sentence `prepare_artifact` refuses with, from the same
+            // function: `select`'s own message is one of the three [`native_gap`]
+            // chooses between, and reporting it here without the other two would
+            // be this site disagreeing with that one about what is wrong.
+            let gap = native_gap(target, profile).unwrap_or_else(|| NativeGap {
+                output: target.platform.slug().to_string(),
+                reason: "this toolchain has no backend for it".to_string(),
+                fix: "add `{ platform: JS }` to `outputs`".to_string(),
+            });
+            diagnostics.push(no_native_artifact(&gap, Span::NONE));
             return Err(std::mem::take(diagnostics));
         }
     };
@@ -761,10 +763,112 @@ fn runtime_archive_hash() -> &'static str {
 /// has no stencil library for, and without that a host of that kind would be
 /// told the build is ready and then refused inside the emission.
 pub fn native_ready(target: Target, profile: Profile) -> bool {
-    target.platform.is_native()
-        && backend::select(target, profile).is_ok()
-        && runtime_native::AVAILABLE
-        && link::can_link(target)
+    target.platform.is_native() && native_gap(target, profile).is_none()
+}
+
+/// One reason this toolchain cannot produce a native artifact, in the three
+/// pieces every refusal site prints: what was asked for, what is missing, and
+/// what to do. [`native_gap`] is what fills it in.
+pub struct NativeGap {
+    /// The output, spelled the way a build file and `--output` spell it —
+    /// `linux/x86_64`, or `macos` where the output named no architecture.
+    ///
+    /// **Not the target triple**, which is what this said first and what the
+    /// goldens caught: a triple is `aarch64-unknown-linux-musl` on one host and
+    /// `x86_64-apple-darwin` on another for the same *declared* output, so a
+    /// recorded diagnostic holding one pins the runner. This is the spelling
+    /// the reader wrote, `tests/harness/case.rs` already has a placeholder for
+    /// each half of it, and the triple is `backend::triple_text`'s business
+    /// rather than a diagnostic's.
+    pub output: String,
+    /// Which of the three is missing.
+    pub reason: String,
+    /// What the reader can do about it.
+    pub fix: String,
+}
+
+/// Why this toolchain cannot produce a native artifact for `target` under
+/// `profile` — the same three questions [`native_ready`] asks, answered as a
+/// sentence instead of as a `false` — or `None` where it can.
+///
+/// The `bool` came first and it threw the answer away, which is the whole of
+/// what two reports were about. `backend::select` already computed a reason and
+/// `native_ready` discarded it, so a `--release` build on a toolchain without
+/// `backend-llvm` and a `linux/x86_64` output on a mac were refused with the
+/// same sentence — *"the macos backend is not implemented"*, *"this toolchain
+/// emits JavaScript"* — and neither half was true on a host whose debug native
+/// build of the same output had just succeeded (buri-lang/buri#25,
+/// buri-lang/buri#26).
+///
+/// The order is structural rather than arbitrary: the **host** questions come
+/// first, because a cross target is refused whatever the profile and saying
+/// "install `backend-llvm`" to somebody on a mac asking for Linux would be
+/// advice that does not help. The profile question is last, and it is the only
+/// one whose fix is about the *invocation* rather than about the machine.
+pub fn native_gap(target: Target, profile: Profile) -> Option<NativeGap> {
+    let output = match target.arch {
+        Some(arch) => format!("{}/{}", target.platform.slug(), arch.slug()),
+        None => target.platform.slug().to_string(),
+    };
+    let js = "add `{ platform: JS }` to `outputs`";
+    // The host, first: a cross target is refused on every profile and by a
+    // constant this file cannot change.
+    if !link::can_link(target) {
+        return Some(NativeGap {
+            // **Neither the host nor the target is named in this sentence**,
+            // and that is the harness's constraint rather than a shortage of
+            // words: `tests/harness/case.rs` has no `HOST_ARCH` placeholder,
+            // because a runner's architecture is a property of the machine
+            // rather than of the toolchain, and a golden holding one would pin
+            // the machine. The target's own triple carries the host's
+            // architecture whenever the output declared none, so naming either
+            // makes this text move from runner to runner. Both are in the
+            // diagnostic anyway — the target in the headline, the machine that
+            // could build it in the fix — and `commands/test.rs` reuses this
+            // reason under a headline of its own.
+            reason: "this toolchain builds a native artifact for its own host only: the \
+                     runtime archive, the C library and the linker are all the host's"
+                .to_string(),
+            fix: format!("build this output on a {output} host, or {js}"),
+            output,
+        });
+    }
+    if !runtime_native::AVAILABLE {
+        return Some(NativeGap {
+            reason: "this toolchain carries no native runtime archive: `cli/build.rs` builds \
+                     one for a macOS or Linux host, and writes nothing on any other"
+                .to_string(),
+            fix: format!("{js}, or install a toolchain built on macOS or Linux"),
+            output,
+        });
+    }
+    // The backend last, because it is the only one of the three whose answer
+    // depends on the profile and the only one a different invocation can change.
+    if let Err(reason) = backend::select(target, profile) {
+        let release_only =
+            profile == Profile::Release && backend::select(target, Profile::Debug).is_ok();
+        let fix = if release_only {
+            format!(
+                "build without `--release` — the development backend emits {output} — or \
+                 install a toolchain built with `backend-llvm`"
+            )
+        } else {
+            format!("declare an output this toolchain can build, or {js}")
+        };
+        return Some(NativeGap { output, reason, fix });
+    }
+    None
+}
+
+/// [`NativeGap`] as the diagnostic every refusal site prints.
+///
+/// One function so that `buri build`, `buri test` and `--check-reproducible`
+/// cannot describe the same gap three ways.
+pub fn no_native_artifact(gap: &NativeGap, span: Span) -> Diagnostic {
+    Diagnostic::templated("native-artifact-not-available", span)
+        .with_bind("output", gap.output.clone())
+        .with_bind("reason", gap.reason.clone())
+        .with_bind("fix", gap.fix.clone())
 }
 
 /// One unit's two hashes: the lowered IR it is made of, and the layout of every
@@ -1815,6 +1919,7 @@ pub fn selected_outputs(session: &Session, target: TargetId, flags: &Flags) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::build::buildfile::Arch;
 
     /// `--check-reproducible`'s red path. A build that is genuinely
     /// irreproducible is hard to arrange in a hermetic system — which is the
@@ -1992,6 +2097,106 @@ mod tests {
         let html = &files[0].1;
         assert!(html.contains("<title>a&lt;b&amp;c</title>"), "{html}");
         assert!(!html.contains("<title>a<b"), "{html}");
+    }
+
+    // -- what a native refusal says -----------------------------------------
+    //
+    // buri-lang/buri#25 and buri-lang/buri#26 were one sentence serving three
+    // causes: "the {platform} backend is not implemented", with a fix reading
+    // "this toolchain emits JavaScript; build with `--output=js`". It was false
+    // on the two that reach it most — a cross output on a host whose own native
+    // build had just succeeded, and `--release` on a toolchain whose debug
+    // build of the same output works. These rows are per cause, because the
+    // point of the change is that the causes are told apart.
+
+    /// A target that is not this host's, whatever this host is — the same
+    /// choice `tests/harness/case.rs` makes, and for the same reason.
+    fn cross_target() -> Target {
+        let platform = match link::host_platform() {
+            Some(Platform::Macos) => Platform::Linux,
+            _ => Platform::Macos,
+        };
+        Target { platform, arch: Some(Arch::X86_64) }
+    }
+
+    /// A cross output is refused by the **host**, and the sentence says so —
+    /// on every profile, and without claiming anything about backends or about
+    /// JavaScript (buri-lang/buri#25).
+    #[test]
+    fn a_cross_output_is_refused_by_the_host_and_not_by_a_backend() {
+        let target = cross_target();
+        for profile in [Profile::Debug, Profile::Release] {
+            let gap = native_gap(target, profile)
+                .unwrap_or_else(|| panic!("{target:?} was not refused in {profile:?}"));
+            assert_eq!(gap.output, format!("{}/x86_64", target.platform.slug()));
+            assert!(gap.reason.contains("own host only"), "{}", gap.reason);
+            assert!(
+                gap.fix.contains(&format!("on a {} host", gap.output)),
+                "the fix does not name the machine that could build it: {}",
+                gap.fix
+            );
+            assert!(
+                !gap.reason.contains("backend"),
+                "a host gap blamed a backend: {}",
+                gap.reason
+            );
+        }
+    }
+
+    /// The sentence a *recorded* diagnostic holds names no triple and no host,
+    /// because both carry the runner's own architecture and a golden that held
+    /// one would pin the machine rather than the product.
+    ///
+    /// `tests/harness/case.rs` says the same thing from the other side, in the
+    /// paragraph explaining why there is no `HOST_ARCH` placeholder. This is
+    /// the assertion that keeps a future edit from putting one back.
+    #[test]
+    fn a_recorded_refusal_names_no_triple_and_no_host() {
+        for target in [cross_target(), Target { platform: Platform::Macos, arch: None }] {
+            for profile in [Profile::Debug, Profile::Release] {
+                let Some(gap) = native_gap(target, profile) else { continue };
+                for text in [&gap.output, &gap.reason, &gap.fix] {
+                    for spelling in ["aarch64", "unknown-linux", "apple-darwin", "-musl"] {
+                        assert!(
+                            !text.contains(spelling),
+                            "a refusal names `{spelling}`, which moves from runner to \
+                             runner: {text}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The refusal every site prints is the templated one, so the three sites
+    /// cannot word the same gap three ways.
+    #[test]
+    fn the_refusal_is_one_page_with_the_gap_bound_into_it() {
+        let gap = native_gap(cross_target(), Profile::Debug).expect("a cross target is refused");
+        let d = no_native_artifact(&gap, Span::NONE);
+        assert_eq!(d.code.as_deref(), Some("native-artifact-not-available"));
+        assert!(d.message.contains(&gap.output), "{}", d.message);
+        assert_eq!(d.notes.first().map(String::as_str), Some(gap.reason.as_str()));
+        assert_eq!(d.fix.as_deref(), Some(gap.fix.as_str()));
+    }
+
+    /// The `bool` and the sentence are one answer, at every target and both
+    /// profiles: a `native_ready` that disagreed with `native_gap` would let a
+    /// build start and then refuse it, or refuse one that would have worked.
+    #[test]
+    fn readiness_is_the_absence_of_a_gap() {
+        for platform in [Platform::Macos, Platform::Linux] {
+            for arch in [Arch::Arm64, Arch::X86_64] {
+                for profile in [Profile::Debug, Profile::Release] {
+                    let target = Target { platform, arch: Some(arch) };
+                    assert_eq!(
+                        native_ready(target, profile),
+                        native_gap(target, profile).is_none(),
+                        "{platform:?}/{arch:?}/{profile:?}"
+                    );
+                }
+            }
+        }
     }
 
     /// Every JavaScript platform writes an `.mjs`. The catch-all this replaced

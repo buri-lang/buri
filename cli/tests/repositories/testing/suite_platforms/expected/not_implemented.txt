@@ -1,8 +1,8 @@
-error: the {{CROSS_PLATFORM}} backend is not implemented [platform-not-implemented]
+error: no {{CROSS_PLATFORM}} test run on this toolchain [platform-not-implemented]
  --> lib/codec/BUILD.buri:7:10
   |
 7 |     test {
   |          ^
   |
-  = this toolchain emits JavaScript, so only a JS run can be executed
-  = fix: drop {{CROSS_PLATFORM_PROTO}} from `test.platforms` until the backend exists
+  = this toolchain builds a native artifact for its own host only: the runtime archive, the C library and the linker are all the host's, so this suite can be executed only on JavaScript
+  = fix: drop {{CROSS_PLATFORM_PROTO}} from `test.platforms`, or run this suite where a {{CROSS_PLATFORM}} artifact can be built

@@ -806,6 +806,10 @@ impl Fs for StaticFs {
         .Err(.PermissionDenied)
     }
 
+    fn removeDir(self, path: Str): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
     fn makeDir(self, path: Str): Result<(), IoError> {
         .Err(.PermissionDenied)
     }
@@ -861,6 +865,10 @@ impl<C: Fs> Fs for Guarded<C> {
     }
 
     fn removeFile(self, path: Str): Result<(), IoError> {
+        .Err(.Other("guarded"))
+    }
+
+    fn removeDir(self, path: Str): Result<(), IoError> {
         .Err(.Other("guarded"))
     }
 

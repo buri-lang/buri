@@ -330,6 +330,16 @@ impl Fs for TestFs {
         }
     }
 
+    /// Empty directories only, as a real filesystem's `rmdir(2)` is. The flat
+    /// map has no containment, so the double answers "empty" off the same two
+    /// lists `readDir` reads.
+    fn removeDir(self, path: Str): Result<(), IoError> {
+        match (self.planned(removeDir(path))) {
+            .Some(error) => .Err(error),
+            .None => fsRemoveDir(self.handle, path),
+        }
+    }
+
     fn makeDir(self, path: Str): Result<(), IoError> {
         match (self.planned(makeDir(path))) {
             .Some(error) => .Err(error),
@@ -607,7 +617,7 @@ fn fsSnapshot(handle: I64): [(Str, Str)];
 /// Every call made through this handle, in the order they completed.
 fn fsCalls(handle: I64): [FsCall];
 
-/// The eleven methods of `Fs`, as rows over a handle.
+/// The twelve methods of `Fs`, as rows over a handle.
 ///
 /// Free functions rather than methods on `TestFs`, because a `TestFs` is a
 /// handle *and* a plan and an argument is flattened into its leaves: a row
@@ -630,6 +640,8 @@ fn fsAppendFile(handle: I64, path: Str, body: [U8]): Result<(), IoError>;
 fn fsRenameFile(handle: I64, source: Str, destination: Str): Result<(), IoError>;
 
 fn fsRemoveFile(handle: I64, path: Str): Result<(), IoError>;
+
+fn fsRemoveDir(handle: I64, path: Str): Result<(), IoError>;
 
 fn fsMakeDir(handle: I64, path: Str): Result<(), IoError>;
 
@@ -1214,6 +1226,11 @@ export fn renameFile(source: Str, destination: Str): FsCall {
 /// A `removeFile(path)`, as a call.
 export fn removeFile(path: Str): FsCall {
     FsCall { name: "removeFile", path: path, body: "" }
+}
+
+/// A `removeDir(path)`, as a call.
+export fn removeDir(path: Str): FsCall {
+    FsCall { name: "removeDir", path: path, body: "" }
 }
 
 /// A `makeDir(path)`, as a call.

@@ -536,9 +536,22 @@ fn run_suite(
     for (platform, chosen) in runs {
         if platform.is_native() && !native_ready(platform, &args.flags) {
             let span = suite(session, target).map(|x| x.span).unwrap_or(Span::NONE);
+            // The *reason*, from the one function `buri build` asks
+            // (`actions::native_gap`), rather than "this toolchain emits
+            // JavaScript" — which was false on a host that runs its other
+            // suites natively, and is the same wrong sentence buri-lang/buri#25
+            // and buri-lang/buri#26 were about on the build side.
+            let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+            let why = actions::native_gap(
+                actions::target_of(&output),
+                actions::profile_of(&args.flags),
+            )
+            .map(|gap| gap.reason)
+            .unwrap_or_else(|| "this host has no C toolchain to link one with".to_string());
             diagnostics.push(
                 Diagnostic::templated("platform-not-implemented", span)
                     .with_bind("platform", platform.slug())
+                    .with_bind("reason", why)
                     .with_bind("platform_in_build_file", platform.proto()),
             );
             continue;
