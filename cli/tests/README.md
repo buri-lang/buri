@@ -282,13 +282,29 @@ for the missing row will find it.
 ## Running them
 
 ```
-cargo test -p buri                                    # everything
+cargo test -p buri                                    # everything, one binary at a time
+bash .github/scripts/run-suite.sh suite.log           # everything, overlapped
 cargo test -p buri --test language                    # one domain
 cargo test -p buri --test language conformance::      # one suite in it
 cargo test -p buri --test native -- --skip float_parity
 cargo test -p buri --features backend-llvm --test native
 BURI_RECOVERY_CAP=0 cargo test -p buri --test recovery   # every case, not a stride
 ```
+
+The second line is the first line's set, run differently, and it is what CI
+runs. `cargo test` starts the test binaries **one after another** — that is
+what the command does, not a knob — and the suites here are latency-bound
+rather than core-bound, so most of the machine is idle for most of the run.
+Measured warm on a ten-core mac against `9f5584a0`: the fifteen units are
+**169 s queued and 73 s started together**, for 372 CPU-seconds of work either
+way. `run-suite.sh` asks cargo which test executables exist, so its set is the
+same one by construction, and it runs each of them directly — they are libtest
+binaries, they print libtest's summaries, and `assert-no-skips.sh` reads its log
+exactly as it read `cargo test`'s. `BURI_SUITE_JOBS` and
+`BURI_SUITE_TEST_THREADS` are its two dials; the script's header prices them.
+
+It writes `suite.log` and per-unit logs under `target/suite-logs/`, which is
+where to look when one domain of fifteen failed.
 
 A merged domain costs nothing in selection: a module is a name prefix, so
 `--test language conformance::` runs exactly what `--test conformance` used to,
@@ -407,10 +423,18 @@ That the cost is the *host* and not the toolchain is measurable rather than
 asserted: `native`'s wall clock is flat at 40.7, 39.1 and 38.1 seconds under
 `--test-threads=4`, `10` and `20`. Five times the threads buys 6 %, because
 what the threads are waiting for is `cc` and a child process, not a core. So
-"make the suite more parallel" is not a lever here, and neither is making the
+"more threads inside a binary" is not a lever here, and neither is making the
 compiler faster: a whole front end plus monomorphization plus `middle` over
 the standard library and a conformance file measures **≈ 20 ms**, against
 **≈ 400 ms** to emit, link and run that same file.
+
+**The lever that observation does point at is one binary out.** A domain that
+uses 1.5 cores of a ten-core machine for a minute is not a domain to give more
+threads — it is a minute during which fourteen other binaries could have been
+running and were not, because `cargo test` starts them one at a time. Same
+tests, same threads, same 372 CPU-seconds: **169 s queued, 73 s overlapped**.
+`.github/scripts/run-suite.sh` above is that, and it is the whole of why the
+budget below still holds on a four-core runner.
 
 ### The five-minute budget
 
@@ -483,6 +507,13 @@ the sentence buri-lang/buri#26 was about, which exists on only one of them.
 **CI is not this.** CI runs everything under both feature sets, on both hosts.
 The sequence above is the local edit loop, where the only thing being taken away
 is the same run happening a second time on the same machine a minute later.
+
+Two lines of it *are* CI's, though, and both were CI's last change: the suite
+runs through `run-suite.sh` there for the reason above, and the validation gate
+runs under `--profile validate` there too. That second one is the profile the
+root `Cargo.toml` declares for exactly this — validation under `[profile.bench]`
+was costing a fat-LTO, one-codegen-unit build of the whole toolchain to compute
+a boolean, and CI was the last caller still paying it.
 
 #### The measured number
 
