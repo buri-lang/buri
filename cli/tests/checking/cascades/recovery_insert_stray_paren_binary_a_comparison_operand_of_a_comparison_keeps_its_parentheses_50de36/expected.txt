@@ -1,0 +1,23 @@
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:22:26
+   |
+22 |   (a < b) == (c < d) && (extra a > b) != (c > d)
+   |                          ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a tuple element ends with `,` [missing-separator]
+  --> main.buri:22:31
+   |
+22 |   (a < b) == (c < d) && (extra a > b) != (c > d)
+   |                               ^
+   |
+   = fix: write `,` here
+error: expected `(<error>, Bool)`, found `Bool` [type-mismatch]
+  --> main.buri:22:43
+   |
+22 |   (a < b) == (c < d) && (extra a > b) != (c > d)
+   |                                           ^^^^^ the left operand's type is `(<error>, Bool)`
+   |
+   = expected: `(<error>, Bool)`
+   = actual: `Bool`
+   = fix: produce a `(<error>, Bool)` here, or change what surrounds it to accept a `Bool`

@@ -1,0 +1,16 @@
+error: a tuple element ends with `,` [missing-separator]
+  --> main.buri:38:8
+   |
+38 |     !(a b <) == true
+   |        ^
+   |
+   = fix: write `,` here
+error: expected an expression, found `)` [unexpected-token]
+  --> main.buri:38:12
+   |
+38 |     !(a b <) == true
+   |            ^
+   |
+   = expected: an expression
+   = actual: `)`
+   = fix: write a value here

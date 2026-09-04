@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:9:1
+  |
+9 | export fn against_a_literal(a: Int, b: Int): Bool {
+  | ^^^^^^
+  |
+ --> main.buri:5:61
+  |
+5 | export fn same_answer(a: Int, b: Int, c: Int, d: Int): Bool {
+  |                                                             ^ opened here
+  |
+  = fix: write `}` here

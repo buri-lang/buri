@@ -1,0 +1,17 @@
+error: comparison operators are non-associative [chained-comparison]
+  --> main.buri:18:34
+   |
+18 |   ((a < b) == (c > d)) != ((a > b== ) (c < d))
+   |                                  ^^
+   |
+   = write `a < b && b < c` rather than `a < b < c`
+   = fix: write `a < b && b < c` rather than `a < b < c`
+error: expected an expression, found `)` [unexpected-token]
+  --> main.buri:18:37
+   |
+18 |   ((a < b) == (c > d)) != ((a > b== ) (c < d))
+   |                                     ^
+   |
+   = expected: an expression
+   = actual: `)`
+   = fix: write a value here
