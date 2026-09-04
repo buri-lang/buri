@@ -1,0 +1,6 @@
+from "core/effect" import { Alloc };
+from "//lib/two" import { keep };
+
+export fn read<C: Alloc>(ctx: C, n: I64): I64 {
+    keep(ctx, n).len()
+}

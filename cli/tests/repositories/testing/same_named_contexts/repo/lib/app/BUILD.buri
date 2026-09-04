@@ -1,0 +1,9 @@
+library {
+    sources: ["app.buri"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/app.buri"]
+        dependencies: ["//lib/one", "//lib/two"]
+    }
+}

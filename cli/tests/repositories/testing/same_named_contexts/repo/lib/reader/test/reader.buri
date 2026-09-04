@@ -1,0 +1,19 @@
+from "core/effect" import { Alloc };
+from "core/fs" import { FsWrite };
+from "core/host/testing" import { alloc, fs as disk };
+from "core/testing/assert" import * as assert;
+from "//lib/reader" import { read };
+
+// The same name `//lib/writer`'s suite declares, and a smaller declaration:
+// the inliner empties this one into its caller and leaves nothing behind but a
+// symbol, which is what the other suite's every test used to end up calling.
+context Fixture {
+    Alloc: alloc(),
+    FsWrite: disk(),
+}
+
+test "a read list holds what was put in it" {
+    let ctx = Fixture();
+
+    assert.eq(read(ctx, 2), 1);
+}
