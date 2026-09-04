@@ -135,7 +135,25 @@ const FLOOR: usize = 250;
 /// rate: of the seventy-two pinned cases drawn from their fixtures, **not one
 /// reports more of either code than its seed did**. Two new seeds redraw all
 /// two thousand, and what moved is which sources came up.
-const INVENTED_CEILING: usize = 2;
+///
+/// `hand-rolled-comparator` and `discarded-result-by-hand`'s two fixtures move
+/// it once more, to **42 of 2,000 (2.10%) and 13 of 600 (2.16%)**, and the
+/// ceiling goes to three to keep the point of headroom that makes it a bound
+/// rather than a description.
+///
+/// The number is one shape and not a new one: **ten of the thirteen are
+/// `oversized-function` on a deleted closer**, which is the second sentence
+/// above — two functions run together are one long function, honestly. Four of
+/// those ten are drawn from the new seeds, whose files are longer than the
+/// corpus average, and that is the whole of what the two fixtures added here.
+///
+/// Neither new rule invents anything, asked directly rather than inferred from
+/// the rate: **no case among the thirteen is either code**, and over the
+/// fifty-eight pinned cases drawn from the two new fixtures not one reports
+/// more of its own code than its seed did. Both read the typed tree and are
+/// asked only about bodies that checked, which is `unused-context-bound`'s
+/// guarantee two paragraphs up.
+const INVENTED_CEILING: usize = 3;
 
 /// What share of the cases may lose a finding whose evidence survived.
 ///
@@ -234,7 +252,17 @@ const INVENTED_CEILING: usize = 2;
 /// a multiplication with those operands. Both are the `duplicate-import` shape
 /// — half the evidence gone, not overlooked.
 ///
-/// Three points, against 1.90% measured and 2.30% at the highest this has been:
+/// `hand-rolled-comparator` and `discarded-result-by-hand`'s two fixtures move
+/// it to **39 of 2,000 (1.95%) and 12 of 600 (2.00%)**, and this time **none of
+/// the twelve is either new rule**: the losses are `unused-field`,
+/// `unused-variable`, `unused-variant`, `unused-type` and
+/// `unused-context-bound`, every one of them a name whose only use sat in the
+/// declaration the parser dropped. Both new rules read a whole body and are
+/// asked only about bodies that checked, so a mutation that reaches one of them
+/// takes the finding's own declaration with it and there is nothing left to
+/// lose.
+///
+/// Three points, against 1.95% measured and 2.30% at the highest this has been:
 /// the ratchet keeps its headroom, which is what makes it a bound and not a
 /// description. It is not zero and cannot be while the proxy is a byte offset.
 const LOST_A_FINDING_CEILING: usize = 3;

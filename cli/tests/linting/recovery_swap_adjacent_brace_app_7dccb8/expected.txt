@@ -1,0 +1,24 @@
+error: this `match` does not cover `.Ok(_)` [match-not-exhaustive]
+  --> lib/recovery_swap_adjacent_brace_app_7dccb8/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Ok(_)`, or a `_` arm for everything left
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_swap_adjacent_brace_app_7dccb8/main.buri:26:22
+   |
+26 |         .Ok(_written) ( =>),
+   |                      ^
+   |
+   = fix: write `=>` here
+error: expected an expression, found `=>` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_7dccb8/main.buri:26:25
+   |
+26 |         .Ok(_written) ( =>),
+   |                         ^^
+   |
+   = expected: an expression
+   = actual: `=>`
+   = fix: write a value here

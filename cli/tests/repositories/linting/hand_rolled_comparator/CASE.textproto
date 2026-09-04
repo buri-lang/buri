@@ -1,0 +1,44 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a function whose body is `core/order`'s own: hand-rolled-comparator, beside the three chains that are not it — a reversed order, a float order with a fourth branch for `NaN`, and a comparator over a `U8` that no `order.*` takes"
+
+run {
+  args: ["lint", "//cmd/app"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//cmd/app", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# What the diagnostic names: the call, with the same two operands in the same
+# order. The namespace import goes beside the named one rather than replacing
+# it, because the type is still written down in both signatures.
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "from \"core/order\" import { Order };\n"
+  with: "from \"core/order\" import { Order };\nfrom \"core/order\" import * as order;\n"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "    if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }\n}\n\nfn compareBools"
+  with: "    order.int(left, right)\n}\n\nfn compareBools"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "    if (left == right) { .Equal } else if (left) { .Greater } else { .Less }\n"
+  with: "    order.bool(left, right)\n"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

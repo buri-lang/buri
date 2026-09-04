@@ -1,0 +1,43 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_delete_separator_brace_app_d7b730/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_delete_separator_brace_app_d7b730/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain
+error: this `match` does not cover `.Equal` [match-not-exhaustive]
+  --> lib/recovery_delete_separator_brace_app_d7b730/main.buri:51:5
+   |
+51 |     match (ordered) {
+   |     ^^^^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Equal`, or a `_` arm for everything left
+error: `Str` has no field `Equal` [no-such-field]
+  --> lib/recovery_delete_separator_brace_app_d7b730/main.buri:53:10
+   |
+53 |         .Equal => "equal",
+   |          ^^^^^
+   |
+   = fix: check the spelling, or name a field the type declares
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_separator_brace_app_d7b730/main.buri:53:16
+   |
+53 |         .Equal => "equal",
+   |                ^^
+   |
+  --> lib/recovery_delete_separator_brace_app_d7b730/main.buri:51:21
+   |
+51 |     match (ordered) {
+   |                     ^ opened here
+   |
+   = fix: write `}` here

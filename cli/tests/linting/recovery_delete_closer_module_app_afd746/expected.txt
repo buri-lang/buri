@@ -1,0 +1,16 @@
+error: expected a type, found `{` [unexpected-token]
+  --> lib/recovery_delete_closer_module_app_afd746/main.buri:24:41
+   |
+24 | fn say<C: Stdout>(ctx: C, line: Str): ( {
+   |                                         ^
+   |
+   = expected: a type
+   = actual: `{`
+   = fix: name a type here, as in `Int` or `[Str]`
+error: there is nothing named `say` in scope [unresolved-name]
+  --> lib/recovery_delete_closer_module_app_afd746/main.buri:56:13
+   |
+56 |     let _ = say(ctx, "one");
+   |             ^^^
+   |
+   = fix: declare `say`, or import it — a name is in scope only from this module's own declarations and its imports

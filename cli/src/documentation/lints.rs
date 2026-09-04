@@ -56,9 +56,13 @@ pub const LINTS: &[LintDoc] = &[
     l!("discarded-result", "Every deliberately dropped `Result` is reported", &[
         "language/expressions"
     ]),
+    l!("discarded-result-by-hand", "The four-line `match` that drops a `Result` is the anti-pattern", &[
+        "language/expressions"
+    ]),
     l!("duplicate-import", "A module is imported once"),
     l!("duplicate-source", "A source file is listed by one rule", &["build/build-files"]),
     l!("empty-test-suite", "A `test` block declares the sources it tests"),
+    l!("hand-rolled-comparator", "A comparator over a primitive is already in `core/order`"),
     l!("hex-digit-table", "The hexadecimal digits are not yours to keep"),
     l!("missing-dep", "Every library a package uses is in its dependencies", &["build/build-files"]),
     l!("oversized-function", "A function is one responsibility"),

@@ -1,0 +1,66 @@
+warning: `write` is 45 lines long [oversized-function]
+  --> lib/recovery_delete_closer_brace_app_171b2a/main.buri:17:4
+   |
+17 | fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str> {
+   |    ^^^^^
+   |
+   = a body past 40 lines is almost always carrying more than one responsibility, and the length is the symptom rather than the fault
+   = fix: find the responsibility boundaries in the body and give each one a function of its own
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_delete_closer_brace_app_171b2a/main.buri:18:5
+   |
+18 |     match (io.println(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `_1`, not `()` [statement-not-unit]
+  --> lib/recovery_delete_closer_brace_app_171b2a/main.buri:18:5
+   |
+18 |     match (io.println(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: `_1` is not an enum [not-an-enum]
+  --> lib/recovery_delete_closer_brace_app_171b2a/main.buri:19:26
+   |
+19 |         .Ok(_written) => .Ok(line.len()),
+   |                          ^^^
+   |
+   = fix: the dot form names an enum variant; write the value another way
+error: `_1` is not an enum [not-an-enum]
+  --> lib/recovery_delete_closer_brace_app_171b2a/main.buri:20:25
+   |
+20 |         .Err(_error) => .Err("could not write to standard output"),
+   |                         ^^^^
+   |
+   = fix: the dot form names an enum variant; write the value another way
+error: a `match` used as a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_closer_brace_app_171b2a/main.buri:22:2
+   |
+22 | }
+   |  ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `say` [unexpected-token]
+  --> lib/recovery_delete_closer_brace_app_171b2a/main.buri:24:4
+   |
+24 | fn say<C: Stdout>(ctx: C, line: Str): () {
+   |    ^^^
+   |
+   = expected: `(`
+   = actual: `say`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_171b2a/main.buri:62:1
+   |
+62 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_app_171b2a/main.buri:17:58
+   |
+17 | fn write<C: Stdout>(ctx: C, line: Str): Result<Int, Str> {
+   |                                                          ^ opened here
+   |
+   = fix: write `}` here

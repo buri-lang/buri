@@ -1,0 +1,35 @@
+error: this `match` does not cover `.Err(_)` [match-not-exhaustive]
+  --> lib/recovery_delete_separator_brace_app_d111f9/main.buri:18:5
+   |
+18 |     match (io.println(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.Err(_)`, or a `_` arm for everything left
+error: `.Ok` needs a known expected type [unannotated-variant]
+  --> lib/recovery_delete_separator_brace_app_d111f9/main.buri:19:26
+   |
+19 |         .Ok(_written) => .Ok(line.len())
+   |                          ^^^
+   |
+   = fix: write the qualified form, as in `Option.Ok(...)`, or annotate what this value is being used as
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_separator_brace_app_d111f9/main.buri:20:22
+   |
+20 |         .Err(_error) => .Err("could not write to standard output"),
+   |                      ^^
+   |
+  --> lib/recovery_delete_separator_brace_app_d111f9/main.buri:18:35
+   |
+18 |     match (io.println(ctx, line)) {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_delete_separator_brace_app_d111f9/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate

@@ -1,0 +1,60 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> cmd/app/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+
+       fn compareInts(left: Int, right: Int): Order {
+           if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }
+       }
+
+     That function is order.int. Not "like" it — core/order declares it with
+     that body, character for character, and the reason it is in the library is
+     that every program that sorts a pair of numbers needs it.
+
+     Comparators travel in packs. One of them arrives because derive Ord did not
+     reach somewhere, and then there are four: one for Int, one for Bool, one
+     for Float that quietly disagrees with the first two about NaN, and one for
+     Str that delegates to compare because a method was easy to find. The
+     library has the whole set:
+
+     - order.int(a, b), order.float(a, b), order.bool(a, b) — with false
+     below true — order.char(a, b) by scalar value, and order.str(a, b), which
+     is a.compare(b).
+
+     - order.reverse(cmp) turns any of them around, which is what a descending
+     sort wants instead of a chain with .Less and .Greater swapped.
+
+     - Order.then(next) chains a tie-break onto a comparison, and
+     Order.flip, Order.isLess, Order.isEqual read one back.
+
+     One operation, two addresses. a.compare(b) is the method on the receiver
+     and order.int(a, b) is the free function; both answer an Order and the
+     second is the one a sortBy argument wants. Reaching for the receiver and
+     finding nothing is not evidence that the library has nothing — for Int,
+     Bool, Float and Char the comparator lives in core/order.
+
+     The rule fires on the shape and on the direction. if (a < b) { .Less } else
+     if (a > b) { .Greater } else { .Equal } is the finding; the same chain with
+     .Greater and .Less swapped is a *reversed* order, means something else, and
+     is not reported — though order.reverse says it better. A chain with a
+     fourth branch is not this shape either, which is how a total float order
+     that sorts NaN deliberately stays out of the report: order.float answers
+     .Equal for a NaN, and a function that wanted something else is not a copy
+     of it.
+
+     Only the primitives core/order has an exact comparator for are reported. A
+     comparator over U8 or I32 is left alone, because order.int takes an Int and
+     a fix that does not type-check is not a fix.
+
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> cmd/app/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain

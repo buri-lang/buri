@@ -1,0 +1,28 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_insert_stray_paren_app_5dbdfe/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_insert_stray_paren_app_5dbdfe/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_app_5dbdfe/main.buri:66:37
+   |
+66 |         label(compareDescending(1, 2@ )),
+   |                                     ^
+   |
+  --> lib/recovery_insert_stray_paren_app_5dbdfe/main.buri:66:32
+   |
+66 |         label(compareDescending(1, 2@ )),
+   |                                ^ opened here
+   |
+   = fix: write `)` here

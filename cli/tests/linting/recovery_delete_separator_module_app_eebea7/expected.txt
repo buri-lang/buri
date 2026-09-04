@@ -1,0 +1,15 @@
+error: a type argument ends with `,` [missing-separator]
+  --> lib/recovery_delete_separator_module_app_eebea7/main.buri:17:51
+   |
+17 | fn write<C: Stdout>(ctx: C, line: Str): Result<Int Str> {
+   |                                                   ^
+   |
+   = fix: write `,` here
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_delete_separator_module_app_eebea7/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate

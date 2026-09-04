@@ -1,0 +1,29 @@
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_delete_closer_brace_app_0ba104/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: expected an identifier, found `.` [unexpected-token]
+  --> lib/recovery_delete_closer_brace_app_0ba104/main.buri:47:9
+   |
+47 |         .Some(_value) => (),
+   |         ^
+   |
+   = expected: an identifier
+   = actual: `.`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_0ba104/main.buri:62:1
+   |
+62 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_brace_app_0ba104/main.buri:45:34
+   |
+45 | fn forget(held: Option<Int>): () {
+   |                                  ^ opened here
+   |
+   = fix: write `}` here

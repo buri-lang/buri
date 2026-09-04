@@ -1,0 +1,24 @@
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_insert_stray_brace_app_31b025/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: expected an expression, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_brace_app_31b025/main.buri:57:5
+   |
+57 |     @ let failures = count(ctx, "two");
+   |     ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here
+error: there is nothing named `failures` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_brace_app_31b025/main.buri:59:26
+   |
+59 |     let _ = forget(.Some(failures + written));
+   |                          ^^^^^^^^
+   |
+   = fix: declare `failures`, or import it — a name is in scope only from this module's own declarations and its imports
