@@ -88,6 +88,17 @@
 #      same shape of ratio F4 and F7 both measured. Not hit, does not move,
 #      ~6.0 % left.
 #
+#      HIT AGAIN when the reference-counting safety net landed (F5): the
+#      quarantine ring, the poison writes and the end-of-run heap audit are
+#      shipped runtime code — dormant until BURI_RT_HEAP_CHECK, but carried by
+#      every binary — and they took Darwin to 9 458 448, which is 21 264 bytes
+#      over the old 9 MiB line. Re-measured and RE-STATED per rule 2: the new
+#      budget is 9 536 512 (9.09 MiB), which is the measurement plus ~78 KB of
+#      headroom (~0.8 %). The bytes buy use-after-free and leak detection on
+#      every natively-executed test in the tree, which is the trade the
+#      safety-net commit argues; anything cheaper would gate the diagnostics
+#      behind a second archive build the toolchain deliberately does not have.
+#
 #      THE LINUX BUDGET IS A DIFFERENT STORY AND IT IS THE CAUTIONARY ONE.
 #      Every Linux figure this script has ever carried was a PROJECTION — the
 #      macOS delta added to an 8 469 832-byte measurement taken before the
@@ -219,7 +230,7 @@ case "$(uname -s)" in
   # already in the archive and unreferenced, so what arrived is what `lto =
   # "fat"` had been deleting — eleven `std::fs` call sites and one `std::env`.
   # 9 MiB leaves ~3.5 %, which is the thinnest this has been. See the note above.
-  Darwin) budget=9437184 ;;
+  Darwin) budget=9536512 ;;
   # 13 799 068 measured on aarch64-unknown-linux-gnu since F8 added the socket
   # double; F7's figure for the same triple was 13 788 172, and F4's were
   # 13 611 228 here and 13 515 516 on CI. 14 MiB leaves ~6.0 % on the largest.
