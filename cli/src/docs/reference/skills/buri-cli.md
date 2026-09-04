@@ -245,6 +245,16 @@ Search takes words rather than a name: it reads the prose inside every page and
 a table of concepts, so "compare ints" reaches `core/order` and "fixture"
 reaches `core/host/testing`. Each hit is printed as the command that reads it.
 
+**Explore before you hand-roll.** Bare `buri docs` is the whole index — every
+topic, every command, every diagnostic code and every standard library module —
+and it is the cheapest call here. When you are about to write a comparator, a
+table of hex digits, a `groupBy`, a base64 encoder or a date calculation, read
+the module first: `buri docs core/order`, `core/bytes`, `core/map`, `core/list`,
+`core/date`. Search by intent when you cannot name the module. A module's page
+is generated from the source the compiler checked, so it cannot describe a
+function that does not exist — and anything already in `core/*` is code you do
+not have to write, test, or get right.
+
 For an agent: `--format=json` prints one object on one line, and `--dense`
 drops prose but keeps every heading and **every example**.
 

@@ -13,6 +13,13 @@ The normative text ships in the binary: `buri docs language/lexical`,
 `language/evaluation`, `language/functions`, `language/effects` and
 `language/programs`. `buri docs search <words>` looks in every page at once — in the prose, not only the names, so a question like `buri docs search compare ints` works — and prints each hit as the command that reads it.
 
+**Explore the library before writing a helper.** Bare `buri docs` lists every
+`core/*` and `ui/*` module in one screen; `buri docs core/str` renders one from
+the source the compiler checked, and `buri docs core/str.padStart` renders a
+single item. Comparators, hex, base64, varints, grouping, checksums, dates,
+argument parsing and a CLI are already there, and a hand-rolled one is a wrong
+answer that compiles.
+
 ## The twelve things that will trip you up
 
 1. **No mutation.** Every binding is final. No assignment operator, no `mut`,
@@ -269,6 +276,16 @@ Values are immutable, so lambdas capture by value and capture is unobservable
 by the grammar. `buri format` is the one canonical layout — four-space indent,
 sorted leading imports, a struct's fields and an enum's variants one to a line
 however short they are, no options.
+
+**The third slash is what publishes.** `//` runs to the end of the line and
+`/* */` nests; neither is ever rendered. `///` above a declaration is a
+**documentation comment**, and `//!` at the top of a file documents the module —
+those two are what `buri docs <module>`, editor hover and `buri docs search`
+read, and their fenced examples are compiled by the test suite like any other.
+So a note a *caller* needs gets `///`, above the `export fn`, `struct`, `enum`,
+field or variant it describes; `//` is for the reader of the body. A `//!` lower
+down the file is `module-doc-not-first` — it attaches upward, to the module, and
+is legal only above the first item.
 
 ## When something does not compile
 
