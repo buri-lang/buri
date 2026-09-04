@@ -135,10 +135,18 @@ console.log("checked " + checked + " mismatches " + bad);
 /// binary the first is executing. On macOS that is not an error, it is a child
 /// that never returns, and a full-suite run that never completes. The same
 /// pattern `--check-reproducible` uses, for the same reason.
-fn workspace() -> PathBuf {
+/// A scratch tree of this process's, one subtree per caller.
+///
+/// Per *test*, not only per process: the parity sweep ends by deleting its
+/// tree, and under a parallel harness the runtime-unit test is compiling into
+/// a sibling at that moment. A shared root made that a race — the sweep's
+/// `remove_dir_all` took the directory out from under a live `rustc` — so each
+/// test names its own subtree and deletes only what it owns.
+fn workspace(name: &str) -> PathBuf {
     crate::sweep::once();
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
-        .join(format!("float-parity-{}", std::process::id()));
+        .join(format!("float-parity-{}", std::process::id()))
+        .join(name);
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -279,7 +287,7 @@ fn a_native_float_renders_as_javascript_renders_it() {
         crate::ci::skipped("float parity", "no JavaScript engine (`bun` or `node`) is on PATH");
         return;
     };
-    let dir = workspace();
+    let dir = workspace("parity");
     let archive = dir.join(ARCHIVE_NAME);
     let source = dir.join("floats.c");
     let binary = dir.join("floats");
@@ -381,7 +389,7 @@ fn the_javascript_side_is_the_runtimes_own() {
 // question to answer here, so it gets no test rather than a skipped one.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn the_runtimes_own_unit_tests_pass() {
-    let dir = workspace();
+    let dir = workspace("unit");
     let binary = dir.join("runtime-tests");
     let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("runtime/lib.rs");
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
