@@ -1,0 +1,1 @@
+from "//lib/app/app.buri" export { size };

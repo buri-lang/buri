@@ -1,0 +1,14 @@
+from "core/effect" import { Alloc, Rand };
+from "core/fs" import { FsRead, FsWrite };
+from "core/host/testing" import { alloc, fs as disk, rand };
+
+/// `//lib/one`'s `Fixture` binds two effects; this one binds four. Two
+/// contexts under one name, and deliberately of different sizes: the inliner
+/// empties the smaller into its callers, which is what left the larger one
+/// answering to an abort the day both wore the symbol `ctx$Fixture`.
+export context Fixture {
+    Alloc: alloc(),
+    FsRead: disk(),
+    FsWrite: disk(),
+    Rand: rand().seed(7),
+}

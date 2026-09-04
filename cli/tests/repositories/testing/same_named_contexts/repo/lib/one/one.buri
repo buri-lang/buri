@@ -1,0 +1,7 @@
+from "core/effect" import { Alloc };
+
+/// A list only an allocator can build, so a caller has to hand this one a
+/// context and the context it hands over is observable in the artifact.
+export fn hold<C: Alloc>(ctx: C, n: I64): [I64] {
+    [].push(ctx, n)
+}

@@ -1,0 +1,27 @@
+from "core/testing/assert" import * as assert;
+from "//lib/one" import { hold };
+from "//lib/one/testing" import { Fixture as Writing };
+from "//lib/two" import { keep };
+from "//lib/two/testing" import { Fixture as Reading };
+
+// One suite, two `Fixture` declarations, one binary. The alias is the import's
+// business and changes nothing about what either declaration is called where
+// it is written, which is the whole of what this file is here to say.
+
+test "the writing fixture allocates" {
+    let ctx = Writing();
+
+    assert.eq(hold(ctx, 1).len(), 1);
+}
+
+test "the reading fixture allocates" {
+    let ctx = Reading();
+
+    assert.eq(keep(ctx, 2).len(), 1);
+}
+
+test "the reading fixture allocates again" {
+    let ctx = Reading();
+
+    assert.eq(keep(ctx, 3).len(), 1);
+}

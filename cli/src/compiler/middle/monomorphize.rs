@@ -581,7 +581,49 @@ impl<'a> Monomorphizer<'a> {
             }
             Key::CtxCtor(c) => {
                 let info = self.tables().ctx_decl(*c);
-                (sanitize(&format!("ctx${}", info.name)), info.name.clone(), info.span)
+                // Qualified with the declaring module, for the reason the arm
+                // above is: a `context` name is a *module-local* name, so two
+                // modules that each write `context Fixture { ... }` declare
+                // two different types with two different constructors.
+                // Unqualified, both landed on `ctx$Fixture` and one definition
+                // answered to the other's calls — one body per symbol is the
+                // whole of what a symbol is for.
+                //
+                // The symptom was not a wrong answer but a spectacular one:
+                // inlining empties the smaller of the two constructors into
+                // its callers, `dce` marks the emptied one unbuilt, the
+                // backend emits an abort under the shared symbol, and the
+                // other module's every test dies on "this function was never
+                // built".
+                //
+                // Both ways a program comes to hold two of them were broken,
+                // and only one of the two was ever reported: two `testing`
+                // surfaces in one suite's closure, on either backend, and one
+                // test source per package in the binary `commands/test.rs`'s
+                // `run_batch` builds for `buri test //a //b` — which is native
+                // only, because `--output=` does not batch. That is what made
+                // the reported half so hard to see: each package alone passed,
+                // JavaScript passed, and a *second* run of the failing command
+                // passed too, since the suite that did pass is cached by then
+                // and one fresh suite does not batch.
+                // `repositories/testing/same_named_contexts` is both shapes,
+                // and `language::symbols` is the invariant under them.
+                //
+                // `$ctx$` rather than a bare `ctx$` prefix so that no ordinary
+                // function can spell it: an identifier holds no `$`, and
+                // `sanitize` maps a method owner's `.` to `_`, so
+                // `m$ctx$Fixture` is reachable only from here.
+                let module = self
+                    .module_paths
+                    .get(info.module.index())
+                    .cloned()
+                    .unwrap_or_else(|| "core".into());
+                let symbol = format!(
+                    "{}$ctx${}",
+                    module.replace(['/', '.'], "_").replace("//", ""),
+                    info.name
+                );
+                (sanitize(&symbol), format!("{module}:{}", info.name), info.span)
             }
             Key::Test(i) => {
                 let case = self
