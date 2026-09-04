@@ -1,0 +1,29 @@
+error: a tuple has arity 2 or more [tuple-arity]
+  --> main.buri:30:3
+   |
+30 |   (a + b@ ) < (c)
+   |   ^^^^^^^^^
+   |
+   = `(e)` is grouping and `()` is the unit value
+   = fix: drop the parentheses for one element, or write `()` for none
+error: this tuple is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:30:9
+   |
+30 |   (a + b@ ) < (c)
+   |         ^
+   |
+  --> main.buri:30:3
+   |
+30 |   (a + b@ ) < (c)
+   |   ^ opened here
+   |
+   = fix: write `)` here
+error: expected `(I64)`, found `I64` [type-mismatch]
+  --> main.buri:30:16
+   |
+30 |   (a + b@ ) < (c)
+   |                ^ the left operand's type is `(I64)`
+   |
+   = expected: `(I64)`
+   = actual: `I64`
+   = fix: produce a `(I64)` here, or change what surrounds it to accept a `I64`

@@ -1,0 +1,37 @@
+error: expected `Bool`, found `(Bool)` [type-mismatch]
+ --> main.buri:1:46
+  |
+1 | export fn signs_differ(a: Int, b: Int): Bool {
+  |                                              ^ the declared return type is `Bool`
+  |
+  = expected: `Bool`
+  = actual: `(Bool)`
+  = fix: produce a `Bool` here, or change what surrounds it to accept a `(Bool)`
+error: a tuple has arity 2 or more [tuple-arity]
+ --> main.buri:2:3
+  |
+2 |   (a < 0 != (b < 0)
+  |   ^^^^^^^^^^^^^^^^^
+  |
+  = `(e)` is grouping and `()` is the unit value
+  = fix: drop the parentheses for one element, or write `()` for none
+error: comparison operators are non-associative [chained-comparison]
+ --> main.buri:2:10
+  |
+2 |   (a < 0 != (b < 0)
+  |          ^^
+  |
+  = write `a < b && b < c` rather than `a < b < c`
+  = fix: write `a < b && b < c` rather than `a < b < c`
+error: this tuple is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:3:1
+  |
+3 | }
+  | ^
+  |
+ --> main.buri:2:3
+  |
+2 |   (a < 0 != (b < 0)
+  |   ^ opened here
+  |
+  = fix: write `)` here

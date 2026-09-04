@@ -1,0 +1,9 @@
+error: expected an expression, found `<` [unexpected-token]
+  --> main.buri:22:15
+   |
+22 |   (a < b) == (< c d) && (a > b) != (c > d)
+   |               ^
+   |
+   = expected: an expression
+   = actual: `<`
+   = fix: write a value here
