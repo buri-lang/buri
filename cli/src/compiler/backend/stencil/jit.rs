@@ -1330,6 +1330,12 @@ impl<'a> Jit<'a> {
 
     /// Whether a function, or anything reachable from it, contains an
     /// `unsupported` stencil — the honest predicate for "this test can be run".
+    ///
+    /// **This part's** answer, and a unit is emitted in parts (`mod.rs`), so a
+    /// caller wanting the unit's would have to `or` the parts' vectors together
+    /// before running the fixpoint. Nothing asks today: the emission path reads
+    /// [`Jit::reasons`] instead, which `assemble_unit` does collect across the
+    /// parts, and refuses the whole unit where any part refused anything.
     pub fn reachable_dirty(&self, prog: &ir::Program) -> Vec<bool> {
         let n = prog.funcs.len();
         let mut edges: Vec<Vec<u32>> = vec![Vec::new(); n];
@@ -1375,9 +1381,10 @@ impl<'a> Jit<'a> {
         bad
     }
 
-    /// Where `f` was emitted inside this unit's section. `plan` gives every
-    /// function of the program an entry — zero for one this unit does not own,
+    /// Where `f` was emitted inside this **part's** region. `plan` gives every
+    /// function of the program an entry — zero for one this part does not own,
     /// which is also what a `FuncIdx` from outside the program would read.
+    /// `mod.rs::assemble_unit` adds the part's base to make it the unit's.
     pub fn entry_of(&self, f: usize) -> u64 {
         ent(&self.entries, f, 0)
     }
