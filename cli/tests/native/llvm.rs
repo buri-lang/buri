@@ -3536,6 +3536,78 @@ export fn main(): Result<(), Str> {{
     assert_eq!(live_blocks(&many.1), 0, "the heap did not come back balanced: {:?}", many.1);
 }
 
+/// **An empty list is not a block.**
+///
+/// `cli/runtime/list.rs`'s `block` answers `{ null, 0 }` for a list of no
+/// elements — "an empty `[T]` allocates nothing, which is what makes
+/// `list.empty` free" — and the stencil backend writes the same two
+/// immediates. This backend used to call `buri_rt_alloc(0)` instead, on the
+/// stale reasoning that `repr.rs` claimed a list's `ptr` was `Counted::NonNull`
+/// and that a null one would send the first `decref` to a header at `-16`.
+/// `repr.rs` claims `Nullable`, and says at length why it has to: a runtime
+/// entry hands back a null-`ptr` empty list already, so the null test is in
+/// every list reference operation whatever this arm emits.
+///
+/// The zero-byte block was not free, and what it cost was **agreement**. It is
+/// a block the runtime's heap check counts, so a program with an
+/// under-decrement over an empty list leaked one block here and none on the
+/// debug backend — the same program, two leak counts. That is what
+/// `cli/tests/fuzz.rs`'s ownership search compares, and it is what it caught:
+/// `wrapped(.None)` below is the shape it minimised to, an
+/// `Option<Wrapper>.withDefault` whose default holds a `list.empty<U8>()`,
+/// where `middle::rc` does not release the result. The under-decrement is
+/// shared, pre-existing and pinned next door
+/// (`agreement.rs`'s `an_option_whose_payload_holds_an_array_agrees`); what
+/// was this backend's alone is that it turned into a counted block.
+///
+/// Counted at two sizes rather than asserted against zero at one, for
+/// `interpolating_in_a_loop_leaks_nothing`'s reason: the defect was one block
+/// per evaluation, so five evaluations and fifty have to leave the same
+/// number live.
+#[test]
+fn an_empty_list_is_not_a_block() {
+    skip_unless_executable!();
+    let source = |n: u32| {
+        program(&format!(
+            r#"
+from "core/list" import * as list;
+
+struct Wrapper {{ octets: [U8] }}
+
+fn wrapped(held: Option<Wrapper>): Int {{
+  held.withDefault(Wrapper {{ octets: list.empty<U8>() }}).octets.len()
+}}
+
+fn go(n: Int, acc: Int): Int {{
+  if (n <= 0) {{ acc }} else {{
+    go(n - 1, acc + wrapped(.None) + list.empty<Int>().len())
+  }}
+}}
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{ Alloc: host.alloc, Stdout: host.stdout }};
+  let _ = io.println(ctx, "total ${{go({n}, 0)}}").ignore();
+  .Ok(())
+}}
+"#
+        ))
+    };
+    let few = build_and_run_with("empty-list-few", &source(5), Some(LIVE_PROBE));
+    let many = build_and_run_with("empty-list-many", &source(50), Some(LIVE_PROBE));
+    assert!(few.0.ends_with("total 0\n"), "stdout was: {:?}", few.0);
+    assert!(many.0.ends_with("total 0\n"), "stdout was: {:?}", many.0);
+    assert_eq!(
+        live_blocks(&few.1),
+        live_blocks(&many.1),
+        "five empty lists left {} block(s) live and fifty left {}: an empty list \
+         is a block again, and every one of them is a leak the debug backend \
+         does not have",
+        live_blocks(&few.1),
+        live_blocks(&many.1)
+    );
+    assert_eq!(live_blocks(&many.1), 0, "the heap did not come back balanced: {:?}", many.1);
+}
+
 /// A `C: Alloc` parameter reached with a value that **implements** `Alloc`
 /// rather than with a `context { … }` record — the shape SPEC 10.8's
 /// attenuation is made of, and the one a native ABI rule used to get wrong.
