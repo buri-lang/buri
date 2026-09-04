@@ -4,7 +4,7 @@ error: "core/order" has no member `Comparable` [no-such-member]
 7 | impl order.Comparable for Bag {
   |      ^^^^^^^^^^^^^^^^
   |
-  = the module exports 15 names
+  = the module exports 19 names
   = fix: correct the member name, or check `buri docs core/order`
 
     What to do

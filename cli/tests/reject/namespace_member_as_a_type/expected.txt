@@ -4,7 +4,7 @@ error: "core/list" has no member `Vector` [no-such-member]
 9 |   let xs: list.Vector<Int> = [1, 2, 3];
   |           ^^^^^^^^^^^^^^^^
   |
-  = the module exports 38 names
+  = the module exports 53 names
   = fix: correct the member name, or check `buri docs core/list`
 
     What to do
