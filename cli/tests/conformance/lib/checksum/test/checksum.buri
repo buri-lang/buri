@@ -1,0 +1,167 @@
+// core/hash — FNV-1a, CRC-32C and SipHash-2-4, against their published vectors.
+//
+// Every expected value here was published by somebody else. The hex spelling is
+// deliberate: a checksum is compared against a number written in a
+// specification, and a decimal `U32` in an assertion is a number nobody can
+// look up.
+
+from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc };
+from "core/hash" import * as hash;
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+
+// The eight hex digits of a 32-bit answer, and the sixteen of a 64-bit one.
+fn hex32(x: U32): Str {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    bytes.toHex(ctx, bytes.fromU32Be(x))
+}
+
+fn hex64(x: U64): Str {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    bytes.toHex(ctx, bytes.fromU64Be(x))
+}
+
+fn octets(text: Str): [U8] {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    bytes.toUtf8(ctx, text)
+}
+
+// --- FNV-1a -------------------------------------------------------------------------
+//
+// Landon Curt Noll's reference vectors for FNV-1a, the ones every
+// reimplementation is checked against.
+
+test "FNV-1a at 32 bits" {
+    assert.eq(hex32(hash.fnv1a32(list.empty<U8>())), "811c9dc5");
+    assert.eq(hex32(hash.fnv1a32(octets("a"))), "e40c292c");
+    assert.eq(hex32(hash.fnv1a32(octets("foobar"))), "bf9cf968");
+}
+
+test "FNV-1a at 64 bits" {
+    assert.eq(hex64(hash.fnv1a64(list.empty<U8>())), "cbf29ce484222325");
+    assert.eq(hex64(hash.fnv1a64(octets("a"))), "af63dc4c8601ec8c");
+    assert.eq(hex64(hash.fnv1a64(octets("foobar"))), "85944171f73967e8");
+}
+
+// The empty input is the offset basis rather than a special case, which is what
+// lets a caller start a rolling hash from the exported constant and get the
+// same answers.
+test "the offset basis is where the fold starts" {
+    assert.eq(hash.fnv1a32(list.empty<U8>()), hash.FNV1A32_OFFSET);
+    assert.eq(hash.fnv1a64(list.empty<U8>()), hash.FNV1A64_OFFSET);
+}
+
+test "stepping one octet at a time is the same hash" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let body = octets("foobar");
+    let stepped32 = body.fold(fn(h, o) => hash.fnv1a32Step(h, o), hash.FNV1A32_OFFSET);
+    let stepped64 = body.fold(fn(h, o) => hash.fnv1a64Step(h, o), hash.FNV1A64_OFFSET);
+    assert.eq(stepped32, hash.fnv1a32(body));
+    assert.eq(stepped64, hash.fnv1a64(body));
+    // And splitting the input anywhere gives the same answer, which is the
+    // whole property a rolling checksum is used for.
+    let head = body.take(ctx, 2);
+    let tail = body.drop(ctx, 2);
+    let split = tail.fold(
+        fn(h, o) => hash.fnv1a64Step(h, o),
+        head.fold(fn(h, o) => hash.fnv1a64Step(h, o), hash.FNV1A64_OFFSET),
+    );
+    assert.eq(split, hash.fnv1a64(body));
+}
+
+// A hash that ignored an octet, or folded them in the wrong order, would still
+// pass every vector above if the vectors were all it had.
+test "order and content both matter" {
+    assert.notEq(hash.fnv1a32(octets("ab")), hash.fnv1a32(octets("ba")));
+    assert.notEq(hash.fnv1a64(octets("ab")), hash.fnv1a64(octets("ba")));
+}
+
+// --- CRC-32C ------------------------------------------------------------------------
+
+// The check value every catalogue of CRC parameters publishes: the CRC of the
+// nine ASCII digits.
+test "the CRC-32C check value" {
+    assert.eq(hex32(hash.crc32c(octets("123456789"))), "e3069283");
+}
+
+test "the empty input is zero" {
+    // All-ones in, all-ones out: the two cancel.
+    assert.eq(hash.crc32c(list.empty<U8>()), 0);
+}
+
+// RFC 3720 appendix B.4 — the iSCSI CRC examples.
+test "the RFC 3720 vectors" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let zeros: [U8] = list.repeat(ctx, 0, 32);
+    assert.eq(hex32(hash.crc32c(zeros)), "8a9136aa");
+
+    let ascending = list.range(ctx, 0, 32).map(ctx, fn(i) => i.wrapToU8());
+    assert.eq(hex32(hash.crc32c(ascending)), "46dd794e");
+
+    let descending = ascending.reverse(ctx);
+    assert.eq(hex32(hash.crc32c(descending)), "113fdb5c");
+}
+
+// --- SipHash-2-4 --------------------------------------------------------------------
+//
+// The reference implementation's key — the sixteen octets 00..0f, read as two
+// little-endian words — and its table of answers for the inputs 00, 00 01,
+// 00 01 02, and so on. The lengths chosen here are the ones where the
+// implementation can go wrong: none, one short of a word, exactly a word, one
+// short of two words, exactly two, and four.
+
+let K0: U64 = 0x0706050403020100;
+
+let K1: U64 = 0x0f0e0d0c0b0a0908;
+
+fn vector(n: Int): Str {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    hex64(hash.siphash24(K0, K1, list.range(ctx, 0, n).map(ctx, fn(i) => i.wrapToU8())))
+}
+
+test "the SipHash-2-4 reference vectors" {
+    assert.eq(vector(0), "726fdb47dd0e0e31");
+    assert.eq(vector(1), "74f839c593dc67fd");
+    assert.eq(vector(7), "ab0200f58b01d137");
+    assert.eq(vector(8), "93f5f5799a932462");
+    assert.eq(vector(15), "a129ca6149be45e5");
+    assert.eq(vector(16), "3f2acc7f57c29bdb");
+    assert.eq(vector(32), "7127512f72f27cce");
+}
+
+// The length goes into the top octet of the final word, so an input and the
+// same input with a zero on the end are not the same hash. Without that byte
+// they would be.
+test "trailing zeros are not free" {
+    assert.notEq(hash.siphash24(K0, K1, [0]), hash.siphash24(K0, K1, [0, 0]));
+}
+
+test "the key is part of the answer" {
+    let body = octets("foobar");
+    assert.notEq(hash.siphash24(K0, K1, body), hash.siphash24(K1, K0, body));
+    assert.notEq(hash.siphash24(K0, K1, body), hash.siphash24(0, 0, body));
+}
+
+// --- Nothing here is a digest -------------------------------------------------------
+
+// Not a security property, just the arithmetic: a 32-bit checksum has 2^32
+// values, so two inputs sharing one is a coincidence rather than a scandal.
+// This is the test that says the module knows what it is.
+test "a checksum is four octets wide and says so" {
+    assert.eq(bytes.fromU32Be(hash.crc32c(octets("x"))).len(), 4);
+    assert.eq(bytes.fromU64Be(hash.fnv1a64(octets("x"))).len(), 8);
+}
