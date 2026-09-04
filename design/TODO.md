@@ -167,10 +167,12 @@ The design is `design/native/`; the waves it planned have landed. What is open
 is two things:
 
 - **Half the default has flipped.** `buri test` runs a suite that names no
-  platform natively, in the dev profile, and falls back to JavaScript per suite
-  — out loud, on stderr — where this toolchain has no native backend or where
-  the suite's program reaches something the backend has no body for
-  (`commands/test.rs`'s `default_platform` and `native_gap`).
+  platform natively, in the dev profile, and there is no fallback: a toolchain
+  that cannot build for its own host is `native-run-not-available` and a program
+  the backend has no body for is a refusal naming the gap
+  (`commands/test.rs`'s `not_ready` and `native_gap`). The two ways to reach
+  JavaScript are both somebody saying so — `--output=js`, or
+  `test { platforms: [JS] }`.
 
   `selected_outputs`' fallback (`build/actions.rs`) has not: a binary that
   declares no outputs still gets `JS`, because an artifact that silently

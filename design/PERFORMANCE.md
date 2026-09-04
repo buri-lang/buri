@@ -1285,11 +1285,12 @@ rather than quadratically with appends.
 
 **`buri test` defaults to the native dev backend**, since 2026-08-21. A suite
 that names no platform is compiled with the dev backend and run as a binary, and
-falls back to JavaScript per suite — out loud — where the toolchain or the
-suite's program needs it (`commands/test.rs`;
-`design/native/ARCHITECTURE.md` §4). The set of hosts on which that fallback
-fires got one member wider on 2026-08-29: the dev backend now answers for the
-triples it has a stencil library for and no others
+since 2026-09-03 there is no fallback: a toolchain that cannot build for its own
+host, or a program the backend has no body for, is a refusal naming what is
+missing rather than a JavaScript run with a note (`commands/test.rs`;
+`design/native/ARCHITECTURE.md` §4). The set of hosts that refusal covers got
+one member wider on 2026-08-29: the dev backend answers for the triples it has a
+stencil library for and no others
 (`design/native/CODEGEN-STENCIL.md` §3.2). The
 number that paid for the change is the incremental one: a one-line edit at 104k
 lines is 502 ms to verdict native against bun's 622 on the fast suite and 1,484
