@@ -706,20 +706,22 @@ fn a_suite_naming_the_host_platform_runs_natively() {
 // and because `--explain`'s rows already name the platform every action ran
 // for, which is the evidence the question needs.
 
-/// The default, in both directions at once: **natively, or a line saying why
-/// not**.
+/// The default, in both directions at once: **natively, or a refusal naming
+/// what is missing**. Never JavaScript.
 ///
-/// Written as an equivalence rather than as an assertion that it went native,
-/// for the reason `driver.rs`'s host-platform test gives: a toolchain built
-/// with `--no-default-features`, a host outside macOS and Linux, and a machine
-/// with no C toolchain all have to fall back, and a test asserting the
-/// happy answer would pass for the wrong reason on the machine where it
-/// matters. The two failure modes this catches are the two that matter — a
-/// suite that fell back where it did not have to (silence would hide it, so
-/// the note is what is asserted) and a suite that went native without saying so
-/// where it should not have.
+/// Written as an equivalence rather than as a bare assertion that it went
+/// native, for the reason `driver.rs`'s host-platform test gives: a toolchain
+/// built with `--no-default-features`, a host outside macOS and Linux, and a
+/// machine with no C toolchain cannot produce a binary at all, and a test
+/// asserting the happy answer would pass for the wrong reason on the machine
+/// where it matters. What is asserted on *every* machine is the half that has
+/// no second answer — the suite did not run on JavaScript.
+///
+/// It used to have a third branch: a fall back to JavaScript with a `note:` on
+/// standard error. That is what this test now exists to forbid
+/// (buri-lang/buri#4).
 #[test]
-fn a_suite_naming_no_platform_runs_natively_or_says_why_not() {
+fn a_suite_naming_no_platform_runs_natively() {
     let scratch = Scratch::repo("default-backend");
     scratch.write("lib/n/BUILD.buri", "library {\n  test {\n    sources: [\"test/n.buri\"]\n  }\n}\n");
     scratch.write("lib/n/lib.buri", "export fn answer(): Int { 21 }\n");
@@ -731,28 +733,32 @@ fn a_suite_naming_no_platform_runs_natively_or_says_why_not() {
     );
 
     let run = scratch.run(&["test", "//lib/n", "--explain"]);
+    if run.stderr.contains("native-run-not-available") {
+        // A toolchain that cannot build for its own host. The refusal is the
+        // whole answer: nothing ran, and in particular nothing ran on
+        // JavaScript.
+        run.exits(1);
+        assert_eq!(run.tests_passed(), 0, "a refused suite still ran:\n{}", indent(&run.all()));
+        return;
+    }
     run.ok();
     assert_eq!(run.tests_passed(), 1, "the default backend ran no tests:\n{}", indent(&run.all()));
-    let platform = platform_of(&run, "test //lib/n");
-    if platform == "js" {
-        assert!(
-            run.stderr.contains("//lib/n runs on javascript")
-                || run.stderr.contains("names no platform runs on javascript"),
-            "a suite fell back to javascript without saying why:\n{}",
-            indent(&run.all())
-        );
-    } else {
-        assert!(
-            run.stdout.lines().any(|l| l.split_whitespace().nth(1) == Some("codegen")),
-            "a suite reported a native platform and no codegen action:\n{}",
-            indent(&run.all())
-        );
-        assert!(
-            !run.stderr.contains("runs on javascript"),
-            "a native run explained itself as a fallback:\n{}",
-            indent(&run.all())
-        );
-    }
+    assert_ne!(
+        platform_of(&run, "test //lib/n"),
+        "js",
+        "a suite that named no platform was routed to javascript:\n{}",
+        indent(&run.all())
+    );
+    assert!(
+        run.stdout.lines().any(|l| l.split_whitespace().nth(1) == Some("codegen")),
+        "a suite reported a native platform and no codegen action:\n{}",
+        indent(&run.all())
+    );
+    assert!(
+        !run.stderr.contains("runs on javascript"),
+        "a native run explained itself as a fallback:\n{}",
+        indent(&run.all())
+    );
 
     // `--output=js` is the escape hatch, and it is not a fallback: nothing is
     // explained, because nothing gave way.
@@ -765,9 +771,89 @@ fn a_suite_naming_no_platform_runs_natively_or_says_why_not() {
         indent(&js.all())
     );
 
+    // The other escape hatch, written in the build file rather than on the
+    // command line: a suite that says where it belongs runs there, and says
+    // nothing about a fallback either.
+    scratch.write(
+        "lib/n/BUILD.buri",
+        "library {\n  test {\n    sources: [\"test/n.buri\"]\n    platforms: [JS]\n  }\n}\n",
+    );
+    let declared = scratch.run(&["test", "//lib/n", "--explain"]);
+    declared.ok();
+    assert_eq!(platform_of(&declared, "test //lib/n"), "js");
+    assert_eq!(
+        declared.tests_passed(),
+        1,
+        "a declared JS suite ran no tests:\n{}",
+        indent(&declared.all())
+    );
+    assert!(
+        !declared.stderr.contains("runs on javascript"),
+        "a declared JavaScript run was reported as a fallback:\n{}",
+        indent(&declared.all())
+    );
+
     // And nothing else sends a suite to JavaScript. `test { data }` did — it
     // was the one build-file field that overruled the invocation — and it is
-    // retired, so what the flags say is the whole of the answer.
+    // retired, so what the flags and the build file say is the whole of the
+    // answer.
+}
+
+/// `--release` names a profile, and a profile this toolchain cannot serve is
+/// **refused** rather than quietly handed to another backend.
+///
+/// This is the case the old fallback hid best. `backend-llvm` is off by
+/// default, so on an ordinary toolchain `buri test --release` compiled nothing,
+/// ran the suite on JavaScript, and reported it as passing — a release run that
+/// was not a release run, with the only trace of that in a `note:` on standard
+/// error. The profile is why `native_ready` takes the flags rather than
+/// pinning `Debug`: the release profile routes to LLVM, and a toolchain without
+/// it must say so.
+///
+/// An equivalence, because a toolchain *built* with `backend-llvm` runs this
+/// natively and is right to. What holds on both is that it is never JavaScript.
+#[test]
+fn a_release_run_this_toolchain_cannot_produce_is_refused() {
+    let scratch = Scratch::repo("release-backend");
+    scratch.write("lib/n/BUILD.buri", "library {\n  test {\n    sources: [\"test/n.buri\"]\n  }\n}\n");
+    scratch.write("lib/n/lib.buri", "export fn answer(): Int { 21 }\n");
+    scratch.write(
+        "lib/n/test/n.buri",
+        "from \"//lib/n\" import { answer };\n\
+         from \"core/testing/assert\" import * as assert;\n\
+         \ntest \"answers\" {\n  assert.eq(answer(), 21);\n}\n",
+    );
+
+    let run = scratch.run(&["test", "//lib/n", "--release", "--explain"]);
+    if run.stderr.contains("native-run-not-available") {
+        run.exits(1);
+        assert_eq!(
+            run.tests_passed(),
+            0,
+            "a refused release run still reported a passing test:\n{}",
+            indent(&run.all())
+        );
+        assert!(
+            run.stderr.contains("in the release profile"),
+            "the refusal did not say which profile was asked for:\n{}",
+            indent(&run.all())
+        );
+        // The fix is somebody saying where the suite runs, not the runner
+        // deciding for them.
+        assert!(
+            run.stderr.contains("--output=js") && run.stderr.contains("platforms: [JS]"),
+            "the refusal did not say what to do about it:\n{}",
+            indent(&run.all())
+        );
+        return;
+    }
+    run.ok();
+    assert_ne!(
+        platform_of(&run, "test //lib/n"),
+        "js",
+        "a release run was served by the javascript backend:\n{}",
+        indent(&run.all())
+    );
 }
 
 /// A suite the native backend cannot compile is **refused**, and naming a
@@ -798,10 +884,11 @@ fn a_suite_the_native_backend_cannot_compile_is_refused() {
     );
 
     let run = scratch.run(&["test", "//lib/g"]);
-    // On a host with no native backend the default is JavaScript already, and
-    // there is no gap to refuse — the suite simply runs.
-    if run.stderr.contains("names no platform runs on javascript") {
-        run.ok();
+    run.exits(1);
+    // On a host this toolchain cannot build a binary for, the refusal is the
+    // earlier one — there is no program to ask about a gap, because there is no
+    // backend to ask it of. Either way the suite did not run somewhere else.
+    if run.stderr.contains("native-run-not-available") {
         return;
     }
     assert!(
@@ -1041,6 +1128,13 @@ fn suites_share_a_binary_only_where_their_tags_allow_it() {
     suite_package(&scratch, "d", "  tags: [\"client\"]\n");
 
     let run = scratch.run(&["test", "//...", "--explain"]);
+    if run.stderr.contains("native-run-not-available") {
+        // This toolchain cannot build for its own host, so there is no batch to
+        // look at — and what a suite gets is the refusal rather than a run
+        // somewhere else.
+        run.exits(1);
+        return;
+    }
     run.ok();
     assert_eq!(run.tests_passed(), 4, "a batched run lost a test:\n{}", indent(&run.all()));
     // Every suite is still its own `test` action, batched or not — that is the
@@ -1048,16 +1142,7 @@ fn suites_share_a_binary_only_where_their_tags_allow_it() {
     assert_eq!(rows(&run, "test").len(), 4, "a suite lost its own action:\n{}", indent(&run.all()));
 
     let links = rows(&run, "link");
-    if links.is_empty() {
-        // No native backend, no runtime archive, or no C toolchain: every suite
-        // ran on JavaScript, which links nothing and says so.
-        assert!(
-            run.stderr.contains("runs on javascript"),
-            "there were no links and nothing said why:\n{}",
-            indent(&run.all())
-        );
-        return;
-    }
+    assert!(!links.is_empty(), "a native pass linked nothing:\n{}", indent(&run.all()));
     let shared = links
         .iter()
         .find(|l| l.contains("//lib/a") && l.contains("//lib/b") && l.contains("//lib/c"))

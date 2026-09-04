@@ -157,6 +157,11 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("module-not-found", "A module path names exactly one file"),
     e!("module-outside-repository", "A `//` path needs a repository to be relative to"),
     e!(
+        "native-run-not-available",
+        "A suite that names no platform runs natively, so this toolchain has to be able to build one",
+        &["build/tags"]
+    ),
+    e!(
         "networking-not-available",
         "A program that uses the network needs a toolchain built with networking"
     ),

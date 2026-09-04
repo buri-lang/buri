@@ -43,15 +43,15 @@
 //! below, and is why the pin costs no coverage.
 //!
 //! The pin stays for one reason, and it is about the machine rather than about
-//! the report: the fallback sends the same suite to JavaScript on a toolchain
-//! built with `--no-default-features`, on a host outside macOS and Linux, and
-//! on a machine with no C toolchain — out loud, as a `note:` on standard error.
-//! Standard *output* is identical either way, but `does_not_compile`,
-//! `duplicate_titles` and `exit_codes` record standard error, and an unpinned
-//! one of those would gain a line depending on how the binary running it was
-//! compiled. Naming the backend keeps every golden here a fact about the
-//! report; the equivalence test keeps the two paths honest about being one
-//! report.
+//! the report: a toolchain built with `--no-default-features`, a host outside
+//! macOS and Linux, and a machine with no C toolchain cannot build a test
+//! binary at all, and the default there is a `native-run-not-available`
+//! refusal rather than a run. `does_not_compile`, `duplicate_titles` and
+//! `exit_codes` record standard error, and an unpinned one of those would
+//! record that refusal instead of the report it is about, depending on how the
+//! binary running it was compiled. Naming the backend keeps every golden here a
+//! fact about the report; the equivalence test below keeps the two paths honest
+//! about being one report.
 //!
 //! The pin is on the invocation rather than in each `repo/`'s `BUILD.buri`
 //! because the build files themselves are under test — `exit_codes` edits one
@@ -284,22 +284,29 @@ fn every_case_documents_itself_and_runs_the_test_command() {
 ///
 /// This is the claim the pin above rests on, checked instead of assumed: a
 /// suite that names no platform runs natively, and what it prints is what these
-/// files say. Stated as an equivalence rather than as a second corpus because
-/// the answer must not depend on the machine — a toolchain built with
-/// `--no-default-features`, a host outside macOS and Linux, or a machine with
-/// no C toolchain falls back to JavaScript per suite, and then the two runs are
-/// the same run and this test still holds.
+/// files say.
 ///
-/// **Standard output only.** The report is stdout; which backend ran a suite is
-/// a `note:` on stderr, so comparing stderr would be comparing how the binary
-/// running the test was built. The exit status is compared, because a report
-/// that agrees and a status that does not is worse than either.
+/// **Standard output only.** The report is stdout, and stderr carries whatever
+/// this toolchain has to say about *itself* — so comparing stderr would be
+/// comparing how the binary running the test was built. On a machine that
+/// cannot build a native test binary the default run is refused
+/// (`native-run-not-available`) and prints no report at all, which is a
+/// difference in stdout and is meant to be: this test asserts the two backends
+/// agree, and a machine with only one of them has nothing to compare. The exit
+/// status is compared, because a report that agrees and a status that does not
+/// is worse than either.
 ///
 /// The known differences are listed rather than excluded: a case that stops
 /// differing fails here just as loudly as one that starts. **The list is
 /// empty** — every step of every case in this corpus agrees to the byte.
 #[test]
 fn the_default_backend_prints_the_report_the_javascript_one_does() {
+    if let Some(why) = no_native_default() {
+        // One backend, so there is nothing to compare it against. The refusal
+        // itself is asserted where it belongs, in `build::incrementality`.
+        eprintln!("skipped: {why}");
+        return;
+    }
     let known: &[(&str, usize)] = &[];
     let mut differ: Vec<(String, usize)> = Vec::new();
     let mut how: Vec<String> = Vec::new();
@@ -338,6 +345,32 @@ fn the_default_backend_prints_the_report_the_javascript_one_does() {
 ///
 /// The pin is dropped from the argument list rather than added to it, so the
 /// two runs are the same invocation and the flag is the only difference.
+/// Why a default `buri test` cannot run natively on this machine, or `None`.
+///
+/// `commands::test`'s own three questions, asked through the same two functions
+/// so that this file and the runner cannot disagree about what the machine can
+/// do: a backend compiled in for the host and a runtime archive for it
+/// (`native_ready`), and a C compiler to link with. At `Debug`, because that is
+/// the profile the corpus's steps run in.
+///
+/// It is a *skip* rather than a second expectation because the machine that
+/// answers `Some` has one backend, and a test that compared one backend against
+/// itself would pass without asserting anything. What the default does there —
+/// refuse with `native-run-not-available` rather than reroute — is pinned in
+/// `build::incrementality`, on every machine.
+fn no_native_default() -> Option<String> {
+    let host = buri::compiler::driver::host_native_platform();
+    let target = buri::compiler::backend::Target { platform: host, arch: None };
+    if !buri::build::actions::native_ready(target, buri::compiler::backend::Profile::Debug) {
+        return Some(format!("this toolchain cannot build a {} test binary", host.slug()));
+    }
+    let cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));
+    if buri::build::spawn::resolve(&cc).is_none() {
+        return Some(format!("no C toolchain: `{cc}` is not on PATH"));
+    }
+    None
+}
+
 fn transcript(case: &Case, default: bool) -> Vec<(i32, String)> {
     let where_ = if default { "default" } else { "pinned" };
     let scratch = Scratch::copy_of(&format!("{}-{where_}", case.name), &case.dir.join("repo"));
