@@ -418,6 +418,15 @@ fn compare_inline(a: &Expr, b: &Expr) -> Option<Expr> {
     if !a.is_pure_literal() || !b.is_pure_literal() {
         return None;
     }
+    // Never for text. A `Str` and a `Char` are both JavaScript strings, and `<`
+    // on one is UTF-16 code-unit order rather than the scalar order the
+    // language specifies — so `'\u{1F600}'.compare('\u{E000}')` folded here
+    // would answer `Less` where `$str_compare` answers `Greater`. `$cmp` routes
+    // text through `$str_compare`; this shortcut is for the numbers and the
+    // booleans, where `<` is already the answer.
+    if matches!(a, Expr::Str(_)) || matches!(b, Expr::Str(_)) {
+        return None;
+    }
     Some(Expr::cond(
         Expr::bin(BinOp::Lt, a.clone(), b.clone()),
         Expr::Num(0.0),

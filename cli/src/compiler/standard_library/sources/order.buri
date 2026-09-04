@@ -20,7 +20,11 @@ export trait Eq {
     fn eq(self, other: Self): Bool;
 }
 
-/// `<` `<=` `>` `>=` are `Ord.compare`.
+/// `<` `<=` `>` `>=` are `Ord.compare`. The built-in orders are the same on
+/// every backend: numbers by value, `Bool` with `false` below `true`, `Char` by
+/// scalar value, and `Str` lexicographically by scalar value — which `core/str`
+/// states in full, since it is the one a reader has two answers to guess
+/// between.
 export trait Ord {
     fn compare(self, other: Self): Order;
 }
@@ -79,6 +83,14 @@ export fn float(a: Float, b: Float): Order {
     if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }
 }
 
+/// Lexicographic by Unicode scalar value, which for a valid string is UTF-8
+/// byte order — `core/str`'s `compare`, which is where that order is written
+/// down and where the astral case is worked. Every `<` on a `Str`, every
+/// `[Str].sort` and every `OrdMap<Str, _>` is this same order.
+///
+/// It is not JavaScript's `<`, which orders by UTF-16 code unit and so puts
+/// every astral character below every character in U+E000..U+FFFF; both
+/// backends answer the scalar order.
 export fn str(a: Str, b: Str): Order {
     a.compare(b)
 }
@@ -87,6 +99,8 @@ export fn bool(a: Bool, b: Bool): Order {
     if (a == b) { .Equal } else if (a) { .Greater } else { .Less }
 }
 
+/// By scalar value, which is the same order `<` on a `Char` gives — a `Char`
+/// *is* a scalar value, and both are its integer order.
 export fn char(a: Char, b: Char): Order {
     int(a.toU32().toI64(), b.toU32().toI64())
 }

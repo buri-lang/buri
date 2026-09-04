@@ -31,8 +31,16 @@ one implementation and both consume it.
 Unicode scalar (`str.buri` returns `[Char]` from `chars`, and `char.toU32()`
 is exact per SPEC 6.2.1). The JS backend spells it as a one-scalar string because
 JavaScript has no character type, and `Char` comparison there is string
-comparison. Natively it is an integer comparison, which is the same answer by a
-cheaper route: Unicode scalar order and UTF-8 byte order agree.
+comparison. Natively it is an integer comparison on the scalar.
+
+Those are the same answer, and for a while they were not: string comparison in
+JavaScript means `<`, `<` orders UTF-16 code units, and an astral scalar is a
+surrogate pair beginning at U+D800 — so `<` put every astral character *below*
+every character in U+E000..U+FFFF while the integer comparison put it above.
+Unicode scalar order and UTF-8 byte order agree, `Str.compare` is defined as
+that order (`str.buri`), and the JavaScript side is what moved: `$str_compare`
+spells the scalar order out rather than deferring to `<`, and `$cmp` — the
+derived path, and the one a `Char` takes — routes text through it. §12 row 17.
 
 `I128`/`U128` are the one place a backend can fall short of the type system, and
 the fallback is stated in CODEGEN-STENCIL.md §5.3 rather than here, because it
@@ -729,6 +737,7 @@ and fails if a row names a test that is not there, so the column cannot rot.
 | 14 | Abort message and exit status | stderr, exit 1 (`generate.rs`) | stderr, exit 1 | Must agree. The `.Err` return is the one failure whose whole stream agrees, because nothing was thrown. | `row_14_shift_out_of_range`, `row_14_an_error_return` |
 | 15 | `char.toUpper` / `toLower` where the full case mapping is not one scalar | `"SS"` — a `Char` of two scalars | `'S'` — the **first** scalar of the full mapping | **Divergence, listed**, and the JavaScript side is the one outside the type: `Char` is one Unicode scalar value (`char.buri`), and `"ß".toUpperCase()` is two characters. There is no single scalar equal to `"SS"`, so this could not be transcribed and the choice was measured rather than assumed — the *simple* case mapping (`'ß'` unchanged) was the tidier answer and disagrees with JavaScript at `toU32` as well, where the first scalar agrees. So the divergence is confined to **rendering the whole `Char`**, and every use that reads it as a scalar agrees. `cli/runtime/char.rs` §3. | `row_15_char_case_of_a_multi_scalar_mapping` |
 | 16 | A NaN payload through `bytes.f64FromBytes` / `f64ToBytes` | canonicalized — a `Float` is a `number`, and moving a NaN through one drops the payload | canonicalized, since this row was written | Must agree, and it did **not**: the payload survived natively, so one program computed different bytes on two backends across a round trip `bytes.buri` documents. It reached here with no row, which this document defines as a bug. SPEC §6.2 had already ruled every NaN `==` every other "regardless of sign or payload", and `f64FromBytes` is the only way to construct a payload, so the distinction was one the language declines to make everywhere else — native is the accident and native is the side that moved. `cli/runtime/bytes.rs` canonicalizes on ingress, at four octets as well as eight, and both backends answer `[0, 0, 0, 0, 0, 0, 248, 127]`. Signed zero is untouched and is pinned beside it: `-0.0` and `0.0` were always distinct on both, and still are. A program whose identity rule is raw IEEE-754 bits wants `[U8]` as its stored type. | `row_16_nan_payloads_canonicalize_on_every_backend` |
+| 17 | `Str` and `Char` ordering | UTF-16 code units, from `<` | Unicode scalar value, from a `memcmp` | Must agree, and it did **not**: the two orders part company exactly where one string has an astral scalar and the other a scalar in U+E000..U+FFFF, so `"\u{1F600}" < "\u{E000}"` was `true` on JavaScript and `false` natively — and the row was not in this table, which this document defines as a bug. It was hidden a second way: `buri_rt_str_compare` transcoded to UTF-16 and compared the *units*, buying parity with JavaScript at the price of an order that agrees with neither the unit `Str` indexes in (`len` and `charAt` count scalars) nor Rust's `str::cmp`, Go's `<` or Python's `<`, and that nothing wrote down. `Char` never had even that: natively it is an integer comparison on the scalar, so `Char` disagreed outright. The order is now scalar value on both — `$str_compare` spells it out instead of deferring to `<`, `$cmp` routes text through it, and the native side is a plain byte comparison. buri-lang/buri#35. | `row_17_text_orders_by_scalar_value` |
 
 **What the `BigInt` representation costs, measured.** Open question 8 refused
 `BigInt` because it "taxes every loop counter in every program", and the tax is

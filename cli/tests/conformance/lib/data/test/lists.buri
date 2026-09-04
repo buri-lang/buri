@@ -513,6 +513,19 @@ test "sort of strings is lexicographic" {
     assert.eq(["pear", "apple", "fig"].sort(ctx), ["apple", "fig", "pear"]);
 }
 
+// `sort` is `Ord`, and for `Str` that is `core/str`'s `compare`: lexicographic
+// by Unicode scalar value, on both backends. U+FFE5 and U+FFFD are near the top
+// of the basic multilingual plane and U+1F600 is above it, which is exactly
+// where the scalar order and the UTF-16 one a JavaScript `<` would give part
+// company — there the emoji would sort first, because a surrogate pair begins
+// at U+D800.
+test "sort of strings orders by scalar value above the basic multilingual plane" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(["😀", "￥", "a", "�"].sort(ctx), ["a", "￥", "�", "😀"]);
+}
+
 test "sort keeps duplicates" {
     let ctx = context {
         Alloc: alloc(),
