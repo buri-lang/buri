@@ -1,4 +1,4 @@
-error: `JS` does not grant `ui` [host-not-granted]
+error: `ui` implements `Ui`, which is not allowed on the JS platform [effect-not-on-platform]
   --> cmd/counter/main.buri:28:18
    |
 28 |         Ui: host.ui,
@@ -18,13 +18,80 @@ error: `JS` does not grant `ui` [host-not-granted]
      declares is granted somewhere — but the clause is what a reader meets on
      the day one is, which is the point of writing it rather than an empty list.
 
+     Where the error lands
+     ─────────────────────
+
+     On the import, when the name was imported by name:
+
+       from "core/host" import { fs };
+       //                        ^^ here
+
+     On the member reference, when the host came in as a namespace:
+
+       from "core/host" import * as host;
+       // ...
+           FsRead: host.fs,
+       //               ^^ here
+
+     A namespace import names no effect, so there is nothing on that line to
+     refuse until a member is reached for; the reference is where the program
+     asked for the authority. A named import *is* the request, and pointing
+     anywhere else would send a reader to a line they would then have to trace
+     back.
+
+     Which platforms it is checked against
+     ─────────────────────────────────────
+
+     A module is checked against the platforms it is being compiled for, and
+     that is one of three answers:
+
+     * A build is producing one output, and that output is the answer.
+     buri build --output=js on a binary that also declares a WEB output is
+     compiling the JS one; refusing it on WEB's behalf would report an error in
+     a place that is not building. The same holds for a documentation snippet
+     pinned with platform= on its fence.
+
+     * A binary's entry point — main.buri, the one module that may import
+     core/host at all — is checked against every platform its outputs name, plus
+     every platform its suite names in test.platforms. All of them have to
+     compile, so a binary declaring [MACOS, WEB] and binding FsRead: host.fs is
+     refused, and the message names WEB. A batched test binary links main in,
+     which is why the suite's platforms count too.
+
+     * Every other module is checked against the platforms **its own rule
+     declared**, and a rule that declared none is never checked at all. A
+     library that says nothing about platforms is platform-generic: it may end
+     up in a page or in a server, and neither of those is a fact about the
+     library. This is not the whole-closure intersection platform-violation uses
+     — that one answers "may this be built for X" and treats unset as "all",
+     which is the right answer for a policy check and the wrong one for a
+     compile error. It has nothing to refuse today: a library reaching for
+     core/host meets host-import first, whatever its platforms field says.
+
+     Nothing about an effect type is platform-bound. from "core/fs" import {
+     FsRead } is legal on every platform, on a page included: a bound is a
+     demand for an implementation, not an implementation, and a generic function
+     that takes ctx: FsRead compiles wherever it is written. So does a test
+     double — core/host/testing builds one for every effect and is available
+     everywhere. What is bound to a platform is the host half: the value main
+     binds, and the implementation struct beside it.
+
      Why
      ───
 
      A platform *is* the set of effects its host exports, so a platform that
      does not grant one does not export the name for it. Asking for it is then
-     an ordinary unresolved name at the line that asked, and there is no second
-     declaration anywhere that has to be kept in step.
+     an error at the line that asked, and there is no second declaration
+     anywhere that has to be kept in step.
+
+     It is an error while the file is being *edited*, which is the point of
+     asking it here rather than at link time. The check needs only the build
+     file and the import line, both of which the editor already has, so the
+     language server reports it as it is typed rather than a build reporting it
+     minutes later. The refusals that stay late — native-run-not-available,
+     cryptography-not-available, networking-not-available — are about what *this
+     toolchain* was built with, which is a fact about the machine and not about
+     the program.
 
      The same sentence covers an effect *nobody* grants. A declaration may land
      before its implementation — the signature is the expensive thing to change
@@ -56,7 +123,7 @@ error: `JS` does not grant `ui` [host-not-granted]
      without one a snippet is checked with the whole host granted, because it
      builds no output.
 
-error: `JS` does not grant `watch` [host-not-granted]
+error: `watch` implements `Watch`, which is not allowed on the JS platform [effect-not-on-platform]
   --> cmd/counter/main.buri:29:21
    |
 29 |         Watch: host.watch,

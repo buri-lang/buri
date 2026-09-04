@@ -287,10 +287,20 @@ that never names `host.net` cannot open a socket anywhere in its transitive call
 graph — not in a dependency, not in a build script, not by accident, because
 nothing anywhere can obtain a value bounded by `Net`. The effect budget is the
 set of `host` members reachable from `main`'s context, and a platform that does
-not grant an effect simply does not export it, so requesting one is an ordinary
-unresolved-name error at the one line that asked for it. Both halves of a grant
-are withheld together — the implementation struct as well as the value — so
-there is nothing left to construct by name.
+not grant an effect simply does not export it, so requesting one is a compile
+error at the one line that asked for it — `effect-not-on-platform`, on the name
+inside the braces where the name was imported and on the member reference where
+the host came in as a namespace. Both halves of a grant are refused together —
+the implementation struct as well as the value — so there is nothing left to
+construct by name.
+
+Which platforms the module is checked against is the build system's answer
+rather than the language's: `main.buri` is checked against every platform its
+rule's `outputs` name, and against every platform its suite names in
+`test.platforms`, because a test binary links `main` in. All of them have to
+compile. Nothing about an **effect type** is platform-bound — `from "core/fs"
+import { FsRead }` is legal everywhere, a page included, because a bound is a
+demand for an implementation rather than one.
 
 `Tasks` — "run this over every item at once" — is granted on `LINUX`, `MACOS`
 and `JS`, and withheld from `WEB`, which is the same three as `FsRead`, `FsWrite`,

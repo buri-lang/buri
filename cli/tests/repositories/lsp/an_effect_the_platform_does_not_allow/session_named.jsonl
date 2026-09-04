@@ -1,0 +1,7 @@
+# One JSON-RPC request per line. The harness adds the Content-Length framing,
+# and turns `<scratch>` into wherever the copy of repo/ landed.
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"rootUri":"file://<scratch>"}}
+{"jsonrpc":"2.0","method":"initialized","params":{}}
+{"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file://<scratch>/cmd/page/main.buri","languageId":"buri","version":1,"text":"from \"core/effect\" import { Alloc, Stdout };\nfrom \"core/fs\" import { FsRead };\nfrom \"core/host\" import { alloc, stdout, fs };\nfrom \"core/io\" import * as io;\n\nexport fn main(): Result<(), Str> {\n    let ctx = context {\n        Alloc: alloc,\n        Stdout: stdout,\n        FsRead: fs,\n    };\n    io.println(ctx, \"a page\").mapErr(fn(_e) => \"write failed\")\n}\n"}}}
+{"jsonrpc":"2.0","id":2,"method":"shutdown"}
+{"jsonrpc":"2.0","method":"exit"}

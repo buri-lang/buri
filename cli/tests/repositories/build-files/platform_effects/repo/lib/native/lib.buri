@@ -1,0 +1,11 @@
+//! A library that says which platforms it is for, and reads a file anyway.
+
+from "core/fs" import * as fs;
+from "core/fs" import { FsRead };
+from "core/path" import { Path };
+
+/// Whether a path is there, behind the same bound the platform-generic
+/// library takes.
+export fn present<C: FsRead>(ctx: C, path: Path): Bool {
+    fs.exists(ctx, path)
+}

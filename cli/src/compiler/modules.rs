@@ -105,6 +105,15 @@ pub struct Loaded {
     /// so that the checker can subset `core/host` to what that platform
     /// grants. `None` for every analysis that is not building one.
     pub platform: Option<Platform>,
+    /// The platforms the suites in this compilation declared, by package.
+    ///
+    /// A suite's `test.platforms` is not one of its binary's `outputs`, and it
+    /// is still a platform that binary's entry point has to compile for: a
+    /// batched test binary links `main` in, so a suite that runs on WEB
+    /// compiles `main.buri` for WEB whatever the `outputs` say. Recorded per
+    /// package because `analyze_all` batches many targets into one
+    /// compilation, and each one's suite speaks only for its own entry point.
+    pub test_platforms: HashMap<crate::build::workspace::PackageId, Vec<Platform>>,
 }
 
 impl Loaded {
@@ -131,6 +140,8 @@ pub struct Loader<'a> {
     stack: Vec<String>,
     /// See [`Loaded::platform`].
     platform: Option<Platform>,
+    /// See [`Loaded::test_platforms`].
+    test_platforms: HashMap<crate::build::workspace::PackageId, Vec<Platform>>,
     test_sources: Vec<ModuleId>,
     /// The schema each `.proto` module was generated from, kept because a
     /// schema importing another needs that one's declarations to resolve its
@@ -156,6 +167,7 @@ impl<'a> Loader<'a> {
             test_sources: Vec::new(),
             schemas: HashMap::default(),
             platform: None,
+            test_platforms: HashMap::default(),
         }
     }
 
@@ -165,6 +177,7 @@ impl<'a> Loader<'a> {
             by_path: self.by_path,
             test_sources: self.test_sources,
             platform: self.platform,
+            test_platforms: self.test_platforms,
         }
     }
 
@@ -188,6 +201,23 @@ impl<'a> Loader<'a> {
         self.load_builtin_modules();
         let (Some(ws), Some(target)) = (self.ws, unit.target) else { return };
         let pkg = ws.package(target.package);
+        // Recorded before the sources load, so that the entry point this unit
+        // pulls in already knows which platforms its suite runs on.
+        //
+        // A binary's suite only. A library's suite links no `main` — and a
+        // package may hold both rules, so recording a library suite's
+        // platforms under the package would put them on a binary entry point
+        // that its run never touches.
+        if unit.with_tests && target.kind == RuleKind::Binary {
+            if let Some(suite) = pkg.test_suite(target.kind) {
+                if !suite.platforms.is_empty() {
+                    self.test_platforms
+                        .entry(target.package)
+                        .or_default()
+                        .extend(suite.platforms.iter().map(|p| p.value));
+                }
+            }
+        }
 
         match target.kind {
             RuleKind::Library => {

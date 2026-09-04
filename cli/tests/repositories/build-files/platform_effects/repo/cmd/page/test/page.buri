@@ -1,0 +1,7 @@
+// A suite for the page, declared only by the step of the case that needs one.
+from "core/testing/assert" import * as assert;
+from "//lib/reader" import { label };
+
+test "the page names its library" {
+    assert.eq(label(), "reader");
+}

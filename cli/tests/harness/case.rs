@@ -863,6 +863,12 @@ pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
     "failing/duplicate_titles",
     "testing/uncompiled_suite",
     "libraries/an_import_that_names_no_file",
+    // The entry point a suite drags in, refused for the platform the suite
+    // declared. "Did not compile" is the claim: the point of the step is that
+    // `test.platforms` reaches `main.buri`, which the run can only show by not
+    // producing a binary. Its other seven goldens are `lint` output, which
+    // never carries either shape, so nothing is unguarded by this entry.
+    "build-files/platform_effects",
     // A suite with nothing in it, and a filter that matched nothing, are both
     // "zero tests ran" as the claim rather than as an accident.
     "failing/no_tests",

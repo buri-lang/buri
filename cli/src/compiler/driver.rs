@@ -206,7 +206,8 @@ pub fn analyze_snippet_as(
 /// granted — a document about `core/fs` must not fail because the harness
 /// picked a platform with no filesystem. A document *about* the grant needs the
 /// opposite, and says so with `platform=` on its fence: that is what lets the
-/// error page for `host-not-granted` carry a program that actually provokes it.
+/// error page for `effect-not-on-platform` carry a program that actually
+/// provokes it.
 #[allow(
     clippy::too_many_arguments,
     reason = "the eighth is the platform, and the other seven are `analyze_snippet_as`'s \

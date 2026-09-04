@@ -284,7 +284,7 @@ asked:
 
 ```text
 $ buri build //cmd/server
-error: `WEB` does not grant `listen` [host-not-granted]
+error: `listen` implements `Listen`, which is not allowed on the WEB platform [effect-not-on-platform]
   --> cmd/server/main.buri:57:22
    |
 57 |         Listen: host.listen,
@@ -292,7 +292,7 @@ error: `WEB` does not grant `listen` [host-not-granted]
    |
    = a platform is the set of effects its host exports; holding a port open is a native program's authority; a page is served rather than serving, and its host has no way to accept a connection
    = fix: drop `Listen` from the context, or build this target for a platform that grants it: LINUX, MACOS
-error: `WEB` does not grant `tasks` [host-not-granted]
+error: `tasks` implements `Tasks`, which is not allowed on the WEB platform [effect-not-on-platform]
   --> cmd/server/main.buri:59:21
    |
 59 |         Tasks: host.tasks,

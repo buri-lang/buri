@@ -103,9 +103,13 @@ Contexts (Section 11.3):
     the spread and the explicit bindings; each right side's type must implement
     that effect. The result satisfies exactly the effects bound.
 34. `"core/host"` is importable only from the module that exports `main`, and
-    what it exports is **what the output's platform grants** — so the check is
-    per output, and binding a name a platform withholds is an ordinary
-    unresolved name (`host-not-granted`, Section 10.3).
+    what it may name is **what the platforms that module is compiled for
+    grant**: every platform its rule's `outputs` name, plus every platform its
+    suite names in `test.platforms`. Naming one they do not all grant is a
+    compile error — on the name inside the braces for a named import, on the
+    member reference for a namespace one (`effect-not-on-platform`, Section
+    10.3). A rule that declares no platforms commits to none and is not
+    checked.
 
 Modules and tests:
 
