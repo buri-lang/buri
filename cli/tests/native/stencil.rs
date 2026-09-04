@@ -1351,6 +1351,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "canary/canary.buri",
     "codegen/bitwise.buri",
     "codegen/equality.buri",
+    "codegen/ordering.buri",
     "codegen/step_trampoline.buri",
     "codegen/strings.buri",
     "codegen/tail_calls.buri",
@@ -1403,8 +1404,8 @@ const CORPUS_COMPILES: &[&str] = &[
 ///
 /// # Why one child rather than one per file
 ///
-/// A child per file would buy the same attribution and cost forty-five process
-/// starts, forty-five loads of the conformance repository and forty-five
+/// A child per file would buy the same attribution and cost forty-six process
+/// starts, forty-six loads of the conformance repository and forty-six
 /// copies of a six-megabyte runtime archive. One child is one of each, and the
 /// attribution is recovered by the protocol instead: the child prints a line
 /// per fact **as it learns it**, so the files it finished are known even when

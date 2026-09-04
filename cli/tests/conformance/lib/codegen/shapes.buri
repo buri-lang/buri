@@ -224,3 +224,129 @@ export fn notANumber(): Float {
 fn zeroF(): Float {
     0.0
 }
+
+// -----------------------------------------------------------------------------
+// Float equality in every position a comparison can be read from
+// -----------------------------------------------------------------------------
+//
+// SPEC 7.2 makes `==` on floats an equivalence relation, so `NaN == NaN` is
+// true; `<` and friends stay IEEE-754 and disagree with it there. That is one
+// answer, and a backend has more than one place to spell it: the boolean a
+// comparison *materialises*, and the fused compare-and-branch a terminator
+// absorbs it into. The stencil backend spelled the first as the equivalence and
+// the second as C's `==`, so one program held both — `asValue(nan, nan)` was
+// true while `if (a == b)` took the false edge (buri-lang/buri#40), and a
+// `compare` written the obvious way stopped being a total order.
+//
+// Each of these is a function so that the comparison is a *compiled* one: a
+// constant fold would answer them all without a comparison being emitted.
+
+/// The comparison as a value, which is the position that was already right.
+export fn floatEqAsValue(a: Float, b: Float): Bool {
+    a == b
+}
+
+/// The same comparison as the condition of an `if`, which is the fusion.
+export fn floatEqAsCondition(a: Float, b: Float): Bool {
+    if (a == b) { true } else { false }
+}
+
+/// Bound first and tested after, which the optimiser puts back together.
+export fn floatEqBoundThenCondition(a: Float, b: Float): Bool {
+    let equal = a == b;
+    if (equal) { true } else { false }
+}
+
+/// As a `match` guard, which is a branch by another spelling.
+export fn floatEqAsGuard(a: Float, b: Float): Bool {
+    match (a) {
+        _ if a == b => true,
+        _ => false,
+    }
+}
+
+/// Negated, which puts a `not` between the comparison and the branch — so this
+/// is the one position that was right for the wrong reason.
+export fn floatEqNegatedCondition(a: Float, b: Float): Bool {
+    if (!(a == b)) { false } else { true }
+}
+
+/// `!=` in the same position, which is the equivalence's complement.
+export fn floatNeAsCondition(a: Float, b: Float): Bool {
+    if (a != b) { true } else { false }
+}
+
+/// `<` in the same position. It stays IEEE-754, so it is the arm of the fix
+/// that must *not* move: a `NaN` is neither below nor above anything.
+export fn floatLtAsCondition(a: Float, b: Float): Bool {
+    if (a < b) { true } else { false }
+}
+
+/// `<=` likewise, because a fix that made every float comparison an
+/// equivalence would show up here rather than at `<`.
+export fn floatLeAsCondition(a: Float, b: Float): Bool {
+    if (a <= b) { true } else { false }
+}
+
+// -----------------------------------------------------------------------------
+// Derived ordering over a `[T]`
+// -----------------------------------------------------------------------------
+//
+// `derive Ord` bottoms out at one helper per container, and the array one —
+// `deriveArrayCompare`, `([T], [T], fn(T, T) -> Order) -> Order` — had no body
+// on the stencil backend, so a type holding an array could not be built for a
+// native target at all (buri-lang/buri#27). The order it answers is
+// lexicographic: the first `min(m, n)` elements decide it, and where every one
+// of them is `Equal` the lengths do, so a prefix sorts below what extends it.
+//
+// The element types below are the three that reach different leaves — a scalar,
+// a `Str` (a runtime call), and a struct (a generated function) — and the enum
+// is the shape whose payloads are arrays rather than whose fields are.
+
+derive Eq, Ord, Show for Octets;
+export struct Octets {
+    xs: [U8],
+}
+
+derive Eq, Ord, Show for Words;
+export struct Words {
+    ss: [Str],
+}
+
+derive Eq, Ord, Show for Leaf;
+/// Two fields, so an element comparison that stopped at the first would show up
+/// as `Leaf { a: 1, b: "y" }` and `Leaf { a: 1, b: "x" }` comparing equal.
+export struct Leaf {
+    a: Int,
+    b: Str,
+}
+
+derive Eq, Ord, Show for Leaves;
+export struct Leaves {
+    xs: [Leaf],
+}
+
+derive Eq, Ord, Show for Tagged;
+/// An enum whose payloads are arrays: the variant decides first, and only
+/// within one variant does the array.
+export enum Tagged {
+    Empty,
+    Bytes([U8]),
+    Words([Str]),
+}
+
+export fn mkOctets(xs: [U8]): Octets {
+    Octets { xs: xs }
+}
+
+export fn mkWords(ss: [Str]): Words {
+    Words { ss: ss }
+}
+
+export fn mkLeaf(a: Int, b: Str): Leaf {
+    Leaf { a: a, b: b }
+}
+
+export fn mkLeaves(xs: [Leaf]): Leaves {
+    Leaves { xs: xs }
+}

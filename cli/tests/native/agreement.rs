@@ -1455,6 +1455,63 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// `==` on floats in every position a comparison can be read from.
+///
+/// The row above reads the comparison as a **value**; this one reads the same
+/// source comparison from the four places a *branch* consumes one. They are not
+/// the same code path: a backend is free to fuse a comparison into the
+/// terminator that tests it, and the stencil backend did — with C's `==` rather
+/// than the language's equivalence. So `a == b` was true and `if (a == b)` took
+/// the false edge in one program, and a `compare` written as a chain of `if`s
+/// silently stopped being a total order (buri-lang/buri#40).
+///
+/// `lt` and `le` are here for the same reason they are in the row above: `<`
+/// and friends stay IEEE-754, so a fix that reached too far would show up as
+/// those two moving rather than as the five before them.
+#[test]
+fn row_09_float_equality_is_the_same_in_every_position() {
+    rows_or_skip!();
+    agree(
+        "row 9 float eq positions",
+        r#"
+from "core/host" import { stdout };
+from "core/io" import * as io;
+
+fn zeroF(): Float { 0.0 }
+fn notANumber(): Float { zeroF() / zeroF() }
+
+fn asValue(a: Float, b: Float): Bool { a == b }
+fn asCondition(a: Float, b: Float): Bool { if (a == b) { true } else { false } }
+fn boundThenCondition(a: Float, b: Float): Bool {
+  let equal = a == b;
+  if (equal) { true } else { false }
+}
+fn asGuard(a: Float, b: Float): Bool {
+  match (a) { _ if a == b => true, _ => false }
+}
+fn negated(a: Float, b: Float): Bool { if (!(a == b)) { false } else { true } }
+fn ltCondition(a: Float, b: Float): Bool { if (a < b) { true } else { false } }
+fn leCondition(a: Float, b: Float): Bool { if (a <= b) { true } else { false } }
+
+export fn main(): Result<(), Str> {
+  let n = notANumber();
+  let v = asValue(n, n);
+  let c = asCondition(n, n);
+  let b = boundThenCondition(n, n);
+  let g = asGuard(n, n);
+  let x = negated(n, n);
+  let lt = ltCondition(n, n);
+  let le = leCondition(n, n);
+  let ord = asCondition(1.5, 1.5);
+  let neq = asCondition(1.5, 2.5);
+  let _ = io.println(stdout, "${v} ${c} ${b} ${g} ${x} ${lt} ${le} ${ord} ${neq}").ignore();
+  .Ok(())
+}
+"#,
+        "true true true true true false false true false\n",
+    );
+}
+
 /// Derived `Hash`: the *numbers*, not merely the verdicts.
 ///
 /// A hash is the one derive whose output is a value a program can print, so
@@ -1518,7 +1575,10 @@ fn row_09_derived_show_of_a_list() {
 /// `deriveArrayHash`, as a **named** gap rather than a panic.
 ///
 /// `deriveArrayCompare` and `deriveArrayHash` are `deriveArrayEq`'s loop with a
-/// different carried value, and neither is emitted. What this test is really
+/// different carried value. The first is emitted now
+/// (`stencil/lists.rs::derive_array_compare`, buri-lang/buri#27) and
+/// [`a_derived_ord_over_a_list`] is the agreement it bought; the second is
+/// still the gap below. What this test is really
 /// about is that a gap *reads* as one: an intrinsic with no body records an
 /// error and binds nothing, and the debug backend of the day then unwrapped a
 /// `None` on the next instruction rather than letting the recorded diagnostic
@@ -1544,6 +1604,119 @@ export fn main(): Result<(), Str> {
   let a = Bag { xs: [1, 2] };
   let b = Bag { xs: [1, 2] };
   let _ = io.println(stdout, if (a.hash() == b.hash()) { "same" } else { "differ" }).ignore();
+  .Ok(())
+}
+"#;
+
+/// A `[T]` inside a derived `Ord`, which used to be a named gap of its own.
+///
+/// `derive Ord` on a type holding an array was a program the front end accepted
+/// and the stencil backend refused by name — "cannot compile CallIntrinsic
+/// deriveArrayCompare" — so a `Value` enum with a `Bytes([U8])` arm could not be
+/// built for a native target at all (buri-lang/buri#27).
+///
+/// The order the row pins is the lexicographic one `$cmp`'s array arm gives:
+/// the first `min(m, n)` elements decide it, and where they all agree the
+/// lengths do. `nine` is the case that tells the two apart — `[9]` is one
+/// element against `[1, 2]`'s two and still sorts *above* it — and `words`
+/// carries the `Str` element, whose leaf is a runtime call rather than a
+/// compare instruction, so the derived order and `Str.compare` are asserted to
+/// be the same order.
+#[test]
+fn a_derived_ord_over_a_list() {
+    rows_or_skip!();
+    agree("derived ord over a list", ORD_A_LIST, "lt gt eq lt gt lt gt\n");
+}
+
+const ORD_A_LIST: &str = r#"
+from "core/host" import { stdout };
+from "core/io" import * as io;
+from "core/order" import { Order };
+
+export struct Bag { xs: [U8] }
+derive Eq, Ord for Bag;
+
+export struct Leaf { a: Int, b: Str }
+derive Eq, Ord for Leaf;
+
+export struct Deep { xs: [Leaf], ss: [Str] }
+derive Eq, Ord for Deep;
+
+fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
+fn bag(xs: [U8]): Bag { Bag { xs: xs } }
+fn deep(xs: [Leaf], ss: [Str]): Deep { Deep { xs: xs, ss: ss } }
+fn leaf(a: Int, b: Str): Leaf { Leaf { a: a, b: b } }
+
+export fn main(): Result<(), Str> {
+  let elem = name(bag([1]).compare(bag([2])));
+  let nine = name(bag([9]).compare(bag([1, 2])));
+  let same = name(bag([1, 2]).compare(bag([1, 2])));
+  let prefix = name(bag([1]).compare(bag([1, 0])));
+  let empty = name(bag([0]).compare(bag([])));
+  let inner = name(deep([leaf(1, "x")], []).compare(deep([leaf(1, "y")], [])));
+  let words = name(deep([], ["ab"]).compare(deep([], ["aa", "zz"])));
+  let _ = io.println(stdout, "${elem} ${nine} ${same} ${prefix} ${empty} ${inner} ${words}").ignore();
+  .Ok(())
+}
+"#;
+
+/// A hand-written `impl Ord` on a field's type, and the derived `Ord` above it.
+///
+/// **The two backends agree, and the answer they agree on is the structural
+/// one.** SPEC 5.12.3 says a `derive` "generates the trait's methods
+/// structurally: struct fields in declaration order … recursing into field
+/// types. It is a fold over one type definition — no search, no instances to
+/// resolve", and the same section is where the language reasons that a
+/// hand-written implementation "would be obeyed where the type is encoded on
+/// its own and ignored where a type holding it is". `ToJson` and `FromJson` are
+/// the two it settles by *rejecting* the `impl`; `Ord` is left half-obeyed, and
+/// this row is where that shows.
+///
+/// So `direct` is the hand-written verdict and `derived` is the structural one,
+/// and they differ: `Wrapper`'s own `compare` says the longer octets are
+/// greater, while the fold under `Pair` walks straight past it into `[U8]`'s
+/// lexicographic order and answers on the first element. buri-lang/buri#27's
+/// second finding asks for `derived` to become `direct`; that is a change to
+/// SPEC 5.12.3 and to both backends' walkers — `middle::derives` natively and
+/// `$cmp` on JavaScript, which is handed no descriptor at all — rather than a
+/// native-backend fix, and it is not what the array half of that issue was.
+/// What this row is for until then is that the two backends cannot start
+/// disagreeing about it quietly.
+#[test]
+fn a_derive_over_a_hand_written_impl_is_structural_on_both_backends() {
+    rows_or_skip!();
+    agree("derive over a hand-written impl", DERIVE_OVER_IMPL, "lt gt\n");
+}
+
+const DERIVE_OVER_IMPL: &str = r#"
+from "core/host" import { stdout };
+from "core/io" import * as io;
+from "core/order" import { Order };
+
+export struct Holder { octets: [U8] }
+derive Eq, Ord for Holder;
+
+export struct Wrapper(Holder);
+
+impl Ord for Wrapper {
+  fn compare(self, other: Wrapper): Order {
+    if ((self.0).octets.len() < (other.0).octets.len()) { .Less } else { .Greater }
+  }
+}
+
+export struct Pair { wrapped: Wrapper }
+derive Ord for Pair;
+
+fn name(o: Order): Str { match (o) { .Less => "lt", .Equal => "eq", .Greater => "gt" } }
+fn wrap(octets: [U8]): Wrapper { Wrapper(Holder { octets: octets }) }
+fn pair(octets: [U8]): Pair { Pair { wrapped: wrap(octets) } }
+
+export fn main(): Result<(), Str> {
+  // The hand-written ordering: fewer octets is `.Less`, whatever they hold.
+  let direct = name(wrap([9]).compare(wrap([1, 2])));
+  // The derived one over it: `[U8]`'s own order, which puts `[9]` above.
+  let derived = name(pair([9]).compare(pair([1, 2])));
+  let _ = io.println(stdout, "${direct} ${derived}").ignore();
   .Ok(())
 }
 "#;
