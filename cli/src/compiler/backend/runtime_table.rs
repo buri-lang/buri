@@ -436,10 +436,10 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostStdout.writeBytes", "buri_rt_host_stdout_write_bytes", Ret::Res),
     e("host.HostStderr.eprint", "buri_rt_host_stderr_eprint", Ret::Res),
     e("host.HostStderr.eprintln", "buri_rt_host_stderr_eprintln", Ret::Res),
-    // -- Fs, the whole effect ------------------------------------------------
+    // -- the filesystem, both halves of it ------------------------------------
     //
     // Ten operations, and until they landed the native backend had none of
-    // them: a binary that bound `Fs: host.fs` was refused before code
+    // them: a binary that bound the filesystem was refused before code
     // generation, one key at a time, while `cli/runtime/host.rs` had a body for
     // every one (buri-lang/buri#36). What was missing was never the body and
     // never the shape of the *arguments* — it was the shape of the **error**.
@@ -456,23 +456,31 @@ pub const ENTRIES: &[Entry] = &[
     // [`Ret::ResMsg`], the column below — which is why these eleven carry it and
     // the five stream writers above deliberately do not.
     //
-    // `self` is `HostFs`, an empty struct, so it flattens to nothing and no row
-    // here needs a `ctx` column: `effect Fs` declares no context parameter, and
-    // the allocation these do is `buri_rt_alloc`'s.
+    // `self` is `HostFsRead` or `HostFsWrite`, both empty structs, so it
+    // flattens to nothing and no row here needs a `ctx` column: neither effect
+    // declares a context parameter, and the allocation these do is
+    // `buri_rt_alloc`'s.
+    //
+    // **A `Path` argument is the same three C parameters a `Str` was**, and
+    // that is rule 1 of `lib.rs` §2 rather than a coincidence: a parameter is
+    // flattened into its scalar leaves, and a one-field struct wrapping a `Str`
+    // has the `Str`'s three. So the split of `Fs` into `FsRead` and `FsWrite`
+    // and the move from `Str` to `Path` changed the *keys* in this column and
+    // not one symbol or one signature in `cli/runtime/host.rs`.
     //
     // `fileExists` is the one that is not a `Result` — it answers `Bool` and
     // cannot fail — which is why it sits with the scalars below and not here.
-    e("host.HostFs.readFile", "buri_rt_host_fs_read_file", Ret::ResMsg),
-    e("host.HostFs.writeFile", "buri_rt_host_fs_write_file", Ret::ResMsg),
-    e("host.HostFs.readDir", "buri_rt_host_fs_read_dir", Ret::ResMsg),
-    e("host.HostFs.readFileBytes", "buri_rt_host_fs_read_file_bytes", Ret::ResMsg),
-    e("host.HostFs.writeFileBytes", "buri_rt_host_fs_write_file_bytes", Ret::ResMsg),
-    e("host.HostFs.appendFile", "buri_rt_host_fs_append_file", Ret::ResMsg),
-    e("host.HostFs.renameFile", "buri_rt_host_fs_rename_file", Ret::ResMsg),
-    e("host.HostFs.removeFile", "buri_rt_host_fs_remove_file", Ret::ResMsg),
-    e("host.HostFs.removeDir", "buri_rt_host_fs_remove_dir", Ret::ResMsg),
-    e("host.HostFs.makeDir", "buri_rt_host_fs_make_dir", Ret::ResMsg),
-    e("host.HostFs.syncFile", "buri_rt_host_fs_sync_file", Ret::ResMsg),
+    e("host.HostFsRead.readFile", "buri_rt_host_fs_read_file", Ret::ResMsg),
+    e("host.HostFsRead.readDir", "buri_rt_host_fs_read_dir", Ret::ResMsg),
+    e("host.HostFsRead.readFileBytes", "buri_rt_host_fs_read_file_bytes", Ret::ResMsg),
+    e("host.HostFsWrite.writeFile", "buri_rt_host_fs_write_file", Ret::ResMsg),
+    e("host.HostFsWrite.writeFileBytes", "buri_rt_host_fs_write_file_bytes", Ret::ResMsg),
+    e("host.HostFsWrite.appendFile", "buri_rt_host_fs_append_file", Ret::ResMsg),
+    e("host.HostFsWrite.renameFile", "buri_rt_host_fs_rename_file", Ret::ResMsg),
+    e("host.HostFsWrite.removeFile", "buri_rt_host_fs_remove_file", Ret::ResMsg),
+    e("host.HostFsWrite.removeDir", "buri_rt_host_fs_remove_dir", Ret::ResMsg),
+    e("host.HostFsWrite.makeDir", "buri_rt_host_fs_make_dir", Ret::ResMsg),
+    e("host.HostFsWrite.syncFile", "buri_rt_host_fs_sync_file", Ret::ResMsg),
     // -- Env, and Stdin beside it -------------------------------------------
     //
     // Four rows and no new shape between them, which is what made them the
@@ -490,7 +498,7 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostStdin.readLine", "buri_rt_host_stdin_read_line", Ret::Opt),
     e("host.HostStdin.readBytes", "buri_rt_host_stdin_read_bytes", Ret::Opt),
     // -- the scalar capabilities --------------------------------------------
-    e("host.HostFs.fileExists", "buri_rt_host_fs_file_exists", Ret::Scalar),
+    e("host.HostFsRead.fileExists", "buri_rt_host_fs_file_exists", Ret::Scalar),
     e("host.HostClock.nowMillis", "buri_rt_host_clock_now_millis", Ret::Scalar),
     e("host.HostClock.sleepMillis", "buri_rt_host_clock_sleep_millis", Ret::Void),
     e("host.HostRand.nextInt", "buri_rt_host_rand_next_int", Ret::Scalar),
@@ -681,7 +689,7 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `TestFs`'s eleven methods answer a `Result<T, IoError>`, which was the
     // shape this table had no `Ret` for; §2.1 is that shape and [`Ret::Res`] is
-    // the row for it. `host.HostFs.readFile` is still absent, and for a
+    // the row for it. `host.HostFsRead.readFile` is still absent, and for a
     // different reason: the archive has a body for it and this table has no
     // row, which is a gap rather than a shape.
     //
@@ -930,7 +938,7 @@ mod tests {
         for entry in ENTRIES {
             assert_eq!(symbol_for(entry.key), entry.symbol, "{}", entry.key);
         }
-        assert_eq!(symbol_for("host.HostFs.readFile"), "buri_rt_host_fs_read_file");
+        assert_eq!(symbol_for("host.HostFsRead.readFile"), "buri_rt_host_fs_read_file");
         assert_eq!(symbol_for("host.HostStdout.println"), "buri_rt_host_stdout_println");
         assert_eq!(symbol_for("str.splitOnce"), "buri_rt_str_split_once");
     }

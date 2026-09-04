@@ -1,11 +1,13 @@
-// EXPECT: does not satisfy `Fs`
-from "core/effect" import { Alloc, Fs, Stdout };
+// EXPECT: does not satisfy `FsRead`
+from "core/effect" import { Alloc, Stdout };
+from "core/fs" import { FsRead };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/io" import * as io;
+from "core/path" import * as filepath;
 
-fn check<C: Alloc + Fs>(ctx: C, path: Str): Bool {
-  fs.exists(ctx, path)
+fn check<C: Alloc + FsRead>(ctx: C, at: Str): Bool {
+  fs.exists(ctx, filepath.of(ctx, at))
 }
 
 export fn main(): Result<(), Str> {

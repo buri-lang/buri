@@ -6,10 +6,11 @@
 // prove its own implementation is the one that ran.
 
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, NetError, Received,
+    Alloc, Clock, Env, Header, IoError, Listen, Listener, Net, NetError, Received,
     Region, Request, Response, Serve, ServeError, Sockets, Stdout, Tasks,
 };
 from "core/fs" import * as fs;
+from "core/fs" import { FsRead, FsWrite, Path };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/net/http" import * as http;
@@ -17,6 +18,7 @@ from "core/net/server" import * as server;
 from "core/num" import { Add, Div, Mul, Neg, Rem, Sub };
 from "core/order" import * as order;
 from "core/order" import { Eq, Hash, Ord, Order, Show };
+from "core/path" import * as path;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
 from "core/time" import * as time;
@@ -709,17 +711,35 @@ export fn nestedShadow(x: Int): Int {
 // 10. Effect users — the code the context tests exercise
 // =============================================================================
 
-export fn loadText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError> {
-    fs.readText(ctx, path)
+// The three filesystem users, and they are where this suite writes down what
+// the split bought: `loadText` names `FsRead` and nothing it reaches can
+// write, `saveText` names `FsWrite` and nothing it reaches can read, and
+// `roundTrip` needs both and says so.
+//
+// Each takes the path as *text* and makes the `Path` here, which is what a
+// program does with a string that came from outside it — `core/fs` takes only
+// a `Path`, and `core/path` is the one place text becomes one.
+
+export fn loadText<C: Alloc + FsRead>(ctx: C, at: Str): Result<Str, IoError> {
+    fs.readText(ctx, path.of(ctx, at))
 }
 
-export fn saveText<C: Alloc + Fs>(ctx: C, path: Str, body: Str): Result<(), IoError> {
-    fs.writeText(ctx, path, body)
+export fn saveText<C: Alloc + FsWrite>(
+    ctx: C,
+    at: Str,
+    body: Str,
+): Result<(), IoError> {
+    fs.writeText(ctx, path.of(ctx, at), body)
 }
 
-export fn roundTrip<C: Alloc + Fs>(ctx: C, path: Str, body: Str): Result<Str, IoError> {
-    let _ = fs.writeText(ctx, path, body)?;
-    fs.readText(ctx, path)
+export fn roundTrip<C: Alloc + FsRead + FsWrite>(
+    ctx: C,
+    at: Str,
+    body: Str,
+): Result<Str, IoError> {
+    let target = path.of(ctx, at);
+    let _ = fs.writeText(ctx, target, body)?;
+    fs.readText(ctx, target)
 }
 
 export fn greet<C: Stdout>(ctx: C, name: Str): () {
@@ -760,6 +780,12 @@ export fn fetchBody<C: Alloc + Net>(ctx: C, url: Str): Result<Str, NetError> {
 /// Binding this in a context proves the code under test calls *this*
 /// `readFile`.
 ///
+/// **Four methods, and it is a complete implementation.** Before the split it
+/// was twelve, eight of which existed only to answer `.PermissionDenied` — a
+/// fake that had to restate the whole of the effect to attenuate a quarter of
+/// it. `FsRead` is what a read-only double implements now, and a context that
+/// binds it and no `FsWrite` cannot ask this type for a write at all.
+///
 /// The octet half is refused rather than answered: turning `body` into UTF-8
 /// would need `Alloc`, and an effect method takes only `self`. A hand-written
 /// fake refusing what it does not implement is the ordinary case, and the
@@ -769,59 +795,70 @@ export struct StaticFs {
     export body: Str,
 }
 
-impl Fs for StaticFs {
-    fn readFile(self, path: Str): Result<Str, IoError> {
-        if (path == self.only) { .Ok(self.body) } else { .Err(.NotFound) }
+impl FsRead for StaticFs {
+    fn readFile(self, path: Path): Result<Str, IoError> {
+        if (path.text() == self.only) { .Ok(self.body) } else { .Err(.NotFound) }
     }
 
-    fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
-        .Err(.PermissionDenied)
+    fn fileExists(self, path: Path): Bool {
+        path.text() == self.only
     }
 
-    fn fileExists(self, path: Str): Bool {
-        path == self.only
-    }
-
-    fn readDir(self, path: Str): Result<[Str], IoError> {
+    fn readDir(self, path: Path): Result<[Str], IoError> {
         .Ok([self.only])
     }
 
-    fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+    fn readFileBytes(self, path: Path): Result<[U8], IoError> {
         .Err(.PermissionDenied)
-    }
-
-    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
-        .Err(.PermissionDenied)
-    }
-
-    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
-        .Err(.PermissionDenied)
-    }
-
-    fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
-        .Err(.PermissionDenied)
-    }
-
-    fn removeFile(self, path: Str): Result<(), IoError> {
-        .Err(.PermissionDenied)
-    }
-
-    fn removeDir(self, path: Str): Result<(), IoError> {
-        .Err(.PermissionDenied)
-    }
-
-    fn makeDir(self, path: Str): Result<(), IoError> {
-        .Err(.PermissionDenied)
-    }
-
-    /// Nothing is ever written, so the one path this holds is durable already.
-    fn syncFile(self, path: Str): Result<(), IoError> {
-        if (path == self.only) { .Ok(()) } else { .Err(.NotFound) }
     }
 }
 
-/// Attenuation (SPEC 10.8): a wrapper that satisfies `Fs` only when what it
-/// wraps does, and that deliberately has no working `writeFile`, so the callee
+/// A filesystem that refuses every write and can read nothing at all.
+///
+/// The other side of `StaticFs`, and the shape the split makes sayable: eight
+/// methods, no `FsRead`, and a context that binds it has an authority to
+/// write and no way to look at what is there. Every answer is
+/// `.PermissionDenied`, so a failure names *this* implementation rather than
+/// the runner's `readOnly()`, which answers `.ReadOnly`.
+export struct RefusingFs {}
+
+impl FsWrite for RefusingFs {
+    fn writeFile(self, path: Path, body: Str): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn writeFileBytes(self, path: Path, body: [U8]): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn appendFile(self, path: Path, body: [U8]): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn renameFile(self, source: Path, destination: Path): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn removeFile(self, path: Path): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn removeDir(self, path: Path): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn makeDir(self, path: Path): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn syncFile(self, path: Path): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
+}
+
+/// Attenuation (SPEC 10.8): a wrapper that satisfies each half of the
+/// filesystem only when what it wraps does, and that deliberately has no
+/// working `writeFile`, so the callee
 /// holds a value that genuinely lacks the ability rather than merely being
 /// unable to name it. The type parameter carries no bound, so the parameter
 /// here is not effect-carrying and the wrapper is expressible.
@@ -831,52 +868,54 @@ export fn guarded<C>(ctx: C): Guarded<C> {
     Guarded(ctx)
 }
 
-impl<C: Fs> Fs for Guarded<C> {
-    fn readFile(self, path: Str): Result<Str, IoError> {
+impl<C: FsRead> FsRead for Guarded<C> {
+    fn readFile(self, path: Path): Result<Str, IoError> {
         self.0.readFile(path)
     }
 
-    fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
-        .Err(.Other("guarded"))
-    }
-
-    fn fileExists(self, path: Str): Bool {
+    fn fileExists(self, path: Path): Bool {
         self.0.fileExists(path)
     }
 
-    fn readDir(self, path: Str): Result<[Str], IoError> {
+    fn readDir(self, path: Path): Result<[Str], IoError> {
         self.0.readDir(path)
     }
 
-    fn readFileBytes(self, path: Str): Result<[U8], IoError> {
+    fn readFileBytes(self, path: Path): Result<[U8], IoError> {
         self.0.readFileBytes(path)
     }
+}
 
-    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
+impl<C: FsWrite> FsWrite for Guarded<C> {
+    fn writeFile(self, path: Path, body: Str): Result<(), IoError> {
         .Err(.Other("guarded"))
     }
 
-    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
+    fn writeFileBytes(self, path: Path, body: [U8]): Result<(), IoError> {
         .Err(.Other("guarded"))
     }
 
-    fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
+    fn appendFile(self, path: Path, body: [U8]): Result<(), IoError> {
         .Err(.Other("guarded"))
     }
 
-    fn removeFile(self, path: Str): Result<(), IoError> {
+    fn renameFile(self, source: Path, destination: Path): Result<(), IoError> {
         .Err(.Other("guarded"))
     }
 
-    fn removeDir(self, path: Str): Result<(), IoError> {
+    fn removeFile(self, path: Path): Result<(), IoError> {
         .Err(.Other("guarded"))
     }
 
-    fn makeDir(self, path: Str): Result<(), IoError> {
+    fn removeDir(self, path: Path): Result<(), IoError> {
         .Err(.Other("guarded"))
     }
 
-    fn syncFile(self, path: Str): Result<(), IoError> {
+    fn makeDir(self, path: Path): Result<(), IoError> {
+        .Err(.Other("guarded"))
+    }
+
+    fn syncFile(self, path: Path): Result<(), IoError> {
         self.0.syncFile(path)
     }
 }

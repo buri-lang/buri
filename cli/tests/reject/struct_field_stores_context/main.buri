@@ -1,18 +1,20 @@
 // EXPECT: carries an effect, so it must be named `ctx`
-from "core/effect" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Stdout };
+from "core/fs" import { FsRead, Path };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/io" import * as io;
+from "core/path" import * as filepath;
 
 struct Holder<C> { export inner: C }
 
-fn stash<C: Fs>(held: Holder<C>, path: Str): Bool {
-  fs.exists(held.inner, path)
+fn stash<C: FsRead>(held: Holder<C>, at: Path): Bool {
+  fs.exists(held.inner, at)
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
-  let found = stash(Holder { inner: ctx }, "x");
+  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead, Stdout: host.stdout };
+  let found = stash(Holder { inner: ctx }, filepath.of(ctx, "x"));
   let _ = io.println(ctx, "${found}").ignore();
   .Ok(())
 }

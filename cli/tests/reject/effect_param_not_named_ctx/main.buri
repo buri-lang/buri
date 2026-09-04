@@ -1,15 +1,18 @@
 // EXPECT: carries an effect, so it must be named `ctx`
-from "core/effect" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Stdout };
+from "core/fs" import { FsRead, Path };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/io" import * as io;
+from "core/path" import * as filepath;
 
-fn sneaky<C: Fs>(a: Int, handle: C): Bool {
-  fs.exists(handle, "x")
+fn sneaky<C: FsRead>(a: Int, handle: C, at: Path): Bool {
+  fs.exists(handle, at)
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
-  let _ = io.println(ctx, "${sneaky(1, ctx)}").ignore();
+  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead, Stdout: host.stdout };
+  let at = filepath.of(ctx, "x");
+  let _ = io.println(ctx, "${sneaky(1, ctx, at)}").ignore();
   .Ok(())
 }

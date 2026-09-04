@@ -135,7 +135,18 @@ pub const MODULES: &[StdModule] = &[
     // importable anywhere and `core/host` is not.
     m("core/alloc", include_str!("sources/alloc.buri")),
     m("core/io", include_str!("sources/io.buri")),
-    m("core/fs", include_str!("sources/fs.buri")),
+    // Pure string work, and below `core/fs` rather than inside it: every
+    // function in `core/fs` names a filesystem effect in its bounds and its
+    // module doc says the disk is visible in the signature, so a `join` that
+    // touches nothing would be the first exception. `Path` is the type
+    // `core/fs` takes, and this is where it and its methods live.
+    m("core/path", include_str!("sources/path.buri")),
+    // A **platform module**, and the only one outside `core/effect` and
+    // `ui/effect` that declares effects. `FsRead` and `FsWrite` name a `Path`
+    // in every method, `core/path` names `Alloc`, and `core/effect` is below
+    // `core/path` — so the declarations live here, where they can say what
+    // they mean, rather than one module down where they could only say `Str`.
+    StdModule { platform: true, ..m("core/fs", include_str!("sources/fs.buri")) },
     m("core/env", include_str!("sources/env.buri")),
     m("core/time", include_str!("sources/time.buri")),
     m("core/date", include_str!("sources/date.buri")),
@@ -385,11 +396,21 @@ const HOST_GRANTS: &[HostGrant] = &[
     },
     // The two halves that vary. A page has no operating system under it, and
     // nothing but a page has a document over it.
+    // The filesystem, in its two halves. They are granted *together* or not at
+    // all — a platform either has a filesystem under it or does not — and the
+    // split is about what a *program* asks for, not about what a platform can
+    // offer. `the_filesystem_halves_are_granted_together` is the assertion.
     HostGrant {
-        effect: "Fs",
-        exports: &["HostFs", "fs"],
+        effect: "FsRead",
+        exports: &["HostFsRead", "fsRead"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no filesystem to read",
+    },
+    HostGrant {
+        effect: "FsWrite",
+        exports: &["HostFsWrite", "fsWrite"],
+        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
+        because: "a page has no filesystem to write to",
     },
     HostGrant {
         effect: "Stdin",
@@ -529,7 +550,7 @@ impl HostGrant {
 /// effect methods had no wrapper at all before this table existed, and nothing
 /// said so.
 pub struct Wrapper {
-    /// The effect, as `core/effect` or `ui/effect` spells it.
+    /// The effect, as `core/effect`, `core/fs` or `ui/effect` spells it.
     pub effect: &'static str,
     /// The method it declares.
     pub method: &'static str,
@@ -552,8 +573,8 @@ const fn w(
 
 /// Every method of every declared effect, and the function that calls it.
 ///
-/// The order is `core/effect`'s declaration order followed by `ui/effect`'s, so
-/// the table reads beside the sources it is about.
+/// The order is `core/effect`'s declaration order, then `core/fs`'s two, then
+/// `ui/effect`'s, so the table reads beside the sources it is about.
 pub const WRAPPERS: &[Wrapper] = &[
     w("Alloc", "allocate", "core/alloc", "alloc.allocate(ctx, bytes)"),
     w("Stdout", "print", "core/io", "io.print(ctx, text)"),
@@ -563,18 +584,18 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Stderr", "eprintln", "core/io", "io.eprintln(ctx, text)"),
     w("Stdin", "readLine", "core/io", "io.readLine(ctx)"),
     w("Stdin", "readBytes", "core/io", "io.readBytes(ctx, n)"),
-    w("Fs", "readFile", "core/fs", "fs.readText(ctx, path)"),
-    w("Fs", "writeFile", "core/fs", "fs.writeText(ctx, path, body)"),
-    w("Fs", "fileExists", "core/fs", "fs.exists(ctx, path)"),
-    w("Fs", "readDir", "core/fs", "fs.listDir(ctx, path)"),
-    w("Fs", "readFileBytes", "core/fs", "fs.readBytes(ctx, path)"),
-    w("Fs", "writeFileBytes", "core/fs", "fs.writeBytes(ctx, path, body)"),
-    w("Fs", "appendFile", "core/fs", "fs.append(ctx, path, body)"),
-    w("Fs", "renameFile", "core/fs", "fs.rename(ctx, source, destination)"),
-    w("Fs", "removeFile", "core/fs", "fs.remove(ctx, path)"),
-    w("Fs", "removeDir", "core/fs", "fs.removeDir(ctx, path)"),
-    w("Fs", "makeDir", "core/fs", "fs.makeDir(ctx, path)"),
-    w("Fs", "syncFile", "core/fs", "fs.sync(ctx, path)"),
+    w("FsRead", "readFile", "core/fs", "fs.readText(ctx, path)"),
+    w("FsRead", "fileExists", "core/fs", "fs.exists(ctx, path)"),
+    w("FsRead", "readDir", "core/fs", "fs.listDir(ctx, path)"),
+    w("FsRead", "readFileBytes", "core/fs", "fs.readBytes(ctx, path)"),
+    w("FsWrite", "writeFile", "core/fs", "fs.writeText(ctx, path, body)"),
+    w("FsWrite", "writeFileBytes", "core/fs", "fs.writeBytes(ctx, path, body)"),
+    w("FsWrite", "appendFile", "core/fs", "fs.append(ctx, path, body)"),
+    w("FsWrite", "renameFile", "core/fs", "fs.rename(ctx, source, destination)"),
+    w("FsWrite", "removeFile", "core/fs", "fs.remove(ctx, path)"),
+    w("FsWrite", "removeDir", "core/fs", "fs.removeDir(ctx, path)"),
+    w("FsWrite", "makeDir", "core/fs", "fs.makeDir(ctx, path)"),
+    w("FsWrite", "syncFile", "core/fs", "fs.sync(ctx, path)"),
     w("Net", "fetch", "core/net/http", "http.send(ctx, request)"),
     w("Clock", "nowMillis", "core/time", "time.now(ctx)"),
     w("Clock", "sleepMillis", "core/time", "time.sleepMs(ctx, millis)"),
@@ -649,7 +670,7 @@ mod tests {
     /// it, which is precisely the hole [`WRAPPERS`] exists to close.
     fn declared_effect_methods() -> Vec<(String, String)> {
         let mut out = Vec::new();
-        for path in ["core/effect", "ui/effect"] {
+        for path in ["core/effect", "core/fs", "ui/effect"] {
             let src = source(path).expect("a platform module");
             let mut effect: Option<String> = None;
             for line in src.lines() {

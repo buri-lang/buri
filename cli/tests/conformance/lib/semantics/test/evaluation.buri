@@ -6,10 +6,12 @@
 // `captured` read back. Specified evaluation order is what makes effect
 // sequencing meaningful (SPEC 8.2), so the transcript is the observation.
 
-from "core/effect" import { Alloc, Clock, Fs, Stdout };
+from "core/effect" import { Alloc, Clock, Stdout };
 from "core/fs" import * as fs;
+from "core/fs" import { FsRead };
 from "core/host/testing" import { alloc, clock, fs, stdout };
 from "core/list" import * as list;
+from "core/path" import * as path;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 from "//lib/semantics" import {
@@ -946,7 +948,7 @@ context InheritedWithFile {
         Alloc: alloc(),
         Clock: clock(),
     },
-    Fs: fs().files([("spread.txt", "kept")]),
+    FsRead: fs().files([("spread.txt", "kept")]),
 }
 
 test "an effect a spread supplies can actually be called" {
@@ -956,6 +958,6 @@ test "an effect a spread supplies can actually be called" {
 
 test "a spread's other effects survive an override" {
     let ctx = InheritedWithFile();
-    assert.eq(assert.ok(fs.readText(ctx, "spread.txt")), "kept");
+    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "spread.txt"))), "kept");
     assert.eq(time.now(ctx).0, 0);
 }
