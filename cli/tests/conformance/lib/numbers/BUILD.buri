@@ -6,6 +6,7 @@ library {
             "test/integers.buri",
             "test/conversions.buri",
             "test/floats.buri",
+            "test/special_floats.buri",
             "test/bits.buri",
         ]
 

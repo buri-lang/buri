@@ -51,4 +51,54 @@ export let PI: Float = 3.141592653589793;
 
 export let E: Float = 2.718281828459045;
 
-export let INFINITY: Float = 1.0e400;
+// --- The three values that are not numbers -------------------------------------
+//
+// Each is written as the IEEE-754 operation that defines it rather than as a
+// decimal numeral, and that is the whole point of the spelling. `INFINITY` used
+// to be `1.0e400`, a literal that names no value: it is infinity only because
+// the decimal-to-binary conversion that read it overflowed, so what the
+// constant meant was a property of whichever float parser ran rather than
+// anything SPEC 6.2 or IEEE-754 states about the program. `NaN` has no numeral
+// at all — there is no decimal string that denotes it — so a constant for it
+// could never have been written that way in the first place.
+//
+// Division is what states them. IEEE-754 fixes `x / 0` at ±∞ for a non-zero
+// `x` and `0 / 0` at NaN, exactly and on every conforming implementation,
+// which is a stronger promise than the one the transcendental functions above
+// can make — and it is a promise about the *program*, which `1.0e400` was not.
+// It is also the spelling the conformance suite already trusted: its `inf()`,
+// `negInf()` and `nan()` helpers are these three expressions, so the constants
+// are now the same three values the suite compares everything else against
+// rather than a second route to them.
+//
+// Float division by zero is not the integer one and does not abort. SPEC 6.2's
+// "division by zero **aborts**" sits in its integer paragraph — there is no
+// integer to answer with — and the paragraph below it says floating point
+// follows IEEE-754, which has an answer for all three of these and gives it.
+//
+// `cli/tests/conformance/lib/numbers/test/special_floats.buri` is where all
+// three are pinned — the sign, the classification, the arithmetic, and what
+// `show` and a `${}` hole render — and it is a file of its own so that **both**
+// backends run it: the rest of `floats.buri` is held out of the native set over
+// the thirteen transcendentals above. A constant that is a different value on
+// two backends is the failure this spelling exists to make impossible, and
+// nothing but a run on both backends can catch it.
+
+/// Positive infinity. Greater than every finite `Float`, and its own successor
+/// under addition and multiplication.
+export let INFINITY: Float = 1.0 / 0.0;
+
+/// Negative infinity. Less than every finite `Float`.
+export let NEG_INFINITY: Float = -1.0 / 0.0;
+
+/// The canonical quiet NaN — the answer to a question arithmetic has none for,
+/// such as `0.0 / 0.0` or `INFINITY - INFINITY`, and the value every other NaN
+/// is indistinguishable from (SPEC 6.2: a payload is not part of a NaN's
+/// value).
+///
+/// **`NAN == NAN` is `true`.** Buri's `==` is an equivalence relation, so it is
+/// reflexive at every value including this one; IEEE-754 says otherwise and the
+/// *ordering* operators still obey IEEE, which is why `NAN < NAN`, `NAN > NAN`
+/// and `NAN <= NAN` are all `false`. `isNan(x)` is the question `x != x`
+/// answers in other languages.
+export let NAN: Float = 0.0 / 0.0;
