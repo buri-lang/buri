@@ -271,6 +271,30 @@ pub trait Backend {
         let _ = units;
         self.emit(program, tables, opts)
     }
+
+    /// The lowering the build already computed for this exact program, offered
+    /// so that a native backend does not compute it a second time.
+    ///
+    /// It is a **hint and not a seam**: the emission entry point is still
+    /// [`Backend::emit_units`] and it still takes a `Program`, so a backend
+    /// that ignores this — every backend but one — is not a backend that
+    /// works differently. What is offered is a value the caller is about to
+    /// throw away and the callee is about to recompute:
+    /// `build::actions::objects_named` lowers to hash the unit keys, and
+    /// `middle::lower` is a pure function of the program, so the IR it holds is
+    /// the IR the backend's own `lower::run` would produce. It was measured at
+    /// one second of an eight-second `buri test //...` on a real repository —
+    /// `middle::rc::analyze` twice and `middle::lower::run_with` twice — which
+    /// is what makes a hint worth having.
+    ///
+    /// **The contract is that `lowered` is `lower::run(program, tables)` for
+    /// the `program` the next emission is asked about.** An implementation must
+    /// consume it at most once, so that a second emission of a *different*
+    /// program cannot be served a stale lowering; the default ignores it, which
+    /// satisfies that by construction.
+    fn adopt_lowering(&mut self, lowered: crate::compiler::middle::ir::Program) {
+        let _ = lowered;
+    }
 }
 
 /// The intrinsic keys this toolchain cannot answer because its runtime archive
@@ -429,7 +453,7 @@ pub fn select(target: Target, profile: Profile) -> Result<Box<dyn Backend>, Stri
         #[cfg(feature = "backend-stencil")]
         (Platform::Linux | Platform::Macos, Profile::Debug) => {
             match stencil::supported(target) {
-                Ok(_) => Ok(Box::new(stencil::Stencil)),
+                Ok(_) => Ok(Box::new(stencil::Stencil::default())),
                 Err(why) => Err(no_development_backend(target, &why)),
             }
         }
@@ -737,7 +761,7 @@ mod tests {
         let reports = |missing: Vec<String>| missing.iter().any(|k| k == key);
         #[cfg(feature = "backend-stencil")]
         assert!(
-            reports(stencil::Stencil.missing_intrinsics(&program, &tables)),
+            reports(stencil::Stencil::default().missing_intrinsics(&program, &tables)),
             "the stencil backend claimed a key no runtime answers"
         );
         #[cfg(feature = "backend-llvm")]
