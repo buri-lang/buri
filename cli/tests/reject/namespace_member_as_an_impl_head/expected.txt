@@ -1,12 +1,11 @@
-error: "core/fs" has no member `readTxt` [no-such-member]
- --> cmd/namespace_member_misspelled/main.buri:8:14
+error: "core/order" has no member `Comparable` [no-such-member]
+ --> cmd/namespace_member_as_an_impl_head/main.buri:7:6
   |
-8 |   let _ = fs.readTxt(ctx, "wal");
-  |              ^^^^^^^
+7 | impl order.Comparable for Bag {
+  |      ^^^^^^^^^^^^^^^^
   |
-  = the module exports 13 names
-  = did you mean `readText`?
-  = fix: correct the member name, or check `buri docs core/fs`
+  = the module exports 15 names
+  = fix: correct the member name, or check `buri docs core/order`
 
     What to do
     ──────────

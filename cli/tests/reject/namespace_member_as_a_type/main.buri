@@ -1,0 +1,11 @@
+// EXPECT: "core/list" has no member `Vector`
+// A namespace qualifies a type the same way it qualifies a function, so a
+// missing one is the same missing member — and answering it with "there is no
+// type `list.Vector`" would offer the nearest of *this* module's types, which
+// is drawn from the wrong set.
+from "core/list" import * as list;
+
+export fn main(): Result<(), Str> {
+  let xs: list.Vector<Int> = [1, 2, 3];
+  .Ok(())
+}

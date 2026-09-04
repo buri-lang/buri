@@ -24,6 +24,12 @@ member, and answering it about the base instead — "there is nothing named `fs`
 in scope" — sends a reader hunting for a missing import when the import is the
 one part that was right.
 
+A namespace qualifies a type, a bound and an `impl` head the same way it
+qualifies a function, so `list.Vector<Int>` and `<T: order.Comparable>` are
+answered here too. The base is the answer only when no import bound it at all —
+with no namespace of that name in the file, `fs.readText(...)` is
+`unresolved-name` on `fs`.
+
 ## A program that provokes it
 
 ```buri fail code=no-such-member

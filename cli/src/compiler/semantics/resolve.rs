@@ -885,6 +885,38 @@ impl<'a> Checker<'a> {
         crate::build::buildfile::nearest(name, &names).map(|s| s.to_string())
     }
 
+    /// Reports naming a member `ns` does not export, in whichever position the
+    /// name was written: `ns.member(...)`, `ns.member` as a value, or
+    /// `ns.Member` as a type.
+    ///
+    /// One reporter for all three, because the answer is the same in all
+    /// three and it is the module's surface: the module the import named, what
+    /// it does export, the nearest of those to what was written, and the page
+    /// that lists the rest. Reporting the *base* instead — "there is nothing
+    /// named `fs` in scope" — sends a reader after a missing import when the
+    /// import is the one part that was right.
+    pub(crate) fn report_no_such_member(&mut self, ns: ModuleId, name: &str, span: Span) {
+        let path = self.loaded.module(ns).path.clone();
+        let mut exports: Vec<String> = self.scope(ns).exports.keys().cloned().collect();
+        exports.sort();
+        // A surface of a dozen names is worth reading here; `core/list`'s is
+        // not, and the fix already points at the page that lists it.
+        let listed = match exports.len() {
+            0 => "nothing".to_string(),
+            1..=12 => crate::diagnostics::names(&exports),
+            n => format!("{n} names"),
+        };
+        let near = self.nearest_export(ns, name);
+        let d = self
+            .templated("no-such-member", span)
+            .bind("path", path)
+            .bind("name", name)
+            .bind("exports", listed);
+        if let Some(n) = near {
+            d.notes.push(format!("did you mean `{n}`?"));
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Phase 3: signatures
     // -----------------------------------------------------------------------
@@ -1346,6 +1378,12 @@ impl<'a> Checker<'a> {
                 match self.resolve_trait(module, *b) {
                     Some(id) => bounds.push(id),
                     None => {
+                        // `T: ns.Name` with no `Name` in `ns` is a missing
+                        // member, not a name that is "not a trait": the module
+                        // has no such thing to be one.
+                        if self.namespace_member_missing_in(module, *b) {
+                            continue;
+                        }
                         let shown = t.type_head(*b).unwrap_or("?").to_string();
                         let at = t.type_span(*b);
                         self.templated("not-a-trait", at)
@@ -1509,6 +1547,13 @@ impl<'a> Checker<'a> {
                         Ty::Error
                     }
                     _ => {
+                        // `ns.Name`, where the import is right and the member
+                        // is not: the answer is about the member, and
+                        // `nearest_type_name` below draws from *this* module's
+                        // types, which are the wrong set to offer.
+                        if self.namespace_member_missing(module, path, span) {
+                            return Ty::Error;
+                        }
                         let shown = t.path_text(path);
                         let mut note = None;
                         if let Some(near) = self.nearest_type_name(module, name) {
@@ -1627,6 +1672,39 @@ impl<'a> Checker<'a> {
             tree::Item::TypeAlias(a) if t.name(a.name) == name => Some(a.name.span),
             _ => None,
         })
+    }
+
+    /// Whether a written type path is `ns.Name` with `ns` a namespace import
+    /// whose module exports no `Name`, reporting it as the missing member it
+    /// is. `false` for every other path, including one whose head names no
+    /// namespace at all — a module that was never imported is a different
+    /// mistake, and keeps the answer about the path as written.
+    fn namespace_member_missing(
+        &mut self,
+        module: ModuleId,
+        path: &[flat::Location],
+        span: Span,
+    ) -> bool {
+        let t = self.tree(module);
+        let [ns, member] = path else { return false };
+        let Some(from) = self.scope(module).namespaces.get(t.text(*ns)).copied() else {
+            return false;
+        };
+        let member = t.text(*member);
+        if self.lookup_export(from, member).is_some() {
+            return false;
+        }
+        self.report_no_such_member(from, member, span);
+        true
+    }
+
+    /// The same question asked of a written type rather than of a path, for
+    /// the positions that resolve one whole: a bound, and an `impl` head.
+    fn namespace_member_missing_in(&mut self, module: ModuleId, id: TypeId) -> bool {
+        let flat::TypeView::Named { path, span, .. } = self.tree(module).ty(id) else {
+            return false;
+        };
+        self.namespace_member_missing(module, path, span)
     }
 
     fn nearest_type_name(&self, module: ModuleId, name: &str) -> Option<String> {
@@ -1867,6 +1945,9 @@ impl<'a> Checker<'a> {
             return;
         };
         let Some(trait_id) = self.resolve_trait(module, trait_ref) else {
+            if self.namespace_member_missing_in(module, trait_ref) {
+                return;
+            }
             let t = self.tree(module);
             let shown = t.type_head(trait_ref).unwrap_or("?").to_string();
             let at = t.type_span(trait_ref);
