@@ -576,6 +576,24 @@ struct SymbolClash<'a> {
 ///
 /// One pass and one table over the program's functions, keyed by borrowed
 /// symbols, so it costs a hash of each symbol and no allocation.
+/// The same claim, asked again after a later pass has minted symbols of its own.
+///
+/// `derives::run` is the one pass past this module that names functions; its
+/// `$derive$…` prefix keeps it out of this pass's namespace by construction,
+/// but "one symbol, one body" is a statement about the *program*, not about
+/// either minter, so the pipeline asks once more when every minter has run.
+pub(crate) fn assert_one_symbol_per_function(funcs: &[Func], after: &str) {
+    if let Some(clash) = one_symbol_per_function(funcs) {
+        crate::ice!(
+            "`{}` names two functions after {} — `{}` and `{}`. A symbol names              exactly one body, so one of the two would silently answer the              other's calls",
+            clash.symbol,
+            after,
+            clash.first,
+            clash.second
+        );
+    }
+}
+
 fn one_symbol_per_function(funcs: &[Func]) -> Option<SymbolClash<'_>> {
     let mut seen: HashMap<&str, &str> =
         HashMap::with_capacity_and_hasher(funcs.len(), std::hash::BuildHasherDefault::default());

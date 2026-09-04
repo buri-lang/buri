@@ -123,6 +123,9 @@ pub fn run(program: &mut Program, opts: &Options) {
 /// nothing between here and the backend takes the program by `&mut`.
 pub fn native(program: &mut Program) -> rc::Plan {
     derives::run(program);
+    // `derives` is the one pass past monomorphization that mints symbols, so
+    // the one-symbol claim is asked again now that every minter has run.
+    monomorphize::assert_one_symbol_per_function(&program.funcs, "`derives::run`");
     // After `derives` so that a generated body's own combinator chains fuse,
     // and before `closures` because fusion composes the *lambdas* and
     // `closures` is what turns a lambda into a lifted function.
