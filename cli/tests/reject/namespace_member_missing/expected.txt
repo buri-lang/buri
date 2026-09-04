@@ -4,7 +4,7 @@ error: "core/fs" has no member `copy` [no-such-member]
 10 |   let _ = fs.copy(ctx, "wal", "wal.bak");
    |              ^^^^
    |
-   = the module exports `IoError`, `append`, `exists`, `listDir`, `makeDir`, `readBytes`, `readText`, `remove`, `rename`, `sync`, `writeBytes` and `writeText`
+   = the module exports 13 names
    = fix: correct the member name, or check `buri docs core/fs`
 
      What to do

@@ -182,14 +182,23 @@ fn note(r: std::io::Result<()>) {
 /// The `Result` arm this write answers, and the point at which a held failure
 /// stops being held.
 ///
-/// # Safety
-/// `out_err` must be writable and aligned for a [`BuriStr`].
-unsafe fn reported(out_err: *mut BuriStr) -> i32 {
+/// **The variant and not the sentence**, which is `lib.rs` §2.1's message shape
+/// declined for exactly these five entries. The pointer it would take is an
+/// address *into the caller's destination*, so a function that prints would
+/// stop being able to keep its `Result` in registers — `native/llvm.rs`'s
+/// `a_hot_function_has_no_allocas` is what measures that, and printing is the
+/// path it is measuring. What is given up is the text on an unclassified stream
+/// failure: an `EPIPE` is `.Other("")` here and `.Other("EPIPE: …")` on the
+/// JavaScript backend, while `PermissionDenied`, `ReadOnly` and the rest are the
+/// variant they always were. A print's actionable half is which failure it was;
+/// `Fs` keeps its message because `ENOTEMPTY` and `EISDIR` have no variant at
+/// all, and `backend/runtime_table.rs`'s `Ret::ResMsg` is where the two are
+/// told apart.
+fn reported() -> i32 {
     let taken = lock(&PENDING).take();
     match taken {
         None => BURI_OK,
-        // SAFETY: forwarded to the caller.
-        Some(e) => unsafe { fail(&e, out_err) },
+        Some(e) => io_error(&e).0,
     }
 }
 
@@ -231,29 +240,22 @@ pub(crate) unsafe fn text(ptr: *const u8, len: u64) -> String {
 
 /// The four buffered text writers, which differ only in stream and newline.
 ///
-/// Each answers `Result<(), IoError>` — [`Ret::Res`] with the out-pointer
-/// omitted, because `()` occupies no bytes — so the C signature is the `Str`
-/// view, a trailing `out_err`, and an `i32` discriminant. The value it answers
-/// is whatever [`PENDING`] holds: a write that only filled a buffer has nothing
-/// to report, and one that triggered a flush reports what the flush found.
-///
-/// [`Ret::Res`]: buri's `backend/runtime_table.rs`
+/// Each answers `Result<(), IoError>` — `Ret::Res` with **both** out-pointers
+/// omitted: `()` occupies no bytes, and these five are the entries
+/// `backend/runtime_table.rs` deliberately does not give the message shape to
+/// ([`reported`] says why). So the C signature is the `Str` view and an `i32`
+/// discriminant, and nothing else. The value it answers is whatever [`PENDING`]
+/// holds: a write that only filled a buffer has nothing to report, and one that
+/// triggered a flush reports what the flush found.
 macro_rules! writer {
     ($name:ident, $buffer:ident, $newline:expr) => {
         /// # Safety
-        /// The three view parameters must describe a live `Str`; `out_err` must
-        /// be writable and aligned for a `BuriStr`.
+        /// The three view parameters must describe a live `Str`.
         #[unsafe(no_mangle)]
-        pub unsafe extern "C" fn $name(
-            _base: *mut u8,
-            ptr: *const u8,
-            len: u64,
-            out_err: *mut BuriStr,
-        ) -> i32 {
+        pub unsafe extern "C" fn $name(_base: *mut u8, ptr: *const u8, len: u64) -> i32 {
             // SAFETY: forwarded to the caller.
             push(&$buffer, unsafe { view(ptr, len) }, $newline);
-            // SAFETY: forwarded to the caller.
-            unsafe { reported(out_err) }
+            reported()
         }
     };
 }
@@ -273,14 +275,9 @@ writer!(buri_rt_host_stderr_eprintln, ERR, true);
 /// is older.
 ///
 /// # Safety
-/// `ptr` must be readable for `len` bytes, or null with `len == 0`; `out_err`
-/// must be writable and aligned for a [`BuriStr`].
+/// `ptr` must be readable for `len` bytes, or null with `len == 0`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_stdout_write_bytes(
-    ptr: *const u8,
-    len: u64,
-    out_err: *mut BuriStr,
-) -> i32 {
+pub unsafe extern "C" fn buri_rt_host_stdout_write_bytes(ptr: *const u8, len: u64) -> i32 {
     buri_rt_flush();
     if !ptr.is_null() && len != 0 {
         // SAFETY: the caller promises `len` readable bytes.
@@ -289,8 +286,7 @@ pub unsafe extern "C" fn buri_rt_host_stdout_write_bytes(
         let mut stream = stream.lock();
         note(stream.write_all(bytes).and_then(|()| stream.flush()));
     }
-    // SAFETY: forwarded to the caller.
-    unsafe { reported(out_err) }
+    reported()
 }
 
 // ---------------------------------------------------------------------------
@@ -384,6 +380,15 @@ fn io_error(e: &std::io::Error) -> (i32, String) {
 }
 
 /// Write the error arm and return its tag.
+///
+/// This is `lib.rs` §2.1's **message** shape, and it is the whole of the
+/// runtime's side of it: the tag names a variant of `IoError`, and the `Str` is
+/// what `.Other` carries — empty for the six variants that carry nothing, which
+/// is what the shape asks of an entry whose discriminant names a payload-less
+/// one. The caller has zeroed those bytes already
+/// (`backend/runtime_native.rs`'s `error_message_offset`), so the empty write
+/// is a restatement rather than a requirement; what matters is that a
+/// classified failure never leaves a message from a previous call behind.
 ///
 /// # Safety
 /// `out_err` must be writable and aligned for a [`BuriStr`].
@@ -634,6 +639,36 @@ pub unsafe extern "C" fn buri_rt_host_fs_remove_file(
     // SAFETY: forwarded.
     let path = unsafe { text(ptr, len) };
     match std::fs::remove_file(&path) {
+        Ok(()) => BURI_OK,
+        // SAFETY: the caller promises a writable destination.
+        Err(e) => unsafe { fail(&e, out_err) },
+    }
+}
+
+/// `Fs::removeDir` — `Result<(), IoError>`, and the directory must be **empty**.
+///
+/// `rmdir(2)`, which is what `core/fs`'s `removeDir` promises and the whole of
+/// what it promises: a directory that still holds something is `ENOTEMPTY`,
+/// which [`io_error`] has no classified variant for and so reports as
+/// `.Other(message)` carrying the platform's own sentence. A path naming a file
+/// is `ENOTDIR`, which it does name — `.NotADirectory` — and a path naming
+/// nothing is `.NotFound`.
+///
+/// Not `remove_dir_all`, deliberately: there is no recursive form on either
+/// backend, and `core/fs` carries the argument.
+///
+/// # Safety
+/// The path must be a live `Str` view; `out_err` writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_remove_dir(
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let path = unsafe { text(ptr, len) };
+    match std::fs::remove_dir(&path) {
         Ok(()) => BURI_OK,
         // SAFETY: the caller promises a writable destination.
         Err(e) => unsafe { fail(&e, out_err) },

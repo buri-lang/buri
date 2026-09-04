@@ -202,13 +202,71 @@
 //!   * `0 ..= n`, naming a variant of `E` in declaration order, **which must
 //!     carry no fields.** The out-pointer is untouched.
 //!
-//! A payload-carrying error *variant* is therefore not expressible, and that is
-//! deliberate: it would need an out-pointer whose offset depends on which
-//! variant `n` turned out to be, which is a switch the backend would generate
-//! per entry rather than the two stores it generates now. Nothing in the archive
-//! needs one — `IoError`'s seven variants are reached as `NotFound` and
-//! `AlreadyExists`, both payload-less, exactly as `runtime.js`'s
-//! `$host_testing_fsReadFile` returns `$err([0])`.
+//! ### The message, which is the one payload a variant may carry
+//!
+//! The restriction above stood for as long as the archive had nothing that
+//! needed more, and it stopped standing the day the `Fs` capability was wired
+//! up: `IoError`'s seventh variant is `Other(Str)`, and it is what a real
+//! filesystem answers for every kind the other six do not name — `EISDIR` on a
+//! read of a directory, `ENOTEMPTY` on a `removeDir`, `ENAMETOOLONG` on a path.
+//! An entry that could not carry that string would answer `.Other("")`, a
+//! failure that says nothing at all, where `backend/js/runtime.js` says
+//! `ENOTEMPTY: directory not empty`.
+//!
+//! So the rule is widened by exactly one shape, and it is *narrow*. **Where**
+//! the message goes is a shape a layout decides and is not a column:
+//! `backend/runtime_native.rs`'s `error_message_offset` is the one place it is
+//! recognised, and it answers `Some(offset)` for an `E` that is
+//!
+//!   * a **tagged** enum — a bare one has no payload area at all;
+//!   * with **exactly one** variant carrying fields, and that variant the
+//!     **last**;
+//!   * carrying **exactly one** field, which fills the payload area and is 24
+//!     bytes — a `Str` (VALUE-MODEL.md §3) and nothing else laid out that way.
+//!
+//! `IoError` answers `Some`. `NetError` answers `None`, because `BadUrl` and
+//! `Transport` both carry one: two payload variants would need an out-pointer
+//! whose offset depends on which one `n` turned out to name, which is the
+//! switch this section declined to generate and still declines.
+//!
+//! The signature then gains **one trailing out-pointer**, after `.Ok`'s, and
+//! the two sides split the work:
+//!
+//!   * the **caller** zeroes the message area *before* the call, so an entry
+//!     that answers a classified variant and writes nothing leaves an empty
+//!     `Str` there rather than whatever the frame held. On the `.Ok` path the
+//!     entry's own out-pointer write lands on top of those zeros, because the
+//!     two payloads share the destination's payload area and the call happens
+//!     after the zeroing;
+//!   * the **entry** writes the message where it has one, and the caller's
+//!     failure path then zeroes only the bytes *in front of* it and stores `n`.
+//!
+//! `host.rs`'s `fail` is the whole of the runtime's side, and it writes the empty
+//! string for a classified error.
+//!
+//! ### Which entries take it is a **column**, and that is the one thing here
+//! that is not read off a type
+//!
+//! Everything above is `E`'s layout. Whether an entry *has* a message is not:
+//! `buri_rt_host_fs_read_file` and `buri_rt_host_testing_fs_read_file` answer
+//! the same `Result<Str, IoError>` and have different C signatures, because the
+//! first can meet an `EISDIR` and the second is a map in memory. So the two
+//! runtime tables carry a `Ret::ResMsg` beside `Ret::Res`, and an entry's row
+//! and its declaration here have to agree the way every other row does.
+//!
+//! **The four stream writers and `writeBytes` deliberately do not take it**, and
+//! that is the judgement the column exists to record. `println` can meet an
+//! `EPIPE`, which `IoError` classifies as `.Other` and which a message would
+//! carry a sentence for — but the pointer is an address *into the caller's
+//! destination*, so a function that prints stops being able to keep its
+//! `Result` in registers, and `cli/tests/native/llvm.rs`'s
+//! `a_hot_function_has_no_allocas` is the measurement of exactly that. A print's
+//! actionable half is which failure it was; a filesystem failure's is often only
+//! in the string, because `ENOTEMPTY` and `EISDIR` have no `IoError` variant at
+//! all. So `Fs` carries the message and the streams answer the variant alone.
+//!
+//! A payload-carrying error variant beyond that one shape is still not
+//! expressible, and that is still deliberate.
 //!
 //! **An error type that is not an enum at all is the other half, and it is
 //! not the same problem.** `bytes.fromUtf8` answers `Result<Str, Utf8Error>`
@@ -219,19 +277,23 @@
 //! and the discriminant is `0` meaning "the error is written there" rather than
 //! "error variant zero".
 //!
-//! Which of the two an entry uses is not a column in either backend's table and
-//! must not be: it is `E`'s own shape. An enum error is named by its index; any
-//! other error is written through the pointer. A table column would be a second
-//! statement of a fact the type already makes, and the two could disagree.
+//! Which of the **three** an entry uses is `E`'s own shape and is not a column:
+//! an enum error is named by its index, an enum error with one trailing `Str`
+//! variant is named by its index and has somewhere to put a message, and any
+//! other error is written through the pointer whole. A column for *that* would
+//! be a second statement of a fact the type already makes, and the two could
+//! disagree. The one column beside it — whether an entry uses the message it
+//! has somewhere to put — is argued above, and it is about the entry rather
+//! than about `E`.
 //!
-//! The backends cannot *enforce* the payload-less restriction, and it is worth
-//! saying which way that fails. `n` is a register, so "the variant it names has
-//! no fields" is not a static question, and `IoError` has an `.Other(Str)` the
-//! archive promises never to name. `stencil/rtcall.rs::store_result_tag` and
+//! The backends cannot *enforce* the payload-less restriction on the variants
+//! the message shape does not cover, and it is worth saying which way that
+//! fails. `n` is a register, so "the variant it names has no fields" is not a
+//! static question. `stencil/rtcall.rs::store_result_tag` and
 //! `llvm/emit.rs`'s `call_result` therefore **zero the error variant's payload
-//! area** on the failure path: an entry that broke the promise produces
-//! `.Other("")` — wrong, and safely wrong — rather than a reference count on
-//! whatever the stack held.
+//! area** on the failure path — up to the message, where there is one: an entry
+//! that broke the promise produces an empty payload — wrong, and safely wrong —
+//! rather than a reference count on whatever the stack held.
 //!
 //! What the backend does with the two numbers is the mirror of what it already
 //! does for an `Option`: store the `Result`'s own `.Ok`/`.Err` discriminant, and

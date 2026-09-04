@@ -74,6 +74,7 @@ use crate::compiler::backend::intrinsic_keys::{
     Step,
 };
 use crate::compiler::backend::carrier;
+use crate::compiler::backend::runtime_native;
 use crate::compiler::backend::Profile;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::rc::{self, Counted as _};
@@ -2251,7 +2252,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 self.call_sum(state, code, dest, entry, argv, span);
                 return;
             }
-            runtime::Ret::Res => {
+            runtime::Ret::Res | runtime::Ret::ResMsg => {
                 let Some(dest) = dests.first().copied() else { return };
                 self.call_result(state, code, dest, entry, argv, span);
                 return;
@@ -2265,7 +2266,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             | runtime::Ret::NoReturn
             | runtime::Ret::Out
             | runtime::Ret::Sum
-            | runtime::Ret::Res => None,
+            | runtime::Ret::Res
+            | runtime::Ret::ResMsg => None,
             runtime::Ret::Scalar => dests
                 .first()
                 .map(|d| repr::ir_type(self.ctx, &mut self.reprs, self.program, code.ty_of(*d))),
@@ -4357,12 +4359,43 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             argv.push(out.into());
         }
         // `E`'s own shape, not a table column (`cli/runtime/lib.rs` §2.1): an
-        // enum error is named by an index, and anything else — `Utf8Error(Int)`
-        // — crosses through a second out-pointer.
+        // enum error is named by an index, an enum error whose last variant
+        // carries a `Str` has somewhere to put a message as well, and anything
+        // else — `Utf8Error(Int)` — crosses through a second out-pointer whole.
+        // Whether this entry *uses* that place is the one column beside it
+        // (`Ret::ResMsg`), and it is about the entry rather than about `E`.
         let err_is_enum = matches!(err_layout.repr, LayoutRepr::Enum { .. });
         if !err_is_enum && err_layout.size > 0 {
             let out = repr::byte_offset(self.ctx, &self.builder, buf, i64::from(err_at), "res.err");
             argv.push(out.into());
+        }
+        let message_at = runtime_native::error_message_offset(&err_layout)
+            .filter(|_| err_is_enum && entry.ret == runtime::Ret::ResMsg);
+        if let Some(at) = message_at {
+            let where_ = i64::from(err_at.saturating_add(at));
+            let out = repr::byte_offset(self.ctx, &self.builder, buf, where_, "res.err.message");
+            argv.push(out.into());
+            // The half of §2.1's message shape the **caller** owes, paid before
+            // the call: the message area is zeroed now, so an entry that
+            // answered a classified variant and wrote nothing leaves an empty
+            // `Str` there rather than whatever the frame held. On the `.Ok`
+            // path the entry's own out-pointer write lands on top of these
+            // zeros, because the call happens after this.
+            let mut off = at;
+            let word = self.ctx.i64_type();
+            while off.saturating_add(8) <= err_layout.size {
+                let slot =
+                    Slot { offset: err_at.saturating_add(off), ty: SlotTy::Scalar(Scalar::I64) };
+                self.store_slots(buf, &[slot], align, &[word.const_zero().as_basic_value_enum()]);
+                off = off.saturating_add(8);
+            }
+            let byte = self.ctx.i8_type();
+            while off < err_layout.size {
+                let slot =
+                    Slot { offset: err_at.saturating_add(off), ty: SlotTy::Scalar(Scalar::I8) };
+                self.store_slots(buf, &[slot], align, &[byte.const_zero().as_basic_value_enum()]);
+                off = off.saturating_add(1);
+            }
         }
         let param_types: Vec<BasicMetadataTypeEnum<'ctx>> =
             argv.iter().map(|a| metadata_type_of(self.ctx, *a)).collect();
@@ -4398,7 +4431,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.builder.position_at_end(bad);
         self.store_tag(buf, &enum_repr, align, err);
         if err_is_enum {
-            self.store_variant_index(buf, err_at, &err_layout, align, disc);
+            self.store_variant_index(buf, err_at, &err_layout, align, disc, message_at);
         }
         let _ = self.builder.build_unconditional_branch(join);
 
@@ -4480,6 +4513,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         l: &layout::Layout,
         align: u32,
         index: IntValue<'ctx>,
+        message_at: Option<u32>,
     ) {
         let LayoutRepr::Enum {
             repr: EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. },
@@ -4497,14 +4531,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.store_slots(buf, &[slot], align, &[narrowed]);
         if let LayoutRepr::Enum { repr: EnumRepr::Tagged { payload, .. }, .. } = &l.repr {
             let mut off = *payload;
+            // §2.1's message shape: the entry wrote `E`'s one `Str` at
+            // `message_at`, so the zeroing stops in front of it rather than
+            // overwriting the sentence the failure came with.
+            let until = message_at.unwrap_or(l.size);
             let word = self.ctx.i64_type();
-            while off.saturating_add(8) <= l.size {
+            while off.saturating_add(8) <= until {
                 let slot = Slot { offset: at.saturating_add(off), ty: SlotTy::Scalar(Scalar::I64) };
                 self.store_slots(buf, &[slot], align, &[word.const_zero().as_basic_value_enum()]);
                 off = off.saturating_add(8);
             }
             let byte = self.ctx.i8_type();
-            while off < l.size {
+            while off < until {
                 let slot = Slot { offset: at.saturating_add(off), ty: SlotTy::Scalar(Scalar::I8) };
                 self.store_slots(buf, &[slot], align, &[byte.const_zero().as_basic_value_enum()]);
                 off = off.saturating_add(1);

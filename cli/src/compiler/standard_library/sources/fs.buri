@@ -3,6 +3,16 @@
 //! Every function here names `Fs` in its bounds, so the disk is visible in the
 //! signature.
 //!
+//! ## Directories
+//!
+//! `makeDir` creates one and every missing parent of it; `removeDir` removes
+//! one that is **empty**. Neither is recursive, and the asymmetry is only
+//! apparent: creating a parent nobody asked for leaves a directory where a
+//! directory was wanted, and deleting a child nobody named deletes a file
+//! somebody wrote. So the creation is `mkdir -p` and the removal is `rmdir`,
+//! and a program that wants a recursive delete writes the walk out of `listDir`,
+//! `remove` and `removeDir` — where every path it deletes is one it named.
+//!
 //! ## Text and octets
 //!
 //! `readText` and `writeText` are the text pair; `readBytes` and `writeBytes`
@@ -124,11 +134,37 @@ export fn rename<C: Fs>(ctx: C, source: Str, destination: Str): Result<(), IoErr
 /// answered `.Ok` to it would hide that. "Delete it if it is there" is
 /// `result.ignore(fs.remove(ctx, p))`, written where it is meant.
 ///
-/// Files only. Directory removal is deliberately absent: the useful version is
-/// recursive, and a recursive delete behind a one-word name is a mistake that
-/// only happens once.
+/// Files only. `removeDir` is the directory half, and it is a second name
+/// rather than a second behaviour of this one: a recursive delete behind a
+/// one-word name is a mistake that only happens once, so neither of them is
+/// recursive and the one that removes a directory says so in its name.
 export fn remove<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
     ctx.removeFile(path)
+}
+
+/// Deletes the directory, which must be **empty**.
+///
+/// This is `makeDir`'s inverse, and it is the one the effect went without: a
+/// program that made a scratch directory per run had no way to leave the
+/// filesystem as it found it, so a long-lived checkout accumulated one empty
+/// directory per run ever made.
+///
+/// **Empty, and not recursive.** `rmdir(2)` is what this is, on every backend
+/// that has a real filesystem, and a directory that still holds something is
+/// `.Err(.Other)` — the platform's own `ENOTEMPTY`, carrying the platform's own
+/// sentence. There is deliberately no recursive form and no flag that turns one
+/// on: a recursive delete is a program-sized decision about which files may go,
+/// and a program that wants one writes the walk itself out of `listDir` and
+/// these two removals, where every path it deletes is one it named.
+///
+/// The other two answers are the ones `remove` gives, for the same reasons:
+/// `.Err(.NotFound)` where the path names nothing, because a removal of what
+/// was never there is a belief that was wrong; and `.Err(.NotADirectory)`
+/// where the path names a file, because that request cannot be satisfied by
+/// anybody. "Remove it if it is there" is `fs.removeDir(ctx, p).ignore()`,
+/// written where it is meant.
+export fn removeDir<C: Fs>(ctx: C, path: Str): Result<(), IoError> {
+    ctx.removeDir(path)
 }
 
 /// Creates the directory, and every parent of it that is missing.

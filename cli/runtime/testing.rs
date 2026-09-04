@@ -415,6 +415,15 @@ fn transcript(handle: i64) -> String {
 /// constants — a reader who reorders `IoError` has to find these lines.
 const IO_NOT_FOUND: i32 = 0;
 const IO_ALREADY_EXISTS: i32 = 3;
+/// `IoError::NotADirectory`, which `removeDir` answers for a path naming a
+/// file.
+const IO_NOT_A_DIRECTORY: i32 = 4;
+/// `IoError::Other`, whose payload is the one an entry writes through §2.1's
+/// message out-pointer. This double reaches it for exactly one reason — a
+/// directory that still holds something — and writes the sentence the
+/// JavaScript double writes, so a conformance block asserting on it reads the
+/// same on both backends.
+const IO_OTHER: i32 = 6;
 
 /// The bytes a store holds at `path`, or `None` where there is no file there.
 ///
@@ -1257,6 +1266,67 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_remove_file(
         entries.remove(at);
         BURI_OK
     })
+}
+
+/// `TestFs.removeDir(self, path) -> Result<(), IoError>` — the directory must
+/// be there and must be **empty**.
+///
+/// A flat map has no containment, so "empty" is "no file and no recorded
+/// directory has this one as a prefix", which is the same question `readDir`
+/// answers off the same two lists. `.Err(.NotFound)` where nothing is recorded
+/// there, `.Err(.NotADirectory)` where a file is, and `.Err(.Other)` where it
+/// still holds something — the one place this module writes §2.1's message,
+/// because `ENOTEMPTY` has no classified `IoError` variant on a real
+/// filesystem either.
+///
+/// # Safety
+/// The range is readable; `out_err` is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_fs_remove_dir(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out_err: *mut BuriStr,
+) -> i32 {
+    let (store, read_only) = fs_view(handle);
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let _recorded = recording_fs(handle, "removeDir", &path, "");
+    if read_only {
+        return IO_READ_ONLY;
+    }
+    let clean = fs_clean(&path).to_string();
+    if clean.is_empty() {
+        // SAFETY: the caller promises a writable, aligned destination.
+        unsafe { out_err.write(str_of("cannot remove the root")) };
+        return IO_OTHER;
+    }
+    // The order is the one `backend/js/runtime.js`'s double uses, and the two
+    // are written to agree: a path naming a file is `.NotADirectory`, one naming
+    // nothing is `.NotFound`, and only a directory that is really there can be
+    // reported as still holding something. A different order here would make
+    // one conformance block answer two things.
+    let answer = with(store, IO_NOT_FOUND, |slot| {
+        let Slot::Files { entries, dirs } = slot else { return IO_NOT_FOUND };
+        if entries.iter().any(|(k, _)| *k == clean) {
+            return IO_NOT_A_DIRECTORY;
+        }
+        let Some(at) = dirs.iter().position(|d| *d == clean) else { return IO_NOT_FOUND };
+        let prefix = format!("{clean}/");
+        let held =
+            entries.iter().map(|(k, _)| k).chain(dirs.iter()).any(|k| k.starts_with(&prefix));
+        if held {
+            return IO_OTHER;
+        }
+        dirs.remove(at);
+        BURI_OK
+    });
+    if answer == IO_OTHER {
+        // SAFETY: the caller promises a writable, aligned destination.
+        unsafe { out_err.write(str_of("directory not empty")) };
+    }
+    answer
 }
 
 /// `TestFs.makeDir(self, path) -> Result<(), IoError>` — parents included, an

@@ -4,7 +4,7 @@ error: "core/fs" has no member `readTxt` [no-such-member]
 8 |   let _ = fs.readTxt(ctx, "wal");
   |              ^^^^^^^
   |
-  = the module exports `IoError`, `append`, `exists`, `listDir`, `makeDir`, `readBytes`, `readText`, `remove`, `rename`, `sync`, `writeBytes` and `writeText`
+  = the module exports 13 names
   = did you mean `readText`?
   = fix: correct the member name, or check `buri docs core/fs`
 

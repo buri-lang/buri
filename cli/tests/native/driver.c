@@ -113,6 +113,8 @@ extern int32_t buri_rt_host_fs_rename_file(uint8_t *fbase, const uint8_t *fptr, 
                                            BuriStr *out_err);
 extern int32_t buri_rt_host_fs_remove_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                            BuriStr *out_err);
+extern int32_t buri_rt_host_fs_remove_dir(uint8_t *base, const uint8_t *ptr, uint64_t len,
+                                          BuriStr *out_err);
 extern int32_t buri_rt_host_fs_make_dir(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                         BuriStr *out_err);
 extern int32_t buri_rt_host_fs_sync_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
@@ -453,6 +455,22 @@ static int mode_wal(const char *dir) {
   int32_t removed_again = buri_rt_host_fs_remove_file(S(log), &err);
   int32_t sync_missing = buri_rt_host_fs_sync_file(S(log), &err);
 
+  /* And the inverse of the `mkdir` this mode opened with, which the effect went
+   * without until buri-lang/buri#38: the directory still holds the checkpoint,
+   * so the first call is `.Other` — variant six — carrying the platform's own
+   * sentence through §2.1's message out-pointer, and only once the last file is
+   * gone does it go. The sentence itself is the platform's ("Directory not
+   * empty (os error 66)" on Darwin, another on Linux), so what is printed is
+   * that there *was* one. */
+  BuriStr why;
+  why.base = NULL;
+  why.ptr = NULL;
+  why.len = 0;
+  int32_t held = buri_rt_host_fs_remove_dir(S(root), &why);
+  int32_t dropped = buri_rt_host_fs_remove_file(S(checkpoint), &err);
+  int32_t rmdir = buri_rt_host_fs_remove_dir(S(root), &err);
+  uint8_t root_gone = buri_rt_host_fs_file_exists(S(root));
+
   printf("mkdir=%s,%s append=%s,%s sync=%s,%s log=", made == BURI_OK ? "ok" : "err",
          made_again == BURI_OK ? "ok" : "err", one == BURI_OK ? "ok" : "err",
          two == BURI_OK ? "ok" : "err", synced_one == BURI_OK ? "ok" : "err",
@@ -468,8 +486,11 @@ static int mode_wal(const char *dir) {
       printf("%s%d", i == 0 ? "" : ".", (int)kept.ptr[i]);
     }
   }
-  printf(" remove=%s remove-again=%d sync-missing=%d\n", removed == BURI_OK ? "ok" : "err",
+  printf(" remove=%s remove-again=%d sync-missing=%d", removed == BURI_OK ? "ok" : "err",
          removed_again, sync_missing);
+  printf(" rmdir-held=%d rmdir-said=%d drop=%s rmdir=%s root-gone=%d\n", held,
+         bytes_of(why) > 0, dropped == BURI_OK ? "ok" : "err", rmdir == BURI_OK ? "ok" : "err",
+         !root_gone);
   return 0;
 }
 
