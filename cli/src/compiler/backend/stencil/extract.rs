@@ -888,6 +888,15 @@ fn fold_cond_adjacent(s: &Stencil) -> Option<Stencil> {
     if cond_target(wk, k)? != y {
         return None;
     }
+    // Nothing *else* may reach the arm at `x`, because the fold deletes it. A
+    // body with two basic blocks in its condition — which a `||` in the C makes
+    // — has a second conditional branch straight to `x`, and deleting the `b`
+    // there silently retargets it at the other arm: `1.5 == 1.5` took the false
+    // edge while `NaN == NaN` took the true one. `k` is the only conditional
+    // branch this shape allows, and it goes to `y`.
+    if code.iter().enumerate().take(k).any(|(i, &w)| cond_target(w, i) == Some(x)) {
+        return None;
+    }
     let mut s2 = Stencil {
         name: s.name.clone(),
         code: s.code.clone(),
