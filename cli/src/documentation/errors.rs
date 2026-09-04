@@ -194,7 +194,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("not-an-enum", "A `.Variant` form names an enum"),
     e!("not-callable", "A call names a function or a lambda"),
     e!("not-indexable", "Indexing is defined on arrays"),
-    e!("not-interpolatable", "A hole in a string holds a primitive"),
+    e!("not-interpolatable", "A hole in a string holds a value nothing renders"),
     e!("not-on-the-surface", "A library is reached through its surface"),
     e!("or-pattern-bindings", "Or-pattern alternatives bind the same names"),
     e!("output-with-an-architecture", "Only a native output names an architecture", &["build/build-files"]),

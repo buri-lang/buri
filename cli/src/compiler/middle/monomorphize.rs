@@ -1314,7 +1314,8 @@ impl<'a> Monomorphizer<'a> {
                     .map(|p| match p {
                         typed::TemplatePart::Text(t) => typed::TemplatePart::Text(t),
                         typed::TemplatePart::Hole(h) => {
-                            typed::TemplatePart::Hole(self.rewrite(h, targs))
+                            let h = self.rewrite(h, targs);
+                            typed::TemplatePart::Hole(self.render_hole(h))
                         }
                     })
                     .collect(),
@@ -1468,6 +1469,38 @@ impl<'a> Monomorphizer<'a> {
 
         let slot = self.request(Key::Fn(fid, instance_targs));
         ExprKind::CallFn { func: typed::Callee::Func(FuncIdx(slot as u32)), args }
+    }
+
+    /// One template hole, rendered where the type is not one a backend renders
+    /// from its static type on its own.
+    ///
+    /// SPEC 3.6 admits a hole whose type's `Show` is derived, and a derived
+    /// `Show` *is* `structuralShow` — the same rewrite `structural_call` makes
+    /// of `x.show(ctx)` at a derived impl, context dropped and descriptor
+    /// appended. Making the hole that call here rather than in each backend is
+    /// what keeps all three agreeing: the JavaScript generator already
+    /// compiles `structuralShow` to `$show(v, d)`, and `middle::lower` already
+    /// turns it into the `Inst::Structural` that `middle::derives` replaces
+    /// with a call to the function it generated for the type. A primitive is
+    /// left alone, because both ends render one from its static type with no
+    /// descriptor and no call at all.
+    fn render_hole(&mut self, h: typed::Expr) -> typed::Expr {
+        if self.tables().as_prim(&h.ty).is_some() || h.ty.is_error() {
+            return h;
+        }
+        let span = h.span;
+        let desc = self.descriptor(&h.ty);
+        let str_ty = self.tables().prim(Prim::Str);
+        let desc_arg = typed::Expr::new(ExprKind::Int(desc as u128, false), Ty::Error, span);
+        typed::Expr::new(
+            ExprKind::Intrinsic {
+                name: "structuralShow".into(),
+                targs: Vec::new(),
+                args: vec![h, desc_arg],
+            },
+            str_ty,
+            span,
+        )
     }
 
     /// The structural implementations `derive` stands for. They are emitted as

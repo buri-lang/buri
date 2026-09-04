@@ -1027,28 +1027,178 @@ impl<'a, 'b> Infer<'a, 'b> {
 }
 
 impl<'a, 'b> Infer<'a, 'b> {
-    /// Hole expressions must have type `Int` (any width), `Float` (any width),
-    /// `Bool`, `Char`, or `Str`. There is no user-extensible display mechanism
-    /// in v0.3; convert explicitly.
+    /// A hole holds a primitive — `Int` (any width), `Float` (any width),
+    /// `Bool`, `Char`, `Str` — or a value whose `Show` is **derived**
+    /// (SPEC 3.6).
+    ///
+    /// The line is drawn at the derive rather than at the trait because of what
+    /// interpolation may not do. A hole is rendered where the `Template` is
+    /// built, and a `Template` names no context: `io.println(ctx, "hi ${name}")`
+    /// needs `Stdout` and nothing else. A derived `Show` is a fold over the
+    /// type's shape that the *runtime* performs — `middle::monomorphize` drops
+    /// the context from `x.show(ctx)` at a derived impl already — so admitting
+    /// those holes adds no bound to any signature. A hand-written
+    /// `impl Show`'s `show<C: Alloc>(self, ctx: C)` has to be *called*, and
+    /// there is no context here to call it with, so that conversion stays the
+    /// author's: `${p.show(ctx)}`.
     fn check_template_holes(&mut self) {
         let checks = std::mem::take(&mut self.hole_checks);
         for (ty, span) in checks {
             let resolved = self.subst.resolve(&ty);
-            let ok = match self.c.tables.as_prim(&resolved) {
-                Some(p) => {
-                    p.is_integer()
-                        || p.is_float()
-                        || matches!(p, Prim::Bool | Prim::Char | Prim::Str)
-                }
-                None => matches!(resolved, Ty::Error | Ty::Var(_)),
-            };
-            if !ok {
-                let shown = show(&self.c.tables, Some(&self.subst), &self.generics, &resolved);
-                self.c.diags.push(
-                    Diagnostic::templated("not-interpolatable", span).with_bind("type", shown),
-                );
+            if matches!(resolved, Ty::Error | Ty::Var(_)) {
+                continue;
             }
+            // `()` renders as `()` under a derived `Show` and is admitted
+            // *inside* a shape for that reason, but a hole holding one on its
+            // own is a mistake with no rendering to ask for.
+            if !matches!(resolved, Ty::Unit)
+                && self.renders_structurally(&resolved, &mut Vec::new())
+            {
+                continue;
+            }
+            let shown = show(&self.c.tables, Some(&self.subst), &self.generics, &resolved);
+            let mut d =
+                Diagnostic::templated("not-interpolatable", span).with_bind("type", shown.clone());
+            let show_tid = self.c.known_traits.get("Show").copied();
+            // Whether writing `derive Show` on *this* type would be the edit.
+            // Not "does not satisfy `Show`", which a type whose components fall
+            // short also fails — the derive belongs on the component then — and
+            // never a primitive, since `Template` is the one that lands here
+            // and there is no deriving `Show` for it.
+            let undeclared = match (resolved.head(), show_tid) {
+                (Some(con), Some(tr)) => {
+                    self.c.tables.as_prim(&resolved).is_none()
+                        && !self.c.tables.impls.contains_key(&(tr, con))
+                }
+                _ => false,
+            };
+            // Three different mistakes, and the edit is different for each: a
+            // rendering that exists and has to be *called*, a type parameter
+            // whose instantiation decides which of the two it is, and a type
+            // with no rendering at all. Where the hand-written `Show` is on a
+            // component, the component is what the author has to look at.
+            if let Some(hand) = self.hand_written_show(&resolved, &mut Vec::new()) {
+                d = d.with_note(format!(
+                    "`{hand}`'s `Show` is written by hand, and `show<C: Alloc>(self, ctx: C)` \
+                     names a context a hole has no way to reach"
+                ));
+                if hand == shown {
+                    d = d.with_fix("call it in the hole, as in `${x.show(ctx)}`");
+                }
+            } else if matches!(resolved, Ty::Param(_))
+                && show_tid.is_some_and(|tr| self.satisfies(&resolved, tr))
+            {
+                d = d
+                    .with_note(format!(
+                        "a `{shown}: Show` may be instantiated at a type whose `Show` is written \
+                         by hand, so a hole cannot render it structurally"
+                    ))
+                    .with_fix("call it in the hole, as in `${x.show(ctx)}`");
+            } else if undeclared {
+                d = d.with_fix(format!(
+                    "add `derive Show for {shown};` in that type's own module, or render it \
+                     first with `.show(ctx)`"
+                ));
+            }
+            self.c.diags.push(d);
         }
+    }
+
+    /// The first type in this shape whose `Show` is an `impl` rather than a
+    /// `derive`, which is the one that keeps the whole hole out.
+    fn hand_written_show(&self, ty: &Ty, seen: &mut Vec<TyConId>) -> Option<String> {
+        let tr = self.c.known_traits.get("Show").copied()?;
+        match ty {
+            Ty::Array(e) => self.hand_written_show(e, seen),
+            Ty::Tuple(es) => es.iter().find_map(|e| self.hand_written_show(e, seen)),
+            Ty::Con(id, args) => {
+                if self.c.tables.as_prim(ty).is_some() {
+                    return None;
+                }
+                let imp = self.c.tables.impls.get(&(tr, *id))?;
+                if !imp.is_derived() {
+                    return Some(show(&self.c.tables, Some(&self.subst), &self.generics, ty));
+                }
+                if seen.contains(id) {
+                    return None;
+                }
+                seen.push(*id);
+                let found = self
+                    .component_types(*id, args)
+                    .into_iter()
+                    .find_map(|t| self.hand_written_show(&t, seen));
+                seen.pop();
+                found
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether a value of this type renders the way `derive Show` renders it,
+    /// with no context: a primitive, an array or tuple of such, or a type
+    /// whose `Show` impl is a `derive` — all the way down.
+    ///
+    /// The recursion is the same one [`Infer::satisfies`] performs for a
+    /// derived impl, and for the same reason: a derived rendering is a fold
+    /// over the components, so a component with a hand-written `Show` would be
+    /// rendered structurally and disagree with its own `show`. `seen` stops a
+    /// recursive type, whose answer depends on itself and is therefore yes.
+    fn renders_structurally(&self, ty: &Ty, seen: &mut Vec<TyConId>) -> bool {
+        // A type that merely mentions an effect is part of the world rather
+        // than part of your data, and nothing renders it (SPEC 10.1).
+        if self.c.tables.is_effect_carrying(ty, &self.generics) {
+            return false;
+        }
+        match ty {
+            Ty::Array(e) => self.renders_structurally(e, seen),
+            Ty::Tuple(es) => es.iter().all(|e| self.renders_structurally(e, seen)),
+            Ty::Con(id, args) => {
+                if let Some(p) = self.c.tables.as_prim(ty) {
+                    return p.is_integer()
+                        || p.is_float()
+                        || matches!(p, Prim::Bool | Prim::Char | Prim::Str);
+                }
+                let Some(tr) = self.c.known_traits.get("Show").copied() else { return false };
+                let Some(imp) = self.c.tables.impls.get(&(tr, *id)) else { return false };
+                if !imp.is_derived() {
+                    return false;
+                }
+                if seen.contains(id) {
+                    return true;
+                }
+                seen.push(*id);
+                let ok = self.components_render_structurally(*id, args, seen);
+                seen.pop();
+                ok
+            }
+            _ => false,
+        }
+    }
+
+    fn components_render_structurally(
+        &self,
+        con: TyConId,
+        args: &[Ty],
+        seen: &mut Vec<TyConId>,
+    ) -> bool {
+        self.component_types(con, args)
+            .iter()
+            .all(|t| matches!(t, Ty::Unit) || self.renders_structurally(t, seen))
+    }
+
+    /// Every field and payload type of one type constructor, with the
+    /// constructor's own arguments substituted in.
+    fn component_types(&self, con: TyConId, args: &[Ty]) -> Vec<Ty> {
+        let tycon = self.c.tables.tycon(con);
+        let declared: Vec<Ty> = match &tycon.def {
+            TyDef::Struct { fields, .. } => fields.iter().map(|f| f.ty.clone()).collect(),
+            TyDef::Enum { variants } => variants
+                .iter()
+                .flat_map(|v| v.fields.iter().map(|f| f.ty.clone()))
+                .collect(),
+            TyDef::Prim(_) => Vec::new(),
+        };
+        declared.iter().map(|t| substitute(t, args, None)).collect()
     }
 }
 

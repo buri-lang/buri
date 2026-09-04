@@ -5,11 +5,13 @@ from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/num" import * as num;
 from "core/order" import { Order };
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "//lib/semantics" import {
     area, Backwards, Brick, Count, declIndex, Delta, Feather, heaviest, heavyLabel,
-    Level, Loose, Meters, Offset, Percent, rank, relayAll, relayScaled, relayTwice,
-    Rose, roseSum, Scale, Shape, Suit, totalGrams, Version, version, weighAndShow,
+    Level, Loose, Meters, Offset, Pair, Percent, rank, relayAll, relayScaled,
+    relayTwice, Rose, roseSum, Scale, Shape, Suit, totalGrams, Version, version,
+    weighAndShow,
 };
 
 // -----------------------------------------------------------------------------
@@ -159,6 +161,105 @@ test "derived Show is a function of the value" {
     };
     assert.eq(version(1, 2, 3).show(ctx), version(1, 2, 3).show(ctx));
     assert.notEq(version(1, 2, 3).show(ctx), version(1, 2, 4).show(ctx));
+}
+
+// -----------------------------------------------------------------------------
+// A `${...}` hole holds a value whose `Show` is derived (SPEC 3.6)
+//
+// The claim under every row here is one equation: a hole renders what
+// `show` renders. A derived `Show` is a fold over the shape that the run time
+// performs, which is why the hole needs no context of its own — and why the
+// text may not be a second rendering that happens to look similar.
+// -----------------------------------------------------------------------------
+
+test "a hole holds a derived struct, and renders what show renders" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let v = version(1, 2, 3);
+    assert.eq(str.format(ctx, "${v}"), v.show(ctx));
+}
+
+test "a derived hole is rendered in place, not appended" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let v = version(1, 2, 3);
+    assert.eq(str.format(ctx, "v=${v}!"), str.format(ctx, "v=${v.show(ctx)}!"));
+}
+
+test "a hole holds a derived enum, payload and all" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = Shape.Rect { width: 1.0, height: 2.0 };
+    assert.eq(str.format(ctx, "${s}"), s.show(ctx));
+    assert.isTrue(str.format(ctx, "${s}").contains("Rect"));
+}
+
+test "a hole holds a payload-free variant" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.format(ctx, "${Level.Medium}"), Level.Medium.show(ctx));
+}
+
+test "a hole holds an array" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.format(ctx, "${[1, 2, 3]}"), "[1, 2, 3]");
+}
+
+test "a hole holds a generic struct, and quotes the Str inside it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let p = Pair { first: 1, second: "a" };
+    assert.eq(str.format(ctx, "${p}"), p.show(ctx));
+    // A `Str` *inside* a shape is quoted, exactly as `show` writes it; a `Str`
+    // that is the whole hole is its own text.
+    assert.isTrue(str.format(ctx, "${p}").contains("\"a\""));
+    let bare = "a";
+    assert.eq(str.format(ctx, "${bare}"), "a");
+}
+
+test "a hole holds a type that recurses through a container" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let r = Rose.Branch([Rose.Leaf(1), Rose.Leaf(2)]);
+    assert.eq(str.format(ctx, "${r}"), r.show(ctx));
+}
+
+test "a hole holds an Option" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let some: Option<Int> = .Some(4);
+    let none: Option<Int> = .None;
+    assert.eq(str.format(ctx, "${some}"), some.show(ctx));
+    assert.eq(str.format(ctx, "${none}"), none.show(ctx));
+}
+
+test "a derived hole sits beside primitive holes" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let v = version(1, 0, 0);
+    assert.eq(
+        str.format(ctx, "${1} ${v} ${true}"),
+        str.format(ctx, "1 ${v.show(ctx)} true"),
+    );
+}
+
+test "a hand-written Show is reached by calling it in the hole" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The conversion the language does not make for you: `${Suit.Hearts}` is
+    // rejected, and this is what is written instead.
+    assert.eq(str.format(ctx, "the suit is ${Suit.Hearts.show(ctx)}"), "the suit is H");
 }
 
 // -----------------------------------------------------------------------------

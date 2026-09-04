@@ -3544,6 +3544,58 @@ export fn main(): Result<(), Str> {{
     assert_eq!(live_many, 0, "the heap did not come back balanced: {}", many.stderr);
 }
 
+/// The same question for a hole whose type's `Show` is derived (SPEC 3.6).
+///
+/// It is a different path and it is the one that allocates most: the hole is a
+/// `structuralShow` call, so the `Str` it renders is a fresh block per
+/// iteration on top of the join's own temporaries, and there is a second block
+/// under it for the `Str` field. A primitive hole leaks none of that, which is
+/// why the row above would not have caught it.
+#[test]
+fn interpolating_a_derived_value_in_a_loop_leaks_nothing() {
+    if !supported() {
+        return;
+    }
+    let source = |n: u32| {
+        format!(
+            r#"
+from "core/host" import {{ stdout, alloc }};
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+derive Eq, Show for Tag;
+struct Tag {{
+  id: Int,
+  name: Str,
+}}
+
+fn go(n: Int, acc: Int): Int {{
+  if (n <= 0) {{ acc }} else {{
+    let t = Tag {{ id: n, name: "ab".repeat(alloc, 3) }};
+    let s = str.format(alloc, "[${{t}}]");
+    go(n - 1, acc + s.len())
+  }}
+}}
+
+export fn main(): Result<(), Str> {{
+  let _ = io.println(stdout, "total ${{go({n}, 0)}}").ignore();
+  .Ok(())
+}}
+"#
+        )
+    };
+    let few = run_with("derived-hole-leak-few", &source(20), Some(ALLOC_PROBE));
+    let many = run_with("derived-hole-leak-many", &source(200), Some(ALLOC_PROBE));
+    let (_, live_few) = probed(&few.stderr);
+    let (_, live_many) = probed(&many.stderr);
+    assert_eq!(
+        live_few, live_many,
+        "twenty derived-hole interpolations left {live_few} blocks live and two hundred \
+         left {live_many}: rendering the hole leaks per iteration"
+    );
+    assert_eq!(live_many, 0, "the heap did not come back balanced: {}", many.stderr);
+}
+
 /// **A Buri server answers a real request, on a real socket.**
 ///
 /// The whole of `core/net/server` and `effect Listen` end to end: `bind` opens

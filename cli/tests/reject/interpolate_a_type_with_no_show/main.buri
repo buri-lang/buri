@@ -1,0 +1,18 @@
+// EXPECT: `Point` cannot be interpolated
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+// No `derive Show`, so there is no structural rendering to reach for and the
+// fix is to declare one (SPEC 3.6).
+struct Point {
+    x: Int,
+    y: Int,
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let p = Point { x: 1, y: 2 };
+  let _ = io.println(ctx, "the point is ${p}").ignore();
+  .Ok(())
+}
