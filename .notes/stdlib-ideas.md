@@ -415,6 +415,50 @@ and it is what buys ~25 hand-written `*Label` functions back.
 
 Nick's decision (do this): You can use `T: Show` for the holes, but if `ctx` is required the user must manually do the conversion
 
+**Done, and here is where the caveat put the line.** `Show.show` is
+`fn show<C: Alloc>(self, ctx: C): Str` and there is no second signature
+(`core/order.buri:35`), so read literally "if `ctx` is required" would exclude
+every `Show` there is. But `ctx` is only *required at the call*: at a **derived**
+impl `middle::monomorphize` drops it — "`show` and `toJson` each take a context
+they do not use here: rendering, and building the tree, are the runtime's"
+(`monomorphize.rs:1529`) — and rewrites the call to `structuralShow(value,
+descriptor)`. A hand-written `impl Show` is the case where the context really is
+required, because the function has to be entered.
+
+So the rule shipped is: **a hole holds a primitive, or a value whose `Show` is
+derived** — a `derive Show` type, an array of one, a tuple of them, all the way
+down. It renders through the same `structuralShow` a derived `x.show(ctx)`
+renders through, so `"${p}"` and `"${p.show(ctx)}"` are the same text and
+`io.println(ctx, "${point}")` still needs only `Stdout`. The Recommendation's
+`Stdout + Alloc` cost is not paid, and the "only in argument position of a call
+whose context is in scope" mechanism is not needed: no context is threaded
+anywhere. A hand-written `impl Show`, and a bounded `T: Show` (whose
+instantiation decides which of the two it is), stay the author's `.show(ctx)`.
+
+The `T: Show` bound is deliberately *not* the admission test. A derived
+rendering is a fold over the components, so a `Pair<Int, Suit>` whose `Suit` has
+a hand-written `Show` would be rendered structurally and disagree with `Suit`'s
+own `show` — the same trap `is_derive_only` exists for on `ToJson`
+(`types.rs:422`). Conformance is not enough; being *structural* is.
+
+Measured against the ~25 `*Label` functions, honestly: **none of them
+disappear.** Every one picks a format the structural rendering does not produce
+— `valueLabel`'s `entity:`/`string:` prefixes (`storage_simulator/labels.buri:7`),
+`hlcLabel`'s `${millis}:${counter}:${node}` (`:43`), `scanLabel`'s
+`kind=scan path=osp object=…` (`:80`), and `writeStatusLabel`'s `"Applied"`
+where a derive writes `".Applied"` (`:110`). What they become is a hand-written
+`impl Show` on the type in `model`, which is the win that was actually
+available: it kills the duplication the section found — **two independent
+`valueLabel`s for one `Value`** (`storage_simulator/labels.buri:7` vs
+`database_simulator/labels.buri:18`) collapse to one impl the type carries — and
+turns each of the 251 hole sites into `${v.show(ctx)}` rather than a `let` plus
+`${valueLabel(ctx, v)}`. Shrunk, not vanished, which is what the caveat asked
+for.
+
+The larger win is the one the `*Label` count does not show: the monorepo has
+**127 `derive … Show` declarations** and calls `.show(ctx)` twice. Every one of
+those 127 types can now go straight into a hole.
+
 The rest of §8, ranked:
 
 - **`core/path` — do it, and not `fs.join`.** Path manipulation is pure string
