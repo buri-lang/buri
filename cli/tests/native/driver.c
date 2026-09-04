@@ -857,6 +857,74 @@ static int mode_list(void) {
   return 0;
 }
 
+/* --- The test-mode heap check ------------------------------------------- */
+/*
+ * Five modes that exist so the net around `middle/rc` can be shown to have
+ * teeth. `cli/runtime/memory.rs`'s heap-check section is off unless
+ * `BURI_RT_HEAP_CHECK` says otherwise, and a check that is silently off looks
+ * exactly like a program that is clean -- so these are the canaries, and
+ * `native/runtime.rs` runs each of them with the variable set and without it.
+ *
+ * They are here rather than in Buri because a Buri program *cannot* express
+ * them: leaking on purpose is what the compiler exists to prevent, and reading
+ * a block after freeing it is not something the language has a spelling for.
+ */
+
+/* One block allocated and deliberately never freed. */
+static int mode_heap_leak(void) {
+  uint8_t *p = buri_rt_alloc(64);
+  p[0] = 1;
+  printf("allocated\n");
+  fflush(stdout);
+  return 0;
+}
+
+/* A block freed and then increfed, which is a use after free. */
+static int mode_heap_use_after_free(void) {
+  uint8_t *p = buri_rt_alloc(64);
+  buri_rt_free(p);
+  printf("freed\n");
+  fflush(stdout);
+  buri_rt_incref(p);
+  printf("survived\n");
+  fflush(stdout);
+  return 0;
+}
+
+/* A block freed twice. */
+static int mode_heap_double_free(void) {
+  uint8_t *p = buri_rt_alloc(64);
+  buri_rt_free(p);
+  printf("freed\n");
+  fflush(stdout);
+  buri_rt_free(p);
+  printf("survived\n");
+  fflush(stdout);
+  return 0;
+}
+
+/* A block written to after it was freed, which only the poison can see. */
+static int mode_heap_write_after_free(void) {
+  uint8_t *p = buri_rt_alloc(64);
+  buri_rt_free(p);
+  p[7] = 0x11;
+  printf("wrote\n");
+  fflush(stdout);
+  return 0;
+}
+
+/* Allocation and release in balance: the state a clean program ends in. */
+static int mode_heap_clean(void) {
+  for (int i = 0; i < 64; i++) {
+    uint8_t *p = buri_rt_alloc(16 + i);
+    p[0] = (uint8_t)i;
+    buri_rt_free(p);
+  }
+  printf("balanced\n");
+  fflush(stdout);
+  return 0;
+}
+
 int main(int argc, char **argv) {
   buri_rt_argv_init(argc, (const uint8_t **)argv);
   const char *mode = argc > 1 ? argv[1] : "";
@@ -933,6 +1001,21 @@ int main(int argc, char **argv) {
       return 1;
     }
     buri_rt_alloc_budget_check(4096, 0, 1024);
+  }
+  if (strcmp(mode, "heap-leak") == 0) {
+    return mode_heap_leak();
+  }
+  if (strcmp(mode, "heap-use-after-free") == 0) {
+    return mode_heap_use_after_free();
+  }
+  if (strcmp(mode, "heap-double-free") == 0) {
+    return mode_heap_double_free();
+  }
+  if (strcmp(mode, "heap-write-after-free") == 0) {
+    return mode_heap_write_after_free();
+  }
+  if (strcmp(mode, "heap-clean") == 0) {
+    return mode_heap_clean();
   }
   if (strcmp(mode, "abort-after-print") == 0) {
     buri_rt_host_stdout_println(S("printed before the abort"));

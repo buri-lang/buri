@@ -342,8 +342,15 @@ fn run(name: &str, source: &str) -> Ran {
     run_with(name, source, None)
 }
 
+/// **Under the heap check**, like every other program this domain runs: the
+/// rows here are whole programs run to completion, which is the population the
+/// runtime's exit audit is a question about. A row that leaks now says so with
+/// the runtime's own line and the status `shared::HEAP_CHECK_STATUS`, and the
+/// rows that already assert a live-block count through a linked probe go on
+/// asserting it — the two are the same claim reached from inside and from
+/// outside, and neither is a substitute for the other.
 fn run_with(name: &str, source: &str, probe: Option<&str>) -> Ran {
-    crate::shared::ran(&build_with(name, source, probe))
+    crate::shared::ran_checked(&build_with(name, source, probe))
 }
 
 
