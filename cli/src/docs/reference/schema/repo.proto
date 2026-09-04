@@ -88,79 +88,85 @@ message Rules {
   RuleDefault default = 1;
 
   // `ctx` names the context a function was handed. `buri docs lint ctx-rebinding`.
-  bool ctx_rebinding = 2;
+  bool ctx_rebinding = 3;
 
   // Every declaration is reached from a `lib.buri` or a `main.buri`. `buri docs lint dead-code`.
-  bool dead_code = 3;
+  bool dead_code = 4;
 
   // Branches nest shallowly. `buri docs lint deep-nesting`.
-  bool deep_nesting = 4;
+  bool deep_nesting = 5;
 
   // Two targets may not depend on each other. `buri docs lint dep-cycle`.
-  bool dep_cycle = 5;
+  bool dep_cycle = 6;
 
   // Every deliberately dropped `Result` is reported. `buri docs lint discarded-result`.
-  bool discarded_result = 6;
+  bool discarded_result = 7;
+
+  // A match whose arms all drop a `Result` is `.ignore()` unspelled. `buri docs lint discarded-result-by-hand`.
+  bool discarded_result_by_hand = 8;
 
   // A module is imported once. `buri docs lint duplicate-import`.
-  bool duplicate_import = 7;
+  bool duplicate_import = 9;
 
   // A source file is listed by one rule. `buri docs lint duplicate-source`.
-  bool duplicate_source = 8;
+  bool duplicate_source = 10;
 
   // A `test` block declares the sources it tests. `buri docs lint empty-test-suite`.
-  bool empty_test_suite = 9;
+  bool empty_test_suite = 11;
+
+  // A comparator the standard library already wrote. `buri docs lint hand-rolled-comparator`.
+  bool hand_rolled_comparator = 12;
 
   // The hexadecimal digits are not yours to keep. `buri docs lint hex-digit-table`.
-  bool hex_digit_table = 10;
+  bool hex_digit_table = 13;
 
   // Every library a package uses is in its dependencies. `buri docs lint missing-dep`.
-  bool missing_dep = 11;
+  bool missing_dep = 14;
 
   // A function is one responsibility. `buri docs lint oversized-function`.
-  bool oversized_function = 12;
+  bool oversized_function = 15;
 
   // A test title is one line. `buri docs lint test-title-newline`.
-  bool test_title_newline = 13;
+  bool test_title_newline = 16;
 
   // A test asserts something. `buri docs lint test-without-assertion`.
-  bool test_without_assertion = 14;
+  bool test_without_assertion = 17;
 
   // A length of time is a `Duration`. `buri docs lint time-unit-conversion`.
-  bool time_unit_conversion = 15;
+  bool time_unit_conversion = 18;
 
   // A function takes few parameters. `buri docs lint too-many-parameters`.
-  bool too_many_parameters = 16;
+  bool too_many_parameters = 19;
 
   // A target admits at least one platform. `buri docs lint unsatisfiable-target`.
-  bool unsatisfiable_target = 17;
+  bool unsatisfiable_target = 20;
 
   // A function that takes `ctx` uses it. `buri docs lint unused-context`.
-  bool unused_context = 18;
+  bool unused_context = 21;
 
   // A context asks for the effects it uses. `buri docs lint unused-context-bound`.
-  bool unused_context_bound = 19;
+  bool unused_context_bound = 22;
 
   // Every field is read. `buri docs lint unused-field`.
-  bool unused_field = 20;
+  bool unused_field = 23;
 
   // Every import is used. `buri docs lint unused-import`.
-  bool unused_import = 21;
+  bool unused_import = 24;
 
   // Every source file belongs to a library or a binary. `buri docs lint unused-library`.
-  bool unused_library = 22;
+  bool unused_library = 25;
 
   // Every declared type is used. `buri docs lint unused-type`.
-  bool unused_type = 23;
+  bool unused_type = 26;
 
   // Every `let` names something the code below it reads. `buri docs lint unused-variable`.
-  bool unused_variable = 24;
+  bool unused_variable = 27;
 
   // Every variant is constructed or matched. `buri docs lint unused-variant`.
-  bool unused_variant = 25;
+  bool unused_variant = 28;
 
   // A marker comment is work that was left behind. `buri docs lint warning-comment`.
-  bool warning_comment = 26;
+  bool warning_comment = 29;
 }
 
 // Whether a rule the `rules` block does not name runs.
