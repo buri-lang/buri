@@ -134,6 +134,7 @@ extern int32_t buri_rt_net_h3_available(void);
 extern int64_t buri_rt_host_clock_now_millis(void);
 extern void buri_rt_host_clock_sleep_millis(int64_t millis);
 extern int64_t buri_rt_host_rand_next_int(int64_t lo, int64_t hi);
+extern void buri_rt_host_entropy_bytes(int64_t count, BuriList *out);
 extern double buri_rt_host_rand_next_float(void);
 extern int32_t buri_rt_host_env_variable(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                          BuriStr *out);
@@ -527,6 +528,48 @@ static int mode_clock_rand(void) {
   return 0;
 }
 
+/* `Entropy.bytes` — the operating system's generator, which has no answer to
+ * assert. What is asserted is everything that is not the octets: the length,
+ * that zero is the empty list, that a long request crosses whatever windowing
+ * the platform does, and that two calls do not hand back the same thing. The
+ * last is the only property a test can state about unpredictability at all, and
+ * it is stated over 64 octets, where a repeat by chance is 2^-512. */
+static int mode_entropy(void) {
+  BuriList empty;
+  buri_rt_host_entropy_bytes(0, &empty);
+
+  BuriList first, second;
+  buri_rt_host_entropy_bytes(64, &first);
+  buri_rt_host_entropy_bytes(64, &second);
+  int differ = memcmp(first.ptr, second.ptr, 64) != 0;
+
+  /* All zeroes is what an unwritten buffer looks like, which is the failure a
+   * "it returned 64 bytes" check on its own would pass. */
+  int nonzero = 0;
+  for (int i = 0; i < 64; i++) {
+    if (first.ptr[i] != 0) {
+      nonzero = 1;
+    }
+  }
+
+  /* Past 65536, which is WebCrypto's per-call quota on the other backend and
+   * the size at which an implementation that accepted a short read would start
+   * handing back a partly blank key. */
+  BuriList big;
+  buri_rt_host_entropy_bytes(70000, &big);
+  int tail_nonzero = 0;
+  for (uint64_t i = 69000; i < big.len; i++) {
+    if (big.ptr[i] != 0) {
+      tail_nonzero = 1;
+    }
+  }
+
+  printf("empty=%llu len=%llu differ=%d nonzero=%d big=%llu tail=%d\n",
+         (unsigned long long)empty.len, (unsigned long long)first.len, differ, nonzero,
+         (unsigned long long)big.len, tail_nonzero);
+  return 0;
+}
+
 static int mode_stdin_lines(void) {
   for (;;) {
     BuriStr line;
@@ -827,6 +870,9 @@ int main(int argc, char **argv) {
   if (strcmp(mode, "clock-rand") == 0) {
     return mode_clock_rand();
   }
+  if (strcmp(mode, "entropy") == 0) {
+    return mode_entropy();
+  }
   if (strcmp(mode, "stdin-lines") == 0) {
     return mode_stdin_lines();
   }
@@ -851,6 +897,10 @@ int main(int argc, char **argv) {
   }
   if (strcmp(mode, "abort-random") == 0) {
     buri_rt_host_rand_next_int(3, 3);
+  }
+  if (strcmp(mode, "abort-entropy-count") == 0) {
+    BuriList out;
+    buri_rt_host_entropy_bytes(-1, &out);
   }
   if (strcmp(mode, "abort-bounds") == 0) {
     buri_rt_abort_bounds(7, 3);

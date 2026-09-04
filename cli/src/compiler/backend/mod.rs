@@ -319,6 +319,37 @@ pub fn networking_gap_when(program: &Program, net: bool) -> Vec<String> {
     keys
 }
 
+/// The intrinsic keys this toolchain cannot answer because its runtime archive
+/// was built without cryptography.
+///
+/// [`networking_gap`]'s twin, and a separate function rather than a parameter
+/// because the two say different sentences and name different features. It
+/// answers nothing on an ordinary toolchain: `crypto` is one of the runtime's
+/// default features.
+pub fn cryptography_gap(program: &Program) -> Vec<String> {
+    cryptography_gap_when(program, runtime_native::crypto())
+}
+
+/// [`cryptography_gap`], with the toolchain's answer as a parameter, for the
+/// reason [`networking_gap_when`] takes one: `runtime_native::crypto()` is read
+/// from a file baked into this binary, so a toolchain that *has* cryptography
+/// has no other way to ask what one without it would say.
+pub fn cryptography_gap_when(program: &Program, crypto: bool) -> Vec<String> {
+    if crypto {
+        return Vec::new();
+    }
+    let mut keys: Vec<String> = program
+        .funcs
+        .iter()
+        .filter_map(|f| f.intrinsic_key())
+        .filter(|key| runtime_native::crypto_intrinsic(key))
+        .map(String::from)
+        .collect();
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
 /// What [`Backend::missing_intrinsics`] answered, split by what to say about it.
 ///
 /// Two causes, and they ask the reader for different things. The first list is
@@ -347,6 +378,30 @@ fn split_networking_when(missing: &[String], net: bool) -> (Vec<String>, Vec<Str
 /// fix every other missing intrinsic carries — would be the wrong instruction.
 pub fn no_networking(operations: &[String], span: Span) -> Diagnostic {
     Diagnostic::templated("networking-not-available", span)
+        .with_bind("operations", crate::diagnostics::names(operations))
+}
+
+/// [`split_networking`] for the cryptography half.
+///
+/// Applied to what the networking split left rather than replacing it, so a
+/// third cause is one more line at each site and not a wider tuple everywhere.
+/// The two families are disjoint — `net_intrinsic` and `crypto_intrinsic` match
+/// different effects — so the order the two splits run in cannot matter.
+pub fn split_cryptography(missing: &[String]) -> (Vec<String>, Vec<String>) {
+    split_cryptography_when(missing, runtime_native::crypto())
+}
+
+/// [`split_cryptography`], with the toolchain's answer as a parameter.
+fn split_cryptography_when(missing: &[String], crypto: bool) -> (Vec<String>, Vec<String>) {
+    missing.iter().cloned().partition(|key| !crypto && runtime_native::crypto_intrinsic(key))
+}
+
+/// The refusal for operations this toolchain's runtime has no cryptography for.
+///
+/// [`no_networking`]'s twin, and templated for its reason: a reader who meets
+/// this has a toolchain to replace rather than a program to fix.
+pub fn no_cryptography(operations: &[String], span: Span) -> Diagnostic {
+    Diagnostic::templated("cryptography-not-available", span)
         .with_bind("operations", crate::diagnostics::names(operations))
 }
 
@@ -709,14 +764,107 @@ mod tests {
         );
     }
 
-    /// Both native backends consult it, rather than one of them.
+    // -- the cryptography gap -----------------------------------------------
+    //
+    // The same seam, one feature over. `host.HostEntropy.bytes` is reachable
+    // from ordinary source on every platform — `core/crypto`'s `randomBytes`
+    // and `token` are its only callers — but what is under test here is again
+    // the *refusal*, which only a toolchain built without `crypto` produces.
+    // So the key is named directly, for `networking_gap`'s reason.
+
+    /// A `crypto`-less toolchain names the operation; an ordinary one is
+    /// silent.
+    #[test]
+    fn a_toolchain_without_cryptography_names_the_operation() {
+        let program = program_using(&["host.HostEntropy.bytes", "json.encode"]);
+        assert_eq!(
+            cryptography_gap_when(&program, false),
+            vec!["host.HostEntropy.bytes".to_string()],
+            "the gap is the entropy key and nothing else"
+        );
+        assert!(
+            cryptography_gap_when(&program, true).is_empty(),
+            "a toolchain with cryptography reports no gap"
+        );
+        assert_eq!(
+            cryptography_gap(&program),
+            cryptography_gap_when(&program, runtime_native::crypto())
+        );
+        assert_eq!(
+            cryptography_gap(&program).is_empty(),
+            runtime_native::crypto(),
+            "an ordinary toolchain has cryptography and reports no gap"
+        );
+    }
+
+    /// The refusal is its own sentence, names the feature, and does not say
+    /// "report it": nothing about the program is wrong.
+    #[test]
+    fn a_cryptography_gap_is_its_own_refusal() {
+        let missing =
+            vec!["host.HostEntropy.bytes".to_string(), "json.encode".to_string()];
+        let (cryptography, rest) = split_cryptography_when(&missing, false);
+        assert_eq!(cryptography, vec!["host.HostEntropy.bytes"]);
+        assert_eq!(rest, vec!["json.encode"]);
+
+        let refusal = no_cryptography(&cryptography, Span::NONE);
+        assert_eq!(refusal.code.as_deref(), Some("cryptography-not-available"));
+        assert!(
+            refusal.message.contains("`host.HostEntropy.bytes`"),
+            "the refusal names no operation: {}",
+            refusal.message
+        );
+        assert!(refusal.message.contains("without cryptography"), "{}", refusal.message);
+        let fix = refusal.fix.clone().expect("the page carries a fix");
+        assert!(fix.contains("crypto"), "the fix does not name the feature: {fix}");
+        assert!(!fix.contains("report it"), "a missing capability is not a bug report: {fix}");
+    }
+
+    /// The two gaps are disjoint, and a toolchain missing both says both
+    /// sentences rather than one of them twice.
+    #[test]
+    fn the_two_capability_gaps_do_not_overlap() {
+        let missing = vec![
+            "host.HostEntropy.bytes".to_string(),
+            "host.HostListen.listen".to_string(),
+            "json.encode".to_string(),
+        ];
+        let (networking, rest) = split_networking_when(&missing, false);
+        let (cryptography, rest) = split_cryptography_when(&rest, false);
+        assert_eq!(networking, vec!["host.HostListen.listen"]);
+        assert_eq!(cryptography, vec!["host.HostEntropy.bytes"]);
+        assert_eq!(rest, vec!["json.encode"]);
+        // And the same three keys sorted into one pile by a toolchain that has
+        // both capabilities.
+        let (networking, rest) = split_networking_when(&missing, true);
+        let (cryptography, rest) = split_cryptography_when(&rest, true);
+        assert!(networking.is_empty() && cryptography.is_empty());
+        assert_eq!(rest, missing);
+    }
+
+    /// Both native backends consult the gaps, rather than one of them.
     ///
     /// Asserted through `Backend::missing_intrinsics` — the trait method the
     /// build system and `buri test` actually ask — so a backend that stopped
-    /// folding the gap in fails here rather than at somebody's link step.
+    /// folding a gap in fails here rather than at somebody's link step.
+    ///
+    /// **Neither key is one a runtime answers**, and that is deliberate for
+    /// both. `host.HostListen.listen` is not an operation `Listen` declares and
+    /// `host.HostEntropy.words` is not one `Entropy` declares; a key that *is*
+    /// implemented would be reported by neither backend on the toolchain this
+    /// suite runs on, because both features are on and the surface covers it.
+    /// What is under test is that a key in each family reaches the caller as a
+    /// missing one at all.
     #[test]
-    fn both_native_backends_report_a_networking_key() {
-        let key = "host.HostListen.listen";
+    fn both_native_backends_report_a_capability_key() {
+        for key in ["host.HostListen.listen", "host.HostEntropy.words"] {
+            both_native_backends_report(key);
+        }
+    }
+
+    /// One key, asked of whichever native backends this toolchain has.
+    #[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
+    fn both_native_backends_report(key: &str) {
         let program = program_using(&[key]);
         let tables = Tables::default();
         let reports = |missing: Vec<String>| missing.iter().any(|k| k == key);

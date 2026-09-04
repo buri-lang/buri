@@ -1104,8 +1104,12 @@ fn objects_named(
         // a different sentence, and asks for a different thing, from an
         // operation the backend has no body for.
         let (networking, rest) = backend::split_networking(&missing);
+        let (cryptography, rest) = backend::split_cryptography(&rest);
         if !networking.is_empty() {
             diagnostics.push(backend::no_networking(&networking, Span::NONE));
+        }
+        if !cryptography.is_empty() {
+            diagnostics.push(backend::no_cryptography(&cryptography, Span::NONE));
         }
         if !rest.is_empty() {
             diagnostics.push(

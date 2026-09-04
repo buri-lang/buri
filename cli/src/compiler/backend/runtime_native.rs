@@ -229,6 +229,25 @@ pub fn h3() -> bool {
     declares("net-h3")
 }
 
+/// Whether this toolchain's runtime archive can answer `Entropy`.
+///
+/// The runtime's `crypto` feature is on by default, so this is true of every
+/// ordinary toolchain — [`net`]'s shape rather than [`h3`]'s. It is false in
+/// three ways: `BURI_RUNTIME_CRYPTO=0` at build time, a dependency tree that
+/// would not resolve, and a host with no archive at all. There is no
+/// C-compiler leg here, which is the one difference from `net`: `getrandom`
+/// compiles no C.
+///
+/// What reads it is [`super::cryptography_gap`], which turns it into a refusal
+/// naming the operation rather than a link error naming
+/// `buri_rt_host_entropy_bytes`. **A weaker generator is not the alternative**
+/// — the archive holds `rng.rs`'s xoshiro either way, and answering `Entropy`
+/// from it would be undetectable by anything but an attacker, which is why the
+/// feature's absence is a refusal rather than a fallback.
+pub fn crypto() -> bool {
+    declares("crypto")
+}
+
 /// Whether an intrinsic key is one only a `net` runtime answers.
 ///
 /// The three host effects the networking archive carries — `Listen` accepts
@@ -286,6 +305,25 @@ pub fn net_intrinsic(key: &str) -> bool {
     let Some(rest) = key.strip_prefix("host.") else { return false };
     let Some((effect, _operation)) = rest.split_once('.') else { return false };
     matches!(effect, "HostListen" | "HostSockets" | "HostTasks")
+}
+
+/// Whether an intrinsic key is one only a `crypto` runtime answers.
+///
+/// One effect and one operation today, and matched on the effect for
+/// [`net_intrinsic`]'s reason: a second operation on `Entropy` is covered the
+/// day it is added rather than the day somebody remembers this line.
+///
+/// **`host_testing.TestEntropy.*` is deliberately not here.** The test
+/// platform's `Entropy` is seeded, its body is in `cli/runtime/testing.rs`
+/// beside `TestRand`'s and behind no feature, and it reaches no crate — so a
+/// `crypto`-less toolchain runs a suite that binds `entropy()` exactly as it
+/// always did. That is the same distinction `host.HostFs` and
+/// `host_testing.TestFs` are on: two implementations of one effect, and only
+/// one of them needs the world.
+pub fn crypto_intrinsic(key: &str) -> bool {
+    let Some(rest) = key.strip_prefix("host.") else { return false };
+    let Some((effect, _operation)) = rest.split_once('.') else { return false };
+    effect == "HostEntropy"
 }
 
 /// The archive's SHA-256, **taken by `cli/build.rs` when the bytes were
@@ -495,6 +533,45 @@ mod tests {
     fn a_networking_key_mangles_like_any_other() {
         assert_eq!(symbol_for("host.HostListen.listen"), "buri_rt_host_listen_listen");
         assert_eq!(symbol_for("host.HostTasks.parallel"), "buri_rt_host_tasks_parallel");
+    }
+
+    /// The cryptography family is one effect, and the doubles are not in it.
+    ///
+    /// The second half is the one worth asserting: `host_testing.TestEntropy.*`
+    /// is a seeded generator in `cli/runtime/testing.rs` behind no feature at
+    /// all, so a `crypto`-less toolchain still runs every suite that binds
+    /// `entropy()`. Claiming it here would refuse those suites for want of a
+    /// crate none of them reaches.
+    #[test]
+    fn the_cryptography_family_is_one_effect_and_excludes_the_double() {
+        assert!(crypto_intrinsic("host.HostEntropy.bytes"));
+        for key in [
+            "host_testing.TestEntropy.bytes",
+            "host_testing.entropy",
+            "host.HostRand.nextInt",
+            "host.HostListen.listen",
+            "crypto.sha256",
+            "host.HostEntropy",
+            "HostEntropy.bytes",
+        ] {
+            assert!(!crypto_intrinsic(key), "{key} is not cryptography and was claimed");
+        }
+        // And the two families never claim each other's keys, which is what
+        // lets `backend::split_cryptography` run over what
+        // `backend::split_networking` left.
+        assert!(!net_intrinsic("host.HostEntropy.bytes"));
+        assert!(!crypto_intrinsic("host.HostTasks.parallel"));
+    }
+
+    /// The key mangles like any other, so the refusal and the symbol the linker
+    /// would have looked for are the same thing said twice.
+    #[test]
+    fn the_entropy_key_mangles_like_any_other() {
+        assert_eq!(symbol_for("host.HostEntropy.bytes"), "buri_rt_host_entropy_bytes");
+        assert_eq!(
+            symbol_for("host_testing.TestEntropy.bytes"),
+            "buri_rt_host_testing_test_entropy_bytes"
+        );
     }
 
     /// The hash is what the `link` key is built from, so it has to be a hash of

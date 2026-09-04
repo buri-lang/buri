@@ -340,11 +340,12 @@ impl Backend for Stencil {
     /// it.
     ///
     /// Two sources, not one. This backend's own surface, and — since the
-    /// runtime archive grew a `net` feature — the keys *no* backend can answer
-    /// on a toolchain whose archive was built without it
-    /// ([`super::networking_gap`]). The second is empty on an ordinary
-    /// toolchain and it is not this backend's business what the sentence is:
-    /// `super::gap_refusals` sorts the two apart where the diagnostic is built.
+    /// runtime archive grew features — the keys *no* backend can answer on a
+    /// toolchain whose archive was built without one
+    /// ([`super::networking_gap`], [`super::cryptography_gap`]). Those are
+    /// empty on an ordinary toolchain and it is not this backend's business
+    /// what the sentence is: `super::gap_refusals` sorts the causes apart where
+    /// the diagnostic is built.
     fn missing_intrinsics(&self, program: &Program, _tables: &Tables) -> Vec<String> {
         let mut missing: Vec<String> = program
             .funcs
@@ -354,6 +355,7 @@ impl Backend for Stencil {
             .map(String::from)
             .collect();
         missing.extend(super::networking_gap(program));
+        missing.extend(super::cryptography_gap(program));
         missing.sort();
         missing.dedup();
         missing

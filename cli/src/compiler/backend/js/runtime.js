@@ -2010,6 +2010,35 @@ function $host_HostRand_nextFloat(self) {
   return Math.random();
 }
 
+// `Entropy.bytes` — WebCrypto, and the one line worth writing down is that it
+// is **synchronous**. `crypto.subtle` is promise-shaped and `getRandomValues`
+// is not: it fills a typed array and returns it, in node, in Bun, in every
+// browser, and in a page that is not a secure context. So this key is absent
+// from `rc::suspends`, no caller of it is coloured `async`, and a program that
+// mints a token pays nothing for the privilege.
+//
+// `Math.random` is deliberately not a fallback for a runtime that has no
+// `crypto`. A generator that is merely uniform answering a call for one that is
+// unpredictable is the exact failure this effect exists to make impossible, and
+// it would be invisible: the octets look the same.
+function $host_HostEntropy_bytes(self, count) {
+  const n = Number(count);
+  if (n < 0) $abort("entropy count is negative");
+  if (n === 0) return [];
+  const c = globalThis.crypto;
+  if (!c || typeof c.getRandomValues !== "function") {
+    $abort("this platform grants no cryptographic randomness");
+  }
+  const out = new Uint8Array(n);
+  // The specification caps one call at 65536 octets — a quota rather than an
+  // implementation limit, so it is the same on every engine — and a longer
+  // request is filled a window at a time rather than refused.
+  for (let i = 0; i < n; i += 65536) {
+    c.getRandomValues(out.subarray(i, Math.min(i + 65536, n)));
+  }
+  return Array.from(out);
+}
+
 function $host_HostEnv_variable(self, name) {
   const env = typeof process !== "undefined" ? process.env : {};
   const v = env[name];
@@ -4540,6 +4569,27 @@ function $host_testing_TestRand_nextInt(self, lo, hi) {
 
 function $host_testing_TestRand_nextFloat(self) {
   return $nextRand($slot(self)) / 4294967296;
+}
+
+// The seeded `Entropy`, on `TestRand`'s own generator and at its own seeds, so
+// `entropy().seed(7)` and `rand().seed(7)` draw the same sequence — one octet
+// per step, which is the low byte `nextInt(0, 256)` would have taken. A sealed
+// value written into an assertion therefore holds on both backends.
+function $host_testing_entropy() {
+  return $handle({ s: 1 });
+}
+
+function $host_testing_TestEntropy_seed(self, n) {
+  return $handle({ s: Number(BigInt.asUintN(32, n)) || 1 });
+}
+
+function $host_testing_TestEntropy_bytes(self, count) {
+  const n = Number(count);
+  if (n < 0) $abort("entropy count is negative");
+  const slot = $slot(self);
+  const out = [];
+  for (let i = 0; i < n; i += 1) out.push($nextRand(slot) & 255);
+  return out;
 }
 
 function $host_testing_env() {

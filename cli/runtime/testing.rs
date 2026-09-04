@@ -1428,6 +1428,74 @@ pub extern "C" fn buri_rt_host_testing_test_rand_next_float(handle: i64) -> f64 
     f64::from(next(handle)) / 4294967296.0
 }
 
+/// `entropy()` — the seeded `Entropy`, on [`Slot::Rand`]'s own state.
+///
+/// **One slot for two doubles**, deliberately. `entropy().seed(7)` and
+/// `rand().seed(7)` are two handles onto two independent generators, but they
+/// are the *same* generator by construction, so the octets one hands back are
+/// the low bytes the other's `nextInt(0, 256)` would have taken. That is a
+/// property worth having rather than a saving: a fixture that was written
+/// against `rand` and is ported to `entropy` keeps its expected values, and
+/// there is one sequence in this file to keep in step with `runtime.js` rather
+/// than two.
+///
+/// It is also the whole of what a *test* wants from this effect, and the exact
+/// opposite of what `core/effect`'s `Entropy` promises a program — which is why
+/// `core/host/testing` is importable only from a test source.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_entropy(out: *mut i64) {
+    let handle = install(Slot::Rand(1));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `TestEntropy::seed` — a **new** generator at that seed, drawing from the
+/// start of its sequence. `TestRand::seed`'s rule, including the zero one.
+///
+/// # Safety
+/// `out` must be writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_entropy_seed(
+    _handle: i64,
+    seed: i64,
+    out: *mut i64,
+) {
+    let state = seed as u32;
+    let handle = install(Slot::Rand(if state == 0 { 1 } else { state }));
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(handle) }
+}
+
+/// `TestEntropy::bytes` — one step of the generator per octet, low byte first,
+/// as `$host_testing_TestEntropy_bytes`.
+///
+/// A negative count aborts with the message the real `Entropy` uses, so a test
+/// that gets the argument wrong reads the same sentence a program would.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_entropy_bytes(
+    handle: i64,
+    count: i64,
+    out: *mut BuriList,
+) {
+    if count < 0 {
+        crate::buri_rt_abort_entropy_count();
+    }
+    let len = count as usize;
+    let mut bytes = Vec::with_capacity(len);
+    for _ in 0..len {
+        bytes.push(next(handle) as u8);
+    }
+    let value = list_of_bytes(&bytes);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
 /// `env()` — no variables and no arguments.
 ///
 /// # Safety

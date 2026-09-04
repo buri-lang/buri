@@ -190,10 +190,12 @@ impl Backend for Llvm {
             .filter(|key| !emit::implemented(key))
             .collect();
         // The second source: the keys *no* backend can answer on a toolchain
-        // whose runtime archive was built without `net`. Empty on an ordinary
-        // toolchain, and the sentence it earns is `super::gap_refusals`'s
-        // rather than this backend's.
+        // whose runtime archive was built without `net`, and the keys it cannot
+        // answer without `crypto`. Both empty on an ordinary toolchain, and the
+        // sentences they earn are `super::gap_refusals`'s rather than this
+        // backend's.
         missing.extend(super::networking_gap(program));
+        missing.extend(super::cryptography_gap(program));
         // `str.concat` is emitted by `lower::template` at every interpolation
         // and never appears as a `FuncKind::Intrinsic`, so scanning the
         // function list alone would miss the single most common way a program

@@ -1358,6 +1358,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "collections/map.buri",
     "collections/ordmap.buri",
     "collections/queue.buri",
+    "crypto/entropy.buri",
     "crypto/sha256.buri",
     "data/lists.buri",
     "data/optionresult.buri",
