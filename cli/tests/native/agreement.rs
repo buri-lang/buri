@@ -3849,18 +3849,26 @@ export fn main(): Result<(), Str> {
   let c = wrapped(.Some(Wrapper { octets: built() }));
   let d = wrappedMatch(.Some(Wrapper { octets: built() }));
   let e = defaulted(.None);
-  let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
+  let f = wrapped(.None);
+  let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e} ${f}").ignore();
   .Ok(())
 }
 "#,
-        "3 3 3 3 0\n",
+        "3 3 3 3 0 0\n",
         1,
         "`wrapped(.Some(..))` leaks its payload's list. `Option<T>.withDefault` where \
-         `T` is a **struct holding a list** drops the struct on the `Some` arm without \
-         releasing what the struct holds; the same call at `Option<[U8]>` is clean, and \
-         so is the `match` spelling on the line below it. Found by the ownership \
-         generator in `cli/tests/fuzz.rs`, which is why that generator does not draw \
-         this call — the note there says so",
+         `T` is a **struct holding a list** drops the struct without releasing what the \
+         struct holds; the same call at `Option<[U8]>` is clean, and so is the `match` \
+         spelling on the line below it. Found by the ownership generator in \
+         `cli/tests/fuzz.rs`, which is why that generator does not draw this call — the \
+         note there says so. \
+         `wrapped(.None)` is the *same* under-decrement, and it is on the row rather \
+         than held out because it costs no block on either backend: the struct it drops \
+         holds `list.empty<U8>()`, and an empty list is not a block. It is here because \
+         it once was one — the LLVM backend answered `list.empty` with a zero-byte \
+         allocation, so this line leaked there and nowhere else, and the ownership \
+         search found the disagreement (`llvm.rs`'s `an_empty_list_is_not_a_block`). \
+         The count is one on *both* native backends now, which is the claim",
     );
 }
 

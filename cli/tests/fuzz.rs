@@ -2957,6 +2957,21 @@ fn rc_line(rng: &mut Rng) -> (String, String) {
                 // which is the argument `known_signatures` makes for the
                 // recorded corpus, applied to a finding the corpus cannot hold
                 // because it needs a backend this host may not have.
+                //
+                // The `.None` arm **is** drawn, and it is the same
+                // under-decrement: `withDefault` drops the struct it did not
+                // answer with on either arm. It costs no block because the
+                // struct it drops here holds `list.empty<U8>()` and an empty
+                // list is not a block — which is a claim about the *backends*
+                // and not about `rc`, and it was false on one of them. The
+                // LLVM backend answered `list.empty` with a zero-byte
+                // allocation, so this draw leaked exactly one block there and
+                // none on the debug backend, and this search is what found it
+                // (`backend/llvm/emit.rs`'s `empty_list`, and
+                // `native/llvm.rs`'s `an_empty_list_is_not_a_block`). Left
+                // drawn: it is now the cheapest program in this file that
+                // would notice the two backends parting company over what an
+                // empty list costs.
                 2 => (String::from("wrapped(.None)"), 0),
                 _ if present => {
                     (format!("wrappedMatch(.Some(Wrapper {{ octets: [{bytes}] }}))"), n)
