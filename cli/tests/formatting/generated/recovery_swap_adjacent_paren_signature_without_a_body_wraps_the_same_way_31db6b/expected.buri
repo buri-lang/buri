@@ -1,3 +1,0 @@
-export trait Weigh {
-  fn weighWithEverything<C: Alloc + Stdout>(self, ctx: Cscale ,: Str, precision: Int): Float;
-}

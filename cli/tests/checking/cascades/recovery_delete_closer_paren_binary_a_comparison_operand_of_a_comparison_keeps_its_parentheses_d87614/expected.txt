@@ -1,0 +1,37 @@
+error: expected `Bool`, found `(Bool)` [type-mismatch]
+  --> main.buri:17:61
+   |
+17 | export fn either_side(a: Int, b: Int, c: Int, d: Int): Bool {
+   |                                                             ^ the declared return type is `Bool`
+   |
+   = expected: `Bool`
+   = actual: `(Bool)`
+   = fix: produce a `Bool` here, or change what surrounds it to accept a `(Bool)`
+error: a tuple has arity 2 or more [tuple-arity]
+  --> main.buri:18:3
+   |
+18 |   ((a < b) == (c > d) != ((a > b) == (c < d))
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `(e)` is grouping and `()` is the unit value
+   = fix: drop the parentheses for one element, or write `()` for none
+error: comparison operators are non-associative [chained-comparison]
+  --> main.buri:18:23
+   |
+18 |   ((a < b) == (c > d) != ((a > b) == (c < d))
+   |                       ^^
+   |
+   = write `a < b && b < c` rather than `a < b < c`
+   = fix: write `a < b && b < c` rather than `a < b < c`
+error: this tuple is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:19:1
+   |
+19 | }
+   | ^
+   |
+  --> main.buri:18:3
+   |
+18 |   ((a < b) == (c > d) != ((a > b) == (c < d))
+   |   ^ opened here
+   |
+   = fix: write `)` here
