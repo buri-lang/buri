@@ -166,6 +166,58 @@ test "NaN is an ordinary key" {
     assert.eq(again.len(), 2);
 }
 
+// --- groupBy / indexBy ---------------------------------------------------------------
+
+test "groupBy collects the elements that answer the same key" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let words = ["ant", "bee", "ape", "bat"];
+    let m = map.groupBy(ctx, words, fn(w: Str) => w.slice(0, 1));
+    assert.eq(m.len(), 2);
+    assert.eq(assert.some(m.get("a")), ["ant", "ape"]);
+    assert.eq(assert.some(m.get("b")), ["bee", "bat"]);
+    assert.isTrue(m.get("c").isNone());
+}
+
+// Each group is in the order the elements arrived in, which is the property a
+// grouped report depends on.
+test "a group keeps the order of the list" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.groupBy(ctx, [3, 1, 4, 1, 5], fn(n: Int) => n % 2);
+    assert.eq(assert.some(m.get(1)), [3, 1, 1, 5]);
+    assert.eq(assert.some(m.get(0)), [4]);
+}
+
+test "groupBy of the empty list is the empty map" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.groupBy(ctx, list.empty<Int>(), fn(n: Int) => n);
+    assert.isTrue(m.isEmpty());
+}
+
+test "indexBy keeps one element per key, the last one winning" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let words = ["ant", "bee", "ape"];
+    let m = map.indexBy(ctx, words, fn(w: Str) => w.slice(0, 1));
+    assert.eq(m.len(), 2);
+    assert.eq(assert.some(m.get("a")), "ape");
+    assert.eq(assert.some(m.get("b")), "bee");
+}
+
+test "indexBy of the empty list is the empty map" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.indexBy(ctx, list.empty<Int>(), fn(n: Int) => n);
+    assert.isTrue(m.isEmpty());
+}
+
 // --- sets -------------------------------------------------------------------------
 
 test "a set collapses duplicates" {

@@ -1,0 +1,12 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:26:1
+   |
+26 | test "contains works at any Eq element type" {
+   | ^^^^
+   |
+  --> main.buri:19:66
+   |
+19 | test "contains finds an element at either end and in the middle" {
+   |                                                                  ^ opened here
+   |
+   = fix: write `}` here

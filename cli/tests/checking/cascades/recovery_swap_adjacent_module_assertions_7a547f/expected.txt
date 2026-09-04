@@ -1,0 +1,263 @@
+error: expected a declaration, found a string literal [unexpected-token]
+  --> main.buri:15:1
+   |
+15 | "core/testing/assert" from import * as assert;
+   | ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: a declaration
+   = actual: a string literal
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected a string literal, found `import` [unexpected-token]
+  --> main.buri:15:28
+   |
+15 | "core/testing/assert" from import * as assert;
+   |                            ^^^^^^
+   |
+   = expected: a string literal
+   = actual: `import`
+   = fix: quote it, as in `"core/list"`
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:20:5
+   |
+20 |     assert.contains([1, 2, 3], 1);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:21:5
+   |
+21 |     assert.contains([1, 2, 3], 2);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:22:5
+   |
+22 |     assert.contains([1, 2, 3], 3);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:23:5
+   |
+23 |     assert.eq([1, 2, 3].len(), 3);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:27:5
+   |
+27 |     assert.contains(["a", "b"], "b");
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:28:5
+   |
+28 |     assert.contains([true], true);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:29:5
+   |
+29 |     assert.contains([[1, 2], [3]], [3]);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:30:5
+   |
+30 |     assert.eq([[1, 2], [3]].len(), 2);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:39:5
+   |
+39 |     assert.isEmpty(list.empty<Int>());
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:40:5
+   |
+40 |     assert.isEmpty([1].filter(ctx, fn(x) => x > 9));
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:41:5
+   |
+41 |     assert.eq(list.empty<Int>().len(), 0);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:45:5
+   |
+45 |     assert.notEmpty([1]);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:46:5
+   |
+46 |     assert.notEmpty(["a", "b"]);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:47:5
+   |
+47 |     assert.eq([1].len(), 1);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:53:5
+   |
+53 |     assert.len(list.empty<Int>(), 0);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:54:5
+   |
+54 |     assert.len([1], 1);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:55:5
+   |
+55 |     assert.len([1, 2, 3], 3);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:56:5
+   |
+56 |     assert.eq([1, 2, 3].len(), 3);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:62:5
+   |
+62 |     assert.gt(5, 3);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:63:5
+   |
+63 |     assert.ge(5, 3);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:64:5
+   |
+64 |     assert.ge(3, 3);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:65:5
+   |
+65 |     assert.lt(3, 5);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:66:5
+   |
+66 |     assert.le(3, 5);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:67:5
+   |
+67 |     assert.le(3, 3);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:68:5
+   |
+68 |     assert.eq(5 > 3, true);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:72:5
+   |
+72 |     assert.gt("b", "a");
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:73:5
+   |
+73 |     assert.lt('a', 'b');
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:74:5
+   |
+74 |     assert.gt(true, false);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:75:5
+   |
+75 |     assert.ge(1.5, 1.5);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:76:5
+   |
+76 |     assert.eq("b" > "a", true);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:82:5
+   |
+82 |     assert.approxEq(0.1 + 0.2, 0.3, 0.000001);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:83:5
+   |
+83 |     assert.approxEq(1.0, 1.25, 0.25);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:84:5
+   |
+84 |     assert.approxEq(1.25, 1.0, 0.25);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:85:5
+   |
+85 |     assert.approxEq(1.0, 1.0, 0.0);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:86:5
+   |
+86 |     assert.eq(1.0, 1.0);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports

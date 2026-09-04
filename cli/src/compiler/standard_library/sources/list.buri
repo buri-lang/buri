@@ -80,6 +80,115 @@ impl<T: Eq> [T] {
 
 impl<T> [T] {
     export fn count(self, pred: fn(T) => Bool): Int;
+
+    /// Whether every neighbouring pair is in order — `cmp(xs[i], xs[i + 1])`
+    /// is never `.Greater`. The empty list and a single element are sorted.
+    ///
+    /// The predicate `sort` and `sortBy` answer, which makes it the one to
+    /// write an invariant against: a stable sort of a sorted list is that
+    /// list.
+    export fn isSortedBy(self, cmp: fn(T, T) => Order): Bool {
+        sortedFrom(self, cmp, 0)
+    }
+
+    /// The greatest element by `cmp`, or `.None` for an empty list. Ties go to
+    /// the earlier element, which is `maximum`'s answer too.
+    ///
+    /// `maximum` is this with the type's own `Ord`; this is the form that
+    /// takes the order as a value, so "the row with the largest score" needs
+    /// no `Ord` on the row.
+    export fn maxBy(self, cmp: fn(T, T) => Order): Option<T> {
+        self.fold(
+            fn(best, x) => {
+                match (best) {
+                    .None => .Some(x),
+                    .Some(b) => {
+                        match (cmp(x, b)) {
+                            .Greater => .Some(x),
+                            _ => .Some(b),
+                        }
+                    },
+                }
+            },
+            .None,
+        )
+    }
+
+    /// The least element by `cmp`, or `.None` for an empty list. Ties go to
+    /// the earlier element.
+    export fn minBy(self, cmp: fn(T, T) => Order): Option<T> {
+        self.fold(
+            fn(best, x) => {
+                match (best) {
+                    .None => .Some(x),
+                    .Some(b) => {
+                        match (cmp(x, b)) {
+                            .Less => .Some(x),
+                            _ => .Some(b),
+                        }
+                    },
+                }
+            },
+            .None,
+        )
+    }
+
+    /// Lexicographic comparison, element by element with `cmp`, the shorter
+    /// list first when one is a prefix of the other.
+    ///
+    /// `[T]` satisfies `Ord` structurally whenever `T` does (SPEC 5.11), so
+    /// `[[Int]].sort` and `<` on two lists already answer this order. What
+    /// this adds is the comparator form: a list compared by an order that is
+    /// not the element type's own, which is what a sort key made of several
+    /// columns needs.
+    export fn compareBy(self, other: [T], cmp: fn(T, T) => Order): Order {
+        compareFrom(self, other, cmp, 0)
+    }
+}
+
+/// Walked by index rather than folded, because a fold's lambda would have to
+/// capture the other list — and a lambda may not capture a value whose type
+/// could be a context, which `[T]` with an unbounded `T` could (SPEC 10.6).
+/// The same reason `chainAt` in `core/order` is written this way.
+fn compareFrom<T>(a: [T], b: [T], cmp: fn(T, T) => Order, at: Int): Order {
+    match ((a.get(at), b.get(at))) {
+        (.None, .None) => .Equal,
+        (.None, .Some(_)) => .Less,
+        (.Some(_), .None) => .Greater,
+        (.Some(x), .Some(y)) => {
+            match (cmp(x, y)) {
+                .Equal => compareFrom(a, b, cmp, at + 1),
+                decided => decided,
+            }
+        },
+    }
+}
+
+fn sortedFrom<T>(xs: [T], cmp: fn(T, T) => Order, at: Int): Bool {
+    match ((xs.get(at), xs.get(at + 1))) {
+        (.Some(a), .Some(b)) => {
+            match (cmp(a, b)) {
+                .Greater => false,
+                _ => sortedFrom(xs, cmp, at + 1),
+            }
+        },
+        // One element left, or none: there is no pair to be out of order.
+        _ => true,
+    }
+}
+
+impl<T: Ord> [T] {
+    /// The type's own order, lexicographically over the list — `compareBy`
+    /// with `T`'s `compare`.
+    ///
+    /// A `Ord for [T]` conformance is what this would be if the language had
+    /// one to declare: an `impl` is registered against a type *constructor*
+    /// and `[T]` is not one, which is why `[T]`'s structural conformance
+    /// (SPEC 5.11) is the compiler's rather than this module's. This is that
+    /// same order, callable by name.
+    export fn compare(self, other: [T]): Order {
+        self.compareBy(other, fn(a, b) => a.compare(b))
+    }
 }
 
 // --- Deterministic: bounded by <C: Alloc> ------------------------------------
@@ -103,6 +212,158 @@ impl<A> [A] {
     /// Prefer `mapCtx`. This is slower by an indirect call per element and there
     /// is no case where it is the better tool.
     export fn mapCtxStep<B, C: Alloc>(self, ctx: C, f: fn(C, A) => B): [B];
+
+    /// `map` with a step that can fail: every element mapped, or the first
+    /// `.Err` and nothing after it.
+    ///
+    /// The traversal a `Result` per element otherwise gets written as a fold
+    /// over `foldResult` at every call site. It stops at the first failure —
+    /// `f` is not called again — so a validation reports the first bad element
+    /// rather than the last.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    ///
+    /// fn small(n: Int): Result<Int, Int> {
+    ///     if (n < 10) { .Ok(n * 2) } else { .Err(n) }
+    /// }
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let doubled = [1, 2, 3].mapResult(ctx, small);
+    ///     let refused = [1, 20, 3].mapResult(ctx, small);
+    ///     let shown = match ((doubled, refused)) {
+    ///         (.Ok(xs), .Err(n)) => "${xs.len()} doubled, and then ${n}",
+    ///         _ => "unreachable",
+    ///     };
+    ///     let _ = io.println(ctx, shown).ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// 3 doubled, and then 20
+    /// ```
+    export fn mapResult<B, E, C: Alloc>(
+        self,
+        ctx: C,
+        f: fn(A) => Result<B, E>,
+    ): Result<[B], E> {
+        self.foldResultCtx(
+            ctx,
+            fn(c, acc: [B], x) => {
+                match (f(x)) {
+                    .Ok(b) => .Ok(acc.push(c, b)),
+                    .Err(e) => .Err(e),
+                }
+            },
+            empty<B>(),
+        )
+    }
+
+    /// `mapResult`, with the context passed to the step rather than captured.
+    ///
+    /// The form a validation actually takes: checking an element usually
+    /// *allocates* — a message, a parsed value, a list — and a lambda may not
+    /// capture a context (SPEC 10.6), so a step that needs one has to be handed
+    /// it. This is `mapCtx` and `foldResultCtx`'s arrangement, for the same
+    /// reason each of those exists.
+    export fn mapResultCtx<B, E, C: Alloc>(
+        self,
+        ctx: C,
+        f: fn(C, A) => Result<B, E>,
+    ): Result<[B], E> {
+        self.foldResultCtx(
+            ctx,
+            fn(c, acc: [B], x) => {
+                match (f(c, x)) {
+                    .Ok(b) => .Ok(acc.push(c, b)),
+                    .Err(e) => .Err(e),
+                }
+            },
+            empty<B>(),
+        )
+    }
+
+    /// `mapResult` for a step that answers `Option`: every element mapped, or
+    /// `.None` the moment one is missing.
+    export fn mapOption<B, C: Alloc>(self, ctx: C, f: fn(A) => Option<B>): Option<[B]> {
+        // `Result` is the shape with an early exit in it, so the walk is one
+        // and the two names differ only in what they answer.
+        let mapped = self.foldResultCtx(
+            ctx,
+            fn(c, acc: [B], x) => {
+                match (f(x)) {
+                    .Some(b) => .Ok(acc.push(c, b)),
+                    .None => .Err(()),
+                }
+            },
+            empty<B>(),
+        );
+        match (mapped) {
+            .Ok(bs) => .Some(bs),
+            .Err(_) => .None,
+        }
+    }
+
+    /// `mapOption`, with the context passed to the step rather than captured.
+    export fn mapOptionCtx<B, C: Alloc>(
+        self,
+        ctx: C,
+        f: fn(C, A) => Option<B>,
+    ): Option<[B]> {
+        let mapped = self.foldResultCtx(
+            ctx,
+            fn(c, acc: [B], x) => {
+                match (f(c, x)) {
+                    .Some(b) => .Ok(acc.push(c, b)),
+                    .None => .Err(()),
+                }
+            },
+            empty<B>(),
+        );
+        match (mapped) {
+            .Ok(bs) => .Some(bs),
+            .Err(_) => .None,
+        }
+    }
+
+    /// Maps and filters in one pass: an element `f` answers `.None` for is
+    /// dropped, and the `.Some` payloads are the result.
+    ///
+    /// Written by hand it is a `map` to a zero-or-one-element list and a
+    /// `flatten`, which allocates a list per element to throw it away again.
+    export fn filterMap<B, C: Alloc>(self, ctx: C, f: fn(A) => Option<B>): [B] {
+        self.foldCtx(
+            ctx,
+            fn(c, acc: [B], x) => {
+                match (f(x)) {
+                    .Some(b) => acc.push(c, b),
+                    .None => acc,
+                }
+            },
+            empty<B>(),
+        )
+    }
+
+    /// `filterMap`, with the context passed to the step rather than captured.
+    export fn filterMapCtx<B, C: Alloc>(self, ctx: C, f: fn(C, A) => Option<B>): [B] {
+        self.foldCtx(
+            ctx,
+            fn(c, acc: [B], x) => {
+                match (f(c, x)) {
+                    .Some(b) => acc.push(c, b),
+                    .None => acc,
+                }
+            },
+            empty<B>(),
+        )
+    }
 }
 
 impl<T> [T] {
@@ -139,6 +400,81 @@ impl<T> [T] {
     export fn drop<C: Alloc>(self, ctx: C, n: Int): [T];
 
     export fn slice<C: Alloc>(self, ctx: C, start: Int, end: Int): [T];
+
+    /// Everything but the element at `index`. An index outside the list
+    /// removes nothing, which is `take` and `drop`'s answer for the same
+    /// bounds and the only total one.
+    export fn removeAt<C: Alloc>(self, ctx: C, index: Int): [T] {
+        self.take(ctx, index).concat(ctx, self.drop(ctx, index + 1))
+    }
+
+    /// Every run of `size` neighbouring elements, one position apart:
+    /// `[1, 2, 3].windows(ctx, 2)` is `[[1, 2], [2, 3]]`.
+    ///
+    /// A list shorter than `size` has no windows, and a `size` of zero or less
+    /// has none either — the alternative is an infinite number of empty ones.
+    /// Checking that neighbours are in order, or that a sequence has no gap,
+    /// is a `windows(ctx, 2)` and an `all` rather than arithmetic on indices.
+    export fn windows<C: Alloc>(self, ctx: C, size: Int): [[T]] {
+        if (size <= 0) {
+            empty<[T]>()
+        } else {
+            windowsFrom(ctx, self, size, 0, empty<[T]>())
+        }
+    }
+
+    /// The first element of each class `cmp` calls `.Equal`, in the order they
+    /// arrived — the list's order is kept, not the comparator's, and two equal
+    /// elements need not be neighbours.
+    ///
+    /// O(n²) comparisons, because keeping the first occurrence means asking
+    /// about every element already kept. For a large list, `sortBy` and a walk
+    /// over neighbours is the O(n log n) answer, and `core/ordset` is the one
+    /// that also answers membership.
+    export fn uniqueBy<C: Alloc>(self, ctx: C, cmp: fn(T, T) => Order): [T] {
+        uniqueFrom(ctx, self, cmp, 0, empty<T>())
+    }
+}
+
+/// Tail-recursive rather than a `map` over indices, because the lambda would
+/// have to capture the list, and a lambda may not capture a value whose type
+/// could be a context (SPEC 10.6).
+fn windowsFrom<T, C: Alloc>(ctx: C, xs: [T], size: Int, at: Int, acc: [[T]]): [[T]] {
+    if (at + size > xs.len()) {
+        acc
+    } else {
+        windowsFrom(ctx, xs, size, at + 1, acc.push(ctx, xs.slice(ctx, at, at + size)))
+    }
+}
+
+fn uniqueFrom<T, C: Alloc>(
+    ctx: C,
+    xs: [T],
+    cmp: fn(T, T) => Order,
+    at: Int,
+    acc: [T],
+): [T] {
+    match (xs.get(at)) {
+        .None => acc,
+        .Some(x) => {
+            let next = if (equalAt(acc, x, cmp, 0)) { acc } else { acc.push(ctx, x) };
+            uniqueFrom(ctx, xs, cmp, at + 1, next)
+        },
+    }
+}
+
+/// Whether `x` is `.Equal` to something in `seen`. `any` would want a lambda
+/// capturing `x`, which SPEC 10.6 refuses at an unbounded `T`.
+fn equalAt<T>(seen: [T], x: T, cmp: fn(T, T) => Order, at: Int): Bool {
+    match (seen.get(at)) {
+        .None => false,
+        .Some(y) => {
+            match (cmp(x, y)) {
+                .Equal => true,
+                _ => equalAt(seen, x, cmp, at + 1),
+            }
+        },
+    }
 }
 
 impl<A> [A] {
@@ -162,6 +498,15 @@ export fn empty<T>(): [T];
 export fn range<C: Alloc>(ctx: C, start: Int, end: Int): [Int];
 
 export fn repeat<T, C: Alloc>(ctx: C, item: T, times: Int): [T];
+
+/// `[f(0), f(1), ..., f(n - 1)]`. `repeat` for an element that depends on its
+/// own position, and the counting loop a language with one would write.
+///
+/// An `n` of zero or less is the empty list, which is `range`'s answer for the
+/// same bounds.
+export fn generate<T, C: Alloc>(ctx: C, n: Int, f: fn(Int) => T): [T] {
+    range(ctx, 0, n).map(ctx, fn(i) => f(i))
+}
 
 // --- Numeric folds ------------------------------------------------------------
 

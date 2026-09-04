@@ -1,8 +1,8 @@
 // Nothing in the report is truncated and nothing is wrapped. A long value is
 // printed whole, a value holding a newline is printed with the newline in it,
-// and `assert.fail`'s message is printed with only its first line indented.
-// All three are worth recording because the alternative — an eliding
-// renderer — is the kind of thing that gets added without a test noticing.
+// and a message is printed under the `FAIL` line it belongs to. All three are
+// worth recording because the alternative — an eliding renderer — is the kind
+// of thing that gets added without a test noticing.
 
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
@@ -27,6 +27,11 @@ test "a string holding newlines" {
     assert.eq("first\nsecond\nthird", "one line");
 }
 
-test "a message of three lines" {
-    assert.fail("first line\nsecond line\nthird line");
+// The one assertion that reports a sentence rather than a diff. It used to be
+// `assert.fail`, whose message a test wrote itself and which was three lines
+// long here; `fail` is gone, and nothing a program can write produces a
+// message with a newline in it any more. `commands/test.rs`'s
+// `every_line_of_a_message_is_indented` is what pins the multi-line rule now.
+test "a message rather than a diff" {
+    assert.notEmpty(list.empty<Int>());
 }

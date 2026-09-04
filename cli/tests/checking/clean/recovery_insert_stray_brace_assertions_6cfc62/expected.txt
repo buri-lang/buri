@@ -1,0 +1,30 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:22:20
+   |
+22 |     assert.contains@ ([1, 2, 3], 3);
+   |                    ^
+   |
+  --> main.buri:19:66
+   |
+19 | test "contains finds an element at either end and in the middle" {
+   |                                                                  ^ opened here
+   |
+   = fix: write `}` here
+error: expected a declaration, found `assert` [unexpected-token]
+  --> main.buri:23:5
+   |
+23 |     assert.eq([1, 2, 3].len(), 3);
+   |     ^^^^^^
+   |
+   = expected: a declaration
+   = actual: `assert`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected a declaration, found `}` [unexpected-token]
+  --> main.buri:24:1
+   |
+24 | }
+   | ^
+   |
+   = expected: a declaration
+   = actual: `}`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

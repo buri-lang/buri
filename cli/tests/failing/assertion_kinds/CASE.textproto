@@ -1,11 +1,21 @@
 # One failing test per function `core/testing/assert` exports, so that the
-# message each produces is recorded rather than assumed. The nine of them take
-# three shapes:
+# message each produces is recorded rather than assumed. The seventeen of them
+# take three shapes:
 #
-#   * `eq` and `notEq` render both sides;
+#   * `eq`, `notEq`, `contains`, `isEmpty`, `len`, `gt`, `ge`, `lt`, `le` and
+#     `approxEq` render both sides — which is what the widened set is *for*:
+#     `isTrue(xs.contains(x))` printed "expected true, got false" and named
+#     neither the list nor the element;
 #   * `isTrue`, `isFalse`, `ok`, `err`, `some` and `none` render the value they
 #     got against a constant — `true`, `.Ok`, `.Some`;
-#   * `fail` carries the test's own words and has no diff at all.
+#   * `notEmpty` is a sentence with no diff, because the only value it can fail
+#     at is the empty list and `actual: []` against `expected: []` would be two
+#     ways of writing it.
+#
+# There is no `fail` any more. It carried the test's own words and returned
+# `()`, so a failing match arm could not produce a value and a test fabricated
+# a dummy one to type-check; a test that has to fail now says which assertion
+# failed.
 #
 # The last two runs are `eq` on an `Option` and on a `Result`, which is the
 # *value* rendering of the same two types the four unwrapping assertions name

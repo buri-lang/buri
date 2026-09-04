@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:40:51
+   |
+40 |     assert.isEmpty([1].filter(ctx, fn(x) => x > 9);
+   |                                                   ^
+   |
+  --> main.buri:40:19
+   |
+40 |     assert.isEmpty([1].filter(ctx, fn(x) => x > 9);
+   |                   ^ opened here
+   |
+   = fix: write `)` here

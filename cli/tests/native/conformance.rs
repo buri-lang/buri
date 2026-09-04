@@ -368,6 +368,18 @@ const PACKAGES: &[Case] = &[
     // native set from the day it was written.
     included("collections/ordmap.buri"),
     included("data/lists.buri"),
+    // `core/order`'s combinators and comparison on `[T]`. Every one of them is
+    // ordinary Buri over a function value, and the file's `sortBy` and
+    // `[T].compare` are what `data/lists.buri` and `codegen/ordering.buri`
+    // already reach — so it is in the native set from the day it was written,
+    // and the `NaN` cases are the reason it is worth running here: `totalFloat`
+    // is a claim about IEEE comparison on both backends.
+    included("data/ordering.buri"),
+    // The assertions that pass, which is the half a conformance suite can
+    // make of `core/testing/assert`. It reaches `report` and `failWith`, both
+    // of which this backend has, and the failing half is
+    // `cli/tests/failing/assertion_kinds` on the reference backend.
+    included("data/assertions.buri"),
     included("data/optionresult.buri"),
     included("data/patterns.buri"),
     // `core/char`'s eight, which used to be excluded as "a General_Category

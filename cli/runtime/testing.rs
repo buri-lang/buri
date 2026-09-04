@@ -2522,7 +2522,7 @@ struct Runner {
     at: i64,
     /// The two sides of a failed comparison, rendered by the `Show` the derive
     /// pass generated for the type. `None` for a failure that has no pair:
-    /// `assert.fail`, and every abort.
+    /// `assert.notEmpty`, and every abort.
     shown: Option<(String, String)>,
 }
 

@@ -4,9 +4,11 @@ library {
     test {
         sources: [
             "test/lists.buri",
+            "test/ordering.buri",
             "test/strings.buri",
             "test/patterns.buri",
             "test/optionresult.buri",
+            "test/assertions.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

@@ -2031,8 +2031,8 @@ fn quote_title(name: &str) -> String {
 /// A failure message, indented under the `FAIL` line it belongs to.
 ///
 /// Every line, not just the first: a message spanning lines whose second line
-/// is flush left reads as the report having ended, and an `assert.fail` message
-/// and an abort message are both free to span lines.
+/// is flush left reads as the report having ended, and an abort message is free
+/// to span lines.
 fn indented(message: &str) -> String {
     message.split('\n').map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n")
 }

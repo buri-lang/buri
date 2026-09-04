@@ -1,0 +1,9 @@
+error: expected a string literal, found `{` [unexpected-token]
+  --> main.buri:44:6
+   |
+44 | test { "notEmpty holds for a list of one"
+   |      ^
+   |
+   = expected: a string literal
+   = actual: `{`
+   = fix: quote it, as in `"core/list"`

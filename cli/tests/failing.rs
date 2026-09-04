@@ -78,8 +78,11 @@
 //!
 //! * **One line per `FAIL`.** A title is printed as the quoted string it was
 //!   written as, so a `"` and a newline in one are escaped — `titles`.
-//! * **A message is part of the report.** Every line of it is indented under
-//!   the `FAIL` line, over as many lines as the message has — `long_values`.
+//! * **A message is part of the report.** It is indented under the `FAIL` line
+//!   — `long_values`. Every line of it is, over as many lines as the message
+//!   has; nothing a program can write produces a message with a newline in it
+//!   now that `assert.fail` is gone, so that half is pinned by
+//!   `commands/test.rs`'s `every_line_of_a_message_is_indented`.
 //! * **A value is rendered in the syntax it is written in.** `.None` and
 //!   `.Some(3)` for an `Option`, `Hollow {}` for a struct with no fields,
 //!   `.Red` for a payloadless variant — `assertion_kinds`, `composite_values`.

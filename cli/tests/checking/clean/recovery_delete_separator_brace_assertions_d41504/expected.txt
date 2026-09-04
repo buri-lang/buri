@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:40:52
+   |
+40 |     assert.isEmpty([1].filter(ctx, fn(x) => x > 9))
+   |                                                    ^
+   |
+   = fix: write `;` here
