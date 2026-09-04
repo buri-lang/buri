@@ -152,8 +152,8 @@ bound is what the callee is confined to:
 # from "core/fs" import { FsRead, Path };
 # from "core/io" import * as io;
 
-// A caller may hand this the context that also carries `FsRead`. The value is
-// the same one; the bound is what this function can do with it.
+/// A caller may hand this the context that also carries `FsRead`. The value is
+/// the same one; the bound is what this function can do with it.
 fn logOnly<C: Stdout>(ctx: C, msg: Str, at: Path): () {
     let _ = io.println(ctx, msg).ignore();
     let _f = fs.readText(ctx, at); // ERROR: `C` does not satisfy `FsRead`

@@ -713,6 +713,10 @@ and reported to no allocator. The model is written down beside `Alloc` in
 - **Automatic accounting of the list and string rows.** Stated above: the cost
   model defines them and no allocator is told about them.
 
-Why each of those is where it is, and what would have to change, is in
-[`design/STANDARD-LIBRARY.md`](../../../../design/STANDARD-LIBRARY.md) — that is a
-contributor's document, not a user's.
+Why each of those is where it is, and what would have to change, is written
+where the machinery is:
+[`design/native/MEMORY.md`](../../../../design/native/MEMORY.md) §7 for the cost
+model and the allocators, and
+[`design/non-goals.md`](../../../../design/non-goals.md) for struct-of-arrays and
+the type-generating `derive` it would need. Both are contributors' documents,
+not a user's.

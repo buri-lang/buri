@@ -145,7 +145,7 @@ from "ui/style" import { Color };
 from "ui/theme" import * as theme;
 from "ui/theme" import { Theme };
 
-// `cardlib`'s vocabulary, and the constructor that names each of its tokens.
+/// `cardlib`'s vocabulary, and the constructor that names each of its tokens.
 export enum Token {
     Surface,
     OnSurface,
@@ -162,8 +162,8 @@ impl Token {
     }
 }
 
-// `cardlib`'s half of the loop: the one function only it can write, because
-// only it knows what its tokens are.
+/// `cardlib`'s half of the loop: the one function only it can write, because
+/// only it knows what its tokens are.
 export fn themed(f: fn(Token) => Color): Theme {
     theme.themed([
         (Token.Surface.color(), f(.Surface)),
@@ -172,8 +172,8 @@ export fn themed(f: fn(Token) => Color): Theme {
     ])
 }
 
-// The consumer's half. This `match` is the compatibility check: a colour
-// written out, or another package's token, which is a chain.
+/// The consumer's half. This `match` is the compatibility check: a colour
+/// written out, or another package's token, which is a chain.
 fn cardTheme(t: Token): Color {
     match (t) {
         .Surface => .Rgb(240, 240, 245),
