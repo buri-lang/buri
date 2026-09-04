@@ -1785,6 +1785,98 @@ and +8.7% on one that opens 500,000. Both were taken against the same `allocs`
 program, and neither is re-taken here: nothing in this slice touched the
 runtime.
 
+### 6.9 Where a real repository's `buri test` goes, 2026-09-03
+
+A maintainer's own monorepo — 18 packages, 177 `.buri` files, 173 codegen
+units, 488 test cases — ran `buri test //...` cold in **8.2 s**. The question
+asked of it was which stencils the run side was missing. **The run side is
+0.15 s of it.** The batched test binary the suite builds executes every block
+in 154 ms on this machine; the other eight seconds are the compile, and this
+section is what was in them.
+
+The phase column is a timer compiled into a throwaway toolchain build, with
+`buri clean` before every run and the minimum of several runs taken per phase —
+§2's "fastest sample" rule applied per phase rather than per corpus, because the
+machine had other work on it. The wall row is the two *shipping* toolchains,
+alternating, and is the number to read as the result.
+
+| Phase | before | after |
+|---|---:|---:|
+| front end (parse, check, monomorphize; batched over 13 suites) | 0.25 s | 0.24 s |
+| `actions::prepare` — `middle::run`, derives, fuse, closures, `rc::run` | 1.40 s | 1.40 s |
+| `lower::run_with`, for the unit keys | 0.24 s | 0.24 s |
+| `unit_hashes` (parallel) | 0.26 s | 0.26 s |
+| **`Backend::emit_units`** | **4.06 s** | **1.19 s** |
+| — of which a second `lower::run` (`rc::analyze` + `run_with` again) | 1.01 s | — |
+| — of which `frame_sigs` | 0.07 s | 0.05 s |
+| — of which the per-unit emission | 2.83 s, one thread | 1.10 s, ten |
+| link | 0.40 s | 0.40 s |
+| running the suite | 1.16 s | 1.24 s |
+| **wall, cold, best of seven A/B pairs** | **7.99 s** | **5.13 s** |
+
+`design/native/CODEGEN-STENCIL.md` §4.2 is what each line changed, and the four
+findings are worth separating because only one of them is about threads:
+
+1. **The program was lowered twice.** `objects_named` lowers for the unit keys
+   and `emit_units` lowered again for the bytes; each lowering carries a
+   whole-program `middle::rc::analyze`. 1.01 s, deleted by handing the first
+   lowering over.
+2. **`Cycles` was rebuilt per unit** — a walk of every constructor plus a
+   Tarjan pass, 173 times. §6.4's first finding is exactly this shape and
+   `Layouts::with_cycles` exists for exactly this reason; the LLVM backend used
+   it and the stencil backend did not.
+3. **A `Layout` was copied per instruction and a `Ty` cloned per reference
+   operation.** `Layouts::shared` says in its own doc comment that a caller in
+   a loop over instructions must use it. `walk_rc` is that loop and used the
+   copying form; so did `MakeStruct`, `GetField`, `GetPayload`, `MakeEnum` and
+   `GetTag`. On the emission's critical-path unit this was worth 30%.
+4. **Three `format!`s and three hash lookups per emitted machine
+   instruction**, for the folded twins `Jit::emit` asks about by name.
+
+**On the bench, `lower+macos-arm64` halves.** §6.6's protocol: `--only=mixed
+--set=native --targets=macos-arm64`, run A/B/A/B so that drift shows up as a
+disagreement between one compiler's two readings rather than as the difference
+between the two compilers, each cell the better of that compiler's two run
+medians.
+
+| corpus | before | after | Δ |
+|---|---:|---:|---:|
+| `mixed/10k` | 62.8 ms | 29.6 ms | −52.9% |
+| `mixed-many-files/10k` | 48.0 ms | 20.7 ms | −56.9% |
+| `mixed-few-files/10k` | 65.1 ms | 45.3 ms | −30.3% |
+| `mixed-libs/10k` | 60.2 ms | 29.0 ms | −51.8% |
+| `mixed-deep-graph/10k` | 62.7 ms | 29.9 ms | −52.3% |
+| `mixed-wide-graph/10k` | 61.2 ms | 29.3 ms | −52.1% |
+| **median** | | | **−52.2%** |
+
+Five of the six move together, and the sixth is the finding rather than an
+outlier: `mixed-few-files` is the corpus with the fewest codegen units, so it
+is the one with the least to spread over cores, and −30.3% is what the three
+serial findings are worth on their own.
+
+**§6.1's goal-3 rate is deliberately not restated from these numbers.** The
+table above is a *ratio* between two toolchains measured against each other in
+one window, which is what A/B/A/B is for; a goal row is an absolute rate, it is
+stated over a wider corpus set than `--only=mixed`, and this machine was not
+idle for the whole afternoon. The row moves when somebody takes it the way §2
+says to.
+
+**What the ceiling is now.** The per-unit emission is parallel, so it is bounded
+by the **largest single unit** — on this repository `core/ordmap`, 11,267
+monomorphized functions, which is 1.10 s of the 1.10 s. Splitting a unit is a
+build-system question (a unit is a cache key and an object file,
+`design/native/ARCHITECTURE.md` §5), so the next win on that line is either
+making a function cheaper to emit again or making a unit smaller. Above it,
+`actions::prepare` is now the largest single-threaded phase at 1.40 s, of which
+0.79 s is `middle::rc::analyze` — and it is *still* the whole-program analysis
+the emitter no longer duplicates, so halving it would be worth as much again.
+
+**Two things this did not touch, and both are worth naming.** The suite's
+`link` is 0.40 s for a **102 MB** batched debug binary, written to the artifact
+cache and then to disk; and `commands/test.rs`'s `run_blocks` re-`exec`s that
+binary once per failing block, which on this repository is four spawns of 102 MB
+for three failures rather than one. Neither is a stencil.
+
 ---
 
 ## 7. Profiling, on this platform
