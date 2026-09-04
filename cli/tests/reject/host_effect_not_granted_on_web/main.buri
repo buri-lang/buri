@@ -1,18 +1,19 @@
-// EXPECT: `WEB` does not grant `fs`
+// EXPECT: `WEB` does not grant `fsRead`
 //
 // The other direction, and the one that makes the rule a rule rather than a
 // list of things the browser happens to have: a page has no filesystem under
-// it, so a page's host does not export one and `Fs` is unreachable from a
-// browser by construction rather than by convention.
+// it, so a page's host exports neither half of one and `FsRead` is unreachable
+// from a browser by construction rather than by convention.
 //
 // This case used to ask for `Net`, which WEB withheld while `Net.fetch` did
 // not return until the answer arrived — a page whose one thread is waiting is
 // a frozen page, so a browser granted a callback-shaped `Fetch` instead. A
 // suspending call blocks nothing now, WEB grants `Net` like every other
-// platform, and `Fs` is what is left on this side of the line.
+// platform, and the filesystem is what is left on this side of the line.
 //
 // PLATFORM: WEB — a platform is the set of effects its host exports, and `JS` exports no `ui`.
-from "core/effect" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Stdout };
+from "core/fs" import { FsRead };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "ui/effect" import { Ui, Watch };
@@ -21,7 +22,7 @@ export fn main(): Result<(), Str> {
   let ctx = context {
     Alloc: host.alloc,
     Stdout: host.stdout,
-    Fs: host.fs,
+    FsRead: host.fsRead,
     Ui: host.ui,
     Watch: host.watch,
   };

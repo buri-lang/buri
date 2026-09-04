@@ -123,9 +123,13 @@
 //! a test writes.
 
 from "core/effect" import {
-    Alloc, Clock, Env, Frame, Fs, Header, IoError, Method, Net, NetError, Proc, Rand,
+    Alloc, Clock, Env, Frame, Header, IoError, Method, Net, NetError, Proc, Rand,
     Region, Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
+// The filesystem's two effects, declared in `core/fs` because their methods
+// name a `Path`.
+from "core/fs" import { FsRead, FsWrite };
+from "core/path" import { Path };
 
 // The one module above `core/effect` this one imports, and it is the surface
 // rather than the authority: `Socket` and `Message` are inert data that
@@ -266,91 +270,105 @@ export struct TestFs {
     plan: [FsFault],
 }
 
-impl Fs for TestFs {
-    fn readFile(self, path: Str): Result<Str, IoError> {
-        match (self.planned(readFile(path))) {
+impl FsRead for TestFs {
+    fn readFile(self, path: Path): Result<Str, IoError> {
+        let at = path.text();
+        match (self.planned(readFile(at))) {
             .Some(error) => .Err(error),
-            .None => fsReadFile(self.handle, path),
+            .None => fsReadFile(self.handle, at),
         }
     }
 
-    fn writeFile(self, path: Str, body: Str): Result<(), IoError> {
-        match (self.planned(writeFile(path, body))) {
+    /// The one method of the filesystem that cannot fail, and so the one no
+    /// fault can ever fire on. A plan naming it is a plan whose call never
+    /// happens, which the post-condition reports at the end of the block.
+    fn fileExists(self, path: Path): Bool {
+        fsFileExists(self.handle, path.text())
+    }
+
+    fn readDir(self, path: Path): Result<[Str], IoError> {
+        let at = path.text();
+        match (self.planned(readDir(at))) {
             .Some(error) => .Err(error),
-            .None => fsWriteFile(self.handle, path, body),
+            .None => fsReadDir(self.handle, at),
         }
     }
 
-    /// The one method of `Fs` that cannot fail, and so the one no fault can ever
-    /// fire on. A plan naming it is a plan whose call never happens, which the
-    /// post-condition reports at the end of the block.
-    fn fileExists(self, path: Str): Bool {
-        fsFileExists(self.handle, path)
-    }
-
-    fn readDir(self, path: Str): Result<[Str], IoError> {
-        match (self.planned(readDir(path))) {
+    fn readFileBytes(self, path: Path): Result<[U8], IoError> {
+        let at = path.text();
+        match (self.planned(readFileBytes(at))) {
             .Some(error) => .Err(error),
-            .None => fsReadDir(self.handle, path),
+            .None => fsReadFileBytes(self.handle, at),
+        }
+    }
+}
+
+impl FsWrite for TestFs {
+    fn writeFile(self, path: Path, body: Str): Result<(), IoError> {
+        let at = path.text();
+        match (self.planned(writeFile(at, body))) {
+            .Some(error) => .Err(error),
+            .None => fsWriteFile(self.handle, at, body),
         }
     }
 
-    fn readFileBytes(self, path: Str): Result<[U8], IoError> {
-        match (self.planned(readFileBytes(path))) {
+    fn writeFileBytes(self, path: Path, body: [U8]): Result<(), IoError> {
+        let at = path.text();
+        match (self.planned(writeFileBytes(at, body))) {
             .Some(error) => .Err(error),
-            .None => fsReadFileBytes(self.handle, path),
+            .None => fsWriteFileBytes(self.handle, at, body),
         }
     }
 
-    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError> {
-        match (self.planned(writeFileBytes(path, body))) {
+    fn appendFile(self, path: Path, body: [U8]): Result<(), IoError> {
+        let at = path.text();
+        match (self.planned(appendFile(at, body))) {
             .Some(error) => .Err(error),
-            .None => fsWriteFileBytes(self.handle, path, body),
+            .None => fsAppendFile(self.handle, at, body),
         }
     }
 
-    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError> {
-        match (self.planned(appendFile(path, body))) {
+    fn renameFile(self, source: Path, destination: Path): Result<(), IoError> {
+        let start = source.text();
+        let end = destination.text();
+        match (self.planned(renameFile(start, end))) {
             .Some(error) => .Err(error),
-            .None => fsAppendFile(self.handle, path, body),
+            .None => fsRenameFile(self.handle, start, end),
         }
     }
 
-    fn renameFile(self, source: Str, destination: Str): Result<(), IoError> {
-        match (self.planned(renameFile(source, destination))) {
+    fn removeFile(self, path: Path): Result<(), IoError> {
+        let at = path.text();
+        match (self.planned(removeFile(at))) {
             .Some(error) => .Err(error),
-            .None => fsRenameFile(self.handle, source, destination),
-        }
-    }
-
-    fn removeFile(self, path: Str): Result<(), IoError> {
-        match (self.planned(removeFile(path))) {
-            .Some(error) => .Err(error),
-            .None => fsRemoveFile(self.handle, path),
+            .None => fsRemoveFile(self.handle, at),
         }
     }
 
     /// Empty directories only, as a real filesystem's `rmdir(2)` is. The flat
     /// map has no containment, so the double answers "empty" off the same two
     /// lists `readDir` reads.
-    fn removeDir(self, path: Str): Result<(), IoError> {
-        match (self.planned(removeDir(path))) {
+    fn removeDir(self, path: Path): Result<(), IoError> {
+        let at = path.text();
+        match (self.planned(removeDir(at))) {
             .Some(error) => .Err(error),
-            .None => fsRemoveDir(self.handle, path),
+            .None => fsRemoveDir(self.handle, at),
         }
     }
 
-    fn makeDir(self, path: Str): Result<(), IoError> {
-        match (self.planned(makeDir(path))) {
+    fn makeDir(self, path: Path): Result<(), IoError> {
+        let at = path.text();
+        match (self.planned(makeDir(at))) {
             .Some(error) => .Err(error),
-            .None => fsMakeDir(self.handle, path),
+            .None => fsMakeDir(self.handle, at),
         }
     }
 
-    fn syncFile(self, path: Str): Result<(), IoError> {
-        match (self.planned(syncFile(path))) {
+    fn syncFile(self, path: Path): Result<(), IoError> {
+        let at = path.text();
+        match (self.planned(syncFile(at))) {
             .Some(error) => .Err(error),
-            .None => fsSyncFile(self.handle, path),
+            .None => fsSyncFile(self.handle, at),
         }
     }
 }

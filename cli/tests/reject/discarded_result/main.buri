@@ -1,10 +1,12 @@
 // EXPECT: a `Result` may not be discarded
-from "core/effect" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Stdout };
+from "core/fs" import { FsRead };
 from "core/host" import * as host;
 from "core/fs" import * as fs;
+from "core/path" import * as filepath;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
-  let _ = fs.readText(ctx, "config.toml");
+  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead, Stdout: host.stdout };
+  let _ = fs.readText(ctx, filepath.of(ctx, "config.toml"));
   .Ok(())
 }

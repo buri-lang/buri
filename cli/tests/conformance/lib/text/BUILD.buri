@@ -2,7 +2,7 @@ library {
     sources: []
 
     test {
-        sources: ["test/json.buri", "test/bytes.buri"]
+        sources: ["test/json.buri", "test/bytes.buri", "test/path.buri"]
 
         # The reference run, on the reference backend: `native::conformance`
         # drives these same files through the stencil backend

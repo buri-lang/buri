@@ -1,7 +1,7 @@
 error: `?` would propagate `IoError`, but this function returns `Str` [error-type-mismatch]
- --> cmd/question_mismatched_error_type/main.buri:8:14
-  |
-8 |   let text = fs.readText(ctx, path)?;
-  |              ^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = fix: map the error first: `.mapErr(fn(e) => ...)?`, producing a `Str` — there is no automatic error conversion
+  --> cmd/question_mismatched_error_type/main.buri:10:14
+   |
+10 |   let text = fs.readText(ctx, filepath.of(ctx, at))?;
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: map the error first: `.mapErr(fn(e) => ...)?`, producing a `Str` — there is no automatic error conversion

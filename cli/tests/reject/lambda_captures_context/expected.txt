@@ -1,24 +1,24 @@
 error: a lambda may not capture `ctx`, which carries an effect [lambda-captures-effect]
- --> cmd/lambda_captures_context/main.buri:9:18
-  |
-9 |   paths.map(ctx, fn(p) => fs.exists(ctx, p))
-  |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
-  = a lambda that could close over authority would make the capture rule meaningless
-  = fix: thread the context through a `*Ctx` combinator, which passes it in as a parameter instead: `paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p))`
+  --> cmd/lambda_captures_context/main.buri:11:18
+   |
+11 |   paths.map(ctx, fn(p) => fs.exists(ctx, p))
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a lambda that could close over authority would make the capture rule meaningless
+   = fix: thread the context through a `*Ctx` combinator, which passes it in as a parameter instead: `paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p))`
 
-    What to do
-    ──────────
+     What to do
+     ──────────
 
-    Thread the context through a *Ctx combinator, which passes it in as a
-    parameter instead: paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p)).
+     Thread the context through a *Ctx combinator, which passes it in as a
+     parameter instead: paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p)).
 
-    Why
-    ───
+     Why
+     ───
 
-    A closure's type is the whole of what a caller can see about it. A lambda
-    that had closed over a context would carry authority behind a type
-    mentioning no effect, and the guarantee that a signature says what a
-    function may do would hold for every function except the ones written as
-    lambdas.
+     A closure's type is the whole of what a caller can see about it. A lambda
+     that had closed over a context would carry authority behind a type
+     mentioning no effect, and the guarantee that a signature says what a
+     function may do would hold for every function except the ones written as
+     lambdas.
 

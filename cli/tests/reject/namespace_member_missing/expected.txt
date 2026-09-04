@@ -1,10 +1,10 @@
 error: "core/fs" has no member `copy` [no-such-member]
-  --> cmd/namespace_member_missing/main.buri:10:14
+  --> cmd/namespace_member_missing/main.buri:12:14
    |
-10 |   let _ = fs.copy(ctx, "wal", "wal.bak");
+12 |   let _ = fs.copy(ctx, filepath.of(ctx, "wal"), filepath.of(ctx, "wal.bak"));
    |              ^^^^
    |
-   = the module exports 13 names
+   = the module exports 18 names
    = fix: correct the member name, or check `buri docs core/fs`
 
      What to do

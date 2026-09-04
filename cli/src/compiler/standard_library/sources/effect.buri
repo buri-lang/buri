@@ -103,37 +103,13 @@ export effect Stdin {
     fn readBytes(self, n: Int): Option<[U8]>;
 }
 
-export effect Fs {
-    fn readFile(self, path: Str): Result<Str, IoError>;
-    fn writeFile(self, path: Str, body: Str): Result<(), IoError>;
-    fn fileExists(self, path: Str): Bool;
-    fn readDir(self, path: Str): Result<[Str], IoError>;
-
-    /// The octets, unchanged. `readFile` decodes UTF-8 and substitutes U+FFFD
-    /// for what is not; this is the operation for a file that is not text.
-    fn readFileBytes(self, path: Str): Result<[U8], IoError>;
-    /// Truncates an existing file, and creates one that is absent.
-    fn writeFileBytes(self, path: Str, body: [U8]): Result<(), IoError>;
-    /// Appends the whole body, creating the file when it is absent.
-    fn appendFile(self, path: Str, body: [U8]): Result<(), IoError>;
-    /// Replaces `to`, atomically within one filesystem.
-    fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
-    fn removeFile(self, path: Str): Result<(), IoError>;
-    /// Removes the directory, which must be **empty**. `.Err(.Other)` where it
-    /// is not, and `.Err(.NotFound)` where the path names nothing.
-    ///
-    /// Empty and not recursive, deliberately: the recursive version behind a
-    /// one-word name is a mistake that only happens once, and `core/fs`'s
-    /// `removeDir` states the whole rule. It is the operation that lets a
-    /// program that made a scratch directory leave the filesystem as it found
-    /// it — `makeDir` had no inverse at all before it.
-    fn removeDir(self, path: Str): Result<(), IoError>;
-    /// Parents included; an existing directory is `.Ok`.
-    fn makeDir(self, path: Str): Result<(), IoError>;
-    /// The commit point: what was written to `path` is durable when this
-    /// returns. `core/fs`'s `sync` states what each platform can promise.
-    fn syncFile(self, path: Str): Result<(), IoError>;
-}
+// `Fs` is not here. It split into `FsRead` and `FsWrite`, and both are
+// declared in `core/fs` — which is a platform module for exactly that reason.
+// Every method of both names a `Path`, `core/path` names `Alloc`, and this
+// module is below `core/path` rather than above it, so a declaration here
+// could only have said `Str`. The rule that matters is unchanged: an effect is
+// declared by a platform module, and the set of things a program can do to the
+// world is still fixed by its platform (SPEC 10.1).
 
 export effect Net {
     /// One request, one response. `Request` and `Response` are declared below,
@@ -579,8 +555,11 @@ export effect Sockets {
 }
 
 derive Eq, Show for IoError;
-/// Declared here rather than in `core/fs` so that the effect signature above
-/// can name it without `core/effect` depending on a module that depends on it.
+/// Declared here rather than in `core/fs` because the three stream effects
+/// above answer it too, and they are declared here: a failure to write a line
+/// and a failure to write a file are the same small set of facts about a
+/// platform refusing, and one enum is what makes them comparable. `core/fs`
+/// re-exports it, so a program that only reads files names one module.
 export enum IoError {
     NotFound,
     PermissionDenied,

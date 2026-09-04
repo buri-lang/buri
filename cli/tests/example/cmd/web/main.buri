@@ -1,5 +1,5 @@
 // The JS entry point. The only difference from a native `main` is the bounds it
-// asks for: no `Fs`, because the browser platform has none to grant. The
+// asks for: no `FsRead` and no `FsWrite`, because the browser platform grants neither. The
 // libraries below are compiled from the same sources the server binary uses.
 
 from "core/effect" import { Alloc, Stdout };
