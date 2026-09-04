@@ -1,0 +1,25 @@
+warning: io is imported but not used [unused-import]
+  --> lib/recovery_swap_adjacent_brace_app_89bce8/main.buri:15:28
+   |
+15 | from "core/io" import * as io;
+   |                            ^^
+   |
+   = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+   = fix: remove the import
+error: expected an identifier, found `.` [unexpected-token]
+  --> lib/recovery_swap_adjacent_brace_app_89bce8/main.buri:19:9
+   |
+19 |         .Ok(_written) => .Ok(line.len()),
+   |         ^
+   |
+   = expected: an identifier
+   = actual: `.`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_swap_adjacent_brace_app_89bce8/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate

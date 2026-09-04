@@ -1,0 +1,27 @@
+error: this variant payload pattern is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_44c897/main.buri:19:21
+   |
+19 |         .Ok(_written=> ) .Ok(line.len()),
+   |                     ^^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_44c897/main.buri:19:12
+   |
+19 |         .Ok(_written=> ) .Ok(line.len()),
+   |            ^ opened here
+   |
+   = fix: write `)` here
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_swap_adjacent_brace_app_44c897/main.buri:19:25
+   |
+19 |         .Ok(_written=> ) .Ok(line.len()),
+   |                         ^
+   |
+   = fix: write `=>` here
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_swap_adjacent_brace_app_44c897/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate

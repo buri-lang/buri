@@ -1,0 +1,30 @@
+warning: this is `order.int`, written out [hand-rolled-comparator]
+  --> lib/recovery_insert_stray_brace_app_d8a905/main.buri:20:4
+   |
+20 | fn compareInts(left: Int, right: Int): Order {
+   |    ^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.int` with the two operands, and delete the chain
+warning: this is `order.bool`, written out [hand-rolled-comparator]
+  --> lib/recovery_insert_stray_brace_app_d8a905/main.buri:24:4
+   |
+24 | fn compareBools(left: Bool, right: Bool): Order {
+   |    ^^^^^^^^^^^^
+   |
+   = `core/order` keeps one comparator per primitive — `order.int`, `order.float`, `order.bool`, `order.char`, `order.str` — and a comparator value is what `sortBy` and an `Ord` impl both take
+   = fix: call `order.bool` with the two operands, and delete the chain
+error: a match arm ends with `,` [missing-separator]
+  --> lib/recovery_insert_stray_brace_app_d8a905/main.buri:52:24
+   |
+52 |         .Less => "less"extra ,
+   |                        ^
+   |
+   = fix: write `,` here
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_insert_stray_brace_app_d8a905/main.buri:52:29
+   |
+52 |         .Less => "less"extra ,
+   |                             ^
+   |
+   = fix: write `=>` here

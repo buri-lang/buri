@@ -1,0 +1,27 @@
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_swap_adjacent_brace_app_d9ce30/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_swap_adjacent_brace_app_d9ce30/main.buri:41:21
+   |
+41 |         .Err(_error) 0 =>,
+   |                     ^
+   |
+   = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_d9ce30/main.buri:41:24
+   |
+41 |         .Err(_error) 0 =>,
+   |                        ^^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_d9ce30/main.buri:39:30
+   |
+39 |     match (write(ctx, line)) {
+   |                              ^ opened here
+   |
+   = fix: write `}` here

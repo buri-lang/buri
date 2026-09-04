@@ -1,0 +1,73 @@
+// A function that answers an `Order` by comparing two primitives with `<` and
+// `>` has written `core/order`'s own body out: hand-rolled-comparator.
+// `compareInts` is `order.int` and `compareBools` is `order.bool`, character
+// for character.
+//
+// The three below them are not findings, and each is a different reason.
+// `compareDescending` maps `<` to `.Greater`: it is a reversed order and means
+// something else, so it is not a copy of anything — `order.reverse` is what it
+// wants. `compareFloats` has a fourth branch, which is a total order over
+// `NaN` that `order.float` does not answer. `compareOctets` is over a `U8`,
+// and `order.int` takes an `Int`: a fix that would not type-check is not one
+// this rule offers.
+
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/math" import * as math;
+from "core/order" import { Order };
+
+fn compareInts(left: Int, right: Int): Order {
+    if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }
+}
+
+fn compareBools(left: Bool, right: Bool): Order {
+    if (left == right) { .Equal } else if (left) { .Greater } else { .Less }
+}
+
+fn compareDescending(left: Int, right: Int): Order {
+    if (left < right) { .Greater } else if (left > right) { .Less } else { .Equal }
+}
+
+fn compareFloats(left: Float, right: Float): Order {
+    if (left < right) {
+        .Less
+    } else if (left > right) {
+        .Greater
+    } else if (math.isNan(left)) {
+        if (math.isNan(right)) { .Equal } else { .Greater }
+    } else if (math.isNan(right)) {
+        .Less
+    } else {
+        .Equal
+    }
+}
+
+fn compareOctets(left: U8, right: U8): Order {
+    if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }
+}
+
+fn label(ordered: Order): Str {
+    match (ordered) {
+        .Less => "less",
+        .Equal => "equal",
+        .Greater => "greater",
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let said = [
+        label(compareInts(1, 2),
+        label(compareBools(true, false)),
+        label(compareDescending(1, 2)),
+        label(compareFloats(1.0, 2.0)),
+        label(compareOctets(1, 2)),
+    ];
+    io
+        .println(ctx, said.join(ctx, " "))
+        .mapErr(fn(_e) => "could not write to standard output")
+}

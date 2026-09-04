@@ -1,0 +1,20 @@
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_delete_closer_brace_app_1dd246/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_brace_app_1dd246/main.buri:57:36
+   |
+57 |     let failures = count(ctx, "two";
+   |                                    ^
+   |
+  --> lib/recovery_delete_closer_brace_app_1dd246/main.buri:57:25
+   |
+57 |     let failures = count(ctx, "two";
+   |                         ^ opened here
+   |
+   = fix: write `)` here

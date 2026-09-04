@@ -1,0 +1,20 @@
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_brace_app_d3bd87/main.buri:20:67
+   |
+20 |         .Err(_error) => .Err("could not write to standard output")@ ,
+   |                                                                   ^
+   |
+  --> lib/recovery_insert_stray_brace_app_d3bd87/main.buri:18:35
+   |
+18 |     match (io.println(ctx, line)) {
+   |                                   ^ opened here
+   |
+   = fix: write `}` here
+warning: this drops a `Result` by hand [discarded-result-by-hand]
+  --> lib/recovery_insert_stray_brace_app_d3bd87/main.buri:25:5
+   |
+25 |     match (write(ctx, line)) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = every arm answers `()`, so nothing here handles anything — this is `core/result.ignore` written out in four lines
+   = fix: handle the error with `match`, propagate it with `?`, or say `ignore()` if dropping it is deliberate
