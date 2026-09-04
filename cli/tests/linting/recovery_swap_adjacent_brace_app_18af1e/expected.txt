@@ -1,0 +1,35 @@
+warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
+  --> lib/recovery_swap_adjacent_brace_app_18af1e/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `char.fromDigit(n, 16)` is a digit and `char.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `char.fromDigit`, `num.toHex` or `bytes.toHex`
+error: this `match` does not cover `.None` [match-not-exhaustive]
+  --> lib/recovery_swap_adjacent_brace_app_18af1e/main.buri:33:5
+   |
+33 |     match (HEX_DIGITS[value / shift % 16]) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not covered
+   |
+   = every `match` must cover its scrutinee's type
+   = fix: add an arm for `.None`, or a `_` arm for everything left
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> lib/recovery_swap_adjacent_brace_app_18af1e/main.buri:34:21
+   |
+34 |         .Some(digit) digit =>,
+   |                     ^
+   |
+   = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_swap_adjacent_brace_app_18af1e/main.buri:34:28
+   |
+34 |         .Some(digit) digit =>,
+   |                            ^^
+   |
+  --> lib/recovery_swap_adjacent_brace_app_18af1e/main.buri:33:44
+   |
+33 |     match (HEX_DIGITS[value / shift % 16]) {
+   |                                            ^ opened here
+   |
+   = fix: write `}` here

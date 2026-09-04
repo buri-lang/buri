@@ -1,0 +1,37 @@
+// A timeout kept as a count with its unit in the name, and the multiply that
+// converts it: time-unit-conversion, twice. The parts-per-million denominator
+// below is the same literal and is not a finding — a million is a million of
+// something, and this rule reads the name beside it rather than the number.
+
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io, ;
+
+let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+
+let PPM_DENOMINATOR: Int = 1_000_000;
+
+let IDLE_TIMEOUT_MILLIS: I64 = 30_000;
+
+fn deadlineNanos(startedNanos: I64): I64 {
+    startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+}
+
+fn elapsedMillis(nanos: I64): I64 {
+    nanos / NANOS_PER_MILLISECOND
+}
+
+fn perMillion(count: Int, share: Int): Int {
+    count * share / PPM_DENOMINATOR
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let waited = elapsedMillis(deadlineNanos(0));
+    io
+        .println(ctx, "${waited} ${perMillion(2_000_000, 250)}")
+        .mapErr(fn(_e) => "could not write to standard output")
+}

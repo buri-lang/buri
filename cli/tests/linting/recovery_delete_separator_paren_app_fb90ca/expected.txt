@@ -1,0 +1,54 @@
+warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
+  --> lib/recovery_delete_separator_paren_app_fb90ca/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `char.fromDigit(n, 16)` is a digit and `char.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `char.fromDigit`, `num.toHex` or `bytes.toHex`
+error: `fromChars` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> lib/recovery_delete_separator_paren_app_fb90ca/main.buri:40:5
+   |
+40 |     str.fromChars(ctx [nibble(octet, 16), nibble(octet, 1)])
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass the context: the convention is receiver first, context second, everything else after
+error: `Option<<error>>` does not satisfy `Alloc` [unsatisfied-bound]
+  --> lib/recovery_delete_separator_paren_app_fb90ca/main.buri:40:5
+   |
+40 |     str.fromChars(ctx [nibble(octet, 16), nibble(octet, 1)])
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `Option<<error>>` implements `Eq`, `Hash`, `Ord` and `Show`, but not `Alloc`
+   = fix: add `derive Alloc for Option<<error>>;` in that type's own module, or write `impl Alloc for Option<<error>> { ... }` there
+error: `C` cannot be indexed [not-indexable]
+  --> lib/recovery_delete_separator_paren_app_fb90ca/main.buri:40:19
+   |
+40 |     str.fromChars(ctx [nibble(octet, 16), nibble(octet, 1)])
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = indexing is defined on `[T]`, and yields `Option<T>`
+   = fix: index an array; for a tuple, write `.0`
+error: expected `I64`, found `Char` [type-mismatch]
+  --> lib/recovery_delete_separator_paren_app_fb90ca/main.buri:40:24
+   |
+40 |     str.fromChars(ctx [nibble(octet, 16), nibble(octet, 1)])
+   |                        ^^^^^^^^^^^^^^^^^ an index is `I64`
+   |
+   = expected: `I64`
+   = actual: `Char`
+   = fix: produce a `I64` here, or change what surrounds it to accept a `Char`
+error: this index is missing its closing `]` [unclosed-delimiter]
+  --> lib/recovery_delete_separator_paren_app_fb90ca/main.buri:40:41
+   |
+40 |     str.fromChars(ctx [nibble(octet, 16), nibble(octet, 1)])
+   |                                         ^
+   |
+  --> lib/recovery_delete_separator_paren_app_fb90ca/main.buri:40:23
+   |
+40 |     str.fromChars(ctx [nibble(octet, 16), nibble(octet, 1)])
+   |                       ^ opened here
+   |
+   = fix: write `]` here

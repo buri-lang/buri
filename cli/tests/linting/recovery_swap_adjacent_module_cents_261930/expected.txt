@@ -1,9 +1,0 @@
-error: expected a type, found `{` [unexpected-token]
- --> lib/recovery_swap_adjacent_module_cents_261930/lib.buri:1:36
-  |
-1 | export fn markupCents(cents: I64): { I64
-  |                                    ^
-  |
-  = expected: a type
-  = actual: `{`
-  = fix: name a type here, as in `Int` or `[Str]`
