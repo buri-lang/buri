@@ -1,0 +1,11 @@
+export fn fromCents(n: I64): I64 {
+    n
+}
+
+// `scaled` is the finding the block above is trying to turn off, and until the
+// block spells the rule the way the catalogue does, nothing gets as far as
+// looking for it.
+export fn format(n: I64): Str {
+    let scaled = n * 100;
+    if (n == 0) { "zero" } else { "some" }
+}

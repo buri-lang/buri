@@ -1,0 +1,9 @@
+# The `rules` block's field set is the lint catalogue itself: one field per
+# code, with the code's hyphens turned into underscores. `unused_varible` is
+# one letter from a rule and is not one, so the file does not read — a
+# misspelled rule is never a rule quietly left on.
+lint {
+    rules {
+        unused_varible: false
+    }
+}

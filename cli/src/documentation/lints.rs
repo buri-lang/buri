@@ -84,6 +84,42 @@ pub const LINTS: &[LintDoc] = &[
     l!("warning-comment", "A marker comment is work that was left behind"),
 ];
 
+/// The `lint { rules { … } }` field a code is written as in a `REPO.buri`: the
+/// code with its hyphens turned into underscores, because a textproto field
+/// name cannot hold one.
+pub fn rule_field(code: &str) -> String {
+    code.replace('-', "_")
+}
+
+/// Every field a `rules` block accepts, in the order the schema declares them:
+/// `default` first, then one per code in catalogue order.
+///
+/// **Generated from [`LINTS`], not written down beside it.** A repository may
+/// turn a rule off by name, and a name it can write is a name this catalogue
+/// has — so the field set is this list and cannot be a stale copy of it. That
+/// is what makes "a lint shipped without its field" unrepresentable rather
+/// than merely tested for: there is nowhere to forget the field. What is
+/// tested is the other half — `docs/reference/schema/repo.proto` declares the
+/// same fields in prose, for the editor and for the reader, and
+/// `language_server::schema` holds the two lists to each other.
+///
+/// The names are leaked once, on first use: a `&'static str` is what
+/// `textproto::schema_order` hands out, and the catalogue is fixed at the size
+/// this binary was built with.
+pub fn rule_fields() -> &'static [&'static str] {
+    static FIELDS: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    FIELDS.get_or_init(|| {
+        let mut out = vec!["default"];
+        out.extend(LINTS.iter().map(|l| &*String::leak(rule_field(l.code))));
+        out
+    })
+}
+
+/// The code a `rules` field is about, for a field that names one.
+pub fn code_of_rule_field(field: &str) -> Option<&'static str> {
+    LINTS.iter().map(|l| l.code).find(|code| rule_field(code) == field)
+}
+
 /// The findings that are about something the program does not need, rather
 /// than about something it does wrongly.
 ///
@@ -155,6 +191,27 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The `rules` field set is the catalogue: one field per code, spelled the
+    /// one way a textproto field can be spelled, plus the `default` every
+    /// override is read against.
+    #[test]
+    fn every_lint_has_a_rules_field() {
+        let fields = rule_fields();
+        assert_eq!(fields.first(), Some(&"default"));
+        assert_eq!(fields.len(), LINTS.len() + 1);
+        for l in LINTS {
+            let field = rule_field(l.code);
+            assert!(fields.contains(&field.as_str()), "`{}` has no `rules` field", l.code);
+            assert!(
+                field.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "`{field}` is not a field name a textproto file can write"
+            );
+            assert_eq!(code_of_rule_field(&field), Some(l.code));
+        }
+        assert_eq!(code_of_rule_field("default"), None);
+        assert_eq!(code_of_rule_field("unused-import"), None, "a code is not a field name");
     }
 
     #[test]

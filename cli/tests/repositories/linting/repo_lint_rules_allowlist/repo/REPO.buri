@@ -1,0 +1,11 @@
+# A disabled default with rules written back on is an allow list, spelled in
+# the same two fields rather than in a mode of its own: nothing runs but what
+# is named here. The report names the smaller side, which under a disabled
+# default is the rules that still run.
+lint {
+    rules {
+        default: DISABLED
+
+        warning_comment: true
+    }
+}
