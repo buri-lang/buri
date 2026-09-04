@@ -145,7 +145,7 @@ pub struct Block {
     /// not fail because the harness picked a platform without a filesystem.
     /// Writing `platform=JS` is how a document says "and this is what does not
     /// compile there", which is the only way an error page for
-    /// `host-not-granted` can carry a program that provokes it.
+    /// `effect-not-on-platform` can carry a program that provokes it.
     pub platform: Option<crate::build::buildfile::Platform>,
     /// The fence exactly as it stands in the document: hidden `# ` markers,
     /// `// ERROR:` annotations and all.

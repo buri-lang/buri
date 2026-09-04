@@ -1,0 +1,14 @@
+// A page that asks for nothing a page does not have. The session opens this
+// file with the reach for a filesystem added, which is where the diagnostic
+// comes from.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io.println(ctx, "a page").mapErr(fn(_e) => "write failed")
+}

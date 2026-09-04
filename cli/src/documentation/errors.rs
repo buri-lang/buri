@@ -115,6 +115,11 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("effect-and-trait", "No type implements both an effect and a trait"),
     e!("effect-carrying-bound", "A type that carries an effect satisfies no trait bound"),
     e!("effect-method-call", "An effect is performed through a function, not a method", &["language/effects"]),
+    e!(
+        "effect-not-on-platform",
+        "A platform grants the effects its host exports",
+        &["build/build-files"]
+    ),
     e!("effect-outside-platform", "Only a platform module declares an effect"),
     e!("effect-param-not-ctx", "An effect-carrying parameter is `self` or `ctx`"),
     e!("entry-point-listed", "An entry point is named by its rule, never listed", &["build/build-files"]),
@@ -128,7 +133,6 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("float-as-a-tuple-index", "Two tuple indices in a row lex as a float"),
     e!("generic-effect-unsupported", "A trait or an effect takes no type parameters of its own"),
     e!("host-import", "`core/host` is imported by the module that exports `main`", &["build/hermeticity"]),
-    e!("host-not-granted", "A platform grants the effects its host exports", &["build/build-files"]),
     e!("if-without-else", "`if` is an expression, so it needs an `else`"),
     e!("impl-body-not-a-method", "An `impl` body holds methods"),
     e!("impl-fn-without-self", "Everything in an `impl` takes `self`"),

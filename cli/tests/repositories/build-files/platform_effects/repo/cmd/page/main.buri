@@ -1,0 +1,17 @@
+// A page, and a library in its closure that takes an `FsRead` bound. Nothing
+// here is refused: a bound is a demand for an implementation rather than one,
+// so `//lib/reader` compiles into a page exactly as it compiles into a server.
+// What a page may not do is bind the authority, and that is checked in this
+// file, where `main` binds it.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "//lib/reader" import { label };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io.println(ctx, label()).mapErr(fn(_e) => "write failed")
+}

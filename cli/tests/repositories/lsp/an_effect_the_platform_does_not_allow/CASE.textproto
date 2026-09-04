@@ -1,0 +1,37 @@
+# **The platform rule, in the editor.**
+#
+# `main.buri` is checked against the platforms its binary's `outputs` name, and
+# that check is a semantics-layer diagnostic on the import — so it travels the
+# same path every type error travels and the server publishes it without
+# knowing it exists. This case is the proof of that sentence: no build runs, no
+# artifact is produced, and the refusal is in the `publishDiagnostics` the
+# client gets back from `didOpen`.
+#
+# Two sessions, one per place the error can land. A named import is refused on
+# the name inside the braces; a namespace import names no effect, so the member
+# reference is the earliest line there is and the caret goes there instead. The
+# ranges in the two goldens are what say the spans are different.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an effect the target's platform does not allow is published to the editor on didOpen, on the import for a named import and on the member reference for a namespace one"
+
+# `stdin` names a file of one JSON-RPC request per line; the harness adds the
+# Content-Length framing and records the decoded responses, so the golden is
+# about what was said rather than about how many bytes it took.
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session_named.jsonl"
+  stream: OUT
+  golden: "named.txt"
+}
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session_namespace.jsonl"
+  stream: OUT
+  golden: "namespace.txt"
+}

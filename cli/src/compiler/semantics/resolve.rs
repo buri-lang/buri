@@ -17,7 +17,8 @@
 //! Only step 5 needs inference, and it never crosses a function boundary,
 //! because top-level signatures are mandatory.
 
-use crate::build::workspace::{PackageId, Workspace};
+use crate::build::buildfile::Platform;
+use crate::build::workspace::{PackageId, RuleKind, TargetId, Workspace};
 use crate::compiler::modules::{Loaded, Role};
 use crate::compiler::semantics::typed;
 use crate::compiler::semantics::types::*;
@@ -675,26 +676,102 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// Reports naming a `core/host` export that this output's platform does not
-    /// grant, answering whether it did.
+    /// The platforms a module is being compiled for.
     ///
-    /// `true` means the caller has nothing left to say: the name is missing on
-    /// purpose, and "does not export" would send a reader to look for a
-    /// spelling mistake in a file that spells it correctly.
-    pub fn report_host_not_granted(&mut self, span: Span, name: &str) -> bool {
-        let Some(platform) = self.loaded.platform else { return false };
-        let Some(grant) = standard_library::host_grant_of(name) else { return false };
-        if grant.platforms.contains(&platform) {
-            return false;
+    /// **This is the rule the platform diagnostic is decided by**, so it is
+    /// written once and asked from both of the two places a program can name a
+    /// `core/host` export.
+    ///
+    /// * A build — and a documentation snippet pinned with `platform=` — is
+    ///   producing exactly one output, and that output is the answer. It
+    ///   overrides everything below: `buri build --output=js` on a binary that
+    ///   also declares a WEB output is compiling the JS one, and refusing it on
+    ///   WEB's behalf would report an error in a place that is not building.
+    /// * A binary's **entry point** is checked against the platforms its
+    ///   `outputs` name, plus the platforms its suite declares in
+    ///   `test.platforms` — a batched test binary links `main` in, so a suite
+    ///   that runs on WEB compiles `main.buri` for WEB.
+    /// * Any other module is checked against the platforms **its own rule
+    ///   declared**, and a rule that declared none is never checked. A library
+    ///   that says nothing about platforms is platform-generic: it may end up
+    ///   in a page or in a server, and neither is a fact about the library.
+    ///
+    /// An empty list means "no platform was committed to", which is not the
+    /// same as "no platform is allowed" — nothing is reported for it.
+    fn module_platforms(&self, module: ModuleId) -> Vec<Platform> {
+        // One output is being built: that output, and nothing else.
+        if let Some(platform) = self.loaded.platform {
+            return vec![platform];
         }
+        let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) else { return Vec::new() };
+        let kind = match self.module(module).role {
+            Role::Entry => RuleKind::Binary,
+            _ => RuleKind::Library,
+        };
+        let target = TargetId { package: pkg, kind };
+        let mut platforms: Vec<Platform> =
+            ws.declared_platforms(target).into_iter().flatten().collect();
+        if kind == RuleKind::Binary {
+            for p in self.loaded.test_platforms.get(&pkg).into_iter().flatten() {
+                if !platforms.contains(p) {
+                    platforms.push(*p);
+                }
+            }
+        }
+        platforms.sort();
+        platforms.dedup();
+        platforms
+    }
+
+    /// The grant `name` belongs to and the platforms among `module`'s that
+    /// withhold it, in schema order.
+    ///
+    /// `None` for a name that is not one of `core/host`'s grants, and `None`
+    /// when every platform this module compiles for grants it — the two cases
+    /// a caller has nothing to say about, kept apart from an empty list only
+    /// where it would change what is printed, which is nowhere.
+    fn withheld_by(
+        &self,
+        module: ModuleId,
+        name: &str,
+    ) -> Option<(&'static standard_library::HostGrant, Vec<Platform>)> {
+        let grant = standard_library::host_grant_of(name)?;
+        let withholding: Vec<Platform> = self
+            .module_platforms(module)
+            .into_iter()
+            .filter(|p| !grant.platforms.contains(p))
+            .collect();
+        match withholding.is_empty() {
+            true => None,
+            false => Some((grant, withholding)),
+        }
+    }
+
+    /// Reports naming a `core/host` export that a platform this module is
+    /// compiled for does not allow, answering whether it did.
+    ///
+    /// `true` means the caller has nothing left to say. The alternative it
+    /// replaces is worse in both directions: where the name has been withheld
+    /// from the host's exports, "does not export it" sends a reader looking for
+    /// a typo in a file that spells it right; where it has not — every analysis
+    /// that is not building one output — there is no complaint at all, and the
+    /// program is refused later, by a build.
+    pub fn report_effect_not_on_platform(
+        &mut self,
+        module: ModuleId,
+        span: Span,
+        name: &str,
+    ) -> bool {
+        let Some((grant, withholding)) = self.withheld_by(module, name) else { return false };
         let (effect, because) = (grant.effect, grant.because);
         // The whole "or build it elsewhere" clause, not just the list: a row
         // that names no platform has no elsewhere, and `HostGrant` is where
         // that sentence is decided.
         let elsewhere = grant.elsewhere_clause();
-        let (proto, name) = (platform.proto().to_string(), name.to_string());
-        self.templated("host-not-granted", span)
-            .bind("platform", proto)
+        let platforms = Platform::sentence_phrase(&withholding);
+        let name = name.to_string();
+        self.templated("effect-not-on-platform", span)
+            .bind("platforms", platforms)
             .bind("name", name)
             .bind("effect", effect)
             .bind("because", because)
@@ -747,18 +824,34 @@ impl<'a> Checker<'a> {
                 self.scope_mut(module).namespaces.insert(t.name(*alias).to_string(), from);
             }
             tree::ImportClause::Named(specs) => {
+                let host = self.loaded.module(from).path == standard_library::HOST_MODULE;
                 for spec in specs {
+                    // Asked before the lookup, not after it. A named import is
+                    // where the reader wrote the name, so it is where the
+                    // refusal belongs — and the lookup cannot stand in for the
+                    // question, because the export is still there for every
+                    // analysis that is not building one output, and for a
+                    // binary whose other output grants it.
+                    if host {
+                        let name = t.name(spec.name).to_string();
+                        if self.report_effect_not_on_platform(module, spec.name.span, &name) {
+                            // Bound anyway, from what the host module declares
+                            // rather than from what this output exports. The
+                            // program has been refused already; leaving the
+                            // name unbound would add "there is nothing named
+                            // `fs` in scope" underneath, which is a second
+                            // error about the same line and a wrong one — the
+                            // name exists, and the platform is the problem.
+                            if let Some(sym) = self.scope(from).own.get(&name).cloned() {
+                                let local = t.name(spec.local()).to_string();
+                                self.scope_mut(module).names.insert(local, sym);
+                            }
+                            continue;
+                        }
+                    }
                     let Some(sym) = self.lookup_export(from, t.name(spec.name)) else {
                         let module_path = imp.path.clone();
                         let name = t.name(spec.name).to_string();
-                        // A name `core/host` withholds is missing on purpose,
-                        // and saying "does not export it" would send a reader
-                        // looking for a typo in a file that spells it right.
-                        if module_path == standard_library::HOST_MODULE
-                            && self.report_host_not_granted(spec.name.span, &name)
-                        {
-                            continue;
-                        }
                         let mut note = None;
                         // A name that exists but is not exported is a
                         // different mistake from a name that does not exist.
@@ -811,7 +904,19 @@ impl<'a> Checker<'a> {
     fn apply_reexport(&mut self, module: ModuleId, re: &tree::ReExport) {
         let Some(from) = self.loaded.find(&re.path) else { return };
         let t = self.tree(module);
+        // The same question a named import is asked, for the same reason.
+        // `main.buri` is the one module that may name `core/host` and the one
+        // module whose test sources may import it, so re-exporting `fs` from
+        // there would otherwise be a way to hand a page's suite an authority
+        // the page does not have.
+        let host = self.loaded.module(from).path == standard_library::HOST_MODULE;
         for spec in &re.specs {
+            if host {
+                let name = t.name(spec.name).to_string();
+                if self.report_effect_not_on_platform(module, spec.name.span, &name) {
+                    continue;
+                }
+            }
             let Some(sym) = self.lookup_export(from, t.name(spec.name)) else {
                 let path = re.path.clone();
                 let name = t.name(spec.name).to_string();

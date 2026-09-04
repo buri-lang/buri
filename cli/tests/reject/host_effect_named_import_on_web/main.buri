@@ -1,0 +1,28 @@
+// EXPECT: `fs` implements `FsRead` or `FsWrite`, which is not allowed on the WEB platform
+//
+// The **import** half of the platform rule, and the one the sibling cases
+// cannot show: `host_effect_not_granted_on_web` reaches for the filesystem
+// through a namespace, so the earliest line that can be pointed at is the
+// member reference. A named import is the request itself, and the caret
+// belongs on the name inside the braces rather than on the line that uses it.
+//
+// One diagnostic, not two. `fs` is still bound — to what `core/host` declares
+// rather than to what a page exports — so the `FsRead: fs` below does not go
+// on to report an unresolved name underneath a refusal that already said what
+// is wrong.
+//
+// PLATFORM: WEB — a page has no filesystem under it, so its host exports none.
+from "core/effect" import { Alloc, Stdout };
+from "core/fs" import { FsRead };
+from "core/host" import { alloc, stdout, fs };
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: alloc,
+    Stdout: stdout,
+    FsRead: fs,
+  };
+  let _ = io.println(ctx, "a page does not read files").ignore();
+  .Ok(())
+}

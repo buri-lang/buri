@@ -1,0 +1,25 @@
+//! Reading a file, behind a bound.
+
+from "core/effect" import { Alloc };
+from "core/fs" import * as fs;
+from "core/fs" import { FsRead };
+from "core/path" import { Path };
+
+/// The whole of a file, or the empty string where there is none.
+///
+/// `FsRead` here is a *demand* for a filesystem rather than one, so this
+/// function compiles for a page as readily as for a server. What a page cannot
+/// do is call it — there is no `host.fs` to pass — and that is a fact about
+/// the page's `main`, checked where `main` is written.
+export fn readOrEmpty<C: Alloc + FsRead>(ctx: C, path: Path): Str {
+    match (fs.readText(ctx, path)) {
+        .Ok(text) => text,
+        .Err(_) => "",
+    }
+}
+
+/// Something the same library offers with no authority at all, so a page can
+/// depend on this library and use it.
+export fn label(): Str {
+    "reader"
+}

@@ -212,11 +212,23 @@ binary that may import `core/host`, and the context it builds there is checked
 against the platform for **each output**.
 
 A platform *is* the set of effects its host exports: a platform that does not
-grant one does not export the name for it, so asking for it is an ordinary
-unresolved name at the line that asked, reported as `host-not-granted`. A `main`
-binding `Ui: host.ui` under `platform: JS` does not compile, and neither does one
-binding `Net: host.net` under `platform: WEB`. `buri docs error host-not-granted`
-has the table of what each platform grants, and the reasoning.
+grant one does not export the name for it, so asking for it is a compile error
+at the line that asked, reported as `effect-not-on-platform`. A `main` binding
+`Ui: host.ui` under `platform: JS` does not compile, and neither does one
+binding `FsRead: host.fs` under `platform: WEB`.
+`buri docs error effect-not-on-platform` has the table of what each platform
+grants, and the reasoning.
+
+The check is not deferred to the build. `main.buri` is checked against **every**
+platform its `outputs` name — plus every platform its suite names in
+`test.platforms`, because a test binary links `main` in — so a binary declaring
+`[MACOS, WEB]` and binding `FsRead: host.fs` is refused whichever output is
+being produced, and is refused by `buri lint`, by `buri test` and by the
+language server before any output is produced at all. Every other module is
+checked against the platforms **its own rule declared**, and a rule that
+declared none is never checked: a library that says nothing about `platforms` is
+platform-generic, and only `main.buri` may import `core/host` in the first
+place.
 
 `outputs` is a list because one entry point commonly ships several ways. Each
 entry names a platform, and the whole dependency graph is checked against it
