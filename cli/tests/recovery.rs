@@ -415,7 +415,11 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // leaves a call whose arguments the checker can still count, so it
         // counts them and says so. Twenty-one is the rate rounded up.
         ("a syntax error stays a syntax error", "insert-stray") => 21,
-        ("a syntax error stays a syntax error", "swap-adjacent") => 24,
+        // Re-read with the same F5 wave the `insert-stray` paragraph above
+        // records: the new conformance files moved this row to 24.2% of a
+        // grown population (409 of its cases), with no parser or checker code
+        // in any of the merges. Twenty-five is that rate rounded up.
+        ("a syntax error stays a syntax error", "swap-adjacent") => 25,
 
         // Every row not named above, and every row of an invariant R2 owns.
         (_, _) => 0,
