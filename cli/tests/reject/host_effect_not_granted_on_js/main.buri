@@ -3,7 +3,7 @@
 // A platform *is* the set of effects its host exports, so a platform that does
 // not grant one does not export the name for it, and asking is an ordinary
 // unresolved name at the one line that asked. This is the direction the design
-// states as "the same rule that makes `FsRead: host.fsRead` under `platform: JS` an
+// states as "the same rule that makes `FsRead: host.fs` under `platform: JS` an
 // unresolved name makes `Ui: host.ui` under `platform: LINUX` one", and it is
 // checked per *output*: the same source under `platform: WEB` compiles, which
 // `repositories/build-files/web_output` builds.

@@ -1,9 +1,10 @@
-// EXPECT: `WEB` does not grant `fsRead`
+// EXPECT: `WEB` does not grant `fs`
 //
 // The other direction, and the one that makes the rule a rule rather than a
 // list of things the browser happens to have: a page has no filesystem under
-// it, so a page's host exports neither half of one and `FsRead` is unreachable
-// from a browser by construction rather than by convention.
+// it, so a page's host exports no filesystem at all and neither `FsRead` nor
+// `FsWrite` is reachable from a browser — by construction rather than by
+// convention.
 //
 // This case used to ask for `Net`, which WEB withheld while `Net.fetch` did
 // not return until the answer arrived — a page whose one thread is waiting is
@@ -22,7 +23,7 @@ export fn main(): Result<(), Str> {
   let ctx = context {
     Alloc: host.alloc,
     Stdout: host.stdout,
-    FsRead: host.fsRead,
+    FsRead: host.fs,
     Ui: host.ui,
     Watch: host.watch,
   };

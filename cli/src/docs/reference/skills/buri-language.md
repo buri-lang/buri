@@ -33,7 +33,9 @@ The normative text ships in the binary: `buri docs language/lexical`,
    value that carries it (`effect-method-call`). `core/io`, `core/fs`,
    `core/env`, `core/time`, `core/random`, `core/alloc`, `core/net/http`,
    `core/net/server`, `core/proc`, `core/tasks` and `ui/signal` are the doors.
-   See the `buri-types` skill.
+   The filesystem is **two** effects, `FsRead` and `FsWrite`, both declared in
+   `core/fs` rather than `core/effect`, and every function there takes a `Path`
+   from `core/path` rather than a `Str`. See the `buri-types` skill.
 8. **A bare identifier in a pattern is always a binding.** `None` binds a
    variable; write `.None` or `Option.None` to match the variant.
 9. **`Result` may not be discarded.** `let _ = someResult()` is a compile
@@ -204,8 +206,8 @@ let sum = xs.fold(fn(acc, x) => acc + x, 0);
 ### `?` and defaults
 
 ```buri
-fn loadPort<C: Alloc + Fs>(ctx: C, path: Str): Result<Int, ConfigError> {
-    let text = fs.readText(ctx, path)?;       // Err(e) => return Err(e)
+fn loadPort<C: Alloc + FsRead>(ctx: C, at: Path): Result<Int, ConfigError> {
+    let text = fs.readText(ctx, at)?;         // Err(e) => return Err(e)
     let cfg = parseConfig(text)?;
     .Ok(cfg.port.withDefault(8080))
 }

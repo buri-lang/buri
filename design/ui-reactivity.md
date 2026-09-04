@@ -503,10 +503,10 @@ language one, and the existing machinery covers it:
   "per output" costs and buys.
 
   WEB grants `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand`, `Net`, `Ui` and
-  `Watch`, and withholds `Fs`, `Stdin`, `Env`, `Proc`, `Tasks`, `Listen` and
-  `Sockets`. `LINUX` and `MACOS` grant all thirteen non-UI effects and neither
-  UI one; `JS` grants eleven of the thirteen — everything but `Listen` and
-  `Sockets`. Telling the three non-page platforms apart from each other was a
+  `Watch`, and withholds `FsRead`, `FsWrite`, `Stdin`, `Env`, `Proc`, `Tasks`,
+  `Listen` and `Sockets`. `LINUX` and `MACOS` grant all fourteen non-UI effects
+  and neither UI one; `JS` grants twelve of the fourteen — everything but
+  `Listen` and `Sockets`. Telling the three non-page platforms apart from each other was a
   table edit rather than new machinery, and it has now happened (see Open).
 
   `Tasks` is the eleventh, and it arrived by a route worth recording, because it

@@ -19,7 +19,7 @@ export fn main(): Result<(), Str> {
         Alloc: host.alloc,
         Stdout: host.stdout,
         Env: host.env,
-        FsRead: host.fsRead,
+        FsRead: host.fs,
         Proc: host.proc,
     };
     let args = env.args(ctx);

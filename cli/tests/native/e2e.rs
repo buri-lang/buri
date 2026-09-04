@@ -1206,8 +1206,8 @@ export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Env: host.env,
-        FsRead: host.fsRead,
-        FsWrite: host.fsWrite,
+        FsRead: host.fs,
+        FsWrite: host.fs,
         Stdout: host.stdout,
     };
     let run = filepath.of(ctx, "scratch/run");
@@ -1276,8 +1276,8 @@ fn describe<C: Alloc + FsRead>(ctx: C, at: Path): Str {
 export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
-        FsRead: host.fsRead,
-        FsWrite: host.fsWrite,
+        FsRead: host.fs,
+        FsWrite: host.fs,
         Stdout: host.stdout,
     };
     let db = filepath.of(ctx, "atomic.db");

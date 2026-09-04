@@ -364,6 +364,20 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         ("the fix names the missing token", "delete-closer") => 19,
         ("the fix names the missing token", "delete-separator ()") => 5,
         ("the fix names the missing token", "delete-separator {}") => 7,
+        // The list row, and its one case is a *list pattern*: `[a, b, c, ..]`
+        // in `lib/semantics/shapes.buri` with the comma before the rest pattern
+        // deleted. What is left binds three names and no rest, so the arm stops
+        // covering a fourth element and the checker says the `match` is not
+        // exhaustive — a real consequence of a real program, reached from a
+        // syntax mistake the parser had nothing to report.
+        //
+        // Read the day `core/path` landed, and it is the population moving
+        // rather than the toolchain: the sampler steps through each source at a
+        // fixed stride, `lib/semantics/shapes.buri` gained a `RefusingFs`, and
+        // the stride now lands on that line where it used to land beside it.
+        // The parser and the checker are not in that change at all. Two per
+        // cent is 1.2% rounded up, which is one case of eighty-one.
+        ("the fix names the missing token", "delete-separator []") => 2,
 
         // 12.6%, 2.1%, 3.8%, 19.3% and 23.4% over the population, now that the
         // row is the population: the rate rounded up, with no draw to cover.
@@ -399,6 +413,8 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // it still has a corpus that gets edited.
         ("a syntax error stays a syntax error", "delete-closer") => 14,
         ("a syntax error stays a syntax error", "delete-separator ()") => 3,
+        // The same one case, at this invariant: see the note on the row above.
+        ("a syntax error stays a syntax error", "delete-separator []") => 2,
         // The arm before the comma swallows the next arm's pattern, so `2` gets
         // a field: the same residue this invariant's sibling caps at 7.
         ("a syntax error stays a syntax error", "delete-separator {}") => 7,

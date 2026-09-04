@@ -2,7 +2,7 @@
 title: A suite's filesystem is written in the suite
 message: '`test {{ data }}` is retired'
 note: the field seeded an in-memory filesystem from files on disk, which only the JavaScript runner could be handed — a linked test binary has no runner, so `data()` was empty there and every read of a declared file answered differently on the two backends
-fix: bind the files in the suite instead, as in `context {{ Fs: fs().files([("test/golden/statement.txt", "…")]) }}` from `core/host/testing`
+fix: bind the files in the suite instead, as in `context {{ FsRead: fs().files([("test/golden/statement.txt", "…")]) }}` from `core/host/testing`
 reproduction: none
 ---
 # A suite's filesystem is written in the suite
@@ -17,9 +17,11 @@ Delete the `data` entry, and give the suite its filesystem where the rest of its
 context is written:
 
 ```buri role=test
-# from "core/effect" import { Alloc, Fs };
+# from "core/effect" import { Alloc };
 # from "core/fs" import * as fs;
+# from "core/fs" import { FsRead };
 # from "core/host/testing" import { alloc, fs as testFs };
+# from "core/path" import * as path;
 # from "core/testing/assert" import * as assert;
 
 # fn render(): Str {
@@ -29,9 +31,10 @@ context is written:
 test "renders the statement" {
     let ctx = context {
         Alloc: alloc(),
-        Fs: testFs().files([("test/golden/statement.txt", "coffee  $4.50")]),
+        FsRead: testFs().files([("test/golden/statement.txt", "coffee  $4.50")]),
     };
-    let want = assert.ok(fs.readText(ctx, "test/golden/statement.txt"));
+    let at = path.of(ctx, "test/golden/statement.txt");
+    let want = assert.ok(fs.readText(ctx, at));
     assert.eq(render(), want);
 }
 ```

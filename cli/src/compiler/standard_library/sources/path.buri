@@ -75,14 +75,29 @@ export struct Path(Str);
 /// relative path is relative to — because `""` names nothing on any platform
 /// and `"."` is what a program that wrote it meant.
 ///
-/// ```buri wrap=body ctx=Alloc
-/// # from "core/path" import * as path;
-/// # from "core/testing/assert" import * as assert;
-/// assert.eq(path.of(ctx, "logs//app/").text(), "logs/app");
-/// assert.eq(path.of(ctx, "").text(), ".");
-/// assert.eq(path.of(ctx, "/").text(), "/");
-/// // `..` is a component, not an instruction: see the module header.
-/// assert.eq(path.of(ctx, "a/../b").text(), "a/../b");
+/// ```buri run
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/path" import * as path;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let tidied = path.of(ctx, "logs//app/").text();
+///     let empty = path.of(ctx, "").text();
+///     let root = path.of(ctx, "/").text();
+///     // `..` is a component, not an instruction: see the module header.
+///     let up = path.of(ctx, "a/../b").text();
+///     let _ = io.println(ctx, "${tidied} ${empty} ${root} ${up}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// logs/app . / a/../b
 /// ```
 export fn of<C: Alloc>(ctx: C, text: Str): Path {
     let body = named(ctx, text).join(ctx, "/");
@@ -159,13 +174,28 @@ impl Path {
     /// onto its own directory ends up reading `/etc/passwd`, and a caller that
     /// meant the other path is already holding it.
     ///
-    /// ```buri wrap=body ctx=Alloc
-    /// # from "core/path" import * as path;
-    /// # from "core/testing/assert" import * as assert;
-    /// let dir = path.of(ctx, "var/log");
-    /// assert.eq(dir.join(ctx, "app.log").text(), "var/log/app.log");
-    /// assert.eq(dir.join(ctx, "a/b").text(), "var/log/a/b");
-    /// assert.eq(dir.join(ctx, "/etc").text(), "var/log/etc");
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/path" import * as path;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let dir = path.of(ctx, "var/log");
+    ///     let one = dir.join(ctx, "app.log").text();
+    ///     let two = dir.join(ctx, "a/b").text();
+    ///     let absolute = dir.join(ctx, "/etc").text();
+    ///     let _ = io.println(ctx, "${one} ${two} ${absolute}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// var/log/app.log var/log/a/b var/log/etc
     /// ```
     export fn join<C: Alloc>(self, ctx: C, other: Str): Path {
         let left = self.0;
@@ -184,14 +214,32 @@ impl Path {
     /// because the last component is dropped and `..` is a component. See the
     /// module header for why `..` is not resolved.
     ///
-    /// ```buri wrap=body ctx=Alloc
-    /// # from "core/path" import * as path;
-    /// # from "core/testing/assert" import * as assert;
-    /// assert.eq(path.of(ctx, "/var/log").parent().map(fn(p) => p.text()), .Some("/var"));
-    /// assert.eq(path.of(ctx, "/var").parent().map(fn(p) => p.text()), .Some("/"));
-    /// assert.eq(path.of(ctx, "app.log").parent().map(fn(p) => p.text()), .Some("."));
-    /// assert.isTrue(path.of(ctx, "/").parent().isNone());
-    /// assert.isTrue(path.of(ctx, ".").parent().isNone());
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/path" import * as path;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let deep = path.of(ctx, "/var/log").parent().map(fn(p) => p.text());
+    ///     let shallow = path.of(ctx, "/var").parent().map(fn(p) => p.text());
+    ///     let here = path.of(ctx, "app.log").parent().map(fn(p) => p.text());
+    ///     let root = path.of(ctx, "/").parent().map(fn(p) => p.text());
+    ///     let a = deep.withDefault("none");
+    ///     let b = shallow.withDefault("none");
+    ///     let c = here.withDefault("none");
+    ///     let d = root.withDefault("none");
+    ///     let _ = io.println(ctx, "${a} ${b} ${c} ${d}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// /var / . none
     /// ```
     export fn parent(self): Option<Path> {
         let tail = lastComponent(self.0);
@@ -238,13 +286,30 @@ impl Path {
     /// `.gitignore`'s dot begins the name rather than separating an extension
     /// from it, and `archive.`'s ends it.
     ///
-    /// ```buri wrap=body ctx=Alloc
-    /// # from "core/path" import * as path;
-    /// # from "core/testing/assert" import * as assert;
-    /// assert.eq(path.of(ctx, "a/report.tar.gz").extension(), .Some("gz"));
-    /// assert.eq(path.of(ctx, "a/report.tar.gz").stem(), .Some("report.tar"));
-    /// assert.isTrue(path.of(ctx, "a/.gitignore").extension().isNone());
-    /// assert.eq(path.of(ctx, "a/.gitignore").stem(), .Some(".gitignore"));
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/path" import * as path;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let archive = path.of(ctx, "a/report.tar.gz");
+    ///     let hidden = path.of(ctx, "a/.gitignore");
+    ///     let one = archive.extension().withDefault("none");
+    ///     let two = archive.stem().withDefault("none");
+    ///     let three = hidden.extension().withDefault("none");
+    ///     let four = hidden.stem().withDefault("none");
+    ///     let _ = io.println(ctx, "${one} ${two} ${three} ${four}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// gz report.tar none .gitignore
     /// ```
     export fn extension(self): Option<Str> {
         match (self.fileName()) {

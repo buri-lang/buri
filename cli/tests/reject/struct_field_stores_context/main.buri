@@ -13,7 +13,7 @@ fn stash<C: FsRead>(held: Holder<C>, at: Path): Bool {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead, Stdout: host.stdout };
+  let ctx = context { Alloc: host.alloc, FsRead: host.fs, Stdout: host.stdout };
   let found = stash(Holder { inner: ctx }, filepath.of(ctx, "x"));
   let _ = io.println(ctx, "${found}").ignore();
   .Ok(())

@@ -17,7 +17,7 @@ fn checkAll<C: Alloc + FsRead>(ctx: C, paths: [Path]): [Bool] {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead, Stdout: host.stdout };
+  let ctx = context { Alloc: host.alloc, FsRead: host.fs, Stdout: host.stdout };
   let found = checkAll(ctx, [filepath.of(ctx, "a")]).len();
   let _ = io.println(ctx, "${found}").ignore();
   .Ok(())

@@ -6,7 +6,7 @@ from "core/fs" import * as fs;
 from "core/path" import * as filepath;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead, Stdout: host.stdout };
+  let ctx = context { Alloc: host.alloc, FsRead: host.fs, Stdout: host.stdout };
   let _ = fs.readText(ctx, filepath.of(ctx, "config.toml"));
   .Ok(())
 }

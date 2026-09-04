@@ -537,7 +537,7 @@ fn touch<C: Alloc + FsRead>(ctx: C, at: Path): Bool {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead };
+  let ctx = context { Alloc: host.alloc, FsRead: host.fs };
   let _ = read(ctx, filepath.of(ctx, "a.txt"));
   let _ = touch(ctx, filepath.of(ctx, "b.txt"));
   .Ok(())

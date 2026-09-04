@@ -13,7 +13,7 @@ fn twoWorlds<A: FsRead, B: Net>(ctx: A, other: B, at: Path): Bool {
 export fn main(): Result<(), Str> {
   let ctx = context {
     Alloc: host.alloc,
-    FsRead: host.fsRead,
+    FsRead: host.fs,
     Net: host.net,
     Stdout: host.stdout,
   };

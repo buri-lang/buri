@@ -277,7 +277,7 @@ fn generated_javascript_matches_its_record() {
 /// programs that touch no host at all.
 ///
 /// So both directions are asserted, over one program holding both kinds:
-/// `load` reaches `host.HostFsRead.readFile` and `count` reaches nothing. Both are
+/// `load` reaches `host.HostFs.readFile` and `count` reaches nothing. Both are
 /// recursive, because an inlined function leaves no declaration to look at.
 #[test]
 fn only_the_functions_that_can_park_are_async() {
@@ -305,7 +305,7 @@ fn count(n: Int, acc: Int): Int {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead, Stdout: host.stdout };
+  let ctx = context { Alloc: host.alloc, FsRead: host.fs, Stdout: host.stdout };
   let total = load(ctx, filepath.of(ctx, \"a.txt\"), 3);
   let _ = io.println(ctx, \"${total} ${count(4, 0)}\").ignore();
   .Ok(())
@@ -328,7 +328,7 @@ export fn main(): Result<(), Str> {
     let load = line("function __cmd_x_main_buri$load", "declaration of `load`");
     assert!(
         load.starts_with("async function "),
-        "`load` reaches `host.HostFsRead.readFile`, so it waits:\n{load}\n\n{generated}"
+        "`load` reaches `host.HostFs.readFile`, so it waits:\n{load}\n\n{generated}"
     );
     let count = line("function __cmd_x_main_buri$count", "declaration of `count`");
     assert!(

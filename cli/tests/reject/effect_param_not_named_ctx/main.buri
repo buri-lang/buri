@@ -11,7 +11,7 @@ fn sneaky<C: FsRead>(a: Int, handle: C, at: Path): Bool {
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, FsRead: host.fsRead, Stdout: host.stdout };
+  let ctx = context { Alloc: host.alloc, FsRead: host.fs, Stdout: host.stdout };
   let at = filepath.of(ctx, "x");
   let _ = io.println(ctx, "${sneaky(1, ctx, at)}").ignore();
   .Ok(())
