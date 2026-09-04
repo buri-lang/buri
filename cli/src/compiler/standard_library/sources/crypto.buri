@@ -26,6 +26,14 @@
 //! `core/random.bytes` exists and is uniform; this is the one that is
 //! unpredictable, and a program says which it meant by which it imports.
 //!
+//! **Neither takes a `Gen`, and this is the one place `core/random`'s
+//! seed-or-context rule deliberately does not reach.** `Gen` exists so that a
+//! run can be replayed from a seed; a token that can be replayed is a token
+//! that can be predicted, and the call site would look exactly like the safe
+//! one. The seeded path a test needs exists and is somewhere it can do no harm:
+//! `core/host/testing`'s `entropy()` is a seeded implementation of the same
+//! effect and is reachable only from a test source.
+//!
 //! # What is not here, and will not be by accident
 //!
 //! - **No ciphers, yet, and none by accident.** No AES, no ChaCha. Encryption
