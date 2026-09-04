@@ -1142,8 +1142,10 @@ and so is `1.0 + 1`.
 Integer `/` truncates toward zero; `%` takes the sign of the dividend, so
 `a == (a / b) * b + (a % b)` holds for every non-zero `b`.
 
-Division by zero **aborts**: there is no answer to give and no `Result` in the
-signature to say so.
+*Integer* division by zero **aborts**: there is no answer to give and no
+`Result` in the signature to say so. Float division by zero does not — IEEE-754
+has an answer for it, so `1.0 / 0.0` is `+inf`, `-1.0 / 0.0` is `-inf` and
+`0.0 / 0.0` is `NaN`.
 
 Overflow and underflow of an integer operation are **undefined behaviour**. The
 program is wrong; the language does not say what it produces, and the backend
