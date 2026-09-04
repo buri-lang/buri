@@ -507,11 +507,35 @@ fn failures(run: &Run) -> Vec<String> {
 /// `--accept` used to be the second half of this. It wrote to the source tree,
 /// which is why it could not be served either; it rewrote the golden files a
 /// suite declared in `test { data }`, and both are retired.
+///
+/// **The count a cached run is compared against is the first run's, and never a
+/// `--force` run's.** The last claim here needs one number: what a whole,
+/// unfiltered run of this tree reports. `first` is that number — uncached by
+/// construction, since nothing has run in the copy yet — and it has already been
+/// paid for. Asking a `--force` run for it instead adds a fifth invocation that
+/// re-emits fourteen codegen units and drives `cc` through a full native link:
+/// the most environment-dependent work in this file, done for an answer already
+/// on hand. That is not a hypothetical. A `--force` run whose link fails prints
+/// `0 passed, 0 failed, 0 skipped, 1 failed to compile` and exits 1, so the
+/// count came back `0` and this assertion fired — accusing the *cache* of
+/// serving a partial record, quoting the whole run's transcript, which is
+/// blameless, and never showing the link error that actually happened. It
+/// failed exactly that way once on a loaded machine and passed on every rerun;
+/// the scratch tree it left behind held the whole suite's record in the cache,
+/// both link entries, and `test-runner` still holding the filtered binary,
+/// which is the state a fifth invocation that never finished its link leaves.
+/// A run whose exit status nothing checks, read for a number, is the shape to
+/// keep out of this file.
 #[test]
 fn a_filtered_run_never_comes_from_the_cache() {
     let example = Scratch::copy_of("explain-test-modes", &example_repo());
-    example.run(&["test", "//lib/store", "--explain"]).ok();
-    assert_eq!(status(&example.run(&["test", "//lib/store", "--explain"]), "test //lib/store"), "cached");
+    let first = example.run(&["test", "//lib/store", "--explain"]);
+    first.ok();
+    assert_eq!(status(&first, "test //lib/store"), "run");
+
+    let second = example.run(&["test", "//lib/store", "--explain"]);
+    second.ok();
+    assert_eq!(status(&second, "test //lib/store"), "cached");
 
     let filtered = example.run(&["test", "//lib/store", "--explain", "--filter=golden"]);
     filtered.ok();
@@ -519,6 +543,16 @@ fn a_filtered_run_never_comes_from_the_cache() {
         status(&filtered, "test //lib/store"),
         "run",
         "a filtered run was served from the cache:\n{}",
+        indent(&filtered.all())
+    );
+    // What gives the comparison below its teeth: the subset is smaller than the
+    // suite, so a poisoned entry is a *different number* rather than the same
+    // one arrived at twice. A filter that stopped matching a subset would leave
+    // that assertion true whatever the cache did, and would fail here instead.
+    assert!(
+        filtered.tests_passed() < first.tests_passed(),
+        "`--filter=golden` no longer selects a proper subset, so a partial \
+         record would be indistinguishable from the suite's:\n{}",
         indent(&filtered.all())
     );
 
@@ -529,7 +563,7 @@ fn a_filtered_run_never_comes_from_the_cache() {
     assert_eq!(status(&whole, "test //lib/store"), "cached");
     assert_eq!(
         whole.tests_passed(),
-        example.run(&["test", "//lib/store", "--force"]).tests_passed(),
+        first.tests_passed(),
         "a filtered run poisoned the cache with a partial result:\n{}",
         indent(&whole.all())
     );
