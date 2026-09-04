@@ -1318,14 +1318,19 @@ fn build_native(
     // unchanged means the ordered list in `key` is unchanged, so the executable
     // in the cache is the executable this link would produce.
     if !flags.force {
-        if let Some(bytes) = cache.get(&key) {
+        if let Some(entry) = cache.entry(&key) {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            if write_executable(&path, &bytes).is_ok() {
+            if let Ok(size) = write_executable(&entry, &path) {
                 explain_link(crate::build::cache::Status::Cached);
                 link_out_symlink(session, output);
-                return Ok(Artifact { target, path, bytes: bytes.len(), cached: true });
+                return Ok(Artifact {
+                    target,
+                    path,
+                    bytes: usize::try_from(size).unwrap_or(usize::MAX),
+                    cached: true,
+                });
             }
         }
     }
@@ -1337,12 +1342,15 @@ fn build_native(
         target: target_of(output),
         unit_prefix: &prefix,
     };
-    if let Err(errors) = link::run(&objects.units, &objects.rows, &linker, &path, &opts) {
-        diagnostics.extend(errors.items);
-        return Err(diagnostics);
-    }
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
+    let staged = match link::run(&objects.units, &objects.rows, &linker, &path, &opts) {
+        Ok(staged) => staged,
+        Err(errors) => {
+            diagnostics.extend(errors.items);
+            return Err(diagnostics);
+        }
+    };
+    let size = match std::fs::metadata(&path) {
+        Ok(meta) => meta.len(),
         Err(e) => {
             diagnostics.push(Diagnostic::error(
                 Span::NONE,
@@ -1351,9 +1359,17 @@ fn build_native(
             return Err(diagnostics);
         }
     };
-    cache.put(&key, &bytes);
+    // The linker's own output, moved into the entry rather than a second copy
+    // of it written from a full read of the artifact just placed. See
+    // `Cache::put_file`.
+    cache.put_file(&key, staged.path());
     link_out_symlink(session, output);
-    Ok(Artifact { target, path, bytes: bytes.len(), cached: false })
+    Ok(Artifact {
+        target,
+        path,
+        bytes: usize::try_from(size).unwrap_or(usize::MAX),
+        cached: false,
+    })
 }
 
 /// Where a native test binary was put, for as long as it is the one to run.
@@ -1583,8 +1599,8 @@ fn test_binary_named(
     let path = binary.path().to_path_buf();
     let cache = Cache::open(&session.root);
     if !flags.force {
-        if let Some(bytes) = cache.get(&key) {
-            if write_executable(&path, &bytes).is_ok() {
+        if let Some(entry) = cache.entry(&key) {
+            if write_executable(&entry, &path).is_ok() {
                 explain_link(crate::build::cache::Status::Cached);
                 return Ok(binary);
             }
@@ -1593,13 +1609,19 @@ fn test_binary_named(
     explain_link(crate::build::cache::Status::Run);
     let opts =
         LinkOptions { profile: profile_of(flags), target: target_of(output), unit_prefix: prefix };
-    if let Err(errors) = link::run(&objects.units, &objects.rows, &linker, &path, &opts) {
-        diagnostics.extend(errors.items);
-        return Err(std::mem::take(diagnostics));
-    }
-    if let Ok(bytes) = std::fs::read(&path) {
-        cache.put(&key, &bytes);
-    }
+    let staged = match link::run(&objects.units, &objects.rows, &linker, &path, &opts) {
+        Ok(staged) => staged,
+        Err(errors) => {
+            diagnostics.extend(errors.items);
+            return Err(std::mem::take(diagnostics));
+        }
+    };
+    // A batched test binary is the largest artifact this toolchain writes — a
+    // hundred megabytes of debug executable for a repository of any size — and
+    // this is where it stopped being written twice: the file the driver
+    // produced becomes the cache entry, and the copy at `path` is the one the
+    // suite runs from.
+    cache.put_file(&key, staged.path());
     Ok(binary)
 }
 
@@ -1609,13 +1631,18 @@ fn test_binary_named(
 /// of a store have no mode. Restoring the execute bit is what makes a cache hit
 /// and a fresh link produce the same thing rather than a file that differs from
 /// it in the one way `ls` shows and `cmp` does not.
-fn write_executable(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
-    // Through `link::place`, which is where the rule about *not* rewriting an
-    // artifact whose bytes are already there is stated, and which is what a
-    // fresh link now reaches its output through as well. Two ways of putting an
-    // executable on disk would be two places for that rule to hold in one of
-    // them.
-    link::place(path, bytes)
+fn write_executable(entry: &std::path::Path, path: &std::path::Path) -> std::io::Result<u64> {
+    // Through `link::place_from`, which is where the rule about *not*
+    // rewriting an artifact whose bytes are already there is stated, and which
+    // is what a fresh link reaches its output through as well. Two ways of
+    // putting an executable on disk would be two places for that rule to hold
+    // in one of them.
+    //
+    // A path rather than the bytes since the entry became a file to stream:
+    // the artifact is not read into this process at all, on either path
+    // through here, and the comparison that decides whether to write is a
+    // chunk of each file rather than two copies of a hundred megabytes.
+    link::place_from(entry, path)
 }
 
 pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> PathBuf {

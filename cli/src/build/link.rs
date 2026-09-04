@@ -1166,6 +1166,22 @@ impl CDriver {
         &self.dir
     }
 
+    /// Where a finished link's bytes are kept until something takes them.
+    ///
+    /// The driver writes `artifact`, under a name every process linking this
+    /// key shares (the directory is the key), and a successful link
+    /// immediately renames that to this — a name carrying *this* process's id,
+    /// so the file the caller is then handed cannot be truncated out from
+    /// under it by a second build of the same key.
+    ///
+    /// Not the driver's `-o` argument, deliberately: the driver is given the
+    /// relative name `artifact` because a name that varies is a name that
+    /// could vary the bytes, and ARCHITECTURE.md §7's byte-for-byte rebuild
+    /// check is a promise this file does not test its luck against.
+    fn claimed(&self) -> PathBuf {
+        self.dir.join(format!("artifact.{}", std::process::id()))
+    }
+
     /// Which libc this link will answer with.
     ///
     /// Public because it is what a test asks to know whether it is looking at a
@@ -1519,6 +1535,12 @@ impl Linker for CDriver {
         // rather than introducing a way of writing an artifact that did not
         // already exist.
         //
+        // What the driver wrote is *claimed* rather than read into memory:
+        // renamed to a name this process owns, copied from there to `out`, and
+        // handed back to the caller as a [`Staged`] for the cache to move in.
+        // See [`Staged`] for why the linked bytes reach the cache by a rename
+        // rather than by a second write of the same hundred megabytes.
+        //
         // The driver is *run in* the link directory and every path it is given
         // is relative to it, which is the other half of ARCHITECTURE.md §7's
         // third source of nondeterminism. `ld64` records an input's path in an
@@ -1559,18 +1581,25 @@ impl Linker for CDriver {
         let spelled = format!("cd {} && {}", self.dir.display(), command_line(&command));
         match command.output() {
             Ok(status) if status.status.success() => {
-                let bytes = match std::fs::read(&staged) {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        diagnostics.push(Diagnostic::error(
-                            Span::NONE,
-                            format!("the link produced no {}: {e}", staged.display()),
-                        ));
-                        return Err(diagnostics);
-                    }
-                };
-                let _ = std::fs::remove_file(&staged);
-                if let Err(e) = place(out, &bytes) {
+                // Claimed before anything reads it. Two builds of one key share
+                // this directory — the directory *is* the key — so `artifact`
+                // is a name a second process's driver may truncate at any
+                // moment. Renaming it into a name this process owns closes that
+                // window to the length of a rename, where reading a hundred
+                // megabytes back held it open for the length of the read.
+                let claimed = self.claimed();
+                if let Err(e) = std::fs::rename(&staged, &claimed) {
+                    diagnostics.push(Diagnostic::error(
+                        Span::NONE,
+                        format!("the link produced no {}: {e}", staged.display()),
+                    ));
+                    return Err(diagnostics);
+                }
+                if let Err(e) = place_from(&claimed, out) {
+                    // The claim is dropped here rather than left for a
+                    // `Staged` the caller will never be given: a failed link
+                    // owes the link directory no hundred-megabyte file.
+                    let _ = std::fs::remove_file(&claimed);
                     diagnostics.push(
                         Diagnostic::error(
                             Span::NONE,
@@ -1618,35 +1647,136 @@ impl Linker for CDriver {
 /// are then compared rather than the length alone: skipping a write is a
 /// saving and never a licence to leave stale bytes, which is what
 /// `an_unchanged_object_is_left_where_it_was` holds this to.
+///
+/// This is the *object* staging half of that rule, where the bytes are in
+/// memory already because the backend just emitted them. The artifact half is
+/// [`place_from`], where they are not.
 fn already_holds(path: &Path, bytes: &[u8]) -> bool {
     std::fs::metadata(path).is_ok_and(|m| m.len() == bytes.len() as u64)
         && std::fs::read(path).is_ok_and(|on_disk| on_disk == bytes)
 }
 
-/// Writes an executable over whatever is at `path`, keeping that file's
-/// identity, and makes it executable.
+/// A linked artifact on disk, owned by this process until something takes it.
+///
+/// Returned by [`run`] so that the caller can hand the bytes to the cache **by
+/// moving the file** rather than by writing them a second time. A debug test
+/// binary for a real repository is about a hundred megabytes, and it used to
+/// reach disk three times per link: once from the driver, once at the output
+/// path, and once more as a cache entry copied out of a full read of the
+/// output. The third write and the read that fed it are both this type: a
+/// `rename` inside `.buri/` costs one directory entry.
+///
+/// The `Drop` is what makes that safe to hand out. A caller with no use for
+/// the file — `--check-reproducible`, which compares two links and keeps
+/// neither — drops it and the file goes, so "the cache took it" and "nobody
+/// wanted it" are the same code path from the link's point of view. Once
+/// [`crate::build::cache::Cache::put_file`] has moved it the removal fails and
+/// is ignored, which is the whole of the interaction between the two.
+pub struct Staged {
+    path: PathBuf,
+}
+
+impl Staged {
+    /// The file, for the one caller that moves it into the cache.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for Staged {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// A megabyte, which is the unit both halves of [`place_from`] work in.
+///
+/// Big enough that a hundred-megabyte artifact is a hundred reads rather than
+/// a hundred thousand, and small enough that comparing two of them is a buffer
+/// and not a copy of the artifact. What it replaces is a `Vec<u8>` per file:
+/// the old path held the whole artifact in memory twice — once out of the
+/// cache and once out of the file it was being compared with — for the length
+/// of the comparison.
+const CHUNK: u64 = 1 << 20;
+
+/// Whether two open files hold the same bytes, read a chunk at a time.
+///
+/// Both files are read from wherever they are positioned, and the caller is
+/// what has positioned them. A difference ends the loop at the chunk it is in,
+/// so the common failure — an artifact whose first section moved — is not a
+/// full read of either file.
+fn same_contents(a: &mut std::fs::File, b: &mut std::fs::File) -> std::io::Result<bool> {
+    use std::io::Read;
+    let mut left = Vec::new();
+    let mut right = Vec::new();
+    loop {
+        left.clear();
+        right.clear();
+        a.by_ref().take(CHUNK).read_to_end(&mut left)?;
+        b.by_ref().take(CHUNK).read_to_end(&mut right)?;
+        if left != right {
+            return Ok(false);
+        }
+        if left.is_empty() {
+            return Ok(true);
+        }
+    }
+}
+
+/// Copies `src` over whatever is at `dest`, keeping that file's identity, and
+/// makes it executable. Answers how many bytes it is.
 ///
 /// `File::create` truncates rather than replaces, which is the whole point: see
 /// the note in [`Linker::link`] about what macOS charges for a file that has
-/// never been executed before.
-pub fn place(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    // A write the file does not need is a write worth not doing. The charge
-    // above is on the first execution *after a write*, so an artifact whose
-    // bytes did not move — every rebuild whose edit the optimiser removed, and
-    // every rebuild of a target the edit did not reach — runs for nothing.
-    let settled = already_holds(path, bytes);
+/// never been executed before. That is also why this is a copy and not a
+/// `hard_link` or an APFS `clonefile` out of the cache, both of which would be
+/// free: either one replaces the output's inode, which is the charge this
+/// avoids, and a hard link would additionally make the file being executed and
+/// the cache entry describing it *the same bytes* — a cache whose entries can
+/// be mutated by anything that opens the artifact is not a content-addressed
+/// store any more. The output and the entry are separate inodes on every path
+/// through this file, and the saving is taken on the write that produced the
+/// entry instead ([`Staged`]).
+///
+/// A write the file does not need is a write worth not doing. The charge above
+/// is on the first execution *after a write*, so an artifact whose bytes did
+/// not move — every rebuild whose edit the optimiser removed, and every
+/// rebuild of a target the edit did not reach — runs for nothing. The length
+/// is checked first, so the common case is not compared byte by byte; the
+/// *bytes* are then compared rather than the length alone, because skipping a
+/// write is a saving and never a licence to leave stale bytes.
+pub fn place_from(src: &Path, dest: &Path) -> std::io::Result<u64> {
+    let mut source = std::fs::File::open(src)?;
+    let len = source.metadata()?.len();
+    let settled = match std::fs::File::open(dest) {
+        Ok(mut existing) => {
+            existing.metadata().is_ok_and(|m| m.len() == len)
+                // An error mid-comparison is answered as "not settled", which
+                // spends a write rather than trusting a read that did not
+                // finish.
+                && same_contents(&mut source, &mut existing).unwrap_or(false)
+        }
+        Err(_) => false,
+    };
     if !settled {
-        std::fs::write(path, bytes)?;
+        use std::io::Seek;
+        // The comparison above left the source wherever it stopped.
+        source.rewind()?;
+        let mut file = std::fs::File::create(dest)?;
+        // `io::copy` over two files is the kernel's copy on both platforms this
+        // links for — `fcopyfile` on macOS, `copy_file_range` on Linux — so the
+        // bytes do not travel through this process at all.
+        std::io::copy(&mut source, &mut file)?;
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = std::fs::metadata(path).map(|m| m.permissions().mode() & 0o777).unwrap_or(0);
+        let mode = std::fs::metadata(dest).map(|m| m.permissions().mode() & 0o777).unwrap_or(0);
         if mode != 0o755 {
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
+            std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755))?;
         }
     }
-    Ok(())
+    Ok(len)
 }
 
 /// The command as a person would type it, for a failure to quote back.
@@ -1671,12 +1801,22 @@ pub fn run(
     linker: &CDriver,
     out: &Path,
     opts: &LinkOptions<'_>,
-) -> Result<(), Diagnostics> {
+) -> Result<Staged, Diagnostics> {
     let _ = std::fs::create_dir_all(linker.dir());
     let _ = std::fs::write(linker.dir().join("manifest"), manifest_text(rows));
     let unchanged: Vec<usize> =
         rows.iter().enumerate().filter(|(_, r)| r.cached).map(|(i, _)| i).collect();
-    linker.link(units, &unchanged, out, opts)
+    linker.link(units, &unchanged, out, opts)?;
+    // The bytes are at `out` and they are also still in the link directory,
+    // where the caller can move them from rather than write them again. A
+    // caller that does not is a caller that drops this, and dropping it is
+    // what removes the file — see [`Staged`].
+    //
+    // The trait method keeps its `()` because the other implementation of it
+    // (`backend::js::Concatenate`) has no staged file to hand back: it writes
+    // bytes it computed itself, and there is nothing on disk between the
+    // computation and the output.
+    Ok(Staged { path: linker.claimed() })
 }
 
 #[cfg(test)]
