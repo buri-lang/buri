@@ -51,7 +51,64 @@ impl Str {
 
     export fn toInt(self): Option<Int>;
 
+    /// The integer this text spells in `radix`, base 2 to base 36.
+    ///
+    /// Strict, and the same strictness `toInt` has: an optional leading `-`,
+    /// then one digit or more, and nothing else — no spaces, no `0x`, no digit
+    /// separators. Either case of letter counts, so `"FF".toRadix(16)` and
+    /// `"ff".toRadix(16)` are both 255.
+    ///
+    /// `.None` covers all three ways this has no answer: a radix outside the
+    /// range, a character that is not a digit of it, and a value outside `Int`.
+    /// So `.Some(v)` promises `v` is the number that was written down, which is
+    /// the promise a parser that wrapped or saturated could not make.
+    export fn toRadix(self, radix: Int): Option<Int> {
+        if (radix < 2 || radix > 36) {
+            .None
+        } else {
+            let negative = self.startsWith("-");
+            let first = if (negative) { 1 } else { 0 };
+            if (self.len() <= first) {
+                .None
+            } else {
+                // Accumulated downwards, so the magnitude never has to be
+                // representable: `Int`'s range is one wider below zero, and
+                // negating at the end is where the one value that does not fit
+                // answers `.None` instead of wrapping.
+                let magnitude = digitsOf(self, radix, first, 0);
+                let zero: Int = 0;
+                if (negative) {
+                    magnitude
+                } else {
+                    magnitude.andThen(fn(m) => zero.checkedSub(m))
+                }
+            }
+        }
+    }
+
     export fn toFloat(self): Option<Float>;
+}
+
+/// The digits of `text` from `at`, folded negative. Pure: `charAt` is a read,
+/// and nothing here builds a string.
+fn digitsOf(text: Str, radix: Int, at: Int, acc: Int): Option<Int> {
+    match (text.charAt(at)) {
+        .None => .Some(acc),
+        .Some(c) => {
+            match (c.toDigit(radix)) {
+                .None => .None,
+                .Some(d) => {
+                    let next = acc
+                        .checkedMul(radix)
+                        .andThen(fn(scaled) => scaled.checkedSub(d));
+                    match (next) {
+                        .None => .None,
+                        .Some(v) => digitsOf(text, radix, at + 1, v),
+                    }
+                },
+            }
+        },
+    }
 }
 
 // --- Deterministic: bounded by <C: Alloc> --------------------------------------

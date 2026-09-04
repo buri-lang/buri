@@ -26,4 +26,36 @@ impl Char {
 
     /// The digit a character denotes, in the given radix.
     export fn toDigit(self, radix: Int): Option<Int>;
+
+    /// Whether this is `0`–`9`, `a`–`f` or `A`–`F`.
+    ///
+    /// The same question as `toDigit(16).isSome()`, given a name because
+    /// hexadecimal is what that question is nearly always about — and because
+    /// a predicate reads as one where a `Option` compared against `.None` does
+    /// not.
+    export fn isHexDigit(self): Bool {
+        self.toDigit(16).isSome()
+    }
+}
+
+/// The thirty-six digits, in order. `fromDigit` is a lookup rather than
+/// arithmetic over character codes, which is one table instead of two
+/// range checks and a base.
+let DIGITS: Str = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+/// The character a digit is written as: `fromDigit(11, 16)` is `'b'`.
+///
+/// Lowercase, which is the case `core/bytes` and `core/num` render hexadecimal
+/// in — one case, so two renderings of the same bytes cannot differ by it.
+/// `.None` for a digit the radix does not have, and for a radix outside 2 to
+/// 36, which is the range `toDigit` reads.
+///
+/// The inverse of `toDigit`, and the reason no program needs a table of the
+/// sixteen hexadecimal digits of its own.
+export fn fromDigit(n: Int, radix: Int): Option<Char> {
+    if (radix < 2 || radix > 36 || n < 0 || n >= radix) {
+        .None
+    } else {
+        DIGITS.charAt(n)
+    }
 }

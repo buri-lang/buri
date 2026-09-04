@@ -1,2 +1,5 @@
-// The calendar conformance package: core/date, which is pure arithmetic and
-// therefore checkable against known answers rather than against a clock.
+// The calendar and the clock's arithmetic: core/date, and core/time's
+// `Duration` and `Instant`. Both are pure — a length of time and a day of the
+// week are facts rather than readings — and therefore checkable against known
+// answers rather than against a clock. Where a clock does appear it is the
+// test platform's, which moves only when a test moves it.
