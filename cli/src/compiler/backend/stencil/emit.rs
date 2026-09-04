@@ -265,18 +265,18 @@ impl<'a> Jit<'a> {
                 let d = st.at(*dest);
                 let (l, owner) = match code.ty_of(*dest) {
                     ir::Type::Agg(id) => {
-                        (self.layout_of(prog, id), prog.type_info(id).ty.clone())
+                        (self.layout_id_shared(prog, id), &prog.type_info(id).ty)
                     }
                     _ => return self.unsupported("MakeStruct of a non-aggregate".into()),
                 };
-                let ftys = field_types(self.tables, &owner);
+                let ftys = field_types(self.tables, owner);
                 for (i, f) in fields.iter().enumerate() {
                     let w = self.width_of(prog, code.ty_of(*f));
                     if w == 0 || i >= l.fields.len() {
                         continue;
                     }
                     let off = l.field(i);
-                    if ftys.get(i).is_some_and(|t| self.boxes(&owner, t)) {
+                    if ftys.get(i).is_some_and(|t| self.boxes(owner, t)) {
                         self.box_into(st, d + off, st.at(*f), w);
                         continue;
                     }
@@ -286,16 +286,16 @@ impl<'a> Jit<'a> {
             Inst::GetField { dest, agg, index } => {
                 let (l, owner) = match code.ty_of(*agg) {
                     ir::Type::Agg(id) => {
-                        (self.layout_of(prog, id), prog.type_info(id).ty.clone())
+                        (self.layout_id_shared(prog, id), &prog.type_info(id).ty)
                     }
                     _ => return self.unsupported("GetField of a non-aggregate".into()),
                 };
                 let w = self.width_of(prog, code.ty_of(*dest));
-                let ftys = field_types(self.tables, &owner);
+                let ftys = field_types(self.tables, owner);
                 if (*index as usize) < l.fields.len() {
                     let off = l.field(*index as usize);
                     let src = st.at(*agg) + off;
-                    if ftys.get(*index as usize).is_some_and(|t| self.boxes(&owner, t)) {
+                    if ftys.get(*index as usize).is_some_and(|t| self.boxes(owner, t)) {
                         self.unbox_from(st, st.at(*dest), src, w);
                         return;
                     }
@@ -308,17 +308,17 @@ impl<'a> Jit<'a> {
             Inst::GetPayload { dest, agg, variant, index } => {
                 let (l, owner) = match code.ty_of(*agg) {
                     ir::Type::Agg(id) => {
-                        (self.layout_of(prog, id), prog.type_info(id).ty.clone())
+                        (self.layout_id_shared(prog, id), &prog.type_info(id).ty)
                     }
                     _ => return self.unsupported("GetPayload of a non-aggregate".into()),
                 };
-                let offs = l.variant(*variant as usize).to_vec();
                 let w = self.width_of(prog, code.ty_of(*dest));
-                let ftys = variant_types(self.tables, &owner, *variant as usize);
-                match offs.get(*index as usize) {
+                let ftys = variant_types(self.tables, owner, *variant as usize);
+                let off = l.variant(*variant as usize).get(*index as usize).copied();
+                match off {
                     Some(o) => {
-                        let src = st.at(*agg) + *o;
-                        if ftys.get(*index as usize).is_some_and(|t| self.boxes(&owner, t)) {
+                        let src = st.at(*agg) + o;
+                        if ftys.get(*index as usize).is_some_and(|t| self.boxes(owner, t)) {
                             self.unbox_from(st, st.at(*dest), src, w);
                             return;
                         }
@@ -557,28 +557,27 @@ impl<'a> Jit<'a> {
         fields: &[ir::ValueId],
     ) {
         let (l, owner) = match code.ty_of(dest) {
-            ir::Type::Agg(id) => (self.layout_of(prog, id), prog.type_info(id).ty.clone()),
+            ir::Type::Agg(id) => (self.layout_id_shared(prog, id), &prog.type_info(id).ty),
             _ => return self.unsupported("MakeEnum of a non-aggregate".into()),
         };
-        let ftys = variant_types(self.tables, &owner, variant as usize);
+        let ftys = variant_types(self.tables, owner, variant as usize);
         let d = st.at(dest);
-        let Repr::Enum { repr, variants } = l.repr.clone() else {
+        let Repr::Enum { repr, variants } = &l.repr else {
             return self.unsupported("MakeEnum of a non-enum layout".into());
         };
+        let offs: &[u32] = variants.get(variant as usize).map_or(&[], Vec::as_slice);
         match repr {
             EnumRepr::Bare { tag } => self.imm_w(d, tag.size(), variant as u64),
             EnumRepr::Tagged { tag, .. } => {
                 self.imm_w(d, tag.size(), variant as u64);
-                let offs = variants.get(variant as usize).cloned().unwrap_or_default();
-                self.store_variant(prog, code, st, d, fields, &offs, &owner, &ftys);
+                self.store_variant(prog, code, st, d, fields, offs, owner, &ftys);
             }
             EnumRepr::Niche { null_at } => {
-                let offs = variants.get(variant as usize).cloned().unwrap_or_default();
                 if offs.is_empty() {
                     // The null variant: VALUE-MODEL.md §6's second niche.
                     self.imm_to(d + null_at, 0);
                 } else {
-                    self.store_variant(prog, code, st, d, fields, &offs, &owner, &ftys);
+                    self.store_variant(prog, code, st, d, fields, offs, owner, &ftys);
                 }
             }
         }
@@ -648,8 +647,8 @@ impl<'a> Jit<'a> {
                 prog.type_info(id).name
             ));
         };
-        let l = self.layout_of(prog, id);
-        let Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, variants } = l.repr.clone() else {
+        let l = self.layout_id_shared(prog, id);
+        let Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, variants } = &l.repr else {
             return Err(String::from("a `Json` whose layout is not a tagged enum"));
         };
         let Some(off) = variants.get(variant).and_then(|v| v.first()).copied() else {
@@ -746,12 +745,12 @@ impl<'a> Jit<'a> {
         agg: ir::ValueId,
     ) {
         let l = match code.ty_of(agg) {
-            ir::Type::Agg(id) => self.layout_of(prog, id),
+            ir::Type::Agg(id) => self.layout_id_shared(prog, id),
             _ => return self.unsupported("GetTag of a non-aggregate".into()),
         };
         let d = st.at(dest);
         let a = st.at(agg);
-        let Repr::Enum { repr, variants } = l.repr.clone() else {
+        let Repr::Enum { repr, variants } = &l.repr else {
             return self.unsupported("GetTag of a non-enum layout".into());
         };
         match repr {
@@ -793,9 +792,12 @@ impl<'a> Jit<'a> {
         retain: bool,
     ) {
         let ir::Type::Agg(id) = code.ty_of(value) else { return };
-        let ty = prog.type_info(id).ty.clone();
+        // Borrowed, not cloned: a `Ty` is a tree and this is asked once per
+        // reference operation in the program, which is the most common
+        // instruction `middle::rc` emits.
+        let ty = &prog.type_info(id).ty;
         let at = st.at(value);
-        if let Err(why) = self.walk_rc(st, &ty, at, retain, 0) {
+        if let Err(why) = self.walk_rc(st, ty, at, retain, 0) {
             self.unsupported(why);
         }
     }
@@ -818,8 +820,8 @@ impl<'a> Jit<'a> {
         if depth > RC_DEPTH {
             return Err(String::from("a reference-counted type nested past the walk's depth"));
         }
-        let l = self.layouts_of(ty.clone());
-        match l.repr.clone() {
+        let l = self.layout_shared(ty);
+        match &l.repr {
             Repr::Str => {
                 self.rc_block(at, retain, None);
                 Ok(())
@@ -863,16 +865,16 @@ impl<'a> Jit<'a> {
             }
             Repr::Enum { repr, variants } => {
                 let tag = match repr {
-                    EnumRepr::Tagged { tag, .. } => tag,
+                    EnumRepr::Tagged { tag, .. } => *tag,
                     // A bare tag carries no payload at all.
                     EnumRepr::Bare { .. } => return Ok(()),
                     // A niche is a pointer whose null *is* the discriminant, so
                     // the walk is the payload's behind that same null test.
                     EnumRepr::Niche { null_at } => {
-                        return self.niche_rc(st, ty, at, null_at, retain, depth)
+                        return self.niche_rc(st, ty, at, *null_at, retain, depth)
                     }
                 };
-                self.tagged_rc(st, ty, at, &variants, tag, retain, depth)
+                self.tagged_rc(st, ty, at, variants, tag, retain, depth)
             }
         }
     }
@@ -1008,7 +1010,7 @@ impl<'a> Jit<'a> {
         depth: u32,
     ) -> Result<(), String> {
         let compound = matches!(
-            self.layouts_of(ty.clone()).repr,
+            self.layout_shared(ty).repr,
             Repr::Aggregate | Repr::Enum { .. }
         );
         if compound && depth >= RC_INLINE {
@@ -1086,8 +1088,8 @@ impl<'a> Jit<'a> {
         if depth > RC_DEPTH {
             return Err(String::from("a reference-counted type nested past the copy's depth"));
         }
-        let l = self.layouts_of(ty.clone());
-        match l.repr.clone() {
+        let l = self.layout_shared(ty);
+        match &l.repr {
             // A `Str` is `{ base, ptr, len }` and `ptr` points *into* `base`,
             // so the copy has to rebase as well as replace — which is one
             // runtime call over the whole value rather than three
@@ -1127,13 +1129,13 @@ impl<'a> Jit<'a> {
             }
             Repr::Enum { repr, variants } => {
                 let tag = match repr {
-                    EnumRepr::Tagged { tag, .. } => tag,
+                    EnumRepr::Tagged { tag, .. } => *tag,
                     EnumRepr::Bare { .. } => return Ok(()),
                     EnumRepr::Niche { null_at } => {
-                        return self.niche_copy(st, ty, at, null_at, depth)
+                        return self.niche_copy(st, ty, at, *null_at, depth)
                     }
                 };
-                self.tagged_copy(st, ty, at, &variants, tag, depth)
+                self.tagged_copy(st, ty, at, variants, tag, depth)
             }
         }
     }
@@ -1232,7 +1234,7 @@ impl<'a> Jit<'a> {
     /// path rather than once per type unless it goes out of line.
     fn copy_deep(&mut self, st: &mut Fn2, ty: &Ty, at: u32, depth: u32) -> Result<(), String> {
         let compound = matches!(
-            self.layouts_of(ty.clone()).repr,
+            self.layout_shared(ty).repr,
             Repr::Aggregate | Repr::Enum { .. }
         );
         if compound && depth >= RC_INLINE {
@@ -1310,7 +1312,8 @@ impl<'a> Jit<'a> {
         if depth > RC_DEPTH {
             return false;
         }
-        match self.layouts_of(ty.clone()).repr {
+        let l = self.layout_shared(ty);
+        match &l.repr {
             // The closure is here because its environment is a heap block this
             // backend allocates and counts (`glue.rs`), which is the same
             // answer `llvm/repr.rs`'s site walk gives `Ty::Fn`.
@@ -2160,11 +2163,11 @@ impl<'a> Jit<'a> {
     /// `extract::swap_arms` for why this is a choice the library has to offer
     /// rather than one the emitter can make by negating the test.
     pub(crate) fn arm_key(&self, base: &str, fall: &str) -> String {
-        if self.elidable_arm(base).as_deref() == Some(fall) {
+        if self.elidable_arm(base) == Some(fall) {
             return base.to_string();
         }
         let sw = format!("{base}+swap");
-        if self.elidable_arm(&sw).as_deref() == Some(fall) {
+        if self.elidable_arm(&sw) == Some(fall) {
             return sw;
         }
         base.to_string()
@@ -2216,7 +2219,7 @@ impl<'a> Jit<'a> {
     ) -> (u32, u32, bool) {
         let base = st.at(agg);
         if let ir::Type::Agg(id) = code.ty_of(agg) {
-            let l = self.layout_of(prog, id);
+            let l = self.layout_id_shared(prog, id);
             if let Repr::Enum { repr, variants } = &l.repr {
                 return match repr {
                     EnumRepr::Bare { tag } | EnumRepr::Tagged { tag, .. } => {
@@ -3152,7 +3155,7 @@ impl Jit<'_> {
         else {
             return false;
         };
-        let l = self.layout_of(prog, id);
+        let l = self.layout_id_shared(prog, id);
         if !self.overflowing(st, prim, kind, a, b) {
             return false;
         }
@@ -3827,7 +3830,7 @@ impl Jit<'_> {
 
     /// The tag width of an enum destination, or `None` when it is not one.
     fn tag_width(&mut self, prog: &ir::Program, id: ir::TypeId) -> Option<u32> {
-        match &self.layout_of(prog, id).repr {
+        match &self.layout_id_shared(prog, id).repr {
             Repr::Enum { repr: EnumRepr::Bare { tag }, .. }
             | Repr::Enum { repr: EnumRepr::Tagged { tag, .. }, .. } => Some(tag.size()),
             _ => None,

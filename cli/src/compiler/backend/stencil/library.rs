@@ -341,6 +341,22 @@ impl Stencil {
     }
 }
 
+/// The folded twins of a stencil, most specific first.
+///
+/// A twin is the same operation with an offset or a literal folded into an
+/// `imm12` field, so it exists only where the fold is representable; the two
+/// folds are independent, which is why there are three names and not two.
+/// [`Jit::emit`](crate::compiler::backend::stencil::jit::Jit::emit) tries them
+/// in this order and takes the first whose fields the operands fit.
+pub const FOLD_SUFFIXES: [&str; FOLD_SUFFIXES_LEN] = ["+ifold+fold", "+fold", "+ifold"];
+pub const FOLD_SUFFIXES_LEN: usize = 3;
+
+/// The slot of [`FOLD_SUFFIXES`] holding the plain `+fold` twin.
+pub const FOLD_PLAIN: usize = 1;
+
+/// The slot of [`Library::fold_twins`] that names no stencil.
+const NO_TWIN: u32 = u32::MAX;
+
 #[derive(Default)]
 pub struct Library {
     pub stencils: Vec<Stencil>,
@@ -348,12 +364,65 @@ pub struct Library {
     /// Wall time clang spent, milliseconds, when this library was built.
     pub build_ms: f64,
     pub config: String,
+    /// Each stencil's [`FOLD_SUFFIXES`] twins, by index into `stencils`,
+    /// resolved on first use and never again.
+    ///
+    /// The emitter asks for all three on **every stencil it copies**, and it
+    /// used to ask by building three `String`s with `format!` and hashing each
+    /// one — three allocations and three hash lookups per machine instruction
+    /// this backend emits. The names are a function of the library alone, so
+    /// the answer is too, and computing it once turns the question into three
+    /// array reads.
+    ///
+    /// A `OnceLock` rather than a field every constructor fills, because the
+    /// library is decoded once per process behind a `OnceLock` of its own and
+    /// is then shared by every codegen thread: a value that is derived rather
+    /// than stored cannot be forgotten by a caller that builds a `Library` some
+    /// other way.
+    pub twins: std::sync::OnceLock<Vec<[u32; FOLD_SUFFIXES_LEN]>>,
 }
 
 impl Library {
     pub fn get(&self, key: &str) -> Option<&Stencil> {
         self.index.get(key).and_then(|i| self.stencils.get(*i as usize))
     }
+
+    /// [`Library::get`], with the index the fold twins are asked by.
+    pub fn at(&self, key: &str) -> Option<(usize, &Stencil)> {
+        let i = *self.index.get(key)? as usize;
+        Some((i, self.stencils.get(i)?))
+    }
+
+    /// The `k`th [`FOLD_SUFFIXES`] twin of the stencil at `i`, if the library
+    /// has one.
+    pub fn fold_twin(&self, i: usize, k: usize) -> Option<&Stencil> {
+        let j = *self.fold_twins().get(i)?.get(k)?;
+        if j == NO_TWIN {
+            return None;
+        }
+        self.stencils.get(j as usize)
+    }
+
+    fn fold_twins(&self) -> &[[u32; FOLD_SUFFIXES_LEN]] {
+        self.twins.get_or_init(|| {
+            let mut out = vec![[NO_TWIN; FOLD_SUFFIXES_LEN]; self.stencils.len()];
+            let mut name = String::new();
+            for (i, s) in self.stencils.iter().enumerate() {
+                for (k, suffix) in FOLD_SUFFIXES.iter().enumerate() {
+                    name.clear();
+                    name.push_str(&s.name);
+                    name.push_str(suffix);
+                    if let Some(j) = self.index.get(name.as_str()) {
+                        if let Some(slot) = out.get_mut(i).and_then(|row| row.get_mut(k)) {
+                            *slot = *j;
+                        }
+                    }
+                }
+            }
+            out
+        })
+    }
+
     pub fn bytes(&self) -> usize {
         self.stencils.iter().map(|s| s.code.len()).sum()
     }
@@ -566,7 +635,7 @@ impl Library {
         for (s, len) in stencils.iter_mut().zip(lengths) {
             s.code = c.take(len)?.to_vec();
         }
-        Ok(Library { stencils, index, build_ms: 0.0, config })
+        Ok(Library { stencils, index, build_ms: 0.0, config, ..Library::default() })
     }
 }
 
@@ -594,7 +663,62 @@ mod tests {
         };
         let mut index = HashMap::new();
         index.insert(s.name.clone(), 0);
-        Library { stencils: vec![s], index, build_ms: 1.0, config: String::from("r3") }
+        Library {
+            stencils: vec![s],
+            index,
+            build_ms: 1.0,
+            config: String::from("r3"),
+            ..Library::default()
+        }
+    }
+
+    /// [`FOLD_PLAIN`] names the plain `+fold` slot, which is the one
+    /// `Jit::elidable_arm` asks for. An index into a constant array is the kind
+    /// of thing that silently means something else after the array is reordered.
+    #[test]
+    fn the_plain_fold_slot_is_the_plain_fold_suffix() {
+        assert_eq!(FOLD_SUFFIXES.get(FOLD_PLAIN), Some(&"+fold"));
+        assert_eq!(FOLD_SUFFIXES.len(), FOLD_SUFFIXES_LEN);
+    }
+
+    /// A library whose stencil has no twin answers `None` in all three slots,
+    /// and one that has them answers each in its own slot.
+    #[test]
+    fn fold_twins_are_resolved_into_their_own_slots() {
+        let lib = sample();
+        assert_eq!(lib.at("bin/add/i64/ff/f").map(|(i, _)| i), Some(0));
+        for k in 0..FOLD_SUFFIXES_LEN {
+            assert!(lib.fold_twin(0, k).is_none(), "slot {k}");
+        }
+
+        let mut with_twins = sample();
+        for (k, suffix) in FOLD_SUFFIXES.iter().enumerate() {
+            let mut twin = with_twins.stencils.first().cloned().expect("the sample stencil");
+            twin.name = format!("bin/add/i64/ff/f{suffix}");
+            let at = with_twins.stencils.len() as u32;
+            with_twins.index.insert(twin.name.clone(), at);
+            with_twins.stencils.push(twin);
+            let _ = k;
+        }
+        for (k, suffix) in FOLD_SUFFIXES.iter().enumerate() {
+            assert_eq!(
+                with_twins.fold_twin(0, k).map(|s| s.name.as_str()),
+                Some(format!("bin/add/i64/ff/f{suffix}").as_str())
+            );
+        }
+        // A suffix is part of a name, so `+ifold`'s own `+fold` twin is
+        // `+ifold+fold` — which the library has, because it was just added.
+        // That is the one relation between two twins, and every other slot of
+        // every other twin is empty.
+        for (i, st) in with_twins.stencils.iter().enumerate().skip(1) {
+            for (k, suffix) in FOLD_SUFFIXES.iter().enumerate() {
+                let want = with_twins.index.contains_key(&format!("{}{suffix}", st.name));
+                assert_eq!(with_twins.fold_twin(i, k).is_some(), want, "{i} {k}");
+            }
+        }
+        // Past the end is `None` rather than a panic.
+        assert!(with_twins.fold_twin(999, 0).is_none());
+        assert!(with_twins.fold_twin(0, FOLD_SUFFIXES_LEN).is_none());
     }
 
     /// The two halves are compiled from this file, so the property that has to

@@ -73,6 +73,7 @@ use crate::diagnostics::Invariant as _;
 use crate::hash::Map;
 use std::fmt::Write as _;
 use std::rc::Rc;
+use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // The constants the model pins
@@ -430,19 +431,26 @@ pub struct Layouts<'a> {
     table: Vec<Rc<Layout>>,
     /// See [`Cycles`]. Shared, because it is the same answer for every table
     /// built over one program's `Tables` and it is not cheap to derive.
-    cycles: Rc<Cycles>,
+    ///
+    /// `Arc` and not `Rc` for the one reason an immutable analysis is ever
+    /// atomic: the stencil backend compiles its codegen units on a thread each
+    /// (`stencil/mod.rs::emit_units`), and one `Cycles` is what those threads
+    /// share. Nothing else in a `Layouts` crosses a thread — the memo, the
+    /// layout handles and the descriptions are one worker's own — so this is
+    /// the only handle that pays for it.
+    cycles: Arc<Cycles>,
     depth: u32,
     descriptions: Map<Ty, Rc<str>>,
 }
 
 impl<'a> Layouts<'a> {
     pub fn new(tables: &'a Tables) -> Layouts<'a> {
-        Layouts::with_cycles(tables, Rc::new(Cycles::new(tables)))
+        Layouts::with_cycles(tables, Arc::new(Cycles::new(tables)))
     }
 
     /// A fresh memo table over a recursion analysis somebody else already paid
     /// for. What a per-unit backend wants.
-    pub fn with_cycles(tables: &'a Tables, cycles: Rc<Cycles>) -> Layouts<'a> {
+    pub fn with_cycles(tables: &'a Tables, cycles: Arc<Cycles>) -> Layouts<'a> {
         Layouts {
             tables,
             memo: Map::default(),
