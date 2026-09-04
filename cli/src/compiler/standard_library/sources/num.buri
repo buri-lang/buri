@@ -132,6 +132,62 @@ export fn clamp<T: Ord>(lo: T, hi: T, x: T): T {
     min(hi, max(lo, x))
 }
 
+// --- Floor division and the Euclidean remainder ---------------------------------
+//
+// `Int` only, and generic over nothing. `/` and `%` are the operator traits of
+// SPEC 6.2 and every numeric type has them, but rounding toward negative
+// infinity is a fact about the integers: on a float `math.floor(a / b)` is the
+// same idea written where it belongs, and on an unsigned type there is no
+// second answer for these to give. So these two take `Int` and say so, rather
+// than taking a `T: Div + Rem + Ord` that would compile at `F64` and mean
+// something else.
+//
+// Both abort on a zero divisor, because both are written in terms of `/` and
+// `%` and that is what those do (SPEC 6.2): there is no answer to give, and an
+// `Option` in the signature would put a `.withDefault` at every call site of a
+// function that cannot fail for any divisor a caller meant to pass.
+
+/// `a / b` rounded toward negative infinity rather than toward zero, so the
+/// quotient does not jump at the origin: `divFloor(-1, 2)` is `-1` where
+/// `-1 / 2` is `0`.
+///
+/// **Pairs with `remEuclid` only for a positive `b`**, which is every caller in
+/// `core/date` and the case this exists for. The two round differently below
+/// zero — `divFloor` follows the sign of the divisor and `remEuclid` is never
+/// negative — so `divFloor(a, b) * b + remEuclid(a, b)` is `a` when `b > 0` and
+/// need not be when `b < 0`.
+///
+/// Aborts if `b` is zero, exactly as `a / b` does.
+export fn divFloor(a: Int, b: Int): Int {
+    let q = a / b;
+    let r = a % b;
+    // `%` takes the sign of the dividend, so a non-zero remainder whose sign
+    // disagrees with the divisor is a quotient `/` rounded the other way.
+    if (r == 0) {
+        q
+    } else if (b > 0) {
+        if (r < 0) { q - 1 } else { q }
+    } else if (r > 0) {
+        q - 1
+    } else {
+        q
+    }
+}
+
+/// The remainder that is never negative: `remEuclid(a, b)` is at least zero and
+/// less than `b.abs()` for every non-zero `b`, where `a % b` takes the sign of
+/// `a`.
+///
+/// This is what a program means by "which day of the week", "which bucket" or
+/// "which digit" — `(x % n + n) % n` written once, and correct for a negative
+/// `n` as well, which that idiom is not.
+///
+/// Aborts if `b` is zero, exactly as `a % b` does.
+export fn remEuclid(a: Int, b: Int): Int {
+    let r = a % b;
+    if (r >= 0) { r } else if (b < 0) { r - b } else { r + b }
+}
+
 /// `Bounded`'s methods take no `self`, so they are reached through these
 /// rather than through a receiver: `num.maxValue<U8>()`.
 export fn minValue<T: Bounded>(): T;

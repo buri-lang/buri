@@ -508,6 +508,91 @@ test "zero divided by anything is zero, at both representations" {
     assert.eq(b % -5, 0);
 }
 
+// --- Floor division and the Euclidean remainder ------------------------------------
+//
+// `num.divFloor` and `num.remEuclid` are the other rounding, the one `/` and
+// `%` deliberately do not do. Every assertion below is at `Int`, because that
+// is the only type they take, and the zero-divisor case is not here: it aborts,
+// which ends the process, so it lives in `cli/tests/crash/`.
+
+test "divFloor rounds toward negative infinity where division truncates" {
+    // The pair that shows the difference: `/` rounds toward zero from both
+    // sides, so its quotient jumps by one across the origin.
+    assert.eq(7 / 2, 3);
+    assert.eq(num.divFloor(7, 2), 3);
+    assert.eq(-7 / 2, -3);
+    assert.eq(num.divFloor(-7, 2), -4);
+    assert.eq(num.divFloor(-1, 2), -1);
+    assert.eq(num.divFloor(1, 2), 0);
+}
+
+test "divFloor follows the sign of the divisor" {
+    assert.eq(num.divFloor(7, -2), -4);
+    assert.eq(num.divFloor(-7, -2), 3);
+    assert.eq(num.divFloor(1, -2), -1);
+    assert.eq(num.divFloor(-1, -2), 0);
+}
+
+test "divFloor is division wherever the division is exact" {
+    assert.eq(num.divFloor(8, 2), 4);
+    assert.eq(num.divFloor(-8, 2), -4);
+    assert.eq(num.divFloor(8, -2), -4);
+    assert.eq(num.divFloor(-8, -2), 4);
+    assert.eq(num.divFloor(0, 5), 0);
+    assert.eq(num.divFloor(0, -5), 0);
+    assert.eq(num.divFloor(5, 1), 5);
+    assert.eq(num.divFloor(-5, 1), -5);
+}
+
+test "remEuclid is never negative, where the remainder takes the dividend's sign" {
+    assert.eq(-7 % 2, -1);
+    assert.eq(num.remEuclid(-7, 2), 1);
+    assert.eq(num.remEuclid(7, 2), 1);
+    assert.eq(num.remEuclid(-1, 2), 1);
+    assert.eq(num.remEuclid(0, 2), 0);
+    assert.eq(num.remEuclid(-8, 2), 0);
+}
+
+test "remEuclid is never negative for a negative divisor either" {
+    // `(x % n + n) % n`, the idiom this replaces, answers `-1` for these.
+    assert.eq(num.remEuclid(7, -3), 1);
+    assert.eq(num.remEuclid(-7, -3), 2);
+    assert.eq(num.remEuclid(-1, -3), 2);
+    assert.eq(num.remEuclid(0, -3), 0);
+}
+
+test "divFloor and remEuclid reconstruct the dividend for a positive divisor" {
+    // The law that makes the pair usable, and it is stated for `b > 0` only:
+    // below zero `divFloor` follows the divisor's sign and `remEuclid` does
+    // not, so the two are not a matching quotient and remainder there.
+    assert.eq(num.divFloor(7, 3) * 3 + num.remEuclid(7, 3), 7);
+    assert.eq(num.divFloor(-7, 3) * 3 + num.remEuclid(-7, 3), -7);
+    assert.eq(num.divFloor(0, 3) * 3 + num.remEuclid(0, 3), 0);
+    assert.eq(num.divFloor(-1, 7) * 7 + num.remEuclid(-1, 7), -1);
+    assert.eq(
+        num.divFloor(86399999, 86400000) * 86400000 + num.remEuclid(86399999, 86400000),
+        86399999,
+    );
+    assert.eq(
+        num.divFloor(-86400001, 86400000) * 86400000
+            + num.remEuclid(-86400001, 86400000),
+        -86400001,
+    );
+}
+
+test "divFloor and remEuclid hold at the far end of I64" {
+    // Both are `Int`, which is `I64`, so the values a calendar actually reaches
+    // are nowhere near the top — these are here because the JavaScript backend
+    // holds an `I64` as a `BigInt` and the native one as a register, and a
+    // number past 2^53 is where those two would part if they were going to.
+    assert.eq(num.divFloor(9007199254740993, 2), 4503599627370496);
+    assert.eq(num.remEuclid(9007199254740993, 2), 1);
+    assert.eq(num.divFloor(-9007199254740993, 2), -4503599627370497);
+    assert.eq(num.remEuclid(-9007199254740993, 2), 1);
+    assert.eq(num.divFloor(9223372036854775807, 1000), 9223372036854775);
+    assert.eq(num.remEuclid(-9223372036854775807, 1000), 193);
+}
+
 // --- Literals -------------------------------------------------------------------
 
 test "hex literals equal their decimal value" {

@@ -1,0 +1,166 @@
+// `core/math`'s three named values — `INFINITY`, `NEG_INFINITY` and `NAN`.
+//
+// They are `let` constants whose initialisers are IEEE-754 divisions rather
+// than decimal numerals. `INFINITY` was `1.0e400` until this file existed: a
+// literal that is infinite only because the decimal-to-binary conversion that
+// read it overflowed, so what it meant was a property of whichever float parser
+// ran rather than of anything the language states. `NaN` has no numeral at all,
+// and there is no negative-infinity numeral either that is not the same
+// overflow with a sign in front.
+//
+// This is a file of its own rather than a section of `floats.buri` because of
+// which backends run it. `floats.buri` is held out of the native set over
+// `core/math`'s thirteen transcendentals, whose last bit IEEE-754 does not fix
+// (`cli/tests/native/conformance.rs`, and `cli/runtime/math.rs` for why) —
+// and a constant being the same value on both backends is the entire point of
+// the spelling, so it has to be asserted somewhere both backends read. Nothing
+// below reaches a transcendental: division by zero, the sign, the three
+// classifiers, `sqrt`, `floor`, `ceil` and `absFloat` are each exactly
+// specified, and every rendering here is a name rather than a digit.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/math" import * as math;
+from "core/num" import * as num;
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+
+// The values, derived a second way — this is what the constants are compared
+// against, so that the assertion is `the constant is that value` rather than
+// `the constant is itself`.
+
+fn nan(): F64 {
+    0.0 / 0.0
+}
+
+fn inf(): F64 {
+    1.0 / 0.0
+}
+
+fn negInf(): F64 {
+    -1.0 / 0.0
+}
+
+test "INFINITY is the infinity division produces, and is positive" {
+    assert.eq(math.INFINITY, inf());
+    assert.isTrue(math.isInfinite(math.INFINITY));
+    assert.isFalse(math.isFinite(math.INFINITY));
+    assert.isFalse(math.isNan(math.INFINITY));
+    // Positive, said three ways: above every finite value, above zero, and
+    // with the sign `signum` reports.
+    assert.isTrue(math.INFINITY > 1.0e308);
+    assert.isTrue(math.INFINITY > 0.0);
+    assert.eq(math.INFINITY.signum(), 1.0);
+}
+
+test "NEG_INFINITY is the other one, and is negative" {
+    assert.eq(math.NEG_INFINITY, negInf());
+    assert.isTrue(math.isInfinite(math.NEG_INFINITY));
+    assert.isFalse(math.isFinite(math.NEG_INFINITY));
+    assert.isFalse(math.isNan(math.NEG_INFINITY));
+    assert.isTrue(math.NEG_INFINITY < -1.0e308);
+    assert.isTrue(math.NEG_INFINITY < 0.0);
+    assert.eq(math.NEG_INFINITY.signum(), -1.0);
+}
+
+test "the two infinities are each other's negation" {
+    assert.eq(-math.INFINITY, math.NEG_INFINITY);
+    assert.eq(-math.NEG_INFINITY, math.INFINITY);
+    assert.isTrue(math.NEG_INFINITY < math.INFINITY);
+    assert.isFalse(math.INFINITY == math.NEG_INFINITY);
+    assert.eq(math.absFloat(math.NEG_INFINITY), math.INFINITY);
+}
+
+test "NAN is a NaN" {
+    assert.isTrue(math.isNan(math.NAN));
+    assert.isFalse(math.isFinite(math.NAN));
+    assert.isFalse(math.isInfinite(math.NAN));
+    assert.eq(math.NAN, nan());
+}
+
+test "NAN equals itself, because equality in Buri is an equivalence relation" {
+    // SPEC 6.2: `==` is reflexive at every value, so `NAN != NAN` is **false**
+    // here where IEEE-754 makes it true. The documented departure, and the
+    // reason a `NaN` can be a key: this is what a `Map`, a `Set` and every
+    // `derive Eq` are built on.
+    assert.isTrue(math.NAN == math.NAN);
+    assert.isFalse(math.NAN != math.NAN);
+    assert.eq(math.NAN, math.NAN);
+    // A different bit pattern for the same value: negation flips the sign bit
+    // and nothing else, so an equality that compared bits would fail here.
+    assert.isTrue(math.NAN == -math.NAN);
+    assert.isTrue(math.isNan(-math.NAN));
+}
+
+test "NAN is unordered, because the ordering operators are still IEEE's" {
+    assert.isFalse(math.NAN < math.NAN);
+    assert.isFalse(math.NAN > math.NAN);
+    assert.isFalse(math.NAN <= math.NAN);
+    assert.isFalse(math.NAN >= math.NAN);
+    assert.isFalse(math.NAN < math.INFINITY);
+    assert.isFalse(math.NAN > math.NEG_INFINITY);
+    assert.isFalse(math.NAN == 0.0);
+}
+
+test "arithmetic on the three lands where IEEE-754 says" {
+    assert.eq(math.INFINITY + 1.0, math.INFINITY);
+    assert.eq(math.INFINITY * 2.0, math.INFINITY);
+    assert.eq(math.INFINITY * -1.0, math.NEG_INFINITY);
+    assert.eq(math.NEG_INFINITY - 1.0, math.NEG_INFINITY);
+    assert.eq(1.0 / math.INFINITY, 0.0);
+    assert.eq(1.0 / math.NEG_INFINITY, 0.0);
+    // The four ways to make a NaN out of infinities, and two out of a NaN.
+    assert.isTrue(math.isNan(math.INFINITY + math.NEG_INFINITY));
+    assert.isTrue(math.isNan(math.INFINITY - math.INFINITY));
+    assert.isTrue(math.isNan(math.INFINITY * 0.0));
+    assert.isTrue(math.isNan(math.INFINITY / math.INFINITY));
+    assert.isTrue(math.isNan(math.NAN + 1.0));
+    assert.isTrue(math.isNan(math.NAN * 0.0));
+}
+
+test "the exactly-specified half of core/math agrees with the three" {
+    assert.eq(math.sqrt(math.INFINITY), math.INFINITY);
+    assert.isTrue(math.isNan(math.sqrt(math.NAN)));
+    assert.eq(math.floor(math.INFINITY), math.INFINITY);
+    assert.eq(math.ceil(math.NEG_INFINITY), math.NEG_INFINITY);
+    assert.eq(math.absFloat(math.INFINITY), math.INFINITY);
+}
+
+test "num's free functions order the three the way the operators do" {
+    assert.eq(num.min(1.0, math.NEG_INFINITY), math.NEG_INFINITY);
+    assert.eq(num.max(1.0, math.INFINITY), math.INFINITY);
+    assert.eq(num.clamp(0.0, 1.0, math.INFINITY), 1.0);
+    assert.eq(num.clamp(0.0, 1.0, math.NEG_INFINITY), 0.0);
+}
+
+test "the three render the same text on every backend" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // A name rather than digits, on both backends: SPEC 6.2 says rendering a
+    // float is the shortest decimal that round-trips, and none of these three
+    // has one. A constant that was a different value on one backend would show
+    // it here as different text.
+    assert.eq(str.fromFloat(ctx, math.INFINITY), "inf");
+    assert.eq(str.fromFloat(ctx, math.NEG_INFINITY), "-inf");
+    assert.eq(str.fromFloat(ctx, math.NAN), "NaN");
+    assert.eq(math.INFINITY.show(ctx), "inf");
+    assert.eq(math.NEG_INFINITY.show(ctx), "-inf");
+    assert.eq(math.NAN.show(ctx), "NaN");
+}
+
+test "the three render the same in a hole as they do through show" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // SPEC 3.6: a `Float` hole renders exactly as `show` renders it. This is
+    // where the two rendering paths a backend has — the interpolation one and
+    // `str.fromFloat` — have to meet, at the three values that are not digits.
+    assert.eq(str.format(ctx, "${math.INFINITY}"), "inf");
+    assert.eq(str.format(ctx, "${math.NEG_INFINITY}"), "-inf");
+    assert.eq(str.format(ctx, "${math.NAN}"), "NaN");
+    assert.eq(
+        str.format(ctx, "${math.INFINITY} ${math.NEG_INFINITY} ${math.NAN}"),
+        "inf -inf NaN",
+    );
+}

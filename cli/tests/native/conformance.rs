@@ -537,6 +537,14 @@ const PACKAGES: &[Case] = &[
              not fix — `cli/runtime/math.rs` says why implementing them with the \
              platform libm would be a divergence rather than a gap",
     ),
+    // `core/math`'s `INFINITY`, `NEG_INFINITY` and `NAN`, split out of the file
+    // above precisely so that both backends read them. A named constant being
+    // the same value on JavaScript and here is the whole argument for defining
+    // the three as IEEE-754 divisions instead of as `1.0e400`, and an argument
+    // no run of the reference backend alone can make. Nothing in it reaches a
+    // transcendental: it is division by zero, `signum`, the three classifiers,
+    // `sqrt`, `floor`, `ceil`, `absFloat` and rendering, each of them exact.
+    included("numbers/special_floats.buri"),
     excluded(
         "text/json.buri",
         "`num.U32.toChar` — an *inexact* conversion, so it answers \
