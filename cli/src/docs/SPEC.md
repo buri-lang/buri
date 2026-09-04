@@ -196,9 +196,28 @@ To turn a `Template` into a `Str` you must allocate:
 let greeting: Str = str.format(ctx, "Hello, ${name}!");
 ```
 
-Hole expressions must have type `Int` (any width), `Float` (any width), `Bool`,
-`Char`, or `Str`. There is no user-extensible display mechanism in v0.3; convert
-explicitly.
+A hole expression must have type `Int` (any width), `Float` (any width), `Bool`,
+`Char`, `Str`, **or a type whose `Show` is derived** — a `derive Show` type, an
+array of one, or a tuple of them, all the way down. Such a hole renders exactly
+as `derive Show` renders it, so `"${p}"` and `"${p.show(ctx)}"` produce the same
+text.
+
+A derived hole costs the call site nothing. A derived `Show` is a fold over the
+type's shape that the run time performs — it is why a derived `x.show(ctx)`
+drops its context — so `io.println(ctx, "${point}")` still needs only the
+`stdout` effect, and the paragraph above still holds.
+
+A **hand-written** `impl Show` is not admitted in a hole. Its
+`show<C: Alloc>(self, ctx: C)` has to be called, and a `Template` names no
+context to call it with, so the conversion stays the author's:
+
+```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
+let line: Str = str.format(ctx, "the suit is ${suit.show(ctx)}");
+```
+
+The same is true of a bounded type parameter: a `T: Show` may be instantiated at
+a type whose `Show` is written by hand, so `"${x}"` in a generic body is
+rejected and `"${x.show(ctx)}"` is what is written instead.
 
 `Str` is implicitly widened to `Template` in argument position. This is the only
 implicit conversion in the language, and it exists so that `io.println(ctx, "hi")`
