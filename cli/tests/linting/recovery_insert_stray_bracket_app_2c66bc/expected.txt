@@ -1,0 +1,16 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> lib/recovery_insert_stray_bracket_app_2c66bc/main.buri:15:5
+   |
+15 |     @ '3',
+   |     ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here
+error: there is nothing named `HEX_DIGITS` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_bracket_app_2c66bc/main.buri:33:12
+   |
+33 |     match (HEX_DIGITS[value / shift % 16]) {
+   |            ^^^^^^^^^^
+   |
+   = fix: declare `HEX_DIGITS`, or import it — a name is in scope only from this module's own declarations and its imports

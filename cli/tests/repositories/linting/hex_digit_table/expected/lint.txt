@@ -1,0 +1,42 @@
+warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
+  --> cmd/app/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `char.fromDigit(n, 16)` is a digit and `char.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `char.fromDigit`, `num.toHex` or `bytes.toHex`
+
+     A table of digits is never on its own. What arrives with it is a nibble
+     helper, a shift, a mask, an index, and — sooner or later — a sixteen-call
+     unrolled renderer for one 64-bit value. That is thirty or forty lines of
+     arithmetic whose only reason to exist is that the digits were written down
+     locally, and it is thirty or forty lines that have to be read, reviewed and
+     kept correct in every package that has a copy.
+
+     The library keeps the digits once:
+
+     - One digit — char.fromDigit(n, radix) is the character, and
+     char.toDigit(radix) is its inverse. Both reach base 36, so the same pair
+     answers hexadecimal, octal and base 32.
+
+     - Is this one? — char.isHexDigit(), rather than comparing a toDigit
+     against .None.
+
+     - A whole number — num.toHex(ctx, x, width), lowercase and zero-padded to
+     a width you name. A sixteen-digit rendering of a 64-bit value is
+     num.toHex(ctx, x, 16), and the unrolled version of it can go.
+
+     - A whole byte string — bytes.toHex(ctx, b) and bytes.fromHex(ctx, s).
+     - Text back to a number — str.toRadix(text, radix), which answers .None
+     rather than a value the Int cannot hold.
+
+     If the table exists because the *output* has to differ — uppercase digits,
+     a separator between bytes, a different alphabet entirely — say that instead
+     of rebuilding the encoder underneath it. Uppercase is toUpper over the
+     result; a separator is a join; a genuinely different alphabet is a
+     different question, and worth a comment saying which one it is.
+
+     This rule only fires on the sixteen digits in order, as a string or as a
+     run of character literals. Nothing else looks like that by accident.
+

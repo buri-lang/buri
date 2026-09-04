@@ -1,7 +1,0 @@
-error: a struct-literal field ends with `,` [missing-separator]
-  --> lib/recovery_delete_separator_brace_cents_18cc96/lib.buri:17:21
-   |
-17 |     Ledger { entries seal: "" }
-   |                     ^
-   |
-   = fix: write `,` here

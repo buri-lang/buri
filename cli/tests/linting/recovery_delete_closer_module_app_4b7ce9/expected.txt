@@ -1,0 +1,60 @@
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_delete_closer_module_app_4b7ce9/main.buri:10:5
+   |
+10 | let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+error: an expression statement is legal only in a test source [expression-statement]
+  --> lib/recovery_delete_closer_module_app_4b7ce9/main.buri:17:5
+   |
+17 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = a block is `let`s followed by a result expression
+   = fix: bind it: `let _ = ...;`, or make it the block's result expression
+error: this statement has type `I64`, not `()` [statement-not-unit]
+  --> lib/recovery_delete_closer_module_app_4b7ce9/main.buri:17:5
+   |
+17 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_delete_closer_module_app_4b7ce9/main.buri:17:20
+   |
+17 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+error: a statement ends with `;` [missing-terminator]
+  --> lib/recovery_delete_closer_module_app_4b7ce9/main.buri:17:51
+   |
+17 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+   |                                                   ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `elapsedMillis` [unexpected-token]
+  --> lib/recovery_delete_closer_module_app_4b7ce9/main.buri:20:4
+   |
+20 | fn elapsedMillis(nanos: I64): I64 {
+   |    ^^^^^^^^^^^^^
+   |
+   = expected: `(`
+   = actual: `elapsedMillis`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> lib/recovery_delete_closer_module_app_4b7ce9/main.buri:38:1
+   |
+38 | 
+   | ^
+   |
+  --> lib/recovery_delete_closer_module_app_4b7ce9/main.buri:16:42
+   |
+16 | fn deadlineNanos(startedNanos: I64): I64 {
+   |                                          ^ opened here
+   |
+   = fix: write `}` here

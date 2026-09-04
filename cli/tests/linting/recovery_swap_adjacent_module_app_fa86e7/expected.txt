@@ -1,0 +1,32 @@
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_swap_adjacent_module_app_fa86e7/main.buri:10:5
+   |
+10 | let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+error: expected a declaration, found `PPM_DENOMINATOR` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_fa86e7/main.buri:12:1
+   |
+12 | PPM_DENOMINATOR let: Int = 1_000_000;
+   | ^^^^^^^^^^^^^^^
+   |
+   = expected: a declaration
+   = actual: `PPM_DENOMINATOR`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_swap_adjacent_module_app_fa86e7/main.buri:17:20
+   |
+17 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+error: there is nothing named `PPM_DENOMINATOR` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_module_app_fa86e7/main.buri:25:21
+   |
+25 |     count * share / PPM_DENOMINATOR
+   |                     ^^^^^^^^^^^^^^^
+   |
+   = fix: declare `PPM_DENOMINATOR`, or import it — a name is in scope only from this module's own declarations and its imports

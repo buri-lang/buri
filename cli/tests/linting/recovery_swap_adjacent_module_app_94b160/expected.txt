@@ -1,0 +1,32 @@
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_swap_adjacent_module_app_94b160/main.buri:10:5
+   |
+10 | let NANOS_PER_MILLISECOND: I64 1_000_000 =;
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+error: expected `=`, found `1_000_000` [unexpected-token]
+  --> lib/recovery_swap_adjacent_module_app_94b160/main.buri:10:32
+   |
+10 | let NANOS_PER_MILLISECOND: I64 1_000_000 =;
+   |                                ^^^^^^^^^
+   |
+   = expected: `=`
+   = actual: `1_000_000`
+   = fix: write `=` here
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_swap_adjacent_module_app_94b160/main.buri:17:20
+   |
+17 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+error: there is nothing named `NANOS_PER_MILLISECOND` in scope [unresolved-name]
+  --> lib/recovery_swap_adjacent_module_app_94b160/main.buri:21:13
+   |
+21 |     nanos / NANOS_PER_MILLISECOND
+   |             ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: declare `NANOS_PER_MILLISECOND`, or import it — a name is in scope only from this module's own declarations and its imports

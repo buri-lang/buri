@@ -1,0 +1,49 @@
+warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
+  --> lib/recovery_insert_stray_paren_app_4d7fe7/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `char.fromDigit(n, 16)` is a digit and `char.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `char.fromDigit`, `num.toHex` or `bytes.toHex`
+error: this `match` scrutinee is missing its closing `)` [unclosed-delimiter]
+  --> lib/recovery_insert_stray_paren_app_4d7fe7/main.buri:33:22
+   |
+33 |     match (HEX_DIGITS@ [value / shift % 16]) {
+   |                      ^
+   |
+  --> lib/recovery_insert_stray_paren_app_4d7fe7/main.buri:33:11
+   |
+33 |     match (HEX_DIGITS@ [value / shift % 16]) {
+   |           ^ opened here
+   |
+   = fix: write `)` here
+error: `[Char]` is not an enum [not-an-enum]
+  --> lib/recovery_insert_stray_paren_app_4d7fe7/main.buri:34:9
+   |
+34 |         .Some(digit) => digit,
+   |         ^^^^^^^^^^^^
+   |
+   = fix: a `.Variant` pattern matches an enum; match this value another way
+error: there is nothing named `digit` in scope [unresolved-name]
+  --> lib/recovery_insert_stray_paren_app_4d7fe7/main.buri:34:25
+   |
+34 |         .Some(digit) => digit,
+   |                         ^^^^^
+   |
+   = fix: declare `digit`, or import it — a name is in scope only from this module's own declarations and its imports
+error: `[Char]` is not an enum [not-an-enum]
+  --> lib/recovery_insert_stray_paren_app_4d7fe7/main.buri:35:9
+   |
+35 |         .None => '0',
+   |         ^^^^^
+   |
+   = fix: a `.Variant` pattern matches an enum; match this value another way
+error: this arm is unreachable [unreachable-arm]
+  --> lib/recovery_insert_stray_paren_app_4d7fe7/main.buri:35:9
+   |
+35 |         .None => '0',
+   |         ^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it

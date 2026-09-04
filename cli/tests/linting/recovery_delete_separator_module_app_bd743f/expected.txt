@@ -1,0 +1,23 @@
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_delete_separator_module_app_bd743f/main.buri:10:5
+   |
+10 | let NANOS_PER_MILLISECOND: I64 = 1_000_000
+   |     ^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name
+error: a `let` declaration ends with `;` [missing-terminator]
+  --> lib/recovery_delete_separator_module_app_bd743f/main.buri:10:43
+   |
+10 | let NANOS_PER_MILLISECOND: I64 = 1_000_000
+   |                                           ^
+   |
+   = fix: write `;` here
+warning: this spells the milliseconds to nanoseconds conversion out in integers [time-unit-conversion]
+  --> lib/recovery_delete_separator_module_app_bd743f/main.buri:17:20
+   |
+17 |     startedNanos + IDLE_TIMEOUT_MILLIS * 1_000_000
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `core/time`'s `Duration` is the length itself — `time.millis(n)`, `time.seconds(n)` — and its arithmetic saturates, so a deadline built from one cannot overflow into the past
+   = fix: build a `Duration` and let the unit live in the type rather than in the name

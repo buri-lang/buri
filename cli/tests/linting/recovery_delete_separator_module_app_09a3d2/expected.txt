@@ -1,0 +1,15 @@
+warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
+  --> lib/recovery_delete_separator_module_app_09a3d2/main.buri:12:5
+   |
+12 |     '0',
+   |     ^^^
+   |
+   = `char.fromDigit(n, 16)` is a digit and `char.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `char.fromDigit`, `num.toHex` or `bytes.toHex`
+error: a `let` declaration ends with `;` [missing-terminator]
+  --> lib/recovery_delete_separator_module_app_09a3d2/main.buri:28:2
+   |
+28 | ]
+   |  ^
+   |
+   = fix: write `;` here
