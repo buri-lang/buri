@@ -1,0 +1,14 @@
+// EXPECT: there is nothing named `fs` in scope
+//
+// The other control for `namespace_member_missing`: the member exists and the
+// *module* is the part that is missing, so the honest answer is about the base
+// and stays what it always was. `no-such-member` may only be said when an
+// import put the namespace there.
+from "core/effect" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
+  let _ = fs.readText(ctx, "wal");
+  .Ok(())
+}
