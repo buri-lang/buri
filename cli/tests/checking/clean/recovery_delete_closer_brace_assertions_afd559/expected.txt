@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:74:26
+   |
+74 |     assert.gt(true, false;
+   |                          ^
+   |
+  --> main.buri:74:14
+   |
+74 |     assert.gt(true, false;
+   |              ^ opened here
+   |
+   = fix: write `)` here

@@ -228,10 +228,14 @@ test "nesting past the limit is an error rather than a crash" {
         Alloc: alloc(),
     };
     let deep = "[".repeat(ctx, 600).concat(ctx, "]".repeat(ctx, 600));
-    match (json.parse(ctx, deep)) {
-        .Err(.TooDeep(_)) => assert.isTrue(true),
-        _ => assert.fail("a 600-deep document should not parse"),
-    }
+    // The verdict as a value, so a failure reports which of the three answers
+    // arrived rather than "expected true".
+    let verdict = match (json.parse(ctx, deep)) {
+        .Err(.TooDeep(_)) => "too deep",
+        .Err(_) => "another error",
+        .Ok(_) => "parsed",
+    };
+    assert.eq(verdict, "too deep");
 }
 
 test "nesting inside the limit is fine" {

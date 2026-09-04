@@ -1,0 +1,12 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:88:1
+   |
+88 | 
+   | ^
+   |
+  --> main.buri:81:64
+   |
+81 | test "approxEq holds within the tolerance, in both directions" {
+   |                                                                ^ opened here
+   |
+   = fix: write `}` here

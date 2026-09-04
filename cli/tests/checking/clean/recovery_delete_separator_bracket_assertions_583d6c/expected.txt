@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-separator]
+  --> main.buri:23:20
+   |
+23 |     assert.eq([1, 2 3].len(), 3);
+   |                    ^
+   |
+   = fix: write `,` here

@@ -2,54 +2,94 @@ FAIL //lib/asserts  test/asserts.buri  "eq"
   assert.eq failed
     actual:   1
     expected: 2
-  --> lib/asserts/test/asserts.buri:9:1
+  --> lib/asserts/test/asserts.buri:11:1
 FAIL //lib/asserts  test/asserts.buri  "notEq"
   assert.notEq failed
     actual:   5
     expected: 5
-  --> lib/asserts/test/asserts.buri:13:1
+  --> lib/asserts/test/asserts.buri:15:1
 FAIL //lib/asserts  test/asserts.buri  "isTrue"
   assert.isTrue failed
     actual:   false
     expected: true
-  --> lib/asserts/test/asserts.buri:17:1
+  --> lib/asserts/test/asserts.buri:19:1
 FAIL //lib/asserts  test/asserts.buri  "isFalse"
   assert.isFalse failed
     actual:   true
     expected: false
-  --> lib/asserts/test/asserts.buri:21:1
-FAIL //lib/asserts  test/asserts.buri  "fail"
-  a message the test wrote itself
-  --> lib/asserts/test/asserts.buri:25:1
+  --> lib/asserts/test/asserts.buri:23:1
+FAIL //lib/asserts  test/asserts.buri  "contains"
+  assert.contains failed
+    actual:   [1, 2, 3]
+    expected: [9]
+  --> lib/asserts/test/asserts.buri:27:1
+FAIL //lib/asserts  test/asserts.buri  "isEmpty"
+  assert.isEmpty failed
+    actual:   [1, 2]
+    expected: []
+  --> lib/asserts/test/asserts.buri:31:1
+FAIL //lib/asserts  test/asserts.buri  "notEmpty"
+  assert.notEmpty failed: the list is empty
+  --> lib/asserts/test/asserts.buri:35:1
+FAIL //lib/asserts  test/asserts.buri  "len"
+  assert.len failed
+    actual:   3
+    expected: 2
+  --> lib/asserts/test/asserts.buri:39:1
+FAIL //lib/asserts  test/asserts.buri  "gt"
+  assert.gt failed
+    actual:   3
+    expected: 5
+  --> lib/asserts/test/asserts.buri:43:1
+FAIL //lib/asserts  test/asserts.buri  "ge"
+  assert.ge failed
+    actual:   3
+    expected: 5
+  --> lib/asserts/test/asserts.buri:47:1
+FAIL //lib/asserts  test/asserts.buri  "lt"
+  assert.lt failed
+    actual:   5
+    expected: 3
+  --> lib/asserts/test/asserts.buri:51:1
+FAIL //lib/asserts  test/asserts.buri  "le"
+  assert.le failed
+    actual:   5
+    expected: 3
+  --> lib/asserts/test/asserts.buri:55:1
+FAIL //lib/asserts  test/asserts.buri  "approxEq"
+  assert.approxEq failed
+    actual:   1.0
+    expected: 1.5
+  --> lib/asserts/test/asserts.buri:59:1
 FAIL //lib/asserts  test/asserts.buri  "ok"
   assert.ok failed
     actual:   "boom"
     expected: .Ok
-  --> lib/asserts/test/asserts.buri:29:1
+  --> lib/asserts/test/asserts.buri:63:1
 FAIL //lib/asserts  test/asserts.buri  "err"
   assert.err failed
     actual:   7
     expected: .Err
-  --> lib/asserts/test/asserts.buri:33:1
+  --> lib/asserts/test/asserts.buri:67:1
 FAIL //lib/asserts  test/asserts.buri  "some"
   assert.some failed
     actual:   .None
     expected: .Some
-  --> lib/asserts/test/asserts.buri:37:1
+  --> lib/asserts/test/asserts.buri:71:1
 FAIL //lib/asserts  test/asserts.buri  "none"
   assert.none failed
     actual:   .Some(3)
     expected: .None
-  --> lib/asserts/test/asserts.buri:41:1
+  --> lib/asserts/test/asserts.buri:75:1
 FAIL //lib/asserts  test/asserts.buri  "eq on an Option"
   assert.eq failed
     actual:   .Some(1)
     expected: .None
-  --> lib/asserts/test/asserts.buri:45:1
+  --> lib/asserts/test/asserts.buri:79:1
 FAIL //lib/asserts  test/asserts.buri  "eq on a Result"
   assert.eq failed
     actual:   .Ok(1)
     expected: .Err("no")
-  --> lib/asserts/test/asserts.buri:49:1
+  --> lib/asserts/test/asserts.buri:83:1
 
-0 passed, 11 failed, 0 skipped (0.0s)
+0 passed, 19 failed, 0 skipped (0.0s)
