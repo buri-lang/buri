@@ -1528,6 +1528,17 @@ impl<'a, 'b> Infer<'a, 'b> {
         span: Span,
         expected: Option<&Ty>,
     ) -> typed::Expr {
+        // `host.fs` where a platform this module compiles for grants no
+        // filesystem. Asked **before** the member resolves, because the member
+        // does resolve: `withhold_ungranted_host_effects` empties the host's
+        // exports only when one output is being built, and the editor, `buri
+        // lint` and `buri test` all analyse with the whole host in place. The
+        // answer has to be the same in all four, so it is decided here rather
+        // than by whether the lookup happened to fail.
+        if self.host_member_not_on_platform(base, name, name_span) {
+            return self.error_expr(span);
+        }
+
         // A namespace member, a qualified variant, or a constant.
         if let Some(s) = self.static_ref_field(base, name) {
             return match s {
@@ -1616,16 +1627,24 @@ impl<'a, 'b> Infer<'a, 'b> {
         if self.c.lookup_export(ns, name).is_some() {
             return false;
         }
-        // A `core/host` name this platform withholds is missing on purpose,
-        // and a list of what is left would not say why.
-        if self.host_grant_refused(base, name, name_span) {
-            return true;
-        }
         self.c.report_no_such_member(ns, name, name_span);
         true
     }
 
-    fn host_grant_refused(&mut self, base: ExprId, name: &str, name_span: Span) -> bool {
+    /// Whether `base.name` reaches through a `core/host` namespace for an
+    /// export a platform this module compiles for does not allow, reporting it
+    /// when it does.
+    ///
+    /// This is the namespace half of the platform rule, and it is the one place
+    /// the refusal is not on an import: `from "core/host" import * as host`
+    /// names no effect, so there is nothing on that line to point at until a
+    /// member is reached for. The member reference is where the program asked
+    /// for the authority, and it is what the caret lands on.
+    ///
+    /// Without it the refusal reads "there is nothing named `host` in scope",
+    /// pointing at the namespace rather than at the effect and telling a reader
+    /// to check a spelling that is correct.
+    fn host_member_not_on_platform(&mut self, base: ExprId, name: &str, name_span: Span) -> bool {
         let V::Ident { name: head, .. } = self.tree().expr(base) else { return false };
         let head = head.to_string();
         if self.lookup_local(&head).is_some() {
@@ -1637,7 +1656,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         if self.c.loaded.module(ns).path != crate::compiler::standard_library::HOST_MODULE {
             return false;
         }
-        self.c.report_host_not_granted(name_span, name)
+        self.c.report_effect_not_on_platform(self.module, name_span, name)
     }
 
     /// The derivable trait that declares `name`, when `con` does not implement
@@ -1853,18 +1872,19 @@ impl<'a, 'b> Infer<'a, 'b> {
             V::Generic { args, .. } => Some(self.elaborate_all(args)),
             _ => None,
         };
-        let Some(con) = self.struct_lit_head(head) else {
-            // `host.HostNet {}` where this output's platform grants no `Net`.
-            // The implementation struct is withheld with the value it
-            // implements, and this is the one other place a program can name
-            // one — so it gets the refusal that names the platform rather than
-            // one that says the type is not a type.
-            if let V::Field { base, name, .. } = self.tree().expr(head) {
-                let name = name.to_string();
-                if self.host_grant_refused(base, &name, head_span) {
-                    return self.error_expr(span);
-                }
+        // `host.HostFs {}` where a platform this module compiles for grants no
+        // filesystem. The implementation struct is refused with the value it
+        // implements — a host struct has no private field, so a program that
+        // could name one would be one `FsRead: host.HostFs {}` away from the
+        // authority — and this is the one other place a program can name one.
+        // Asked before the head resolves, for the reason `check_field` gives.
+        if let V::Field { base, name, .. } = self.tree().expr(head) {
+            let name = name.to_string();
+            if self.host_member_not_on_platform(base, &name, head_span) {
+                return self.error_expr(span);
             }
+        }
+        let Some(con) = self.struct_lit_head(head) else {
             self.templated("not-a-struct-literal-head", head_span);
             return self.error_expr(span);
         };

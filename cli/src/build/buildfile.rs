@@ -135,6 +135,23 @@ impl Platform {
     pub fn names_phrase() -> String {
         Platform::proto_names().join(", ")
     }
+
+    /// `the WEB platform`, `the LINUX and MACOS platforms` — platforms named
+    /// inside a sentence rather than listed after a colon.
+    ///
+    /// The whole phrase is built here, article and plural included, because a
+    /// diagnostic template interpolates names and does not conjugate: a
+    /// wording that varied by more than an interpolated phrase would be a
+    /// second diagnostic (`reference/errors/README.md`). One caller binds this
+    /// into `{platforms}` and the sentence reads either way round.
+    pub fn sentence_phrase(platforms: &[Platform]) -> String {
+        let names: Vec<&str> = platforms.iter().map(|p| p.proto()).collect();
+        match names.split_last() {
+            None => String::new(),
+            Some((last, [])) => format!("the {last} platform"),
+            Some((last, rest)) => format!("the {} and {last} platforms", rest.join(", ")),
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
@@ -1062,6 +1079,23 @@ mod tests {
         let mut whole: Vec<&str> = textproto::schema_order("").to_vec();
         whole.sort_unstable();
         assert_eq!(halves, whole);
+    }
+
+    /// The phrase `effect-not-on-platform` writes its platforms with. The
+    /// template interpolates and does not conjugate, so the article and the
+    /// plural are decided here or nowhere.
+    #[test]
+    fn platforms_are_named_inside_a_sentence() {
+        assert_eq!(Platform::sentence_phrase(&[]), "");
+        assert_eq!(Platform::sentence_phrase(&[Platform::Web]), "the WEB platform");
+        assert_eq!(
+            Platform::sentence_phrase(&[Platform::Macos, Platform::Js]),
+            "the MACOS and JS platforms"
+        );
+        assert_eq!(
+            Platform::sentence_phrase(&[Platform::Linux, Platform::Macos, Platform::Js]),
+            "the LINUX, MACOS and JS platforms"
+        );
     }
 
     #[test]

@@ -1,4 +1,4 @@
-// EXPECT: `WEB` does not grant `HostListen`
+// EXPECT: `HostListen` implements `Listen`, which is not allowed on the WEB platform
 //
 // The same refusal on the one platform whose grant set is otherwise the odd
 // one out. A page grants three effects nothing else does, so "WEB has it and

@@ -3,7 +3,7 @@
 **This has shipped.** What a user needs is written where it can be checked: the
 `ui/*` modules' own documentation (`buri docs ui/node` and its neighbours), the
 guide's "User interfaces" section, and — for the `WEB` output, its three files
-and the `host-not-granted` diagnostic — `cli/src/docs/build/`. Per
+and the `effect-not-on-platform` diagnostic — `cli/src/docs/build/`. Per
 [`design/README.md`](./README.md), a design document that has shipped must not
 become a second copy of the reference, so what stays here is the **argument**:
 why the shape is this shape, what was considered and refused, and, in "As
@@ -486,21 +486,33 @@ language one, and the existing machinery covers it:
   `js { module }`, because a browser loads an ES module and there is no second
   kind; naming either is a build-file error rather than a field the toolchain
   then quietly ignores.
-- **Enforcement is per output, and it is real.** `main` is the only module that
-  can import `core/host`, and the output's platform subsets what `core/host`
-  exports before the first pass that reads it — so the same rule that makes
-  `Ui: host.ui` under `platform: LINUX` an unresolved name makes
-  `Net: host.net` under `platform: WEB` one. The diagnostic is
-  `host-not-granted`, and it names the platforms that *do* grant the effect. A
-  platform *is* the set of effects its host exports; there is no second
-  declaration.
+- **Enforcement is a compile error, over every output at once.** `main` is the
+  only module that can import `core/host`, and `main.buri` is checked against
+  the platforms its rule's `outputs` name — every one of them, plus every
+  platform its suite names in `test.platforms`, because a test binary links
+  `main` in. So `Ui: host.ui` under `platform: LINUX` is refused and so is
+  `FsRead: host.fs` under `platform: WEB`, and a binary declaring both `MACOS`
+  and `WEB` is refused for the second whichever one is being built. The
+  diagnostic is `effect-not-on-platform`; it names the effect, the platforms
+  that do not allow it, and the platforms that *do* grant it. A platform *is*
+  the set of effects its host exports; there is no second declaration.
 
-  Two consequences worth writing down. **A grant is a pair** — the value and the
-  implementation struct — and both are withheld together, because a host struct
-  has no private field, so exporting `HostNet` while withholding `net` would
-  leave the authority one `Net: host.HostNet {}` away. And **the same `main` may
-  compile for one of a binary's outputs and not for another**, which is what
-  "per output" costs and buys.
+  It is asked where the program asked. A named import is refused on the name
+  inside the braces; a namespace import names no effect, so `host.fs` is
+  refused on the member reference. Both are semantics-layer diagnostics on a
+  span, which is what puts them in the editor: `buri lint`, `buri test` and the
+  language server report them before anything is built, and
+  `repositories/lsp/an_effect_the_platform_does_not_allow` is the proof.
+
+  Three consequences worth writing down. **A grant is a pair** — the value and
+  the implementation struct — and both are refused together, because a host
+  struct has no private field, so allowing `HostNet` while refusing `net` would
+  leave the authority one `Net: host.HostNet {}` away. **A build still subsets
+  `core/host` per output**, which is the backstop the check sits in front of
+  rather than a second rule. And **a rule that declares no platforms commits to
+  none**: a library with no `platforms` field is platform-generic and is never
+  refused, which is what keeps a bound — `FsRead` taken as a bound rather than
+  bound to a host — legal everywhere including a page.
 
   WEB grants `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand`, `Net`, `Ui` and
   `Watch`, and withholds `FsRead`, `FsWrite`, `Stdin`, `Env`, `Proc`, `Tasks`,
@@ -633,7 +645,7 @@ design is *for*.
 | Style literals "cached with the module" | a `Vec` on `Checked` | the machinery it named does not exist: test cases are not cached, verdicts are |
 | Const-folding *or* generated token modules | const-folding | it improves an ordinary style helper too, where a generator would have helped tokens alone |
 | Blocking `Net.fetch` for pages | a separate `Fetch` effect | a callback shape, so a request does not freeze a page; a platform grants one or the other |
-| "Enforcement already exists" | it does now | the main-only import rule existed; the per-output host subset did not, and was built — `host-not-granted` |
+| "Enforcement already exists" | it does now | the main-only import rule existed; the per-output host subset did not, and was built — and is a compile error over every declared output at once now, `effect-not-on-platform` |
 | Screen widths "app config at mount" | fixed at 40/48/64/80 rem | a breakpoint that varies per app is one a library cannot compose against |
 | No way to express hover | `On(State, [Style])` | a pseudo-class costs nothing and survives to targets that have no pointer |
 | A `ui` umbrella module | seven modules, no umbrella | an umbrella hides which module a name belongs to, and buys one import |

@@ -1,0 +1,25 @@
+// The double, on every platform. `core/host/testing` is not a host — it is a
+// value a test builds — so nothing here is platform-bound, and this suite
+// compiles under the same rule that refuses `host.fs` on a page.
+from "core/effect" import { Alloc };
+from "core/fs" import { FsRead };
+from "core/host/testing" import { alloc, fs };
+from "core/path" import * as path;
+from "core/testing/assert" import * as assert;
+from "//lib/reader" import { readOrEmpty };
+
+test "a file that is there" {
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: fs().files([("/notes.txt", "hello")]),
+    };
+    assert.eq(readOrEmpty(ctx, path.of(ctx, "/notes.txt")), "hello");
+}
+
+test "a file that is not" {
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: fs(),
+    };
+    assert.eq(readOrEmpty(ctx, path.of(ctx, "/missing.txt")), "");
+}

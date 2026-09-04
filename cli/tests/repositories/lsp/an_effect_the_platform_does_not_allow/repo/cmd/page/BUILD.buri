@@ -1,0 +1,7 @@
+# A page, and the whole of what makes the diagnostic below true: the platform
+# an output names is what `main.buri` is checked against.
+binary {
+    outputs: [
+        { platform: WEB },
+    ]
+}
