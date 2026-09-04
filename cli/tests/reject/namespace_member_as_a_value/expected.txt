@@ -1,10 +1,11 @@
-error: "core/fs" has no member `copy` [no-such-member]
-  --> cmd/namespace_member_missing/main.buri:10:14
+error: "core/fs" has no member `appendBytes` [no-such-member]
+  --> cmd/namespace_member_as_a_value/main.buri:11:19
    |
-10 |   let _ = fs.copy(ctx, "wal", "wal.bak");
-   |              ^^^^
+11 |   let append = fs.appendBytes;
+   |                   ^^^^^^^^^^^
    |
    = the module exports 13 names
+   = did you mean `readBytes`?
    = fix: correct the member name, or check `buri docs core/fs`
 
      What to do

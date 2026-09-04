@@ -1,0 +1,12 @@
+// EXPECT: "core/order" has no member `Comparable`
+// A bound that names `ns.Name` used to read "`Comparable` is not a trait or
+// effect", which says the name is the wrong kind of thing when the module has
+// no such thing at all.
+from "core/order" import * as order;
+
+fn biggest<T: order.Comparable>(a: T, b: T): T { a }
+
+export fn main(): Result<(), Str> {
+  let _ = biggest(1, 2);
+  .Ok(())
+}

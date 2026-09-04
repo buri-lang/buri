@@ -1,0 +1,13 @@
+// EXPECT: "core/fs" has no member `appendBytes`
+// The same missing member as `namespace_member_missing`, written where a value
+// goes rather than in front of an argument list: nothing about the answer
+// depends on the call, so neither does the diagnostic.
+from "core/effect" import { Alloc, Fs, Stdout };
+from "core/host" import * as host;
+from "core/fs" import * as fs;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Fs: host.fs };
+  let append = fs.appendBytes;
+  .Ok(())
+}
