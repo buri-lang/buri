@@ -28,10 +28,15 @@
 //!   x.wrapToT()  modular                 -> T
 //!
 //! Also declared by the compiler, per primitive: `abs`, `signum`, `compare`,
-//! `eq`, `show`, `hash`, the operator-trait methods, and the `Checked` and
-//! `Wrapping` method sets.
+//! `eq`, `show`, `hash`, the operator-trait methods, and the `Checked`,
+//! `Wrapping` and `Saturating` method sets.
 
+from "core/bits" import * as bits;
+from "core/char" import * as char;
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
 from "core/order" import { Eq, Ord, Order, Show };
+from "core/str" import * as str;
 
 derive Eq, Show for RangeError;
 /// The error a narrowing conversion returns. Whether a conversion can fail is
@@ -132,3 +137,62 @@ export fn clamp<T: Ord>(lo: T, hi: T, x: T): T {
 export fn minValue<T: Bounded>(): T;
 
 export fn maxValue<T: Bounded>(): T;
+
+// --- Hexadecimal ------------------------------------------------------------------
+//
+// The other direction — hexadecimal text back to a number — is
+// `str.toRadix(text, 16)`, on `Str` because that is where a parse of a string
+// belongs. This half is here rather than in `core/str` for the same reason:
+// `toHex` is a fact about a number, and `str.fromInt` is the base-ten case of
+// exactly this.
+
+/// `x` in lowercase hexadecimal, zero-padded to at least `width` digits.
+///
+/// **A bit pattern, not a signed numeral.** The digits are `x`'s 64-bit two's
+/// complement, so `toHex(ctx, -1, 0)` is `ffffffffffffffff` and not `-1`. That
+/// is what a hexadecimal view of a number is for, and it is what makes
+/// `toHex(ctx, x, 16)` the sixteen digits of a `U64` whichever end of the range
+/// `x` came from.
+///
+/// `width` is a floor and never truncates: a value needing more digits than
+/// asked for gets them, so no call of this can silently lose the top of a
+/// number. `width` at or below zero asks for the shortest form, which is one
+/// digit for zero.
+export fn toHex<C: Alloc>(ctx: C, x: Int, width: Int): Str {
+    let digits = max(width, significantNibbles(x, 16));
+    str.fromChars(
+        ctx,
+        list
+            .range(ctx, 0, digits)
+            .map(ctx, fn(i) => {
+                let shift = (digits - 1 - i) * 4;
+                // Past the width of the type there is nothing left but the padding,
+                // and `shr` at or beyond 64 has no answer to give.
+                let nibble = if (shift >= 64) {
+                    0
+                } else {
+                    lowNibble(bits.shr(x, shift))
+                };
+                char.fromDigit(nibble, 16).withDefault('0')
+            }),
+    )
+}
+
+/// The lowest four bits of a value, as a number from 0 to 15. Written as a
+/// shift up and back rather than as `% 16`, because the input here is a
+/// logical shift of a possibly negative `Int` and `%` keeps the sign.
+fn lowNibble(x: Int): Int {
+    bits.shr(bits.shl(x, 60), 60)
+}
+
+/// How many hexadecimal digits `x` needs, counting down from `upper` — 16 for
+/// any negative number, since its top bit is set, and never fewer than one.
+fn significantNibbles(x: Int, upper: Int): Int {
+    if (upper <= 1) {
+        1
+    } else if (bits.shr(x, (upper - 1) * 4) != 0) {
+        upper
+    } else {
+        significantNibbles(x, upper - 1)
+    }
+}
