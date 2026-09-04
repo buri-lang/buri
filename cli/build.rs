@@ -74,6 +74,29 @@
 //!   hash — which enters the `link` cache key — depend on whatever `rustc` was
 //!   on `PATH` at *use* time rather than at *install* time.
 //!
+//! * **The nested build is stamped, because Cargo cannot tell it is fresh.**
+//!   `rerun-if-changed` decides whether *this script* runs; it says nothing
+//!   about whether the nested `cargo rustc` has work to do, and that build is
+//!   never free — the flags in `RUNTIME_RUSTC_ARGS` reach `rustc` through
+//!   `cargo rustc --`, and a unit with trailing arguments is a unit Cargo
+//!   treats as never fresh. So this script rerunning for a reason that has
+//!   nothing to do with the runtime — an edit to a stencil generator, a change
+//!   to `CC`, a checkout that moved an mtime under `runtime/` without moving a
+//!   byte — used to cost the whole twenty-second rebuild.
+//!
+//!   `libburi_rt.a.stamp` is a digest of everything the nested build reads,
+//!   written beside the archive after a build that succeeded and compared
+//!   before the next one: the sources, the assembled package, the toolchain,
+//!   the C compiler, the target, the features, the baked sysroot, the whole
+//!   environment the nested cargo will inherit, its command line, and this
+//!   script's own bytes. `stamp_of` is where the list is argued, and the rule
+//!   it is built on is that a term nobody can enumerate confidently abandons
+//!   the stamp rather than being left out of it — a stale archive is a
+//!   miscompiled user program, so "no stamp" (which is a nested build) is
+//!   always the safe answer. The stamp is checked against the archive's own
+//!   digest as well as against its inputs, so it cannot outlive the bytes it
+//!   describes.
+//!
 //! * **The product triple, which is the host triple on every host but one.**
 //!   `--target <product>` names the one triple this build supports, which is
 //!   why cross-compilation is refused rather than half-working
@@ -285,7 +308,31 @@ fn main() {
     stencil_library(&manifest);
 }
 
-/// Writes `<out>.sha256` beside a blob this script produced.
+/// Writes `bytes` to `path`, **only if what is there differs**.
+///
+/// [`copy_if_different`]'s rule applied to the files this script produces
+/// itself, and it is the same rule for the same reason: Cargo's fingerprints
+/// are mtimes, and every file this script writes into `OUT_DIR` is reached from
+/// the crate by `include_bytes!` or `include_str!` — which rustc records as a
+/// dependency. Rewriting one with the bytes it already holds therefore
+/// recompiles the toolchain, and this script reruns for several reasons that
+/// change none of them (an edit to a stencil generator, a change to `CC`, a
+/// `touch` under `runtime/`).
+///
+/// A read before every write, which is the cost: these files are the archive's
+/// sidecars and the baked sysroot, and the largest of them is a few megabytes
+/// against a compile of the whole toolchain.
+fn write_if_different(path: &Path, bytes: &[u8]) {
+    if std::fs::read(path).is_ok_and(|existing| existing == bytes) {
+        return;
+    }
+    if let Err(e) = std::fs::write(path, bytes) {
+        fail(&format!("could not write {}: {e}", path.display()));
+    }
+}
+
+/// Writes `<out>.sha256` beside a blob this script produced, and answers the
+/// digest it wrote.
 ///
 /// A file rather than a `cargo:rustc-env`: the bytes are reached with
 /// `include_bytes!(concat!(env!("OUT_DIR"), …))` and the digest is reached with
@@ -294,18 +341,28 @@ fn main() {
 ///
 /// Sixty-four hex digits and no newline, so that `include_str!` is the digest
 /// and not the digest plus whitespace to trim.
-fn digest_beside(out: &Path) {
+///
+/// The digest is *returned* as well as written because the runtime's stamp
+/// records it ([`stamp_of`]): the archive's own digest is what makes a stamp
+/// self-checking, and hashing ten megabytes twice in one run to learn the same
+/// number is a cost with nothing to show for it.
+fn digest_beside(out: &Path) -> String {
     let bytes = match std::fs::read(out) {
         Ok(b) => b,
         Err(e) => fail(&format!("could not read back {} to hash it: {e}", out.display())),
     };
+    let digest = sha256::hash_bytes(&bytes);
+    write_digest_beside(out, &digest);
+    digest
+}
+
+/// [`digest_beside`] for a digest already in hand.
+fn write_digest_beside(out: &Path, digest: &str) {
     let path = out.with_file_name(format!(
         "{}.sha256",
         out.file_name().and_then(|n| n.to_str()).unwrap_or_default()
     ));
-    if let Err(e) = std::fs::write(&path, sha256::hash_bytes(&bytes)) {
-        fail(&format!("could not write {}: {e}", path.display()));
-    }
+    write_if_different(&path, digest.as_bytes());
 }
 
 /// Writes `<out>.features` beside the runtime archive: the Cargo features it
@@ -326,9 +383,7 @@ fn features_beside(out: &Path, features: &[&str]) {
         "{}.features",
         out.file_name().and_then(|n| n.to_str()).unwrap_or_default()
     ));
-    if let Err(e) = std::fs::write(&path, features.join("\n")) {
-        fail(&format!("could not write {}: {e}", path.display()));
-    }
+    write_if_different(&path, features.join("\n").as_bytes());
 }
 
 /// Writes `<out>.libc` beside the runtime archive: the C library the archive
@@ -354,9 +409,7 @@ fn libc_beside(out: &Path, libc: &str) {
         "{}.libc",
         out.file_name().and_then(|n| n.to_str()).unwrap_or_default()
     ));
-    if let Err(e) = std::fs::write(&path, libc) {
-        fail(&format!("could not write {}: {e}", path.display()));
-    }
+    write_if_different(&path, libc.as_bytes());
 }
 
 /// The triple the runtime archive is *built for*, and the musl sysroot to bake
@@ -499,7 +552,12 @@ const SYSROOT_FILES: &[&str] = &[
 /// name and the length go into the hash ahead of each member's bytes so that
 /// the digest distinguishes a renamed member and a shuffled boundary from the
 /// concatenation that would otherwise be identical.
-fn bake_sysroot(out_dir: &Path, from: Option<&Path>) {
+///
+/// The digest is answered as well as written: it is the one term of the
+/// runtime's stamp ([`stamp_of`]) that says which *standard library* the nested
+/// build will compile against, and a rustc whose musl `rust-std` changed under
+/// a checkout is a rustc that produces a different archive.
+fn bake_sysroot(out_dir: &Path, from: Option<&Path>) -> String {
     let dir = out_dir.join("musl");
     if let Err(e) = std::fs::create_dir_all(&dir) {
         fail(&format!("could not create {}: {e}", dir.display()));
@@ -524,15 +582,11 @@ fn bake_sysroot(out_dir: &Path, from: Option<&Path>) {
         digested.push(0);
         digested.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
         digested.extend_from_slice(&bytes);
-        let path = dir.join(name);
-        if let Err(e) = std::fs::write(&path, &bytes) {
-            fail(&format!("could not write {}: {e}", path.display()));
-        }
+        write_if_different(&dir.join(name), &bytes);
     }
-    let digest = dir.join("sysroot.sha256");
-    if let Err(e) = std::fs::write(&digest, sha256::hash_bytes(&digested)) {
-        fail(&format!("could not write {}: {e}", digest.display()));
-    }
+    let digest = sha256::hash_bytes(&digested);
+    write_if_different(&dir.join("sysroot.sha256"), digest.as_bytes());
+    digest
 }
 
 /// Whether `cc` will accept `--target=<triple>`, which is to say whether it is
@@ -802,6 +856,287 @@ fn resolves(cargo: &str, rustc: &str, pkg: &Path, target: &str) -> Option<bool> 
     None
 }
 
+// ---------------------------------------------------------------------------
+// The nested build's stamp
+// ---------------------------------------------------------------------------
+
+/// The stamp file's first line, and the version of the *question* the rest of
+/// it answers.
+///
+/// Bumped when the meaning of the digest below changes in a way an old stamp
+/// would still parse — a term removed, a term's encoding changed. Adding a term
+/// needs no bump: a stamp written before it existed hashes differently and is a
+/// miss, which is the answer that rebuilds.
+const STAMP: &str = "buri-runtime-stamp 1";
+
+/// Why the stamp exists, in one place, because everything below is in service
+/// of it.
+///
+/// Cargo's `rerun-if-changed` decides whether *this script* runs. It does not
+/// decide whether the **nested** `cargo rustc` inside it does any work, and
+/// that nested build is not free even when it has nothing to do: the flags in
+/// [`RUNTIME_RUSTC_ARGS`] reach `rustc` through `cargo rustc --`, and Cargo
+/// treats a unit carrying trailing arguments as never fresh — it recompiles the
+/// runtime crate, relinks the staticlib, and hands back the same bytes, every
+/// time. So a rerun of this script for a reason that has nothing to do with the
+/// runtime — an edit to a stencil generator, a change to `CC`, a `git checkout`
+/// that moved an mtime under `runtime/` without moving a byte — costs the full
+/// nested build.
+///
+/// The stamp is the answer: a digest of everything the nested build reads,
+/// written beside the archive after a build that succeeded, and compared before
+/// the next one. Two rules govern what goes into it, and both are about the
+/// same failure — a stale archive is a *miscompiled user program*, which is the
+/// worst bug this repository can ship:
+///
+/// * **Anything that could reach the bytes is a term.** The runtime's sources,
+///   the assembled package (manifest and lockfile included), the compiler and
+///   `cargo` that will run, the C compiler `ring` compiles through, the target
+///   triple, the feature set, the baked sysroot's digest, the whole environment
+///   the nested `cargo` will inherit, its command line, and the bytes of this
+///   script and of the hash it shares with the toolchain.
+/// * **Anything that cannot be enumerated confidently abandons the stamp.** A
+///   directory that will not list, a file that will not read, a `rustc` that
+///   will not answer `-vV`: each returns `None` here, and `None` means the
+///   nested build runs. A stamp that is missing an input is worse than no stamp
+///   at all, so there is no partial one.
+///
+/// And the stamp is checked against the archive it describes as well as against
+/// its inputs, so a stamp that outlived the bytes it was written for — an empty
+/// archive left by a degraded build, a truncated `OUT_DIR`, a file removed by
+/// hand — is a miss rather than a wrong answer.
+///
+/// One thing is out of reach and is named rather than left implicit: the
+/// **contents of `CARGO_HOME`**, where the runtime's dependencies are unpacked.
+/// The lockfile is a term, so which versions those are is covered, and Cargo
+/// verifies a registry crate's checksum when it extracts it — but a source
+/// directory edited by hand after extraction is invisible here. It was also
+/// invisible before: Cargo does not re-verify an extracted crate on a rebuild
+/// either, so the nested build that used to run every time would have compiled
+/// the edited source just as happily. This changes no exposure; it inherits
+/// one.
+///
+/// What is deliberately *not* a term is `--offline`. Which of the two fetches
+/// answered says whether the registry was reachable, not what the compiler
+/// produced: the lockfile is a term, and a build that resolves the same
+/// lockfile from a warm `CARGO_HOME` and one that resolves it from the network
+/// compile the same tree. It is *recorded* in the stamp rather than hashed,
+/// because `package_env` has to report it on a run that skipped the probe.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the argument list is the input list, and that is the point: every one of these \
+              is something the nested build reads, so a struct to carry them would be a \
+              second place to forget one. The compiler counting them is the closest thing \
+              to a reminder that the count is the subject."
+)]
+fn stamp_of(
+    manifest: &Path,
+    runtime: &Path,
+    pkg: &Path,
+    target: &str,
+    libc: &str,
+    sysroot: &str,
+    features: &[&str],
+    relock: bool,
+    cargo: &str,
+    rustc: &str,
+    cc: &str,
+    command: &Command,
+) -> Option<String> {
+    let mut h = sha256::Sha256::new();
+    h.text(STAMP);
+    // This script's own logic, and the hash it shares with the toolchain. A
+    // change to either can change what the nested build is asked to do without
+    // changing a single one of the terms below.
+    h.field(&std::fs::read(manifest.join("build.rs")).ok()?);
+    h.field(&std::fs::read(manifest.join("src/build/sha256.rs")).ok()?);
+    // The sources, twice over: `cli/runtime/` because that is what a
+    // contributor edits, and the assembled package because that is what the
+    // nested cargo actually compiles. They are not the same set — `assemble`
+    // copies the manifests under Cargo's names and takes only `.rs` and `.s` —
+    // and hashing both means neither a file this script forgot to copy nor a
+    // file left behind in `OUT_DIR` can go unnoticed.
+    hash_tree(&mut h, runtime)?;
+    hash_tree(&mut h, pkg)?;
+    h.text(target);
+    h.text(libc);
+    h.text(sysroot);
+    h.text("features");
+    for feature in features {
+        h.text(feature);
+    }
+    h.text(if relock { "relock" } else { "locked" });
+    // The toolchain that will do the work. `-vV` rather than `-V` because it
+    // carries the commit hash and the host triple as well as the release.
+    h.text(&tool_version(rustc, &["-vV"])?);
+    h.text(&tool_version(cargo, &["-V"])?);
+    // And the C compiler, for `ring`'s C and assembly. `unwrap_or_default` is
+    // right here and nowhere else in this function: a `cc` that cannot answer
+    // is a `cc` that failed `can_compile`, which took `net` out of the feature
+    // list above — so the empty string is not a missing input, it is the input
+    // saying there is no C to compile.
+    h.text(&tool_version(cc, &["--version"]).unwrap_or_default());
+    // The command line, minus the two flags added after this point:
+    // `--locked` (which is `relock`, already a term) and `--offline` (which is
+    // not about the bytes, see the header).
+    h.field(command.get_program().as_encoded_bytes());
+    for arg in command.get_args() {
+        h.field(arg.as_encoded_bytes());
+    }
+    h.text("trailing");
+    for arg in RUNTIME_RUSTC_ARGS {
+        h.text(arg);
+    }
+    hash_environment(&mut h, command);
+    Some(h.finish())
+}
+
+/// Hashes every file under `dir`, name and bytes, in sorted order.
+///
+/// `None` when anything at all could not be read: a directory that will not
+/// list, an entry that will not stat, a file that will not open. The caller
+/// turns that into "no stamp", which is a nested build — see [`stamp_of`]'s
+/// second rule.
+///
+/// Names are hashed as well as bytes, and directories are marked, so that
+/// moving a file between two directories or renaming it changes the digest.
+fn hash_tree(h: &mut sha256::Sha256, dir: &Path) -> Option<()> {
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for entry in std::fs::read_dir(dir).ok()? {
+        paths.push(entry.ok()?.path());
+    }
+    paths.sort();
+    for path in paths {
+        h.field(path.file_name()?.as_encoded_bytes());
+        if path.is_dir() {
+            h.text("dir");
+            hash_tree(h, &path)?;
+        } else {
+            h.text("file");
+            h.field(&std::fs::read(&path).ok()?);
+        }
+    }
+    Some(())
+}
+
+/// A tool's version banner, or `None` when it could not be asked.
+fn tool_version(program: &str, args: &[&str]) -> Option<String> {
+    let out = Command::new(program).args(args).output().ok()?;
+    out.status.success().then_some(())?;
+    String::from_utf8(out.stdout).ok()
+}
+
+/// Hashes the environment the nested `cargo` will actually see.
+///
+/// Computed rather than listed, and that is the whole point. A build script
+/// inherits its parent invocation's environment, and cargo, rustc and `cc-rs`
+/// between them read a set of variables nobody can enumerate confidently —
+/// `RUSTC_WRAPPER`, `CARGO_HOME`, `PATH`, `SDKROOT`, `AR`, `CFLAGS`, and
+/// whatever the next release adds. So the term is the child's *whole*
+/// environment: this process's variables, with [`nested`]'s removals and
+/// overrides applied, exactly as `Command` will apply them.
+///
+/// The cost is a stamp that misses when something irrelevant moves — a
+/// different `-j` in `NUM_JOBS`, a `CARGO_HOME` that was spelled two ways. That
+/// costs one nested build, which is what every build cost before this existed.
+/// The alternative cost is an input nobody thought of and an archive that is
+/// silently the wrong one, and those two are not the same size.
+///
+/// [`SHELL_BOOKKEEPING`] is the one concession, and it is a short list for a
+/// reason.
+fn hash_environment(h: &mut sha256::Sha256, command: &Command) {
+    use std::collections::BTreeMap;
+    use std::ffi::OsString;
+    let mut env: BTreeMap<OsString, Option<OsString>> =
+        std::env::vars_os().map(|(k, v)| (k, Some(v))).collect();
+    for (key, value) in command.get_envs() {
+        env.insert(key.to_owned(), value.map(|v| v.to_owned()));
+    }
+    h.text("env");
+    for (key, value) in env {
+        let Some(value) = value else { continue };
+        if SHELL_BOOKKEEPING.iter().any(|name| key == *name) {
+            continue;
+        }
+        h.field(key.as_encoded_bytes());
+        h.field(value.as_encoded_bytes());
+    }
+}
+
+/// The variables [`hash_environment`] leaves out, and the whole of the
+/// judgement in this file that is not "hash it".
+///
+/// Each one is written by the *shell* or the terminal rather than by a build,
+/// each changes between two invocations that are identical in every way that
+/// matters, and none of them is read by `cargo`, by `rustc` or by `cc-rs`:
+///
+/// * `_` is the shell's record of the last argument, rewritten before every
+///   command; `SHLVL` is how deep the shell is nested. A `cargo build` typed in
+///   a terminal and the same `cargo build` from a script differ in both, which
+///   without this list is a twenty-second rebuild for the difference between
+///   two shells.
+/// * `PWD` and `OLDPWD` are the shell's record of where it stands. The child's
+///   actual working directory is inherited from this process, which Cargo has
+///   already set to the package root; these two are a description of the
+///   *parent's* and reach nothing.
+/// * `TERM`, `TERM_SESSION_ID`, `COLUMNS`, `LINES` and `SSH_TTY` describe the
+///   terminal. They decide whether Cargo colours its own output and nothing
+///   else; a new window changes them.
+///
+/// The list errs towards being too short rather than too long: every variable
+/// not named here is hashed, including ones that are probably irrelevant.
+/// Being wrong about one of these is an archive built with the wrong flags and
+/// a stamp that says it is fine — so a name only belongs here when it can be
+/// argued to reach *nothing*, not merely when it looks harmless.
+const SHELL_BOOKKEEPING: &[&str] =
+    &["_", "SHLVL", "PWD", "OLDPWD", "TERM", "TERM_SESSION_ID", "COLUMNS", "LINES", "SSH_TTY"];
+
+/// Where the stamp is written: beside the archive, like its digest and its
+/// feature list, and for the reason those are there — one run of this script
+/// writes the bytes and everything that describes them into one `OUT_DIR`.
+fn stamp_path(out: &Path) -> PathBuf {
+    out.with_file_name(format!(
+        "{}.stamp",
+        out.file_name().and_then(|n| n.to_str()).unwrap_or_default()
+    ))
+}
+
+/// The stamp on disk: the digest of the inputs, the digest of the archive it
+/// was written for, and whether that build resolved offline.
+///
+/// Anything that does not parse is `None`, which is a miss. A stamp is a cache
+/// and never a contract, so a file from another version of this script is a
+/// nested build rather than an error.
+fn read_stamp(out: &Path) -> Option<(String, String, bool)> {
+    let text = std::fs::read_to_string(stamp_path(out)).ok()?;
+    let mut lines = text.lines();
+    (lines.next()? == STAMP).then_some(())?;
+    let inputs = lines.next()?.to_string();
+    let archive = lines.next()?.to_string();
+    let offline = lines.next()? == "offline";
+    Some((inputs, archive, offline))
+}
+
+/// Writes the stamp for a build that has just succeeded.
+fn write_stamp(out: &Path, inputs: &str, archive: &str, offline: bool) {
+    let network = if offline { "offline" } else { "network" };
+    write_if_different(
+        &stamp_path(out),
+        format!("{STAMP}\n{inputs}\n{archive}\n{network}\n").as_bytes(),
+    );
+}
+
+/// Removes any stamp, for a path that is about to leave an archive the stamp
+/// does not describe.
+///
+/// Belt and braces: [`read_stamp`]'s answer is checked against the archive's
+/// own digest before it is believed, so a leftover stamp beside an empty
+/// archive is already a miss. Removing it says so at the point the archive
+/// changes rather than leaving a file that reads as an answer.
+fn clear_stamp(out: &Path) {
+    let _ = std::fs::remove_file(stamp_path(out));
+}
+
 /// Tells the toolchain's own test suite where the assembled runtime package is
 /// and whether its dependency tree is reachable offline.
 ///
@@ -863,6 +1198,7 @@ fn runtime_archive(manifest: &Path) {
         // And an empty sysroot, which `build::musl` `include_bytes!`es just as
         // unconditionally. The emptiness is the signal.
         bake_sysroot(&out_dir, None);
+        clear_stamp(&out);
         package_env(None, true);
         return;
     }
@@ -893,7 +1229,7 @@ fn runtime_archive(manifest: &Path) {
     // sysroot is a fact about *this rustc* and not about whether the runtime's
     // dependency tree happened to resolve. Every path from here down leaves the
     // same eleven files in `OUT_DIR`.
-    bake_sysroot(&out_dir, product.sysroot.as_deref());
+    let sysroot = bake_sysroot(&out_dir, product.sysroot.as_deref());
 
     let pkg = assemble(&runtime, &out_dir);
     let target_dir = out_dir.join("rt");
@@ -971,73 +1307,13 @@ fn runtime_archive(manifest: &Path) {
     // to the file a reviewer reads.
     let relock = std::env::var_os("BURI_RUNTIME_RELOCK").is_some();
 
-    // Whether there is a dependency tree at all. `net` used to be the whole of
-    // this question and `crypto` is why it no longer is: a `net`-off,
-    // `crypto`-on runtime still resolves one crate, so taking the shortcut on
-    // `net` alone would build `--offline` against a `CARGO_HOME` that may not
-    // hold `getrandom` — a hard failure where every other shape of this is a
-    // degrade.
-    let deps = net || crypto;
-    let offline = match (deps, relock) {
-        (false, _) => Some(true),
-        (true, true) => Some(false),
-        (true, false) => match resolves(&cargo, &rustc, &pkg, &target) {
-            Some(offline) => Some(offline),
-            None => {
-                // The degradation the header's fifth bullet argues for. A
-                // `cargo:warning` rather than silence, because the consequence
-                // — no native backend — is one a contributor will otherwise
-                // meet as a test that skipped.
-                println!(
-                    "cargo:warning=the runtime's dependency tree could not be resolved, so this \
-                     toolchain has no native runtime archive and no native backend. Either the \
-                     registry is unreachable and CARGO_HOME holds none of the crates, or \
-                     cli/runtime/manifest.lock no longer matches manifest.toml — \
-                     `BURI_RUNTIME_RELOCK=1 cargo build -p buri` fixes the second. \
-                     `BURI_RUNTIME_NET=0 BURI_RUNTIME_CRYPTO=0` builds the runtime with no \
-                     dependency tree at all."
-                );
-                write_empty(&out);
-                features_beside(&out, &[]);
-                // An empty archive is not a musl archive, whatever the product
-                // triple would have been: there is nothing to link and so
-                // nothing to link against.
-                libc_beside(&out, "");
-                package_env(None, true);
-                return;
-            }
-        },
-    };
-    package_env(Some(&pkg), offline == Some(true));
-
-    let mut command = nested(&cargo, &rustc);
-    // `cargo rustc`, not `cargo build`: the flags after `--` are for the crate
-    // being built and not for its dependencies. See `RUNTIME_RUSTC_ARGS`.
-    command.arg("rustc").arg("--lib");
-    // `--release` is what selects `[profile.release]` in the runtime's
-    // manifest: `lto = "fat"`, `panic = "abort"`, `codegen-units = 1`,
-    // `debug = 0`. Each is argued where it is written.
-    command.arg("--release");
-    command.arg("--manifest-path").arg(pkg.join("Cargo.toml"));
-    command.args(["--target", &target]);
-    command.arg("--target-dir").arg(&target_dir);
-    if !relock {
-        command.arg("--locked");
-    }
-    if offline == Some(true) {
-        command.arg("--offline");
-    }
-    // The feature set, decided once and used twice: here, on the command line,
-    // and below, in the sidecar beside the archive. One list rather than two
-    // because the sidecar's whole job is to say what the archive was built
-    // with, and two expressions of that are one of them being wrong.
+    // The feature set, decided once and used three times: on the command line
+    // below, in the sidecar beside the archive, and in the stamp. One list
+    // rather than three because the sidecar's whole job is to say what the
+    // archive was built with, and two expressions of that are one of them being
+    // wrong.
     //
-    // `--no-default-features` unconditionally, with the set spelled out, rather
-    // than adding to the default: there are two features in `default` now, so
-    // "the default plus this one" and "the default minus that one" would be two
-    // shapes of command line to keep in agreement instead of one.
-    //
-    // `net` first, then `net-h3`, then `crypto` — the manifest's declaration
+    // `net` first, then `net-h3`, then `crypto` - the manifest's declaration
     // order, which is also the order a reader would expect. Nothing reads the
     // sidecar positionally (`runtime_native::declares` is a whole-line lookup),
     // so this is legibility rather than contract.
@@ -1051,6 +1327,27 @@ fn runtime_archive(manifest: &Path) {
     if crypto {
         features.push("crypto");
     }
+
+    // The command line is built **before** the freshness question rather than
+    // after it, because it is one of the things the stamp is a digest of: the
+    // flags and the environment the nested cargo would be given are as much an
+    // input to the archive as the sources are. The two flags still added below
+    // are the two the stamp deliberately does not hash - see [`stamp_of`].
+    let mut command = nested(&cargo, &rustc);
+    // `cargo rustc`, not `cargo build`: the flags after `--` are for the crate
+    // being built and not for its dependencies. See `RUNTIME_RUSTC_ARGS`.
+    command.arg("rustc").arg("--lib");
+    // `--release` is what selects `[profile.release]` in the runtime's
+    // manifest: `lto = "fat"`, `panic = "abort"`, `codegen-units = 1`,
+    // `debug = 0`. Each is argued where it is written.
+    command.arg("--release");
+    command.arg("--manifest-path").arg(pkg.join("Cargo.toml"));
+    command.args(["--target", &target]);
+    command.arg("--target-dir").arg(&target_dir);
+    // `--no-default-features` unconditionally, with the set spelled out, rather
+    // than adding to the default: there are two features in `default` now, so
+    // "the default plus this one" and "the default minus that one" would be two
+    // shapes of command line to keep in agreement instead of one.
     command.arg("--no-default-features");
     if !features.is_empty() {
         command.arg("--features").arg(features.join(","));
@@ -1059,6 +1356,84 @@ fn runtime_archive(manifest: &Path) {
     // host that stayed gnu, because the product triple is the host triple there
     // and `cc-rs` needs no help finding a compiler for the machine it is on.
     musl_cc_env(&mut command, &target, &cc);
+
+    // Whether the nested build has anything to do. [`stamp_of`] is the whole
+    // argument; these are the two conditions it is checked under, and they are
+    // here rather than inside it because both are about *this* `OUT_DIR` rather
+    // than about the inputs.
+    //
+    // The archive's own digest is the second condition and it is not
+    // redundant: a stamp says "these inputs produced that archive", so a
+    // directory whose archive has since been emptied, truncated or removed is
+    // a miss however well the inputs match.
+    let stamp = stamp_of(
+        manifest, &runtime, &pkg, &target, product.libc, &sysroot, &features, relock, &cargo,
+        &rustc, &cc, &command,
+    );
+    if let (Some(fresh), Some((inputs, archive, offline))) = (&stamp, read_stamp(&out)) {
+        let current = std::fs::read(&out).map(|bytes| sha256::hash_bytes(&bytes));
+        if fresh == &inputs && current.is_ok_and(|d| d == archive) {
+            // Everything the nested build would have left behind is already
+            // here, so what is left is what this script *says*: the package's
+            // path and how its tree resolved last time, and the three sidecars
+            // - written through `write_if_different`, so a run that changes
+            // nothing moves no mtime and recompiles nothing.
+            package_env(Some(&pkg), offline);
+            write_digest_beside(&out, &archive);
+            features_beside(&out, &features);
+            libc_beside(&out, product.libc);
+            return;
+        }
+    }
+
+    // Whether there is a dependency tree at all. `net` used to be the whole of
+    // this question and `crypto` is why it no longer is: a `net`-off,
+    // `crypto`-on runtime still resolves one crate, so taking the shortcut on
+    // `net` alone would build `--offline` against a `CARGO_HOME` that may not
+    // hold `getrandom` - a hard failure where every other shape of this is a
+    // degrade.
+    let deps = net || crypto;
+    let offline = match (deps, relock) {
+        (false, _) => Some(true),
+        (true, true) => Some(false),
+        (true, false) => match resolves(&cargo, &rustc, &pkg, &target) {
+            Some(offline) => Some(offline),
+            None => {
+                // The degradation the header's fifth bullet argues for. A
+                // `cargo:warning` rather than silence, because the consequence
+                // - no native backend - is one a contributor will otherwise
+                // meet as a test that skipped.
+                println!(
+                    "cargo:warning=the runtime's dependency tree could not be resolved, so this \
+                     toolchain has no native runtime archive and no native backend. Either the \
+                     registry is unreachable and CARGO_HOME holds none of the crates, or \
+                     cli/runtime/manifest.lock no longer matches manifest.toml - \
+                     `BURI_RUNTIME_RELOCK=1 cargo build -p buri` fixes the second. \
+                     `BURI_RUNTIME_NET=0 BURI_RUNTIME_CRYPTO=0` builds the runtime with no \
+                     dependency tree at all."
+                );
+                write_empty(&out);
+                features_beside(&out, &[]);
+                // An empty archive is not a musl archive, whatever the product
+                // triple would have been: there is nothing to link and so
+                // nothing to link against.
+                libc_beside(&out, "");
+                // And no stamp: the archive this `OUT_DIR` now holds is not one
+                // any set of inputs produced.
+                clear_stamp(&out);
+                package_env(None, true);
+                return;
+            }
+        },
+    };
+    package_env(Some(&pkg), offline == Some(true));
+
+    if !relock {
+        command.arg("--locked");
+    }
+    if offline == Some(true) {
+        command.arg("--offline");
+    }
     command.arg("--").args(RUNTIME_RUSTC_ARGS);
 
     match command.status() {
@@ -1078,23 +1453,41 @@ fn runtime_archive(manifest: &Path) {
     // and an empty `-C extra-filename` makes the two names the same, so the
     // uplift does not happen and `deps/` is where the archive actually is.
     let built = target_dir.join(&target).join("release/deps/libburi_rt.a");
-    if let Err(e) = std::fs::copy(&built, &out) {
-        fail(&format!(
-            "cargo reported success but {} could not be copied to {}: {e}",
-            built.display(),
-            out.display()
-        ));
-    }
-    digest_beside(&out);
+    let bytes = match std::fs::read(&built) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            fail(&format!("cargo reported success but {} could not be read: {e}", built.display()))
+        }
+    };
+    // Through `write_if_different` for the reason that function gives, and the
+    // reason bites hardest here: the archive is the largest thing the crate
+    // `include_bytes!`es, so rewriting it with the bytes it already holds
+    // recompiles the toolchain. A nested build that ran because the stamp could
+    // not be taken - or because something moved that the archive did not depend
+    // on - reproduces the same archive from the same tree, and that is the
+    // common case rather than the rare one.
+    write_if_different(&out, &bytes);
+    let digest = sha256::hash_bytes(&bytes);
+    write_digest_beside(&out, &digest);
     // What the build asked for and got. The command line above named exactly
     // this list and a tree that resolved and compiled is one whose features are
     // the ones it was given, so the sidecar is that list written down rather
     // than a second decision about it.
     features_beside(&out, &features);
-    // And which libc those features were compiled against. Written last, beside
-    // the digest and the feature list, by the one run of the script that wrote
-    // the bytes all three describe.
+    // And which libc those features were compiled against. Written beside the
+    // digest and the feature list, by the one run of the script that wrote the
+    // bytes all three describe.
     libc_beside(&out, product.libc);
+    // Last of all, and only now: the stamp names the inputs that produced
+    // *these* bytes, so it is written after the bytes are on disk and after
+    // everything that describes them. A run whose inputs could not all be
+    // enumerated leaves no stamp and removes any older one, which is the
+    // conservative half of the rule in `stamp_of` - no stamp is a nested build,
+    // and a nested build is always correct.
+    match &stamp {
+        Some(fresh) => write_stamp(&out, fresh, &digest, offline == Some(true)),
+        None => clear_stamp(&out),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1216,9 +1609,7 @@ fn supported(target: &str) -> bool {
 /// file would be an `include_str!` that does not compile on exactly the hosts
 /// this branch exists to keep building.
 fn write_empty(out: &Path) {
-    if let Err(e) = std::fs::write(out, []) {
-        fail(&format!("could not write {}: {e}", out.display()));
-    }
+    write_if_different(out, &[]);
     digest_beside(out);
 }
 
