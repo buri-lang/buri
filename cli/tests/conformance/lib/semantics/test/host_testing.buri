@@ -14,9 +14,10 @@
 from "core/actor" import * as actor;
 from "core/actor" import { Actor, Reply };
 from "core/alloc" import * as alloc;
+from "core/crypto" import * as crypto;
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, IoError, Net, NetError, Proc, Rand, Region, Request,
-    Response, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Alloc, Clock, Entropy, Env, Fs, Header, IoError, Net, NetError, Proc, Rand, Region,
+    Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -25,8 +26,8 @@ from "core/fs" import * as fs;
 // functions of the same module, so a test writes the call it expects the way
 // the code under test made it.
 from "core/host/testing" import {
-    alloc, appendFile, clock, env, fetch, fileExists, fs, makeDir, net, proc, rand,
-    readBytes, readDir, readFile, readFileBytes, readLine, removeFile, renameFile,
+    alloc, appendFile, clock, entropy, env, fetch, fileExists, fs, makeDir, net, proc,
+    rand, readBytes, readDir, readFile, readFileBytes, readLine, removeFile, renameFile,
     sockets, stderr, stdin, stdout, syncFile, task, TaskCall, tasks, writeFile,
     writeFileBytes,
 };
@@ -985,6 +986,49 @@ test "a seeded generator answers a float in the unit interval" {
     let x = random.float(ctx);
     assert.isTrue(x >= 0.0);
     assert.isTrue(x < 1.0);
+}
+
+// -----------------------------------------------------------------------------
+// entropy
+// -----------------------------------------------------------------------------
+//
+// The double a test binds for the one effect whose real implementation is
+// defined by being unpredictable. What is asserted here is that this one is
+// not: seeded, reproducible, the same on both backends, and drawing from the
+// same generator `rand()` does.
+
+test "the seeded entropy is the same octets on every backend" {
+    let ctx = context {
+        Alloc: alloc(),
+        Entropy: entropy(),
+    };
+    assert.eq(crypto.randomBytes(ctx, 4), [33, 1, 197, 79]);
+}
+
+test "an entropy seed answers a new generator at the start of its sequence" {
+    let base = entropy();
+    let ctx = context {
+        Alloc: alloc(),
+        Entropy: base.seed(7),
+    };
+    assert.eq(crypto.token(ctx, 4), "e7074345");
+    let other = context {
+        Alloc: alloc(),
+        Entropy: base,
+    };
+    assert.eq(crypto.token(other, 4), "2101c54f");
+}
+
+test "the entropy double and the rand double are one generator" {
+    let secret = context {
+        Alloc: alloc(),
+        Entropy: entropy().seed(3),
+    };
+    let uniform = context {
+        Alloc: alloc(),
+        Rand: rand().seed(3),
+    };
+    assert.eq(crypto.randomBytes(secret, 6), random.bytes(uniform, 6));
 }
 
 // -----------------------------------------------------------------------------

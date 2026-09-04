@@ -7,8 +7,8 @@
 //! authority can enter.
 //!
 //! Every name here is `core/host`'s name — `alloc`, `stdout`, `stderr`,
-//! `stdin`, `fs`, `net`, `clock`, `rand`, `env`, `proc`, `sockets` — but
-//! **called** rather than referred to.
+//! `stdin`, `fs`, `net`, `clock`, `rand`, `entropy`, `env`, `proc`, `sockets` —
+//! but **called** rather than referred to.
 //! `core/host`'s `clock` is one clock because a process has one; `clock()` is a
 //! fresh one every call, so what one test does to it is invisible to the next.
 //! That is the whole reason these are functions and `core/host`'s are `let`s.
@@ -123,8 +123,8 @@
 //! a test writes.
 
 from "core/effect" import {
-    Alloc, Clock, Env, Frame, Fs, Header, IoError, Method, Net, NetError, Proc, Rand,
-    Region, Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Alloc, Clock, Entropy, Env, Frame, Fs, Header, IoError, Method, Net, NetError, Proc,
+    Rand, Region, Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 
 // The one module above `core/effect` this one imports, and it is the surface
@@ -951,6 +951,36 @@ impl TestRand {
     /// A **new** generator, at that seed and drawing from the start of its
     /// sequence.
     export fn seed(self, n: Int): TestRand;
+}
+
+// --- Entropy ------------------------------------------------------------------
+
+/// Seeded, like `rand()`, and that is the **only** thing in this language that
+/// is allowed to answer `Entropy` predictably.
+///
+/// `core/effect`'s `Entropy` promises octets nobody can guess, and the whole of
+/// what a test needs from it is the opposite: the same octets every run, so a
+/// sealed value written into an assertion keeps matching. The two are
+/// reconciled the way every other capability here is — by the *program* never
+/// binding this, and the test binding nothing else. A test source is the only
+/// place `entropy()` can be named, and `core/host`'s `entropy` is the only
+/// thing a program can name.
+///
+/// The sequence is `rand()`'s, byte for byte and seed for seed, and it is the
+/// same sequence on both backends — which is what makes a token minted here
+/// something an assertion can be written against.
+export struct TestEntropy(I64);
+
+impl Entropy for TestEntropy {
+    fn bytes(self, count: Int): [U8];
+}
+
+export fn entropy(): TestEntropy;
+
+impl TestEntropy {
+    /// A **new** generator, at that seed and drawing from the start of its
+    /// sequence.
+    export fn seed(self, n: Int): TestEntropy;
 }
 
 // --- Environment --------------------------------------------------------------

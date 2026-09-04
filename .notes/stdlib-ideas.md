@@ -535,6 +535,7 @@ export struct Command<C> {
     export about: Str,
     export run: fn(C, Parsed) => Result<(), Str>,
     export flags: Option<[Flag]>,
+// Nick's decision (do this): name this `arguments` instead of `args`
     export args: Option<[Arg]>,
 }
 
@@ -548,6 +549,7 @@ export struct Cli<C> {
 
 // ---- what a parse answers ------------------------------------------------
 
+// Nick's decision (do this): name this `Arguments` rather than `Parsed`
 export struct Parsed {
     export values: Map<Str, Str>,
     export switches: Set<Str>,
@@ -593,6 +595,7 @@ export fn run<C: Alloc + Env + Stdout + Stderr>(ctx: C, spec: Cli<C>): Result<()
 /// `.Ok(())` is exit 0. A parse error goes to stderr with the usage under it
 /// and comes back as `.Err`, which `main`'s contract turns into exit 1; a
 /// command that owns a *particular* status calls `proc.exit` itself.
+// Nick's Decision: it seems like `fire` is not necessary given the example below. if so, then do not expose the fire function.
 export fn fire<C: Alloc + Stdout + Stderr>(
     ctx: C,
     spec: Cli<C>,
@@ -691,6 +694,8 @@ stderr with the usage under it, exit 1. `wc2 count README.md` fires
 The env-var fallback stays outside all of this, as argued above: a caller that
 wants one merges `env.get` into the value it read from `Parsed`, because the
 precedence rule is a decision and not a default.
+
+Nick's decision (do this): the above API works with me, with the comments I provided. If possible, it would be great if the parsed arguments in the run function were actually of the correct struct type, so the run function could be type safe. but if that requires a new language feature (e.g., reflection) let's go with what you recommended above. It seems like, though that many proposed exported functions (like parse, fire, help, render, errorText) aren't necessary (at least by looking at the example it seems like they're not necessary)? Only export necessary functions from this library.
 
 ---
 
@@ -950,6 +955,8 @@ backends run — `design/STANDARD-LIBRARY.md` §5 requires the test anyway, and 
 value being identical on JS and native is the whole point. **Defer** the
 saturating-subtract and sign-bit items: `Saturating` and `Checked` already exist
 and were not found, which puts them in §13 rather than here.
+
+Nick's decision (do this): do the above recommendation
 
 ---
 

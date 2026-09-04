@@ -321,7 +321,7 @@ fn the_list_surface_copies_and_retains() {
     assert!(out.status.success());
 }
 
-/// The three messages `cli/tests/crash/` pins, byte for byte against
+/// The four messages `cli/tests/crash/` pins, byte for byte against
 /// `runtime.js`, plus the exit status `generate.rs:336` gives them.
 ///
 /// A change to any of these on either backend breaks the other's corpus, which
@@ -336,6 +336,7 @@ fn abort_messages_match_the_javascript_backend() {
         ("abort-div", "division by zero"),
         ("abort-shift", "shift out of range"),
         ("abort-random", "random range is empty"),
+        ("abort-entropy-count", "entropy count is negative"),
     ] {
         let out = run(&[mode]);
         assert_eq!(stderr(&out), format!("{message}\n"), "mode {mode}");
@@ -473,6 +474,27 @@ fn the_clock_and_random_effects_work() {
     assert_eq!(
         stdout(&out).trim_end(),
         "now-after-2020=1 slept=1 int-in-range=1000 float-in-range=1000 varies=1",
+        "stderr:\n{}",
+        stderr(&out)
+    );
+    assert!(out.status.success());
+}
+
+/// `Entropy`. Its answer is the one thing in this file that cannot be written
+/// down — that is what the effect is *for* — so what is pinned is everything
+/// around it: the empty request, the length, that the buffer was written at
+/// all, that two draws differ, and that a request past 65536 octets is filled
+/// to its end rather than to whatever one call of the platform's generator
+/// would give.
+#[test]
+fn the_entropy_effect_answers_octets_nobody_wrote() {
+    if skip() {
+        return;
+    }
+    let out = run(&["entropy"]);
+    assert_eq!(
+        stdout(&out).trim_end(),
+        "empty=0 len=64 differ=1 nonzero=1 big=70000 tail=1",
         "stderr:\n{}",
         stderr(&out)
     );

@@ -170,24 +170,77 @@ dependencies and ships no data files. `Zoned` carries a fixed offset in
 minutes, which covers UTC, a stored offset, and arithmetic within one offset.
 It does not cover `America/New_York`, and it does not pretend to.
 
+### Randomness
+
+[`core/random`](../../compiler/standard_library/sources/random.buri) has two
+doors, and the principle behind the split is that **an RNG either takes a seed
+or takes a context**.
+
+`int`, `float` and `bytes` take a context and perform the `Rand` effect. `Gen`
+takes a seed and performs nothing: `random.seeded(7)` is an ordinary value,
+every method answers `(value, Gen)`, and the same seed gives the same sequence
+on every backend and in every process. It is splitmix64, published in the
+module rather than hidden behind an effect, and `split()` answers two streams
+where a program would otherwise be inventing salt constants by hand.
+
+A generator that is a value is what a deterministic simulator needs and could
+not have: a simulation replays a failure from a seed, so its generator cannot be
+something it was handed. `random.gen(ctx)` is the bridge — draw a seed from the
+platform once, then be pure.
+
+`Gen.nextInt` is rejection-sampled, so it has **no modulo bias**; the bounded
+draw is the one place a hand-written generator keeps getting it wrong.
+
+Neither door is a secret. Both are uniform and both are predictable — for `Gen`,
+from a single draw, which is what publishing the algorithm means. What is *not*
+guessable is [`core/crypto`](#cryptography)'s, below.
+
 ### Cryptography
 
 [`core/crypto`](../../compiler/standard_library/sources/crypto.buri) — SHA-256,
-HMAC-SHA-256, and a constant-time comparison. Written in Buri rather than handed
-to the platform, because a dependency tree is a second thing to audit. It is
-checked against the NIST vectors, as is the independent SHA-256 the build cache
-uses, in two languages neither of which can compile the other.
+HMAC-SHA-256, a constant-time comparison, and the platform's cryptographic
+randomness.
+
+The hashes are written in Buri rather than handed to the platform, because a
+dependency tree is a second thing to audit. They are checked against the NIST
+vectors, as is the independent SHA-256 the build cache uses, in two languages
+neither of which can compile the other.
+
+`randomBytes` and `token` are the half that is *not* written here. They perform
+the `Entropy` effect, and the octets come from the operating system —
+`getrandom(2)` and `getentropy(2)` under a native binary,
+`crypto.getRandomValues` under a JavaScript one. A CSPRNG is a platform's to
+supply rather than an algorithm to reimplement, and the reason it took an effect
+rather than a function is the point of the whole arrangement: a program has to
+be able to *ask* for unguessability and be refused where it cannot be had.
+
+**`randomBytes` is in `core/crypto` and not in `core/random`, deliberately.**
+`core/random` is seeded and reproducible on purpose — a hermetic test needs the
+same numbers every run — and it has a `bytes` of its own that keeps that
+promise. The two sets of octets are indistinguishable by inspection and differ
+only in whether an observer can predict the next one, so the module a program
+imports is how it says which it meant. `token(ctx, 32)` is the spelling for a
+session's resume token: 32 octets of entropy, written as lowercase hex.
+
+`Entropy` is granted on every platform, and what can be missing is the
+*toolchain*: a runtime archive built without its `crypto` feature refuses
+`randomBytes` by name, before code generation, rather than answering from a
+generator that is merely uniform. See
+[cryptography-not-available](./errors/cryptography-not-available.md).
 
 Deliberately absent, and not by oversight:
 
-- **No ciphers.** Shipping a block function without a key schedule, a mode, a
-  nonce discipline, and an authentication tag is how people end up with ECB.
+- **No ciphers, yet.** Shipping a block function without a key schedule, a mode,
+  a nonce discipline, and an authentication tag is how people end up with ECB.
+  One authenticated construction — an AEAD, with the nonce minted by `Entropy`
+  rather than by the caller — is the shape it would take, and it is a slice of
+  its own: a second host effect on both backends, `crypto.subtle` undefined on a
+  page that is not a secure context where `crypto.getRandomValues` is not, and
+  every Buri function that could reach it becoming `async` in the emitted
+  JavaScript, because `crypto.subtle` is promise-shaped. Each of those is
+  answerable; none is answerable quietly.
 - **No public-key anything.**
-- **No cryptographically secure randomness.** `core/random` is seeded and
-  reproducible on purpose — a hermetic test needs the same numbers every run.
-  A CSPRNG is a different thing, and it would need a new `Entropy` effect in
-  `core/effect` with a host implementation behind it. That is a decision to take
-  deliberately, not a function to add quietly beside these.
+- **No key derivation and no password hashing.**
 
 `sha256` is **not a password hash**. It is fast, which is the wrong property.
 
@@ -214,6 +267,7 @@ implements them and may be imported only by the module that exports `main`.
 [`core/env`](../../compiler/standard_library/sources/env.buri),
 [`core/time`](../../compiler/standard_library/sources/time.buri),
 [`core/random`](../../compiler/standard_library/sources/random.buri),
+[`core/crypto`](../../compiler/standard_library/sources/crypto.buri),
 [`core/net/http`](../../compiler/standard_library/sources/http.buri),
 [`core/net/server`](../../compiler/standard_library/sources/server.buri),
 [`core/proc`](../../compiler/standard_library/sources/proc.buri),
@@ -378,10 +432,11 @@ an `impl` block takes `self`), so the constructors are free functions:
 `http.json`.
 
 `core/host/testing` is `core/host`'s surface for a test: the same names —
-`alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `env`,
-`proc`, `sockets` — **called** rather than referred to, so each one is a fresh double, and
+`alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `entropy`,
+`env`, `proc`, `sockets` — **called** rather than referred to, so each one is a fresh double, and
 configured by a method that answers a new one (`clock().at(1000)`,
-`rand().seed(7)`, `env().variables([...]).arguments([...])`,
+`rand().seed(7)`, `entropy().seed(7)`,
+`env().variables([...]).arguments([...])`,
 `fs().files([...]).readOnly()`). `net()` **refuses** every request until
 `net().respond(fn(request) => ...)` says what to answer, and that responder is a
 pure function of the `Request` — SPEC 10.6 keeps it from capturing a context, so
@@ -404,7 +459,13 @@ the writing half of a WebSocket: `sockets().open()` mints a `Socket` with no
 network behind it, `sent()` reads back `[(Socket, Message)]` and `isOpen(s)`
 says whether a socket is still one this double will take a message for — so a
 broadcast room, which is `Sockets` and nothing else, is tested with no listener,
-no port and no client. See
+no port and no client. `entropy()` is the one double that is the *opposite* of
+what the effect promises, and it is the only place in this language where these
+octets are predictable on purpose: it draws from `rand()`'s own generator at
+`rand()`'s own seeds, so a token minted in a test is a value an assertion can be
+written against and is the same value on both backends. A program cannot reach
+it — `core/host/testing` is importable only from a test source — and a test
+cannot reach the real one. See
 [testing](./build/testing.md).
 
 ### Allocators

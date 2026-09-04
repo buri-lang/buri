@@ -868,8 +868,19 @@ fn dependencies_stay_behind_the_bar() {
     // link, not of what a default toolchain does — and the h3 leg below is what
     // holds the second half, that asking for it is a build-time choice nobody
     // makes by accident.
+    //
+    // `getrandom` is the seventh, and it is the first entry here that is not
+    // part of the networking stack. It buys one capability of its own — the
+    // operating system's cryptographic generator, behind the `Entropy` effect —
+    // and it is behind a `crypto` feature of its own for that reason: a program
+    // that mints a session token has not asked to speak the network. The bar's
+    // first clause is the one it has to clear, because `cli/runtime/rng.rs`
+    // already reads `/dev/urandom` in twenty lines; `manifest.toml`'s entry is
+    // where the answer is written, and the short form of it is that a *seed*
+    // with a clock fallback and a *key* with none are not the same twenty
+    // lines.
     const RUNTIME_ADMITTED: &[&str] =
-        &["hyper", "quinn", "ring", "rustls", "tokio", "tungstenite"];
+        &["getrandom", "hyper", "quinn", "ring", "rustls", "tokio", "tungstenite"];
     let runtime = std::fs::read_to_string(repo_root().join("cli/runtime/manifest.toml"))
         .expect("cli/runtime/manifest.toml");
     let mut runtime_deps: Vec<String> =
@@ -897,11 +908,28 @@ fn dependencies_stay_behind_the_bar() {
              resolved by nothing and shipped by nothing"
         );
     }
+    // Both of the on-by-default features, checked one at a time rather than as
+    // a literal line, because the line has grown once and the *property* is
+    // what each of them is in `default` for: a capability a program either has
+    // or is refused for must not be a build-flag question for every user.
+    let default_line = runtime
+        .lines()
+        .find(|line| line.trim_start().starts_with("default = ["))
+        .expect("cli/runtime/manifest.toml declares a default feature set")
+        .to_string();
     assert!(
-        runtime.contains("default = [\"net\"]"),
-        "the runtime's default feature set is no longer `net`. A toolchain whose runtime cannot \
-         speak the network by default makes `Net` a build-flag question for every user rather \
-         than a capability question for every program"
+        default_line.contains("\"net\""),
+        "`net` left the runtime's default feature set ({default_line}). A toolchain whose \
+         runtime cannot speak the network by default makes `Net` a build-flag question for \
+         every user rather than a capability question for every program"
+    );
+    assert!(
+        default_line.contains("\"crypto\""),
+        "`crypto` left the runtime's default feature set ({default_line}). A toolchain whose \
+         runtime cannot reach the operating system's generator refuses every program that \
+         mints a token, and `Entropy` becomes a build-flag question rather than a capability \
+         question. The refusal is the right answer for a toolchain that genuinely has none; it \
+         is the wrong default for everybody else"
     );
 
     // -- the h3 leg: a feature the default build does not turn on -------------
@@ -949,6 +977,24 @@ fn dependencies_stay_behind_the_bar() {
         !default_feature.contains("net-h3"),
         "`net-h3` is in the runtime's default feature set, so the gate is open for everyone: \
          {default_feature}"
+    );
+
+    // -- the crypto leg: one feature, one crate, and no second door ----------
+    //
+    // The set equality above sees that `getrandom` is admitted and the loop
+    // after it sees that some feature enables it. What neither sees is *which*,
+    // and it matters: `getrandom` behind `net` would make `Entropy` a
+    // capability a program has to ask for the network to get, and behind
+    // `net-h3` it would be off by default.
+    let crypto_feature = feature_line("crypto");
+    assert!(
+        crypto_feature.contains("\"dep:getrandom\""),
+        "`crypto` does not enable `getrandom`, so the feature turns nothing on: {crypto_feature}"
+    );
+    assert!(
+        !net_feature.contains("getrandom"),
+        "`getrandom` is enabled by `net`, so a program that only wants an unguessable token \
+         now needs the networking stack to get one: {net_feature}"
     );
     assert!(
         runtime.contains("[dependencies]"),

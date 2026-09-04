@@ -27,11 +27,12 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Thirty-seven of the forty-six files are in it** — the number the harness
+//! **Thirty-nine of the forty-eight files are in it** — the number the harness
 //! prints, re-derived from it rather than incremented by hand, and one the
 //! prose has drifted from more than once. The ordinals in the paragraphs below
 //! record *when* a file joined the set and are not a running total of it;
-//! `codegen/ordering.buri` is the latest, and its own entry says why it is in.
+//! `codegen/ordering.buri`, `random/gen.buri` and `crypto/entropy.buri` are the
+//! latest, and their own entries say why they are in.
 //! `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
 //! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
@@ -476,6 +477,17 @@ const PACKAGES: &[Case] = &[
     // byte-pattern entries — are `cli/runtime/bytes.rs` now, which is the one
     // surface each of these two was waiting for.
     included("crypto/sha256.buri"),
+    // The seeded `Entropy` double and the two doors onto it. Native from the
+    // day it landed: `TestEntropy` shares `Slot::Rand` with `TestRand` in
+    // `cli/runtime/testing.rs`, so the sequence this file writes down is the
+    // one both backends draw.
+    included("crypto/entropy.buri"),
+    // `Gen`, which is ordinary Buri and reaches no host: U64 wrapping
+    // arithmetic, shifts, tail recursion and a tuple returned from every
+    // method. It is on the native set from the day it landed for the reason
+    // `crypto/sha256.buri` is — a second implementation of an algorithm both
+    // backends have to agree about, with every answer written into the file.
+    included("random/gen.buri"),
     included("text/bytes.buri"),
     excluded(
         "numbers/floats.buri",

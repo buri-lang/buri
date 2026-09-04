@@ -422,6 +422,14 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped],
         ret: Ret::Scalar,
     },
+    // Behind the runtime's `crypto` feature; see the shared table's row for why
+    // that is a question asked somewhere else rather than a reason to omit it.
+    Entry {
+        key: "host.HostEntropy.bytes",
+        symbol: "buri_rt_host_entropy_bytes",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Out,
+    },
     // The `Alloc` capability's charge, which is the identity function plus a
     // budget check in the runtime (`memory.rs:330`).
     Entry {
@@ -1595,6 +1603,24 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_testing_test_rand_next_float",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.entropy",
+        symbol: "buri_rt_host_testing_entropy",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestEntropy.seed",
+        symbol: "buri_rt_host_testing_test_entropy_seed",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestEntropy.bytes",
+        symbol: "buri_rt_host_testing_test_entropy_bytes",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Out,
     },
     Entry { key: "host_testing.env", symbol: "buri_rt_host_testing_env", args: &[], ret: Ret::Out },
     Entry {
