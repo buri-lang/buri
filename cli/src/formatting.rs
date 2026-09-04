@@ -2781,7 +2781,7 @@ fn breakable(t: &Tree, e: ExprId) -> bool {
 /// operator.
 fn needs_parens(t: &Tree, e: ExprId) -> bool {
     let k = t.kind(e);
-    expr_prec(t, e) < 11 || (k.is_block_like() && k != Kind::Block)
+    expr_prec(t, e) < 10 || (k.is_block_like() && k != Kind::Block)
 }
 
 /// The operands of one precedence level, left to right. The first carries no
@@ -2842,14 +2842,13 @@ fn template_text(t: &str) -> String {
 fn binop_prec(op: BinOp) -> u8 {
     match op {
         BinOp::Or => 1,
-        BinOp::Coalesce => 2,
-        BinOp::And => 3,
-        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => 4,
-        BinOp::BitOr => 5,
-        BinOp::BitXor => 6,
-        BinOp::BitAnd => 7,
-        BinOp::Add | BinOp::Sub => 8,
-        BinOp::Mul | BinOp::Div | BinOp::Rem => 9,
+        BinOp::And => 2,
+        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => 3,
+        BinOp::BitOr => 4,
+        BinOp::BitXor => 5,
+        BinOp::BitAnd => 6,
+        BinOp::Add | BinOp::Sub => 7,
+        BinOp::Mul | BinOp::Div | BinOp::Rem => 8,
     }
 }
 
@@ -2859,8 +2858,8 @@ fn expr_prec(t: &Tree, e: ExprId) -> u8 {
         // bare operand (design/grammar-rationale.md 12.11).
         ExprView::Lambda { .. } => 0,
         ExprView::Binary { op, .. } => binop_prec(op),
-        ExprView::Unary { .. } => 10,
-        _ => 11,
+        ExprView::Unary { .. } => 9,
+        _ => 10,
     }
 }
 

@@ -8609,7 +8609,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
     /// The `main` of a **test binary**: every `test` block, in order.
     ///
     /// `stencil/asm.rs::test_entry` is the same statements for the same
-    /// reason: a failed assertion is an abort (SPEC 6.10 leaves nothing to
+    /// reason: a failed assertion is an abort (SPEC 6.9 leaves nothing to
     /// catch), so one process reports at most one failure and `buri test`
     /// assembles a suite's report across as many processes as it has failures.
     /// `buri_rt_test_enter(i)` answers 0 for a block a previous process already

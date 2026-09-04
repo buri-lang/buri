@@ -29,7 +29,7 @@ export fn main(): Result<(), Str> {
         Env: host.env,
     };
 
-    let path = env.get(ctx, "LEDGER_LOG") ?? "ledger.log";
+    let path = env.get(ctx, "LEDGER_LOG").withDefault("ledger.log");
     let hit = route("/entries");
 
     match (append(ctx, path, [entry("startup", fromCents(0))])) {

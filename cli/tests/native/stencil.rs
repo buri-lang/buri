@@ -563,7 +563,7 @@ export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
   let x: F64 = 2.5;
   let n = x.toI64();
-  let _ = io.println(stdout, "${n ?? 0}").ignore();
+  let _ = io.println(stdout, "${n.withDefault(0)}").ignore();
   .Ok(())
 }
 "#,
@@ -904,7 +904,8 @@ export fn main(): Result<(), Str> {
 /// the *platform* has, not by the ones a double can name, so `.Some(v)` here
 /// promises `v` is the true result. The 128-bit column is the one with no wider
 /// type to do the arithmetic in, which is why it is in the same test as the
-/// eight-bit one rather than left to the corpus. `?? 7` stands for `.None`,
+/// eight-bit one rather than left to the corpus. `.withDefault(7)` stands for
+/// `.None`,
 /// which none of these operations can otherwise produce.
 #[test]
 fn the_numeric_surface_answers_at_its_own_width() {
@@ -924,12 +925,12 @@ export fn main(): Result<(), Str> {
   let d: I128 = num.maxValue<I128>();
   let e: U128 = 340282366920938463463374607431768211455;
   let f: I64 = -5;
-  let _ = io.println(stdout, "${a.checkedAdd(100) ?? 7} ${a.saturatingAdd(100)} ${a.wrappingAdd(100)}").ignore();
-  let _ = io.println(stdout, "${b.checkedSub(1) ?? 7} ${b.saturatingSub(1)} ${b.wrappingSub(1)}").ignore();
-  let _ = io.println(stdout, "${c.checkedMul(2) ?? 7} ${c.saturatingMul(2)} ${c.wrappingMul(2)}").ignore();
-  let _ = io.println(stdout, "${d.checkedAdd(1) ?? 7} ${d.saturatingAdd(1)} ${d.wrappingAdd(1)}").ignore();
-  let _ = io.println(stdout, "${e} ${e.checkedAdd(1) ?? 7} ${f.abs()} ${f.signum()}").ignore();
-  let _ = io.println(stdout, "${c.checkedDiv(0) ?? 7} ${num.minValue<I8>().checkedDiv(-1) ?? 7}").ignore();
+  let _ = io.println(stdout, "${a.checkedAdd(100).withDefault(7)} ${a.saturatingAdd(100)} ${a.wrappingAdd(100)}").ignore();
+  let _ = io.println(stdout, "${b.checkedSub(1).withDefault(7)} ${b.saturatingSub(1)} ${b.wrappingSub(1)}").ignore();
+  let _ = io.println(stdout, "${c.checkedMul(2).withDefault(7)} ${c.saturatingMul(2)} ${c.wrappingMul(2)}").ignore();
+  let _ = io.println(stdout, "${d.checkedAdd(1).withDefault(7)} ${d.saturatingAdd(1)} ${d.wrappingAdd(1)}").ignore();
+  let _ = io.println(stdout, "${e} ${e.checkedAdd(1).withDefault(7)} ${f.abs()} ${f.signum()}").ignore();
+  let _ = io.println(stdout, "${c.checkedDiv(0).withDefault(7)} ${num.minValue<I8>().checkedDiv(-1).withDefault(7)}").ignore();
   .Ok(())
 }
 "#,
@@ -1027,12 +1028,12 @@ export fn main(): Result<(), Str> {
   ];
   let sorted = rows.sortBy(ctx, fn(x, y) => x.key.compare(y.key));
   let tags = sorted.map(ctx, fn(r) => r.tag).join(ctx, "");
-  let found = rows.find(fn(r) => r.key == 1).map(fn(r) => r.tag) ?? "?";
-  let at = rows.findIndex(fn(r) => r.tag == "d") ?? -1;
+  let found = rows.find(fn(r) => r.key == 1).map(fn(r) => r.tag).withDefault("?");
+  let at = rows.findIndex(fn(r) => r.tag == "d").withDefault(-1);
   let pairs = [1, 2, 3].zip(ctx, ["x", "y"]);
   let flat = [["p", "q"], [], ["r"]].flatten(ctx).join(ctx, "");
-  let sum = [1, 2, 3].foldResult(fn(acc, x) => .Ok(acc + x), 0) ?? -1;
-  let stop = [1, 9, 3].foldResult(fn(acc, x) => if (x == 9) { .Err(-2) } else { .Ok(acc + x) }, 0) ?? -1;
+  let sum = [1, 2, 3].foldResult(fn(acc, x) => .Ok(acc + x), 0).withDefault(-1);
+  let stop = [1, 9, 3].foldResult(fn(acc, x) => if (x == 9) { .Err(-2) } else { .Ok(acc + x) }, 0).withDefault(-1);
   let _ = io.println(stdout, "${tags} ${found} ${at} ${pairs.len()} ${flat} ${sum} ${stop}").ignore();
   .Ok(())
 }
@@ -1073,7 +1074,7 @@ fn pick(xs: [Str], i: Int): Option<Str> {
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: alloc.generalPurpose() };
   let xs = [str.format(ctx, "a${1}"), str.format(ctx, "b${2}"), str.format(ctx, "c${3}")];
-  let seen = list.range(ctx, 0, 4).map(ctx, fn(i) => pick(xs, i) ?? "-").join(ctx, "");
+  let seen = list.range(ctx, 0, 4).map(ctx, fn(i) => pick(xs, i).withDefault("-")).join(ctx, "");
   let _ = io.println(stdout, seen).ignore();
   .Ok(())
 }
@@ -1941,7 +1942,7 @@ fn the_corpus_census_is_a_ratchet() {
 ///
 /// Compiling is not the bar: a backend that emitted an object for a file and
 /// got the answers wrong would pass the census next door. A failed assertion
-/// ends the process (SPEC 6.10), so the exit status is the result.
+/// ends the process (SPEC 6.9), so the exit status is the result.
 ///
 /// `native/conformance.rs::the_native_set_passes` now runs the same thirty-six
 /// files through the same backend and reports the block count with them, so

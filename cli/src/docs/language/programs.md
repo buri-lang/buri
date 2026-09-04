@@ -163,7 +163,7 @@ its being a platform module rather than a library:
 - **Its functions take no `ctx`** and still render a failure message. Rendering
   is the runner's, not the program's — which is why this signature would be a
   lie anywhere else, and why the module is importable only from a test source.
-- **A failure ends that test** and no other, the way an abort (Section 6.10)
+- **A failure ends that test** and no other, the way an abort (Section 6.9)
   ends a program. The runner reports the file, the line, and both values.
 
 A test source may also use **expression statements**, which no other module may:

@@ -933,7 +933,7 @@ there was something to be at parity with: the process dies on the fault, with no
 message, and the shell reports the signal. Measured on the same non-tail
 recursion, both backends through `buri build` before the removal: Cranelift
 **exited 139** (`SIGSEGV`, the OS guard under the machine stack) and stencil
-**exits 138** (`SIGBUS`, the `PROT_NONE` guard above the Buri stack). SPEC §6.10
+**exits 138** (`SIGBUS`, the `PROT_NONE` guard above the Buri stack). SPEC §6.9
 asks for "a message on stderr and a non-zero exit status" and neither printed the
 message; that gap is the *runtime's* — it has no fault handler — and it is not
 this backend's to close alone. What this section closed is the difference that
@@ -1250,7 +1250,7 @@ key and the IR rather than carried through the emission. That is a wave of its
 own and it is not this one.
 
 **No `.eh_frame` either, and nothing wants one.** The language has no exceptions
-— an abort is a write to stderr and `_exit`, not an unwind (SPEC 6.10,
+— an abort is a write to stderr and `_exit`, not an unwind (SPEC 6.9,
 `generate.rs`) — so there is nothing to unwind, and §3.2's cross builds pass
 `-fno-asynchronous-unwind-tables` for exactly that reason: the Linux drivers
 default it on, and the result is a `.eh_frame` the size of the code that nothing

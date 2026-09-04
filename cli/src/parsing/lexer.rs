@@ -1409,6 +1409,10 @@ impl<'a> Lexer<'a> {
             (b'|', _) => Or,
             (b'^', _) => Caret,
             (b'~', _) => Tilde,
+            // `??` is retired as an operator (`retired-coalesce`), and is
+            // still one token: read as two `?`s it would be a double `try`,
+            // and the parser would report something other than what was
+            // written.
             (b'?', b'?') => self.second(QuestionQuestion),
             // No `?.` token, so `x?.field` is `x` `?` `.` `field`.
             (b'?', _) => Question,

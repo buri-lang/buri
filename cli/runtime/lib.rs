@@ -326,7 +326,7 @@
 //! [`buri_rt_alloc_charge`] is the one entry in this file that can end the
 //! process on an ordinary success path: a `FixedBuffer` overrun aborts through
 //! [`buri_rt_abort_alloc_budget`], because `allocate` answers `Region` and not
-//! `Result` and there is no value to report the failure with (SPEC 6.10).
+//! `Result` and there is no value to report the failure with (SPEC 6.9).
 //! [`buri_rt_alloc_budget_check`] is the same check exposed on its own, for a
 //! backend that would rather open-code the charge.
 //!

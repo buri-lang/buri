@@ -13,10 +13,9 @@
 // be a function the compiler saw as one.
 
 from "//lib/codegen/shapes.buri" export {
-    adders, addersEven, addersOdd, allBelow, countDownAnd, countDownCoalesce,
-    countDownOr, Deep, evenAnd, firstOr, Flat, Floaty, Holder, Hollow, Listy, mkDeep,
-    mkFloaty, mkHolder, mkHollow, mkListy, mkNest, mkPair, Nest, noneAt, notANumber,
-    oddAnd, Pair, pairs, scalers, Wide,
+    adders, addersEven, addersOdd, allBelow, countDownAnd, countDownOr, Deep, evenAnd,
+    Flat, Floaty, Holder, Hollow, Listy, mkDeep, mkFloaty, mkHolder, mkHollow, mkListy,
+    mkNest, mkPair, Nest, notANumber, oddAnd, Pair, pairs, scalers, Wide,
 };
 // closures built inside a tail loop
 // tail position under the short-circuiting operators

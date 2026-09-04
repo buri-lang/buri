@@ -1853,8 +1853,8 @@ test "an ordinary Buri implementation hands its steps the context" {
     let out = tasks.parallel(ctx, [1, 2], fn(c, i, item) => {
         time.now(c).0 + i * 10 + item
     });
-    assert.eq(out[0] ?? 0, 12);
-    assert.eq(out[1] ?? 0, 23);
+    assert.eq(out[0].withDefault(0), 12);
+    assert.eq(out[1].withDefault(0), 23);
 }
 
 // -----------------------------------------------------------------------------

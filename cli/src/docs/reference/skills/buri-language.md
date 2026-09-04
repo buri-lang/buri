@@ -201,20 +201,21 @@ let sum = xs.fold(fn(acc, x) => acc + x, 0);
   parse error — parenthesise it.
 - Shadowing is allowed, including twice in one block.
 
-### `?` and `??`
+### `?` and defaults
 
 ```buri
 fn loadPort<C: Alloc + Fs>(ctx: C, path: Str): Result<Int, ConfigError> {
     let text = fs.readText(ctx, path)?;       // Err(e) => return Err(e)
     let cfg = parseConfig(text)?;
-    .Ok(cfg.port ?? 8080)
+    .Ok(cfg.port.withDefault(8080))
 }
 ```
 
 `?` on a `Result<T, E>` requires the enclosing function to return
 `Result<_, E>`; there is no automatic error conversion — use `result.mapErr`.
-`??` is defined for `Option<T> ?? T` and `Result<T, E> ?? T`, is
-right-associative, and short-circuits. `??` is one token, so write `(x?) ?? y`.
+There is no coalescing operator: `withDefault` is a method on both `Option<T>`
+and `Result<T, E>`. It takes the fallback as an argument, so it is evaluated
+either way; write the `match` out where the fallback must not run.
 
 ## Patterns
 
@@ -235,9 +236,9 @@ patterns must be irrefutable.
 ## Evaluation
 
 Strict, with a fully specified order: `let` bindings top to bottom, call
-arguments left to right, binary operands left to right except `&&`, `||` and
-`??`. That is what makes effect sequencing meaningful, since effects are
-ordinary calls rather than a monad.
+arguments left to right, binary operands left to right except `&&` and `||`.
+That is what makes effect sequencing meaningful, since effects are ordinary
+calls rather than a monad.
 
 Values are immutable, so lambdas capture by value and capture is unobservable
 — except for the effect capture rule in the `buri-types` skill.

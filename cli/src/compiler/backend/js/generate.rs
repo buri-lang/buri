@@ -560,9 +560,7 @@ fn has_tail_continue(e: &typed::Expr) -> bool {
         ExprKind::Block { tail: Some(t), .. } => has_tail_continue(t),
         ExprKind::If { then, else_, .. } => has_tail_continue(then) || has_tail_continue(else_),
         ExprKind::Match { arms, .. } => arms.iter().any(|a| has_tail_continue(&a.body)),
-        ExprKind::And { rhs, .. } | ExprKind::Or { rhs, .. } | ExprKind::Coalesce { rhs, .. } => {
-            has_tail_continue(rhs)
-        }
+        ExprKind::And { rhs, .. } | ExprKind::Or { rhs, .. } => has_tail_continue(rhs),
         _ => false,
     }
 }
@@ -905,7 +903,7 @@ fn survey_args(e: &Expr, under_cond: bool, out: &mut ArgUse) {
         Expr::Binary { op, lhs, rhs } => {
             survey_args(lhs, under_cond, out);
             // The right side of `&&` and `||` is itself conditional.
-            let short = matches!(op, BinOp::And | BinOp::Or | BinOp::Coalesce);
+            let short = matches!(op, BinOp::And | BinOp::Or);
             survey_args(rhs, under_cond || short, out);
         }
         Expr::Cond { test, cons, alt } => {
@@ -1173,42 +1171,11 @@ impl<'a> Gen<'a> {
                     else_,
                 });
             }
-            ExprKind::Coalesce { lhs, rhs, .. } if has_tail_continue(rhs) => {
-                // The same test and held value `expr` computes, off the same
-                // temporary, so the left operand is reached exactly once.
-                let (ok, held) = self.coalesce_split(lhs, out);
-                let mut else_ = Vec::new();
-                self.tail(rhs, &mut else_);
-                out.push(Stmt::If { cond: ok, then: vec![Stmt::Return(Some(held))], else_ });
-            }
             _ => {
                 let v = self.expr(e, out);
                 out.push(Stmt::Return(Some(v)));
             }
         }
-    }
-
-    /// The `??` test and the value the left operand holds, both reading one
-    /// temporary. Shared by the value and the tail forms so the two cannot
-    /// drift apart over what `option_nesting` means.
-    fn coalesce_split(&mut self, lhs: &typed::Expr, out: &mut Vec<Stmt>) -> (Expr, Expr) {
-        let l = self.expr(lhs, out);
-        let name = self.fresh();
-        out.push(Stmt::Var { kind: VarKind::Const, name: name.clone(), init: Some(l) });
-        let option = self.option_nesting(&lhs.ty);
-        let ok = match option {
-            Some(_) => Expr::bin(BinOp::StrictNe, Expr::ident(name.clone()), Expr::Undefined),
-            None => Expr::bin(
-                BinOp::StrictEq,
-                Expr::index(Expr::ident(name.clone()), Expr::Num(0.0)),
-                Expr::Num(0.0),
-            ),
-        };
-        let held = match option {
-            Some(nested) => self.option_value(Expr::ident(name.clone()), nested),
-            None => Expr::index(Expr::ident(name), Expr::Num(1.0)),
-        };
-        (ok, held)
     }
 
     /// Assigns the new arguments and continues. The values are computed into
@@ -2128,26 +2095,6 @@ impl<'a> Gen<'a> {
                 };
                 out.push(Stmt::If { cond, then: r_stmts, else_: Vec::new() });
                 Expr::ident(name)
-            }
-            ExprKind::Coalesce { lhs, rhs, kind } => {
-                // The right operand is evaluated only when the left is
-                // `None`/`Err`.
-                let (ok, held) = self.coalesce_split(lhs, out);
-                let _ = kind;
-                let mut r_stmts = Vec::new();
-                let r = self.expr(rhs, &mut r_stmts);
-                if r_stmts.is_empty() {
-                    return Expr::cond(ok, held, r);
-                }
-                let result = self.fresh();
-                out.push(Stmt::Var { kind: VarKind::Let, name: result.clone(), init: None });
-                r_stmts.push(assign(&result, r));
-                out.push(Stmt::If {
-                    cond: ok,
-                    then: vec![assign(&result, held)],
-                    else_: r_stmts,
-                });
-                Expr::ident(result)
             }
             ExprKind::Try { base, .. } => {
                 // `?` is the only early exit in the language. `.Err(e)` and

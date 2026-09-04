@@ -411,7 +411,7 @@ builds its own allocator has been granted nothing.
 - **`FixedBuffer(n)`** — a byte budget, and charging past it **aborts**. That
   is forced rather than chosen: `allocate` answers `Region` and not
   `Result<Region, _>`, so there is no value to report a failure with, and
-  [`language/expressions.md` §6.10](../language/expressions.md) says that is
+  [`language/expressions.md` §6.9](../language/expressions.md) says that is
   what an abort is for. The message carries both numbers.
 - **`Arena`** — a separate counter, and nothing more than a counter. It does
   not free in bulk, and it says so.

@@ -1,5 +1,5 @@
-// SPEC 6.3, 6.6, 6.8, 6.9, 8.2, 8.4 — evaluation order, blocks, closures,
-// and the two propagation operators.
+// SPEC 6.3, 6.6, 6.8, 8.2, 8.4 — evaluation order, blocks, closures, and
+// error propagation.
 //
 // Ordering is proved by an exact transcript: every test that cares binds
 // `stdout()`, calls something built out of `note*`, and asserts on what
@@ -17,7 +17,7 @@ from "//lib/semantics" import {
     hypotenuse, lambdaTry, lambdaTryResult, Level, makeAdder, makeScaler, Meters,
     nestedShadow, note, noteBool, noteIf, noteInt, noteLets, noteMatch, noteOpt,
     noteRes, noteStr, occursIn, parseSum, pipeline, Report, shadowed, sumFirstTwo,
-    threeInts, tryThenCoalesce,
+    threeInts,
 };
 
 // A transcript needs the `TestStdout` value itself, not just the context it is
@@ -220,7 +220,7 @@ test "a derived operator on a newtype evaluates its operands left to right" {
 }
 
 // -----------------------------------------------------------------------------
-// 4. `&&`, `||` and `??` short-circuit (SPEC 8.2.3, 6.9)
+// 4. `&&` and `||` short-circuit (SPEC 8.2.3)
 // -----------------------------------------------------------------------------
 
 test "&& does not evaluate its right operand when the left is false" {
@@ -296,64 +296,37 @@ test "bool.and is eager where && is not" {
     assert.eq(sink.captured(), "lr");
 }
 
-test "?? does not evaluate its right operand when the Option is Some" {
-    let sink = stdout();
-    let ctx = context {
-        Stdout: sink,
-    };
-    assert.eq(noteOpt(ctx, "l", Option.Some(1)) ?? noteInt(ctx, "r", 2), 1);
-    assert.eq(sink.captured(), "l");
-}
-
-test "?? does evaluate its right operand when the Option is None" {
-    let sink = stdout();
-    let ctx = context {
-        Stdout: sink,
-    };
-    assert.eq(noteOpt(ctx, "l", Option.None) ?? noteInt(ctx, "r", 2), 2);
-    assert.eq(sink.captured(), "lr");
-}
-
-test "?? does not evaluate its right operand when the Result is Ok" {
-    let sink = stdout();
-    let ctx = context {
-        Stdout: sink,
-    };
-    let r: Result<Int, Str> = .Ok(1);
-    assert.eq(noteRes(ctx, "l", r) ?? noteInt(ctx, "r", 2), 1);
-    assert.eq(sink.captured(), "l");
-}
-
-test "?? does evaluate its right operand when the Result is Err" {
-    let sink = stdout();
-    let ctx = context {
-        Stdout: sink,
-    };
-    let r: Result<Int, Str> = .Err("bad");
-    assert.eq(noteRes(ctx, "l", r) ?? noteInt(ctx, "r", 2), 2);
-    assert.eq(sink.captured(), "lr");
-}
-
-test "?? is right-associative and stops at the first present value" {
-    let sink = stdout();
-    let ctx = context {
-        Stdout: sink,
-    };
-    let value = noteOpt(ctx, "a", Option.None)
-        ?? (noteOpt(ctx, "b", Option.Some(2)) ?? noteInt(ctx, "c", 3));
-    assert.eq(value, 2);
-    assert.eq(sink.captured(), "ab");
-}
-
-test "option.withDefault is eager where ?? is not" {
+test "option.withDefault is eager, as every call is" {
     // The fallback is an argument, so it is produced whether it is needed or
-    // not — where `??` above stopped at "l".
+    // not — where `&&` above stopped at "l". There is no operator that would
+    // hold it back; `or` and `andThen` take a function where that matters.
     let sink = stdout();
     let ctx = context {
         Stdout: sink,
     };
     assert.eq(noteOpt(ctx, "l", Option.Some(1)).withDefault(noteInt(ctx, "r", 2)), 1);
     assert.eq(sink.captured(), "lr");
+}
+
+test "result.withDefault is eager in the same way" {
+    let sink = stdout();
+    let ctx = context {
+        Stdout: sink,
+    };
+    let r: Result<Int, Str> = .Ok(1);
+    assert.eq(noteRes(ctx, "l", r).withDefault(noteInt(ctx, "r", 2)), 1);
+    assert.eq(sink.captured(), "lr");
+}
+
+test "withDefault answers the fallback when the value is absent" {
+    let sink = stdout();
+    let ctx = context {
+        Stdout: sink,
+    };
+    assert.eq(noteOpt(ctx, "l", Option.None).withDefault(noteInt(ctx, "r", 2)), 2);
+    let r: Result<Int, Str> = .Err("bad");
+    assert.eq(noteRes(ctx, "l", r).withDefault(noteInt(ctx, "r", 3)), 3);
+    assert.eq(sink.captured(), "lrlr");
 }
 
 // -----------------------------------------------------------------------------
@@ -812,7 +785,7 @@ test "result.mapCtx runs the function on Ok only" {
 }
 
 // -----------------------------------------------------------------------------
-// 9. `?` and `??` (SPEC 6.8, 6.9)
+// 9. `?` and defaults (SPEC 6.8)
 // -----------------------------------------------------------------------------
 
 test "? on an Option passes the value through when it is Some" {
@@ -848,31 +821,25 @@ test "? inside a lambda on a Result returns from the lambda" {
     assert.eq(assert.ok(lambdaTryResult("x", "y")), 0);
 }
 
-test "?? supplies a default for an Option" {
+test "withDefault supplies a default for an Option" {
     assert.eq(defaulted(Option.Some(1)), 1);
     assert.eq(defaulted(Option.None), 99);
 }
 
-test "?? supplies a default for a Result" {
+test "withDefault supplies a default for a Result" {
     assert.eq(defaultedResult(.Ok(1)), 1);
     assert.eq(defaultedResult(.Err("bad")), 77);
 }
 
-test "?? on an Option in an expression" {
-    assert.eq([1, 2, 3].get(1) ?? 0, 2);
-    assert.eq([1, 2, 3].get(9) ?? 0, 0);
+test "withDefault on an Option in an expression" {
+    assert.eq([1, 2, 3].get(1).withDefault(0), 2);
+    assert.eq([1, 2, 3].get(9).withDefault(0), 0);
 }
 
-test "?? chained on both sides of an Option" {
+test "withDefault nested on both sides of an Option" {
     let missing: Option<Int> = .None;
-    assert.eq(missing ?? (Option.Some(2) ?? 3), 2);
-    assert.eq(missing ?? (Option.None ?? 3), 3);
-}
-
-test "(x?) ?? y is try-then-coalesce, written with the parentheses" {
-    assert.eq(assert.some(tryThenCoalesce([1, 2])), 3);
-    assert.eq(assert.some(tryThenCoalesce([1])), 1);
-    assert.none(tryThenCoalesce([]));
+    assert.eq(missing.withDefault(Option.Some(2).withDefault(3)), 2);
+    assert.eq(missing.withDefault(Option.None.withDefault(3)), 3);
 }
 
 // -----------------------------------------------------------------------------
@@ -941,34 +908,6 @@ test "|| runs a statement-shaped right operand when the left is false" {
                 _ => false,
             },
     );
-    assert.eq(sink.captured(), "lr");
-}
-
-test "?? skips a statement-shaped default when the value is present" {
-    let sink = stdout();
-    let ctx = context {
-        Stdout: sink,
-    };
-    let got = noteOpt(ctx, "l", .Some(7))
-        ?? match (noteInt(ctx, "r", 9)) {
-            9 => 99,
-            other => other,
-        };
-    assert.eq(got, 7);
-    assert.eq(sink.captured(), "l");
-}
-
-test "?? runs a statement-shaped default when the value is absent" {
-    let sink = stdout();
-    let ctx = context {
-        Stdout: sink,
-    };
-    let got = noteOpt(ctx, "l", .None)
-        ?? match (noteInt(ctx, "r", 9)) {
-            9 => 99,
-            other => other,
-        };
-    assert.eq(got, 99);
     assert.eq(sink.captured(), "lr");
 }
 

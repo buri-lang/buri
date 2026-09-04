@@ -2,7 +2,7 @@
 //
 // `FixedBuffer(n)` refuses rather than reports, and it has to: `allocate`
 // answers `Region` and not `Result<Region, _>` (`core/effect`), so there is no
-// value to carry a failure — SPEC 10.5 says `Alloc` can fail and SPEC 6.10
+// value to carry a failure — SPEC 10.5 says `Alloc` can fail and SPEC 6.9
 // says a failure with nothing to return is an abort (MEMORY.md §7.2).
 //
 // The budget arithmetic is the *defined* cost model, so the request that ends

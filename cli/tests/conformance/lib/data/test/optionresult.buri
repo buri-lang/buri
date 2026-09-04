@@ -1,5 +1,5 @@
 // core/option and core/result — SPEC 5.7 (the prelude enums), 5.7.1
-// (`Result` is must-use), 6.8 (`?`), 6.9 (`??`).
+// (`Result` is must-use), 6.8 (`?`).
 
 from "core/effect" import { Alloc, Stdin };
 from "core/host/testing" import { alloc, stdin };
@@ -34,7 +34,8 @@ fn alwaysErr(n: Int): Result<Int, Str> {
     .Err("no")
 }
 
-/// Consumes a line of input, so a test can prove whether `??` evaluated it.
+/// Consumes a line of input, so a test can prove whether a default was
+/// evaluated.
 /// Reading is observable: the line is gone afterwards either way.
 fn eagerDefault<C: Stdin>(ctx: C): Int {
     match (io.readLine(ctx)) {
@@ -498,108 +499,90 @@ test "? on a negative parsed value" {
     assert.eq(assert.ok(addParsed("-3", "3")), 0);
 }
 
-// --- `??` (SPEC 6.9) ----------------------------------------------------------
+// --- defaults, composed -------------------------------------------------------
 
-test "?? yields the wrapped value when the Option is Some" {
-    let o: Option<Int> = .Some(5);
-    assert.eq(o ?? 0, 5);
+test "withDefault on a chained call" {
+    assert.eq("12".toInt().withDefault(0), 12);
+    assert.eq("xy".toInt().withDefault(0), 0);
 }
 
-test "?? yields the default when the Option is None" {
-    let o: Option<Int> = .None;
-    assert.eq(o ?? 42, 42);
-}
-
-test "?? works on Result Ok" {
-    let r: Result<Int, Str> = .Ok(5);
-    assert.eq(r ?? 0, 5);
-}
-
-test "?? works on Result Err" {
-    let r: Result<Int, Str> = .Err("boom");
-    assert.eq(r ?? 42, 42);
-}
-
-test "?? on a chained call" {
-    assert.eq("12".toInt() ?? 0, 12);
-    assert.eq("xy".toInt() ?? 0, 0);
-}
-
-test "?? is right-associative and falls all the way through" {
+test "withDefault nested falls all the way through" {
     let a: Option<Int> = .None;
     let b: Option<Int> = .None;
-    assert.eq(a ?? (b ?? 3), 3);
+    assert.eq(a.withDefault(b.withDefault(3)), 3);
 }
 
-test "?? right-associativity stops at the first present operand" {
+test "withDefault nested stops at the first present operand" {
     let a: Option<Int> = .Some(1);
     let b: Option<Int> = .Some(2);
-    assert.eq(a ?? (b ?? 3), 1);
+    assert.eq(a.withDefault(b.withDefault(3)), 1);
 }
 
-test "?? right-associativity takes the middle operand when the first is absent" {
+test "withDefault nested takes the middle value when the first is absent" {
     let a: Option<Int> = .None;
     let b: Option<Int> = .Some(2);
-    assert.eq(a ?? (b ?? 3), 2);
+    assert.eq(a.withDefault(b.withDefault(3)), 2);
 }
 
-test "?? chains three Options" {
+test "or chains three Options and withDefault ends the chain" {
     let a: Option<Int> = .None;
     let b: Option<Int> = .None;
     let c: Option<Int> = .Some(7);
-    assert.eq(a ?? (b ?? (c ?? 9)), 7);
+    assert.eq(a.or(b).or(c).withDefault(9), 7);
 }
 
-test "?? does not evaluate its right operand when the Option is Some" {
+test "withDefault evaluates its fallback even when the Option is Some" {
     let ctx = context {
         Stdin: stdin().lines(["untouched"]),
     };
     let o: Option<Int> = .Some(1);
-    let got = o ?? eagerDefault(ctx);
+    let got = o.withDefault(eagerDefault(ctx));
     assert.eq(got, 1);
-    // `eagerDefault` consumes a line when it runs, so the line still being there
-    // proves the right operand was never evaluated.
-    assert.eq(assert.some(io.readLine(ctx)), "untouched");
+    // The fallback is an argument, so it ran: `eagerDefault` consumed the line.
+    assert.none(io.readLine(ctx));
 }
 
-test "?? does evaluate its right operand when the Option is None" {
+test "withDefault evaluates its fallback when the Option is None" {
     let ctx = context {
         Stdin: stdin().lines(["untouched"]),
     };
     let o: Option<Int> = .None;
-    let got = o ?? eagerDefault(ctx);
+    let got = o.withDefault(eagerDefault(ctx));
     assert.eq(got, 99);
     assert.none(io.readLine(ctx));
 }
 
-test "?? does not evaluate its right operand when the Result is Ok" {
+test "withDefault evaluates its fallback on a Result too" {
     let ctx = context {
         Stdin: stdin().lines(["untouched"]),
     };
     let r: Result<Int, Str> = .Ok(1);
-    let got = r ?? eagerDefault(ctx);
+    let got = r.withDefault(eagerDefault(ctx));
     assert.eq(got, 1);
-    assert.eq(assert.some(io.readLine(ctx)), "untouched");
+    assert.none(io.readLine(ctx));
 }
 
-test "?? does evaluate its right operand when the Result is Err" {
+test "result withDefault answers the fallback for Err" {
     let ctx = context {
         Stdin: stdin().lines(["untouched"]),
     };
     let r: Result<Int, Str> = .Err("boom");
-    let got = r ?? eagerDefault(ctx);
+    let got = r.withDefault(eagerDefault(ctx));
     assert.eq(got, 99);
     assert.none(io.readLine(ctx));
 }
 
-test "the second ?? operand is not evaluated when the first suffices" {
+test "a match is how a default is left unevaluated" {
     let ctx = context {
         Stdin: stdin().lines(["untouched"]),
     };
-    let a: Option<Int> = .None;
-    let b: Option<Int> = .Some(2);
-    let got = a ?? (b ?? eagerDefault(ctx));
-    assert.eq(got, 2);
+    let o: Option<Int> = .Some(1);
+    let got = match (o) {
+        .Some(v) => v,
+        .None => eagerDefault(ctx),
+    };
+    assert.eq(got, 1);
+    // The arm that would have read the line was never taken.
     assert.eq(assert.some(io.readLine(ctx)), "untouched");
 }
 

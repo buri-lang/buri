@@ -516,7 +516,7 @@ command line because Cargo has no profile key for it:
   it a cache miss. With them, and with `--remap-path-prefix`, two builds of the
   same tree produce byte-identical archives — which is what
   `--check-reproducible` (ARCHITECTURE.md §7) needs from every input to a link.
-- **`-C panic=abort`** because SPEC 6.10 says an abort is a write to standard
+- **`-C panic=abort`** because SPEC 6.9 says an abort is a write to standard
   error and an exit, never an unwind, so the tables would be dead weight in
   every artifact.
 

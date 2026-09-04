@@ -19,7 +19,6 @@ error: `?` takes a `Result` or an `Option`, found `Str` [try-operand]
 49 |         .mapErr(fn(_e) => "could not write to standard output"?;
    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = note that `??` is a single token, so `x??y` is coalescing; write `(x?) ?? y`
    = fix: `?` propagates a failure; this value is neither a `Result` nor an `Option`
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_brace_app_6af852/main.buri:49:64

@@ -541,7 +541,7 @@ pub fn decorate(
 ) {
     // `nounwind` on every function, on every backend. The single most valuable
     // attribute here and it costs no analysis: the language has no `throw`, no
-    // unwinding `panic` and no `catch` (SPEC 6.10). LLVM without it has to
+    // unwinding `panic` and no `catch` (SPEC 6.9). LLVM without it has to
     // assume every call is a potential unwind edge.
     enum_attr(ctx, f, "nounwind", 0);
 

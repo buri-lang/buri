@@ -78,7 +78,6 @@ pub const ERRORS: &[ErrorDoc] = &[
         "A type alias expands to a type, not back to itself",
         &["language/types"]
     ),
-    e!("coalesce-operand", "`??` supplies a default for an absent or failed value"),
     e!("colon-colon-not-an-operator", "A module's members are reached with `.`"),
     e!("const-declaration", "A module-level binding is written with `let`", &["language/lexical"]),
     e!("context-binding-not-an-effect", "A context binding names an effect"),
@@ -216,6 +215,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("refutable-pattern", "A `let` pattern must match every value"),
     e!("relative-import", "Every module path is absolute"),
     e!("reserved-word", "Reserved words are not identifiers"),
+    e!("retired-coalesce", "A default for an absent value is `withDefault`", &["language/expressions"]),
     e!("retired-test-data", "A suite's filesystem is written in the suite", &["build/build-files", "build/testing"]),
     e!("rest-pattern-not-last", "A rest pattern comes last"),
     e!("result-discarded", "A `Result` may not be discarded", &["language/expressions"]),

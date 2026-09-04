@@ -1287,11 +1287,6 @@ impl<'a> Monomorphizer<'a> {
                 lhs: Box::new(self.rewrite(*lhs, targs)),
                 rhs: Box::new(self.rewrite(*rhs, targs)),
             },
-            ExprKind::Coalesce { lhs, rhs, kind } => ExprKind::Coalesce {
-                lhs: Box::new(self.rewrite(*lhs, targs)),
-                rhs: Box::new(self.rewrite(*rhs, targs)),
-                kind,
-            },
             ExprKind::Try { base, kind } => {
                 ExprKind::Try { base: Box::new(self.rewrite(*base, targs)), kind }
             }

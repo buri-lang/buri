@@ -21,8 +21,8 @@ Buri is strict. Evaluation order is fully specified:
 1. `let` bindings in a block are evaluated top to bottom, before the block's
    result expression.
 2. Call arguments are evaluated left to right, then the function is applied.
-3. Operands of binary operators are evaluated left to right, except for `&&`,
-   `||`, and `??`, which short-circuit.
+3. Operands of binary operators are evaluated left to right, except for `&&`
+   and `||`, which short-circuit.
 4. `if` evaluates its condition, then exactly one branch.
 5. `match` evaluates its scrutinee, then tests arms in order, evaluating each
    guard only when its pattern matched.

@@ -1,6 +1,6 @@
 // CRASH: division by zero
 //
-// An abort inside a task. SPEC 6.10 makes an abort a write to standard error
+// An abort inside a task. SPEC 6.9 makes an abort a write to standard error
 // and an exit rather than an unwind, and the point of this file is that the
 // rule survives the one boundary that could have been tempted to catch it:
 // `Tasks.parallel` runs its step through the runtime, so the aborting frame is

@@ -1465,7 +1465,7 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
                 ExprKind::CtxGet { .. } | ExprKind::CtxLit { .. } | ExprKind::CtxCall { .. } => {
                     p = ir::Purity::Effectful;
                 }
-                // Division by zero aborts (SPEC 6.10), and so does an
+                // Division by zero aborts (SPEC 6.9), and so does an
                 // exhausted allocation budget (MEMORY.md §7.2).
                 ExprKind::Prim { op, .. } => {
                     if matches!(op, typed::PrimOp::Div | typed::PrimOp::Rem) {
@@ -2450,7 +2450,6 @@ impl Scan<'_> {
             ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
                 self.short_circuit(id, lhs, rhs, live)
             }
-            ExprKind::Coalesce { lhs, rhs, .. } => self.short_circuit(id, lhs, rhs, live),
             ExprKind::Try { base, .. } => {
                 // An early exit leaves the function, so nothing after it runs.
                 // Scanning the operand in the enclosing liveness is what keeps
@@ -2673,7 +2672,7 @@ impl Scan<'_> {
         out
     }
 
-    /// `&&`, `||` and `??`: the right operand may not run at all, so a local
+    /// `&&` and `||`: the right operand may not run at all, so a local
     /// whose last use is inside it is kept alive across the whole expression
     /// and dropped after it. One extra pair of operations on the taken path,
     /// and a correct count on the skipped one.
@@ -2801,9 +2800,7 @@ impl Scan<'_> {
             }
             // The nesting this whole function exists for: the tail of a chain
             // is asked once and answered from the cache ever after.
-            ExprKind::And { lhs, rhs }
-            | ExprKind::Or { lhs, rhs }
-            | ExprKind::Coalesce { lhs, rhs, .. } => {
+            ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
                 let lid = self.child(id, 0);
                 self.collect_names(lhs, lid, names, bound);
                 let rid = self.child(id, 1);
@@ -3495,10 +3492,6 @@ export fn main(): Result<(), Str> {
                 ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
                     self.walk(lhs, self.child(id, 0), Mode::Borrow, st);
                     // Both the taken and the skipped path.
-                    self.join(vec![(rhs, self.child(id, 1), Mode::Borrow)], st);
-                }
-                ExprKind::Coalesce { lhs, rhs, .. } => {
-                    self.walk(lhs, self.child(id, 0), Mode::Borrow, st);
                     self.join(vec![(rhs, self.child(id, 1), Mode::Borrow)], st);
                 }
                 _ => {

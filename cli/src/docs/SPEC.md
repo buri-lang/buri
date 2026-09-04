@@ -1067,16 +1067,15 @@ Lowest to highest:
 |---|---|---|
 | 0 | `fn(...) => e` | top-level only (never a sub-operand) |
 | 1 | `\|\|` | left |
-| 2 | `??` | right |
-| 3 | `&&` | left |
-| 4 | `==` `!=` `<` `<=` `>` `>=` | **non-associative** |
-| 5 | `\|` | left |
-| 6 | `^` | left |
-| 7 | `&` | left |
-| 8 | `+` `-` | left |
-| 9 | `*` `/` `%` | left |
-| 10 | `-` `!` `~` (prefix) | right |
-| 11 | `.f` `.0` `(args)` `[i]` `?` `<T>` `{ ... }` | left |
+| 2 | `&&` | left |
+| 3 | `==` `!=` `<` `<=` `>` `>=` | **non-associative** |
+| 4 | `\|` | left |
+| 5 | `^` | left |
+| 6 | `&` | left |
+| 7 | `+` `-` | left |
+| 8 | `*` `/` `%` | left |
+| 9 | `-` `!` `~` (prefix) | right |
+| 10 | `.f` `.0` `(args)` `[i]` `?` `<T>` `{ ... }` | left |
 
 Comparison is non-associative: `a < b < c` is a parse error, not a bug waiting to
 happen.
@@ -1231,7 +1230,7 @@ trait Bounded {
 ```
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let safe = a.checkedAdd(b) ?? 0;
+let safe = a.checkedAdd(b).withDefault(0);
 let hash = seed.wrappingMul(31).wrappingAdd(byte);
 let ceiling = num.maxValue<U8>();
 ```
@@ -1512,21 +1511,14 @@ fn loadPort<C: Alloc + Fs>(ctx: C, path: Str): Result<Int, ConfigError> {
 
 `?` is the only early exit in the language. There is no `return`.
 
-Note that `??` is a single token, so `x??y` is coalescing, not try-then-coalesce.
-Write `(x?) ?? y`.
+A value the function is not propagating is given a default with `withDefault`,
+which `Option<T>` and `Result<T, E>` both have — `cfg.port.withDefault(8080)`.
+There is no operator for it: it is an ordinary method, so it sits in a chain
+beside `map` and `filter` rather than interrupting one, and its argument is
+evaluated like any other. A default that must not run unless it is needed is
+written as a `match`.
 
-### 6.9 `??` — default
-
-```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-let port = cfg.port ?? 8080;             // Option<Int> ?? Int  -> Int
-let name = lookup(id) ?? "anonymous";
-```
-
-Defined for `Option<T> ?? T` and `Result<T, E> ?? T`. It short-circuits (Section
-8.2): the right operand is evaluated only when the left is `None` / `Err`. `??`
-is right-associative, so `a ?? b ?? c` works.
-
-### 6.10 Aborting
+### 6.9 Aborting
 
 There is no way to write that a branch cannot happen. `panic` and `unreachable`
 are reserved (Section 3.4), so reaching for either is named rather than silently
@@ -1538,8 +1530,8 @@ The reason is that such a claim is almost always wrong: a match arm the
 programmer asserts is impossible is an arm the compiler was about to make them
 handle, and "validated upstream" is a claim about code somewhere else that
 nothing checks. Without an escape hatch, every case is handled — an `Option` is
-unwrapped with `??` or matched, and an impossible state is a type that cannot
-represent it.
+unwrapped with `withDefault` or matched, and an impossible state is a type that
+cannot represent it.
 
 A program can still stop. Division by zero, a shift at or beyond the width of its
 type, and stack exhaustion **abort**: the program ends with a message on stderr
@@ -1631,8 +1623,8 @@ Buri is strict. Evaluation order is fully specified:
 1. `let` bindings in a block are evaluated top to bottom, before the block's
    result expression.
 2. Call arguments are evaluated left to right, then the function is applied.
-3. Operands of binary operators are evaluated left to right, except for `&&`,
-   `||`, and `??`, which short-circuit.
+3. Operands of binary operators are evaluated left to right, except for `&&`
+   and `||`, which short-circuit.
 4. `if` evaluates its condition, then exactly one branch.
 5. `match` evaluates its scrutinee, then tests arms in order, evaluating each
    guard only when its pattern matched.
@@ -2039,7 +2031,7 @@ sentence without it is false:
   *same* values, which is a form that means something at every type.
 - **Terminating without aborting.** A pure function may abort — `100 / x` at
   `x = 0` does — and an abort is observable: a message on stderr and a non-zero
-  exit status (Section 6.10). Eliminating a call that would have aborted turns
+  exit status (Section 6.9). Eliminating a call that would have aborted turns
   an aborting program into a running one, which is not a refinement of it.
   Divergence has the same shape. So an implementation may drop a pure call only
   where it can also show the call returns.
@@ -2503,7 +2495,7 @@ its being a platform module rather than a library:
 - **Its functions take no `ctx`** and still render a failure message. Rendering
   is the runner's, not the program's — which is why this signature would be a
   lie anywhere else, and why the module is importable only from a test source.
-- **A failure ends that test** and no other, the way an abort (Section 6.10)
+- **A failure ends that test** and no other, the way an abort (Section 6.9)
   ends a program. The runner reports the file, the line, and both values.
 
 A test source may also use **expression statements**, which no other module may:

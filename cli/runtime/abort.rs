@@ -1,6 +1,6 @@
 //! Aborts: the messages, and the exit status.
 //!
-//! SPEC 6.10 — an abort is a write to standard error and an exit, never an
+//! SPEC 6.9 — an abort is a write to standard error and an exit, never an
 //! unwind. There is nothing to unwind: the language has no exceptions, which is
 //! also why the native backends emit no `.eh_frame` (CODEGEN-STENCIL.md §11).
 //!
@@ -222,7 +222,7 @@ pub extern "C" fn buri_rt_abort_alloc_budget(requested: i64, budget: i64) -> ! {
 /// The allocator could not satisfy a request.
 ///
 /// SPEC 10.5 says `Alloc` can fail; `effect.buri:19` gives `allocate` no value to
-/// report a failure with; SPEC 6.10 says that combination is an abort.
+/// report a failure with; SPEC 6.9 says that combination is an abort.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_abort_oom(bytes: u64) -> ! {
     let n = Digits::of(bytes);
