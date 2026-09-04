@@ -130,7 +130,7 @@ fn lint_catalogue() {
 /// never compiled gets.
 #[test]
 fn test_suites() {
-    run_corpus(&tests_dir().join("repositories/testing"), "testing", 11);
+    run_corpus(&tests_dir().join("repositories/testing"), "testing", 12);
 }
 
 /// The concurrency-and-servers surface, driven the way a person drives it: a

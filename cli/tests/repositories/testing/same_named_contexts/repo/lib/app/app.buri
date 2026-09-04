@@ -1,0 +1,5 @@
+/// The suite beside this file is the subject; the library itself only has to
+/// exist for the suite to hang off.
+export fn size(): I64 {
+    1
+}

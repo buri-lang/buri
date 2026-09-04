@@ -1,0 +1,11 @@
+from "core/effect" import { Alloc };
+from "core/fs" import { FsWrite };
+from "core/host/testing" import { alloc, fs as disk };
+
+/// A context that can allocate and write, and cannot read. `//lib/two` exports
+/// one under this same name binding a different set — two declarations, two
+/// types, and two constructors that must not share a symbol.
+export context Fixture {
+    Alloc: alloc(),
+    FsWrite: disk(),
+}

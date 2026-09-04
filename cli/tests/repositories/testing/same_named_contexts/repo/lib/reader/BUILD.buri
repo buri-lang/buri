@@ -1,0 +1,9 @@
+library {
+    sources: ["reader.buri"]
+    dependencies: ["//lib/two"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/reader.buri"]
+    }
+}
