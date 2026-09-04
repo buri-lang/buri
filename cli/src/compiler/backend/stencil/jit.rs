@@ -487,14 +487,17 @@ pub(crate) fn frame_sigs(prog: &ir::Program, tables: &Tables) -> Vec<FrameSig> {
 /// Words of scratch past the last local, inside every frame.
 ///
 /// Sixteen for the emitter's own temporaries and the open-coded list loops'
-/// (`lists.rs` §"the scratch words"), sixteen more for the C argument area a
-/// runtime call marshals into (`rtcall::CARG_WORD`), and twenty-four for the
-/// loops whose state does not fit two words — the merge sort's seven indices,
-/// `flatten`'s two passes (`lists.rs::LOOP_SCRATCH`). The C argument area is
-/// not optional: a `crt` stencil's arguments have to live **inside** this
-/// frame, and the first byte past it is where a Buri callee's frame starts —
-/// which `lists.rs` writes into before it calls the step.
-pub(crate) const SCRATCH_WORDS: usize = 96;
+/// (`lists.rs` §"the scratch words"), eighteen more for the C argument area a
+/// runtime call marshals into and the four words past it that the widening and
+/// out-of-line-walk sequences take (`rtcall::CARG_WORD` through
+/// `rtcall::RESERVED_WORDS`), twenty-four for the loops whose state does not fit
+/// two words — the merge sort's seven indices, `flatten`'s two passes
+/// (`lists.rs::LOOP_SCRATCH`) — and forty for the widest element those loops
+/// stage (`lists.rs::STAGE_ROOM`, which asserts the arithmetic). The C argument
+/// area is not optional: a `crt` stencil's arguments have to live **inside**
+/// this frame, and the first byte past it is where a Buri callee's frame
+/// starts — which `lists.rs` writes into before it calls the step.
+pub(crate) const SCRATCH_WORDS: usize = 98;
 
 // ---------------------------------------------------------------------------
 // Emission
