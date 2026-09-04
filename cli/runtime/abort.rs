@@ -79,6 +79,10 @@ pub unsafe extern "C" fn buri_rt_abort(msg: *const u8, len: u64) -> ! {
 /// load and a branch: nothing is driving the process, so there is no record to
 /// write.
 pub(crate) fn die(parts: &[&[u8]]) -> ! {
+    // A program that stopped on its own terms is holding whatever it was
+    // holding, and the test-mode heap audit has nothing useful to say on top
+    // of the reason it stopped (`memory.rs`'s heap-check section).
+    crate::memory::quiet_heap_audit();
     buri_rt_flush();
     crate::testing::note_failure(parts);
     let err = std::io::stderr();

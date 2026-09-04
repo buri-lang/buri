@@ -8,7 +8,7 @@
 use crate::abort::{buri_rt_abort_alloc_budget, buri_rt_abort_oom};
 use std::alloc::{alloc, alloc_zeroed, dealloc, realloc, Layout};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 /// A reference count that is never decremented and never freed.
 ///
@@ -326,6 +326,21 @@ static TOTAL_BYTES: AtomicU64 = AtomicU64::new(0);
 static RETAINED_BYTES: AtomicU64 = AtomicU64::new(0);
 static DECOMMITTED_BYTES: AtomicU64 = AtomicU64::new(0);
 
+/// Of the blocks `LIVE_BLOCKS` counts, how many are a **scoped arena's**.
+///
+/// The test-mode exit audit is the only reader, and the reason it needs the
+/// number is that an arena block is reclaimed by `munmap` whether or not its
+/// count ever reached zero: `buri_rt_alloc_arena_release` says so in as many
+/// words, and `core/alloc::scoped`'s bulk free is the feature. A value that
+/// left a scope left it as a *copy*, so what stays behind is address space the
+/// release has already given back — not a block the program still owns and not
+/// something a reference-counting bug could be read off. Counting it as a leak
+/// would make two conformance files permanently red about nothing.
+///
+/// It is not in [`BuriHeapStats`]: that struct is an ABI three files declare by
+/// hand, and this is a number only the audit below asks for.
+static LIVE_ARENA_BLOCKS: AtomicU64 = AtomicU64::new(0);
+
 /// What [`buri_rt_heap_stats`] writes. Eight `u64`s, in this order.
 ///
 /// **The order and the count are an ABI.** `cli/tests/native/driver.c` and
@@ -471,6 +486,12 @@ fn finish_with(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
     if raw.is_null() {
         buri_rt_abort_oom(payload);
     }
+    // The test-mode heap check's one appearance on the allocation path, and
+    // the reason it is here: this is the earliest moment the runtime is
+    // certainly running, so it is where the mode is read and the exit audit is
+    // registered. Off — every shipped artifact — is a load of an initialised
+    // `OnceLock` beside a `malloc`.
+    let _ = heap_check();
     // SAFETY: `raw` is a fresh allocation of at least `BURI_RT_HEADER` bytes,
     // aligned to 16, so the header is in bounds and aligned.
     unsafe {
@@ -487,9 +508,14 @@ fn finish_with(raw: *mut u8, payload: u64, flags: u64) -> *mut u8 {
     LIVE_BYTES.fetch_add(payload, Ordering::Relaxed);
     TOTAL_BLOCKS.fetch_add(1, Ordering::Relaxed);
     TOTAL_BYTES.fetch_add(payload, Ordering::Relaxed);
+    if flags & BURI_RT_CAP_ARENA != 0 {
+        LIVE_ARENA_BLOCKS.fetch_add(1, Ordering::Relaxed);
+    }
     // SAFETY: the block is `BURI_RT_HEADER + payload` bytes, so the payload
     // start is one-past-the-header and in bounds.
-    unsafe { raw.add(BURI_RT_HEADER) }
+    let p = unsafe { raw.add(BURI_RT_HEADER) };
+    trace_alloc(p, payload, flags);
+    p
 }
 
 // ---------------------------------------------------------------------------
@@ -1052,11 +1078,47 @@ pub unsafe extern "C" fn buri_rt_realloc(p: *mut u8, payload: u64) -> *mut u8 {
     if p.is_null() {
         return buri_rt_alloc(payload);
     }
+    // SAFETY: the caller promises a live payload pointer, and a quarantined
+    // block's header is readable too.
+    if unsafe { is_quarantined(p) } {
+        heap_use_after_free(b"realloc");
+    }
     // SAFETY: the caller promises a live payload pointer.
     let (old_cap, rc, flags) = unsafe {
         let h = header(p);
         (cap_of(h), (*h).rc, (*h).cap & BURI_RT_CAP_FLAGS)
     };
+    // Under the quarantine, a growth never happens in place. `realloc` may
+    // move the block and hand the old pages straight back to the allocator,
+    // which is precisely the recycling this mode exists to stop: a stale
+    // pointer into the old block would then read whatever the next value
+    // wrote. Allocate, copy, and quarantine the old one instead — the arena
+    // arm below already does exactly this for its own reason, so this is that
+    // path taken by everybody.
+    if heap_check().quarantines() && flags & BURI_RT_CAP_ARENA == 0 {
+        let fresh = buri_rt_alloc(payload);
+        // SAFETY: `fresh` has `payload` usable bytes and `p` has `old_cap`;
+        // the two do not overlap, because nothing else holds `fresh`.
+        unsafe {
+            std::ptr::copy_nonoverlapping(p.cast_const(), fresh, old_cap.min(payload) as usize);
+            // The count travels with the value, as it does on both arms below.
+            (*header(fresh)).rc = rc;
+            // `rc` was moved to `fresh`, so this call's own view of the block
+            // must be the dead one: `buri_rt_free` reads the header to decide
+            // whether the block is immortal, and a live count there would be a
+            // second reference to a block that has none.
+            (*header(p)).rc = 1;
+            buri_rt_free(p);
+        }
+        // A growth is one block before and one block after, whichever way this
+        // function reached it, so the *cumulative* counters are corrected back
+        // to what the in-place arm below would have left: this mode may not
+        // move a number a program or a probe can read.
+        TOTAL_BLOCKS.fetch_sub(1, Ordering::Relaxed);
+        TOTAL_BYTES.fetch_sub(payload, Ordering::Relaxed);
+        TOTAL_BYTES.fetch_add(payload.saturating_sub(old_cap), Ordering::Relaxed);
+        return fresh;
+    }
     // G5: a bump allocator cannot grow the block it handed out last but one, so
     // an arena block is grown the way a bump allocator grows anything —
     // allocate, copy, abandon. The new block comes from whichever allocator is
@@ -1110,6 +1172,15 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     if p.is_null() {
         return;
     }
+    // The quarantine's immediate half: a block that is already dead being
+    // freed again is a double free, which is the over-decrement family's
+    // loudest member and the one worth naming on the spot.
+    //
+    // SAFETY: the caller promises a live payload pointer, so the header is
+    // readable — and a quarantined block's header is readable too.
+    if unsafe { is_quarantined(p) } {
+        heap_use_after_free(b"free");
+    }
     // SAFETY: the caller promises a live payload pointer.
     let (cap, arena) = unsafe {
         let h = header(p);
@@ -1120,6 +1191,7 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     };
     LIVE_BLOCKS.fetch_sub(1, Ordering::Relaxed);
     LIVE_BYTES.fetch_sub(cap, Ordering::Relaxed);
+    trace_free(p);
     // G5: a block a scope served is not the platform allocator's, and it is not
     // this thread's cache's either. The accounting above has already run — so
     // the block is not live and is not a leak — and the pages under it go back
@@ -1131,6 +1203,17 @@ pub unsafe extern "C" fn buri_rt_free(p: *mut u8) {
     // path, and the arena's bulk free reclaims only address space whose last
     // reference has already gone.
     if arena {
+        LIVE_ARENA_BLOCKS.fetch_sub(1, Ordering::Relaxed);
+        return;
+    }
+    // The test-mode quarantine, which takes the block instead of the cache and
+    // instead of the allocator: poisoned, held, and released for real once the
+    // ring needs the room. An arena block is not offered — its pages are the
+    // scope's and go back in one `munmap`.
+    if heap_check().quarantines() {
+        // SAFETY: the block is dead, has `cap` usable bytes, is not an arena
+        // block, and this is its last reference.
+        unsafe { quarantine_push(p, cap) };
         return;
     }
     // G2: this thread's cache keeps a small block rather than returning it.
@@ -1162,6 +1245,11 @@ pub unsafe extern "C" fn buri_rt_incref(p: *mut u8) {
     if p.is_null() {
         return;
     }
+    // SAFETY: the caller promises a live payload pointer, and a quarantined
+    // block's header is readable too.
+    if unsafe { is_quarantined(p) } {
+        heap_use_after_free(b"incref");
+    }
     // SAFETY: the caller promises a live payload pointer.
     unsafe {
         let h = header(p);
@@ -1188,6 +1276,11 @@ pub unsafe extern "C" fn buri_rt_incref(p: *mut u8) {
 pub unsafe extern "C" fn buri_rt_decref(p: *mut u8, drop_glue: Option<extern "C" fn(*mut u8)>) {
     if p.is_null() {
         return;
+    }
+    // SAFETY: the caller promises a live payload pointer, and a quarantined
+    // block's header is readable too.
+    if unsafe { is_quarantined(p) } {
+        heap_use_after_free(b"decref");
     }
     // SAFETY: the caller promises a live payload pointer.
     let dead = unsafe {
@@ -1237,6 +1330,11 @@ pub unsafe extern "C" fn buri_rt_make_immortal(p: *mut u8) {
     if p.is_null() {
         return;
     }
+    // SAFETY: the caller promises a live payload pointer, and a quarantined
+    // block's header is readable too.
+    if unsafe { is_quarantined(p) } {
+        heap_use_after_free(b"make_immortal");
+    }
     // SAFETY: the caller promises a live payload pointer. The block is
     // deliberately taken out of `LIVE_*`: it is not a leak, and a leak check
     // that flagged every string literal would report nothing useful. Marking a
@@ -1250,6 +1348,7 @@ pub unsafe extern "C" fn buri_rt_make_immortal(p: *mut u8) {
         }
         LIVE_BLOCKS.fetch_sub(1, Ordering::Relaxed);
         LIVE_BYTES.fetch_sub(cap_of(h), Ordering::Relaxed);
+        trace_free(p);
         (*h).rc = BURI_RT_IMMORTAL;
     }
 }
@@ -1300,6 +1399,502 @@ pub unsafe extern "C" fn buri_rt_heap_stats(out: *mut BuriHeapStats) {
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_live_blocks() -> u64 {
     LIVE_BLOCKS.load(Ordering::Relaxed)
+}
+
+// ---------------------------------------------------------------------------
+// The test-mode heap check: an exit audit, and a quarantine for freed blocks
+// ---------------------------------------------------------------------------
+//
+// **What this section is for.** MEMORY.md §2 asks for a test that says "every
+// block this program allocated was freed by the time it exited", and the four
+// counters above make that question answerable — but only one program at a
+// time, through a C probe linked beside it, in the handful of suites that
+// remembered to ask. The reference-counting pass in `middle/rc.rs` is a
+// whole-program analysis whose failures are *silent*: a missing decrement
+// leaks, an extra one frees a block something is still reading, and neither
+// shows up in what the program printed until the recycled memory happens to
+// hold something that changes an answer. A net made of hand-picked cases
+// catches the bug somebody thought of.
+//
+// So the invariant moves into the runtime, where **every** program that runs
+// under a harness gets it for free:
+//
+// ```text
+// BURI_RT_HEAP_CHECK=leak   the exit audit: `live_blocks` must be zero
+// BURI_RT_HEAP_CHECK=1      the audit, and the quarantine below it
+// BURI_RT_HEAP_REPORT=1     print one line on the way out even when clean
+// ```
+//
+// Unset — which is every shipped artifact — is [`HeapCheck::Off`], and off is
+// one relaxed load of an already-initialised `OnceLock` on the allocation and
+// free paths, which are `malloc` and `free`. Nothing else in this file changes
+// shape, and no reference operation the backends open-code is touched at all.
+//
+// **The quarantine is the half that catches an over-decrement.** A leak is an
+// under-decrement and the audit sees it; the corruption family that
+// `middle/rc.rs` has actually shipped is the other sign — a block released
+// while a live value still points into it, recycled by the next allocation,
+// and then read as whatever the new owner wrote. The symptom is a wrong answer
+// somewhere else entirely, or nothing at all on a run where the recycling
+// happened to be harmless. Quarantine removes the luck: a freed block is
+// filled with [`QUARANTINE_POISON`], its count is set to [`QUARANTINE_RC`],
+// and it is **held rather than recycled** until the quarantine is full. Then
+//
+//   * a `buri_rt_incref`, `buri_rt_decref` or `buri_rt_free` that reaches it
+//     stops the process on the spot with a message naming the operation;
+//   * a reference operation the backend *open-coded* moves the count off
+//     `QUARANTINE_RC` — up on an increment, down on a decrement, and never to
+//     zero, because the sentinel is nowhere near it — and the audit reports it
+//     when the block is released or the program exits;
+//   * a write through a stale pointer disturbs the poison, and the same audit
+//     reports that;
+//   * a *read* through a stale pointer gets `0xDF` bytes rather than whatever
+//     the next value wrote there, so a pointer read out of a dead block is
+//     wild rather than plausible and the program dies loudly instead of
+//     printing something almost right.
+//
+// **Bounded.** [`QUARANTINE_BLOCKS`] slots in a fixed ring — 128 KiB of `.bss`
+// — and [`QUARANTINE_BYTES`] of payload. The oldest block is verified and
+// really released to make room, so the cost is a bounded delay in reuse rather
+// than a heap that grows with the program.
+//
+// **It does not change what a correct program does.** The poison goes into
+// memory the program has given back, the sentinel goes into a header the
+// program no longer names, and every branch that reads either is behind a mode
+// that is off unless a harness asked for it. The one thing it changes is the
+// *allocator*: a quarantined block does not enter the per-carrier cache, so a
+// program under this mode calls `malloc` where it would have hit the cache.
+// That is a timing difference and not an answer.
+
+/// The status a heap-check failure exits with.
+///
+/// Not 1, which is what an ordinary abort exits with, and not a signal: a
+/// harness that sees this number knows the program was stopped by this section
+/// rather than by anything the program itself did.
+pub const BURI_RT_HEAP_CHECK_STATUS: i32 = 97;
+
+/// What `BURI_RT_HEAP_CHECK` asked for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HeapCheck {
+    /// Every shipped artifact. Nothing in this section runs.
+    Off,
+    /// The exit audit alone: a block allocated and not freed is a failure.
+    Leak,
+    /// The audit, and the quarantine.
+    Full,
+    /// [`HeapCheck::Full`], and a register of every live block so that the
+    /// audit can say *which* blocks leaked rather than how many.
+    ///
+    /// For triage and not for a suite: it is a `BTreeMap` update on every
+    /// allocation and every free, which is a different order of cost from the
+    /// two modes above. `BURI_RT_HEAP_CHECK=trace`.
+    Trace,
+}
+
+impl HeapCheck {
+    /// Whether the quarantine runs — [`HeapCheck::Trace`] is
+    /// [`HeapCheck::Full`] with a register on top, so every quarantine branch
+    /// asks this rather than comparing against one variant.
+    #[inline]
+    fn quarantines(self) -> bool {
+        matches!(self, HeapCheck::Full | HeapCheck::Trace)
+    }
+}
+
+/// The `rc` a quarantined block carries.
+///
+/// Three properties, and all three are load-bearing. It is not
+/// [`BURI_RT_IMMORTAL`], so a reference operation does not skip it. It is not
+/// 1, so the uniqueness test in MEMORY.md §5.3 answers "no" and nothing writes
+/// through a stale pointer in place. And it is roughly 6e16 away from zero in
+/// both directions, so no amount of open-coded decrementing reaches the cold
+/// path: a program that could do 1e16 reference operations on one dead block
+/// has been running for a year.
+const QUARANTINE_RC: u64 = 0x00DE_AD00_0000_0000;
+
+/// The byte a quarantined payload is filled with.
+///
+/// `0xDF` repeated is not a small integer, not a valid pointer on either
+/// supported platform, and not a plausible UTF-8 sequence, so a value read out
+/// of a dead block is wrong in a way that shows.
+const QUARANTINE_POISON: u8 = 0xDF;
+
+/// How many freed blocks the quarantine holds. A fixed ring, so the cost is
+/// `16 * QUARANTINE_BLOCKS` bytes of `.bss` and no allocation of its own.
+const QUARANTINE_BLOCKS: usize = 8192;
+
+/// How many payload bytes it holds, whichever bound is reached first.
+const QUARANTINE_BYTES: u64 = 16 << 20;
+
+/// The ring, and what is in it.
+struct Quarantine {
+    /// `(payload address, usable bytes)`, oldest at `head`.
+    slots: [(usize, u64); QUARANTINE_BLOCKS],
+    head: usize,
+    len: usize,
+    bytes: u64,
+    /// How many blocks have been held since the process started, for the
+    /// report a clean run prints under `BURI_RT_HEAP_REPORT`.
+    seen: u64,
+}
+
+impl Quarantine {
+    /// Take the oldest block out where there is no room for `cap` more bytes,
+    /// or where every slot is taken.
+    ///
+    /// A single block larger than the whole byte budget stays: the `len > 1`
+    /// clause is what stops this from evicting the block it is making room
+    /// for, and a quarantine holding one block is still a quarantine.
+    fn make_room(&mut self, cap: u64) -> Option<(usize, u64)> {
+        let over_bytes = self.len > 1 && self.bytes.saturating_add(cap) > QUARANTINE_BYTES;
+        if self.len < QUARANTINE_BLOCKS && !over_bytes {
+            return None;
+        }
+        self.drain()
+    }
+
+    fn put(&mut self, p: usize, cap: u64) {
+        let at = (self.head + self.len) % QUARANTINE_BLOCKS;
+        self.slots[at] = (p, cap);
+        self.len += 1;
+        self.bytes = self.bytes.saturating_add(cap);
+        self.seen = self.seen.saturating_add(1);
+    }
+
+    fn drain(&mut self) -> Option<(usize, u64)> {
+        if self.len == 0 {
+            return None;
+        }
+        let taken = self.slots[self.head];
+        self.head = (self.head + 1) % QUARANTINE_BLOCKS;
+        self.len -= 1;
+        self.bytes = self.bytes.saturating_sub(taken.1);
+        Some(taken)
+    }
+}
+
+static QUARANTINE: Mutex<Quarantine> = Mutex::new(Quarantine {
+    slots: [(0, 0); QUARANTINE_BLOCKS],
+    head: 0,
+    len: 0,
+    bytes: 0,
+    seen: 0,
+});
+
+/// The ring, with a poisoned lock recovered rather than propagated — the same
+/// line `counters` takes, for the same reason.
+fn quarantine<T>(f: impl FnOnce(&mut Quarantine) -> T) -> T {
+    let mut guard = match QUARANTINE.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    f(&mut guard)
+}
+
+/// Set once the program has decided how it is ending — an abort, or
+/// `proc.exit` — so that the exit audit stays quiet.
+///
+/// A program that stopped on its own terms has every right to be holding
+/// values: an assertion that failed in the middle of a list is not a leak, and
+/// a report about its heap on top of the reason it stopped would bury the
+/// reason.
+static HEAP_AUDIT_QUIET: AtomicBool = AtomicBool::new(false);
+
+/// Called by `abort::die` and by `buri_rt_host_proc_exit_with`.
+pub(crate) fn quiet_heap_audit() {
+    HEAP_AUDIT_QUIET.store(true, Ordering::Relaxed);
+}
+
+unsafe extern "C" {
+    /// The C library's, so the audit runs after `main` has returned whichever
+    /// way the entry point spelled its return. `lib.rs` §6 fixes the entry
+    /// point's shape and this section is not entitled to change it.
+    fn atexit(f: extern "C" fn()) -> i32;
+    /// Exit without running the handlers again, which is what a handler has to
+    /// use.
+    fn _exit(code: i32) -> !;
+}
+
+/// Which mode this process is in, decided once and remembered.
+///
+/// The environment is read on the first allocation rather than at startup
+/// because there is no startup hook this file owns: `buri_rt_argv_init` is
+/// optional (`lib.rs` §6), and a program that never allocates has nothing for
+/// either half of this section to say. `atexit` is registered here for the
+/// same reason — the first allocation is the earliest moment this file is
+/// certainly running.
+fn heap_check() -> HeapCheck {
+    static MODE: OnceLock<HeapCheck> = OnceLock::new();
+    *MODE.get_or_init(|| {
+        let mode = match std::env::var("BURI_RT_HEAP_CHECK").as_deref() {
+            Ok("leak") => HeapCheck::Leak,
+            Ok("1" | "full" | "quarantine") => HeapCheck::Full,
+            Ok("trace") => HeapCheck::Trace,
+            _ => HeapCheck::Off,
+        };
+        if mode != HeapCheck::Off {
+            // SAFETY: `heap_audit` is an `extern "C" fn()` taking no arguments
+            // and returning normally, which is the whole of `atexit`'s
+            // contract.
+            unsafe { atexit(heap_audit) };
+        }
+        mode
+    })
+}
+
+/// Stop the process because this section found a defect. Never returns.
+///
+/// `_exit` rather than `std::process::exit`: this is reachable from inside an
+/// `atexit` handler, and re-entering the handler list from one is undefined.
+/// The buffered streams are flushed first for `abort.rs`'s reason — the last
+/// thing the program printed belongs above the reason it stopped.
+fn heap_bug(parts: &[&[u8]]) -> ! {
+    use std::io::Write as _;
+    crate::host::buri_rt_flush();
+    let err = std::io::stderr();
+    let mut err = err.lock();
+    let _ = err.write_all(b"buri heap check: ");
+    for part in parts {
+        let _ = err.write_all(part);
+    }
+    let _ = err.write_all(b"\n");
+    let _ = err.flush();
+    // SAFETY: `_exit` is the C library's, takes a status, and does not return.
+    unsafe { _exit(BURI_RT_HEAP_CHECK_STATUS) }
+}
+
+/// A `u64` as decimal, in a caller-owned buffer, allocating nothing —
+/// `abort.rs::Digits` for this file's messages.
+struct HeapDigits {
+    buf: [u8; 20],
+    at: usize,
+}
+
+impl HeapDigits {
+    fn of(mut n: u64) -> HeapDigits {
+        let mut d = HeapDigits { buf: [b'0'; 20], at: 20 };
+        loop {
+            d.at -= 1;
+            d.buf[d.at] = b'0' + (n % 10) as u8;
+            n /= 10;
+            if n == 0 || d.at == 0 {
+                break;
+            }
+        }
+        d
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        &self.buf[self.at..]
+    }
+}
+
+/// Why a quarantined block is not as it was left, or `None`.
+///
+/// Two questions and they catch different defects: the count answers "did a
+/// reference operation reach a dead block", which is the over-decrement family,
+/// and the payload answers "did a write reach one", which is the same family
+/// one step further along.
+///
+/// # Safety
+/// `addr` must be the payload address of a block this section quarantined and
+/// has not released, with `cap` usable bytes.
+unsafe fn quarantine_disturbed(addr: usize, cap: u64) -> Option<&'static [u8]> {
+    let p = addr as *mut u8;
+    // SAFETY: the caller promises a quarantined block, so its header is
+    // in bounds and this file wrote it.
+    let rc = unsafe { (*header(p)).rc };
+    if rc != QUARANTINE_RC {
+        return Some(
+            b"a reference operation reached a freed block (its count moved off the \
+              quarantine sentinel)" as &[u8],
+        );
+    }
+    // SAFETY: the block has `cap` usable payload bytes and nothing else holds
+    // it, so this read is in bounds and unaliased.
+    let payload = unsafe { std::slice::from_raw_parts(p.cast_const(), cap as usize) };
+    if payload.iter().any(|b| *b != QUARANTINE_POISON) {
+        return Some(b"a write reached a freed block (its poison was disturbed)");
+    }
+    None
+}
+
+/// Release a quarantined block for real, checking it on the way out.
+///
+/// # Safety
+/// As [`quarantine_disturbed`], and the block must not be reachable again.
+unsafe fn quarantine_release(addr: usize, cap: u64) {
+    // SAFETY: forwarded.
+    if let Some(why) = unsafe { quarantine_disturbed(addr, cap) } {
+        heap_bug(&[why]);
+    }
+    // SAFETY: `addr - 16` is the allocation and `layout_for(cap)` is the
+    // layout it was created with, exactly as in `buri_rt_free`.
+    unsafe { dealloc((addr as *mut u8).sub(BURI_RT_HEADER), layout_for(cap)) }
+}
+
+/// Poison a dead block and hold it, releasing whatever the ring has no room
+/// for.
+///
+/// # Safety
+/// `p` is a payload pointer whose block is dead, has exactly `cap` usable
+/// bytes, is not an arena block, and is not reachable from anywhere else.
+unsafe fn quarantine_push(p: *mut u8, cap: u64) {
+    // SAFETY: the caller promises a dead block of `cap` usable bytes, so both
+    // the header and the payload are this file's to write.
+    unsafe {
+        (*header(p)).rc = QUARANTINE_RC;
+        std::ptr::write_bytes(p, QUARANTINE_POISON, cap as usize);
+    }
+    loop {
+        let Some((addr, held)) = quarantine(|q| q.make_room(cap)) else { break };
+        // SAFETY: the ring only ever holds blocks this function put there.
+        unsafe { quarantine_release(addr, held) };
+    }
+    quarantine(|q| q.put(p as usize, cap));
+}
+
+/// The distinct message a reference operation on a quarantined block stops
+/// with, named by the operation.
+///
+/// This is the *immediate* half of the over-decrement check and the reason the
+/// mode is worth having on the out-of-line paths: `buri_rt_decref` reaching a
+/// block that is already dead is a use-after-free, and the process stops in
+/// the call rather than at exit.
+#[cold]
+fn heap_use_after_free(what: &[u8]) -> ! {
+    heap_bug(&[b"use after free: `", what, b"` was called on a block that was already freed"])
+}
+
+/// Whether `p`'s block is one this section has quarantined.
+///
+/// # Safety
+/// `p` must be a non-null payload pointer whose header is readable — which is
+/// true of a live block and of a quarantined one, and is the caller's promise
+/// on every path that reaches here.
+#[inline]
+unsafe fn is_quarantined(p: *mut u8) -> bool {
+    if !heap_check().quarantines() {
+        return false;
+    }
+    // SAFETY: forwarded.
+    unsafe { (*header(p)).rc == QUARANTINE_RC }
+}
+
+/// Every block [`HeapCheck::Trace`] has seen allocated and not yet seen freed,
+/// by payload address.
+///
+/// A `BTreeMap` because its `new` is a `const fn` and this is a `static` — and
+/// because the order it iterates in is the address order a person reading a
+/// leak dump wants. `HashMap::new` is not const, and a lazily-built map behind
+/// an `Option` would be a second thing to get wrong for no gain here.
+static TRACED: Mutex<std::collections::BTreeMap<usize, u64>> =
+    Mutex::new(std::collections::BTreeMap::new());
+
+fn traced<T>(f: impl FnOnce(&mut std::collections::BTreeMap<usize, u64>) -> T) -> T {
+    let mut guard = match TRACED.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    f(&mut guard)
+}
+
+/// Remember a block, under [`HeapCheck::Trace`] and nowhere else.
+///
+/// An **arena** block is not registered, for the reason [`LIVE_ARENA_BLOCKS`]
+/// gives and for a second one: a released arena's pages go back to the pool
+/// and the next scope is handed the same addresses, so a register keyed by
+/// address would report the newest block under the oldest one's entry.
+fn trace_alloc(p: *mut u8, cap: u64, flags: u64) {
+    if heap_check() == HeapCheck::Trace && flags & BURI_RT_CAP_ARENA == 0 {
+        traced(|t| t.insert(p as usize, cap));
+    }
+}
+
+/// Forget one. Called wherever `LIVE_BLOCKS` falls, so the register and the
+/// counter are the same claim written twice.
+fn trace_free(p: *mut u8) {
+    if heap_check() == HeapCheck::Trace {
+        traced(|t| t.remove(&(p as usize)));
+    }
+}
+
+/// What a leaked block looks like: its size, its count, and the first bytes of
+/// its payload as hex and as text.
+///
+/// The payload preview is what turns "one block of two bytes" into a name: a
+/// leaked `Str` shows its characters, and a leaked list of pointers shows that
+/// it is one.
+fn trace_dump() {
+    let leaked = traced(|t| t.iter().map(|(a, c)| (*a, *c)).collect::<Vec<_>>());
+    if leaked.is_empty() {
+        return;
+    }
+    eprintln!("buri heap check: {} block(s) still live at exit:", leaked.len());
+    for (addr, cap) in leaked {
+        let p = addr as *mut u8;
+        // SAFETY: the register only holds blocks this runtime allocated and
+        // has not freed, so the header and `cap` payload bytes are readable.
+        let (rc, bytes) = unsafe {
+            ((*header(p)).rc, std::slice::from_raw_parts(p.cast_const(), cap as usize))
+        };
+        let shown = &bytes[..bytes.len().min(32)];
+        let hex: String =
+            shown.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(" ");
+        let text: String = shown
+            .iter()
+            .map(|b| if b.is_ascii_graphic() || *b == b' ' { *b as char } else { '.' })
+            .collect();
+        eprintln!("  {cap:>8} byte(s)  rc={rc:<6}  {hex}  |{text}|");
+    }
+}
+
+/// Everything this section has to say, once, after `main` has returned.
+extern "C" fn heap_audit() {
+    if HEAP_AUDIT_QUIET.load(Ordering::Relaxed) {
+        return;
+    }
+    let mut held = 0_u64;
+    while let Some((addr, cap)) = quarantine(|q| q.drain()) {
+        held += 1;
+        // SAFETY: the ring only holds blocks `quarantine_push` put there.
+        unsafe { quarantine_release(addr, cap) };
+    }
+    // The arena's residue comes out first: `LIVE_ARENA_BLOCKS` is the part of
+    // the count whose memory a `munmap` has already taken back, and a leak
+    // report about it would be a report about `core/alloc::scoped` working.
+    let live = LIVE_BLOCKS
+        .load(Ordering::Relaxed)
+        .saturating_sub(LIVE_ARENA_BLOCKS.load(Ordering::Relaxed));
+    if live != 0 {
+        trace_dump();
+        let blocks = HeapDigits::of(live);
+        let bytes = HeapDigits::of(LIVE_BYTES.load(Ordering::Relaxed));
+        heap_bug(&[
+            b"leak: ",
+            blocks.as_bytes(),
+            b" block(s) and ",
+            bytes.as_bytes(),
+            b" byte(s) were allocated and never freed",
+        ]);
+    }
+    if std::env::var_os("BURI_RT_HEAP_REPORT").is_some() {
+        use std::io::Write as _;
+        let seen = quarantine(|q| q.seen);
+        let total = HeapDigits::of(TOTAL_BLOCKS.load(Ordering::Relaxed));
+        let quarantined = HeapDigits::of(seen);
+        let verified = HeapDigits::of(held);
+        let err = std::io::stderr();
+        let mut err = err.lock();
+        let _ = err.write_all(b"buri heap check: ok (allocated=");
+        let _ = err.write_all(total.as_bytes());
+        let _ = err.write_all(b" live=0 quarantined=");
+        let _ = err.write_all(quarantined.as_bytes());
+        let _ = err.write_all(b" verified-at-exit=");
+        let _ = err.write_all(verified.as_bytes());
+        let _ = err.write_all(b")\n");
+        let _ = err.flush();
+    }
 }
 
 // ---------------------------------------------------------------------------

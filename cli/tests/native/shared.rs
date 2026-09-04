@@ -55,13 +55,123 @@ pub struct Ran {
 }
 
 /// Runs a linked executable and collects what it said.
+///
+/// **Under the heap check**, because every caller of this function runs a
+/// whole Buri program to completion and that is exactly the population the
+/// runtime's exit audit is a question about. A program that gave back every
+/// block is unchanged by it; one that did not exits
+/// [`HEAP_CHECK_STATUS`] with the runtime's own line on standard error, which
+/// is a failure in whatever the caller was already asserting about the status.
 pub fn ran(binary: &Path) -> Ran {
-    let out = Command::new(binary).output().unwrap();
+    ran_checked(binary)
+}
+
+/// The same without the check, for a caller that is deliberately measuring the
+/// program the product ships rather than the program a harness runs.
+pub fn ran_unchecked(binary: &Path) -> Ran {
+    ran_command(&mut Command::new(binary))
+}
+
+/// [`ran`] for a command a caller has already configured.
+pub fn ran_command(cmd: &mut Command) -> Ran {
+    let out = cmd.output().unwrap();
     Ran {
         status: out.status.code().unwrap_or(-1),
         stdout: String::from_utf8_lossy(&out.stdout).to_string(),
         stderr: String::from_utf8_lossy(&out.stderr).to_string(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// The universal heap invariant
+// ---------------------------------------------------------------------------
+//
+// **Every program this domain runs is asked the same question on its way out:
+// did it give back every block it took?** The counters have been in
+// `cli/runtime/memory.rs` all along and a handful of suites read them through
+// a linked C probe; what was missing is that a probe is opt-in, so the
+// invariant held for the programs somebody remembered rather than for the
+// corpus. `middle::rc.rs` is a whole-program analysis and its failures are
+// silent, so "the programs somebody remembered" is exactly the wrong sample.
+//
+// The mode is the runtime's, described where it is implemented. Here it is one
+// environment variable set on every child this domain spawns, and the two
+// helpers that read the answer back.
+
+/// The JavaScript engine this domain runs the reference backend under, or
+/// `None`.
+///
+/// `BURI_JS` first, so every suite here answers the same question
+/// `tests/harness/mod.rs` does and a machine that has configured one engine
+/// does not silently get another. One copy, because `agreement.rs` and
+/// `differential.rs` compare a native answer against *the* reference answer,
+/// and two ideas of which engine that is would be two references.
+pub fn js_engine() -> Option<String> {
+    let configured = std::env::var("BURI_JS").ok();
+    let candidates: Vec<String> = match configured {
+        Some(js) => vec![js],
+        None => vec![String::from("bun"), String::from("node")],
+    };
+    candidates.into_iter().find(|candidate| {
+        Command::new(candidate)
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    })
+}
+
+/// The exit status the runtime's heap check stops a program with.
+///
+/// It is not 1 — an ordinary abort's — and it is not a signal, so a status of
+/// exactly this means the program finished and *then* failed the invariant.
+/// `cli/runtime/memory.rs`'s `BURI_RT_HEAP_CHECK_STATUS` is the other side.
+pub const HEAP_CHECK_STATUS: i32 = 97;
+
+/// The environment a Buri artifact is run under, everywhere in this domain.
+///
+/// `1` is the audit **and** the quarantine: freed blocks are poisoned and held
+/// rather than recycled, and a reference operation that reaches one stops the
+/// process. The quarantine is what makes an *over*-decrement deterministic —
+/// without it a released block is recycled and the symptom is a wrong answer
+/// somewhere else, on the runs where the recycling happened to matter.
+pub fn heap_checked(cmd: &mut Command) -> &mut Command {
+    cmd.env("BURI_RT_HEAP_CHECK", "1")
+}
+
+/// Run a linked executable under the heap check.
+pub fn ran_checked(binary: &Path) -> Ran {
+    let mut cmd = Command::new(binary);
+    heap_checked(&mut cmd);
+    ran_command(&mut cmd)
+}
+
+/// What the heap check said about a run, if it said anything.
+///
+/// The whole line, so that a caller reporting a failure reports the number of
+/// blocks and the reason rather than "it exited 97". Taken as the status and
+/// the stream rather than as a `Ran`, because every suite here has its own
+/// idea of what a run is and none of them should have to convert.
+pub fn heap_check_failure(status: i32, stderr: &str) -> Option<&str> {
+    if status != HEAP_CHECK_STATUS {
+        return None;
+    }
+    Some(stderr.lines().find(|l| l.starts_with("buri heap check:")).unwrap_or(
+        "the program exited with the heap-check status and said nothing, which is a \
+         harness bug rather than a program's",
+    ))
+}
+
+/// How many blocks a run leaked, where the failure was a leak.
+///
+/// `None` for a clean run and for a *use after free*, which is the other thing
+/// the check reports and is not a number.
+pub fn leaked_blocks(status: i32, stderr: &str) -> Option<u64> {
+    let line = heap_check_failure(status, stderr)?;
+    let rest = line.strip_prefix("buri heap check: leak: ")?;
+    let (blocks, _) = rest.split_once(" block(s)")?;
+    blocks.trim().parse().ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -318,6 +428,7 @@ pub const STDOUT_BUFFER: usize = 8 * 1024;
 pub fn served(binary: &Path, target: &str) -> (Ran, String) {
     use std::io::{BufRead, Read, Write};
     let mut child = Command::new(binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -401,6 +512,7 @@ pub fn served(binary: &Path, target: &str) -> (Ran, String) {
 pub fn served_many(binary: &Path, requests: usize) -> (Ran, Vec<String>, std::time::Duration) {
     use std::io::{BufRead, Read, Write};
     let mut child = Command::new(binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -617,6 +729,7 @@ export fn main(): Result<(), Str> {{
 pub fn signalled(binary: &Path, signal: i32) -> (Ran, String) {
     use std::io::{BufRead, Read, Write};
     let mut child = Command::new(binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -754,6 +867,7 @@ pub fn signalled_twice(binary: &Path, signal: i32) -> Stopped {
     use std::os::unix::process::ExitStatusExt;
 
     let mut child = Command::new(binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -1357,6 +1471,7 @@ type Announced = (std::process::Child, std::thread::JoinHandle<(String, String)>
 pub fn announced(binary: &Path) -> Announced {
     use std::io::{BufRead, Read};
     let mut child = Command::new(binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

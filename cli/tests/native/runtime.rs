@@ -127,6 +127,197 @@ fn skip() -> bool {
 
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// The test-mode heap check, and that it can fail
+// ---------------------------------------------------------------------------
+//
+// **A net nobody has seen fire is a net nobody should trust.** The heap check
+// in `cli/runtime/memory.rs` is what makes "every block was freed" an
+// invariant of every program this whole domain runs — `shared::ran` sets
+// `BURI_RT_HEAP_CHECK` for all of them — and a check that quietly stopped
+// working would look, from every one of those suites, exactly like a corpus
+// with nothing wrong in it.
+//
+// So the five modes below are the canaries, driven from C because a Buri
+// program cannot express any of them: the language has no spelling for
+// "allocate this and never release it", and none for reading a block after
+// freeing it. Each is run twice — with the check on, where it must stop the
+// process with the runtime's own message, and with it off, where the program
+// must be exactly the program it was.
+
+/// The status `cli/runtime/memory.rs`'s heap check exits with.
+const HEAP_CHECK_STATUS: i32 = 97;
+
+/// The environment a checked run is made in: the audit and the quarantine.
+const CHECKED: &[(&str, &str)] = &[("BURI_RT_HEAP_CHECK", "1")];
+
+/// The audit alone, for the two rows that separate the layers: an *under*
+/// decrement is a leak and the audit sees it with no quarantine at all, and an
+/// *over* decrement is invisible to the audit and is exactly what the
+/// quarantine is for.
+const AUDIT_ONLY: &[(&str, &str)] = &[("BURI_RT_HEAP_CHECK", "leak")];
+
+/// A block allocated and never freed stops the process, and says how many.
+#[test]
+fn the_heap_check_reports_a_leak() {
+    if skip() {
+        return;
+    }
+    let out = run_with(&["heap-leak"], CHECKED, "");
+    assert_eq!(out.status.code(), Some(HEAP_CHECK_STATUS), "stderr:\n{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "allocated");
+    assert!(
+        stderr(&out).contains("buri heap check: leak: 1 block(s) and 64 byte(s)"),
+        "the message did not name the leak:\n{}",
+        stderr(&out)
+    );
+    // The *audit* is the layer that catches this one, and it catches it with
+    // no quarantine: a leak is an under-decrement, and there is nothing for a
+    // freed block to be poisoned into.
+    let audited = run_with(&["heap-leak"], AUDIT_ONLY, "");
+    assert_eq!(audited.status.code(), Some(HEAP_CHECK_STATUS));
+}
+
+/// A reference operation on a freed block stops the process where it happened.
+#[test]
+fn the_heap_check_reports_a_use_after_free() {
+    if skip() {
+        return;
+    }
+    let out = run_with(&["heap-use-after-free"], CHECKED, "");
+    assert_eq!(out.status.code(), Some(HEAP_CHECK_STATUS), "stderr:\n{}", stderr(&out));
+    // It stopped *inside* the `incref`, so the line after it never printed.
+    assert_eq!(stdout(&out).trim_end(), "freed");
+    assert!(
+        stderr(&out).contains("use after free: `incref` was called on a block that was already \
+                               freed"),
+        "the message did not name the operation:\n{}",
+        stderr(&out)
+    );
+    // And this is the row that says the two layers are not one layer: the
+    // audit alone cannot see this, because the block *was* freed and the
+    // counts balance. Only the quarantine can tell that something reached it
+    // afterwards.
+    //
+    // What the audit-only run *does* is deliberately not pinned. With no
+    // quarantine the block has gone back to the allocator, its header is the
+    // free list's, and an `incref` through it is undefined — it may run to the
+    // end or take the process down, by the allocator and by the day. The
+    // assertion is the one thing that is defined: whatever happens, it is not
+    // this section reporting a defect.
+    let audited = run_with(&["heap-use-after-free"], AUDIT_ONLY, "");
+    assert_ne!(
+        audited.status.code(),
+        Some(HEAP_CHECK_STATUS),
+        "the audit alone must not see an over-decrement; that is the quarantine's half"
+    );
+}
+
+/// A block freed twice is named as a double free rather than corrupting a
+/// free list.
+#[test]
+fn the_heap_check_reports_a_double_free() {
+    if skip() {
+        return;
+    }
+    let out = run_with(&["heap-double-free"], CHECKED, "");
+    assert_eq!(out.status.code(), Some(HEAP_CHECK_STATUS), "stderr:\n{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "freed");
+    assert!(
+        stderr(&out).contains("use after free: `free` was called on a block that was already \
+                               freed"),
+        "the message did not name the operation:\n{}",
+        stderr(&out)
+    );
+}
+
+/// A **write** through a stale pointer is caught by the poison, which is the
+/// half of the quarantine no count can answer.
+#[test]
+fn the_heap_check_reports_a_write_after_free() {
+    if skip() {
+        return;
+    }
+    let out = run_with(&["heap-write-after-free"], CHECKED, "");
+    assert_eq!(out.status.code(), Some(HEAP_CHECK_STATUS), "stderr:\n{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "wrote");
+    assert!(
+        stderr(&out).contains("a write reached a freed block"),
+        "the message did not name the poison:\n{}",
+        stderr(&out)
+    );
+}
+
+/// A balanced program is unchanged: the same output, the same status, and
+/// nothing on standard error.
+///
+/// This is the other half of the promise, and the one every suite in this
+/// domain rests on — the check may only ever *add* a failure.
+#[test]
+fn the_heap_check_is_silent_on_a_balanced_program() {
+    if skip() {
+        return;
+    }
+    let checked = run_with(&["heap-clean"], CHECKED, "");
+    let plain = run(&["heap-clean"]);
+    assert_eq!(checked.status.code(), Some(0), "stderr:\n{}", stderr(&checked));
+    assert_eq!(stdout(&checked), stdout(&plain));
+    assert_eq!(stderr(&checked), "");
+    assert_eq!(stderr(&plain), "");
+}
+
+/// With the variable unset — every shipped artifact — the four defective modes
+/// run to the end and say nothing.
+///
+/// The quarantine changes what the *allocator* does, so this is what says it
+/// changes nothing a program can see: off is off.
+#[test]
+fn nothing_is_checked_unless_the_environment_asks() {
+    if skip() {
+        return;
+    }
+    // The two defective-but-defined modes only. `heap-use-after-free` and
+    // `heap-double-free` are *undefined* with the check off — that is the
+    // whole reason the quarantine exists — so what they do there is not
+    // something a test may pin: the recycled block's header is the allocator's
+    // free list, and clobbering it crashes or does not by the day.
+    for mode in ["heap-leak", "heap-clean"] {
+        let out = run(&[mode]);
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "`{mode}` did not run to the end with the check off:\n{}",
+            stderr(&out)
+        );
+        assert!(
+            !stderr(&out).contains("buri heap check"),
+            "`{mode}` reported a heap check with the check off:\n{}",
+            stderr(&out)
+        );
+    }
+}
+
+/// A program that **aborts** says why it aborted, and nothing about its heap.
+///
+/// A failed assertion in the middle of a list is not a leak, and a report
+/// about the heap on top of the reason a program stopped would bury the
+/// reason. `abort::die` is where the audit is silenced and this is the row
+/// that says so.
+#[test]
+fn an_abort_is_not_reported_as_a_leak() {
+    if skip() {
+        return;
+    }
+    let out = run_with(&["abort-div"], CHECKED, "");
+    assert_eq!(out.status.code(), Some(1), "an abort exits 1, not the heap-check status");
+    assert!(
+        !stderr(&out).contains("buri heap check"),
+        "the audit spoke over an abort:\n{}",
+        stderr(&out)
+    );
+}
+
 /// The header, the counts, the drop glue, and the leak property.
 #[test]
 fn the_memory_contract_holds() {

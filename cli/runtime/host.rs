@@ -967,6 +967,9 @@ pub unsafe extern "C" fn buri_rt_host_env_args(out: *mut BuriList) {
 /// `Proc::exitWith`. Flushes first, and does not return.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_proc_exit_with(code: i64) -> ! {
+    // A program that chose where to stop is entitled to be holding values, so
+    // the test-mode exit audit stays quiet (`memory.rs`'s heap-check section).
+    crate::memory::quiet_heap_audit();
     buri_rt_flush();
     std::process::exit(code as i32)
 }
