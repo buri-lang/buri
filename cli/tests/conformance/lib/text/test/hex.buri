@@ -122,6 +122,22 @@ test "toHex pads wider than the type is" {
     assert.eq(num.toHex(ctx, 255, 20), "000000000000000000ff");
 }
 
+test "sixteen digits of a U64 is toHex at a width of sixteen" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The shape a program writes out as a sixteen-call unrolled `nibble`: one
+    // 64-bit value, sixteen lowercase digits. A `U64` past the signed maximum
+    // wraps to a negative `Int` and renders as the same bit pattern, which is
+    // what lets one function cover the whole unsigned range.
+    let big: U64 = 18446744073709551615;
+    let half: U64 = 9223372036854775808;
+    let small: U64 = 291;
+    assert.eq(num.toHex(ctx, big.wrapToI64(), 16), "ffffffffffffffff");
+    assert.eq(num.toHex(ctx, half.wrapToI64(), 16), "8000000000000000");
+    assert.eq(num.toHex(ctx, small.wrapToI64(), 16), "0000000000000123");
+}
+
 // --- str.toRadix --------------------------------------------------------------
 
 test "toRadix reads hexadecimal in either case" {
