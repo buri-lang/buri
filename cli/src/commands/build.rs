@@ -122,6 +122,12 @@ pub fn command_build(args: &arguments::Args) -> i32 {
     if !failed && session.workspace.repo.lint.check_during_build {
         let findings = crate::commands::lint::findings_for(&mut session, &targets, &args.flags);
         failed |= session.print(&findings);
+        // Which rules this repository turned off, wherever the catalogue runs.
+        // A build that reports nothing because a rule is off says so here, or
+        // the silence is indistinguishable from a clean tree.
+        if let Some(note) = crate::commands::lint::rules_note(&session) {
+            println!("{note}");
+        }
     }
     if failed {
         return 1;

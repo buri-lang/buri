@@ -1,0 +1,2 @@
+REPO.buri turns off 1 of 25 lint rules: unused-variable
+no findings

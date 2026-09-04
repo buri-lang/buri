@@ -1,0 +1,35 @@
+# `enabled(rule) = override.unwrap_or(default)`, read from the other end: with
+# `default: DISABLED` the overrides are the whole of what runs. One of the two
+# findings in `cents.buri` is reported and the other is not, and the line above
+# the report says which rules ran rather than leaving a one-finding report to
+# look like a two-finding tree that only had one problem.
+#
+# The edit at the end is the same file with the default flipped: every rule
+# runs, both findings are reported, and the line goes away because there is
+# nothing left for it to say.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "default: DISABLED with one rule written true is an allow list: only that rule reports, and the report says which rules ran"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+# The same block with the default the other way round. `warning_comment: true`
+# is now the value it would have had anyway, so this is a `rules` block that
+# changes nothing — and a report with no line above it.
+edit {
+  file: "REPO.buri"
+  replace: "default: DISABLED"
+  with: "default: ENABLED"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint_all.txt"
+}

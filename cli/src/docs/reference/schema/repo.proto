@@ -5,10 +5,10 @@
 // import. Its presence is what makes a directory a repository root.
 //
 // It is deliberately small. Two things belong here — the tag vocabulary every
-// build file draws from, and how hard the lint catalogue is run — and
-// everything else that might want to live in a repository-wide config file is
-// either a flag on the command or a field on a rule. See REPO-CONFIG.md for
-// what is absent and why.
+// build file draws from, and how the lint catalogue is run — and everything
+// else that might want to live in a repository-wide config file is either a
+// flag on the command or a field on a rule. See REPO-CONFIG.md for what is
+// absent and why.
 
 syntax = "proto3";
 
@@ -32,19 +32,24 @@ message RepoConfig {
   Lint lint = 3;
 }
 
-// Where the lint catalogue runs, and what a finding costs.
+// Where the lint catalogue runs, what a finding costs, and which of its rules
+// this repository listens to.
 //
-// Both fields default to false, and false for both is exactly the behaviour of
-// a `REPO.buri` with no `lint` block at all: the catalogue runs when `buri
-// lint` is asked to run it, and what it finds is a warning. So the block is
-// worth writing only to say yes to something.
+// Every field defaults to the behaviour of a `REPO.buri` with no `lint` block
+// at all: the catalogue runs when `buri lint` is asked to run it, what it finds
+// is a warning, and every rule in it runs. So the block is worth writing only
+// to say something.
 //
-// That is the shape of the whole message, and the reason it can be read
-// quickly: every field here is a ratchet. Each one may only make the toolchain
-// stricter — run the checks in more places, or make a finding cost more. There
-// is no field that turns a check off, exempts a directory, or downgrades a
-// finding, and there is not going to be one. A repository may hold itself to
-// more than the catalogue asks. It may not hold itself to less.
+// Two of the three fields are ratchets — each may only make the toolchain
+// stricter, by running the checks in more places or by making a finding cost
+// more. `rules` is the one that is not, and its shape is the argument for
+// letting it exist: a rule is turned off for the *whole repository*, by the
+// name the finding prints, in the one file everybody reads, and every command
+// that reports findings prints which rules were turned off. There is no
+// per-directory exemption and no per-file suppression comment, because those
+// are the forms that make "is this rule on here" a question no single file can
+// answer, and that let a check be silenced by whoever tripped over it rather
+// than argued about once.
 message Lint {
   // Whether `buri build` and `buri test` run the lint catalogue too and report
   // what it finds, rather than leaving that to `buri lint`.
@@ -55,6 +60,125 @@ message Lint {
   // — everywhere except `buri lint` itself, which exits nonzero on a finding
   // either way, because running the linter is already the request to be told.
   bool fail_on_finding = 2;
+
+  // Which of the catalogue's rules run here. Absent, or empty: all of them.
+  Rules rules = 3;
+}
+
+// Which rules run: `enabled(rule) = override.unwrap_or(default)`.
+//
+// One bool per lint code, named for the code with its hyphens turned into
+// underscores because a textproto field name cannot hold one, and **generated
+// from the catalogue rather than written down beside it**: the field set the
+// toolchain reads a `rules` block against is `documentation::lints`' own list,
+// so a rule cannot ship without a field here, and the two lists are held to
+// each other by a test. A name this message does not declare is the
+// unknown-field diagnostic any other undeclared field gets, with the nearest
+// rule offered as the fix — a misspelled rule is a file that does not read,
+// never a rule quietly left on.
+//
+// A rule turned off here is dropped from every report, in the editor and at
+// the terminal alike, and is skipped by `check_during_build` as well as by
+// `buri lint`. It is not downgraded and it is not hidden: the commands that
+// print findings print the rules this block turned off, because a finding that
+// is silently absent is worse than one that was never written.
+message Rules {
+  // What every rule not named below is. Absent: ENABLED — so an empty `rules`
+  // block, like an absent one, changes nothing.
+  RuleDefault default = 1;
+
+  // `ctx` names the context a function was handed. `buri docs lint ctx-rebinding`.
+  bool ctx_rebinding = 2;
+
+  // Every declaration is reached from a `lib.buri` or a `main.buri`. `buri docs lint dead-code`.
+  bool dead_code = 3;
+
+  // Branches nest shallowly. `buri docs lint deep-nesting`.
+  bool deep_nesting = 4;
+
+  // Two targets may not depend on each other. `buri docs lint dep-cycle`.
+  bool dep_cycle = 5;
+
+  // Every deliberately dropped `Result` is reported. `buri docs lint discarded-result`.
+  bool discarded_result = 6;
+
+  // A module is imported once. `buri docs lint duplicate-import`.
+  bool duplicate_import = 7;
+
+  // A source file is listed by one rule. `buri docs lint duplicate-source`.
+  bool duplicate_source = 8;
+
+  // A `test` block declares the sources it tests. `buri docs lint empty-test-suite`.
+  bool empty_test_suite = 9;
+
+  // The hexadecimal digits are not yours to keep. `buri docs lint hex-digit-table`.
+  bool hex_digit_table = 10;
+
+  // Every library a package uses is in its dependencies. `buri docs lint missing-dep`.
+  bool missing_dep = 11;
+
+  // A function is one responsibility. `buri docs lint oversized-function`.
+  bool oversized_function = 12;
+
+  // A test title is one line. `buri docs lint test-title-newline`.
+  bool test_title_newline = 13;
+
+  // A test asserts something. `buri docs lint test-without-assertion`.
+  bool test_without_assertion = 14;
+
+  // A length of time is a `Duration`. `buri docs lint time-unit-conversion`.
+  bool time_unit_conversion = 15;
+
+  // A function takes few parameters. `buri docs lint too-many-parameters`.
+  bool too_many_parameters = 16;
+
+  // A target admits at least one platform. `buri docs lint unsatisfiable-target`.
+  bool unsatisfiable_target = 17;
+
+  // A function that takes `ctx` uses it. `buri docs lint unused-context`.
+  bool unused_context = 18;
+
+  // A context asks for the effects it uses. `buri docs lint unused-context-bound`.
+  bool unused_context_bound = 19;
+
+  // Every field is read. `buri docs lint unused-field`.
+  bool unused_field = 20;
+
+  // Every import is used. `buri docs lint unused-import`.
+  bool unused_import = 21;
+
+  // Every source file belongs to a library or a binary. `buri docs lint unused-library`.
+  bool unused_library = 22;
+
+  // Every declared type is used. `buri docs lint unused-type`.
+  bool unused_type = 23;
+
+  // Every `let` names something the code below it reads. `buri docs lint unused-variable`.
+  bool unused_variable = 24;
+
+  // Every variant is constructed or matched. `buri docs lint unused-variant`.
+  bool unused_variant = 25;
+
+  // A marker comment is work that was left behind. `buri docs lint warning-comment`.
+  bool warning_comment = 26;
+}
+
+// Whether a rule the `rules` block does not name runs.
+//
+// An enum rather than a bool because it is read at a distance from the
+// overrides beneath it: `default: DISABLED` is what turns the block into an
+// allow list, and `default: false` would leave a reader working out which way
+// round the file was before they could read a single override.
+enum RuleDefault {
+  RULE_DEFAULT_UNSPECIFIED = 0;  // ENABLED
+
+  // Every rule runs except those written `false` below. The default, and the
+  // whole of what a repository with no `rules` block gets.
+  ENABLED = 1;
+
+  // No rule runs except those written `true` below: an allow list, in the same
+  // fields and with no second spelling of its own.
+  DISABLED = 2;
 }
 
 // A label a target may carry, and the policy attached to carrying it. Tags form

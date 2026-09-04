@@ -121,7 +121,7 @@ fn proto_schemas() {
 /// parity between this command and the language server stated alongside it.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 49);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 52);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the

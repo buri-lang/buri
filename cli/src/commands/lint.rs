@@ -1,14 +1,22 @@
 //! `buri lint`.
 //!
-//! Checks that type checking does not cover. One catalogue, every check always
-//! on, every finding a warning — a lint that cannot be turned off has to be one
-//! nobody wants to turn off, which is the bar every check here is held to.
+//! Checks that type checking does not cover. One catalogue, one severity —
+//! every finding is a warning, and what it says is the same in every
+//! repository.
 //!
-//! A repository may only tighten. The `lint` block in `REPO.buri` can run the
-//! catalogue during `buri build` and `buri test` (`check_during_build`) and can
-//! make a finding fail the command that reported it (`fail_on_finding`). There
-//! is no per-file suppression comment and no way to silence a check: the only
-//! answers a repository is offered are "sooner" and "harder".
+//! What a repository decides is in `REPO.buri`'s `lint` block, and it decides
+//! it in one place, out loud, for the whole repository: the catalogue can run
+//! during `buri build` and `buri test` (`check_during_build`), a finding can
+//! fail the command that reported it (`fail_on_finding`), and a rule can be
+//! turned off by name (`rules`). There is still no per-file suppression
+//! comment and no per-directory exemption — a rule is off for the repository or
+//! it is on, which is what keeps "is this rule on here" a question one file
+//! answers, and what makes turning one off a diff somebody reviews.
+//!
+//! A rule this repository has turned off is dropped from the report rather
+//! than downgraded, and every command that prints a report says which rules
+//! those were: a finding that is silently absent is worse than one that was
+//! never written, because nothing on the screen says a check did not run.
 #![allow(
     clippy::print_stdout,
     clippy::print_stderr,
@@ -98,6 +106,7 @@ pub fn findings_for(
     }
     check_cycles(session, &mut diagnostics);
 
+    keep_what_the_repository_runs(session, &mut diagnostics);
     promote(session, &mut diagnostics);
     diagnostics.sort(&session.map);
     diagnostics
@@ -141,6 +150,7 @@ pub fn findings_for_target(
     let _ = one_target(session, target, analysis, &mut seen_packages, &mut diagnostics);
     check_cycles(session, &mut diagnostics);
 
+    keep_what_the_repository_runs(session, &mut diagnostics);
     promote(session, &mut diagnostics);
     diagnostics.sort(&session.map);
     diagnostics
@@ -222,6 +232,69 @@ fn one_target(
     Marks { start, analysis_end, package_end, asked_the_package }
 }
 
+/// `rules`: drops every finding from a rule this repository has turned off.
+///
+/// Here, on the way out, rather than at each of the twenty-odd emission sites:
+/// a rule is a code, the report is the one place every code passes through,
+/// and a check that had to remember to ask would be a check that could forget.
+/// It is also what makes the answer the same in the editor and at the terminal
+/// — [`findings_for_target`] is the language server's route and it comes
+/// through here too — and what makes a record from the lint cache safe: a
+/// record holds what the catalogue found, and what this repository listens to
+/// is applied after it is read back, so no verdict can be stale with respect
+/// to a rule that has since been turned off or back on.
+///
+/// Only codes the catalogue names. A type error riding along in the same
+/// `Diagnostics` is not a lint finding and is nobody's to drop: `rules` says
+/// which of *these* checks run, not which errors a build may ignore.
+fn keep_what_the_repository_runs(session: &Session, diagnostics: &mut Diagnostics) {
+    let rules = &session.workspace.repo.lint.rules;
+    if rules.everything_runs() {
+        return;
+    }
+    diagnostics.items.retain(|d| match d.code.as_deref() {
+        Some(code) => {
+            crate::documentation::lints::find(code).is_none() || rules.enabled(code)
+        }
+        None => true,
+    });
+}
+
+/// The line a command prints when this repository is not running the whole
+/// catalogue, and `None` when it is.
+///
+/// Printed by every command that reports findings, because the alternative is
+/// a clean report that is clean for a reason nothing on the screen gives. The
+/// smaller side is the one listed: with the default `ENABLED` that is the
+/// rules that were turned off, and under `default: DISABLED` it is the ones
+/// left running, because listing twenty-three names to say "two rules ran" is
+/// a line nobody reads.
+pub fn rules_note(session: &Session) -> Option<String> {
+    let rules = &session.workspace.repo.lint.rules;
+    if rules.everything_runs() {
+        return None;
+    }
+    let all = crate::documentation::lints::LINTS.len();
+    let off = rules.disabled();
+    if off.len() * 2 <= all {
+        return Some(format!(
+            "REPO.buri turns off {} of {all} lint rules: {}",
+            off.len(),
+            off.join(", ")
+        ));
+    }
+    let on: Vec<&str> = crate::documentation::lints::LINTS
+        .iter()
+        .map(|l| l.code)
+        .filter(|code| rules.enabled(code))
+        .collect();
+    Some(format!(
+        "REPO.buri runs {} of {all} lint rules: {}",
+        on.len(),
+        on.join(", ")
+    ))
+}
+
 /// `fail_on_finding`: every finding from the catalogue becomes an error.
 ///
 /// It happens here rather than at each caller so that the editor squiggles the
@@ -251,6 +324,13 @@ fn promote(session: &Session, diagnostics: &mut Diagnostics) {
 fn report_findings(session: &mut Session, diagnostics: &Diagnostics) -> i32 {
     for d in &diagnostics.items {
         session.emit(d);
+    }
+    // Before the count rather than after it: "no findings" under a repository
+    // that turned rules off is a sentence about a smaller catalogue, and the
+    // line that says which one has to be read first for the count to mean
+    // anything.
+    if let Some(note) = rules_note(session) {
+        println!("{note}");
     }
     if diagnostics.items.is_empty() {
         println!("no findings");

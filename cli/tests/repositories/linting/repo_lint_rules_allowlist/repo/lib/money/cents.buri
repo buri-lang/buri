@@ -1,0 +1,13 @@
+export fn fromCents(n: I64): I64 {
+    n
+}
+
+// TODO: decide what a negative amount formats as
+//
+// Two findings live in this function: the marker comment above, and the
+// binding below that nothing reads. The allow list lets exactly one of them
+// through.
+export fn format(n: I64): Str {
+    let scaled = n * 100;
+    if (n == 0) { "zero" } else { "some" }
+}

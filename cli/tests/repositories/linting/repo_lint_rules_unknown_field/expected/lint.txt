@@ -1,0 +1,7 @@
+error: unknown field `unused_varible` in a `rules` block [unknown-field]
+ --> REPO.buri:7:9
+  |
+7 |         unused_varible: false
+  |         ^^^^^^^^^^^^^^
+  |
+  = fix: did you mean `unused_variable`?

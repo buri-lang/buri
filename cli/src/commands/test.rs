@@ -349,6 +349,12 @@ fn one_pass(
     if !hard_error && session.workspace.repo.lint.check_during_build {
         let findings = crate::commands::lint::findings_for(&mut session, &targets, &args.flags);
         hard_error |= session.print(&findings);
+        // The same line `buri lint` prints: a rule this repository turned off
+        // is absent from the report, and an absence nothing explains reads as
+        // a check that passed.
+        if let Some(note) = crate::commands::lint::rules_note(&session) {
+            out.line(&note);
+        }
     }
     // Everything this pass read and parsed, kept for the next one. After the
     // compiling and before either exit below, which are the two the loop can
