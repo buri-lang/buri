@@ -16,6 +16,7 @@
               width, runs only after the width has been bounded"
 )]
 
+use crate::build::buildfile::Platform;
 use crate::compiler::backend::Profile;
 use crate::compiler::backend::js::javascript::{self, BinOp, Expr, Stmt, UnOp, VarKind};
 use crate::compiler::semantics::typed::{self, ExprKind, PatKind, PrimOp};
@@ -285,7 +286,12 @@ pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<Strin
     out
 }
 
-pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output {
+pub fn generate(
+    program: &Program,
+    tables: &Tables,
+    profile: Profile,
+    platform: Platform,
+) -> Output {
     let mut g = Gen::over(program, tables, profile);
     // The ownership half of `middle::rc`, which this branch of the pipeline
     // runs for its increments alone. MEMORY.md §5.5.
@@ -303,7 +309,7 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     //
     // The `await` is module top level, where it is available because every
     // artifact this backend writes is an ES module.
-    if needs_require(program) {
+    if needs_require(program, platform) {
         stmts.push(Stmt::Raw(
             "const $require=typeof process===\"undefined\"?undefined:\
              (await import(\"node:module\")).createRequire(import.meta.url);"
@@ -500,14 +506,13 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
         // The epilogue is module top level, where `await` is available
         // because every artifact this backend writes is an ES module.
         let wait = if g.parks(entry) { "await " } else { "" };
+        // What the two arms *do* is `runtime.js`'s `$done` and `$failed`,
+        // because both have to flush what the program printed before they say
+        // anything of their own — and a flush before a `process.exit` is a
+        // claim only the runtime's synchronous writer can keep
+        // (buri-lang/buri#42).
         stmts.push(Stmt::Raw(format!(
-            "try{{const r={wait}{sym}();$host.flush();\
-             if(r[0]!==0){{$write(2,$str(r[1])+\"\\n\");\
-             if(typeof process!==\"undefined\")process.exit(1);}}}}\
-             catch(e){{$host.flush();\
-             $write(2,(e&&e.message?e.message:String(e))+\"\\n\");\
-             if(e&&e.stack)$write(2,e.stack+\"\\n\");\
-             if(typeof process!==\"undefined\")process.exit(1);}}"
+            "try{{const r={wait}{sym}();$done(r)}}catch(e){{$failed(e)}}"
         )));
     }
 
@@ -525,17 +530,28 @@ pub fn generate(program: &Program, tables: &Tables, profile: Profile) -> Output 
     Output { stmts, roots, missing_intrinsics: g.missing }
 }
 
-/// Whether any reachable intrinsic reaches a node module by name.
+/// Whether this artifact reaches a node module by name.
 ///
-/// Two do, and they are not the same module. `runtime.js`'s `$fsp` is
+/// Two are reached, and they are not the same module. `runtime.js`'s `$fsp` is
 /// `node:fs/promises`, which every `Fs` method waits on; `$fs` is the
-/// synchronous `fs`, and the one caller left for it is `$writeRaw`, behind
-/// `Stdout.writeBytes` — a write that must land before the next request is
-/// read, so it does not wait and cannot use the other one.
+/// synchronous `fs`, and it answers the two writers that must not wait —
+/// `$writeRaw`, behind `Stdout.writeBytes`, and `$write`, which empties the
+/// buffered streams on the exit path, where an asynchronous write is truncated
+/// by `process.exit` (buri-lang/buri#37, buri-lang/buri#42).
 ///
-/// `Stdin` is no longer on this list: it reads `process.stdin`, which is a
+/// So every artifact for a platform that *has* an exit needs it, which is
+/// every platform but `WEB`: a page has no `process.exit` to lose a write to,
+/// no descriptor to write synchronously to, and — this is why the answer is not
+/// simply `true` — a bundler that would try to resolve `node:module` for the
+/// browser. A page that reaches `Fs` or `writeBytes` still gets the prologue,
+/// guarded, and `$fs` says out loud that the platform grants neither.
+///
+/// `Stdin` is on neither side of this: it reads `process.stdin`, which is a
 /// global rather than a module.
-fn needs_require(program: &Program) -> bool {
+fn needs_require(program: &Program, platform: Platform) -> bool {
+    if platform != Platform::Web {
+        return true;
+    }
     program.funcs.iter().any(|f| {
         f.intrinsic_key().is_some_and(|k| {
             k.starts_with("host.HostFs.") || k == "host.HostStdout.writeBytes"

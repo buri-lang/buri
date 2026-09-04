@@ -1405,14 +1405,77 @@ const $host = {
   },
 };
 
+// **Synchronous, wherever the platform has a descriptor to write to.** Every
+// asynchronous writer a JavaScript host offers — `Bun.stdout.write`,
+// `process.stdout.write` on a pipe — hands the text to the event loop and
+// answers before it has landed, and `process.exit` does not wait for the loop.
+// So an exit truncated whatever was still in flight: `Bun.stdout.write` to a
+// file dropped it whole, and `process.stdout.write` to a pipe kept the first
+// sixty-four kilobytes and lost the rest (buri-lang/buri#37,
+// buri-lang/buri#42). A flush a following `process.exit` may discard is not a
+// flush, and the buffer above exists precisely so that the exit path can empty
+// it.
+//
+// `writeSync` on the descriptor is the one writer with no queue behind it. A
+// browser has no descriptor and no `process.exit` either, so nothing there can
+// be truncated and the asynchronous writer is what it keeps.
 function $write(fd, s) {
-  if (typeof Bun !== "undefined") {
-    (fd === 1 ? Bun.stdout : Bun.stderr).write(s);
+  const fs = $fsOrNull();
+  if (fs !== null) {
+    $writeAll(fs, fd, typeof Buffer !== "undefined" ? Buffer.from(s, "utf8") : new TextEncoder().encode(s));
   } else if (typeof process !== "undefined") {
     (fd === 1 ? process.stdout : process.stderr).write(s);
   } else {
     (fd === 1 ? console.log : console.error)(s);
   }
+}
+
+// One buffer, written whole. `write(2)` may take less than it was offered, and
+// a descriptor someone else put in non-blocking mode answers `EAGAIN` rather
+// than waiting — neither is a failure, and both would silently lose text if the
+// count came back unchecked. Anything else throws, and the caller holds it as
+// the stream's `pending` failure.
+function $writeAll(fs, fd, buf) {
+  let at = 0;
+  while (at < buf.length) {
+    try {
+      at += fs.writeSync(fd, buf, at, buf.length - at);
+    } catch (e) {
+      if (!e || (e.code !== "EAGAIN" && e.code !== "EWOULDBLOCK")) throw e;
+    }
+  }
+}
+
+// What a program's `main` answered, and what that means for the process.
+// `.Ok(())` exits 0; `.Err(msg)` prints `msg` on stderr and exits 1. The
+// message joins the stream's buffer rather than jumping the queue, so a
+// program's own stderr and the runtime's last word arrive in the order they
+// were written — and both arrive, which they did not while the exit went
+// through an asynchronous write (buri-lang/buri#42).
+function $done(r) {
+  if (r[0] === 0) {
+    $host.flush();
+    return;
+  }
+  $host.err.push($str(r[1]) + "\n");
+  $exit(1);
+}
+
+// The same, for a failure the program had no name for: an abort, or anything
+// else that reached the top without being a `Result`.
+function $failed(e) {
+  $host.err.push((e && e.message ? e.message : String(e)) + "\n");
+  if (e && e.stack) $host.err.push(e.stack + "\n");
+  $exit(1);
+}
+
+// The one exit, and the only place `process.exit` is spelled. Flushing first is
+// what makes the status and the output arrive together: `$write` above has had
+// the queue taken out from under it, so by the time this returns to the host
+// there is nothing left in flight to lose.
+function $exit(code) {
+  $host.flush();
+  if (typeof process !== "undefined") process.exit(code);
 }
 
 // The platform's allocator: unbounded, and it counts nothing. `core/alloc`'s
@@ -1609,17 +1672,11 @@ function $host_HostStdout_writeBytes(self, b) {
 }
 
 function $writeRaw(fd, bytes) {
+  // Bun's stdout writer is async; `writeSync` on the file descriptor is not,
+  // and a protocol that answers a request has to have answered before it
+  // reads the next one.
   const buf = typeof Buffer !== "undefined" ? Buffer.from(bytes) : Uint8Array.from(bytes);
-  if (typeof Bun !== "undefined") {
-    // Bun's stdout writer is async; `writeSync` on the file descriptor is not,
-    // and a protocol that answers a request has to have answered before it
-    // reads the next one.
-    $fs().writeSync(fd, buf);
-  } else if (typeof process !== "undefined") {
-    $fs().writeSync(fd, buf);
-  } else {
-    throw new Error("no way to write bytes on this platform");
-  }
+  $writeAll($fs(), fd, buf);
 }
 
 function $host_HostStderr_eprint(self, t) {
@@ -1796,13 +1853,23 @@ function $utf8Lossy(b) {
 // one of the two modules below. A program whose `main` binds neither `Fs` nor
 // `Stdout.writeBytes` never gets one.
 //
-// The synchronous half survives for exactly one caller: `$writeRaw`, which
-// answers `Stdout.writeBytes` and does not wait, because a protocol that
-// answers a request has to have answered before it reads the next one.
+// The synchronous half answers the two writers that must not wait:
+// `$writeRaw`, behind `Stdout.writeBytes`, because a protocol that answers a
+// request has to have answered before it reads the next one; and `$write`,
+// because an exit does not wait for a queue.
 function $fs() {
+  const fs = $fsOrNull();
+  if (fs === null) $abort("this platform grants no filesystem");
+  return fs;
+}
+
+// The same, for the caller that has something else to do when there is none.
+// `typeof` rather than a bare read, because `$require` is a `const` the backend
+// emits only for a platform that can have one.
+function $fsOrNull() {
   if (typeof $require === "function") return $require("fs");
   if (typeof require === "function") return require("fs");
-  $abort("this platform grants no filesystem");
+  return null;
 }
 
 // The filesystem every `Fs` method reaches: `node:fs/promises`, so that a read
@@ -2055,8 +2122,7 @@ async function $host_HostTasks_parallel(self, ctx, xs, f) {
 }
 
 function $host_HostProc_exitWith(self, code) {
-  $host.flush();
-  if (typeof process !== "undefined") process.exit(Number(code));
+  $exit(Number(code));
   return 0;
 }
 

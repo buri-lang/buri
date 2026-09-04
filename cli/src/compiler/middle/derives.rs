@@ -2716,6 +2716,7 @@ export fn main(): Result<(), Str> {
             &program,
             &tables,
             crate::compiler::backend::Profile::Debug,
+            crate::build::buildfile::Platform::Js,
         );
         let code = crate::compiler::backend::js::javascript::print(&js.stmts, true);
         assert!(code.contains("$D0"), "the descriptor table is still emitted");
