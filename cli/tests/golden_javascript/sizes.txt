@@ -4,6 +4,7 @@ array_patterns: 2875 bytes artifact, 1499 generated
 bool_logic: 2607 bytes artifact, 926 generated
 closures: 3284 bytes artifact, 772 generated
 derives: 4418 bytes artifact, 1407 generated
+destructuring: 2874 bytes artifact, 1826 generated
 enum_match: 2754 bytes artifact, 1506 generated
 enum_payloadless: 2616 bytes artifact, 1045 generated
 enum_single_variant: 2399 bytes artifact, 282 generated
@@ -35,5 +36,5 @@ ui_styles_dynamic: 21564 bytes artifact, 1397 generated
 ui_theme: 19782 bytes artifact, 4248 generated
 ui_theme_and_computed: 23097 bytes artifact, 1109 generated
 
-total: 206623 bytes artifact, 60677 generated
+total: 209497 bytes artifact, 62503 generated
 largest function: 3507 bytes, ui_styles_dynamic/$tree_declare

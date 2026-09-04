@@ -1,0 +1,54 @@
+// A `let` whose pattern takes a value apart binds each name to a path that
+// starts at the same subject, so the subject is spelled once per name — and an
+// expression spelled twice is evaluated twice. Every function here prints, so
+// a second evaluation is visible in what the program printed rather than only
+// in what it compiled to.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+// A pair, as a struct.
+struct Pair {
+    // The left half.
+    left: Int,
+    // The right half.
+    right: Int,
+}
+
+// Two halves of one reading. Recursive, so it is not inlined into its caller
+// and the call survives into the emitted program.
+fn readTuple<C: Alloc + Stdout>(ctx: C, depth: Int): (Int, Int) {
+    if (depth > 0) {
+        readTuple(ctx, depth - 1)
+    } else {
+        let _ = io.println(ctx, "read a tuple").ignore();
+        (1, 2)
+    }
+}
+
+// The same, as a struct.
+fn readPair<C: Alloc + Stdout>(ctx: C, depth: Int): Pair {
+    if (depth > 0) {
+        readPair(ctx, depth - 1)
+    } else {
+        let _ = io.println(ctx, "read a pair").ignore();
+        Pair { left: 3, right: 4 }
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let (a, b) = readTuple(ctx, 2);
+    let _ = io.println(ctx, "${a} ${b}").ignore();
+
+    let Pair { left, right } = readPair(ctx, 2);
+    let _ = io.println(ctx, "${left} ${right}").ignore();
+
+    // One name is one spelling, so nothing is bound in between.
+    let whole = readTuple(ctx, 2);
+    let _ = io.println(ctx, "${whole.0} ${whole.1}").ignore();
+    .Ok(())
+}
