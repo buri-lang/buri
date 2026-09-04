@@ -165,6 +165,8 @@ export fn gen<C: Rand>(ctx: C): Gen;         // draw a seed, then go pure
 export fn bytes<C: Alloc + Rand>(ctx, n): [U8];
 ```
 
+Nick's decision (do this): implement the above interface, including for any new crypto standard library functions that could be seeded.
+
 Plus either a `Csprng` effect or an explicit promise on `Rand` that it is not one
 — today the docs promise neither way, which is what the bug is about.
 
@@ -203,6 +205,32 @@ Past that everything is hand-written, repeatedly.
   `Order.isLess`/`isEqual` (`query/bindings.buri:226-240`), and `Order.then`
   open-coded as `match { .Equal => next, ordered => ordered }`
   (`storage_simulator/model.buri:174,205`, `workload.buri:359`).
+
+Recommendation: the combinators go in `core/order`; the list comparison goes in
+`core/list`, because a method on `[T]` may only be declared in `[T]`'s defining
+module (SPEC 6.7.3); the NaN-last comparator goes beside `order.float` rather
+than in `core/num`, so every comparator has one address.
+
+```buri
+// core/order
+export fn by<T, K>(key: fn(T) => K, cmp: fn(K, K) => Order): fn(T, T) => Order;
+export fn chain<T>(cmps: [fn(T, T) => Order]): fn(T, T) => Order;
+export fn reverseIf<T>(descending: Bool, cmp: fn(T, T) => Order): fn(T, T) => Order;
+export fn totalFloat(a: Float, b: Float): Order;   // -0.0 < 0.0, NaN last, never .Equal by accident
+// core/list
+impl<T> [T] { export fn compareBy(self, other: [T], cmp: fn(T, T) => Order): Order; }
+impl<T: Ord> Ord for [T] { export fn compare(self, other: [T]): Order; }
+```
+
+All pure — a comparator captures a function value, which SPEC 10.6 permits and
+`order.reverse` already does. The UTF-16 bullet is **covered by the
+Unicode-scalar ordering change already landed**: `Str.compare` is scalar order on
+both backends, so do not add `str.compareScalars` — it would be a second name
+for `compare`. The residual there is one sentence on `str.compare` (already in
+`core/order`'s `str` doc comment) and deleting the monorepo's surrogate
+arithmetic. `Ord for [T]` is additive, and is also the library-level answer to
+`derive-ord-array-native-backend` (§13) — worth checking against its five sites
+before that bug is fixed at the backend.
 
 ---
 
@@ -244,6 +272,38 @@ Past that everything is hand-written, repeatedly.
 - **`fold` with early exit** — eviction threads an `EvictionStep` accumulator by
   hand (`tenant/manager.buri:255-268`).
 
+Recommendation: ship the `Result`/`Option` traversals into `core/list` first —
+13 sites is the highest count in the survey and everything else here is a
+distant second. They allocate, so they name `Alloc` and sit beside `map`:
+
+```buri
+impl<A> [A] {
+    export fn mapResult<B, E, C: Alloc>(self, ctx: C, f: fn(A) => Result<B, E>): Result<[B], E>;
+    export fn mapOption<B, C: Alloc>(self, ctx: C, f: fn(A) => Option<B>): Option<[B]>;
+    export fn filterMap<B, C: Alloc>(self, ctx: C, f: fn(A) => Option<B>): [B];
+}
+impl<T> [T] {
+    export fn removeAt<C: Alloc>(self, ctx: C, index: Int): [T];
+    export fn windows<C: Alloc>(self, ctx: C, size: Int): [[T]];
+    export fn isSortedBy(self, cmp: fn(T, T) => Order): Bool;
+    export fn maxBy(self, cmp: fn(T, T) => Order): Option<T>;   // and minBy
+    export fn uniqueBy<C: Alloc>(self, ctx: C, cmp: fn(T, T) => Order): [T];
+}
+export fn generate<T, C: Alloc>(ctx: C, n: Int, f: fn(Int) => T): [T];
+```
+
+`groupBy`/`indexBy` must **not** go in `core/list` — they answer a map, and
+`core/list` is the bottom of the dependency order. Declare them as free
+functions in the module that owns the answer: `map.groupBy(ctx, xs, key)` and
+`ordmap.groupBy(ctx, xs, key)`, matching `map.of`/`ordmap.of`'s existing
+free-function shape. `ordmap.alter(ctx, key, fn(Option<V>) => Option<V>)` and
+`ordmap.mapValues` belong in `core/ordmap` and subsume the nested-insert dance;
+`alter` with `.None` returned is the empty-inner pruning written once. The
+counting map is `alter` plus `Bool.toInt` and needs no new API. **Defer
+early-exit `fold`**: `foldResult` already exists (`list.buri:47`) and an early
+exit is `.Err` carrying the answer — that is a doc-comment example, not a
+function.
+
 ---
 
 ## 7. Bytes: a cursor, a builder, a cheap hash
@@ -273,6 +333,38 @@ Past that everything is hand-written, repeatedly.
   (`proto/test/wire_compat.buri:44-51`). `bytes.fromHex` exists; nothing makes it
   comfortable inside an `assert.eq`.
 
+Recommendation: three separable pieces, only two of which are ready.
+
+1. **`bytes.Reader` — do it.** A pure struct over the existing `readX(b, at)`
+   pair, since `[U8]` slices are views and cost nothing:
+
+```buri
+export struct Reader { export bytes: [U8], export at: Int }
+export fn reader(b: [U8]): Reader;
+impl Reader {
+    export fn isDone(self): Bool;
+    export fn takeByte(self): Result<(U8, Reader), DecodeError>;
+    export fn takeSlice(self, n: Int): Result<([U8], Reader), DecodeError>;
+    export fn takeVarint(self): Result<(Int, Reader), DecodeError>;
+    export fn takeFramed(self): Result<([U8], Reader), DecodeError>;  // length-prefixed
+}
+export fn fromU64Be<C: Alloc>(ctx: C, x: U64): [U8];   // and Le, U32, and toU64Be/Le
+```
+
+2. **`core/hash` — do it, as its own module.** `fnv1a32`, `fnv1a64`, `crc32c`,
+   `siphash24`, pure over `[U8]`. It is not `core/crypto`, and the module doc
+   should say so in the same voice `crypto.buri` already uses about what it
+   refuses: these are checksums, not digests. It also gives the existing `Hash`
+   trait something to be implemented in terms of.
+3. **`bytes.Builder` — defer.** Values are immutable, so a builder has no
+   amortized append to offer over `[[U8]].flatten`, and the honest version needs
+   either a mutable region or a rope. `flatten` is already the answer; revisit
+   after the native backend has a growable block.
+
+Hex test vectors are **covered by the hex work in flight** — `bytes.fromHex`
+plus `assert.eq` over the decoded bytes is the readable form once `fromHex` is
+comfortable; nothing more needed.
+
 ---
 
 ## 8. Strings, formatting, and `Show`
@@ -301,6 +393,31 @@ Past that everything is hand-written, repeatedly.
 - **No path joining**: `str.format(ctx, "${dir}/storage.header")` × 4
   (`storage/durable.buri:40-43`). → `core/path`, or at minimum `fs.join`.
 
+Recommendation: the `Show`-in-holes item is a **language change, not a library
+addition** — amend SPEC 3.6. Today a hole must be `Int/Float/Bool/Char/Str` and
+"constructing a `Template` allocates nothing", which is what lets
+`io.println(ctx, "hi ${name}")` name only `Stdout`. A `T: Show` hole breaks that
+property, because `show` names `Alloc`. The mechanism that keeps it honest: admit
+`T: Show` holes **only in argument position of a call whose context argument is
+in scope**, and lower `${x}` to `x.show(ctx)` against that same `ctx` before the
+`Template` is built. The consequence to state in the amendment rather than
+discover later: such a call's context must satisfy `Alloc`, so
+`io.println(ctx, "${point}")` needs `Stdout + Alloc` where the bare-identifier
+form needs only `Stdout`. That is the real cost, it is visible in the signature,
+and it is what buys ~25 hand-written `*Label` functions back.
+
+The rest of §8, ranked:
+
+- **`core/path` — do it, and not `fs.join`.** Path manipulation is pure string
+  work; every function in `core/fs` names `Fs` in its bounds and its module doc
+  says the disk is visible in the signature. Putting a pure `join` there would be
+  the first exception. `core/path` with `join<C: Alloc>(ctx, parts: [Str]): Str`,
+  and pure `dirname`/`basename`/`extension` returning views.
+- **`core/text` and a logfmt `core/log` — defer.** Two simulators and one log
+  line is thin evidence, and `padStart`/`padEnd` already exist and were never
+  reached for, which makes this look like a discovery problem (§13) before it is
+  an API one. Revisit after the generated stdlib docs land.
+
 ---
 
 ## 9. CLI argument parsing
@@ -323,6 +440,34 @@ hand-written (`:80-123`), as is the env-var fallback merged after parsing
 re-render + typed errors. The largest single "utility module that is really
 stdlib material" in the repo.
 
+Recommendation: build `core/cli`, and keep it at the **`Alloc` tier** — it parses
+a `[Str]` and answers a value, so it must not name `Env` or `Proc`. That is what
+makes it testable without a host, and it keeps the env-var fallback where it
+belongs: the caller merges `env.get` results itself, which is the one place the
+precedence rule is a decision rather than a default.
+
+```buri
+export enum Arity { Switch, Value(Str) }               // the Str names the value in --help
+export struct Flag { export long: Str, export short: Option<Char>,
+                     export arity: Arity, export help: Str }
+export struct Parsed { export values: Map<Str, Str>, export switches: Set<Str>,
+                       export positional: [Str] }
+export enum ParseError { UnknownFlag(Str), MissingValue(Str), UnexpectedValue(Str) }
+derive Eq, Show for ParseError;
+export fn parse<C: Alloc>(ctx: C, spec: [Flag], argv: [Str]): Result<Parsed, ParseError>;
+export fn help<C: Alloc>(ctx: C, spec: [Flag], program: Str): Str;
+export fn render<C: Alloc>(ctx: C, spec: [Flag], parsed: Parsed): [Str];  // canonical replay
+```
+
+`parse` handles `--flag=value`, short flags, `--` and `--help` — the four the
+hand-rolled parsers are missing — and `derive Show for ParseError` deletes both
+hand-written message tables. `render` is the replay line, and it is worth
+shipping in the same wave: it is the reason this is a spec and not a loop, since
+one `[Flag]` drives parse, help, and re-render and they cannot drift. No
+`derive`-generated struct of typed fields — `derive` only attaches conformance
+(`design/STANDARD-LIBRARY.md` §3) — so accessors return `Option<Str>` and the
+caller uses `str.toInt`.
+
 ---
 
 ## 10. Filesystem
@@ -339,6 +484,29 @@ stdlib material" in the repo.
   (`storage/durable.buri:169`). → `fs.readBytesOptional`.
 - `Fs` has `makeDir` and no directory removal
   (`storage_simulator/runner.buri:206`).
+
+Recommendation: two library functions, one language proposal, one already done.
+
+- **`fs.writeAtomic` and `fs.readBytesIfExists` — do both, in `core/fs`.** The
+  four-call checkpoint sequence is already written out in `fs.buri`'s module
+  doc; making it a function is turning documentation into code.
+  `writeAtomic<C: Alloc + Fs>(ctx, path: Str, body: [U8]): Result<(), IoError>`
+  writes a sibling temp, syncs it, renames, syncs the directory, and reports the
+  first failure. Name the optional read `readBytesIfExists` rather than
+  `readBytesOptional` (a name has one meaning, SPEC 11.1); it answers
+  `Result<Option<[U8]>, IoError>` and the `.None` comes from matching `NotFound`
+  on the read, never from a preceding `exists` — the two-call form is a race.
+- **Directory removal is covered by `Fs.removeDir` in flight** (`fs.buri` already
+  documents the `mkdir -p`/`rmdir` asymmetry). Residual: none — a recursive
+  delete stays the caller's walk, deliberately.
+- **The forwarding base is a language gap, not an `Fs` gap.** `core/alloc`'s own
+  `Scoped<C>` restates sixteen effects to forward them
+  (`alloc.buri:547-756`) — the stdlib pays the same tax the fault injector pays.
+  The fix is effect delegation (a context that forwards every method of an effect
+  it does not override), and it belongs in the language proposals beside scoped
+  contexts. Meanwhile add a `NullFs` and a `ReadOnly` wrapper to
+  `core/host/testing` beside `TestFs`, which collapses two of the three copies
+  without waiting for it.
 
 ---
 
@@ -369,6 +537,35 @@ produce a value and a test must fabricate one:
 at `database_simulator/test/runner.buri:52-59,89-92`. → make `fail` diverge, and
 add `assert.matches(value, .Variant)` returning the payload.
 
+Recommendation: make `fail` diverge first — it needs **no language change**. SPEC
+6.9 says there is no bottom type, but the private `failExpected<T, R>(...): R`
+already gets the effect from a free return type variable, so `export fn fail(message: Str): ()`
+becomes `export fn fail<R>(message: Str): R` and the dummy `emptySuccess()`
+constructors go away. The one thing to check before shipping: today's
+`assert.fail("x");` sites stand alone as expression statements (SPEC 11.2.1,
+which admits any expression of type `()`), so inference must settle `R` at `()`
+in statement position or every existing call site breaks. If it does not, this is
+a compat break worth a `failWith` under a second name instead.
+
+Then widen the assertion set — all in `assert.buri`, all `()`-returning, all
+taking no `ctx` because rendering is the runner's:
+
+```buri
+export fn contains<T: Eq>(haystack: [T], needle: T): ();
+export fn isEmpty<T>(xs: [T]): ();          // and notEmpty
+export fn len<T>(xs: [T], expected: Int): ();
+export fn gt<T: Ord>(actual: T, bound: T): ();   // and ge, lt, le
+export fn approxEq(actual: Float, expected: Float, tolerance: Float): ();
+```
+
+That covers 99 of the 118 `isTrue` calls with a message that names both values.
+The diffing `assert.eq` for `[T]` is a change to the **runner's failure
+renderer**, not to `assert.buri` — the renderer already walks the type
+structurally, so it is where the diff is reachable. **Defer
+`assert.matches(value, .Variant)`**: a pattern is not a value and Buri has no
+macro to take one, so it is a language question; `ok`/`err`/`some` already cover
+the shapes that recur.
+
 ---
 
 ## 12. Numerics, small gaps
@@ -382,6 +579,27 @@ add `assert.matches(value, .Variant)` returning the payload.
 - Masking the sign bit to make a positive `I64` from a `U64` draw
   (`database_simulator/input.buri:236-251`).
 - `math.INFINITY` is spelled `1.0e400` (`math.buri:54`) — worth a look.
+
+Recommendation: two small additions to `core/num` and one correction to
+`core/math`.
+
+```buri
+// core/num, beside min/max/clamp — Int-only, pure, aborting on a zero divisor
+// exactly as `/` does (SPEC 6.9), so no Option in the signature.
+export fn divFloor(a: Int, b: Int): Int;
+export fn remEuclid(a: Int, b: Int): Int;
+```
+
+Both have three callers each including `core/date` itself (`date.buri:183,269`),
+so the first user of `divFloor` is the standard library. **Fix `math.INFINITY`**:
+`1.0e400` is a literal that relies on overflow-to-infinity at parse time, which
+is a property of whichever float parser ran, not a stated one. Make it a
+body-less `export let INFINITY: Float;` backed by an intrinsic, add `NAN` and
+`NEG_INFINITY` beside it, and pin all three in a conformance test that both
+backends run — `design/STANDARD-LIBRARY.md` §5 requires the test anyway, and the
+value being identical on JS and native is the whole point. **Defer** the
+saturating-subtract and sign-bit items: `Saturating` and `Checked` already exist
+and were not found, which puts them in §13 rather than here.
 
 ---
 
@@ -452,3 +670,29 @@ because the _shape_ of the workaround is the cost.
 `hex.buri`, `labels.buri`, `report.buri`, `args.buri`, `cli.buri`,
 `violation.buri` exist in both with substantially the same content. Some is
 stdlib material (§2, §4, §8, §9); the rest is a missing shared library there.
+
+Recommendation: nothing in this section is a library addition, and most of it is
+already moving.
+
+- **Fix the two silent-wrong-answer bugs first.**
+  `js-tuple-destructuring-calls-twice` and `list-map-swallows-result-element` are
+  the only entries here that produce a wrong answer with no diagnostic; every
+  other bug aborts or fails to compile, which is a cost but not a lie. A whole
+  `struct Step<T>` exists to route around the first.
+- **Already covered:** `str-compare-orders-by-utf16-code-unit` by the landed
+  scalar-order change; `coalesce-option-of-array-native-backend` by the removal
+  of `??` in favour of `withDefault`; `native-backend-host-fs-and-env` and the
+  two `platforms: [JS]` pins by the native `host.fs`/`env` work in flight;
+  `fs-cannot-remove-a-directory` by `Fs.removeDir`; `rand-not-csprng` by the
+  Entropy/CSPRNG surface. `derive-ord-array-native-backend` gets a library-level
+  answer from §5's `Ord for [T]` while the backend fix waits.
+- **The discoverability half is covered by the generated stdlib docs and the
+  doc-comment audit already queued** — a library nobody can hover over is a
+  library nobody finds, and that is the whole diagnosis. Residual, and worth
+  adding to that wave rather than a later one: put a worked `context Fixture { }`
+  example on the SPEC 11.3 / testing page, since it is present, solves the
+  copy-pasted-fixture problem, and was used in exactly one file.
+- **The duplicated modules are the monorepo's problem, not the library's.** Once
+  §2, §4, §8 and §9 land, what is left of `prng.buri`/`hex.buri`/`args.buri` is
+  a shared library that repo should have and does not — worth saying back to
+  them, not worth a `core/*` module.
