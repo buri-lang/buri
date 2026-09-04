@@ -147,8 +147,8 @@ it: it is the library's entire public surface, and a name missing from it
 cannot be reached from another package, as a function or as a method:
 
 ```buri repo=cli/tests/tutorial package=//libs/units
-// The public surface of //libs/units. `metres` is exported by units.buri and
-// withheld here, so it is visible inside this library and nowhere else.
+//! The public surface of //libs/units. `metres` is exported by units.buri and
+//! withheld here, so it is visible inside this library and nowhere else.
 
 from "//libs/units/units.buri" export {
     format, into, ParseError, parseQuantity, parseUnit, Quantity, symbol, Unit,
@@ -249,8 +249,8 @@ impl ConvertError {
     }
 }
 
-// //libs/units has its own error type, and `?` does not convert between error
-// types, so the conversion is written once here.
+/// //libs/units has its own error type, and `?` does not convert between error
+/// types, so the conversion is written once here.
 fn bad(e: ParseError): ConvertError {
     ConvertError.Bad(e)
 }
@@ -285,7 +285,7 @@ export fn run<C: Alloc + Env + Stdout>(ctx: C): Result<(), ConvertError> {
 Write `libs/convert/lib.buri`:
 
 ```buri repo=cli/tests/tutorial package=//libs/convert
-// The public surface of //libs/convert.
+//! The public surface of //libs/convert.
 
 from "//libs/convert/convert.buri" export {
     ConvertError, describe, message, parseRequest, Request, run,

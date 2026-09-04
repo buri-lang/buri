@@ -1,5 +1,5 @@
-// The public surface of //libs/units. `metres` is exported by units.buri and
-// withheld here, so it is visible inside this library and nowhere else.
+//! The public surface of //libs/units. `metres` is exported by units.buri and
+//! withheld here, so it is visible inside this library and nowhere else.
 
 from "//libs/units/units.buri" export {
     format, into, ParseError, parseQuantity, parseUnit, Quantity, symbol, Unit,
