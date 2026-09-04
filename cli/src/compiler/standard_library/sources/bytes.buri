@@ -45,6 +45,7 @@
 //! 6 bytes, 686920e282ac, aGkg4oKs
 //! ```
 
+from "core/bits" import * as bits;
 from "core/char" import * as char;
 from "core/effect" import { Alloc };
 from "core/list" import * as list;
@@ -393,3 +394,258 @@ export fn f32ToBytes<C: Alloc>(ctx: C, x: Float): [U8];
 /// The double the four bytes at `at` encode, or `.None` if there are not four.
 /// A NaN is canonicalized, as it is at eight bytes.
 export fn f32FromBytes(b: [U8], at: Int): Option<Float>;
+
+// --- Fixed-width integers -------------------------------------------------------
+//
+// The float pair above is little-endian because protobuf is; these are both
+// ends, because a length prefix on a network wire is big-endian and a length
+// prefix in a file usually is not, and a caller who has to remember which one
+// `fromU64` meant will eventually remember wrong.
+//
+// **Writing is pure.** An array literal of a fixed size allocates nothing a
+// context has to grant — the same reason `proto.le32` takes no `ctx` — so
+// `fromU64Be(x)` is a pure function and only the readers that produce a *slice*
+// name `Alloc`.
+
+/// Eight octets, most significant first.
+export fn fromU64Be(x: U64): [U8] {
+    [
+        bits.shrU64(x, 56).wrapToU8(),
+        bits.shrU64(x, 48).wrapToU8(),
+        bits.shrU64(x, 40).wrapToU8(),
+        bits.shrU64(x, 32).wrapToU8(),
+        bits.shrU64(x, 24).wrapToU8(),
+        bits.shrU64(x, 16).wrapToU8(),
+        bits.shrU64(x, 8).wrapToU8(),
+        x.wrapToU8(),
+    ]
+}
+
+/// Eight octets, least significant first.
+export fn fromU64Le(x: U64): [U8] {
+    [
+        x.wrapToU8(),
+        bits.shrU64(x, 8).wrapToU8(),
+        bits.shrU64(x, 16).wrapToU8(),
+        bits.shrU64(x, 24).wrapToU8(),
+        bits.shrU64(x, 32).wrapToU8(),
+        bits.shrU64(x, 40).wrapToU8(),
+        bits.shrU64(x, 48).wrapToU8(),
+        bits.shrU64(x, 56).wrapToU8(),
+    ]
+}
+
+/// Four octets, most significant first.
+export fn fromU32Be(x: U32): [U8] {
+    [
+        bits.shrU32(x, 24).wrapToU8(),
+        bits.shrU32(x, 16).wrapToU8(),
+        bits.shrU32(x, 8).wrapToU8(),
+        x.wrapToU8(),
+    ]
+}
+
+/// Four octets, least significant first.
+export fn fromU32Le(x: U32): [U8] {
+    [
+        x.wrapToU8(),
+        bits.shrU32(x, 8).wrapToU8(),
+        bits.shrU32(x, 16).wrapToU8(),
+        bits.shrU32(x, 24).wrapToU8(),
+    ]
+}
+
+/// The `U64` the eight octets at `at` spell, most significant first, or `.None`
+/// if there are not eight of them. `.None` rather than a truncated reading, for
+/// the reason `f64FromBytes` gives: a number assembled out of octets that were
+/// not there is a wrong answer wearing the shape of a right one.
+export fn toU64Be(b: [U8], at: Int): Option<U64> {
+    if (at < 0 || at + 8 > b.len()) {
+        .None
+    } else {
+        .Some(
+            bits.shlU64(octet64(b, at), 56)
+                | bits.shlU64(octet64(b, at + 1), 48)
+                | bits.shlU64(octet64(b, at + 2), 40)
+                | bits.shlU64(octet64(b, at + 3), 32)
+                | bits.shlU64(octet64(b, at + 4), 24)
+                | bits.shlU64(octet64(b, at + 5), 16)
+                | bits.shlU64(octet64(b, at + 6), 8)
+                | octet64(b, at + 7),
+        )
+    }
+}
+
+/// The same eight octets read least significant first.
+export fn toU64Le(b: [U8], at: Int): Option<U64> {
+    if (at < 0 || at + 8 > b.len()) {
+        .None
+    } else {
+        .Some(
+            octet64(b, at)
+                | bits.shlU64(octet64(b, at + 1), 8)
+                | bits.shlU64(octet64(b, at + 2), 16)
+                | bits.shlU64(octet64(b, at + 3), 24)
+                | bits.shlU64(octet64(b, at + 4), 32)
+                | bits.shlU64(octet64(b, at + 5), 40)
+                | bits.shlU64(octet64(b, at + 6), 48)
+                | bits.shlU64(octet64(b, at + 7), 56),
+        )
+    }
+}
+
+/// Four octets at `at`, most significant first.
+export fn toU32Be(b: [U8], at: Int): Option<U32> {
+    if (at < 0 || at + 4 > b.len()) {
+        .None
+    } else {
+        .Some(
+            bits.shlU32(octet32(b, at), 24)
+                | bits.shlU32(octet32(b, at + 1), 16)
+                | bits.shlU32(octet32(b, at + 2), 8)
+                | octet32(b, at + 3),
+        )
+    }
+}
+
+/// Four octets at `at`, least significant first.
+export fn toU32Le(b: [U8], at: Int): Option<U32> {
+    if (at < 0 || at + 4 > b.len()) {
+        .None
+    } else {
+        .Some(
+            octet32(b, at)
+                | bits.shlU32(octet32(b, at + 1), 8)
+                | bits.shlU32(octet32(b, at + 2), 16)
+                | bits.shlU32(octet32(b, at + 3), 24),
+        )
+    }
+}
+
+/// The octet at `i` widened, or zero. Every caller has checked the bounds
+/// first, so the default is unreachable rather than a decision.
+fn octet64(b: [U8], i: Int): U64 {
+    b.get(i).withDefault(0).toU64()
+}
+
+fn octet32(b: [U8], i: Int): U32 {
+    b.get(i).withDefault(0).toU32()
+}
+
+// --- A reader -----------------------------------------------------------------------
+//
+// `readVarint(b, at)` and every `readX` beside it answer a value and the index
+// just past it. That is the right shape and the wrong ergonomics: each caller
+// threads the index by hand, and each one can thread the wrong one — the index
+// a read *began* at is in scope right next to the one it ended at, and they
+// have the same type.
+//
+// A `Reader` is that index given a name. It is an ordinary value, so taking
+// does not advance it: a `take` answers the next reader, and a decoder that
+// wants to look ahead and change its mind keeps the one it started from. That
+// is also why there is no `Builder` here — a value cannot be appended to in
+// place, and `[[U8]].flatten` is already the answer for building.
+//
+// **The methods that only move the cursor are pure; the two that answer a
+// `[U8]` name `Alloc`**, because `[T].slice` allocates. A Buri list is a value
+// and not a view, so a slice of one is octets copied, and a reader that
+// pretended otherwise would be the one place in this module where the tier in
+// the signature was a guess.
+
+derive Eq, Show for Reader;
+/// A position in a run of octets: the octets, and how far in.
+export struct Reader {
+    export bytes: [U8],
+    export at: Int,
+}
+
+/// A reader positioned at the first octet.
+export fn reader(b: [U8]): Reader {
+    Reader { bytes: b, at: 0 }
+}
+
+/// A reader positioned at `at`, for a frame whose header some other decoder
+/// already read.
+export fn readerAt(b: [U8], at: Int): Reader {
+    Reader { bytes: b, at }
+}
+
+impl Reader {
+    /// Whether every octet has been read.
+    export fn isDone(self): Bool {
+        self.at >= self.bytes.len()
+    }
+
+    /// The next octet, and the reader after it.
+    ///
+    /// ```buri run
+    /// from "core/bytes" import * as bytes;
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     // A tag octet, then a length-prefixed body: the shape every wire
+    ///     // format in this repository is some spelling of.
+    ///     let frame = [7, 5, 104, 101, 108, 108, 111];
+    ///     let (tag, afterTag) = bytes.reader(frame).takeByte().mapErr(fn(_e) => "short")?;
+    ///     let (body, rest) = afterTag.takeFramed(ctx).mapErr(fn(_e) => "short")?;
+    ///     let text = bytes.fromUtf8(ctx, body).mapErr(fn(_e) => "not text")?;
+    ///     let _ = io.println(ctx, "${tag} ${text} ${rest.isDone()}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// 7 hello true
+    /// ```
+    export fn takeByte(self): Result<(U8, Reader), DecodeError> {
+        match (self.bytes.get(self.at)) {
+            .None => .Err(DecodeError(self.at)),
+            .Some(octet) => .Ok((octet, Reader { ..self, at: self.at + 1 })),
+        }
+    }
+
+    /// The varint beginning here, and the reader just past it.
+    export fn takeVarint(self): Result<(Int, Reader), DecodeError> {
+        let (value, next) = readVarint(self.bytes, self.at)?;
+        .Ok((value, Reader { ..self, at: next }))
+    }
+
+    /// The next `n` octets, copied.
+    ///
+    /// A negative `n`, or one that runs off the end, is an error at the index
+    /// the read began — a truncated slice has no partial reading, so there is
+    /// nothing to report but where it started.
+    export fn takeSlice<C: Alloc>(
+        self,
+        ctx: C,
+        n: Int,
+    ): Result<([U8], Reader), DecodeError> {
+        let end = self.at + n;
+        if (n < 0 || end > self.bytes.len()) {
+            .Err(DecodeError(self.at))
+        } else {
+            .Ok((self.bytes.slice(ctx, self.at, end), Reader { ..self, at: end }))
+        }
+    }
+
+    /// A varint length, then that many octets — the framing `core/proto`'s
+    /// length-delimited wire type is, and the one a log record or a socket
+    /// message is written by hand over and over.
+    ///
+    /// The error index is where the *frame* began rather than where its body
+    /// did, so a caller that reports it points at the record rather than into
+    /// the middle of one.
+    export fn takeFramed<C: Alloc>(self, ctx: C): Result<([U8], Reader), DecodeError> {
+        let (n, afterLength) = self.takeVarint()?;
+        match (afterLength.takeSlice(ctx, n)) {
+            .Ok(pair) => .Ok(pair),
+            .Err(_e) => .Err(DecodeError(self.at)),
+        }
+    }
+}

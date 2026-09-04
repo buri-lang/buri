@@ -403,13 +403,15 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // a field: the same residue this invariant's sibling caps at 7.
         ("a syntax error stays a syntax error", "delete-separator {}") => 7,
         // Re-read a fourth time when the F5 standard-library wave landed —
-        // `crypto/entropy.buri`, `random/gen.buri`, `text/hex.buri` and
-        // `calendar/duration.buri` in the conformance corpus, and the modules
-        // behind them. The same reason and the same answer as every re-read
-        // above: no parser or checker change was in any of those merges, the
-        // population grew from 5,742 to 5,862 cases, and `insert-stray` moved
-        // from 20.0% to 20.5% of it — 358 of 1,746. Twenty-one is that rate
-        // rounded up.
+        // `crypto/entropy.buri`, `random/gen.buri`, `text/hex.buri`,
+        // `calendar/duration.buri` and `checksum/checksum.buri` in the
+        // conformance corpus, and the modules behind them. The same reason and
+        // the same answer as every re-read above: no parser or checker change
+        // was in any of those merges; the population grew and `insert-stray`
+        // moved to ~20.5% of it. The checksum file is dense for the reason
+        // `lib/actor/` was dense in closers — a stray token inside four nested
+        // calls leaves a call whose arguments the checker can still count, so
+        // it counts them and says so. Twenty-one is the rate rounded up.
         ("a syntax error stays a syntax error", "insert-stray") => 21,
         ("a syntax error stays a syntax error", "swap-adjacent") => 24,
 
