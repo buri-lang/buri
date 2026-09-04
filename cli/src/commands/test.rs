@@ -100,52 +100,24 @@ struct Outcome {
 
 /// Where a run's platform came from.
 ///
-/// The distinction is the whole of the fallback rule: a platform the suite
-/// wrote down, or the command line named, is a request, and a request this
-/// toolchain cannot serve is refused in so many words. A platform nobody asked
-/// for is a *preference*, and a preference gives way — to JavaScript, out loud
-/// — rather than turning a suite that used to run into a suite that does not.
+/// Not a fallback rule any more — nothing gives way — but the two are still
+/// different questions, and two sentences answer them. A platform the suite
+/// wrote down, or the command line named, is a *request*, and a request this
+/// toolchain cannot serve is refused in the words that name the request: drop
+/// it from `test.platforms`. A platform nobody asked for is the *default*, and
+/// a default this toolchain cannot serve is refused in the words that name the
+/// toolchain: here is what a native run needs, and here is how to ask for
+/// JavaScript instead.
+///
+/// **Neither of them re-routes a suite.** Running a suite on a backend nobody
+/// chose is how a named gap becomes a wrong answer: the suite passes, and what
+/// it proves is that the other backend agrees with itself.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Chosen {
     /// `test { platforms: [...] }`, or `--output=`.
     Asked,
-    /// Nobody said, so [`default_platform`] did.
+    /// Nobody said, so the host's own platform did.
     Default,
-}
-
-/// The one-line notices a pass writes to standard error.
-///
-/// Standard error, because stdout is the record — the failures, the diffs and
-/// the summary line — and which backend ran a suite is a fact about this
-/// toolchain rather than a fact about the code. A golden that records what a
-/// suite printed is unchanged by a note about how it was printed.
-///
-/// The reason is stated once per pass, because "this build has no native
-/// backend" is one fact however many suites meet it. There is no per-suite
-/// reason any more: `test { data }` was the only one a build file could give,
-/// and it is retired.
-///
-/// **A missing intrinsic is not on this list.** It used to be, and rerouting a
-/// suite onto JavaScript because the native backend had no body for something
-/// is how a named gap becomes a wrong answer — the suite passed, on a backend
-/// nobody chose, and the note said so in a line nothing read. It is a refusal
-/// now; see [`gap_refusal`].
-#[derive(Default)]
-struct Notices {
-    pass: bool,
-}
-
-impl Notices {
-    /// A reason that belongs to the invocation: it is the same reason for every
-    /// suite in the pass, so it is stated once and the suites are not
-    /// enumerated.
-    fn pass(&mut self, reason: &str) {
-        if std::mem::replace(&mut self.pass, true) {
-            return;
-        }
-        eprintln!("note: {reason}, so a suite that names no platform runs on javascript");
-    }
-
 }
 
 /// Where a pass's own output goes.
@@ -318,12 +290,11 @@ fn one_pass(
 
     let started = Instant::now();
     warm_linker(args);
-    let mut notices = Notices::default();
     // One test binary per tag-compatible batch of suites, before the loop that
     // reports them. What comes back is a verdict per suite, and a suite that is
     // not in it — because it could not batch, or because the batch was
     // abandoned — is run below exactly as it was before any of this existed.
-    let mut pre = run_batches(&mut session, &targets, args, &mut notices);
+    let mut pre = run_batches(&mut session, &targets, args);
     let mut passed = 0usize;
     let mut failed = 0usize;
     let mut skipped = 0usize;
@@ -338,7 +309,7 @@ fn one_pass(
             continue;
         }
         suites += 1;
-        match run_suite(&mut session, target, args, &mut notices, &mut pre) {
+        match run_suite(&mut session, target, args, &mut pre) {
             Ok(outcome) => {
                 skipped += outcome.skipped;
                 for c in &outcome.cases {
@@ -470,7 +441,6 @@ fn run_suite(
     session: &mut Session,
     target: TargetId,
     args: &arguments::Args,
-    notices: &mut Notices,
     pre: &mut Prepass,
 ) -> Result<Outcome, Diagnostics> {
     let mut diagnostics = Diagnostics::new();
@@ -504,17 +474,23 @@ fn run_suite(
 
     // One run per declared platform. A native platform is executed natively
     // where this toolchain has a backend, a runtime archive and a linker for it
-    // — the same three questions `buri build` asks — and refused in the same
-    // words as a native build where it does not.
+    // — the same three questions `buri build` asks — and refused where it does
+    // not.
     //
     // A suite that names none runs **natively**, on the host it is already
-    // checked against, and falls back to JavaScript per suite where it cannot
-    // (`default_platform`, and the gap probe in `run_on`). The default was
-    // JavaScript for as long as the native runtime surface was too small to
-    // carry an arbitrary program; it is native now because the dev loop is
-    // measurably faster on it (`design/PERFORMANCE.md` §6) and because the
-    // surface that made the old default right is now the exception rather than
-    // the rule (`design/native/ARCHITECTURE.md` §4).
+    // checked against, and there is no second answer: no state of this
+    // toolchain and no shape of program sends it to JavaScript instead. The
+    // default was JavaScript for as long as the native runtime surface was too
+    // small to carry an arbitrary program; it is native now because the dev
+    // loop is measurably faster on it (`design/PERFORMANCE.md` §6) and because
+    // the surface that made the old default right is complete
+    // (`design/native/ARCHITECTURE.md` §4).
+    //
+    // The two ways to say JavaScript are both statements somebody made:
+    // `test { platforms: [JS] }` in the build file, and `--output=js` on the
+    // command line. Everything that used to be a third way — a toolchain that
+    // cannot link a native binary, a program the backend has no body for — is
+    // a refusal naming what is missing.
     let runs: Vec<(Platform, Chosen)> = if !declared.is_empty() {
         declared.into_iter().map(|p| (p, Chosen::Asked)).collect()
     } else if let Some(p) = selected_platform(&args.flags) {
@@ -523,24 +499,22 @@ fn run_suite(
         // statement and the flag does not overrule it.
         vec![(p, Chosen::Asked)]
     } else {
-        // The invocation's answer, and nothing of the suite's: no build-file
-        // field decides which backend a suite is allowed to run on. One did —
-        // `test { data }`, whose entries only a runner could hand a suite, so a
-        // suite that declared any was sent back to JavaScript rather than let
-        // `data()` answer differently on the two backends. The field is retired
+        // The host, unconditionally: this is the same platform the policy
+        // check above already ran against, so a suite is executed on the
+        // platform it was checked as. No build-file field decides which backend
+        // a suite is allowed to run on. One did — `test { data }`, whose
+        // entries only a runner could hand a suite, so a suite that declared
+        // any was sent back to JavaScript rather than let `data()` answer
+        // differently on the two backends. The field is retired
         // (`retired-test-data`) and a suite's filesystem is written in the
         // suite now, where both backends read the same text.
-        vec![(default_platform(&args.flags, notices), Chosen::Default)]
+        vec![(crate::compiler::driver::host_native_platform(), Chosen::Default)]
     };
     let mut outcome = Outcome::default();
     for (platform, chosen) in runs {
         if platform.is_native() && !native_ready(platform, &args.flags) {
             let span = suite(session, target).map(|x| x.span).unwrap_or(Span::NONE);
-            diagnostics.push(
-                Diagnostic::templated("platform-not-implemented", span)
-                    .with_bind("platform", platform.slug())
-                    .with_bind("platform_in_build_file", platform.proto()),
-            );
+            diagnostics.push(not_ready(platform, &args.flags, chosen, span));
             continue;
         }
         match run_on(session, target, platform, chosen, args, pre) {
@@ -763,11 +737,11 @@ fn native_ready(platform: Platform, flags: &arguments::Flags) -> bool {
 /// hide it behind — so the whole pass paid the wait once per suite. Started
 /// here, one probe runs beside the whole pass.
 ///
-/// A guess, and one that costs nothing when it is wrong: a suite that ends up on
-/// a different platform, or on JavaScript, selects its own linker and the probe
+/// A guess, and one that costs nothing when it is wrong: a suite that declared
+/// a different platform, or JavaScript, selects its own linker and the probe
 /// that ran was for a linker nobody asked. What it must not do is *decide*
-/// anything, which is why it does not consult the fallbacks — a notice belongs
-/// to the suite that earns it.
+/// anything, and it does not: a pass this toolchain cannot serve is refused by
+/// [`not_ready`], per suite and by name, rather than being turned away here.
 fn warm_linker(args: &arguments::Args) {
     let platform = match selected_platform(&args.flags) {
         Some(p) => p,
@@ -808,33 +782,41 @@ fn selected_platform(flags: &arguments::Flags) -> Option<Platform> {
         })
 }
 
-/// Where a suite that names no platform runs.
+/// A native run this toolchain cannot produce, refused.
 ///
-/// The host's own platform where this toolchain can compile, link and run a
-/// binary for it in this profile, and JavaScript where it cannot — which is
-/// `--no-default-features`, a host outside macOS and Linux, a host the
+/// The toolchain's half of the answer, and it is the same for every suite in a
+/// pass: `--no-default-features`, a host outside macOS and Linux, a host the
 /// development backend has no stencil library for (macOS on x86-64), a machine
 /// with no C toolchain, and `--release` without `backend-llvm`. The last of
 /// those is why the profile comes from the flags rather than being pinned to
 /// `Debug`: the release profile routes to LLVM (`backend::select`), and a
 /// toolchain that does not have it must not be quietly handed the debug
-/// backend.
+/// backend. The suite's half — whether the native backend has a body for
+/// everything this program reaches — is [`native_gap`], asked once the program
+/// exists.
 ///
-/// This is the *toolchain's* half of the answer, and it is the same for every
-/// suite in a pass. The suite's half — whether the native backend has a body
-/// for everything this program reaches — is [`native_gap`], asked once the
-/// program exists.
-fn default_platform(flags: &arguments::Flags, notices: &mut Notices) -> Platform {
-    let native = crate::compiler::driver::host_native_platform();
-    if native_ready(native, flags) {
-        return native;
+/// It used to be a JavaScript run with a note on stderr, and the note was the
+/// problem: a suite reported as passing had run on a backend nobody chose, and
+/// the only record of that went into a stream a green run's reader does not
+/// read. What replaced it is this, in both directions — a platform somebody
+/// *asked* for is refused in the words that name the request, and the default
+/// is refused in the words that name the toolchain, because "drop it from
+/// `test.platforms`" is not an instruction a suite with no `platforms` can
+/// follow (buri-lang/buri#4).
+fn not_ready(
+    platform: Platform,
+    flags: &arguments::Flags,
+    chosen: Chosen,
+    span: Span,
+) -> Diagnostic {
+    match chosen {
+        Chosen::Asked => Diagnostic::templated("platform-not-implemented", span)
+            .with_bind("platform", platform.slug())
+            .with_bind("platform_in_build_file", platform.proto()),
+        Chosen::Default => Diagnostic::templated("native-run-not-available", span)
+            .with_bind("platform", platform.slug())
+            .with_bind("profile", flags.mode.name()),
     }
-    notices.pass(&format!(
-        "this toolchain cannot build a {} test binary in the {} profile",
-        native.slug(),
-        flags.mode.name()
-    ));
-    Platform::Js
 }
 
 /// Why a program cannot run natively, in the shape the refusal needs.
@@ -1313,13 +1295,13 @@ fn record_of(name: &str, module: &str, block: &Block) -> String {
 // of the batch's `codegen` keys — so it is a different key rather than a wrong
 // one, and two runs that batch different suites simply link twice.
 //
-// # The fallback
+// # Abandoning a batch
 //
 // Any reason at all to doubt the batch abandons it, silently, and every member
 // then runs the way it would have. A failed front end, a failed monomorphization,
 // an intrinsic the backend has no body for, a failed link: all four are answered
 // per suite below, which is where the diagnostic can name one suite instead of
-// five, and where `run_on`'s two fallback steps already live.
+// five.
 
 /// The suites this pass ran in shared binaries, and what each one's tests did.
 ///
@@ -1331,7 +1313,6 @@ fn run_batches(
     session: &mut Session,
     targets: &[TargetId],
     args: &arguments::Args,
-    notices: &mut Notices,
 ) -> Prepass {
     let mut pre = Prepass::default();
     // A batch is only ever the *default's* answer: `--output=` is a request,
@@ -1339,9 +1320,9 @@ fn run_batches(
     if args.flags.output.is_some() {
         return pre;
     }
-    // The build file's half of the question, before the platform is decided, so
-    // that a repository which was never going to batch does not cause
-    // `default_platform` to state a notice earlier than the suite that earns it.
+    // The build file's half of the question, asked first because it is the
+    // cheap half: a repository whose suites could never share a binary is out
+    // before a platform is looked at.
     let possible: Vec<TargetId> = targets
         .iter()
         .copied()
@@ -1350,8 +1331,14 @@ fn run_batches(
     if possible.len() < 2 {
         return pre;
     }
-    let platform = default_platform(&args.flags, notices);
-    if !platform.is_native() || !native_ready(platform, &args.flags) {
+    // The platform every batchable suite runs on, which is the host's — a suite
+    // that named one is not batchable, and `--output=` returned above. A
+    // toolchain that cannot build for the host batches nothing and says nothing
+    // here: `run_suite` refuses each suite by name a moment later
+    // ([`not_ready`]), and a second copy of that sentence per pass would only
+    // arrive before the suites it is about.
+    let platform = crate::compiler::driver::host_native_platform();
+    if !native_ready(platform, &args.flags) {
         return pre;
     }
     // Two filters, and the cache goes first: it is the answer for every suite
@@ -1504,9 +1491,9 @@ fn test_modules_of(session: &Session, target: TargetId) -> Vec<String> {
 ///
 /// Every early return abandons the batch and says nothing. That is the whole of
 /// the safety argument: a batch that is not certain is not a batch, and the
-/// suites in it are compiled and run below one at a time, where a diagnostic can
-/// name the one suite it belongs to and where `run_on`'s two fallbacks to
-/// JavaScript already live.
+/// suites in it are compiled and run below one at a time, where a diagnostic —
+/// a gap the backend has no body for, most of all — can name the one suite it
+/// belongs to.
 fn run_batch(
     session: &mut Session,
     members: &[TargetId],
