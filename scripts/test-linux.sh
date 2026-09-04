@@ -26,8 +26,10 @@
 #     `test (arm64, blacksmith-4vcpu-ubuntu-2404-arm)` in the workflow's matrix:
 #     the tool assertions, `cargo build -p buri --tests`, the two liveness gates
 #     over the bytes the build script wrote, the hoisted runtime-crate step,
-#     `cargo test -p buri --no-fail-fast` through `assert-no-skips.sh`, clippy,
-#     and the benchmark's `--validate --quick` gate.
+#     `.github/scripts/run-suite.sh` through `assert-no-skips.sh`, and then the
+#     two commands that are jobs of their own in the workflow — clippy and the
+#     benchmark's `--validate --quick` gate — because on one machine they are
+#     still the same sequence.
 #   * **`linux-arm64`** (or `linux-x86_64`) — the job that RUNS the artifacts:
 #     the corpus census alone through `assert-suite-ran.sh`, the rest of
 #     `stencil::` through `assert-no-skips.sh --allow-filtered`, leak parity,
@@ -48,6 +50,13 @@
 # scripts exists to catch. The `Summary` line this script prints at the end is
 # therefore computed from the libtest summaries, and it is the last thing on
 # stdout for the same reason nextest puts one there.
+#
+# What the repository *did* take from that runner is the one thing it did not
+# have to give up libtest for: **cross-binary scheduling**.
+# `.github/scripts/run-suite.sh` asks cargo which test executables exist and
+# starts them together instead of queueing them, and every unit in it is still
+# a libtest binary printing libtest's summary. 169 s of queue became 73 s on a
+# ten-core mac, and both gates above read the log exactly as before.
 #
 # **The `net-h3` step.** The workflow guards it with
 # `matrix.os == 'ubuntu-24.04'`, and no row of that matrix has `ubuntu-24.04`
@@ -548,18 +557,25 @@ if [ "$job" = all ] || [ "$job" = test ]; then
     step "The runtime crate answers its own tests"
     bash .github/scripts/test-runtime-crate.sh || exit 1
 
-    # `--no-fail-fast` because the test binaries are domains, and one failing
-    # domain should not hide the others. Through `tee`, because the assertion
-    # after it reads the summary rather than the exit status.
-    step "cargo test -p buri --no-fail-fast"
+    # The whole suite, with its binaries overlapped rather than queued —
+    # `run-suite.sh`'s header is where that is argued and measured. Every unit
+    # is still a libtest binary and the log it writes is still libtest's own
+    # text, which is what keeps the assertion below reading it unchanged.
+    step "run-suite.sh"
     set -o pipefail
     primary_log=$test_log
-    cargo test -p buri --no-fail-fast 2>&1 | tee "$test_log" || status=1
+    bash .github/scripts/run-suite.sh "$test_log" || status=1
 
     step "Nothing was skipped"
     bash .github/scripts/assert-no-skips.sh "$test_log" || status=1
     [ "$status" -eq 0 ] || exit "$status"
 
+    # clippy and the validation gate are the `clippy` and `validate` jobs in
+    # ci.yml now rather than steps of `test`, and they are mirrored here for the
+    # same reason they are mirrored at all: a green run here should predict a
+    # green run there. They run last because they are the two that compile the
+    # workspace again rather than testing it.
+    #
     # Deliberately NOT `-D warnings`, for the reason ci.yml states: the bar is
     # the panic-free lint set in the workspace manifest, every lint in it is
     # `deny`, and a violation therefore fails this step already.
@@ -567,8 +583,11 @@ if [ "$job" = all ] || [ "$job" = test ]; then
     cargo clippy -p buri --all-targets || exit 1
 
     # The validation gate: compile every corpus and measure nothing.
-    step "cargo bench -p buri --bench compiler -- --validate --quick"
-    cargo bench -p buri --bench compiler -- --validate --quick || exit 1
+    # `--profile validate` rather than the bench profile, which the root
+    # `Cargo.toml` argues: a boolean about whether a corpus compiles does not
+    # want a fat-LTO, one-codegen-unit build of the whole toolchain under it.
+    step "cargo bench -p buri --bench compiler --profile validate -- --validate --quick"
+    cargo bench -p buri --bench compiler --profile validate -- --validate --quick || exit 1
 fi
 
 if [ "$job" = all ] || [ "$job" = programs ]; then

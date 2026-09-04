@@ -3,12 +3,14 @@
 //! `.config/nextest.toml` used to make this promise — `slow-timeout = { period
 //! = "60s", terminate-after = 5 }`, a five-minute cap with the test's name on
 //! it — and it could never keep it: nothing in this repository runs `nextest`,
-//! every invocation in `ci.yml` is `cargo test -p buri`, and `cargo test` does
-//! not read that file. `scripts/test-linux.sh` explains why adopting the runner
-//! is not the fix either: two of the three liveness gates parse libtest's own
-//! output, and nextest prints neither shape, so swapping runners would disarm
-//! the machinery that stops a suite from passing vacuously. The config was
-//! deleted and this module is what replaced it.
+//! and nothing it does run reads that file. Every suite in `ci.yml` is either
+//! `cargo test -p buri` or `.github/scripts/run-suite.sh`, which starts the
+//! same libtest binaries cargo would have, overlapped rather than queued, and
+//! neither of them has ever opened `.config/`. `scripts/test-linux.sh` explains
+//! why adopting the runner is not the fix either: two of the three liveness
+//! gates parse libtest's own output, and nextest prints neither shape, so
+//! swapping runners would disarm the machinery that stops a suite from passing
+//! vacuously. The config was deleted and this module is what replaced it.
 //!
 //! ## What it caps, exactly
 //!

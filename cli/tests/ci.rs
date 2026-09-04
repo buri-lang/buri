@@ -393,22 +393,37 @@ fn jobs(text: &str) -> BTreeMap<String, String> {
 /// Every job that runs the whole suite also runs the runtime-crate step and the
 /// no-skips assertion.
 ///
-/// "The whole suite" is `cargo test -p buri` with no name filter after it, and
-/// it is the only shape in which
+/// "The whole suite" has two shapes now and both are here. The first is
+/// `cargo test -p buri` with no name filter after it. The second is
+/// `.github/scripts/run-suite.sh`, which is the same set — it asks *cargo* for
+/// every test executable rather than being told — run with its binaries
+/// overlapped instead of queued, because `cargo test` runs them one at a time
+/// and that was minutes.
+///
+/// Recognising the second shape is not a nicety. This test works by finding the
+/// jobs that run everything and holding each of them to two steps; a job whose
+/// suite command it no longer recognises is a job it silently stops checking,
+/// which is the failure mode the whole file exists to refuse. So the count is
+/// asserted at the bottom: if the shapes here stop matching the workflow, this
+/// fails rather than passing having found nothing.
+///
+/// It is the only shape in which
 /// `native::runtime::the_runtime_crate_answers_its_own_tests` runs at all — the
 /// linux jobs filter to `stencil::` and never reach it, which is why they are
 /// not held to the step.
 #[test]
 fn every_job_that_runs_the_suite_runs_the_hoisted_step_and_the_guard() {
     let text = workflow();
+    let mut whole_suite_jobs = 0;
     for (name, body) in jobs(&text) {
-        let runs_everything = body
-            .lines()
-            .map(str::trim)
-            .any(|line| line.contains("cargo test -p buri") && !line.contains("--test "));
+        let runs_everything = body.lines().map(str::trim).any(|line| {
+            (line.contains("cargo test -p buri") && !line.contains("--test "))
+                || line.contains("run-suite.sh")
+        });
         if !runs_everything {
             continue;
         }
+        whole_suite_jobs += 1;
         assert!(
             body.contains("test-runtime-crate.sh"),
             "the `{name}` job runs the whole suite and never runs \
@@ -425,6 +440,81 @@ fn every_job_that_runs_the_suite_runs_the_hoisted_step_and_the_guard() {
         );
         println!("{name}: runs the suite, the hoisted step and the no-skips guard");
     }
+    assert!(
+        whole_suite_jobs >= 2,
+        "only {whole_suite_jobs} job(s) in ci.yml were recognised as running the whole suite, and \
+         two have — `test`, which is a matrix of three legs, and `release`. Either the workflow \
+         stopped running the suite anywhere, or the command it runs it with has changed shape and \
+         this test has stopped seeing it, which is a guard passing having checked nothing."
+    );
+}
+
+/// The suite's set of binaries is **cargo's answer**, never a list.
+///
+/// `run-suite.sh` exists because `cargo test` runs the test binaries one at a
+/// time, and the obvious way to overlap them is to write the domains out in the
+/// workflow and start one `cargo test --test <name>` per group. That way is
+/// wrong for a reason no timing can show: the day somebody adds
+/// `cli/tests/effects/main.rs`, a list runs twelve binaries and reports a green
+/// run, and nothing anywhere says the thirteenth was never asked for. The
+/// script therefore asks cargo which test executables exist and runs all of
+/// them, which is the same set `cargo test -p buri` would have run, by
+/// construction rather than by maintenance.
+///
+/// This is what stops that being quietly undone. Two properties, both about the
+/// script rather than about the workflow: it asks cargo, and it does not carry
+/// a list of domain names to run.
+#[test]
+fn the_suite_is_asked_for_as_a_whole() {
+    let path = repo_root().join(".github/scripts/run-suite.sh");
+    let script = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{} cannot be read: {e}", path.display()));
+
+    assert!(
+        script.contains("--no-run --message-format=json"),
+        "{} no longer asks cargo which test executables exist. The set has to be derived — \
+         `cargo test -p buri --no-run --message-format=json…` and every artifact whose profile \
+         says `test` — because a set that is written down is a set that goes stale on the day a \
+         domain is added, and a suite that quietly stops running one of its binaries is exactly \
+         the green this repository refuses.",
+        path.display()
+    );
+
+    // The domains, as the directory says they are: a `.rs` file directly under
+    // `cli/tests/` or a directory holding a `main.rs`. If any of their names
+    // reaches the script as a `--test` argument, the derivation above has been
+    // replaced by a list wearing its clothes.
+    let tests = repo_root().join("cli").join("tests");
+    let mut domains: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(&tests).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if entry.path().is_file() {
+            if let Some(stem) = name.strip_suffix(".rs") {
+                domains.push(stem.to_string());
+            }
+        } else if entry.path().join("main.rs").exists() {
+            domains.push(name);
+        }
+    }
+    assert!(
+        domains.len() >= 10,
+        "only {} test binaries were found under {}, and there have been thirteen since `vectors` \
+         landed — this test is asserting nothing",
+        domains.len(),
+        tests.display()
+    );
+
+    for domain in &domains {
+        let named = format!("--test {domain}");
+        assert!(
+            !script.contains(&named),
+            "{} names `{named}`. The whole point of that script is that it does not know which \
+             binaries exist: it asks cargo and runs all of them. A `--test` argument in there is a \
+             list, and the next domain added is the one it will not have.",
+            path.display()
+        );
+    }
+    println!("{} domain(s), none of them named by the runner", domains.len());
 }
 
 /// Every job declares `timeout-minutes`.

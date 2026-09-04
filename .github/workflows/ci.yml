@@ -34,9 +34,12 @@ name: CI
 #   grew a dependency tree it might not be able to resolve. On macOS `clang` is
 #   what `cc` already is, so the macOS leg pays nothing for it.
 #   `build/link.rs` reads `CC` too, so this also decides which driver the
-#   product's own link runs through. It is set on the four jobs that verify the
-#   native path and nowhere else, so that `minimal`, `lean`, `tree-sitter` and
-#   `nix` do not pay a minute of stencil generation they never read.
+#   product's own link runs through. It is set on every job that runs
+#   `cli/build.rs` for a reason — the four that verify the native path, and
+#   `clippy` and `validate`, which lint and validate a tree whose build script
+#   must not have degraded under them — and nowhere else, so that `minimal`,
+#   `lean`, `tree-sitter` and `nix` do not pay a minute of stencil generation
+#   they never read.
 #
 # * **clang, lld, mold, llvm and binutils** — five of the seven. clang for the
 #   above; mold *and* lld because `build/link.rs::choose` prefers mold on Linux
@@ -115,6 +118,37 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+
+  # **Line tables, not the whole of DWARF**, on every dev and test build in this
+  # file. Measured on a ten-core mac, with the workspace's artifacts wiped and
+  # `CARGO_INCREMENTAL=0` — which is the shape every job here builds in, because
+  # `Swatinem/rust-cache` cleans the workspace out of the cache and turns
+  # incremental off:
+  #
+  #   cargo build -p buri --tests                    228 s wall, 500 CPU-s
+  #   the same, `debug = "line-tables-only"`         196 s wall, 416 CPU-s
+  #
+  # Seventeen per cent of the CPU, and CPU is what a four-core runner is short
+  # of. It is paid on six jobs, and on the two longest ones the build is most of
+  # the job — `linux arm64 (the programs run)` was 5 m 51 s of `cargo build` and
+  # 27 s of tests.
+  #
+  # Nothing here reads what is dropped. `RUST_BACKTRACE=1` above wants frame
+  # names and file:line, and line tables are exactly that; what full DWARF adds
+  # is variable and type information for a debugger, and no job in this file
+  # runs one. The suites that read object files — `native/stencil.rs`,
+  # `native/link.rs`, `assert-elf.sh` — read the artifacts the *compiler under
+  # test* emitted and the objects `clang` produced, neither of which is a rustc
+  # profile's business.
+  #
+  # `dev` and `test` and no third: `[profile.release]` is what
+  # `language-server-budget` times its 50 ms bar in, and a timing gate must not
+  # be measured through a build nothing else uses. `cli/build.rs`'s nested cargo
+  # is untouched for a second reason — it strips every `CARGO_*` from the
+  # child's environment on purpose, so the runtime archive is built the same way
+  # here as everywhere.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
   # **NEVER SKIP A TEST ON CI**, and this is the switch that enforces it.
   #
@@ -219,6 +253,43 @@ jobs:
           node --version
           bun --version
 
+      # `cli/build.rs`'s own output, which the cache above deliberately drops.
+      #
+      # `Swatinem/rust-cache` cleans the **workspace's** artifacts out before it
+      # saves: `buri` is a member, so `target/debug/build/buri-<hash>/` goes and
+      # `OUT_DIR` goes with it. That is the right default for a build script
+      # that writes a generated `.rs` file in a second, and the wrong one here —
+      # this build script builds the runtime archive, which is a fat-LTO release
+      # build of tokio, hyper, rustls and ring for a musl target, and it was
+      # being paid in full on every job of every run. Measured cold on a
+      # ten-core mac: `cargo build -p buri --tests` is 141 s and the build
+      # script is 51 s of it. With `OUT_DIR` restored the script is 21 s, and
+      # those 21 are `cargo rustc` declining to call a unit with trailing rustc
+      # arguments fresh rather than anything a cache can take away.
+      #
+      # **Correctness is cargo's and not this key's.** A restored `OUT_DIR` is
+      # an input to the nested `cargo`, which rebuilds whatever its own
+      # fingerprints say is stale; a wrong key here costs a rebuild and can
+      # never produce a stale archive. So the key is about hit *rate*, and
+      # `restore-keys` is what turns an edited runtime source into one crate
+      # rebuilt rather than a tree. `rustc -V` is in it because a toolchain bump
+      # changes the `-<hash>` in the directory's name, and a cache no directory
+      # is ever looked for in is a hundred and eighty megabytes of upload.
+      #
+      # One consequence worth writing down rather than rediscovering: the
+      # `x86_64` leg's LAST step rebuilds the archive under `net-h3`, so what
+      # this saves on that leg has `quinn` in it and an h3 `libburi_rt.a` beside
+      # the objects. That is a bigger cache and nothing else — the build script
+      # rewrites the archive from the nested build on every run, before the
+      # assertion that reads it, so a restored h3 archive is overwritten by a
+      # `net` one before anything looks at either.
+      - run: mkdir -p target && rustc -V | tee target/rustc-version
+      - uses: useblacksmith/cache@v5
+        with:
+          path: target/debug/build
+          key: buildscript-dev-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('target/rustc-version', 'cli/build.rs', 'cli/runtime/**', 'cli/src/build/sha256.rs', 'cli/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: buildscript-dev-${{ matrix.os }}-${{ matrix.arch }}-
+
       # Before the suite, not after: an empty stencil library is a suite that
       # passes vacuously, and the diagnosis should not have to be reconstructed
       # from a green run. `--tests` is what runs `cli/build.rs`.
@@ -258,14 +329,28 @@ jobs:
       - name: The runtime crate answers its own tests
         run: bash .github/scripts/test-runtime-crate.sh
 
-      # `--no-fail-fast` because the test binaries are domains, and one failing
-      # domain should not hide the others. Through `tee`, because the assertion
-      # after it reads the summary rather than the exit status: an ignored test
-      # and a filtered-out one are both a green run, and `cargo test`'s status
-      # cannot tell either from a suite that ran.
-      - run: |
-          set -o pipefail
-          cargo test -p buri --no-fail-fast 2>&1 | tee suite.log
+      # The whole suite, with its binaries **overlapped**.
+      #
+      # `cargo test -p buri` runs the fifteen test binaries one after another,
+      # and that is what this step used to do. It is the largest single thing
+      # between this workflow and its five-minute budget on a four-core runner,
+      # because the suites are latency-bound rather than core-bound: `native`
+      # spends 61 s of wall clock on 95 s of CPU waiting for `cc`, a linker and
+      # a child process, and the other fourteen binaries are not allowed to
+      # start while it waits. Measured warm on a ten-core mac, the same fifteen
+      # units are **169 s in a queue and 73 s started together**.
+      #
+      # `run-suite.sh` is what starts them together, and its header argues the
+      # two things that matter: the set is asked of cargo rather than listed, so
+      # a binary added tomorrow runs on the day it is added; and every unit is a
+      # **libtest binary run directly**, so the log below is the same text
+      # `cargo test | tee` wrote. That second one is why the third-party runner
+      # `cli/tests/ci.rs::no_runner_config_promises_a_cap_nothing_reads` refuses
+      # is still refused: this keeps libtest's output, and that one does not.
+      #
+      # `--no-fail-fast` is not a flag here, it is the construction: every unit
+      # runs whatever happens, because one failing domain must not hide twelve.
+      - run: bash .github/scripts/run-suite.sh suite.log
       - name: Nothing was skipped
         run: bash .github/scripts/assert-no-skips.sh suite.log
 
@@ -289,19 +374,15 @@ jobs:
       - name: Nothing was skipped in the site generator
         run: bash .github/scripts/assert-no-skips.sh website.log
 
-      # Deliberately NOT `-D warnings`. The bar this repository states is the
-      # panic-free lint set in the workspace manifest, and every lint in it is
-      # `deny` — so a violation is an ERROR and fails this step already. Turning
-      # the remaining warnings into errors would make CI's verdict depend on
-      # clippy's version rather than on the repository's rules.
-      - if: runner.os == 'Linux'
-        run: cargo clippy -p buri -p website --all-targets
-
-      # The validation gate: compile every corpus and measure nothing.
-      # `--quick` is named in `cli/benches/compiler.rs` as the CI shape and is
-      # held to staying under a second there.
-      - if: runner.os == 'Linux'
-        run: cargo bench -p buri --bench compiler -- --validate --quick
+      # clippy and the validation gate used to be here, `if: runner.os ==
+      # 'Linux'`, and they are the `clippy` and `validate` jobs below now.
+      # Neither is a test and neither reads anything this job built: clippy
+      # compiles the whole workspace a **second** time through `clippy-driver`,
+      # and `-- --validate` compiles it a third under an optimizing profile.
+      # Three builds of one compiler, in a queue, on the runner that was already
+      # the slowest job in the workflow. As jobs of their own they are the same
+      # two commands on the same two architectures, running beside this one
+      # instead of after it.
 
       # The runtime's OTHER feature, on ONE job of the whole workflow.
       #
@@ -353,6 +434,115 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------
+  # The lint set, on both Linux architectures.
+  #
+  # A step of `test` until it was measured. `cargo clippy --all-targets` is a
+  # **second compilation of the whole workspace** — clippy-driver's, which
+  # shares no artifact with the one the suite was built from — and it was
+  # sitting in a queue behind the longest job in the workflow to say something
+  # that depends on none of it. Beside the suite instead of after it, it costs
+  # the wall clock of the slowest of the two rather than the sum.
+  #
+  # Both architectures, because that is what the step it replaces did: the
+  # matrix it lived on had two Linux rows and it was `if: runner.os == 'Linux'`.
+  # It is not decoration — `cfg(target_arch)` is real in the stencil backend,
+  # and a lint that fires on one architecture and not the other is exactly the
+  # thing a single-arch job would stop seeing.
+  #
+  # Deliberately NOT `-D warnings`. The bar this repository states is the
+  # panic-free lint set in the workspace manifest, and every lint in it is
+  # `deny` — so a violation is an ERROR and fails this step already. Turning the
+  # remaining warnings into errors would make CI's verdict depend on clippy's
+  # version rather than on the repository's rules.
+  # ---------------------------------------------------------------------------
+  clippy:
+    name: clippy (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: blacksmith-4vcpu-ubuntu-2404, arch: x86_64 }
+          - { os: blacksmith-4vcpu-ubuntu-2404-arm, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      CC: clang
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.os }}-${{ matrix.arch }}-clippy
+      # The same toolchain the `test` legs install, and for the same reason:
+      # `cli/build.rs` runs here too, and a build script that degrades makes
+      # this job lint a different tree from the one the suite ran on.
+      - run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang musl-dev musl-tools
+          rustup target add "$(uname -m)-unknown-linux-musl"
+      - run: mkdir -p target && rustc -V | tee target/rustc-version
+      - uses: useblacksmith/cache@v5
+        with:
+          path: target/debug/build
+          key: buildscript-dev-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('target/rustc-version', 'cli/build.rs', 'cli/runtime/**', 'cli/src/build/sha256.rs', 'cli/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: buildscript-dev-${{ matrix.os }}-${{ matrix.arch }}-
+      - run: cargo clippy -p buri -p website --all-targets
+
+  # ---------------------------------------------------------------------------
+  # The validation gate: compile every corpus and measure nothing.
+  #
+  # `--quick` is named in `cli/benches/compiler.rs` as the CI shape and is held
+  # to staying under a second there. `--profile validate` is the change this job
+  # is worth existing for: the root `Cargo.toml` declares that profile, states
+  # that **measurement uses `cargo bench` and validation uses this**, and prices
+  # the difference at 169 s against 98 s for the build on a ten-core mac —
+  # because `[profile.bench]` inherits `[profile.release]`, so a boolean about
+  # whether a corpus compiles was costing a fat-LTO, one-codegen-unit build of
+  # the entire toolchain. CI was the one caller still paying it. `opt-level`
+  # stays at 3, so the million-line corpora are still validated through an
+  # optimized compiler; what is dropped is cross-crate inlining and the single
+  # codegen unit, neither of which can change whether a program compiles.
+  #
+  # Both architectures, for the reason the job above gives.
+  # ---------------------------------------------------------------------------
+  validate:
+    name: validation gate (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: blacksmith-4vcpu-ubuntu-2404, arch: x86_64 }
+          - { os: blacksmith-4vcpu-ubuntu-2404-arm, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    env:
+      CC: clang
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.os }}-${{ matrix.arch }}-validate
+      - run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang musl-dev musl-tools
+          rustup target add "$(uname -m)-unknown-linux-musl"
+      - run: mkdir -p target && rustc -V | tee target/rustc-version
+      # `target/validate/build`, not `target/debug/build`: a build script runs
+      # once **per profile**, so this job's runtime archive is its own and
+      # shares nothing with the dev one the suite legs cache.
+      - uses: useblacksmith/cache@v5
+        with:
+          path: target/validate/build
+          key: buildscript-validate-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('target/rustc-version', 'cli/build.rs', 'cli/runtime/**', 'cli/src/build/sha256.rs', 'cli/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: buildscript-validate-${{ matrix.os }}-${{ matrix.arch }}-
+      - run: cargo bench -p buri --bench compiler --profile validate -- --validate --quick
+
+  # ---------------------------------------------------------------------------
   # Linux arm64: the programs a dev build produces are executed.
   #
   # Compiling is what `test` above proves. This job runs the artifacts — the
@@ -382,6 +572,17 @@ jobs:
           # The musl standard library, before the `cargo build` below runs
           # `cli/build.rs`. The header argues why it is not optional.
           rustup target add "$(uname -m)-unknown-linux-musl"
+      - run: mkdir -p target && rustc -V | tee target/rustc-version
+      # `cli/build.rs`'s own output. `Swatinem/rust-cache` cleans the
+      # workspace's artifacts out before saving, so `OUT_DIR` — and with it the
+      # fat-LTO release build of the runtime's dependency tree — was rebuilt on
+      # every job of every run. The `test` job's step argues it in full; the key
+      # is the same one, so the first of these jobs to finish warms the others.
+      - uses: useblacksmith/cache@v5
+        with:
+          path: target/debug/build
+          key: buildscript-dev-blacksmith-4vcpu-ubuntu-2404-arm-arm64-${{ hashFiles('target/rustc-version', 'cli/build.rs', 'cli/runtime/**', 'cli/src/build/sha256.rs', 'cli/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: buildscript-dev-blacksmith-4vcpu-ubuntu-2404-arm-arm64-
       - run: cargo build -p buri --tests
       - name: The stencil libraries are not empty
         run: bash .github/scripts/assert-stencils.sh
@@ -596,6 +797,17 @@ jobs:
           # The musl standard library, before the `cargo build` below runs
           # `cli/build.rs`. The header argues why it is not optional.
           rustup target add "$(uname -m)-unknown-linux-musl"
+      - run: mkdir -p target && rustc -V | tee target/rustc-version
+      # `cli/build.rs`'s own output. `Swatinem/rust-cache` cleans the
+      # workspace's artifacts out before saving, so `OUT_DIR` — and with it the
+      # fat-LTO release build of the runtime's dependency tree — was rebuilt on
+      # every job of every run. The `test` job's step argues it in full; the key
+      # is the same one, so the first of these jobs to finish warms the others.
+      - uses: useblacksmith/cache@v5
+        with:
+          path: target/debug/build
+          key: buildscript-dev-blacksmith-4vcpu-ubuntu-2404-x86_64-${{ hashFiles('target/rustc-version', 'cli/build.rs', 'cli/runtime/**', 'cli/src/build/sha256.rs', 'cli/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: buildscript-dev-blacksmith-4vcpu-ubuntu-2404-x86_64-
       - run: cargo build -p buri --tests
       - name: The stencil libraries are not empty
         run: bash .github/scripts/assert-stencils.sh
@@ -799,6 +1011,17 @@ jobs:
       # an empty archive here would make the agreement test below compare two
       # backends that both skipped. `--tests` is what runs `cli/build.rs`, and
       # it is work the step after it would do anyway.
+      - run: mkdir -p target && rustc -V | tee target/rustc-version
+      # `cli/build.rs`'s own output. `Swatinem/rust-cache` cleans the
+      # workspace's artifacts out before saving, so `OUT_DIR` — and with it the
+      # fat-LTO release build of the runtime's dependency tree — was rebuilt on
+      # every job of every run. The `test` job's step argues it in full; the key
+      # is the same one, so the first of these jobs to finish warms the others.
+      - uses: useblacksmith/cache@v5
+        with:
+          path: target/debug/build
+          key: buildscript-dev-llvm-blacksmith-4vcpu-ubuntu-2404-x86_64-${{ hashFiles('target/rustc-version', 'cli/build.rs', 'cli/runtime/**', 'cli/src/build/sha256.rs', 'cli/src/compiler/backend/stencil/*.rs') }}
+          restore-keys: buildscript-dev-llvm-blacksmith-4vcpu-ubuntu-2404-x86_64-
       - run: cargo build -p buri --tests --features backend-llvm
       - name: The runtime archive is not empty
         run: bash .github/scripts/assert-runtime-archive.sh
@@ -824,9 +1047,10 @@ jobs:
 
       # The agreement test (ARCHITECTURE.md §4) is what makes the release
       # build's code generator worth turning on, and it only exists with both.
-      - run: |
-          set -o pipefail
-          cargo test -p buri --no-fail-fast --features backend-llvm 2>&1 | tee suite.log
+      # The same overlapped runner the `test` legs use, with the feature added:
+      # `run-suite.sh` passes anything after the log's path to both of its cargo
+      # invocations, so the set it derives is the feature build's set.
+      - run: bash .github/scripts/run-suite.sh suite.log --features backend-llvm
       - name: Nothing was skipped
         run: bash .github/scripts/assert-no-skips.sh suite.log
 
@@ -990,6 +1214,19 @@ jobs:
   # built and it is the only place the file exists. flake.nix's `postBuild` says
   # why, and the short version is that this job's failure mode is not a red
   # build but a green one that shipped a toolchain with no native backend.
+  #
+  # **No `magic-nix-cache-action`, and that is measured.** It was here, and on
+  # run 33831664679 it cost this job five minutes and one second — its *post*
+  # step, uploading store paths, from 03:03:48 to 03:08:52 — against a
+  # `nix build` of one minute thirty-six and a `nix flake check` of nine
+  # seconds. It cannot pay that back either: the only store path this job builds
+  # that `cache.nixos.org` does not already serve is the `buri` derivation
+  # itself, whose input hash changes with every commit, so the entry it uploads
+  # is one no later run can hit. Two minutes of work behind five minutes of
+  # uploading a cache miss made this the second-longest job in the workflow.
+  # If a future flake grows a dependency nixpkgs does not have, the cache is
+  # worth reconsidering — with the post step's duration read off a run, because
+  # that is the number it turns on.
   # ---------------------------------------------------------------------------
   nix:
     timeout-minutes: 30
@@ -997,7 +1234,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@v16
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
       - run: nix flake check --all-systems
       - run: nix build .#default
       - run: ./result/bin/buri version

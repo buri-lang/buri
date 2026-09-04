@@ -613,7 +613,7 @@ the empty archive is unambiguously a bug.
 ### 3.3 CI
 
 `.github/workflows/ci.yml` runs on push, on pull request and on demand, and it
-is eight jobs. The three that this document is about:
+is eleven jobs. The three that this document is about:
 
 - **`test`** — the whole Rust suite, on every host this toolchain supports:
   `macos-latest` (arm64), `ubuntu-24.04` (x86_64) and `ubuntu-24.04-arm`. Each
@@ -657,7 +657,27 @@ is eight jobs. The three that this document is about:
 
 Two further native jobs, `linux-arm64` and `linux-x86_64`, run the artifacts
 rather than only compiling them, and CODEGEN-STENCIL.md §10 is where they are
-described. `lean`, `tree-sitter` and `nix` complete the eight.
+described. `clippy` and `validate` — a matrix of the two Linux architectures
+each — are the lint set and the corpus validation gate; both were steps of
+`test` until it was measured that each compiles the whole workspace *again*,
+under a driver or a profile the suite shares nothing with, in a queue behind
+the longest job in the workflow. `lean`, `tree-sitter` and `nix` complete the
+eleven.
+
+Three things in that file are about **wall clock** rather than about coverage,
+and each is worth naming because each looks like a detail and is minutes:
+
+- The suite runs through `.github/scripts/run-suite.sh`, which starts the test
+  binaries together rather than in the queue `cargo test` puts them in. Same
+  binaries, same libtest output, same liveness gates reading it: 169 s against
+  73 s on a ten-core mac.
+- `target/<profile>/build` is cached per job. `Swatinem/rust-cache` cleans the
+  workspace's own artifacts out before saving, and `cli/build.rs`'s `OUT_DIR` is
+  one of them — so the runtime archive, a fat-LTO release build of tokio, hyper,
+  rustls and ring, was rebuilt on every job of every run. 51 s of a 141-second
+  cold build on a ten-core mac, and rather more on four cores.
+- The validation gate runs under `--profile validate`, which the root
+  `Cargo.toml` declares for it and prices at 169 s against 98 s.
 
 The cross-backend agreement differential test is not a CI feature:
 `cli/tests/native/agreement.rs`
