@@ -79,8 +79,31 @@ pub(crate) const SPARE_WORD: u32 = DISC_WORD + 1;
 
 /// Where a three-way comparison's raw answer waits while the boolean an
 /// ordering operator wants is built out of it.
+///
+/// Three more words follow it: `emit.rs`'s widening sequences take `RAW_WORD +
+/// 1`, and [`Jit::walk_deep`](super::emit) takes `RAW_WORD + 3` for the address
+/// it hands the out-of-line reference walk. [`RESERVED_WORDS`] is where that
+/// ends.
 pub(crate) const RAW_WORD: u32 = SPARE_WORD + 1;
 
+/// The first scratch word the *emitter* does not claim.
+///
+/// Everything above — the C argument area, the discriminant word, the spare,
+/// and `RAW_WORD`'s own run of four — is written by sequences that can appear
+/// **anywhere**, including inside an open-coded list loop. So a loop that keeps
+/// state in scratch has to keep it past this line, and `lists.rs::LOOP_SCRATCH`
+/// is derived from it rather than written as a number beside it.
+///
+/// It was written as a number, and the number was two words short.
+/// `list.sortBy` kept its destination block's pointer at `LOOP_SCRATCH + 8`,
+/// which was `RAW_WORD + 3` — the word `walk_deep` writes the address of a
+/// value whose reference walk went out of line into. Sorting a list whose
+/// element is a struct holding an enum therefore retained the first element and
+/// then stored it *through the address of itself*, leaving the result block
+/// exactly as `elemalloc` left it: zeros. Issue #41, where a storage
+/// simulation's model answered a row of empty strings and then reached a match
+/// arm for a tag that was zero because nothing had written one.
+pub(crate) const RESERVED_WORDS: u32 = RAW_WORD + 4;
 
 fn round8(n: u32) -> u32 {
     (n + 7) & !7

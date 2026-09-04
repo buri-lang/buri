@@ -3615,6 +3615,74 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// `list.sortBy` over a list whose **element type holds an enum**. Issue #41.
+///
+/// The stencil backend open-codes the merge sort at the call site and keeps
+/// its indices — including the destination block's pointer — in the frame's
+/// scratch words. `lists.rs::LOOP_SCRATCH` said where those begin, as a
+/// number, and the number was two words inside the run `rtcall.rs` reserves
+/// for the emitter itself. The word that collided is the one
+/// `emit::walk_deep` writes an address into when a value's reference walk goes
+/// **out of line**, which is what retaining an element whose type holds an
+/// enum does — so the sort lost its destination between reading an element and
+/// storing it, and answered the block `elemalloc` had just handed it: zeros.
+///
+/// That is why the reported symptoms were a scan answering empty strings and
+/// then `no arm of this match applied`: a zeroed block read at an enum type
+/// has a tag nothing wrote. `LOOP_SCRATCH` is derived from
+/// `rtcall::RESERVED_WORDS` now, so the two cannot drift apart again.
+///
+/// Sorted at three lengths, because the merge's passes alternate between the
+/// result block and a scratch one: one element takes no pass at all, three
+/// take an odd number of them and four an even.
+#[test]
+fn sorting_a_list_whose_element_holds_an_enum_agrees() {
+    rows_or_skip!();
+    agree(
+        "sortBy over a counted element",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+struct Body { text: Str }
+enum Held { Text(Body), Number(Int) }
+struct Cell { held: Held }
+struct Row { name: Str, cell: Cell, rank: Int }
+
+fn rows(count: Int): [Row] {
+  list.range(alloc, 0, count).map(alloc, fn(n) => Row {
+    name: "r".repeat(alloc, n + 1),
+    cell: Cell { held: Held.Text(Body { text: "v".repeat(alloc, n + 1) }) },
+    rank: count - n,
+  })
+}
+
+fn label(row: Row): Str {
+  let inner = match (row.cell.held) {
+    .Text(body) => body.text,
+    .Number(n) => str.format(alloc, "${n}"),
+  };
+  str.format(alloc, "${row.name}=${inner}:${row.rank}")
+}
+
+fn shown(xs: [Row]): Str { xs.map(alloc, fn(row) => label(row)).join(alloc, " ") }
+
+fn byRank(xs: [Row]): [Row] { xs.sortBy(alloc, fn(a, b) => a.rank.compare(b.rank)) }
+
+export fn main(): Result<(), Str> {
+  let _ = io.println(stdout, shown(byRank(rows(1)))).ignore();
+  let _ = io.println(stdout, shown(byRank(rows(3)))).ignore();
+  let _ = io.println(stdout, shown(byRank(rows(4)))).ignore();
+  let _ = io.println(stdout, shown(rows(3))).ignore();
+  .Ok(())
+}
+"#,
+        "r=v:1\nrrr=vvv:1 rr=vv:2 r=v:3\nrrrr=vvvv:1 rrr=vvv:2 rr=vv:3 r=v:4\nr=v:3 rr=vv:2 rrr=vvv:1\n",
+    );
+}
+
 /// `every_conformance_file_is_accounted_for` has to its own list, and it
 /// needs no backend, so it runs on every host.
 #[test]
