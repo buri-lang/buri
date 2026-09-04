@@ -3562,6 +3562,345 @@ export fn main(): Result<(), Str> {
     );
 }
 
+// -------------------------------------------------------------------
+// Not rows: the memory-corruption family, one test per report
+// -------------------------------------------------------------------
+//
+// Five reports against the stencil backend, every one of them a program that
+// runs on JavaScript and aborts or answers wrongly natively, and every one of
+// them about a value that holds or reaches heap contents. None is a §12 row:
+// the table is about what the *language* says at a type, and nothing in it is
+// about when a reference count goes down or which frame word a loop keeps its
+// destination in. They are here for the reason the aggregate-projection test
+// above is — the reference answer is the backend that cannot get a count
+// wrong, so "the two disagree" is the sharpest statement of each defect.
+
+/// A field projected off a **generic call's** result, let-bound, where the
+/// field holds a list of an enum type. Issue #33.
+///
+/// `middle::inline` replaces `identity(outer())` with the callee's body, and a
+/// body is a `Block` whose tail is the block's own binding. `middle::rc`
+/// scanned a projection's base as a **borrow** whatever shape it was, so the
+/// block released that binding on its way out — between the call and the field
+/// read, with the field read then copying words out of a freed block.
+/// `Scan::children` had promoted a compound child to `Mode::Own` for exactly
+/// this reason since the shape was first met; a projection was the one
+/// construct with a child that had not.
+///
+/// Three spellings, because the report's own bisection is that the `let` is
+/// what decides: the inline projection was fine, an `[Int]` was fine, and the
+/// let-bound `[Leaf]` aborted.
+#[test]
+fn a_projection_off_a_generic_calls_result_agrees() {
+    rows_or_skip!();
+    agree(
+        "projection off a generic call",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+
+enum Leaf { One(Int), Two(Int) }
+struct Inner { items: [Leaf] }
+struct Plain { items: [Int] }
+struct Outer { inner: Inner, plain: Plain }
+
+fn outer(): Outer {
+  Outer {
+    inner: Inner { items: [1, 2].map(alloc, fn(n) => Leaf.One(n)) },
+    plain: Plain { items: [1, 2].map(alloc, fn(n) => n + 1) },
+  }
+}
+
+fn identity<T>(value: T): T { value }
+
+export fn main(): Result<(), Str> {
+  let a = identity(outer()).inner.items.len();
+  let plain = identity(outer()).plain;
+  let inner = identity(outer()).inner;
+  let _ = io.println(stdout, "${a} ${plain.items.len()} ${inner.items.len()}").ignore();
+  .Ok(())
+}
+"#,
+        "2 2 2\n",
+    );
+}
+
+/// A `match` arm's payload bindings, where the arm also reads a **sibling
+/// field of the scrutinee's base**. Issue #39.
+///
+/// `match (s.outcome)` binds words copied out of `s`'s block, with no count of
+/// their own; the arm then reads `s.manager`, which is `s`'s last use, so the
+/// drop landed there — freeing the block the arm's `flush` still pointed into
+/// and handing it straight back to the next allocation in the same expression.
+/// It was a wrong answer rather than a crash: `flush` came back holding `id`'s
+/// payload.
+///
+/// The fix is `Scan::children`'s deferral one construct over — the scrutinee's
+/// root is held live across the arms and dropped after them — and the second
+/// spelling here is the workaround the report found, which has to go on
+/// answering the same thing.
+#[test]
+fn a_match_arms_bindings_survive_a_sibling_field_read() {
+    rows_or_skip!();
+    agree(
+        "match arm bindings",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+struct Msg { body: Str }
+enum Outcome {
+  Attached { id: Str, status: Int, reply: Msg, flush: [Msg] },
+  Refused { reply: Msg },
+}
+struct Manager { held: Int }
+struct Step { manager: Manager, outcome: Outcome }
+
+fn step(): Step {
+  Step {
+    manager: Manager { held: 1 },
+    outcome: .Attached {
+      id: "se".repeat(alloc, 2),
+      status: 0,
+      reply: Msg { body: "re".repeat(alloc, 2) },
+      flush: [Msg { body: "fl".repeat(alloc, 2) }],
+    },
+  }
+}
+
+fn sent(manager: Manager, messages: [Msg]): Str {
+  let bodies = messages.map(alloc, fn(message) => message.body).join(alloc, ",");
+  str.format(alloc, "${bodies}/${manager.held}")
+}
+
+fn insideArm(): Str {
+  let s = step();
+  match (s.outcome) {
+    .Attached { id, reply, flush, .. } => {
+      sent(s.manager, [Msg { body: id }].concat(alloc, [reply].concat(alloc, flush)))
+    },
+    .Refused { reply } => sent(s.manager, [reply]),
+  }
+}
+
+fn beforeMatch(): Str {
+  let s = step();
+  let manager = s.manager;
+  match (s.outcome) {
+    .Attached { id, reply, flush, .. } => {
+      sent(manager, [Msg { body: id }].concat(alloc, [reply].concat(alloc, flush)))
+    },
+    .Refused { reply } => sent(manager, [reply]),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let _ = io.println(stdout, insideArm()).ignore();
+  let _ = io.println(stdout, beforeMatch()).ignore();
+  .Ok(())
+}
+"#,
+        "sese,rere,flfl/1\nsese,rere,flfl/1\n",
+    );
+}
+
+/// A mutually tail-recursive group whose members' parameters **do not agree
+/// position by position**. Issue #29.
+///
+/// `tail_calls::merge_group` gave the merged function one slot per parameter
+/// *position*, typed by the first member that had one there, on the reasoning
+/// that "nothing reads a slot at another member's type". Two members that
+/// disagree are what makes that false: `walkFrom(octets, Int, Walk)` and
+/// `walkOne(octets, Int, U8, Walk)` put a `Walk` and a `U8` in one slot, so the
+/// merged function compared a pointer against 255 and released it as two
+/// different types. `shared_slots` allocates by type instead, and every
+/// member's arguments are passed in slot order.
+///
+/// The second half of the same report is the `Loop`: a merged group's entries
+/// own **disjoint prefixes** of the parameter list, so an entry must not
+/// release a slot beyond its own arity — `lower::pad` hands it `undef`.
+#[test]
+fn mutual_tail_recursion_with_unlike_parameters_agrees() {
+    rows_or_skip!();
+    agree(
+        "mutual tail recursion",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+enum Fault { Incomplete, Corrupt }
+struct Walk { seen: [Int], total: Int }
+
+fn walk(octets: [U8], at: Int): Result<Int, Fault> {
+  let walked = walkFrom(octets, at, Walk { seen: list.empty<Int>(), total: 0 })?;
+  .Ok(walked.total + walked.seen.len())
+}
+
+fn walkFrom(octets: [U8], at: Int, state: Walk): Result<Walk, Fault> {
+  match (octets[at]) {
+    .None => .Ok(state),
+    .Some(octet) => walkOne(octets, at, octet, state),
+  }
+}
+
+fn walkOne(octets: [U8], at: Int, octet: U8, state: Walk): Result<Walk, Fault> {
+  if (octet == 255) {
+    .Err(.Corrupt)
+  } else {
+    walkFrom(octets, at + 1, Walk {
+      seen: state.seen.push(alloc, octet.toI64()),
+      total: state.total + octet.toI64(),
+    })
+  }
+}
+
+fn shown(answer: Result<Int, Fault>): Str {
+  match (answer) {
+    .Ok(n) => str.format(alloc, "${n}"),
+    .Err(.Corrupt) => "corrupt",
+    .Err(.Incomplete) => "incomplete",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let _ = io.println(stdout, shown(walk([1, 2, 3], 0))).ignore();
+  let _ = io.println(stdout, shown(walk([1, 255, 3], 0))).ignore();
+  let _ = io.println(stdout, shown(walk(list.empty<U8>(), 0))).ignore();
+  .Ok(())
+}
+"#,
+        "9\ncorrupt\n0\n",
+    );
+}
+
+/// An `Option` whose payload **holds an array**, read out through
+/// `withDefault` and through a `match`. Issue #28.
+///
+/// The report was written against `??`, which the language has since dropped;
+/// `x.withDefault(y)` is what replaced it and is what the shape is pinned at
+/// here, beside the `match` the operator was defined as. The payload *holding*
+/// an array rather than being one is the other half of the report — an
+/// `Option<Wrapper>` where `Wrapper` holds a `[U8]` — because that is the case
+/// where the count belongs to something the option does not name.
+///
+/// **This one passes on the compiler that had the defect**, and is here
+/// anyway. The construct that aborted no longer exists to be tested, so what
+/// is left of the report is the claim underneath it — an option's payload is
+/// read out at every payload type, on every backend — and a shape nothing
+/// pins is a shape the next rewrite of `withDefault` is free to break.
+#[test]
+fn an_option_whose_payload_holds_an_array_agrees() {
+    rows_or_skip!();
+    agree(
+        "option holding an array",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Wrapper { octets: [U8] }
+
+fn defaulted(held: Option<[U8]>): Int { held.withDefault(list.empty<U8>()).len() }
+
+fn matched(held: Option<[U8]>): Int {
+  match (held) { .None => 0, .Some(raw) => raw.len() }
+}
+
+fn wrapped(held: Option<Wrapper>): Int {
+  held.withDefault(Wrapper { octets: list.empty<U8>() }).octets.len()
+}
+
+fn wrappedMatch(held: Option<Wrapper>): Int {
+  match (held) { .None => 0, .Some(w) => w.octets.len() }
+}
+
+fn built(): [U8] { [1, 2, 3].map(alloc, fn(n) => n.toU8()) }
+
+export fn main(): Result<(), Str> {
+  let a = defaulted(.Some(built()));
+  let b = matched(.Some(built()));
+  let c = wrapped(.Some(Wrapper { octets: built() }));
+  let d = wrappedMatch(.Some(Wrapper { octets: built() }));
+  let e = defaulted(.None);
+  let _ = io.println(stdout, "${a} ${b} ${c} ${d} ${e}").ignore();
+  .Ok(())
+}
+"#,
+        "3 3 3 3 0\n",
+    );
+}
+
+/// `list.sortBy` over a list whose **element type holds an enum**. Issue #41.
+///
+/// The stencil backend open-codes the merge sort at the call site and keeps
+/// its indices — including the destination block's pointer — in the frame's
+/// scratch words. `lists.rs::LOOP_SCRATCH` said where those begin, as a
+/// number, and the number was two words inside the run `rtcall.rs` reserves
+/// for the emitter itself. The word that collided is the one
+/// `emit::walk_deep` writes an address into when a value's reference walk goes
+/// **out of line**, which is what retaining an element whose type holds an
+/// enum does — so the sort lost its destination between reading an element and
+/// storing it, and answered the block `elemalloc` had just handed it: zeros.
+///
+/// That is why the reported symptoms were a scan answering empty strings and
+/// then `no arm of this match applied`: a zeroed block read at an enum type
+/// has a tag nothing wrote. `LOOP_SCRATCH` is derived from
+/// `rtcall::RESERVED_WORDS` now, so the two cannot drift apart again.
+///
+/// Sorted at three lengths, because the merge's passes alternate between the
+/// result block and a scratch one: one element takes no pass at all, three
+/// take an odd number of them and four an even.
+#[test]
+fn sorting_a_list_whose_element_holds_an_enum_agrees() {
+    rows_or_skip!();
+    agree(
+        "sortBy over a counted element",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+struct Body { text: Str }
+enum Held { Text(Body), Number(Int) }
+struct Cell { held: Held }
+struct Row { name: Str, cell: Cell, rank: Int }
+
+fn rows(count: Int): [Row] {
+  list.range(alloc, 0, count).map(alloc, fn(n) => Row {
+    name: "r".repeat(alloc, n + 1),
+    cell: Cell { held: Held.Text(Body { text: "v".repeat(alloc, n + 1) }) },
+    rank: count - n,
+  })
+}
+
+fn label(row: Row): Str {
+  let inner = match (row.cell.held) {
+    .Text(body) => body.text,
+    .Number(n) => str.format(alloc, "${n}"),
+  };
+  str.format(alloc, "${row.name}=${inner}:${row.rank}")
+}
+
+fn shown(xs: [Row]): Str { xs.map(alloc, fn(row) => label(row)).join(alloc, " ") }
+
+fn byRank(xs: [Row]): [Row] { xs.sortBy(alloc, fn(a, b) => a.rank.compare(b.rank)) }
+
+export fn main(): Result<(), Str> {
+  let _ = io.println(stdout, shown(byRank(rows(1)))).ignore();
+  let _ = io.println(stdout, shown(byRank(rows(3)))).ignore();
+  let _ = io.println(stdout, shown(byRank(rows(4)))).ignore();
+  let _ = io.println(stdout, shown(rows(3))).ignore();
+  .Ok(())
+}
+"#,
+        "r=v:1\nrrr=vvv:1 rr=vv:2 r=v:3\nrrrr=vvvv:1 rrr=vvv:2 rr=vv:3 r=v:4\nr=v:3 rr=vv:2 rrr=vvv:1\n",
+    );
+}
+
 /// `every_conformance_file_is_accounted_for` has to its own list, and it
 /// needs no backend, so it runs on every host.
 #[test]
