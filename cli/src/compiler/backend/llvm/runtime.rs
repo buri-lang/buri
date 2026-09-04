@@ -125,7 +125,7 @@ pub enum Ret {
     Void,
     /// One scalar, at the Buri result's own register shape.
     Scalar,
-    /// Nothing, and the call does not come back (`SPEC 6.10`).
+    /// Nothing, and the call does not come back (`SPEC 6.9`).
     NoReturn,
     /// One integer of exactly this many bits, which is **not** the dest's
     /// register shape and is narrowed to it at the call site.

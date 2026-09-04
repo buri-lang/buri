@@ -314,7 +314,7 @@ sentence without it is false:
   *same* values, which is a form that means something at every type.
 - **Terminating without aborting.** A pure function may abort — `100 / x` at
   `x = 0` does — and an abort is observable: a message on stderr and a non-zero
-  exit status (Section 6.10). Eliminating a call that would have aborted turns
+  exit status (Section 6.9). Eliminating a call that would have aborted turns
   an aborting program into a running one, which is not a refinement of it.
   Divergence has the same shape. So an implementation may drop a pure call only
   where it can also show the call returns.

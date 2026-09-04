@@ -1445,7 +1445,7 @@ function $alloc_newCounter(budget) {
 
 // A budget is checked *before* the charge lands, and exceeding it ends the
 // process: `allocate` answers `Region` and not `Result`, so there is no value
-// to report the failure with (SPEC 6.10, MEMORY.md §7.2). The message is
+// to report the failure with (SPEC 6.9, MEMORY.md §7.2). The message is
 // `cli/runtime/abort.rs`'s, word for word.
 function $alloc_charge(h, bytes) {
   const c = $alloc.c[Number(h)];

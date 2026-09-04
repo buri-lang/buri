@@ -1013,7 +1013,7 @@ fn served(
 /// [`report_failure`] states the format once for both backends. What differs is
 /// only how the record is collected.
 ///
-/// **A failed assertion is still an abort.** SPEC 6.10 leaves nothing to catch,
+/// **A failed assertion is still an abort.** SPEC 6.9 leaves nothing to catch,
 /// so one process can report one failure and no more — and the answer is not to
 /// report less but to use more processes. `BURI_TEST_FROM` names the block a
 /// process is to start at, `buri_rt_test_enter` skips the ones already

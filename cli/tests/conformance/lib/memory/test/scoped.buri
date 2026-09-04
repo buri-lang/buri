@@ -181,7 +181,7 @@ fn warned<C: Stderr>(ctx: C): () {
 }
 
 fn firstLine<C: Stdin>(ctx: C): Str {
-    io.readLine(ctx) ?? "none"
+    io.readLine(ctx).withDefault("none")
 }
 
 fn readBack<C: Alloc + Fs>(ctx: C, path: Str): Str {
@@ -267,11 +267,11 @@ fn rolled<C: Rand>(ctx: C): Int {
 }
 
 fn variable<C: Env>(ctx: C, name: Str): Str {
-    env.get(ctx, name) ?? "unset"
+    env.get(ctx, name).withDefault("unset")
 }
 
 fn firstArgument<C: Env>(ctx: C): Str {
-    env.args(ctx)[0] ?? "none"
+    env.args(ctx)[0].withDefault("none")
 }
 
 fn exited<C: Proc>(ctx: C): Int {
@@ -281,7 +281,7 @@ fn exited<C: Proc>(ctx: C): Int {
 
 fn indexed<C: Alloc + Tasks>(ctx: C, items: [Int]): Int {
     let out = tasks.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
-    (out[0] ?? 0) + (out[1] ?? 0)
+    out[0].withDefault(0) + out[1].withDefault(0)
 }
 
 fn pushed<C: Sockets>(ctx: C): Int {

@@ -258,7 +258,7 @@ reason the theorem as stated was false — has since been resolved by a language
 decision, so it is now worth starting.
 
 **Errors, guards, and intrinsics.** The operational semantics has no aborts
-(SPEC §6.10 makes one observable, which is a purity concern, not a safety one),
+(SPEC §6.9 makes one observable, which is a purity concern, not a safety one),
 no guarded arms (a guarded arm covers nothing for exhaustiveness purposes, so a
 `match` whose only matching arm is guarded *can* get stuck), and no builtins
 (`semantics/builtins.rs` is axioms in any model of this kind).
@@ -313,7 +313,7 @@ What this exercise will not catch, whatever else gets proved:
 
 * **Everything from source bytes to HIR.** Lexing, parsing, name resolution,
   visibility, opacity, method resolution, `derive` expansion, `Self`
-  substitution, `?`/`??` desugaring, and the role-based context-construction
+  substitution, `?` desugaring, and the role-based context-construction
   rules. Going through the reject corpus, **roughly 50 of the 83 cases test
   rules that live entirely in that gap**; only about 15 are core-typing rules a
   model like this one can adjudicate, and those 15 are what `Core/` is aimed

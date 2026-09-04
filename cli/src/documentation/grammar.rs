@@ -1639,8 +1639,8 @@ mod tests {
     fn the_cascade_becomes_one_node_with_precedences() {
         let out = generate(crate::documentation::topics::GRAMMAR).expect("generates");
         assert!(out.contains("prec.left(1, seq($._operand, '||', $._operand))"));
-        assert!(out.contains("prec.right(2, seq($._operand, '??', $._operand))"));
-        assert!(out.contains("prec.right(10,"), "the prefix level is not right-associative");
+        assert!(out.contains("prec.left(2, seq($._operand, '&&', $._operand))"));
+        assert!(out.contains("prec.right(9,"), "the prefix level is not right-associative");
     }
 
     #[test]

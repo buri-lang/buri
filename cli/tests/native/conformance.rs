@@ -17,7 +17,7 @@
 //! without a native test entry point there is nothing to run, and without
 //! `core/testing/assert`'s three bodies there is nothing to assert.
 //!
-//! A failed assertion **ends the process**, because SPEC 6.10 says an abort is
+//! A failed assertion **ends the process**, because SPEC 6.9 says an abort is
 //! a write and an `_exit` and there is nothing to catch. So the exit status is
 //! the result: zero means every block in the file passed, and one means the
 //! first failure printed `assert.<kind> failed` and stopped. That is a worse
@@ -1155,7 +1155,7 @@ test "and a task is handed the context" {
     Tasks: SerialTasks { label: "serial", bias: 4 },
   };
   let out = tasks.parallel(ctx, [1], fn(c, i, item) => time.now(c).0 + item);
-  assert.eq(out[0] ?? 0, 6);
+  assert.eq(out[0].withDefault(0), 6);
 }
 
 test "and through a bound the call still lands" {

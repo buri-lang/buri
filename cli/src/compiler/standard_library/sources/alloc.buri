@@ -281,7 +281,7 @@ impl Arena {
 /// The abort is forced rather than chosen, and the reasoning is worth having
 /// where a reader meets the type: `allocate` answers `Region`, not
 /// `Result<Region, _>` (`core/effect`), so there is no value to report a failure
-/// with; SPEC 10.5 says `Alloc` can fail; and SPEC 6.10 says a failure with no
+/// with; SPEC 10.5 says `Alloc` can fail; and SPEC 6.9 says a failure with no
 /// value to return is an abort. The message names both numbers —
 /// `allocation budget exhausted: 40 bytes requested against a budget of 64` —
 /// because the budget alone does not tell a reader what to change.

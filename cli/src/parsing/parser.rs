@@ -333,11 +333,7 @@ fn starts_tuple_field(t: TokenKind) -> bool {
 
 /// The rung comparison sits on, which is the one rung that is neither left-
 /// nor right-associative and so cannot be expressed as a binding power alone.
-const CMP_LEVEL: usize = 4;
-
-/// The rung `??` sits on, which is the one rung that builds its chain by
-/// recursing and so spends [`Parser::chain_in`] rather than a loop counter.
-const COALESCE_LEVEL: usize = 2;
+const CMP_LEVEL: usize = 3;
 
 /// Where a binary operator sits in the grammar's precedence order, as the
 /// rung it is on and the `(left, right)` binding powers a precedence-climbing
@@ -345,9 +341,9 @@ const COALESCE_LEVEL: usize = 2;
 ///
 /// A rung is two binding powers apart from its neighbours, so associativity is
 /// which of the pair is the larger: a left-associative rung is `(2n, 2n+1)`,
-/// which stops its own operator from being re-consumed by the right-hand side,
-/// and the one right-associative rung — `??` — is `(2n+1, 2n)`, which is what
-/// makes `a ?? b ?? c` group to the right. Comparison is neither, and
+/// which stops its own operator from being re-consumed by the right-hand side.
+/// Every rung is left-associative — the one right-associative rung was `??`,
+/// and it retired with the operator. Comparison is neither, and
 /// [`Parser::binary_expr`] rejects a second one rather than grouping it
 /// (SPEC 6.1).
 ///
@@ -356,31 +352,25 @@ const COALESCE_LEVEL: usize = 2;
 fn binding_power(p: Punctuation) -> Option<(BinOp, u8, u8, usize)> {
     let (op, level) = match p {
         Punctuation::OrOr => (BinOp::Or, 1),
-        Punctuation::QuestionQuestion => (BinOp::Coalesce, COALESCE_LEVEL),
-        Punctuation::AndAnd => (BinOp::And, 3),
+        Punctuation::AndAnd => (BinOp::And, 2),
         Punctuation::EqEq => (BinOp::Eq, CMP_LEVEL),
         Punctuation::BangEq => (BinOp::Ne, CMP_LEVEL),
         Punctuation::Lt => (BinOp::Lt, CMP_LEVEL),
         Punctuation::LtEq => (BinOp::Le, CMP_LEVEL),
         Punctuation::Gt => (BinOp::Gt, CMP_LEVEL),
         Punctuation::GtEq => (BinOp::Ge, CMP_LEVEL),
-        Punctuation::Or => (BinOp::BitOr, 5),
-        Punctuation::Caret => (BinOp::BitXor, 6),
-        Punctuation::And => (BinOp::BitAnd, 7),
-        Punctuation::Plus => (BinOp::Add, 8),
-        Punctuation::Minus => (BinOp::Sub, 8),
-        Punctuation::Star => (BinOp::Mul, 9),
-        Punctuation::Slash => (BinOp::Div, 9),
-        Punctuation::Percent => (BinOp::Rem, 9),
+        Punctuation::Or => (BinOp::BitOr, 4),
+        Punctuation::Caret => (BinOp::BitXor, 5),
+        Punctuation::And => (BinOp::BitAnd, 6),
+        Punctuation::Plus => (BinOp::Add, 7),
+        Punctuation::Minus => (BinOp::Sub, 7),
+        Punctuation::Star => (BinOp::Mul, 8),
+        Punctuation::Slash => (BinOp::Div, 8),
+        Punctuation::Percent => (BinOp::Rem, 8),
         _ => return None,
     };
     let base = (level as u8).saturating_mul(2);
-    let (lbp, rbp) = if level == COALESCE_LEVEL {
-        (base.saturating_add(1), base)
-    } else {
-        (base, base.saturating_add(1))
-    };
-    Some((op, lbp, rbp, level))
+    Some((op, base, base.saturating_add(1), level))
 }
 
 /// Bail-out for error recovery: unwinds to the nearest item or statement.
@@ -489,9 +479,9 @@ struct Parser<'a> {
     /// reading wins, and that reading is the one entitled to complain.
     trial: u32,
     /// Links in the chain currently being built. Only the constructs that
-    /// recurse to build one — `else if`, and `??`, which is
-    /// right-associative — keep a count here; a loop passes its own count to
-    /// [`Parser::link`] instead, so there is nothing for it to leak.
+    /// recurse to build one — `else if` is the one left — keep a count here;
+    /// a loop passes its own count to [`Parser::link`] instead, so there is
+    /// nothing for it to leak.
     chain: u32,
 }
 
@@ -2336,6 +2326,16 @@ impl<'a> Parser<'a> {
         let mut rung = usize::MAX;
         loop {
             let Some(p) = self.peek().as_punctuation() else { return Ok(lhs) };
+            // `??` is retired. The token is still lexed so that the operator
+            // somebody typed is named rather than read as `?` twice, and the
+            // expression is abandoned here: what follows is a default for a
+            // value this expression no longer produces, so reading on would
+            // report a second thing about the same mistake.
+            if p == Punctuation::QuestionQuestion {
+                let span = self.span();
+                self.templated("retired-coalesce", span);
+                return Err(Bail);
+            }
             let Some((op, lbp, rbp, level)) = binding_power(p) else { return Ok(lhs) };
             if lbp < min_bp {
                 return Ok(lhs);
@@ -2370,25 +2370,6 @@ impl<'a> Parser<'a> {
                         self.tree.rewind(mark);
                     }
                 }
-                continue;
-            }
-
-            if level == COALESCE_LEVEL {
-                // `??` is right-associative, so `a ?? b ?? c` works — and it
-                // builds its chain by recursing, so it spends the budget
-                // through `chain_in` rather than through a loop counter.
-                let op_span = self.bump();
-                self.chain_in()?;
-                let rhs = self.binary_expr(rbp);
-                self.chain_out();
-                let rhs = rhs?;
-                let span = self.tree.span(lhs).to(self.tree.span(rhs));
-                lhs = self.tree.push(
-                    Kind::of_binop(op),
-                    [lhs.0, rhs.0, op_span.start, op_span.end],
-                    span,
-                    at,
-                );
                 continue;
             }
 
@@ -3643,7 +3624,6 @@ mod tests {
                 ("addition", format!("fn f(): I32 {{ 1{} }}", " + 1".repeat(n))),
                 ("conjunction", format!("fn f(): Bool {{ true{} }}", " && true".repeat(n))),
                 ("method calls", format!("fn f(): I32 {{ 1{} }}", ".abs()".repeat(n))),
-                ("coalescing", format!("fn f(): I32 {{ 1{} }}", " ?? 1".repeat(n))),
                 (
                     "else-if",
                     format!(

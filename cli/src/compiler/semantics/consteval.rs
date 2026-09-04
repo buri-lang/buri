@@ -314,7 +314,6 @@ impl<'a> Folder<'a> {
             | ExprKind::CallTrait { .. }
             | ExprKind::Lambda { .. }
             | ExprKind::Closure { .. }
-            | ExprKind::Coalesce { .. }
             | ExprKind::Try { .. }
             | ExprKind::Loop { .. }
             | ExprKind::Continue { .. }

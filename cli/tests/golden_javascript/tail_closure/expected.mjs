@@ -13,27 +13,59 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const $t3=core_option$Option_map$g9y0aa($list_get(fs_1,0n),f_4=>f_4(100n));
-  const $t4=core_option$Option_map$g9y0aa($list_get(fs_1,3n),f_5=>f_5(100n));
-  const text_14=String($t3!==void 0?$t3:-1n)+' '+String($t4!==void 0?$t4:-1n);
-  const self_15=$host_HostStdout_println(ctx_0[1],text_14);
-  let $t5;
-  if(self_15[0]===0){
-    $t5=0;
-  }else if(self_15[0]===1){
-    $t5=0;
+  const self_13=core_option$Option_map$g9y0aa($list_get(fs_1,0n),f_4=>f_4(100n));
+  let $t3;
+  if(self_13!==void 0){
+    $t3=self_13;
+  }else if(self_13===void 0){
+    $t3=-1n;
   }else{
     $abort('no arm matched');
   }
-  const $t7=core_option$Option_map$g9y0aa($list_get(gs_2,0n),g_6=>g_6(2n));
-  const $t8=core_option$Option_map$g9y0aa($list_get(gs_2,2n),g_7=>g_7(2n));
-  const text_19=String($t7!==void 0?$t7:-1n)+' '+String($t8!==void 0?$t8:-1n);
-  const self_20=$host_HostStdout_println(ctx_0[1],text_19);
+  const self_16=core_option$Option_map$g9y0aa($list_get(fs_1,3n),f_5=>f_5(100n));
+  let $t5;
+  if(self_16!==void 0){
+    $t5=self_16;
+  }else if(self_16===void 0){
+    $t5=-1n;
+  }else{
+    $abort('no arm matched');
+  }
+  const text_20=String($t3)+' '+String($t5);
+  const self_21=$host_HostStdout_println(ctx_0[1],text_20);
+  let $t7;
+  if(self_21[0]===0){
+    $t7=0;
+  }else if(self_21[0]===1){
+    $t7=0;
+  }else{
+    $abort('no arm matched');
+  }
+  const self_24=core_option$Option_map$g9y0aa($list_get(gs_2,0n),g_6=>g_6(2n));
   let $t9;
-  if(self_20[0]===0){
-    $t9=0;
-  }else if(self_20[0]===1){
-    $t9=0;
+  if(self_24!==void 0){
+    $t9=self_24;
+  }else if(self_24===void 0){
+    $t9=-1n;
+  }else{
+    $abort('no arm matched');
+  }
+  const self_27=core_option$Option_map$g9y0aa($list_get(gs_2,2n),g_7=>g_7(2n));
+  let $t11;
+  if(self_27!==void 0){
+    $t11=self_27;
+  }else if(self_27===void 0){
+    $t11=-1n;
+  }else{
+    $abort('no arm matched');
+  }
+  const text_31=String($t9)+' '+String($t11);
+  const self_32=$host_HostStdout_println(ctx_0[1],text_31);
+  let $t13;
+  if(self_32[0]===0){
+    $t13=0;
+  }else if(self_32[0]===1){
+    $t13=0;
   }else{
     $abort('no arm matched');
   }

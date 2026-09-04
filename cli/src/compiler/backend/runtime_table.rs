@@ -185,7 +185,7 @@ pub enum Ret {
     /// occupies no bytes is one the two sides can disagree about for free, and
     /// `Ret::Out` already drops it for the same reason.
     Res,
-    /// The call does not come back (SPEC 6.10).
+    /// The call does not come back (SPEC 6.9).
     NoReturn,
 }
 

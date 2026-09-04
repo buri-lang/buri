@@ -64,202 +64,238 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  let $t11;
+  let $t9;
   if(ss_1!==void 0){
     const inner_22=$val(ss_1);
-    $t11=inner_22;
+    $t9=inner_22;
   }else if(ss_1===void 0){
-    $t11=void 0;
+    $t9=void 0;
   }else{
     $abort('no arm matched');
   }
-  let $t14;
+  const self_23=$t9;
+  let $t11;
+  if(self_23!==void 0){
+    $t11=self_23;
+  }else if(self_23===void 0){
+    $t11=-1n;
+  }else{
+    $abort('no arm matched');
+  }
+  let $t13;
   if(sn_2!==void 0){
-    const inner_24=$val(sn_2);
-    $t14=inner_24;
+    const inner_27=$val(sn_2);
+    $t13=inner_27;
   }else if(sn_2===void 0){
-    $t14=void 0;
+    $t13=void 0;
+  }else{
+    $abort('no arm matched');
+  }
+  const self_28=$t13;
+  let $t15;
+  if(self_28!==void 0){
+    $t15=self_28;
+  }else if(self_28===void 0){
+    $t15=-1n;
   }else{
     $abort('no arm matched');
   }
   let $t17;
   if(nn_3!==void 0){
-    const inner_26=$val(nn_3);
-    $t17=inner_26;
+    const inner_32=$val(nn_3);
+    $t17=inner_32;
   }else if(nn_3===void 0){
     $t17=void 0;
   }else{
     $abort('no arm matched');
   }
-  const text_28=String($t11!==void 0?$t11:-1n)+' '+String($t14!==void 0?$t14:-1n)+' '+String($t17!==void 0?$t17:-1n);
-  const self_29=$host_HostStdout_println(ctx_0[1],text_28);
-  let $t18;
-  if(self_29[0]===0){
-    $t18=0;
-  }else if(self_29[0]===1){
-    $t18=0;
+  const self_33=$t17;
+  let $t19;
+  if(self_33!==void 0){
+    $t19=self_33;
+  }else if(self_33===void 0){
+    $t19=-1n;
   }else{
     $abort('no arm matched');
   }
-  const o_78=$some($some(1n));
-  let $t20;
-  if(o_78===void 0){
-    $t20=0n;
-  }else if(o_78!==void 0&&$val(o_78)===void 0){
-    $t20=1n;
-  }else if(o_78!==void 0&&($val(o_78)!==void 0&&$val($val(o_78))===void 0)){
-    $t20=2n;
-  }else if(o_78!==void 0&&($val(o_78)!==void 0&&$val($val(o_78))!==void 0)){
-    $t20=3n;
+  const text_37=String($t11)+' '+String($t15)+' '+String($t19);
+  const self_38=$host_HostStdout_println(ctx_0[1],text_37);
+  let $t21;
+  if(self_38[0]===0){
+    $t21=0;
+  }else if(self_38[0]===1){
+    $t21=0;
   }else{
     $abort('no arm matched');
   }
-  const o_79=$some($some(void 0));
-  let $t22;
-  if(o_79===void 0){
-    $t22=0n;
-  }else if(o_79!==void 0&&$val(o_79)===void 0){
-    $t22=1n;
-  }else if(o_79!==void 0&&($val(o_79)!==void 0&&$val($val(o_79))===void 0)){
-    $t22=2n;
-  }else if(o_79!==void 0&&($val(o_79)!==void 0&&$val($val(o_79))!==void 0)){
-    $t22=3n;
+  const o_90=$some($some(1n));
+  let $t23;
+  if(o_90===void 0){
+    $t23=0n;
+  }else if(o_90!==void 0&&$val(o_90)===void 0){
+    $t23=1n;
+  }else if(o_90!==void 0&&($val(o_90)!==void 0&&$val($val(o_90))===void 0)){
+    $t23=2n;
+  }else if(o_90!==void 0&&($val(o_90)!==void 0&&$val($val(o_90))!==void 0)){
+    $t23=3n;
   }else{
     $abort('no arm matched');
   }
-  const o_80=$some(void 0);
-  let $t24;
-  if(o_80===void 0){
-    $t24=0n;
-  }else if(o_80!==void 0&&$val(o_80)===void 0){
-    $t24=1n;
-  }else if(o_80!==void 0&&($val(o_80)!==void 0&&$val($val(o_80))===void 0)){
-    $t24=2n;
-  }else if(o_80!==void 0&&($val(o_80)!==void 0&&$val($val(o_80))!==void 0)){
-    $t24=3n;
+  const o_91=$some($some(void 0));
+  let $t25;
+  if(o_91===void 0){
+    $t25=0n;
+  }else if(o_91!==void 0&&$val(o_91)===void 0){
+    $t25=1n;
+  }else if(o_91!==void 0&&($val(o_91)!==void 0&&$val($val(o_91))===void 0)){
+    $t25=2n;
+  }else if(o_91!==void 0&&($val(o_91)!==void 0&&$val($val(o_91))!==void 0)){
+    $t25=3n;
   }else{
     $abort('no arm matched');
   }
-  let $t26;
+  const o_92=$some(void 0);
+  let $t27;
+  if(o_92===void 0){
+    $t27=0n;
+  }else if(o_92!==void 0&&$val(o_92)===void 0){
+    $t27=1n;
+  }else if(o_92!==void 0&&($val(o_92)!==void 0&&$val($val(o_92))===void 0)){
+    $t27=2n;
+  }else if(o_92!==void 0&&($val(o_92)!==void 0&&$val($val(o_92))!==void 0)){
+    $t27=3n;
+  }else{
+    $abort('no arm matched');
+  }
+  let $t29;
   if(void 0===void 0){
-    $t26=0n;
+    $t29=0n;
   }else if(void 0!==void 0&&$val(void 0)===void 0){
-    $t26=1n;
+    $t29=1n;
   }else if(void 0!==void 0&&($val(void 0)!==void 0&&$val($val(void 0))===void 0)){
-    $t26=2n;
+    $t29=2n;
   }else if(void 0!==void 0&&($val(void 0)!==void 0&&$val($val(void 0))!==void 0)){
-    $t26=3n;
+    $t29=3n;
   }else{
     $abort('no arm matched');
   }
-  const text_33=String($t20)+' '+String($t22)+' '+String($t24)+' '+String($t26);
-  const self_34=$host_HostStdout_println(ctx_0[1],text_33);
-  let $t28;
-  if(self_34[0]===0){
-    $t28=0;
-  }else if(self_34[0]===1){
-    $t28=0;
+  const text_42=String($t23)+' '+String($t25)+' '+String($t27)+' '+String($t29);
+  const self_43=$host_HostStdout_println(ctx_0[1],text_42);
+  let $t31;
+  if(self_43[0]===0){
+    $t31=0;
+  }else if(self_43[0]===1){
+    $t31=0;
   }else{
     $abort('no arm matched');
   }
   const got_5=$list_get($k0,1n);
-  let $t30;
+  let $t33;
   if(got_5!==void 0&&$val(got_5)!==void 0){
     $val(got_5);
-    $t30='some some';
+    $t33='some some';
   }else if(got_5!==void 0&&$val(got_5)===void 0){
-    $t30='some none';
+    $t33='some none';
   }else if(got_5===void 0){
-    $t30='none';
+    $t33='none';
   }else{
     $abort('no arm matched');
   }
-  const text_40=$t30+' '+String($list_len($k0));
-  const self_41=$host_HostStdout_println(ctx_0[1],text_40);
-  let $t32;
-  if(self_41[0]===0){
-    $t32=0;
-  }else if(self_41[0]===1){
-    $t32=0;
+  const text_49=$t33+' '+String($list_len($k0));
+  const self_50=$host_HostStdout_println(ctx_0[1],text_49);
+  let $t35;
+  if(self_50[0]===0){
+    $t35=0;
+  }else if(self_50[0]===1){
+    $t35=0;
   }else{
     $abort('no arm matched');
   }
-  const text_45=$str($eqD0($k1,$k1))+' '+$str($eqD0($k1,$k2))+' '+$str($eqD0($k2,$k2));
-  const self_46=$host_HostStdout_println(ctx_0[1],text_45);
-  let $t34;
-  if(self_46[0]===0){
-    $t34=0;
-  }else if(self_46[0]===1){
-    $t34=0;
+  const text_54=$str($eqD0($k1,$k1))+' '+$str($eqD0($k1,$k2))+' '+$str($eqD0($k2,$k2));
+  const self_55=$host_HostStdout_println(ctx_0[1],text_54);
+  let $t37;
+  if(self_55[0]===0){
+    $t37=0;
+  }else if(self_55[0]===1){
+    $t37=0;
   }else{
     $abort('no arm matched');
   }
-  const text_50=$show($k1,$D0)+' '+$show($k2,$D0);
-  const self_51=$host_HostStdout_println(ctx_0[1],text_50);
-  let $t36;
-  if(self_51[0]===0){
-    $t36=0;
-  }else if(self_51[0]===1){
-    $t36=0;
-  }else{
-    $abort('no arm matched');
-  }
-  let $t38;
-  const $t39=$k1[0];
-  if($t39!==void 0){
-    $t38=true;
-  }else if($t39===void 0){
-    $t38=false;
-  }else{
-    $abort('no arm matched');
-  }
-  let $t40;
-  const $t41=$k2[0];
-  if($t41!==void 0){
-    $t40=false;
-  }else if($t41===void 0){
-    $t40=true;
-  }else{
-    $abort('no arm matched');
-  }
-  const text_59=$str($t38)+' '+$str($t40);
+  const text_59=$show($k1,$D0)+' '+$show($k2,$D0);
   const self_60=$host_HostStdout_println(ctx_0[1],text_59);
-  let $t42;
+  let $t39;
   if(self_60[0]===0){
-    $t42=0;
+    $t39=0;
   }else if(self_60[0]===1){
-    $t42=0;
+    $t39=0;
   }else{
     $abort('no arm matched');
   }
-  const sorted_8=$list_sortBy([$k1,$k2,$k3],ctx_0,(a_65,b_66)=>$cmp(a_65,b_66));
-  const $t44=$list_get(sorted_8,0n);
-  const text_69=$show($t44!==void 0?$t44:$k1,$D0);
-  const self_70=$host_HostStdout_println(ctx_0[1],text_69);
+  let $t41;
+  const $t42=2n;
+  if($t42!==void 0){
+    $t41=true;
+  }else if($t42===void 0){
+    $t41=false;
+  }else{
+    $abort('no arm matched');
+  }
+  let $t43;
+  const $t44=void 0;
+  if($t44!==void 0){
+    $t43=false;
+  }else if($t44===void 0){
+    $t43=true;
+  }else{
+    $abort('no arm matched');
+  }
+  const text_68=$str($t41)+' '+$str($t43);
+  const self_69=$host_HostStdout_println(ctx_0[1],text_68);
   let $t45;
-  if(self_70[0]===0){
+  if(self_69[0]===0){
     $t45=0;
-  }else if(self_70[0]===1){
+  }else if(self_69[0]===1){
     $t45=0;
   }else{
     $abort('no arm matched');
   }
+  const sorted_8=$list_sortBy([$k1,$k2,$k3],ctx_0,(a_74,b_75)=>$cmp(a_74,b_75));
+  const self_77=$list_get(sorted_8,0n);
   let $t47;
-  const $t48=$cmp($k2,$k1);
-  $t47=$t48===0;
+  if(self_77!==void 0){
+    $t47=self_77;
+  }else if(self_77===void 0){
+    $t47=$k1;
+  }else{
+    $abort('no arm matched');
+  }
+  const lowest_9=$t47;
+  const text_81=$show(lowest_9,$D0);
+  const self_82=$host_HostStdout_println(ctx_0[1],text_81);
   let $t49;
-  const $t50=$cmp($k1,$k2);
-  $t49=$t50===0;
+  if(self_82[0]===0){
+    $t49=0;
+  }else if(self_82[0]===1){
+    $t49=0;
+  }else{
+    $abort('no arm matched');
+  }
   let $t51;
-  const $t52=$cmp($k1,$k4);
+  const $t52=$cmp($k2,$k1);
   $t51=$t52===0;
-  const text_74=$str($t47)+' '+$str($t49)+' '+$str($t51);
-  const self_75=$host_HostStdout_println(ctx_0[1],text_74);
   let $t53;
-  if(self_75[0]===0){
-    $t53=0;
-  }else if(self_75[0]===1){
-    $t53=0;
+  const $t54=$cmp($k1,$k2);
+  $t53=$t54===0;
+  let $t55;
+  const $t56=$cmp($k1,$k4);
+  $t55=$t56===0;
+  const text_86=$str($t51)+' '+$str($t53)+' '+$str($t55);
+  const self_87=$host_HostStdout_println(ctx_0[1],text_86);
+  let $t57;
+  if(self_87[0]===0){
+    $t57=0;
+  }else if(self_87[0]===1){
+    $t57=0;
   }else{
     $abort('no arm matched');
   }

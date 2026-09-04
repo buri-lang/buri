@@ -289,17 +289,16 @@ module.exports = grammar({
 
     binary_expression: $ => choice(
       prec.left(1, seq($._operand, '||', $._operand)),
-      prec.right(2, seq($._operand, '??', $._operand)),
-      prec.left(3, seq($._operand, '&&', $._operand)),
-      prec.left(4, seq($._operand, choice('==', '!=', '<', '<=', '>', '>='), $._operand)),
-      prec.left(5, seq($._operand, '|', $._operand)),
-      prec.left(6, seq($._operand, '^', $._operand)),
-      prec.left(7, seq($._operand, '&', $._operand)),
-      prec.left(8, seq($._operand, choice('+', '-'), $._operand)),
-      prec.left(9, seq($._operand, choice('*', '/', '%'), $._operand))
+      prec.left(2, seq($._operand, '&&', $._operand)),
+      prec.left(3, seq($._operand, choice('==', '!=', '<', '<=', '>', '>='), $._operand)),
+      prec.left(4, seq($._operand, '|', $._operand)),
+      prec.left(5, seq($._operand, '^', $._operand)),
+      prec.left(6, seq($._operand, '&', $._operand)),
+      prec.left(7, seq($._operand, choice('+', '-'), $._operand)),
+      prec.left(8, seq($._operand, choice('*', '/', '%'), $._operand))
     ),
 
-    unary_expression: $ => prec.right(10, seq(choice('-', '!', '~'), $._operand)),
+    unary_expression: $ => prec.right(9, seq(choice('-', '!', '~'), $._operand)),
 
     _postfix_expression: $ => choice(
       $._primary_expression,
@@ -320,22 +319,22 @@ module.exports = grammar({
       $.context_expression
     ),
 
-    field_expression: $ => prec(11, seq(field('value', $._postfix_expression), '.', field('field', $.identifier))),
+    field_expression: $ => prec(10, seq(field('value', $._postfix_expression), '.', field('field', $.identifier))),
 
     tuple_index_expression: $ => prec(
-      11,
+      10,
       seq(field('value', $._postfix_expression), '.', field('index', $.integer_literal))
     ),
 
-    call_expression: $ => prec(11, seq(field('function', $._postfix_expression), '(', optional($.arguments), ')')),
+    call_expression: $ => prec(10, seq(field('function', $._postfix_expression), '(', optional($.arguments), ')')),
 
-    index_expression: $ => prec(11, seq(field('value', $._postfix_expression), '[', $._expression, ']')),
+    index_expression: $ => prec(10, seq(field('value', $._postfix_expression), '[', $._expression, ']')),
 
-    try_expression: $ => prec(11, seq($._postfix_expression, '?')),
+    try_expression: $ => prec(10, seq($._postfix_expression, '?')),
 
     generic_expression: $ => prec.dynamic(1, seq($._postfix_expression, $.type_arguments)),
 
-    struct_literal: $ => prec(11, seq(field('type', $._postfix_expression), $.struct_literal_body)),
+    struct_literal: $ => prec(10, seq(field('type', $._postfix_expression), $.struct_literal_body)),
 
     struct_literal_body: $ => seq('{', optional($.spread), optional($.field_initializers), '}'),
 

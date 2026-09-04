@@ -12,6 +12,6 @@ struct Holder<T> { export only: T, export slot: Option<T> }
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let h: Holder<Option<Int>> = Holder { };
-  let _ = io.println(ctx, "${h.only ?? 0}").ignore();
+  let _ = io.println(ctx, "${h.only.withDefault(0)}").ignore();
   .Ok(())
 }

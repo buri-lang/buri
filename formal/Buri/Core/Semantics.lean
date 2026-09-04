@@ -15,7 +15,7 @@ a list is all values, or it has a first one that is not.
 
 ## What is deliberately absent
 
-* **Errors.** SPEC 6.10 makes an abort observable, and `findings/README.md` 1 is
+* **Errors.** SPEC 6.9 makes an abort observable, and `findings/README.md` 1 is
   the observation that a pure call is therefore not eliminable. Modelling
   aborts belongs with the purity theorem, not with type safety: progress here
   says a well-typed term is a value or steps, which is the statement that

@@ -2370,35 +2370,6 @@ impl<'a, 'b> Infer<'a, 'b> {
                 };
                 return typed::Expr::new(kind, b, span);
             }
-            // `??` is defined for `Option<T> ?? T` and `Result<T, E> ?? T`.
-            B::Coalesce => {
-                let l = self.check_expr(lhs, None);
-                let lty = self.resolve(&l.ty);
-                let payload = self
-                    .known_option_payload(&lty)
-                    .map(|t| (t.clone(), typed::OptionOrResult::Option))
-                    .or_else(|| {
-                        self.known_result_payload(&lty)
-                            .map(|(ok, _)| (ok.clone(), typed::OptionOrResult::Result))
-                    });
-                let (inner, kind) = match payload {
-                    Some(found) => found,
-                    None if lty.is_error() => return self.error_expr(span),
-                    None => {
-                        let shown = self.show_ty(&lty);
-                        self.templated("coalesce-operand", op_span).bind("type", shown);
-                        return self.error_expr(span);
-                    }
-                };
-                let r = self.check_expr(rhs, Some(&inner));
-                let rspan = self.tree().span(rhs);
-                self.unify_at(rspan, &r.ty.clone(), &inner, "the default");
-                return typed::Expr::new(
-                    typed::ExprKind::Coalesce { lhs: Box::new(l), rhs: Box::new(r), kind },
-                    inner,
-                    span,
-                );
-            }
             _ => {}
         }
 
@@ -2515,7 +2486,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                 let cmp = self.operator_trait_call("Ord", "compare", l, Some(r), span);
                 self.order_test(cmp, op, span)
             }
-            // `&&`, `||`, `??` and the arithmetic and bitwise operators all
+            // `&&`, `||` and the arithmetic and bitwise operators all
             // returned above, so only the comparisons reach here.
             _ => crate::ice!("every other binary operator returns before this match"),
         }
@@ -2655,7 +2626,7 @@ impl<'a, 'b> Infer<'a, 'b> {
                         self.templated("question-mark-mismatch", span)
                             .bind("container", "a `Result`")
                             .bind("type", shown)
-                            .fix("return a `Result` from this function, or handle the error here with `match` or `??`");
+                            .fix("return a `Result` from this function, or handle the error here with `match` or `withDefault`");
                     }
                 }
                 (ok_ty, typed::OptionOrResult::Result)

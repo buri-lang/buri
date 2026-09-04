@@ -1428,7 +1428,7 @@ impl TestTasks {
     /// above six and says so. A fan-out that wide is `anyOrder`'s question.
     ///
     /// The first failing order ends the block, because a failed assertion is an
-    /// abort and there is nothing to catch (SPEC 6.10) — so the report names the
+    /// abort and there is nothing to catch (SPEC 6.9) — so the report names the
     /// order that failed and the seed that replays it, and the orders after it do
     /// not run.
     export fn everyOrder(self): TestTasks;
