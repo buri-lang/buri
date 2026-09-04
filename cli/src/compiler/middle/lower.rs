@@ -961,35 +961,6 @@ impl FnLower<'_> {
                 self.cur = join;
                 *self.code.get(join).params.first().or_ice("the join takes one parameter")
             }
-            ExprKind::Coalesce { lhs, rhs, kind } => {
-                let l = self.expr(lhs);
-                let held = self.held_variant(&lhs.ty, *kind);
-                let ok = self.tag_is(l, held);
-                let held_b = self.block(&[]);
-                let rhs_b = self.block(&[]);
-                let join = self.block(&[ty]);
-                self.set_term(Term::Branch {
-                    cond: ok,
-                    then: Target::to(held_b),
-                    else_: Target::to(rhs_b),
-                });
-
-                self.cur = held_b;
-                let payload = self.emit(ty, |dest| Inst::GetPayload {
-                    dest,
-                    agg: l,
-                    variant: held,
-                    index: 0,
-                });
-                self.set_term(Term::Jump(Target::new(join, vec![payload])));
-
-                self.cur = rhs_b;
-                let r = self.expr(rhs);
-                self.set_term(Term::Jump(Target::new(join, vec![r])));
-
-                self.cur = join;
-                *self.code.get(join).params.first().or_ice("the join takes one parameter")
-            }
             ExprKind::Try { base, kind } => self.try_(ty, base, *kind),
 
             ExprKind::Prim { op, prim, args } => self.prim(ty, *op, *prim, args),

@@ -833,7 +833,7 @@ accounting policies over the one real allocator. They are not three allocators.
   forced, and it is the right answer: `allocate` returns `Region`, not
   `Result<Region, _>` (`effect.buri`), so there is no value to report failure
   with; and SPEC 10.5 already says `Alloc` "can fail (out of memory)", while SPEC
-  6.10 says an abort is what a failure with no value to return does. So exceeding
+  6.9 says an abort is what a failure with no value to return does. So exceeding
   a `FixedBuffer` is `$abort("allocation budget exhausted")`, with the budget and
   the request in the message.
 - **`Arena`** — in v1, `GeneralPurpose` with its own separate counter. It does

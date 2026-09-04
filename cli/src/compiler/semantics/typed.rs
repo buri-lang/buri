@@ -67,7 +67,7 @@ pub enum TemplatePart {
     Hole(Expr),
 }
 
-/// Which of `Option` and `Result` a `?` or `??` is working on. They are
+/// Which of `Option` and `Result` a `?` is working on. They are
 /// ordinary enums, but the backend can emit better code knowing which.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum OptionOrResult {
@@ -196,8 +196,6 @@ pub enum ExprKind {
     /// `&&` and `||`, which short-circuit.
     And { lhs: Box<Expr>, rhs: Box<Expr> },
     Or { lhs: Box<Expr>, rhs: Box<Expr> },
-    /// `??`. The right operand is evaluated only when the left is `None`/`Err`.
-    Coalesce { lhs: Box<Expr>, rhs: Box<Expr>, kind: OptionOrResult },
     /// Postfix `?`, the only early exit in the language.
     Try { base: Box<Expr>, kind: OptionOrResult },
 
@@ -483,9 +481,7 @@ pub fn children<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr)) {
             }
         }
         ExprKind::Lambda { body, .. } => f(body),
-        ExprKind::And { lhs, rhs }
-        | ExprKind::Or { lhs, rhs }
-        | ExprKind::Coalesce { lhs, rhs, .. } => {
+        ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
             f(lhs);
             f(rhs);
         }
@@ -580,9 +576,7 @@ pub fn children_mut(e: &mut Expr, f: &mut impl FnMut(&mut Expr)) {
             }
         }
         ExprKind::Lambda { body, .. } => f(body),
-        ExprKind::And { lhs, rhs }
-        | ExprKind::Or { lhs, rhs }
-        | ExprKind::Coalesce { lhs, rhs, .. } => {
+        ExprKind::And { lhs, rhs } | ExprKind::Or { lhs, rhs } => {
             f(lhs);
             f(rhs);
         }

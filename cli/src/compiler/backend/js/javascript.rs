@@ -76,7 +76,6 @@ pub enum BinOp {
     UShr,
     And,
     Or,
-    Coalesce,
     In,
 }
 
@@ -102,7 +101,6 @@ impl BinOp {
             BinOp::UShr => ">>>",
             BinOp::And => "&&",
             BinOp::Or => "||",
-            BinOp::Coalesce => "??",
             BinOp::In => " in ",
         }
     }
@@ -110,7 +108,7 @@ impl BinOp {
     /// Higher binds tighter.
     fn prec(self) -> u8 {
         match self {
-            BinOp::Or | BinOp::Coalesce => 3,
+            BinOp::Or => 3,
             BinOp::And => 4,
             BinOp::BitOr => 5,
             BinOp::BitXor => 6,

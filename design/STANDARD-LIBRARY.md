@@ -27,7 +27,7 @@ JavaScript fact that a native run would contradict. The model lives beside
 
 `FixedBuffer` aborting rather than answering an error is forced by the
 signature: `allocate` answers `Region` and not `Result<Region, _>`, so there is
-no value to report a failure with, and SPEC §6.10 says that is what an abort is
+no value to report a failure with, and SPEC §6.9 says that is what an abort is
 for.
 
 ## 2. The counted set is narrower than the modelled set

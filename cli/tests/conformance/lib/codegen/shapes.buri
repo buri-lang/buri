@@ -67,9 +67,9 @@ export fn pairs<C: Alloc>(ctx: C, i: Int, acc: [fn(Int) => Int]): [fn(Int) => In
 // -----------------------------------------------------------------------------
 //
 // `a && f(x)` is `f(x)` whenever `a` holds, so `f(x)` is in tail position and
-// must run in constant stack (SPEC 8.3). The same goes for `a || f(x)` and for
-// `opt ?? f(x)`. These are the shapes of `all`, `any` and a linear search, so
-// they are exactly the functions an immutable language recurses through.
+// must run in constant stack (SPEC 8.3). The same goes for `a || f(x)`. These
+// are the shapes of `all` and `any`, so they are exactly the functions an
+// immutable language recurses through.
 //
 // The depths below are past what a JavaScript engine gives a recursive
 // function, so a compiler that leaves the call on the stack crashes here rather
@@ -80,7 +80,7 @@ export fn allBelow(xs: [Int], limit: Int, i: Int): Bool {
     if (i >= xs.len()) {
         true
     } else {
-        (xs.get(i) ?? 0) < limit && allBelow(xs, limit, i + 1)
+        xs.get(i).withDefault(0) < limit && allBelow(xs, limit, i + 1)
     }
 }
 
@@ -92,23 +92,6 @@ export fn countDownAnd(i: Int): Bool {
 /// `||`: the mirror image — recursion is what happens when the test fails.
 export fn countDownOr(i: Int): Bool {
     if (i <= 0) { true } else { i < 0 || countDownOr(i - 1) }
-}
-
-/// `??`: the shape of a linear search, where the recursion is the fallback.
-export fn firstOr(xs: [Int], i: Int): Int {
-    if (i >= xs.len()) { -1 } else { xs.get(i) ?? firstOr(xs, i + 1) }
-}
-
-/// `??` that actually recurses: `none` never holds a value, so every step
-/// falls through to the tail call.
-export fn countDownCoalesce(i: Int): Int {
-    if (i <= 0) { 0 } else { noneAt(i) ?? countDownCoalesce(i - 1) }
-}
-
-/// Always empty, but not visibly so — a literal `.None` would let the compiler
-/// fold the `??` away and there would be nothing left to test.
-export fn noneAt(i: Int): Option<Int> {
-    if (i < 0) { .Some(i) } else { .None }
 }
 
 /// `&&` under a mutually recursive pair, so the merged dispatch loop is

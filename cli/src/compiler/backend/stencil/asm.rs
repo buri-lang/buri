@@ -975,7 +975,7 @@ fn load_tag(a: &mut Asm, rt: u32, rn: u32, off: u32, width: u32) {
 ///
 /// `llvm/emit.rs::test_entry_point` behaviour for behaviour: every `test`
 /// block in order, each behind `buri_rt_test_enter`'s answer about whether this
-/// process is to run it. A failed assertion is an abort (SPEC 6.10), so one
+/// process is to run it. A failed assertion is an abort (SPEC 6.9), so one
 /// process reports at most one failure and the runner re-runs the binary with
 /// `enter` answering 0 for everything already reported — which is why the skip
 /// is a branch around the call and not a call that returns early.

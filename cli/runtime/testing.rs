@@ -2307,7 +2307,7 @@ const FS_CALL_NAMES: [&str; 11] = [
 // same function assembles the native one — so what a native binary owes the
 // runner is the same *facts*, not a second format for them.
 //
-// A failed assertion is still an abort (SPEC 6.10: there is nothing to catch),
+// A failed assertion is still an abort (SPEC 6.9: there is nothing to catch),
 // so one process cannot report two failures. The runner runs the binary again
 // from the block after the one that aborted, which is the sharding
 // `commands/test.rs`'s header already permits — a suite's result may not depend

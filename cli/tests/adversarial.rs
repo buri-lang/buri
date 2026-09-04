@@ -243,7 +243,6 @@ fn a_chain_longer_than_the_limit_is_a_diagnostic() {
         ("binary operators", format!("export fn main(): Result<(), Str> {{\n  let x = 1{};\n  .Ok(())\n}}\n", " + 1".repeat(n))),
         ("logical operators", format!("export fn main(): Result<(), Str> {{\n  let x = true{};\n  .Ok(())\n}}\n", " && true".repeat(n))),
         ("method calls", format!("export fn main(): Result<(), Str> {{\n  let x = 1{};\n  .Ok(())\n}}\n", ".abs()".repeat(n))),
-        ("null coalescing", format!("export fn main(): Result<(), Str> {{\n  let x = 1{};\n  .Ok(())\n}}\n", " ?? 1".repeat(n))),
     ] {
         s.write("app/main.buri", &text);
         let run = s.run(&["build", "//app"]);

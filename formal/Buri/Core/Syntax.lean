@@ -6,7 +6,7 @@ import Buri.Core.Binders
 The fragment of Buri a declarative type system can adjudicate. `formal/README.md`
 gives the honest number: of the 83 reject cases in `cli/tests/reject`, roughly
 50 test rules that live between source bytes and HIR -- name resolution,
-visibility, opacity, method resolution, `derive` expansion, `?`/`??` desugaring
+visibility, opacity, method resolution, `derive` expansion, `?` desugaring
 -- and only about 15 are core-typing rules. This file is aimed at those 15:
 variables, application, constructors, `match`, `let`, lambdas, and generic
 instantiation.

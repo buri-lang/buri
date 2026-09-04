@@ -983,7 +983,7 @@ export fn main(): Result<(), Str> {
     ));
 
     // `nounwind` on every function, on every backend: the language has no
-    // `throw`, no unwinding `panic` and no `catch` (SPEC 6.10). Checked on the
+    // `throw`, no unwinding `panic` and no `catch` (SPEC 6.9). Checked on the
     // emitted `main`, which is the one function that is always there.
     assert!(ir.contains("nounwind"), "no `nounwind` anywhere in:\n{ir}");
 
@@ -3614,12 +3614,12 @@ export fn main(): Result<(), Str> {
   let twice = repeated(bare, 5);
   let _ = io.println(ctx, str.format(
     ctx,
-    "${pushedOnto[0] ?? 0} ${pushedOnto[1] ?? 0} ${twice[1] ?? 0} ${joined(bare, "ab", "cd")}",
+    "${pushedOnto[0].withDefault(0)} ${pushedOnto[1].withDefault(0)} ${twice[1].withDefault(0)} ${joined(bare, "ab", "cd")}",
   )).ignore();
   // And the context record built from the same implementations, which is what
   // every other program here passes: one answer, two argument types.
   let alsoPushed = pushed(ctx, 7, [1]);
-  let _ = io.println(ctx, "${alsoPushed[1] ?? 0} ${joined(ctx, "ab", "cd")}").ignore();
+  let _ = io.println(ctx, "${alsoPushed[1].withDefault(0)} ${joined(ctx, "ab", "cd")}").ignore();
   .Ok(())
 }
 "#,

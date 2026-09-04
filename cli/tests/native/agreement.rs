@@ -3076,7 +3076,7 @@ export fn main(): Result<(), Str> {
 /// status on every backend — and with what was printed before it flushed.
 ///
 /// An abort is a write to standard error and an exit, never an unwind (SPEC
-/// 6.10), so there is nothing for the trampoline to do about one and that is
+/// 6.9), so there is nothing for the trampoline to do about one and that is
 /// precisely the claim: the entry thunk is a frame in the middle, and a frame
 /// in the middle that had *anything* to do with an abort would be a frame that
 /// could get it wrong. Natively the abort happens inside a call the runtime

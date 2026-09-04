@@ -1,4 +1,4 @@
-// An abort is not an assertion. SPEC 6.10 says there is nothing to catch, and
+// An abort is not an assertion. SPEC 6.9 says there is nothing to catch, and
 // the JavaScript runner catches the exception the runtime throws anyway — so a
 // test that aborts is reported with the abort's own words and no diff, and the
 // tests after it still run. That last claim is the one a native run cannot

@@ -1,11 +1,9 @@
-// Tail position under `&&`, `||` and `??`.
+// Tail position under `&&` and `||`.
 //
 // The right operand of a short-circuiting operator is the whole expression's
 // result whenever it is reached, so a call there is a tail call and has to
-// become a jump like any other (SPEC 8.3.1). Each of these three used to
-// recurse on the JavaScript stack instead: `&&` and `||` because the analysis
-// never looked inside them, `??` because the analysis counted it and the
-// emitter did not, which produced a `while(true)` nothing ever continued.
+// become a jump like any other (SPEC 8.3.1). Both of these used to recurse on
+// the JavaScript stack instead, because the analysis never looked inside them.
 //
 // What to read for in the record: every one of these is a `while(true)` whose
 // short-circuit is a `return` of the literal the operator gives, and whose
@@ -20,7 +18,7 @@ fn allBelow(xs: [Int], limit: Int, i: Int): Bool {
     if (i >= xs.len()) {
         true
     } else {
-        (xs.get(i) ?? 0) < limit && allBelow(xs, limit, i + 1)
+        xs.get(i).withDefault(0) < limit && allBelow(xs, limit, i + 1)
     }
 }
 
@@ -29,13 +27,8 @@ fn anyAtLeast(xs: [Int], limit: Int, i: Int): Bool {
     if (i >= xs.len()) {
         false
     } else {
-        (xs.get(i) ?? 0) >= limit || anyAtLeast(xs, limit, i + 1)
+        xs.get(i).withDefault(0) >= limit || anyAtLeast(xs, limit, i + 1)
     }
-}
-
-// `??`: the shape of a linear search, where the recursion is the fallback.
-fn firstOr(xs: [Int], i: Int): Int {
-    if (i >= xs.len()) { -1 } else { xs.get(i) ?? firstOr(xs, i + 1) }
 }
 
 // A `&&` whose right operand holds no eliminable call keeps the operator, so
@@ -52,7 +45,6 @@ export fn main(): Result<(), Str> {
     let xs = [3, 1, 4, 1, 5];
     let _ = io.println(ctx, "${allBelow(xs, 10, 0)} ${allBelow(xs, 4, 0)}").ignore();
     let _ = io.println(ctx, "${anyAtLeast(xs, 5, 0)} ${anyAtLeast(xs, 9, 0)}").ignore();
-    let _ = io.println(ctx, "${firstOr(xs, 2)} ${firstOr(xs, 9)}").ignore();
     let _ = io.println(ctx, "${bothSmall(1, 2)} ${bothSmall(1, 20)}").ignore();
     .Ok(())
 }

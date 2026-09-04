@@ -159,7 +159,7 @@ pub struct Checker<'a> {
     /// Enums by well-known name.
     pub known_types: HashMap<String, TyConId>,
     /// The three of those the body checker asks about by name on hot paths —
-    /// `?`, `??`, and every comparison. They are settled by
+    /// `?` and every comparison. They are settled by
     /// `register_known_names` before any body is looked at, so asking the map
     /// again was a string hash and a probe per `let` and per operator.
     pub option_con: Option<TyConId>,
