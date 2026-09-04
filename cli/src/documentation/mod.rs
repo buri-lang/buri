@@ -140,6 +140,17 @@ pub struct Entry {
     pub id: String,
     pub title: String,
     pub summary: String,
+    /// Everything else on the page worth searching: a topic's prose, a
+    /// module's `//!` text, a `///` comment's body below its first line.
+    ///
+    /// Search used to read this out of `topics::find`, which only prose has —
+    /// so a query was matched against the *names* of nine hundred API pages
+    /// and against the bodies of thirty-nine topics. `compare ints` therefore
+    /// found `core/str.compare` and never `core/order`. It is a field rather
+    /// than a lookup because only the source knows where a page's prose
+    /// lives, and it hangs off `Entry` rather than off `resolve` so that
+    /// indexing every page costs one pass and no rendering.
+    pub text: String,
 }
 
 /// A kind of documentation the CLI can serve.
@@ -175,6 +186,7 @@ impl DocSource for Prose {
                 id: t.id.to_string(),
                 title: t.title.to_string(),
                 summary: t.summary(),
+                text: t.text.to_string(),
             })
             .collect()
     }
@@ -209,12 +221,7 @@ impl DocSource for Normative {
         // The title and the language come from the same row the index lists, so
         // a page cannot be headed one thing and listed as another.
         let (_, title, lang) = NORMATIVE.iter().find(|(name, _, _)| *name == id)?;
-        let text = match id {
-            "grammar" => topics::GRAMMAR,
-            "schema/build" => topics::BUILD_PROTO,
-            "schema/repo" => topics::REPO_PROTO,
-            _ => return None,
-        };
+        let text = normative_text(id)?;
         Some(Page {
             id: id.to_string(),
             title: title.to_string(),
@@ -228,11 +235,23 @@ impl DocSource for Normative {
         NORMATIVE
             .iter()
             .map(|(id, title, lang)| Entry {
-                id: id.to_string(),
-                title: title.to_string(),
+                id: (*id).to_string(),
+                title: (*title).to_string(),
                 summary: format!("hand-written {lang}, held to the implementation by a test"),
+                text: normative_text(id).unwrap_or_default().to_string(),
             })
             .collect()
+    }
+}
+
+/// The artifact behind a normative page. One lookup, so a page cannot be
+/// served one text and indexed under another.
+fn normative_text(id: &str) -> Option<&'static str> {
+    match id {
+        "grammar" => Some(topics::GRAMMAR),
+        "schema/build" => Some(topics::BUILD_PROTO),
+        "schema/repo" => Some(topics::REPO_PROTO),
+        _ => None,
     }
 }
 
@@ -268,6 +287,7 @@ impl DocSource for Cli {
                 id: format!("cli/{}", c.name),
                 title: format!("buri {}", c.name),
                 summary: c.blurb.to_string(),
+                text: crate::commands::reference(c),
             })
             .collect()
     }
@@ -341,16 +361,29 @@ fn module_entries(modules: &[reference::ApiModule]) -> Vec<Entry> {
             id: m.path.clone(),
             title: m.path.clone(),
             summary: m.docs.first().cloned().unwrap_or_default(),
+            text: m.docs.join("\n"),
         });
         for item in &m.items {
             out.push(Entry {
                 id: item.path(&m.path),
                 title: format!("{} {}", item.kind().label(), item.name),
                 summary: item.docs.first().cloned().unwrap_or_default(),
+                text: item_text(item),
             });
         }
     }
     out
+}
+
+/// Everything written about one item: its own `///` comment, and the comments
+/// on the fields, variants, or methods listed under it — which is what the
+/// page shows, so it is what a search of the page has to see.
+fn item_text(item: &reference::ApiItem) -> String {
+    let mut text = item.docs.join("\n");
+    for member in item.api.members() {
+        let _ = write!(text, "\n{}\n{}", member.name, member.docs.join("\n"));
+    }
+    text
 }
 
 /// The packages of the repository you are standing in, rendered by the same
@@ -543,6 +576,7 @@ impl DocSource for Errors {
                 id: format!("error/{}", e.code),
                 title: e.title().to_string(),
                 summary: format!("`{}`", e.code),
+                text: catalog_text(errors::page(e.code), e.text),
             })
             .collect()
     }
@@ -642,8 +676,21 @@ impl DocSource for Lints {
                 id: format!("lint/{}", l.code),
                 title: l.title().to_string(),
                 summary: format!("`{}`", l.code),
+                text: catalog_text(lints::page(l.code), l.text),
             })
             .collect()
+    }
+}
+
+/// What a catalog page says, for the index: the written explanation where
+/// there is one, and the built-in wording where the page is frontmatter and a
+/// reproduction. Not the wording table or the promise `resolve` adds — those
+/// are the same sentences on all two hundred pages, and a sentence that is on
+/// every page ranks nothing.
+fn catalog_text(page: Option<&'static frontmatter::Page>, fallback: &str) -> String {
+    match page {
+        Some(p) => format!("{}\n{}", p.front.message, p.body),
+        None => fallback.to_string(),
     }
 }
 
@@ -929,7 +976,7 @@ fn index(presentation: &Presentation) -> String {
     let _ = writeln!(
         out,
         "\n{dim}buri docs <topic>              read one\n\
-         buri docs search <words>       search all of them\n\
+         buri docs search <words>       by name or by intent; each hit is a command\n\
          buri docs <topic> --format=json    structured, for tools\n\
          buri docs <topic> --dense          headings and examples only\n\
          buri docs manifest             every id and shape, for an agent{reset}"
@@ -945,102 +992,320 @@ const STOPWORDS: &[&str] = &[
     "where", "which", "why", "with", "you",
 ];
 
+/// What somebody calls a thing, against the page that answers them.
+///
+/// Search is otherwise name-shaped, and a name is what a reader who already
+/// knows the answer would type. `compare ints` returned `core/str.compare` and
+/// `core/proto.packedVarints` and never `core/order`, because the page that
+/// answers it does not contain the word "compare" — the function is called
+/// `int`, and its comment says "comparator". Every row here is a question
+/// somebody asked in a transcript, or the same question one synonym over.
+///
+/// It is deliberately small, and it is a nudge and not a redirect: a row lifts
+/// a module above the noise, it does not outrank a page that matches by name.
+/// A word belongs here only when it is what a reader arrives with *and* is not
+/// already in the page's title or prose — everything else is the index's job,
+/// and a thesaurus would need maintaining forever.
+const CONCEPTS: &[(&[&str], &[&str])] = &[
+    (
+        &["compare", "comparator", "comparison", "sort", "sorting", "ordering", "tiebreak"],
+        &["core/order", "core/list"],
+    ),
+    (&["pad", "padding", "align", "alignment", "justify", "column"], &["core/str"]),
+    (&["hex", "hexadecimal", "base16", "nibble"], &["core/bytes", "core/char"]),
+    (&["random", "seed", "seeded", "rng", "shuffle"], &["core/random"]),
+    (&["discard", "ignore", "unused", "unhandled"], &["core/result"]),
+    (&["fixture", "fake", "mock", "stub", "double", "harness"], &["core/host/testing"]),
+    (&["assert", "assertion", "expect"], &["core/testing/assert"]),
+    (&["file", "filesystem", "directory", "path"], &["core/fs"]),
+    (&["print", "println", "log", "stdout", "output"], &["core/io"]),
+    (&["dictionary", "hashmap", "lookup", "keyed"], &["core/map", "core/ordmap"]),
+    (&["clock", "timestamp", "duration", "elapsed"], &["core/time", "core/date"]),
+    (&["encode", "decode", "serialize", "parse"], &["core/json", "core/proto"]),
+    (&["boolean", "predicate", "truthy"], &["core/bool"]),
+    (&["concurrency", "parallel", "thread", "spawn"], &["core/tasks", "core/actor"]),
+];
+
+/// One query word and the other spellings that mean it.
+///
+/// A term scores as the best of its spellings rather than as the sum, so
+/// "ints" is one word matching `core/order.int` and not two.
+struct Term {
+    spellings: Vec<String>,
+}
+
+/// A query, read once: what was typed, the words that carry signal, and the
+/// pages the concepts behind those words point at.
+struct Query {
+    /// The whole query, lowercased. A multi-word query is usually a phrase.
+    phrase: String,
+    terms: Vec<Term>,
+    /// Page ids `CONCEPTS` matched, deduplicated. Empty for most queries.
+    concepts: Vec<&'static str>,
+}
+
+impl Query {
+    fn new(query: &str) -> Query {
+        let phrase = query.to_lowercase();
+        let all: Vec<&str> = phrase.split_whitespace().collect();
+        let kept: Vec<&str> = all.iter().copied().filter(|w| !STOPWORDS.contains(w)).collect();
+        // If the query is nothing but filler, search it as written rather than
+        // searching nothing.
+        let words: Vec<&str> = if kept.is_empty() { all } else { kept };
+
+        let mut concepts: Vec<&'static str> = Vec::new();
+        let terms: Vec<Term> = words
+            .iter()
+            .map(|w| {
+                for (names, pages) in CONCEPTS {
+                    if names.contains(w) {
+                        for page in *pages {
+                            if !concepts.contains(page) {
+                                concepts.push(page);
+                            }
+                        }
+                    }
+                }
+                Term { spellings: spellings_of(w) }
+            })
+            .collect();
+        Query { phrase, terms, concepts }
+    }
+}
+
+/// A word and the singular behind it.
+///
+/// The whole of the stemming, and as much as this deserves: somebody types
+/// "compare ints" and the function is `order.int`, somebody types "bytes" and
+/// the module is `core/bytes`. A four-letter floor keeps "as"/"is" and the
+/// short type names out of it, and a doubled `s` ("address") is left alone.
+fn spellings_of(word: &str) -> Vec<String> {
+    let mut out = vec![word.to_string()];
+    if let Some(stem) = word.strip_suffix('s') {
+        if stem.len() >= 3 && !stem.ends_with('s') {
+            out.push(stem.to_string());
+        }
+    }
+    out
+}
+
+/// One page as the index sees it.
+struct Doc<'a> {
+    id: &'a str,
+    title: &'a str,
+    tags: &'a [&'a str],
+    /// The page's prose: `Entry::text`.
+    text: &'a str,
+}
+
+/// The words in a name: `core/order.int` is `core`, `order`, `int`, and
+/// `padStart` is `pad`, `start`.
+///
+/// A name is not prose — it is separators and camel case — and matching it
+/// with `contains` is how `core/proto.packedVarints` came back for "compare
+/// ints". A word in a query means a word in a name.
+fn name_words(name: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut word = String::new();
+    for c in name.chars() {
+        if !c.is_alphanumeric() {
+            // A separator ends a word.
+        } else if c.is_uppercase() && word.chars().next_back().is_some_and(char::is_lowercase) {
+            // …and so does the hump in the middle of `padStart`.
+        } else {
+            word.push(c.to_ascii_lowercase());
+            continue;
+        }
+        if !word.is_empty() {
+            out.push(std::mem::take(&mut word));
+        }
+        if c.is_alphanumeric() {
+            word.push(c.to_ascii_lowercase());
+        }
+    }
+    if !word.is_empty() {
+        out.push(word);
+    }
+    out
+}
+
+/// How many words of `text` begin with `needle`.
+///
+/// At a word boundary, so "int" is `integer` and not `varint`, `print` or
+/// `lint` — the substring count this replaced gave a varint encoder eight
+/// points for a query about integers, which is most of why the answer to
+/// "compare ints" was a page about protobuf. A prefix rather than a whole
+/// word, because "align" is written `alignment` and "compare" `comparator`,
+/// and a reader is owed those.
+fn word_hits(text: &str, needle: &str) -> usize {
+    text.split(|c: char| !c.is_alphanumeric()).filter(|word| word.starts_with(needle)).count()
+}
+
 /// One page's score against one query.
 ///
 /// `search` and the test that asserts what a query finds both go through this.
 /// The test used to carry its own copy of the weights, which made it a scorer
 /// test that scored nothing: changing 60 to 6 here could not fail it.
-fn score(needle: &str, words: &[&str], id: &str, title: &str, tags: &[&str], body: &str) -> i64 {
-    let id = id.to_lowercase();
-    let title = title.to_lowercase();
-    let body = body.to_lowercase();
+fn score(query: &Query, doc: &Doc) -> i64 {
+    let id = doc.id.to_lowercase();
+    // The last segment of an id is what the thing is called: `int` in
+    // `core/order.int`, `effects` in `language/effects`. Somebody searching for
+    // a name types the name, not the path it is under.
+    let name = id.rsplit(['.', '/']).next().unwrap_or(&id).to_string();
+    let id_words = name_words(doc.id);
+    let title_words = name_words(doc.title);
+    let title = doc.title.to_lowercase();
+    let text = doc.text.to_lowercase();
     let mut score = 0i64;
     // A multi-word query is usually a phrase — "tail call" means the section
     // about tail calls, not every page that says "call". Score the phrase
     // first and heavily, or `language/expressions` wins every query containing a
     // common word.
-    if words.len() > 1 {
-        if title.contains(needle) {
+    if query.terms.len() > 1 {
+        if title.contains(&query.phrase) {
             score += 60;
         }
-        score += (body.matches(needle).count() as i64 * 12).min(60);
+        score += (text.matches(query.phrase.as_str()).count() as i64 * 12).min(60);
     }
-    for w in words {
-        if id == *w || title == *w {
-            score += 100;
+    for term in &query.terms {
+        let mut best = 0i64;
+        for w in &term.spellings {
+            let w = w.as_str();
+            let mut this = 0i64;
+            if id == w || title == w || name == w {
+                this += 100;
+            }
+            // A query that spells a path is matched against the path — that is
+            // somebody pasting `core/list` back — and a query that spells a
+            // word against the words of the name.
+            let (named, titled) = if w.contains(['/', '.']) {
+                (id.contains(w), title.contains(w))
+            } else {
+                (id_words.iter().any(|x| x == w), title_words.iter().any(|x| x == w))
+            };
+            if named {
+                this += 20;
+            }
+            if titled {
+                this += 15;
+            }
+            if doc.tags.iter().any(|x| x.to_lowercase() == w) {
+                this += 12;
+            }
+            this += (word_hits(&text, w) as i64).min(8);
+            best = best.max(this);
         }
-        if id.contains(w) {
-            score += 20;
+        score += best;
+    }
+    // The intent half. A concept lifts the module it names above the pages
+    // that merely say the word — that is the whole point of the row, since the
+    // module does not say it — but never above a page that matched by name.
+    // Inside that module it lifts only what already matched: a boost given to
+    // every item of `core/str` for "pad" buried nine other pages under the
+    // ones that were not `padStart`.
+    for target in &query.concepts {
+        if id == *target {
+            score += 40;
+        } else if score > 0 && id.starts_with(&format!("{target}.")) {
+            score += 10;
         }
-        if title.contains(w) {
-            score += 15;
-        }
-        if tags.iter().any(|x| x.to_lowercase() == *w) {
-            score += 12;
-        }
-        score += (body.matches(w).count() as i64).min(8);
     }
     score
 }
 
-/// Substring search across every registered page, ranked by where the match
-/// landed. Deliberately simple and deliberately deterministic: ties break on
-/// the id, never on hash order.
-fn search(query: &str, presentation: &Presentation) -> i32 {
-    let needle = query.to_lowercase();
-    let all: Vec<&str> = needle.split_whitespace().collect();
-    let kept: Vec<&str> = all.iter().copied().filter(|w| !STOPWORDS.contains(w)).collect();
-    // If the query is nothing but filler, search it as written rather than
-    // searching nothing.
-    let words: Vec<&str> = if kept.is_empty() { all } else { kept };
-    let mut hits: Vec<(i64, String, String, String)> = Vec::new();
+/// One result: the page, and the command that fetches it.
+struct Hit {
+    score: i64,
+    id: String,
+    title: String,
+    summary: String,
+}
 
+impl Hit {
+    /// What to run to read the page. Every id in the index is a `buri docs`
+    /// argument — `every_manifest_id_is_fetchable` is what says so — which is
+    /// why a result can promise one.
+    fn command(&self) -> String {
+        format!("buri docs {}", self.id)
+    }
+}
+
+/// Search across every registered page — by name, by the prose inside it, and
+/// by the concept a word stands for — ranked by where the match landed.
+/// Deliberately simple and deliberately deterministic: ties break on the id,
+/// never on hash order.
+fn ranked(query: &Query) -> Vec<Hit> {
+    let mut hits: Vec<Hit> = Vec::new();
     for source in sources() {
-        for Entry { id, title, summary } in source.entries() {
-            let topic = topics::find(&id);
-            let body = topic.map(|t| t.text).unwrap_or("");
-            let tags: Vec<&str> = topic.map(|t| t.tags.to_vec()).unwrap_or_default();
-            let score = score(&needle, &words, &id, &title, &tags, body);
+        for Entry { id, title, summary, text } in source.entries() {
+            let tags: Vec<&str> = topics::find(&id).map(|t| t.tags.to_vec()).unwrap_or_default();
+            let score = score(query, &Doc { id: &id, title: &title, tags: &tags, text: &text });
             if score > 0 {
-                hits.push((score, id, title, summary));
+                hits.push(Hit { score, id, title, summary });
             }
         }
     }
+    // One line per page. An id is not unique in the index — `failsOnCall` is a
+    // method of three test doubles and `read` of four handles, each its own
+    // entry under the one id — and a result is a command to run, so the same
+    // command three times is two lines that answer nothing.
+    hits.sort_by(|a, b| a.id.cmp(&b.id).then_with(|| b.score.cmp(&a.score)));
+    hits.dedup_by(|a, b| a.id == b.id);
     // Highest score first, then by id, so two runs agree.
-    hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    hits.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
+    // A question is answered by a handful of pages, not by a screenful.
     hits.truncate(12);
+    hits
+}
+
+/// The command: rank, then print one line per page — the command that reads
+/// it, and what it is.
+fn search(query: &str, presentation: &Presentation) -> i32 {
+    let query = Query::new(query.trim());
+    let hits = ranked(&query);
 
     if presentation.render == Render::Json {
         let s = crate::diagnostics::json_str;
         let rows: Vec<String> = hits
             .iter()
-            .map(|(score, id, title, summary)| {
+            .map(|hit| {
                 format!(
-                    "{{\"id\":{},\"title\":{},\"summary\":{},\"score\":{score}}}",
-                    s(id),
-                    s(title),
-                    s(summary)
+                    "{{\"id\":{},\"title\":{},\"summary\":{},\"command\":{},\"score\":{}}}",
+                    s(&hit.id),
+                    s(&hit.title),
+                    s(&hit.summary),
+                    s(&hit.command()),
+                    hit.score
                 )
             })
             .collect();
-        arguments::out(&format!("{{\"query\":{},\"hits\":[{}]}}\n", s(query), rows.join(",")));
+        arguments::out(&format!(
+            "{{\"query\":{},\"hits\":[{}]}}\n",
+            s(&query.phrase),
+            rows.join(",")
+        ));
         return if hits.is_empty() { 1 } else { 0 };
     }
 
     if hits.is_empty() {
-        eprintln!("error: nothing matches `{query}`");
+        eprintln!("error: nothing matches `{}`", query.phrase);
         eprintln!("  = `buri docs` lists every topic");
         return 1;
     }
     let (bold, dim, reset) = markdown::emphasis(presentation.render.color());
     let mut listing = String::new();
-    for (_, id, title, summary) in &hits {
-        let _ = writeln!(listing, "{bold}{id}{reset}  {title}");
-        let line = one_line(summary, presentation.width.get().saturating_sub(4));
+    // The command rather than the id, because a result is only useful once it
+    // has been read, and an id is one transcription away from being a command.
+    // A question is rarely answered by one page, so several are offered and
+    // each one says how to open it.
+    for hit in &hits {
+        let _ = writeln!(listing, "{bold}{}{reset}  {}", hit.command(), hit.title);
+        let line = one_line(&hit.summary, presentation.width.get().saturating_sub(4));
         if !line.is_empty() {
             let _ = writeln!(listing, "  {dim}{line}{reset}");
         }
     }
+    let _ = writeln!(listing, "\n{dim}Run any line above to read that page.{reset}");
     arguments::out(&listing);
     0
 }
@@ -1087,7 +1352,7 @@ fn manifest() -> String {
     let mut pages: Vec<String> = Vec::new();
     for source in sources() {
         kinds.push(s(source.kind()));
-        for Entry { id, title, summary } in source.entries() {
+        for Entry { id, title, summary, .. } in source.entries() {
             let tags = topics::find(&id)
                 .map(|t| t.tags.iter().map(|x| s(x)).collect::<Vec<_>>())
                 .unwrap_or_default();
@@ -1364,14 +1629,14 @@ mod tests {
             ("tail call", "language/evaluation"),
             ("public surface", "build/libraries"),
         ] {
-            let needle = query.to_lowercase();
-            let words: Vec<&str> = needle.split_whitespace().collect();
+            let q = Query::new(query);
             let mut best: Option<(i64, String)> = None;
             // `super::score` rather than a second copy of the weights: this
             // asserts what the shipped scorer ranks, so a changed weight fails
             // here rather than passing quietly.
             for t in topics::TOPICS {
-                let score = score(&needle, &words, t.id, t.title, t.tags, t.text);
+                let doc = Doc { id: t.id, title: t.title, tags: t.tags, text: t.text };
+                let score = score(&q, &doc);
                 if score > 0 && best.as_ref().is_none_or(|(b, _)| score > *b) {
                     best = Some((score, t.id.to_string()));
                 }
@@ -1380,6 +1645,61 @@ mod tests {
                 best.map(|(_, id)| id).as_deref(),
                 Some(want),
                 "searching `{query}` should find `{want}`"
+            );
+        }
+    }
+
+    /// The queries the intent half was built for, each one an incident: an
+    /// agent hand-wrote a comparator, copied a clock fixture, and aligned
+    /// columns with tabs, with every one of these pages already shipping.
+    ///
+    /// A search answers with pages, plural, so what is asserted is that the
+    /// page is *among* what came back — not that it is first. Ranking one
+    /// page over another is a judgement; leaving the answer out is a bug.
+    #[test]
+    fn search_is_intent_shaped_as_well_as_name_shaped() {
+        for (query, want) in [
+            ("compare ints", "core/order"),
+            ("compare ints", "core/order.int"),
+            ("sort a list", "core/order"),
+            ("fixture", "core/host/testing"),
+            ("pad", "core/str.padStart"),
+            ("hex", "core/bytes.toHex"),
+            ("ignore a result", "core/result"),
+            ("seeded random", "core/random"),
+        ] {
+            let found: Vec<String> =
+                ranked(&Query::new(query)).into_iter().map(|hit| hit.id).collect();
+            assert!(
+                found.iter().any(|id| id == want),
+                "searching `{query}` should return `{want}`, got {found:?}"
+            );
+        }
+    }
+
+    /// Every result is something to run, and every alias names something that
+    /// is there. A concept pointing at a page that has been renamed would
+    /// otherwise be silent — it would boost nothing, and search would quietly
+    /// go back to being name-shaped.
+    #[test]
+    fn every_result_is_a_command_and_every_concept_a_page() {
+        let sources = sources();
+        let ids: Vec<String> =
+            sources.iter().flat_map(|s| s.entries()).map(|e| e.id).collect();
+        for (words, pages) in CONCEPTS {
+            for page in *pages {
+                assert!(
+                    ids.iter().any(|id| id == page),
+                    "the concept {words:?} points at `{page}`, which is not a page"
+                );
+            }
+        }
+        for hit in ranked(&Query::new("compare ints")) {
+            assert_eq!(hit.command(), format!("buri docs {}", hit.id));
+            assert!(
+                sources.iter().any(|s| s.resolve(&hit.id).is_some()),
+                "`{}` is offered by search and does not resolve",
+                hit.command()
             );
         }
     }

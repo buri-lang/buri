@@ -11,12 +11,33 @@ buri docs cli build                one command, flags generated from the dispatc
 buri docs error result-discarded   one diagnostic, with a program that provokes it
 buri docs core/list                a standard library module, rendered from its source
 buri docs core/list.map            one item of one module
-buri docs search <words>           every page at once
+buri docs search compare ints      every page at once, by name or by intent
 buri docs manifest                 every id and output shape, for an agent
 buri docs assemble                 regenerate cli/src/docs/SPEC.md
 ```
 
 It works outside a repository: the prose ships inside the executable.
+
+## Searching
+
+`buri docs search <words>` takes words, not a name, and answers with the
+pages — several of them — that those words are about:
+
+```text
+$ buri docs search compare ints
+buri docs core/order.int  fn int
+  A comparator value, for sortBy. Ordering is a value you pass, which makes
+buri docs core/str.compare  method compare
+  Lexicographic, by Unicode scalar value — the same unit len counts
+…
+```
+
+Every line is the command that reads that page, so a result is something to
+run rather than an id to transcribe. Three things are searched: the names, the
+prose inside every page — a `///` comment's body and a module's `//!` text
+included — and a small table of concepts, which is what puts `core/order` under
+"compare" and `core/str` under "pad" when the page itself never uses the word.
+`--format=json` gives the same hits with a `command` on each.
 
 ## For agents
 
