@@ -452,28 +452,80 @@ impl Backend for Stencil {
             frames: &frames,
             root: &root,
             target,
-            cycles: &cycles,
         };
-        // One unit per core. `compile_unit` is a pure function of `Whole` and
-        // the unit's member list — it builds a `Jit` of its own, patches into a
-        // `Region` of its own, and reads nothing another unit writes — which is
-        // `parallel`'s contract exactly, and which is why the whole-program
-        // work above (the lowering, `frame_sigs`) is above the loop rather than
-        // inside it. Results come back in input order, so the objects a build
-        // hands the linker are the same bytes in the same order however many
-        // cores the machine has.
-        //
-        // It was the largest single phase left in a native `buri test`: 2.8s of
-        // an 8.2s run over 173 units on a real repository, all of it on one
-        // thread while the other nine sat idle.
         let wanted: Vec<usize> = (0..lowered.units.len())
             .filter(|i| units.wants(u32::try_from(*i).unwrap_or(0)))
             .collect();
+
+        // **The functions are the grain, and not the units.** Emission used to
+        // be one unit per core, and that put the whole of it behind the largest
+        // single unit: on a real repository `core/ordmap` instantiated at one
+        // program's key types is 11,267 functions and was 1.10s of a 1.10s
+        // ten-thread emission (`design/PERFORMANCE.md` §6.9). Splitting the
+        // unit is not available — a unit is a cache key and an object file
+        // (ARCHITECTURE.md §5) — so what is divided is the *inside* of one: the
+        // members are cut into contiguous parts of [`PART_MEMBERS`], each part
+        // is emitted into a region of its own, and the regions are concatenated
+        // in part order ([`region::Emitted::append`]).
+        //
+        // The parts of every unit are **one flat work list** rather than a pool
+        // per unit, for the reason `parallel::map_with` deals its items one at
+        // a time: a pool inside a pool would start `cores × cores` threads, and
+        // it would still leave the big unit's parts queued behind that unit's
+        // own turn rather than beside every other unit's work.
+        //
+        // **The cut is a function of the member count alone**, never of how
+        // many cores the machine has. A part boundary is visible in the bytes —
+        // it is where a constant pool stops being shared and where a helper's
+        // symbol changes namespace — so a cut that moved with
+        // `available_parallelism` would make one repository's object files a
+        // property of the machine that emitted them.
+        let plan = part_plan(&wanted, &members);
+        let parts = crate::parallel::map_with(
+            plan.jobs.len(),
+            || None,
+            |scratch: &mut Option<jit::Scratch<'_>>, k| {
+                let job = plan.jobs.get(k).copied().unwrap_or_default();
+                let mine = members
+                    .get(job.unit)
+                    .and_then(|m| m.get(job.lo..job.hi))
+                    .unwrap_or_default();
+                let held = scratch.take().unwrap_or_else(|| {
+                    jit::Scratch::new(tables, std::sync::Arc::clone(&cycles))
+                });
+                let (out, held) = emit_part(&whole, held, job.part, mine);
+                *scratch = Some(held);
+                out
+            },
+        );
+        // Each unit's parts, in part order, ready to be handed to that unit's
+        // assembly. A `Mutex` because the assembly is itself over the cores and
+        // a part's bytes are megabytes: they are handed over rather than
+        // copied, and `parts_of` is what a hand-over that already happened
+        // falls back to.
+        let mut held: Vec<std::sync::Mutex<Option<Vec<Part>>>> =
+            Vec::with_capacity(wanted.len());
+        let mut rest = parts;
+        for span in plan.spans.iter().rev() {
+            let mine = rest.split_off(span.0.min(rest.len()));
+            held.push(std::sync::Mutex::new(Some(mine)));
+        }
+        held.reverse();
+
+        // One unit per core, as it was: everything from here is the unit's own
+        // object — its symbol table, its relocations, its `codegen` key — and
+        // none of it is another unit's. `parallel::map` returns results in
+        // input order, so the objects a build hands the linker are the same
+        // bytes in the same order however many cores the machine has.
         let compiled = crate::parallel::map(wanted.len(), |k| {
             let index = wanted.get(k).copied().unwrap_or(0);
             let name = lowered.units.get(index).map_or("", String::as_str);
             let mine = members.get(index).unwrap_or(&empty);
-            compile_unit(&whole, name, mine)
+            let parts = held
+                .get(k)
+                .and_then(|m| m.lock().ok().and_then(|mut g| g.take()))
+                .unwrap_or_else(|| parts_of(&whole, &cycles, mine));
+            assemble_unit(&whole, name, mine, parts)
         });
         let mut out = Vec::new();
         let mut errors: Vec<String> = Vec::new();
@@ -605,8 +657,8 @@ fn carrier_door(
 ///
 /// A struct rather than six more parameters, and the grouping is the real one:
 /// every field here is a property of the *program and the target*, and none is
-/// a property of the unit. `name` and `members` are the unit's, and they stay
-/// arguments.
+/// a property of the unit or of a part of one. `name` and `members` are the
+/// unit's, and they stay arguments.
 struct Whole<'a> {
     lib: &'a library::Library,
     program: &'a ir::Program,
@@ -614,25 +666,182 @@ struct Whole<'a> {
     frames: &'a [jit::FrameSig],
     root: &'a Root,
     target: abi::StencilTarget,
-    /// The recursion analysis every unit's `Layouts` is built over, computed
-    /// once here — `layout.rs`'s [`Cycles`] header is the argument, and
-    /// `jit::Jit::new` is where it lands.
-    cycles: &'a std::sync::Arc<crate::compiler::middle::layout::Cycles>,
 }
 
-fn compile_unit(
+/// How many of a unit's functions one part holds.
+///
+/// A constant, and deliberately not `members / cores`: the argument is at the
+/// call site — a part boundary is visible in the emitted bytes, so it may not
+/// depend on the machine. Five hundred and twelve is where the two costs meet.
+/// Below it a part stops amortising what it cannot share with the parts beside
+/// it — its constant pool is deduplicated within itself only, and glue it needs
+/// is generated again under a namespace of its own ([`glue::symbol`]) — and
+/// above it a unit of two thousand functions stops dividing usefully at all. It
+/// was measured on a synthetic of the §6.9 shape: from 256 to 2048 the emission
+/// wall is the same to within the noise, and the object bytes grow about 0.2%
+/// per halving, so this is the smallest part that costs about one per cent. A
+/// unit smaller than one part is exactly what it was before: one region, one
+/// pool, one helper namespace.
+///
+/// Public because `cli/tests/native/stencil.rs` builds a program *around* it —
+/// a test that a unit spans several parts is not a test at all if the constant
+/// moves above the program it generated.
+pub const PART_MEMBERS: usize = 512;
+
+/// One part of one unit: which functions, and which namespace its glue lands
+/// in.
+#[derive(Clone, Copy, Default)]
+struct Job {
+    /// The unit's index in the program, which is what `members` is indexed by.
+    unit: usize,
+    /// The part's index **within its unit**, which is its helper namespace.
+    part: usize,
+    lo: usize,
+    hi: usize,
+}
+
+/// The whole emission's parts, and which of them belong to each wanted unit.
+struct PartPlan {
+    jobs: Vec<Job>,
+    /// `(first, end)` into `jobs`, one per entry of `wanted` and in that order.
+    spans: Vec<(usize, usize)>,
+}
+
+/// Where one unit's members are cut, as `(lo, hi)` in member order.
+///
+/// Contiguous and in member order, which is what makes the concatenation of the
+/// parts the emission the single-threaded one was: `funcs_by_unit` yields a
+/// unit's functions in ascending index, the object's symbol order is that
+/// order, and §4.1's reproducibility rests on it.
+///
+/// Divided evenly rather than into full parts and a remainder, because a last
+/// part holding one function is a worker's turn spent on setup. A unit with no
+/// members still gets one — empty — part: a unit with no functions is still an
+/// object.
+fn cut(len: usize) -> Vec<(usize, usize)> {
+    let count = len.div_ceil(PART_MEMBERS).max(1);
+    let step = len.div_ceil(count).max(1);
+    let mut out = Vec::with_capacity(count);
+    let mut lo = 0usize;
+    while lo < len {
+        let hi = lo.saturating_add(step).min(len);
+        out.push((lo, hi));
+        lo = hi;
+    }
+    if out.is_empty() {
+        out.push((0, 0));
+    }
+    out
+}
+
+/// Every wanted unit's parts, as one flat work list.
+fn part_plan(wanted: &[usize], members: &[Vec<usize>]) -> PartPlan {
+    let mut jobs: Vec<Job> = Vec::with_capacity(wanted.len());
+    let mut spans: Vec<(usize, usize)> = Vec::with_capacity(wanted.len());
+    for unit in wanted {
+        let len = members.get(*unit).map_or(0, Vec::len);
+        let first = jobs.len();
+        for (part, (lo, hi)) in cut(len).into_iter().enumerate() {
+            jobs.push(Job { unit: *unit, part, lo, hi });
+        }
+        spans.push((first, jobs.len()));
+    }
+    PartPlan { jobs, spans }
+}
+
+/// Every part of one unit, emitted here rather than on the pool.
+///
+/// The path `parallel::map`'s fallback takes. A part is *handed over* to the
+/// assembly rather than copied, so a unit whose assembly is retried — because
+/// the worker that held it did not return — finds its parts gone and emits them
+/// again. `parallel.rs`'s header is explicit that a missing result is
+/// recomputed and never defaulted, and an empty part list is not a slower
+/// answer, it is an object with no code in it.
+fn parts_of<'a>(
+    w: &Whole<'a>,
+    cycles: &std::sync::Arc<crate::compiler::middle::layout::Cycles>,
+    members: &[usize],
+) -> Vec<Part> {
+    let mut scratch = jit::Scratch::new(w.tables, std::sync::Arc::clone(cycles));
+    let mut out = Vec::new();
+    for (part, (lo, hi)) in cut(members.len()).into_iter().enumerate() {
+        let mine = members.get(lo..hi).unwrap_or_default();
+        let (p, held) = emit_part(w, scratch, part, mine);
+        scratch = held;
+        out.push(p);
+    }
+    out
+}
+
+/// One part of a unit, emitted.
+///
+/// Every offset in here is relative to the part's own zero; [`assemble_unit`]
+/// is where they become the unit's.
+struct Part {
+    emitted: region::Emitted,
+    /// Where each of this part's members was laid out, in member order.
+    entries: Vec<u64>,
+    /// The glue this part generated, as `(local symbol, offset)`.
+    helpers: Vec<(String, u64)>,
+    /// The IR shapes this part refused, in the order it first met them.
+    reasons: Vec<String>,
+    /// This part's share of the unit's `codegen` key text.
+    ///
+    /// Rendered here rather than in [`assemble_unit`] because it is a pure
+    /// function of the part's members and it was a sixth of the largest unit's
+    /// emission, and because concatenating the parts' texts in part order is
+    /// the same string, byte for byte, that one pass over the unit's members
+    /// produces. The digest of it stays where it was: a hash is one stream.
+    key_text: String,
+}
+
+/// One part of one codegen unit, from IR to a movable region.
+///
+/// A free function taking the [`jit::Scratch`] by value and handing it back,
+/// because `parallel::map_with` deals a worker its items one at a time and the
+/// two memo tables inside are worth more than the part that filled them.
+fn emit_part<'a>(
+    w: &Whole<'a>,
+    scratch: jit::Scratch<'a>,
+    part: usize,
+    members: &[usize],
+) -> (Part, jit::Scratch<'a>) {
+    let Whole { lib, program, tables, frames, target, .. } = *w;
+    let mut j = jit::Jit::new(lib, tables, frames, target, scratch, part);
+    j.compile_part(program, members);
+    // A refused IR shape is a diagnostic naming the shape, never an artifact
+    // that aborts when it reaches it. The emission is finished first — the
+    // whole unit's, every part of it — so that one build reports every refusal
+    // rather than the first.
+    let reasons = j.reasons().to_vec();
+    let entries: Vec<u64> = members.iter().map(|i| j.entry_of(*i)).collect();
+    let helpers = j.helper_symbols();
+    let emitted = std::mem::take(&mut j.region).finish();
+    let mut key_text = String::new();
+    for f in members.iter().filter_map(|i| program.funcs.get(*i)) {
+        program.render_func_into(f, &mut key_text);
+    }
+    (Part { emitted, entries, helpers, reasons, key_text }, j.into_scratch())
+}
+
+fn assemble_unit(
     w: &Whole<'_>,
     name: &str,
     members: &[usize],
+    parts: Vec<Part>,
 ) -> Result<Emitted, Vec<String>> {
-    let Whole { lib, program, tables, frames, root, target, cycles } = *w;
-    let mut j = jit::Jit::new(lib, tables, frames, target, std::sync::Arc::clone(cycles));
-    j.compile_unit(program, members);
+    let Whole { program, tables, frames, root, target, .. } = *w;
 
-    // A refused IR shape is a diagnostic naming the shape, never an artifact
-    // that aborts when it reaches it. The emission is finished first so that
-    // one build reports every refusal rather than the first.
-    let refused = j.reasons();
+    // Every part's refusals, in part order and then in the order that part met
+    // them, which is the order one pass over the unit would have met them in.
+    let mut refused: Vec<String> = Vec::new();
+    for p in &parts {
+        for r in &p.reasons {
+            if !refused.iter().any(|seen| seen == r) {
+                refused.push(r.clone());
+            }
+        }
+    }
     if !refused.is_empty() {
         return Err(refused
             .iter()
@@ -640,8 +849,21 @@ fn compile_unit(
             .collect());
     }
 
-    let entries: Vec<u64> = members.iter().map(|i| j.entry_of(*i)).collect();
-    let emitted = std::mem::take(&mut j.region).finish();
+    // The parts, concatenated in part order: one code section, one constant
+    // pool, and every offset either part-relative and moved or a relocation and
+    // left alone ([`region::Emitted::append`]).
+    let mut emitted = region::Emitted::default();
+    emitted.reserve_for(parts.iter().map(|p| &p.emitted));
+    let mut entries: Vec<u64> = Vec::with_capacity(members.len());
+    let mut helper_symbols: Vec<(String, u64)> = Vec::new();
+    let mut text = String::new();
+    for p in parts {
+        let base = emitted.append(p.emitted);
+        entries.extend(p.entries.iter().map(|e| e.saturating_add(base)));
+        helper_symbols
+            .extend(p.helpers.into_iter().map(|(s, at)| (s, at.saturating_add(base))));
+        text.push_str(&p.key_text);
+    }
     let mut code = emitted.code;
 
     // The entry point goes in the unit that owns `main`, so that a program is
@@ -722,8 +944,9 @@ fn compile_unit(
 
     // The functions the unit generated for itself (`glue.rs`), under **local**
     // names: a unit that drops a `[Str]` has its own glue and no two units
-    // collide, which is what a local symbol is for.
-    for (name, at) in j.helper_symbols() {
+    // collide, which is what a local symbol is for. One namespace per part
+    // inside the unit, for the same reason and one level in (`glue::symbol`).
+    for (name, at) in helper_symbols {
         let ix = want(&mut symbols, &mut index, &name);
         if let Some(s) = symbols.get_mut(ix) {
             s.defined = Some(object::Definition { section: 0, offset: at });
@@ -869,11 +1092,9 @@ fn compile_unit(
     // The `codegen` key is `H(the unit's lowered IR)` (ARCHITECTURE.md §6.2),
     // and `ir::Program`'s `Display` is a faithful, total and deterministic
     // function of the IR with no hash order in it — the same key every backend
-    // computes, from the same text.
-    let mut text = String::new();
-    for f in members.iter().filter_map(|i| program.funcs.get(*i)) {
-        text.push_str(&program.render_func(f));
-    }
+    // computes, from the same text. `text` is the parts' renderings
+    // concatenated in part order, which *is* that text: the parts partition the
+    // members and each rendered its own in member order.
     Ok(Emitted { name: format!("{name}.o"), key: ActionKey::of(text.as_bytes()), bytes })
 }
 
