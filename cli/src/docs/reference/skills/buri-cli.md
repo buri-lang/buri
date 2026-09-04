@@ -232,9 +232,13 @@ buri docs error result-discarded   one diagnostic, with a program that provokes 
 buri docs core/list                a standard library module, rendered from its source
 buri docs core/list.map            one item of one module
 buri docs lint missing-dep         one lint finding in full
-buri docs search <words>           every page at once
+buri docs search compare ints      every page at once, by name or by intent
 buri docs manifest                 every id and output shape, for an agent
 ```
+
+Search takes words rather than a name: it reads the prose inside every page and
+a table of concepts, so "compare ints" reaches `core/order` and "fixture"
+reaches `core/host/testing`. Each hit is printed as the command that reads it.
 
 For an agent: `--format=json` prints one object on one line, and `--dense`
 drops prose but keeps every heading and **every example**.
