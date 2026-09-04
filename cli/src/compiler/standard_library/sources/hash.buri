@@ -1,0 +1,268 @@
+//! core/hash — checksums and short hashes.
+//!
+//! **This is not `core/crypto`, and the distinction is the whole reason the
+//! module exists.** Nothing here is a digest. A checksum answers *did these
+//! octets change on the way here*, and every one of these can be forged by
+//! anybody who wants to: given a target value, producing a message that hashes
+//! to it is arithmetic rather than work. `core/crypto`'s `sha256` is the one to
+//! reach for when the answer has to survive an adversary, and it costs
+//! thirty-two octets of frame to say so.
+//!
+//! What these are for is the case `core/crypto` is the wrong size for: a
+//! flipped bit in a log record, a bucket index in a hash table, a fingerprint
+//! that lets two runs of a simulator be compared. Four octets of guard on a
+//! record is a decision a storage format makes on purpose, and a
+//! reimplementation of FNV-1a in every repository that made it is the cost of
+//! not having this module.
+//!
+//! Each is written in the language and pinned to the vectors its publisher
+//! wrote down, so the answer is the same on every backend and is the same
+//! answer another implementation gives:
+//!
+//! | Function | Width | Pinned against |
+//! |---|---|---|
+//! | `fnv1a32`, `fnv1a64` | 32, 64 | Noll's reference vectors for FNV-1a |
+//! | `crc32c` | 32 | the CRC-32C check value, and RFC 3720 B.4 |
+//! | `siphash24` | 64 | the SipHash reference implementation's table |
+//!
+//! **Which one to reach for.** `fnv1a32` and `fnv1a64` are the cheapest and
+//! have the least to say about their distribution; they are a fingerprint and a
+//! bucket index. `crc32c` is the one to write into a record, because it is what
+//! a storage format's readers already expect and because it detects a burst of
+//! flipped bits rather than merely usually differing. `siphash24` is the only
+//! one here that takes a key, and it is the one to use when the *inputs* are
+//! chosen by somebody else: an unkeyed hash behind a hash map is a way to be
+//! handed a thousand keys that all land in one bucket. It is still not a
+//! digest.
+//!
+//! ```buri run
+//! from "core/bytes" import * as bytes;
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/hash" import * as hash;
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let body = bytes.toUtf8(ctx, "foobar");
+//!     let sum = bytes.toHex(ctx, bytes.fromU32Be(hash.fnv1a32(body)));
+//!     let crc = bytes.toHex(ctx, bytes.fromU32Be(hash.crc32c(body)));
+//!     let _ = io.println(ctx, "${sum} ${crc}").ignore();
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! bf9cf968 0d5f5c7f
+//! ```
+
+from "core/bits" import * as bits;
+from "core/bytes" import * as bytes;
+
+// --- FNV-1a ---------------------------------------------------------------------
+//
+// Exclusive-or the octet in, then multiply by the prime. The order is what the
+// `1a` means, and it is the variant everybody actually uses: FNV-1 multiplies
+// first and disperses a low octet worse.
+
+/// Where a 32-bit hash starts, for a checksum carried across calls rather than
+/// taken over a list that already exists: `fnv1a32(b)` is `fnv1a32Step` folded
+/// over `b` from here.
+export let FNV1A32_OFFSET: U32 = 0x811c9dc5;
+
+/// Where a 64-bit hash starts.
+export let FNV1A64_OFFSET: U64 = 0xcbf29ce484222325;
+
+let FNV32_PRIME: U32 = 0x01000193;
+
+let FNV64_PRIME: U64 = 0x00000100000001b3;
+
+/// FNV-1a at 32 bits. The empty input hashes to the offset basis, which is what
+/// makes this a fold with no special case.
+export fn fnv1a32(b: [U8]): U32 {
+    b.fold(fn(h, octet) => fnv1a32Step(h, octet), FNV1A32_OFFSET)
+}
+
+/// One octet folded into a 32-bit hash. This is the shape a rolling checksum
+/// needs — a value stepped as each octet arrives, rather than one taken over a
+/// list that had to exist first.
+export fn fnv1a32Step(h: U32, octet: U8): U32 {
+    (h ^ octet.toU32()).wrappingMul(FNV32_PRIME)
+}
+
+/// FNV-1a at 64 bits.
+export fn fnv1a64(b: [U8]): U64 {
+    b.fold(fn(h, octet) => fnv1a64Step(h, octet), FNV1A64_OFFSET)
+}
+
+/// One octet folded into a 64-bit hash.
+export fn fnv1a64Step(h: U64, octet: U8): U64 {
+    (h ^ octet.toU64()).wrappingMul(FNV64_PRIME)
+}
+
+// --- CRC-32C --------------------------------------------------------------------
+//
+// Castagnoli's polynomial, reflected, initialised and finalised with all ones —
+// the parameters iSCSI, ext4, Btrfs and every `crc32c` instruction on a modern
+// processor agree on. There is exactly one CRC-32 spelled `crc32c`, which is
+// the reason this module names the polynomial rather than offering a `crc32`
+// that a reader would have to guess the parameters of.
+//
+// A bit at a time rather than a 256-entry table: the table is the same
+// arithmetic precomputed, so it is a speed decision and not a correctness one,
+// and a literal of 256 words is a large thing to check by eye. Revisit when a
+// caller has a profile that says so.
+
+let CRC32C_POLY: U32 = 0x82f63b78;
+
+let CRC32C_ALL_ONES: U32 = 0xffffffff;
+
+/// The CRC-32C of these octets.
+///
+/// Its check value — the CRC of the nine ASCII digits `123456789`, the number
+/// every catalogue of CRC parameters publishes — is `0xe3069283`.
+export fn crc32c(b: [U8]): U32 {
+    b.fold(fn(crc, octet) => crc32cByte(crc ^ octet.toU32(), 8), CRC32C_ALL_ONES)
+        ^ CRC32C_ALL_ONES
+}
+
+/// The eight shifts one octet contributes, unrolled by recursion rather than by
+/// a table.
+fn crc32cByte(crc: U32, left: Int): U32 {
+    if (left == 0) {
+        crc
+    } else {
+        let shifted = bits.shrU32(crc, 1);
+        let next = if (crc & 1 == 1) { shifted ^ CRC32C_POLY } else { shifted };
+        crc32cByte(next, left - 1)
+    }
+}
+
+// --- SipHash-2-4 ----------------------------------------------------------------
+//
+// Two compression rounds per eight-octet word and four finalisation rounds,
+// which is what the `24` names. The key is two 64-bit halves rather than a
+// sixteen-octet list because that is what the algorithm consumes, and a caller
+// who has the octets has `bytes.toU64Le` to read them with.
+
+let SIP_V0: U64 = 0x736f6d6570736575;
+
+let SIP_V1: U64 = 0x646f72616e646f6d;
+
+let SIP_V2: U64 = 0x6c7967656e657261;
+
+let SIP_V3: U64 = 0x7465646279746573;
+
+/// The four words SipHash keeps between rounds. Private: it is the algorithm's
+/// state and not a value anything outside is meant to hold.
+struct State {
+    v0: U64,
+    v1: U64,
+    v2: U64,
+    v3: U64,
+}
+
+/// SipHash-2-4 of `b` under the key `(k0, k1)`.
+///
+/// **The key is the point.** With a key an attacker cannot see, they cannot
+/// choose inputs that collide, which is what makes this the hash to put behind
+/// a map whose keys arrive from outside. With a fixed key written into the
+/// program it is a fast 64-bit hash and nothing more — better distributed than
+/// FNV-1a, and no harder to forge than anything else here.
+///
+/// ```buri run
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/hash" import * as hash;
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/list" import * as list;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     // The reference implementation's key, and its vector for the empty
+///     // input: two implementations that agree here agree everywhere.
+///     let k0: U64 = 0x0706050403020100;
+///     let k1: U64 = 0x0f0e0d0c0b0a0908;
+///     let empty = hash.siphash24(k0, k1, list.empty<U8>());
+///     let _ = io.println(ctx, "${empty == 0x726fdb47dd0e0e31}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// true
+/// ```
+export fn siphash24(k0: U64, k1: U64, b: [U8]): U64 {
+    let n = b.len();
+    let whole = n - n % 8;
+    let start = State {
+        v0: k0 ^ SIP_V0,
+        v1: k1 ^ SIP_V1,
+        v2: k0 ^ SIP_V2,
+        v3: k1 ^ SIP_V3,
+    };
+    let compressed = sipWords(start, b, 0, whole);
+    // The last word is the remaining octets with the input length in its top
+    // octet, so that two inputs differing only in trailing zeros differ here.
+    let last = sipTail(b, whole, whole, n, 0) | bits.shlU64((n % 256).wrapToU64(), 56);
+    let absorbed = sipAbsorb(compressed, last);
+    let finalised = sipRounds(State { ..absorbed, v2: absorbed.v2 ^ 0xff }, 4);
+    finalised.v0 ^ finalised.v1 ^ finalised.v2 ^ finalised.v3
+}
+
+/// Every whole eight-octet word, little-endian, absorbed in order.
+fn sipWords(s: State, b: [U8], i: Int, end: Int): State {
+    if (i >= end) {
+        s
+    } else {
+        sipWords(sipAbsorb(s, bytes.toU64Le(b, i).withDefault(0)), b, i + 8, end)
+    }
+}
+
+/// The octets after the last whole word, packed low end first. At most seven of
+/// them, so the largest shift here is 48.
+fn sipTail(b: [U8], base: Int, i: Int, n: Int, acc: U64): U64 {
+    if (i >= n) {
+        acc
+    } else {
+        let octet = b.get(i).withDefault(0).toU64();
+        sipTail(b, base, i + 1, n, acc | bits.shlU64(octet, (i - base) * 8))
+    }
+}
+
+/// One word in: exclusive-or into `v3`, two rounds, exclusive-or out of `v0`.
+fn sipAbsorb(s: State, w: U64): State {
+    let mixed = sipRounds(State { ..s, v3: s.v3 ^ w }, 2);
+    State { ..mixed, v0: mixed.v0 ^ w }
+}
+
+fn sipRounds(s: State, left: Int): State {
+    if (left == 0) { s } else { sipRounds(sipRound(s), left - 1) }
+}
+
+/// The round function, exactly as the paper writes it. Each `let` is one of its
+/// lines, which is why the intermediates are named rather than nested.
+fn sipRound(s: State): State {
+    let a0 = s.v0.wrappingAdd(s.v1);
+    let a1 = rotl64(s.v1, 13) ^ a0;
+    let b0 = rotl64(a0, 32);
+    let a2 = s.v2.wrappingAdd(s.v3);
+    let a3 = rotl64(s.v3, 16) ^ a2;
+    let c0 = b0.wrappingAdd(a3);
+    let b3 = rotl64(a3, 21) ^ c0;
+    let b2 = a2.wrappingAdd(a1);
+    let b1 = rotl64(a1, 17) ^ b2;
+    State { v0: c0, v1: b1, v2: rotl64(b2, 32), v3: b3 }
+}
+
+/// A left rotation. Every count SipHash uses is between 1 and 63, so neither
+/// shift is by the width — which `core/bits` aborts on rather than guessing at.
+fn rotl64(x: U64, n: Int): U64 {
+    bits.shlU64(x, n) | bits.shrU64(x, 64 - n)
+}
