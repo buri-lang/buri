@@ -791,6 +791,62 @@ impl Workspace {
 
     // -- platforms ----------------------------------------------------------
 
+    /// The platforms a rule's **own** build file commits it to, or `None` when
+    /// it commits it to none.
+    ///
+    /// This is deliberately not [`Workspace::platforms`]. That one answers
+    /// "may this be built for X" and treats unset as "all", which is the right
+    /// answer for a policy check and the wrong one for a compile error: a
+    /// library that says nothing about platforms is platform-generic, and a
+    /// diagnostic that read the whole-closure intersection would refuse code
+    /// on behalf of a platform nobody in the tree ever asked for. So a rule
+    /// that declares nothing gets `None` and is never checked
+    /// (`reference/build/build-files.md` §Platforms and effects).
+    ///
+    /// - A **binary** commits to the platforms its `outputs` name. Every one
+    ///   of them has to compile, so the set is a conjunction.
+    /// - A **library** commits to its `platforms` field, narrowed by the
+    ///   `requires.platforms` of the tags it carries — the same two sources
+    ///   [`Workspace::platforms`] reads, asked of this rule alone rather than
+    ///   of its closure.
+    pub fn declared_platforms(&self, target: TargetId) -> Option<BTreeSet<Platform>> {
+        let pkg = self.package(target.package);
+        match target.kind {
+            RuleKind::Binary => {
+                let bin = pkg.build.binary.as_ref()?;
+                if bin.outputs.is_empty() {
+                    // A binary with no `outputs` builds for whatever asked
+                    // for it, and `buri build` supplies the default. Nothing
+                    // is declared, so nothing is checked here — the build
+                    // itself still checks the output it is producing.
+                    return None;
+                }
+                Some(bin.outputs.iter().map(|o| o.platform()).collect())
+            }
+            RuleKind::Library => {
+                let lib = pkg.build.library.as_ref()?;
+                let mut declared: Option<BTreeSet<Platform>> = None;
+                let mut narrow = |set: BTreeSet<Platform>| {
+                    declared = Some(match declared.take() {
+                        Some(have) => have.intersection(&set).copied().collect(),
+                        None => set,
+                    });
+                };
+                if !lib.platforms.is_empty() {
+                    narrow(lib.platforms.iter().map(|p| p.value).collect());
+                }
+                for tag in &lib.tags {
+                    if let Some(decl) = self.repo.tag(&tag.value) {
+                        if !decl.requires_platforms.is_empty() {
+                            narrow(decl.requires_platforms.iter().map(|p| p.value).collect());
+                        }
+                    }
+                }
+                declared
+            }
+        }
+    }
+
     /// The platforms a target can be built for: the intersection, over every
     /// target in its closure, of that target's `platforms` and the
     /// `requires.platforms` of every tag it carries — treating unset as "all".
@@ -1033,6 +1089,69 @@ mod tests {
             assert_eq!(a.kind, kind);
             assert_eq!(b.kind, kind);
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A rule that says nothing about platforms commits to none**, and that
+    /// is the whole of what keeps `effect-not-on-platform` off code that is
+    /// merely platform-generic.
+    ///
+    /// The distinction this asserts is the one [`Workspace::platforms`] does
+    /// not make: it answers "may this be built for X" and reads unset as
+    /// "all", which would have every library in a repository committed to
+    /// every platform. Asked as a commitment, unset is `None`.
+    #[test]
+    fn a_rule_that_declares_no_platforms_commits_to_none() {
+        let dir = std::env::temp_dir()
+            .join(format!("buri-declared-platforms-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(dir.join("lib/quiet"));
+        let _ = std::fs::create_dir_all(dir.join("lib/native"));
+        let _ = std::fs::create_dir_all(dir.join("cmd/page"));
+        let _ = std::fs::create_dir_all(dir.join("cmd/anywhere"));
+        let _ = std::fs::write(dir.join("REPO.buri"), "name: \"scratch\"\n");
+        let _ = std::fs::write(dir.join("lib/quiet/BUILD.buri"), "library {\n}\n");
+        let _ = std::fs::write(dir.join("lib/quiet/lib.buri"), "");
+        let _ = std::fs::write(
+            dir.join("lib/native/BUILD.buri"),
+            "library {\n  platforms: [LINUX, MACOS]\n}\n",
+        );
+        let _ = std::fs::write(dir.join("lib/native/lib.buri"), "");
+        let _ = std::fs::write(
+            dir.join("cmd/page/BUILD.buri"),
+            "binary {\n  outputs: [{ platform: WEB }]\n}\n",
+        );
+        let _ = std::fs::write(dir.join("cmd/page/main.buri"), "");
+        let _ = std::fs::write(dir.join("cmd/anywhere/BUILD.buri"), "binary {\n}\n");
+        let _ = std::fs::write(dir.join("cmd/anywhere/main.buri"), "");
+
+        let mut map = crate::diagnostics::SourceMap::default();
+        let mut diags = Diagnostics::default();
+        let ws = Workspace::load(&dir, &mut map, &mut diags).expect("the scratch repository loads");
+        let target = |path: &str, kind: RuleKind| TargetId {
+            package: ws.package_by_path(path).expect("the package is in the workspace"),
+            kind,
+        };
+
+        // Unset, both ways round: a library with no `platforms`, and a binary
+        // with no `outputs`.
+        assert_eq!(ws.declared_platforms(target("lib/quiet", RuleKind::Library)), None);
+        assert_eq!(ws.declared_platforms(target("cmd/anywhere", RuleKind::Binary)), None);
+        // And the same library asked the other question, which is where
+        // "treat unset as all" belongs.
+        assert_eq!(
+            ws.platforms(target("lib/quiet", RuleKind::Library)),
+            Platform::ALL.into_iter().collect::<BTreeSet<Platform>>()
+        );
+
+        assert_eq!(
+            ws.declared_platforms(target("lib/native", RuleKind::Library)),
+            Some([Platform::Linux, Platform::Macos].into_iter().collect())
+        );
+        assert_eq!(
+            ws.declared_platforms(target("cmd/page", RuleKind::Binary)),
+            Some([Platform::Web].into_iter().collect())
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

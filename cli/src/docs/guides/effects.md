@@ -96,7 +96,8 @@ mentioned. This program cannot open a socket — not in its own code, not in a
 dependency, not in a build script — because nothing anywhere can obtain a value
 bounded by `Net`, and there is no ambient `host` to reach for. A platform that
 does not grant an effect does not export it at all, so asking for one you were
-not given is an unresolved-name error on the line that asked.
+not given is a compile error on the line that asked — `effect-not-on-platform`,
+reported while the file is being edited rather than when it is built.
 
 ## Giving a callee less is naming fewer bounds
 

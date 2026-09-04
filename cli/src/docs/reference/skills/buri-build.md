@@ -248,7 +248,9 @@ The vocabulary is **closed**: a `tags` entry naming no `tag` block in
 
 `Platform` is `LINUX`, `MACOS`, `JS`, `WEB`; adding one is a compiler change.
 A platform *is* the set of effects its host exports, so a `main` binding
-`Net: host.net` under `platform: WEB` fails with `host-not-granted`.
+`Ui: host.ui` under `platform: JS` fails with `effect-not-on-platform` — while
+the file is being edited, not at link time, and on every output the binary
+declares rather than only the one being built.
 
 Tags are **not** a boolean expression language, **not** conditional compilation
 (there is no `#if`; two implementations means two libraries with different

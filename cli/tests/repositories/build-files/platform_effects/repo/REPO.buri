@@ -1,0 +1,2 @@
+# A repository whose libraries differ in one thing only: whether their rule
+# says anything about platforms. The file's presence is what makes this a root.

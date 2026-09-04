@@ -1,4 +1,4 @@
-// EXPECT: `WEB` does not grant `HostTasks`
+// EXPECT: `HostTasks` implements `Tasks`, which is not allowed on the WEB platform
 //
 // `Tasks` is granted on LINUX, MACOS and JS and withheld from the page, for a
 // reason of the kind `Net`'s row already gives: `parallel` returns only when

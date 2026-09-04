@@ -1,0 +1,7 @@
+# The same shape of library, with a rule that *does* say something. It reads
+# files too, and `[LINUX, MACOS]` grant a filesystem, so declaring the
+# platforms changes nothing about what compiles here.
+library {
+    platforms: [LINUX, MACOS]
+    visibility: ["//visibility:public"]
+}

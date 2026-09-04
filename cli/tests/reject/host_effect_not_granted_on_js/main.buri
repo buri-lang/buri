@@ -1,4 +1,4 @@
-// EXPECT: `JS` does not grant `ui`
+// EXPECT: `ui` implements `Ui`, which is not allowed on the JS platform
 //
 // A platform *is* the set of effects its host exports, so a platform that does
 // not grant one does not export the name for it, and asking is an ordinary

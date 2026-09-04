@@ -1,4 +1,4 @@
-// EXPECT: `JS` does not grant `listen`
+// EXPECT: `listen` implements `Listen`, which is not allowed on the JS platform
 //
 // The two halves of being a server, refused together. `Listen` and `Sockets`
 // are declared in `core/effect`, implemented in `core/host`, granted on the two

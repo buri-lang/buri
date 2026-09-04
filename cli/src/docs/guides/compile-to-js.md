@@ -96,8 +96,9 @@ other. Serve the directory. Writing the page itself is
 **The effects `main` may ask for.** A platform *is* the set of effects its host
 exports, so `core/host` exports no `fs`, `stdin`, `env` or `proc` under `WEB`,
 and exports `ui` and `watch` under `WEB` and nowhere else. Asking for one a
-platform does not grant is an unresolved name at the line that asked, reported
-as `host-not-granted` — `buri docs error host-not-granted` has the table.
+platform does not grant is a compile error at the line that asked, reported as
+`effect-not-on-platform` — `buri docs error effect-not-on-platform` has the
+table, and the rule about which platforms a module is checked against.
 
 **Nothing else.** No source file changes meaning across platforms; there is no
 conditional compilation. Numbers included: an `Int` is an `I64` everywhere, and
