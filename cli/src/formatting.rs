@@ -2199,7 +2199,7 @@ impl<'t> Build<'t> {
                 let p = binop_prec(op);
                 let mut parts = Vec::new();
                 let head = spine(self.tree(), e, p, &mut parts);
-                let first = self.at(head, p);
+                let first = self.at(head, left_bp(p));
                 let mut rest = Vec::new();
                 for (operand, op) in parts {
                     let d = self.at(operand, p.saturating_add(1));
@@ -2793,7 +2793,11 @@ fn needs_parens(t: &Tree, e: ExprId) -> bool {
 fn spine(t: &Tree, e: ExprId, p: u8, out: &mut Vec<(ExprId, BinOp)>) -> ExprId {
     if let ExprView::Binary { op, lhs, rhs, .. } = t.expr(e) {
         if binop_prec(op) == p {
-            let head = spine(t, lhs, p, out);
+            // There is no run at the comparison rung: it does not associate,
+            // so a comparison standing under a comparison was written inside
+            // parentheses and is one operand rather than one more link.
+            // Gathering it would print the chain the grammar refuses.
+            let head = if p == CMP_PREC { lhs } else { spine(t, lhs, p, out) };
             out.push((rhs, op));
             return head;
         }
@@ -2843,12 +2847,37 @@ fn binop_prec(op: BinOp) -> u8 {
     match op {
         BinOp::Or => 1,
         BinOp::And => 2,
-        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => 3,
+        BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => CMP_PREC,
         BinOp::BitOr => 4,
         BinOp::BitXor => 5,
         BinOp::BitAnd => 6,
         BinOp::Add | BinOp::Sub => 7,
         BinOp::Mul | BinOp::Div | BinOp::Rem => 8,
+    }
+}
+
+/// The rung `==` `!=` `<` `<=` `>` `>=` share, and the one rung of the ladder
+/// that is **non-associative**: `a < b < c` is a parse error rather than a bug
+/// waiting to happen (SPEC 6.1). Both operands of a comparison must therefore
+/// bind tighter than a comparison, which makes a parenthesis around a
+/// comparison operand of a comparison load-bearing — `(a < 0) != (b < 0)` is
+/// the only way to write that expression, and dropping either parenthesis
+/// writes a chain the parser will not read back.
+const CMP_PREC: u8 = 3;
+
+/// What the *left* operand of a `p`-precedence operator must bind at least as
+/// tightly as to go without parentheses.
+///
+/// The ladder associates left, so a left operand may sit on its operator's own
+/// rung — `a - b - c` is `(a - b) - c` and needs nothing written. The
+/// comparison rung is the exception, and it is the whole reason this is a
+/// function: there, the left operand is held to the same rung as the right
+/// one, one above the operator.
+fn left_bp(p: u8) -> u8 {
+    if p == CMP_PREC {
+        p.saturating_add(1)
+    } else {
+        p
     }
 }
 

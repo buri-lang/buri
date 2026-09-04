@@ -1,0 +1,37 @@
+error: expected `Bool`, found `(Bool)` [type-mismatch]
+  --> main.buri:25:61
+   |
+25 | export fn a_loose_operand_too(a: Int, b: Int, c: Int): Bool {
+   |                                                             ^ the declared return type is `Bool`
+   |
+   = expected: `Bool`
+   = actual: `(Bool)`
+   = fix: produce a `Bool` here, or change what surrounds it to accept a `(Bool)`
+error: a tuple has arity 2 or more [tuple-arity]
+  --> main.buri:26:3
+   |
+26 |   (a < b || b < c == (a < c)
+   |   ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = `(e)` is grouping and `()` is the unit value
+   = fix: drop the parentheses for one element, or write `()` for none
+error: comparison operators are non-associative [chained-comparison]
+  --> main.buri:26:19
+   |
+26 |   (a < b || b < c == (a < c)
+   |                   ^^
+   |
+   = write `a < b && b < c` rather than `a < b < c`
+   = fix: write `a < b && b < c` rather than `a < b < c`
+error: this tuple is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:27:1
+   |
+27 | }
+   | ^
+   |
+  --> main.buri:26:3
+   |
+26 |   (a < b || b < c == (a < c)
+   |   ^ opened here
+   |
+   = fix: write `)` here

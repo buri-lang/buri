@@ -1,0 +1,39 @@
+export fn signs_differ(a: Int, b: Int): Bool {
+    (a < 0) != (b < 0)
+}
+
+export fn same_answer(a: Int, b: Int, c: Int, d: Int): Bool {
+    (a == b) == (c == d)
+}
+
+export fn against_a_literal(a: Int, b: Int): Bool {
+    (a <= b) == true
+}
+
+export fn on_the_right(a: Int, b: Int): Bool {
+    true == (a >= b)
+}
+
+export fn either_side(a: Int, b: Int, c: Int, d: Int): Bool {
+    ((a < b) == (c > d) != ((a > b) == (c < d))
+}
+
+export fn under_an_and(a: Int, b: Int, c: Int, d: Int): Bool {
+    (a < b) == (c < d) && (a > b) != (c > d)
+}
+
+export fn a_loose_operand_too(a: Int, b: Int, c: Int): Bool {
+    (a < b || b < c) == (a < c)
+}
+
+export fn a_tighter_operand_does_not(a: Int, b: Int, c: Int): Bool {
+    a + b < c
+}
+
+export fn nor_a_bitwise_one(a: Int, b: Int): Bool {
+    a & b == 0
+}
+
+export fn nor_one_behind_a_prefix(a: Int, b: Int): Bool {
+    !(a < b) == true
+}

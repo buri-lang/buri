@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:39:1
+   |
+39 | , }
+   | ^
+   |
+  --> main.buri:37:57
+   |
+37 | export fn nor_one_behind_a_prefix(a: Int, b: Int): Bool {
+   |                                                         ^ opened here
+   |
+   = fix: write `}` here

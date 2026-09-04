@@ -1,0 +1,37 @@
+error: a tuple has arity 2 or more [tuple-arity]
+  --> main.buri:18:29
+   |
+18 |     ((a < b) == (c > d)) != ((a > b == (c < d))
+   |                             ^^^^^^^^^^^^^^^^^^^
+   |
+   = `(e)` is grouping and `()` is the unit value
+   = fix: drop the parentheses for one element, or write `()` for none
+error: expected `Bool`, found `(Bool)` [type-mismatch]
+  --> main.buri:18:29
+   |
+18 |     ((a < b) == (c > d)) != ((a > b == (c < d))
+   |                             ^^^^^^^^^^^^^^^^^^^ the left operand's type is `Bool`
+   |
+   = expected: `Bool`
+   = actual: `(Bool)`
+   = fix: produce a `Bool` here, or change what surrounds it to accept a `(Bool)`
+error: comparison operators are non-associative [chained-comparison]
+  --> main.buri:18:37
+   |
+18 |     ((a < b) == (c > d)) != ((a > b == (c < d))
+   |                                     ^^
+   |
+   = write `a < b && b < c` rather than `a < b < c`
+   = fix: write `a < b && b < c` rather than `a < b < c`
+error: this tuple is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:19:1
+   |
+19 | }
+   | ^
+   |
+  --> main.buri:18:29
+   |
+18 |     ((a < b) == (c > d)) != ((a > b == (c < d))
+   |                             ^ opened here
+   |
+   = fix: write `)` here
