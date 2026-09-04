@@ -197,8 +197,8 @@ use buri::compiler::driver;
 use buri::compiler::middle::{self, monomorphize};
 use buri::compiler::modules::Role;
 use buri::diagnostics::{Diagnostics, SourceMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::OnceLock;
 
 /// One conformance file, and whether the native backend is expected to
@@ -588,7 +588,7 @@ const PACKAGES: &[Case] = &[
 /// host has a stencil library and an entry point to put in front of it"
 /// answered as a sentence — so this suite runs unchanged wherever the backend
 /// does, and says which half is missing where it does not.
-fn skip_reason() -> Option<String> {
+pub(crate) fn skip_reason() -> Option<String> {
     if !AVAILABLE {
         return Some(String::from("this toolchain carries no native runtime archive"));
     }
@@ -670,9 +670,15 @@ fn analyze(case_path: &str, source: &str, map: &mut SourceMap) -> driver::Analys
 /// error.
 fn workspace(name: &str) -> PathBuf {
     crate::sweep::once();
+    // A counter as well as the name: [`linked`] keeps every binary it builds,
+    // so two builds of one file — which is what [`the_native_set_can_fail`]
+    // asks for, the second from an edited source — must not be two builds into
+    // one directory, where the second would delete the first mid-run.
+    static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
         .join(format!("native-conformance-{}", std::process::id()))
-        .join(name.replace('/', "-"));
+        .join(format!("{}-{n}", name.replace('/', "-")));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     dir
@@ -692,22 +698,65 @@ fn archive() -> &'static Path {
     })
 }
 
-/// Compile one conformance file as a **test binary**, link it, run it.
+/// What compiling one conformance file as a test binary produced.
+#[derive(Clone)]
+pub(crate) enum Built {
+    /// The executable, and how many `test` declarations it holds.
+    Linked(PathBuf, usize),
+    /// The **front end** refused it, which is not this file's failure: the
+    /// corpus is shared with `language/conformance.rs` and may be mid-change.
+    FrontEnd,
+    /// The **backend** refused it, or is missing an intrinsic. A failure for a
+    /// file in the native set, and an ordinary skip for one outside it —
+    /// `differential.rs` takes the second reading and
+    /// [`the_native_set_passes`] the first.
+    Unsupported(String),
+}
+
+/// Compile one conformance file as a **test binary**, link it, and answer
+/// where the executable is and how many `test` declarations it holds.
 ///
-/// Answers `(status, stdout, stderr, blocks)`, where `blocks` is how many
-/// `test` declarations the file holds — the count this harness reports, and
-/// the one that makes "it passed" mean something.
-fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
+/// **Memoized on the source text**, which is what lets the corpus be walked
+/// more than once for the price of one: [`the_native_set_passes`] asks for the
+/// verdict and `differential.rs` asks the same binary a second question, and a
+/// compile-and-link of the corpus is twenty seconds. The *source* is the key
+/// rather than the path because [`the_native_set_can_fail`] edits one
+/// assertion and recompiles, and a cache keyed by name would hand it the
+/// binary it is trying to break.
+pub(crate) fn linked(name: &str, source: &str) -> Built {
+    static BUILT: OnceLock<std::sync::Mutex<HashMap<(String, String), Built>>> = OnceLock::new();
+    let cache = BUILT.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    let key = (name.to_string(), source.to_string());
+    if let Some(hit) = cache.lock().unwrap().get(&key) {
+        return hit.clone();
+    }
+    let built = build(name, source);
+    cache.lock().unwrap().insert(key, built.clone());
+    built
+}
+
+/// [`linked`], for a caller that treats a refusal as a skip.
+pub(crate) fn linked_if_supported(name: &str, source: &str) -> Option<(PathBuf, usize)> {
+    match linked(name, source) {
+        Built::Linked(path, blocks) => Some((path, blocks)),
+        Built::FrontEnd | Built::Unsupported(_) => None,
+    }
+}
+
+/// [`linked`] without the memo, which is where the work is.
+fn build(name: &str, source: &str) -> Built {
     let mut map = SourceMap::new();
     let analysis = analyze(name, source, &mut map);
     if analysis.diagnostics.has_errors() {
-        return None;
+        return Built::FrontEnd;
     }
     let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
     let mut diagnostics = Diagnostics::new();
     let mut program =
         monomorphize::run(&analysis.checked, paths, &mut diagnostics, monomorphize::Roots::Tests);
-    assert!(!diagnostics.has_errors(), "{name}: monomorphization failed");
+    if diagnostics.has_errors() {
+        return Built::Unsupported(String::from("monomorphization failed"));
+    }
     middle::run(&mut program, &middle::Options::default());
     middle::native(&mut program);
     let blocks = program.roots.tests().len();
@@ -716,13 +765,17 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
     let opts = Options { profile: Profile::Debug, target, unit_prefix: "" };
     let mut backend = Stencil::default();
     let missing = backend.missing_intrinsics(&program, &analysis.checked.tables);
-    assert!(missing.is_empty(), "{name}: the backend is missing {missing:?}");
+    if !missing.is_empty() {
+        return Built::Unsupported(format!("the backend is missing {missing:?}"));
+    }
     let units = match backend.emit(&program, &analysis.checked.tables, &opts) {
         Ok(units) => units,
-        Err(d) => panic!(
-            "{name}: the backend refused the program: {:?}",
-            d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>()
-        ),
+        Err(d) => {
+            return Built::Unsupported(format!(
+                "the backend refused the program: {:?}",
+                d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>()
+            ))
+        }
     };
 
     let dir = workspace(name);
@@ -750,13 +803,75 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
         "{name}: the link failed:\n{}",
         String::from_utf8_lossy(&built.stderr)
     );
-    let out = Command::new(&binary).output().unwrap();
-    Some((
-        out.status.code().unwrap_or(-1),
-        String::from_utf8_lossy(&out.stdout).to_string(),
-        String::from_utf8_lossy(&out.stderr).to_string(),
-        blocks,
-    ))
+    Built::Linked(binary, blocks)
+}
+
+/// Compile one conformance file as a test binary, link it, run it.
+///
+/// Answers `(status, stdout, stderr, blocks)`, where `blocks` is how many
+/// `test` declarations the file holds — the count this harness reports, and
+/// the one that makes "it passed" mean something.
+///
+/// **Under the heap check**, which is what makes "every block was freed" an
+/// invariant of the whole corpus rather than of the handful of programs a leak
+/// test was written for. `shared::ran_checked` is the environment, and
+/// `cli/runtime/memory.rs`'s heap-check section is what reads it.
+fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
+    let (binary, blocks) = match linked(name, source) {
+        Built::Linked(binary, blocks) => (binary, blocks),
+        Built::FrontEnd => return None,
+        Built::Unsupported(why) => panic!("{name}: {why}"),
+    };
+    let ran = crate::shared::ran_checked(&binary);
+    Some((ran.status, ran.stdout, ran.stderr, blocks))
+}
+
+// ---------------------------------------------------------------------------
+// The leak ledger
+// ---------------------------------------------------------------------------
+
+/// The corpus files that do **not** come back with an empty heap, with how
+/// many blocks each leaves and why the row is here.
+///
+/// **A row is a finding, not a permission.** The count is exact and is
+/// asserted in both directions: a file that leaks one block more fails, and so
+/// does a file that has stopped leaking — the second says to delete the row.
+/// So the ledger cannot rot into a place where a regression hides, and the
+/// list only ever gets shorter.
+///
+/// These were all already true the day the invariant was switched on; none of
+/// them is a cost of switching it on. Every one is a *pre-existing*
+/// under-decrement somewhere between `middle::rc` and the runtime entries the
+/// file reaches, and the shape of each is in `BURI_RT_HEAP_CHECK=trace`'s dump
+/// — which prints every surviving block's size, count and first bytes.
+const KNOWN_LEAKS: &[(&str, u64, &str)] = &[
+    // 70 000 bytes of one repeated character with a count of 1: the payload
+    // `core/actor`'s `copyAcross` deep-copies on its way out of the scope. The
+    // copy is a block of its own (`buri_rt_copy_block`) and nothing releases
+    // it once the mailbox has been read.
+    ("actor/scoped.buri", 1, "an actor payload copied out of a scope is never released"),
+    // A 64-byte list of small integers with a count of 2 — one increment more
+    // than the value has holders.
+    ("data/lists.buri", 1, "a list built inside a closure keeps a reference nothing drops"),
+    // The path string a filesystem double was asked about.
+    ("semantics/effects.buri", 1, "a path handed to the filesystem double outlives it"),
+    // Nineteen: the strings and byte lists the test platform's doubles hand
+    // back — captured output, stdin lines, filesystem entries — plus one
+    // 48-byte record holding two of them.
+    ("semantics/host_testing.buri", 19, "the values `core/host/testing`'s doubles answer with"),
+    // The same family reached through `env.args` and the filesystem, plus the
+    // argument strings themselves.
+    ("cli/arguments.buri", 27, "the argument and filesystem values the doubles answer with"),
+    // Program values this time rather than the runtime's: a `Str`, two
+    // integer lists and the records over them.
+    ("proto/binary.buri", 8, "decoded message fields outlive the message"),
+    // Two bytes with a count of 2 — the `[U8]` a UTF-8 encoding produced.
+    ("text/bytes.buri", 1, "an encoded byte list keeps a reference nothing drops"),
+];
+
+/// What the ledger says a file leaks, or zero.
+fn allowed_leak(path: &str) -> u64 {
+    KNOWN_LEAKS.iter().find(|(p, _, _)| *p == path).map_or(0, |(_, n, _)| *n)
 }
 
 /// Why the native backend will not compile a source, or the empty string
@@ -928,6 +1043,7 @@ fn the_native_set_passes() {
     let mut total = 0usize;
     let mut ran = 0usize;
     let mut skipped: Vec<String> = Vec::new();
+    let mut leaking: Vec<String> = Vec::new();
     let mut failures: Vec<String> = Vec::new();
     for case in PACKAGES.iter().filter(|c| c.out.is_none()) {
         let source = read(case);
@@ -948,13 +1064,45 @@ fn the_native_set_passes() {
             skipped.push(format!("{} (front end)", case.path));
             continue;
         };
-        if status != 0 {
+        // The heap invariant, and it is a *different* verdict from the one
+        // above: a program that failed an assertion aborts, which is status 1
+        // and suppresses the audit, so this status can only mean every block
+        // in the file passed and the heap did not come back empty.
+        if let Some(why) = crate::shared::heap_check_failure(status, &err) {
+            let allowed = allowed_leak(case.path);
+            match crate::shared::leaked_blocks(status, &err) {
+                Some(n) if n == allowed => {
+                    leaking.push(format!("{} ({n} block(s), in the ledger)", case.path));
+                }
+                Some(n) => failures.push(format!(
+                    "`{}` leaked {n} block(s) and the ledger says {allowed}.\n  {why}\n  \
+                     `BURI_RT_HEAP_CHECK=trace` prints every surviving block; update \
+                     `KNOWN_LEAKS` only with the reason beside the number",
+                    case.path
+                )),
+                None => failures.push(format!("`{}`: {why}", case.path)),
+            }
+        } else if status != 0 {
             failures
                 .push(format!("`{}` exited {status}:\nstdout:\n{out}\nstderr:\n{err}", case.path));
+        } else if allowed_leak(case.path) != 0 {
+            failures.push(format!(
+                "`{}` no longer leaks, and `KNOWN_LEAKS` still holds a row for it — \
+                 delete the row",
+                case.path
+            ));
         }
         assert!(blocks > 0, "`{}` holds no `test` blocks", case.path);
         total += blocks;
         ran += 1;
+    }
+    // A ledger row for a file that is not in the native set at all is a row
+    // nothing can retire, so it is checked here rather than left to rot.
+    for (path, _, _) in KNOWN_LEAKS {
+        assert!(
+            PACKAGES.iter().any(|c| c.path == *path && c.out.is_none()),
+            "`{path}` is in `KNOWN_LEAKS` and is not a file the native set runs"
+        );
     }
     // Every failing file, not the first: two platforms failing on two
     // different files is one report here and two runs otherwise.
@@ -962,7 +1110,14 @@ fn the_native_set_passes() {
     for s in &skipped {
         eprintln!("native conformance: skipped {s}");
     }
-    eprintln!("native conformance: {ran} files, {total} test blocks, 0 failures");
+    for l in &leaking {
+        eprintln!("native conformance: known leak {l}");
+    }
+    eprintln!(
+        "native conformance: {ran} files, {total} test blocks, 0 failures, \
+         {} of {ran} came back with an empty heap",
+        ran - leaking.len()
+    );
     assert!(ran > 0, "no conformance file ran natively");
 }
 

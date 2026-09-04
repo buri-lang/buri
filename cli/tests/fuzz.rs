@@ -143,6 +143,16 @@ use std::time::{Duration, Instant};
 /// nobody can reproduce is a rumour.
 const BASE_SEED: u64 = 0x0B00_1A57_F0FF_0001;
 
+/// How long shrinking one finding may take, as a wall-clock ceiling.
+///
+/// A minimiser is a convenience and the finding is the point, so this is
+/// generous rather than tight and the failure is reported either way — a case
+/// that is half-shrunk is a case a person can still read and replay. What it
+/// rules out is the shape that made it necessary: a property whose step is a
+/// compile and a link, over an input large enough that the character passes
+/// alone are tens of thousands of them.
+const MINIMISE_CEILING: Duration = Duration::from_secs(90);
+
 /// How long one property's search may take in CI, as a wall-clock ceiling.
 ///
 /// A bound in iterations alone is not enough: an iteration's cost is a
@@ -868,7 +878,16 @@ fn output_fires(input: &str, expects: &str) -> Option<String> {
     }
     #[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
     if let Some(native) = native::run(input) {
-        for (name, printed) in native {
+        for (name, printed, trouble) in native {
+            // How it ended, first: a program that printed the right answer and
+            // did not give its blocks back is still a finding, and so is one
+            // that crashed on the way — both are things this file used to skip
+            // past. The message is the runtime's own line where the heap check
+            // wrote one, so it names the number of blocks or the operation
+            // that reached a freed block.
+            if let Some(why) = trouble {
+                return Some(format!("`{name}` did not finish cleanly: {why}"));
+            }
             if printed.trim_end() != js.trim_end() {
                 return Some(format!(
                     "`{name}` and JavaScript disagree.\n  javascript: {js:?}\n  {name}: {printed:?}"
@@ -879,30 +898,124 @@ fn output_fires(input: &str, expects: &str) -> Option<String> {
     None
 }
 
+/// How long the reference artifact gets before "it has not stopped" is the
+/// answer.
+///
+/// The same generosity [`WATCHDOG`] is written with, and needed for the same
+/// reason one step further along: **the minimiser writes programs nobody
+/// drew**. A search's own draws terminate by construction, but a shrink step
+/// deletes a token, and `walkFrom(octets, at + 1, ..)` with the `+ 1` deleted
+/// is a loop that does not end. Before this bound that was a suite which did
+/// not end either — the engine ran for ever inside a library call with no
+/// process for the harness to kill.
+const JS_DEADLINE: Duration = Duration::from_secs(20);
+
 /// What the program prints under the JavaScript backend.
 ///
 /// `Ok(None)` is "this host has no engine", which is a skip. `Err` is "the
-/// reference backend would not produce an answer", which is a finding —
-/// `driver::run_snippet` is the path a documented example takes, so a program
+/// reference backend would not produce an answer", which is a finding: this is
+/// the pipeline `actions::prepare` composes for `Platform::Js`, so a program
 /// it refuses is a program `buri run` refuses.
+///
+/// **Emitted and run here rather than through `driver::run_snippet`**, which
+/// is what this used to call. `run_snippet` runs the engine with
+/// `Command::output()` and no deadline, so an artifact that loops takes the
+/// suite with it and there is no child for anything to kill. This is the same
+/// three steps `native/agreement.rs::run_js` takes — one analysis,
+/// `actions::prepare` for the JavaScript target, the backend `select`
+/// answers — with [`JS_DEADLINE`] around the run.
 fn run_on_js(input: &str) -> Result<Option<String>, String> {
     if !engine_present() {
         return Ok(None);
     }
-    // A name of this call's own. `driver::run_snippet` writes the module to a
-    // file named after the snippet, so two callers sharing a name overwrite
-    // each other's artifact mid-run — and this binary runs its tests in
-    // parallel threads of one process, which is exactly the case the
-    // process-scoped directory there does not cover.
+    let mut map = SourceMap::new();
+    let analysis = driver::analyze_snippet(&mut map, "main", input, Role::Entry);
+    if analysis.diagnostics.has_errors() {
+        return Err(format!(
+            "the JavaScript backend produced no answer:\n{}",
+            indent(&analysis.diagnostics.items.iter().map(|d| map.render(d, false)).collect::<String>())
+        ));
+    }
+    let Some(entry) = analysis.checked.entry else {
+        return Err(String::from("the program exports no `main`"));
+    };
+    let paths: Vec<String> = analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let mut diagnostics = buri::diagnostics::Diagnostics::new();
+    let mut program = buri::compiler::middle::monomorphize::run(
+        &analysis.checked,
+        paths,
+        &mut diagnostics,
+        buri::compiler::middle::monomorphize::Roots::Main(entry),
+    );
+    if diagnostics.has_errors() {
+        return Err(String::from("monomorphization failed"));
+    }
+    let target = buri::compiler::backend::Target {
+        platform: buri::build::buildfile::Platform::Js,
+        arch: None,
+    };
+    buri::build::actions::prepare(&mut program, target);
+    let profile = buri::compiler::backend::Profile::Debug;
+    let opts =
+        buri::compiler::backend::Options { profile, target, unit_prefix: "" };
+    let mut backend = buri::compiler::backend::select(target, profile)
+        .map_err(|e| format!("no JavaScript backend: {e}"))?;
+    let units = backend
+        .emit(&program, &analysis.checked.tables, &opts)
+        .map_err(|d| {
+            format!(
+                "the JavaScript backend refused the program: {}",
+                d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>().join("; ")
+            )
+        })?;
+    // A directory of this call's own, because this binary runs its tests in
+    // parallel threads of one process and an ES module has to come from a
+    // file.
     static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let mut map = SourceMap::new();
-    match driver::run_snippet(&mut map, &format!("fuzz_{n}"), input) {
-        Ok(out) => Ok(Some(out)),
-        Err(diagnostics) => Err(format!(
-            "the JavaScript backend produced no answer:\n{}",
-            indent(&diagnostics.items.iter().map(|d| map.render(d, false)).collect::<String>())
-        )),
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("fuzz-js-{}", std::process::id()))
+        .join(format!("case-{n}"));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    let artifact = dir.join("main.mjs");
+    let bytes = &units.first().ok_or("the backend emitted no unit")?.bytes;
+    std::fs::write(&artifact, bytes).map_err(|e| format!("cannot write the artifact: {e}"))?;
+    let mut cmd = std::process::Command::new(harness::js_runtime());
+    cmd.arg(&artifact);
+    let out = waited_out(cmd, JS_DEADLINE)
+        .ok_or_else(|| format!("the artifact did not stop within {}s", JS_DEADLINE.as_secs()))?;
+    if !out.status.success() {
+        return Err(format!(
+            "the artifact exited {}: {}",
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(Some(String::from_utf8_lossy(&out.stdout).to_string()))
+}
+
+/// Run a command to completion, killing it if it has not stopped in time.
+///
+/// `None` is "it did not stop", or "it could not be started". The pipes are
+/// drained once the child has already exited, which is
+/// `commands/test.rs::wait_for`'s shape; a child that filled one and blocked
+/// is killed, which turns a deadlock into an answer.
+fn waited_out(mut cmd: std::process::Command, within: Duration) -> Option<std::process::Output> {
+    use std::process::Stdio;
+    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().ok()?;
+    let deadline = Instant::now() + within;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return child.wait_with_output().ok(),
+            Ok(None) => {}
+            Err(_) => return None,
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(5));
     }
 }
 
@@ -1077,14 +1190,131 @@ mod native {
         dir
     }
 
-    /// What every native backend prints for this program.
+    /// How long a generated program gets before "it has not stopped" is the
+    /// finding.
+    ///
+    /// Generous rather than tight, for the reason `WATCHDOG` next door gives:
+    /// the machine is running other tests beside this one, and a false hang is
+    /// a finding nobody can reproduce. A real hang is not a slow program —
+    /// every program these searches emit prints eight lines and returns.
+    const NATIVE_DEADLINE: Duration = Duration::from_secs(30);
+
+    /// Run one linked program under the heap check, killing it if it has not
+    /// stopped within `within`. `None` is "it did not stop", or "it could not
+    /// be started".
+    ///
+    /// The pipes are drained by `wait_with_output` once the child has already
+    /// exited, which is the shape `commands/test.rs::wait_for` uses. A program
+    /// that filled a pipe and blocked would not be drained by that — it would
+    /// be *killed*, which turns a deadlock into a finding and is the outcome
+    /// this function exists for.
+    fn watched(binary: &Path, within: Duration) -> Option<std::process::Output> {
+        let mut child = Command::new(binary)
+            .env("BURI_RT_HEAP_CHECK", "1")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .ok()?;
+        let deadline = Instant::now() + within;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => return child.wait_with_output().ok(),
+                Ok(None) => {}
+                Err(_) => return None,
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    /// The exit status the runtime's heap check stops a program with.
+    /// `cli/runtime/memory.rs`'s `BURI_RT_HEAP_CHECK_STATUS` is the other
+    /// side, and `cli/tests/native/shared.rs` says the same number for the
+    /// backend suites.
+    const HEAP_CHECK_STATUS: i32 = 97;
+
+    /// Why each native backend will not compile this program, or nothing.
+    ///
+    /// [`run`] treats a refusal as a fact about the *host's* surface rather
+    /// than as a disagreement, which is right for a mutated input and wrong
+    /// for a program the generator drew on purpose: `ownership.rs`'s shapes
+    /// are all inside the native surface, so a backend that stops accepting
+    /// one is a regression and not a gap. That is not a hypothetical — a
+    /// merged tail-call group whose members' parameters disagree used to be
+    /// *accepted* and miscompiled, and the fix made the malformed case a
+    /// refusal, so the same defect coming back is a refusal here and nothing
+    /// at all over in `run`.
+    ///
+    /// Emission only: no link and no execution, so asking is cheap enough to
+    /// ask of every draw.
+    pub fn refusals(input: &str) -> Vec<(&'static str, String)> {
+        let mut out = Vec::new();
+        if !ready() {
+            return out;
+        }
+        let mut map = SourceMap::new();
+        let analysis = driver::analyze_snippet(&mut map, "main", input, Role::Entry);
+        if analysis.diagnostics.has_errors() {
+            return out;
+        }
+        let Some(entry) = analysis.checked.entry else { return out };
+        let paths: Vec<String> =
+            analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+        for (name, profile) in NATIVES {
+            if unavailable(name).is_some() {
+                continue;
+            }
+            let mut diagnostics = Diagnostics::new();
+            let mut program = monomorphize::run(
+                &analysis.checked,
+                paths.clone(),
+                &mut diagnostics,
+                monomorphize::Roots::Main(entry),
+            );
+            if diagnostics.has_errors() {
+                out.push((*name, String::from("monomorphization failed")));
+                continue;
+            }
+            let target = host_target();
+            actions::prepare(&mut program, target);
+            let opts = Options { profile: *profile, target, unit_prefix: "" };
+            let Some(mut backend) = select(name, target, *profile) else { continue };
+            let missing = backend.missing_intrinsics(&program, &analysis.checked.tables);
+            if !missing.is_empty() {
+                out.push((*name, format!("missing {missing:?}")));
+                continue;
+            }
+            if let Err(d) = backend.emit(&program, &analysis.checked.tables, &opts) {
+                out.push((
+                    *name,
+                    d.items.iter().map(|i| i.message.clone()).collect::<Vec<_>>().join("; "),
+                ));
+            }
+        }
+        out
+    }
+
+    /// What every native backend prints for this program, and what the heap
+    /// check said about the run.
     ///
     /// `None` where the host cannot answer. A backend that refuses the
     /// program — a missing intrinsic, an unlowered pattern — is left out of
     /// the answer rather than reported: the native surface is admittedly
     /// narrower than the language, `native/conformance.rs` is what holds that
     /// gap open, and a refusal is not a disagreement.
-    pub fn run(input: &str) -> Option<Vec<(&'static str, String)>> {
+    ///
+    /// **Every run is under the heap check** (`BURI_RT_HEAP_CHECK`), so a
+    /// program that printed the right bytes and leaked a block, or that
+    /// reached a block it had already freed, comes back with the third element
+    /// set. That is the whole of what the search needs to see an
+    /// over-decrement: without the quarantine the freed block is recycled and
+    /// the symptom is a wrong answer on the runs where the recycling happened
+    /// to matter.
+    pub fn run(input: &str) -> Option<Vec<(&'static str, String, Option<String>)>> {
         if !ready() {
             return None;
         }
@@ -1152,16 +1382,57 @@ mod native {
             if !linked.status.success() {
                 continue;
             }
-            let started = Instant::now();
-            let Ok(ran) = Command::new(&binary).output() else { continue };
-            if started.elapsed() > Duration::from_secs(30) {
+            // **With a watchdog**, because a miscompiled program is entitled
+            // to loop for ever and this file used to wait for it. The test
+            // that stood here — `started.elapsed()` *after* the call — could
+            // not fire until the call returned, so a program that never
+            // stopped was a search that never stopped. A reference-counting
+            // defect is one of the things that produces one: a list walked
+            // through a block whose length word is now poison does not
+            // terminate, and that is a finding rather than a reason to wait.
+            let Some(ran) = watched(&binary, NATIVE_DEADLINE) else {
+                out.push((
+                    *name,
+                    String::new(),
+                    Some(format!(
+                        "it did not stop within {}s, and was killed",
+                        NATIVE_DEADLINE.as_secs()
+                    )),
+                ));
                 continue;
-            }
-            if !ran.status.success() {
-                continue;
-            }
+            };
+            let status = ran.status.code().unwrap_or(-1);
+            let stderr = String::from_utf8_lossy(&ran.stderr).to_string();
+            // A heap-check failure is reported rather than skipped: it is the
+            // only way this file can see an under- or over-decrement, and a
+            // `continue` here would be the silence the whole layer exists to
+            // remove. Every other nonzero status is a program that aborted for
+            // a reason of its own, which the generator's programs do not do
+            // and which a mutated input may well.
+            let trouble = match status {
+                0 => None,
+                HEAP_CHECK_STATUS => Some(
+                    stderr
+                        .lines()
+                        .find(|l| l.starts_with("buri heap check:"))
+                        .unwrap_or("the heap-check status with nothing said")
+                        .to_string(),
+                ),
+                // **Any other nonzero status is a finding too**, and this is
+                // the line that used to be a `continue`. The property has
+                // already established that the reference backend ran this
+                // program and printed the expected bytes, so a native
+                // artifact that aborted, or that died on a signal — status
+                // `-1`, which is what a stale pointer through poisoned memory
+                // looks like — is not a program with a reason of its own to
+                // stop. It is the disagreement.
+                other => Some(format!(
+                    "the program exited {other} where JavaScript exited 0:\n{}",
+                    stderr.trim_end()
+                )),
+            };
             ANSWERED.fetch_add(1, Ordering::Relaxed);
-            out.push((*name, String::from_utf8_lossy(&ran.stdout).to_string()));
+            out.push((*name, String::from_utf8_lossy(&ran.stdout).to_string(), trouble));
         }
         Some(out)
     }
@@ -1186,7 +1457,23 @@ mod native {
 fn minimize(property: &str, input: &str, expects: Option<&str>) -> String {
     let Some(first) = fires(property, input, expects) else { return input.to_string() };
     let signature = signature_of(&first);
+    let deadline = Instant::now() + MINIMISE_CEILING;
     let still = |candidate: &str| -> bool {
+        // The bound the doc comment above claims, made real. Every pass below
+        // asks this question and treats `false` as "that step did not help",
+        // so a deadline that has passed walks each of them to its end without
+        // another compile and `best` is whatever had been reached. The
+        // *finding* is never lost — it is `input`, and `report` re-checks what
+        // this answers — only some of the shrinking is.
+        //
+        // It matters because a step of the `output` property is a compile, a
+        // link and a run of a whole program on two backends, and the character
+        // passes ask for one per character: a five-kilobyte program is tens of
+        // thousands of them, which is hours. The searches that feed this used
+        // to emit programs small enough for that not to show.
+        if Instant::now() >= deadline {
+            return false;
+        }
         candidate != input
             && fires(property, candidate, expects)
                 .is_some_and(|why| signature_of(&why) == signature)
@@ -2332,6 +2619,457 @@ fn report_native_participation(done: usize) {
     {
         let _ = done;
         eprintln!("fuzz differential: built with no native backend, so JavaScript is the whole of it");
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// The ownership generator
+// ---------------------------------------------------------------------------
+//
+// **The shapes `middle::rc` has actually got wrong**, drawn rather than
+// written down.
+//
+// `printer` above generates arithmetic, enums and structs of scalars — a
+// program whose every value fits in a register. Nothing in it can leak,
+// because nothing in it is on the heap, so the property it feeds catches a
+// wrong *number* and not a wrong *count*. The defect family this generator is
+// for is the other one: a value that holds heap contents released while
+// something is still reading words out of it. Five reports, and between them
+// they name six shapes:
+//
+//  1. **A field projected off a compound tail.** `middle::inline` replaces a
+//     call with the callee's *body*, so `identity(outer()).inner` is a
+//     projection off a block whose tail is the block's own binding. Depth is a
+//     dimension here because the report bisected on it.
+//  2. **A `match` arm that reads a sibling field of the scrutinee's base.**
+//     The arm's payload bindings are words copied out of the base's block with
+//     no count of their own, and the sibling read is the base's last use.
+//  3. **Mutual tail recursion whose members' parameters do not agree position
+//     by position**, which is what put two types in one merged slot.
+//  4. **An option whose payload holds a list**, read out through `withDefault`
+//     and through a `match` — a count belonging to something the option does
+//     not name.
+//  5. **`sortBy` over an element whose type holds an enum**, which is the
+//     value whose reference walk goes out of line.
+//  6. **A closure over a list built outside it**, indexed back through an
+//     `Option` — loop state captured by something that outlives the iteration.
+//
+// Every generated program prints an answer this file computed in Rust, so the
+// three claims of the `output` property are all available: JavaScript prints
+// what was computed, every native backend prints it, and the two are
+// identical. And every native run is under the runtime's heap check, so a
+// program that printed the right answer and leaked, or that touched a block it
+// had already freed, is a finding too.
+//
+// **What is drawn and what is fixed.** The type declarations and the shape
+// bodies are fixed, because a generator that also invented types would spend
+// its budget on programs the front end refuses; what is drawn is which shapes
+// `main` reaches, in what order, at what sizes, through which spelling — the
+// let-bound and the inline reading of a projection are two spellings of one
+// shape and the report's own bisection is that the `let` is what decides.
+
+/// The fixed half of a generated ownership program: the types and the shape
+/// bodies, which are the same in every draw.
+///
+/// One string rather than a builder because none of it varies: what varies is
+/// the calls `main` makes, and a generator that rewrote the declarations would
+/// be generating a different language rather than a different program.
+const RC_PRELUDE: &str = r#"from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+struct Body { text: Str }
+enum Held { Text(Body), Number(Int) }
+struct Cell { held: Held }
+struct Row { name: Str, cell: Cell, rank: Int }
+struct Items { items: [Row] }
+struct D1 { inner: Items }
+struct D2 { inner: D1 }
+struct D3 { inner: D2 }
+
+struct Msg { body: Str }
+enum Outcome {
+  Attached { id: Str, status: Int, reply: Msg, flush: [Msg] },
+  Refused { reply: Msg },
+}
+struct Manager { held: Int }
+struct Step { manager: Manager, outcome: Outcome }
+
+struct Wrapper { octets: [U8] }
+
+enum Fault { Incomplete, Corrupt }
+struct Walk { seen: [Int], total: Int }
+
+fn identity<T>(value: T): T { value }
+
+fn rows(count: Int): [Row] {
+  list.range(alloc, 0, count).map(alloc, fn(n) => Row {
+    name: "r".repeat(alloc, n + 1),
+    cell: Cell { held: Held.Text(Body { text: "v".repeat(alloc, n + 1) }) },
+    rank: count - n,
+  })
+}
+
+fn deep(count: Int): D3 {
+  D3 { inner: D2 { inner: D1 { inner: Items { items: rows(count) } } } }
+}
+
+// 1. A projection off the body `inline` pasted in, read three ways: one step
+// and then a walk down locals, one step into a `let` and a walk from there,
+// and one step into a call.
+//
+// **Each of these takes exactly one field off the compound base**, and that is
+// deliberate. The *chained* spelling — `identity(deep(n)).inner.inner` — leaks
+// its intermediate, which is pinned as its own row next door
+// (`native/agreement.rs`'s `a_projection_off_a_generic_calls_result_agrees`,
+// which asserts the exact number of blocks so a fix fails it). Drawing it here
+// would make every draw report that one finding and never reach a second,
+// which is the argument `known_signatures` makes for the recorded corpus.
+fn projectedInline(count: Int): Int {
+  let d2 = identity(deep(count)).inner;
+  let d1 = d2.inner;
+  let items = d1.inner;
+  items.items.len()
+}
+fn projectedBound(count: Int): Int {
+  let held = identity(deep(count)).inner;
+  countOf(held.inner.inner)
+}
+fn projectedTwice(count: Int): Int {
+  let outer = identity(deep(count)).inner;
+  let inner = outer.inner;
+  countOf(inner.inner)
+}
+fn countOf(items: Items): Int { items.items.len() }
+
+fn step(k: Int, held: Int): Step {
+  Step {
+    manager: Manager { held: held },
+    outcome: .Attached {
+      id: "se".repeat(alloc, k),
+      status: 0,
+      reply: Msg { body: "re".repeat(alloc, k) },
+      flush: [Msg { body: "fl".repeat(alloc, k) }],
+    },
+  }
+}
+
+fn sent(manager: Manager, messages: [Msg]): Str {
+  let bodies = messages.map(alloc, fn(message) => message.body).join(alloc, ",");
+  str.format(alloc, "${bodies}/${manager.held}")
+}
+
+// 2. The scrutinee's base is read inside the arm, which is its last use.
+fn insideArm(k: Int, held: Int): Str {
+  let s = step(k, held);
+  match (s.outcome) {
+    .Attached { id, reply, flush, .. } => {
+      sent(s.manager, [Msg { body: id }].concat(alloc, [reply].concat(alloc, flush)))
+    },
+    .Refused { reply } => sent(s.manager, [reply]),
+  }
+}
+
+// The same, with the base read before the match, which is the workaround the
+// report found and which has to go on answering the same thing.
+fn beforeMatch(k: Int, held: Int): Str {
+  let s = step(k, held);
+  let manager = s.manager;
+  match (s.outcome) {
+    .Attached { id, reply, flush, .. } => {
+      sent(manager, [Msg { body: id }].concat(alloc, [reply].concat(alloc, flush)))
+    },
+    .Refused { reply } => sent(manager, [reply]),
+  }
+}
+
+// 3. Two members of one tail-recursive group whose parameter lists differ.
+fn walkFrom(octets: [U8], at: Int, state: Walk): Result<Walk, Fault> {
+  match (octets[at]) {
+    .None => .Ok(state),
+    .Some(octet) => walkOne(octets, at, octet, state),
+  }
+}
+
+fn walkOne(octets: [U8], at: Int, octet: U8, state: Walk): Result<Walk, Fault> {
+  if (octet == 255) {
+    .Err(.Corrupt)
+  } else {
+    walkFrom(octets, at + 1, Walk {
+      seen: state.seen.push(alloc, octet.toI64()),
+      total: state.total + octet.toI64(),
+    })
+  }
+}
+
+fn walk(octets: [U8]): Result<Int, Fault> {
+  let walked = walkFrom(octets, 0, Walk { seen: list.empty<Int>(), total: 0 })?;
+  .Ok(walked.total + walked.seen.len())
+}
+
+fn shownWalk(answer: Result<Int, Fault>): Str {
+  match (answer) {
+    .Ok(n) => str.format(alloc, "${n}"),
+    .Err(.Corrupt) => "corrupt",
+    .Err(.Incomplete) => "incomplete",
+  }
+}
+
+// 4. An option whose payload holds a list, read out both ways. The list is a
+// literal from the call site rather than a conversion, because `Int.toU8` is
+// the inexact conversion that answers a `Result` (SPEC 6.2.1) and this shape
+// is about the option and not about the conversion.
+fn defaulted(held: Option<[U8]>): Int { held.withDefault(list.empty<U8>()).len() }
+fn matched(held: Option<[U8]>): Int {
+  match (held) { .None => 0, .Some(raw) => raw.len() }
+}
+fn wrapped(held: Option<Wrapper>): Int {
+  held.withDefault(Wrapper { octets: list.empty<U8>() }).octets.len()
+}
+fn wrappedMatch(held: Option<Wrapper>): Int {
+  match (held) { .None => 0, .Some(w) => w.octets.len() }
+}
+
+// 5. `sortBy` over an element whose type holds an enum two levels down.
+fn label(row: Row): Str {
+  let inner = match (row.cell.held) {
+    .Text(body) => body.text,
+    .Number(n) => str.format(alloc, "${n}"),
+  };
+  str.format(alloc, "${row.name}=${inner}:${row.rank}")
+}
+
+fn shownRows(xs: [Row]): Str { xs.map(alloc, fn(row) => label(row)).join(alloc, " ") }
+fn byRank(xs: [Row]): [Row] { xs.sortBy(alloc, fn(a, b) => a.rank.compare(b.rank)) }
+fn sorted(count: Int): Str { shownRows(byRank(rows(count))) }
+
+// 6. A closure over a list built outside it, indexed back through an option.
+fn gathered(count: Int): Str {
+  let base = rows(count);
+  let names = base.map(alloc, fn(row) => row.name);
+  list.range(alloc, 0, count)
+    .map(alloc, fn(i) => names[i].withDefault("-"))
+    .join(alloc, "+")
+}
+"#;
+
+/// How many `test`-sized calls one generated program makes.
+///
+/// Several rather than one, because a leak is a *whole-program* fact and a
+/// program that makes one call gives the audit one chance to see one.
+const RC_LINES: usize = 8;
+
+/// A generated ownership program, and what it must print.
+fn rc_shapes(rng: &mut Rng) -> Printer {
+    let mut lines: Vec<String> = Vec::new();
+    let mut expected: Vec<String> = Vec::new();
+    for _ in 0..RC_LINES {
+        let (call, answer) = rc_line(rng);
+        lines.push(format!("  let _ = io.println(stdout, {call}).ignore();\n"));
+        expected.push(answer);
+    }
+    let mut text = String::from(RC_PRELUDE);
+    text.push_str("\nexport fn main(): Result<(), Str> {\n");
+    for l in &lines {
+        text.push_str(l);
+    }
+    text.push_str("  .Ok(())\n}\n");
+    Printer { text, expected: format!("{}\n", expected.join("\n")) }
+}
+
+/// One call `main` makes, and the line it prints.
+///
+/// Each arm is one of the six shapes, at a size the draw chose, with the
+/// answer computed here — so a native backend that got the count wrong is
+/// caught by the *value* as well as by the heap check, and the two say
+/// different things about the same bug.
+fn rc_line(rng: &mut Rng) -> (String, String) {
+    // Small on purpose. What these shapes are about is the *structure* of the
+    // ownership, and a list of forty rows exercises the same structure as a
+    // list of four while costing the JavaScript engine forty string builds.
+    let n = 1 + rng.below(5) as i64;
+    match rng.below(9) {
+        0 => (
+            format!("\"${{projectedInline({n})}}\""),
+            n.to_string(),
+        ),
+        1 => (format!("\"${{projectedBound({n})}}\""), n.to_string()),
+        2 => (format!("\"${{projectedTwice({n})}}\""), n.to_string()),
+        3 => {
+            let held = rng.below(100) as i64;
+            let k = 1 + rng.below(3) as i64;
+            let (id, reply, flush) = (
+                "se".repeat(k as usize),
+                "re".repeat(k as usize),
+                "fl".repeat(k as usize),
+            );
+            let call = if rng.chance(2) {
+                format!("insideArm({k}, {held})")
+            } else {
+                format!("beforeMatch({k}, {held})")
+            };
+            (call, format!("{id},{reply},{flush}/{held}"))
+        }
+        4 => {
+            // A byte list that is sometimes corrupt, so both arms of the
+            // group's `Result` are drawn.
+            let corrupt = rng.chance(3);
+            let mut octets: Vec<i64> = (0..n).map(|i| (i * 7 % 200) + 1).collect();
+            if corrupt && !octets.is_empty() {
+                let at = rng.below(octets.len());
+                octets[at] = 255;
+            }
+            let list = octets.iter().map(i64::to_string).collect::<Vec<_>>().join(", ");
+            let answer = if octets.contains(&255) {
+                String::from("corrupt")
+            } else {
+                (octets.iter().sum::<i64>() + octets.len() as i64).to_string()
+            };
+            (format!("shownWalk(walk([{list}]))"), answer)
+        }
+        5 => (
+            String::from("shownWalk(walk(list.empty<U8>()))"),
+            String::from("0"),
+        ),
+        6 => {
+            let present = rng.chance(4);
+            // `1..=n`, which every element of fits a `U8` because `n` is at
+            // most five.
+            let bytes =
+                (1..=n).map(|b| b.to_string()).collect::<Vec<_>>().join(", ");
+            let (call, answer) = match rng.below(4) {
+                0 if present => (format!("defaulted(.Some([{bytes}]))"), n),
+                0 => (String::from("defaulted(.None)"), 0),
+                1 if present => (format!("matched(.Some([{bytes}]))"), n),
+                1 => (String::from("matched(.None)"), 0),
+                // `wrapped(.Some(..))` is **not drawn**, and this is the one
+                // place in this generator where a shape is held back. It
+                // leaks — an `Option` whose payload is a *struct* holding a
+                // list drops the payload's list when `withDefault` takes the
+                // `Some` arm — and it is pinned as its own test next door
+                // (`native/agreement.rs`'s
+                // `an_option_of_a_struct_holding_a_list_still_leaks_its_payload`,
+                // which asserts the exact number of blocks so a fix fails it).
+                // A search that walked into a known finding on most draws
+                // would report that one bug for ever and never reach a second,
+                // which is the argument `known_signatures` makes for the
+                // recorded corpus, applied to a finding the corpus cannot hold
+                // because it needs a backend this host may not have.
+                2 => (String::from("wrapped(.None)"), 0),
+                _ if present => {
+                    (format!("wrappedMatch(.Some(Wrapper {{ octets: [{bytes}] }}))"), n)
+                }
+                _ => (String::from("wrappedMatch(.None)"), 0),
+            };
+            (format!("\"${{{call}}}\""), answer.to_string())
+        }
+        7 => {
+            // `rows(count)` ranks descending, so sorting by rank reverses the
+            // order the rows were built in.
+            let answer = (0..n)
+                .rev()
+                .map(|i| {
+                    let k = (i + 1) as usize;
+                    format!("{}={}:{}", "r".repeat(k), "v".repeat(k), n - i)
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            (format!("sorted({n})"), answer)
+        }
+        _ => {
+            let answer = (0..n)
+                .map(|i| "r".repeat((i + 1) as usize))
+                .collect::<Vec<_>>()
+                .join("+");
+            (format!("gathered({n})"), answer)
+        }
+    }
+}
+
+/// **The ownership shapes, on every backend, with the heap audited.**
+///
+/// The `output` property over programs drawn from [`rc_shapes`] rather than
+/// from [`printer`]: the same three claims about what was printed, and — since
+/// every native run in this file is under the runtime's heap check — the
+/// fourth claim that the program gave back every block it took and touched
+/// none it had freed.
+///
+/// This is the search that would have caught the corruption family
+/// deterministically. Four of its five reports are shapes nobody would have
+/// drawn from an arithmetic generator, because none of them has a wrong
+/// *number* in it until a freed block happens to be recycled into something
+/// that changes one.
+///
+/// Sixteen draws in CI, which is about eight seconds: the native leg links and
+/// executes a fresh binary per program, and the wall-clock ceiling every search
+/// here shares is what stops a slow machine from paying for the count.
+#[test]
+fn ownership_shapes_agree_on_every_backend_and_leak_nothing() {
+    if !engine_present() {
+        eprintln!("fuzz ownership: skipped (no JavaScript engine on PATH)");
+        return;
+    }
+    let budget = Budget::new(16);
+    let mut rng = Rng(base_seed() ^ 0x5C0F_E000_0000_0001);
+    let mut seen = Seen::new();
+    let started = Instant::now();
+    let mut done = 0usize;
+    while !budget.spent(done) {
+        let p = rc_shapes(&mut rng);
+        if let Some(why) = output_fires(&p.text, &p.expected) {
+            triage(
+                &mut seen,
+                "output",
+                &p.text,
+                &why,
+                Some(&p.expected),
+                "a generated ownership program the backends do not agree on",
+            );
+        }
+        done += 1;
+    }
+    budget.report("ownership", done, started);
+    seen.report("ownership");
+    report_native_participation(done);
+}
+
+/// The generator's own claim, checked without a backend: every draw is a
+/// program the **front end** accepts.
+///
+/// The search above needs a JavaScript engine, a runtime archive and a linker,
+/// so on a host without them it reports nothing — and a generator that had
+/// rotted into emitting programs that do not parse would look exactly like one
+/// that found no bugs. This runs everywhere and is what says the generator is
+/// still generating.
+#[test]
+fn every_ownership_program_compiles() {
+    let mut rng = Rng(base_seed() ^ 0x5C0F_E000_0000_0002);
+    for i in 0..12 {
+        let p = rc_shapes(&mut rng);
+        assert!(
+            p.text.contains("export fn main"),
+            "draw {i} emitted no entry point"
+        );
+        if let Some(why) = compiles_fires(&p.text) {
+            panic!("draw {i} does not compile:\n{why}\n\n{}", indent(&p.text));
+        }
+        // And every native backend this toolchain has still *accepts* it,
+        // which is a different claim from the one above and catches a
+        // different defect: the front end has no opinion about a merged
+        // tail-call group, and a backend that has stopped being able to lower
+        // one refuses rather than answering wrongly.
+        #[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
+        {
+            let refused = native::refusals(&p.text);
+            assert!(
+                refused.is_empty(),
+                "draw {i} was refused by {refused:?}, and every shape it draws is inside \
+                 the native surface:\n{}",
+                indent(&p.text)
+            );
+        }
     }
 }
 
