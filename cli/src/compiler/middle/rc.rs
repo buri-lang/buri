@@ -2158,6 +2158,30 @@ impl Scan<'_> {
         self.diverged = diverged;
     }
 
+    /// Whether a projection's base is a **tail-shaped** value this expression
+    /// has to own rather than borrow.
+    ///
+    /// `compound` is a `Block`, an `If` or a `Match`: a value that arrives
+    /// through a tail, and whose tail may be an alias of a local the construct
+    /// itself owns. Borrowing such a base means the construct drops that local
+    /// on its way out — before the projection has read the words it is copying
+    /// out of it. [`Scan::children`] promotes a compound child to [`Mode::Own`]
+    /// for exactly this reason and says so at length; a projection is a
+    /// construct with a child too, and it was the one place the promotion was
+    /// missing.
+    ///
+    /// `middle::inline` is what makes this common rather than exotic: it
+    /// replaces a call with the callee's **body**, and a body is a `Block`. So
+    /// `identity(outer(ctx)).inner` — a projection off a generic call — becomes
+    /// a projection off a block whose tail is the block's own `let`, and the
+    /// block released it between the call and the field read. That is issue
+    /// #33, and `lower.rs`'s
+    /// `a_projection_never_reads_a_base_this_block_has_already_released` is
+    /// what the emitted instructions have to say about it.
+    fn tail_shaped_base(&mut self, base: &Expr) -> bool {
+        compound(base) && self.counted_ty(&base.ty.clone())
+    }
+
     fn projected(
         &mut self,
         e: &Expr,
@@ -2167,7 +2191,10 @@ impl Scan<'_> {
         mode: Mode,
         live: &Live,
     ) {
-        let takes = fresh(base);
+        // Asked again rather than passed in: it is a question about the base's
+        // shape, the answer is the same both times, and a caller that could
+        // pass a different one is a way for the mode and the count to disagree.
+        let takes = self.tail_shaped_base(base) || fresh(base);
         if (mode == Mode::Own || takes) && self.counted_ty(&e.ty.clone()) {
             self.push(id, Position::After, RcOp::IncRef, Target::Node(id));
             // Perceus's drop specialisation, with the answer deferred: a field
@@ -2387,26 +2414,33 @@ impl Scan<'_> {
             }
             ExprKind::Match { .. } => self.match_(e, id, live, mode),
             // A loop is always a whole function body, and its entries are
-            // alternative starting points chosen by the caller — so they are
-            // branches, and they are balanced against each other exactly as a
-            // `match`'s arms are. The loop's variables are the function's
-            // parameters, which is why nothing extra is owned here.
+            // alternative starting points chosen by the caller. The loop's
+            // variables are the function's parameters, which is why nothing
+            // extra is owned here.
+            //
+            // **Deliberately not balanced against each other**, which is what
+            // makes them unlike a `match`'s arms. A merged group's entries own
+            // *disjoint* prefixes of the parameter list
+            // (`tail_calls::shared_slots`): a slot beyond an entry's own arity
+            // is never passed on the path that entry runs on, so
+            // `lower::pad` hands it `undef` — and balancing made the entry
+            // release that. Issue #29, where a two-function walk released a
+            // register nobody had written. A single-entry loop has nothing to
+            // balance against, so the two readings only ever differed for a
+            // merged group. `tail_calls` is the other half: an entry binds and
+            // drops a slot it owns and does not read, so the disposal is
+            // written where only that entry runs it.
             ExprKind::Loop { entries } => {
                 let mut befores: Vec<Live> = Vec::new();
-                let mut ids: Vec<NodeId> = Vec::new();
                 let (_, jumps, diverged) = self.scoped(|me| {
                     for (k, entry) in entries.iter().enumerate() {
                         let eid = me.child(id, k);
                         let lb = me.expr(entry, eid, live, mode);
                         me.flush(eid);
                         befores.push(lb);
-                        ids.push(eid);
                     }
                 });
                 let union: Live = befores.iter().flat_map(|b| b.iter().copied()).collect();
-                for (b, eid) in befores.iter().zip(ids.iter()) {
-                    self.balance(*eid, b, &union);
-                }
                 if diverged && !jumps.is_empty() {
                     self.diverged = true;
                 }
@@ -2468,7 +2502,9 @@ impl Scan<'_> {
             | ExprKind::TupleIndex { base, .. }
             | ExprKind::CtxGet { base, .. } => {
                 let bid = self.child(id, 0);
-                let out = self.expr(base, bid, live, Mode::Borrow);
+                let bmode =
+                    if self.tail_shaped_base(base) { Mode::Own } else { Mode::Borrow };
+                let out = self.expr(base, bid, live, bmode);
                 self.projected(e, base, id, bid, mode, live);
                 out
             }
@@ -2476,7 +2512,9 @@ impl Scan<'_> {
                 let iid = self.child(id, 1);
                 let after = self.expr(index, iid, live, Mode::Borrow);
                 let bid = self.child(id, 0);
-                let out = self.expr(base, bid, &after, Mode::Borrow);
+                let bmode =
+                    if self.tail_shaped_base(base) { Mode::Own } else { Mode::Borrow };
+                let out = self.expr(base, bid, &after, bmode);
                 self.projected(e, base, id, bid, mode, live);
                 out
             }
@@ -2521,6 +2559,36 @@ impl Scan<'_> {
             _ => None,
         };
         let owns = token.is_some();
+        // A scrutinee that is a **projection of a local** binds payloads that
+        // are words copied out of that local's block, with no count of their
+        // own — exactly the alias [`Scan::children`] keeps open across a
+        // construct's siblings, one construct over. The arms are what read
+        // those words, so the local has to outlive *them*, and an arm that
+        // happens to hold the local's last use — `match (s.outcome) { .A { id,
+        // flush, .. } => f(s.manager, flush) }` — otherwise drops it between
+        // the payload binding and the read, which freed `flush`'s block and
+        // handed it straight back to the next allocation in the same
+        // expression. Issue #39: a wrong answer rather than a crash, and only
+        // where the arm reads a *sibling* field, because that is what puts the
+        // last use inside the arm.
+        //
+        // So the root is held live across the arms and dropped by this
+        // construct instead, which is [`Scan::children`]'s deferral verbatim.
+        let kept = match token {
+            Some(_) => None,
+            None => borrowed_root(scrutinee).filter(|r| {
+                self.is_counted(*r) && self.owned.contains(r) && !live.contains(r)
+            }),
+        };
+        let arm_live = match kept {
+            Some(r) => {
+                let mut l = live.clone();
+                l.insert(r);
+                l
+            }
+            None => live.clone(),
+        };
+        let live = &arm_live;
         let mut befores: Vec<Live> = Vec::new();
         let mut ids: Vec<NodeId> = Vec::new();
         let outer_jumps = std::mem::take(&mut self.jumps);
@@ -2629,6 +2697,12 @@ impl Scan<'_> {
             !owns && compound(scrutinee) && self.counted_ty(&scrutinee.ty.clone());
         let smode = if owns || promoted { Mode::Own } else { Mode::Borrow };
         let out = self.expr(scrutinee, sid, &before, smode);
+        // The root held open above is dropped here, past every arm that read
+        // words out of it — the same handover [`Scan::children`] makes to its
+        // own `flush` below.
+        if let Some(r) = kept {
+            self.pending.push(r);
+        }
         // A scrutinee read for the last time is dropped after the arms, which
         // are the things reading what it holds — a payload binding points into
         // it, so dropping at an arm's entry would free what the arm is about

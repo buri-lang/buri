@@ -933,9 +933,17 @@ impl<'a> Jit<'a> {
 // `glue.rs::thunk`'s ownership reconciliation at every one of these sites.
 
 /// Where this half's scratch words begin, as an offset **from `Fn2::scratch`**:
-/// past the loops above (words 8–12) and past `rtcall.rs`'s C argument area
-/// (words 16–28).
-const LOOP_SCRATCH: u32 = 256;
+/// past the loops above (words 8–12) and past everything the emitter itself
+/// claims, which is what [`rtcall::RESERVED_WORDS`](super::rtcall) answers.
+///
+/// **Derived rather than written.** It was `256` — word 32 — and the emitter's
+/// own run ends at word 33, so the first two words of this half were the last
+/// two of that one. What wrote them is a reference walk that goes out of line
+/// (`emit::walk_deep`, at `RAW_WORD + 3`), which is exactly what retaining an
+/// element whose type holds an enum does — so `list.sortBy` lost its
+/// destination pointer between reading an element and storing it, and answered
+/// a block of zeros. Issue #41.
+const LOOP_SCRATCH: u32 = super::rtcall::RESERVED_WORDS * 8;
 
 /// Scratch word `k` of this half, still relative to `Fn2::scratch`.
 fn t(k: u32) -> u32 {
@@ -950,6 +958,13 @@ fn t(k: u32) -> u32 {
 /// [`STAGE_ROOM`] is what is left of it.
 const STAGE: u32 = LOOP_SCRATCH + 24 * 8;
 const STAGE_ROOM: u32 = super::jit::SCRATCH_WORDS as u32 * 8 - STAGE;
+
+/// The staging area is what a frame has left after everything with a fixed
+/// index has taken its own, so a word added anywhere above silently narrows the
+/// widest element a `[T]` may have. Asserted rather than remembered: a frame
+/// that no longer has the room says so at compile time, where the answer is to
+/// raise `jit::SCRATCH_WORDS` beside it.
+const _: () = assert!(STAGE_ROOM >= 320);
 
 /// One list operation's operands, as frame offsets paired with their IR types.
 ///

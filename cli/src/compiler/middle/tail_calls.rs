@@ -65,7 +65,7 @@ use crate::compiler::middle::inline::shift_expr;
 use crate::compiler::middle::monomorphize::{Func, FuncKind, Program};
 use crate::compiler::middle::strongly_connected;
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt};
-use crate::compiler::semantics::types::{FuncIdx, LocalId};
+use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
 /// How one function is emitted.
@@ -195,9 +195,12 @@ pub fn rewrite(program: &mut Program) {
         }
         let Some(func) = program.funcs.get_mut(f) else { continue };
         let Some(mut body) = func.take_body() else { continue };
-        rewrite_tails(&mut body, &|callee| (callee == f).then_some(0));
+        // A self-loop's slots *are* its parameters, in order.
+        let identity: Vec<usize> = (0..func.params.len()).collect();
+        rewrite_tails(&mut body, &|callee| (callee == f).then_some((0, &identity[..])));
         let mut entries = vec![body];
-        snapshot_captures(&mut func.locals, &mut func.params, &mut entries);
+        let owned = [func.params.len()];
+        snapshot_captures(&mut func.locals, &mut func.params, &mut entries, &owned);
         let ty = func.ret.clone();
         let span = func.span;
         func.set_body(Expr::new(ExprKind::Loop { entries }, ty, span));
@@ -218,29 +221,39 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
     if group.iter().any(|f| program.funcs.get(*f).is_none_or(|f| f.body().is_none())) {
         return;
     }
-    let arity = max_arity(program, group);
     let Some(first) = program.funcs.get(*group.first().unwrap_or(&0)) else { return };
     let ret = first.ret.clone();
     let span = first.span;
 
-    // One slot per parameter position, wide enough for the widest member. The
-    // type is the first member that has a parameter there, which is what the
-    // shared slot has always been: a member's own parameters are read out of
-    // it and nothing reads a slot at another member's type.
-    let mut locals: Vec<typed::Local> = Vec::new();
-    for j in 0..arity {
-        let ty = group
-            .iter()
-            .filter_map(|f| program.funcs.get(*f))
-            .find_map(|f| f.params.get(j).and_then(|p| f.locals.get(p.index())))
-            .map(|l| l.ty.clone())
-            .unwrap_or(crate::compiler::semantics::types::Ty::Unit);
-        locals.push(typed::Local { name: format!("a{j}"), ty, span });
-    }
-    let mut params: Vec<LocalId> = (0..arity).map(|j| LocalId(j as u32)).collect();
+    // Which of a member's parameters each shared slot is, per member.
+    //
+    // A slot is shared, so it has one type and every member reading it reads it
+    // at that type. The old rule — slot `j` is parameter `j`, typed by the
+    // first member that has one there — is only sound where the members agree
+    // position by position, and a group whose members do not is issue #29:
+    // `walkFrom(ctx, [U8], Int, Walk)` and `walkOne(ctx, [U8], Int, U8, Walk)`
+    // put a `Walk` and a `U8` in one slot, so the merged function compared a
+    // pointer against 255 and released it as two different types. The IR
+    // verifier says so now; before it existed the program simply corrupted the
+    // heap.
+    let Some(slots) = shared_slots(program, group) else {
+        // No consistent assignment exists — two members disagree about what
+        // the group's parameters *are*, not merely about their order. Leaving
+        // the group unmerged costs it mutual tail-call elimination and keeps
+        // it correct, which is the right way round; merging it was a
+        // miscompile.
+        return;
+    };
+    let mut locals: Vec<typed::Local> = slots
+        .types
+        .iter()
+        .enumerate()
+        .map(|(j, ty)| typed::Local { name: format!("a{j}"), ty: ty.clone(), span })
+        .collect();
+    let mut params: Vec<LocalId> = (0..slots.types.len()).map(|j| LocalId(j as u32)).collect();
 
     let mut entries: Vec<Expr> = Vec::new();
-    for f in group {
+    for (i, f) in group.iter().enumerate() {
         let Some(func) = program.funcs.get(*f) else { return };
         let Some(body) = func.body() else { return };
         let offset = locals.len() as u32;
@@ -248,19 +261,72 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
         let mut body = body.clone();
         shift_expr(&mut body, offset);
         // The member's parameters *are* the shared slots, so a read of one
-        // reads the slot rather than a copy of it.
-        let onto: HashMap<LocalId, LocalId> = func
-            .params
+        // reads the slot rather than a copy of it. `order[i][j]` is the
+        // parameter slot `j` holds for this member, which is the identity
+        // wherever the members' signatures agree.
+        let Some(mine) = slots.order.get(i) else { return };
+        let onto: HashMap<LocalId, LocalId> = mine
             .iter()
             .enumerate()
-            .filter_map(|(j, p)| Some((LocalId(p.0.checked_add(offset)?), *params.get(j)?)))
+            .filter_map(|(j, k)| {
+                let p = func.params.get(*k)?;
+                Some((LocalId(p.0.checked_add(offset)?), *params.get(j)?))
+            })
             .collect();
         substitute_locals(&mut body, &onto);
-        rewrite_tails(&mut body, &|callee| group.iter().position(|m| *m == callee));
+        let order = &slots.order;
+        rewrite_tails(&mut body, &|callee| {
+            let entry = group.iter().position(|m| *m == callee)?;
+            Some((entry, order.get(entry)?.as_slice()))
+        });
+        // A slot this member owns and its body never reads still arrives
+        // holding a count somebody has to spend. `middle::rc` drops a parameter
+        // nothing reads at all, but "nothing" is asked of the whole merged
+        // function, and a slot another member reads is not that. Binding it to
+        // a name this entry drops is the same disposal written where only this
+        // entry runs it — and it is what lets [`rc`]'s loop stop balancing its
+        // entries against each other, which is the other half of #29: an entry
+        // was releasing slots that belong to a *different* member and hold
+        // undefined words on this path.
+        let mut read: HashSet<LocalId> = HashSet::default();
+        typed::walk(&body, &mut |e| {
+            if let ExprKind::Local(l) = &e.kind {
+                read.insert(*l);
+            }
+        });
+        let mut dead: Vec<Stmt> = Vec::new();
+        for j in 0..mine.len() {
+            let Some(&slot) = params.get(j) else { continue };
+            if read.contains(&slot) {
+                continue;
+            }
+            let Some(local) = locals.get(slot.index()).cloned() else { continue };
+            let bound = LocalId(locals.len() as u32);
+            locals.push(typed::Local {
+                name: format!("{}_unread", local.name),
+                ty: local.ty.clone(),
+                span: local.span,
+            });
+            dead.push(Stmt::Let {
+                pattern: typed::Pattern {
+                    kind: typed::PatKind::Bind { local: bound, sub: None },
+                    ty: local.ty.clone(),
+                    span: local.span,
+                },
+                value: Expr::new(ExprKind::Local(slot), local.ty, local.span),
+                span: local.span,
+            });
+        }
+        if !dead.is_empty() {
+            let ty = body.ty.clone();
+            let at = body.span;
+            body = Expr::new(ExprKind::Block { stmts: dead, tail: Some(Box::new(body)) }, ty, at);
+        }
         entries.push(body);
     }
 
-    snapshot_captures(&mut locals, &mut params, &mut entries);
+    let owned: Vec<usize> = slots.order.iter().map(Vec::len).collect();
+    snapshot_captures(&mut locals, &mut params, &mut entries, &owned);
 
     // What the group actually returns.
     //
@@ -300,10 +366,15 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
     // a call that was not in tail position, or an `FnRef` — still works.
     for (i, f) in group.iter().enumerate() {
         let Some(func) = program.funcs.get_mut(*f) else { continue };
-        let args: Vec<Expr> = func
-            .params
+        // In *slot* order rather than the member's own: `lower::continue_`
+        // hands argument `j` to slot `j` and pads what is missing, which is
+        // what makes a member's slots a prefix a requirement of
+        // [`shared_slots`] rather than a coincidence.
+        let Some(mine) = slots.order.get(i) else { continue };
+        let args: Vec<Expr> = mine
             .iter()
-            .filter_map(|p| {
+            .filter_map(|k| {
+                let p = func.params.get(*k)?;
                 let l = func.locals.get(p.index())?;
                 Some(Expr::new(ExprKind::Local(*p), l.ty.clone(), l.span))
             })
@@ -325,11 +396,21 @@ fn merge_group(program: &mut Program, group_index: usize, group: &[usize]) {
 /// function loops and the rewrite that makes it loop cannot disagree about
 /// what tail position is, because disagreeing means one of these two matches
 /// has an arm the other does not.
-fn rewrite_tails(e: &mut Expr, jump: &impl Fn(usize) -> Option<usize>) {
+fn rewrite_tails<'a>(e: &mut Expr, jump: &impl Fn(usize) -> Option<(usize, &'a [usize])>) {
     match &mut e.kind {
         ExprKind::CallFn { func, args } => {
-            let Some(entry) = func.func().map(|i| i.index()).and_then(jump) else { return };
-            let args = std::mem::take(args);
+            let Some((entry, order)) = func.func().map(|i| i.index()).and_then(jump) else {
+                return;
+            };
+            let mut args = std::mem::take(args);
+            // The call's arguments are in the callee's own parameter order and
+            // the jump's are in slot order, which is the identity wherever the
+            // group's members agree about their parameters. See
+            // [`shared_slots`].
+            if order.iter().enumerate().any(|(j, k)| j != *k) {
+                let mut taken: Vec<Option<Expr>> = args.drain(..).map(Some).collect();
+                args = order.iter().filter_map(|k| taken.get_mut(*k)?.take()).collect();
+            }
             e.kind = ExprKind::Continue { func: None, entry, args };
         }
         ExprKind::Block { tail: Some(t), .. } => rewrite_tails(t, jump),
@@ -391,6 +472,7 @@ fn snapshot_captures(
     locals: &mut Vec<typed::Local>,
     params: &mut [LocalId],
     entries: &mut [Expr],
+    owned: &[usize],
 ) {
     let mut captured: HashSet<LocalId> = HashSet::default();
     let mut rebound: HashSet<LocalId> = HashSet::default();
@@ -409,7 +491,7 @@ fn snapshot_captures(
         });
     }
 
-    let mut prologue: Vec<Stmt> = Vec::new();
+    let mut prologue: Vec<(usize, Stmt)> = Vec::new();
     for j in 0..params.len() {
         let Some(&param) = params.get(j) else { continue };
         if !captured.contains(&param) || !rebound.contains(&param) {
@@ -427,41 +509,118 @@ fn snapshot_captures(
         }
         // Re-executed on every entry to the loop body, which is what makes the
         // binding a closure captures belong to that iteration alone.
-        prologue.push(Stmt::Let {
-            pattern: typed::Pattern {
-                kind: typed::PatKind::Bind { local: param, sub: None },
-                ty: local.ty.clone(),
+        prologue.push((
+            j,
+            Stmt::Let {
+                pattern: typed::Pattern {
+                    kind: typed::PatKind::Bind { local: param, sub: None },
+                    ty: local.ty.clone(),
+                    span: local.span,
+                },
+                value: Expr::new(ExprKind::Local(carrier), local.ty, local.span),
                 span: local.span,
             },
-            value: Expr::new(ExprKind::Local(carrier), local.ty, local.span),
-            span: local.span,
-        });
+        ));
     }
     if prologue.is_empty() {
         return;
     }
-    for entry in entries.iter_mut() {
+    for (i, entry) in entries.iter_mut().enumerate() {
+        // Only the slots this entry's member owns. A slot belonging to another
+        // member holds undefined words on this path, and a snapshot of one is
+        // a binding this entry would then release — the merged-group half of
+        // the same mistake `owned` exists to stop.
+        let mine: Vec<Stmt> = prologue
+            .iter()
+            .filter(|(j, _)| *j < owned.get(i).copied().unwrap_or(usize::MAX))
+            .map(|(_, s)| s.clone())
+            .collect();
+        if mine.is_empty() {
+            continue;
+        }
         let ty = entry.ty.clone();
         let span = entry.span;
         let inner = std::mem::replace(entry, Expr::new(ExprKind::Unit, ty.clone(), span));
-        *entry = Expr::new(
-            ExprKind::Block { stmts: prologue.clone(), tail: Some(Box::new(inner)) },
-            ty,
-            span,
-        );
+        *entry =
+            Expr::new(ExprKind::Block { stmts: mine, tail: Some(Box::new(inner)) }, ty, span);
     }
 }
 
-/// The locals a group member's parameters occupy, for the merged function.
-fn max_arity(program: &Program, group: &[usize]) -> usize {
-    group.iter().filter_map(|f| program.funcs.get(*f)).map(|f| f.params.len()).max().unwrap_or(0)
+/// The parameter slots a merged group shares, and which parameter of each
+/// member fills each of them.
+struct Slots {
+    /// One type per slot. The merged function's parameter list.
+    types: Vec<Ty>,
+    /// `order[i][j]` is the index, in member `i`'s own parameter list, of the
+    /// parameter that lives in slot `j`. Every member's slots are the prefix
+    /// `0..order[i].len()`, which is what lets `lower::continue_` keep handing
+    /// argument `j` to slot `j` and padding the tail with `undef`.
+    order: Vec<Vec<usize>>,
+}
+
+/// Assigns one slot per parameter of the widest member, so that **every**
+/// member reads every slot it owns at that slot's own type.
+///
+/// The members are taken narrowest first and each one has to *account for*
+/// every slot already allocated — one parameter of its own, at that type, not
+/// already spoken for — and then extends the list with whatever it has left
+/// over. So the slot list grows monotonically and each member owns a prefix of
+/// it. Where the members' signatures already agree the answer is the identity,
+/// which is what the merged functions looked like before this existed.
+///
+/// `None` where no such assignment exists: two members of the same arity with
+/// different parameter *types*, say. There is nothing to share then, and the
+/// caller leaves the group unmerged rather than putting two types in one slot.
+/// Issue #29 is what one slot at two types does — a `Walk` compared against
+/// `255` and released as a `U8`.
+fn shared_slots(program: &Program, group: &[usize]) -> Option<Slots> {
+    let params: Vec<Vec<Ty>> = group
+        .iter()
+        .map(|f| {
+            let func = program.funcs.get(*f)?;
+            func.params
+                .iter()
+                .map(|p| func.locals.get(p.index()).map(|l| l.ty.clone()))
+                .collect::<Option<Vec<Ty>>>()
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let mut narrowest: Vec<usize> = (0..group.len()).collect();
+    narrowest.sort_by_key(|i| params.get(*i).map_or(0, Vec::len));
+
+    let mut types: Vec<Ty> = Vec::new();
+    let mut order: Vec<Vec<usize>> = vec![Vec::new(); group.len()];
+    for i in narrowest {
+        let mine = params.get(i)?;
+        let mut taken = vec![false; mine.len()];
+        let mut filled: Vec<usize> = Vec::with_capacity(mine.len());
+        for ty in &types {
+            let k = mine
+                .iter()
+                .zip(taken.iter())
+                .position(|(m, spoken)| !*spoken && m == ty)?;
+            if let Some(spoken) = taken.get_mut(k) {
+                *spoken = true;
+            }
+            filled.push(k);
+        }
+        for ((k, ty), spoken) in mine.iter().enumerate().zip(taken.iter()) {
+            if !*spoken {
+                types.push(ty.clone());
+                filled.push(k);
+            }
+        }
+        if let Some(slot) = order.get_mut(i) {
+            *slot = filled;
+        }
+    }
+    Some(Slots { types, order })
 }
 
 #[cfg(test)]
 mod tests {
     use super::rewrite;
     use crate::compiler::middle::monomorphize::{Func, FuncKind, Program, ProgramRoots};
-    use crate::compiler::semantics::typed::{Callee, Expr, ExprKind, Local, PatKind};
+    use crate::compiler::semantics::typed::{Callee, Expr, ExprKind, Local, PatKind, Stmt};
     use crate::compiler::semantics::types::{FuncIdx, LocalId, Ty};
     use crate::diagnostics::Span;
     use crate::hash::Map as HashMap;
@@ -476,6 +635,36 @@ mod tests {
 
     fn local(name: &str) -> Local {
         Local { name: name.to_string(), ty: Ty::Unit, span: Span::default() }
+    }
+
+    fn typed(name: &str, ty: Ty) -> Local {
+        Local { name: name.to_string(), ty, span: Span::default() }
+    }
+
+    /// Two types that are not `Ty::Unit` and not each other, which is all the
+    /// slot allocation asks of them.
+    fn a_ty() -> Ty {
+        Ty::Array(Box::new(Ty::Unit))
+    }
+
+    fn b_ty() -> Ty {
+        Ty::Tuple(vec![Ty::Unit])
+    }
+
+    /// The types of a function's parameters, in order.
+    fn param_tys(f: &Func) -> Vec<Ty> {
+        f.params.iter().filter_map(|p| f.locals.get(p.index()).map(|l| l.ty.clone())).collect()
+    }
+
+    /// Which local each argument of a `Continue` names, in order.
+    fn arg_locals(e: &Expr) -> Vec<LocalId> {
+        let ExprKind::Continue { args, .. } = &e.kind else { panic!("a `Continue`") };
+        args.iter()
+            .map(|a| match a.kind {
+                ExprKind::Local(l) => l,
+                _ => panic!("a forwarder passes its own parameters"),
+            })
+            .collect()
     }
 
     fn func(symbol: &str, params: Vec<u32>, locals: Vec<Local>, body: Expr) -> Func {
@@ -583,6 +772,126 @@ mod tests {
         assert!(matches!(
             p.funcs[1].body().unwrap().kind,
             ExprKind::Continue { func: Some(FuncIdx(2)), entry: 1, .. }
+        ));
+    }
+
+    /// **A shared slot holds one type**, and a member whose parameters do not
+    /// line up with another's is passed in slot order rather than its own.
+    ///
+    /// The old rule was slot `j` is parameter `j`, typed by the first member
+    /// that had one there — sound only where the members agree position by
+    /// position. `narrow(a)` and `wide(b, a)` do not: position 0 is an `a` for
+    /// one and a `b` for the other, so one slot held two types, and the merged
+    /// function read a value of one at the other. Issue #29, where a `Walk` was
+    /// compared against `255` and released as a `U8`.
+    ///
+    /// [`shared_slots`] takes the members narrowest first, so the slots are
+    /// `[a, b]` — `narrow`'s one parameter, then what `wide` has left over —
+    /// and `wide` forwards its parameters the other way round.
+    #[test]
+    fn a_group_whose_parameters_disagree_gets_one_slot_per_type() {
+        let mut p = program(vec![
+            func(
+                "narrow",
+                vec![0],
+                vec![typed("n", a_ty())],
+                call(1, vec![e(ExprKind::Unit), e(ExprKind::Local(LocalId(0)))]),
+            ),
+            func(
+                "wide",
+                vec![0, 1],
+                vec![typed("w", b_ty()), typed("v", a_ty())],
+                call(0, vec![e(ExprKind::Local(LocalId(1)))]),
+            ),
+        ]);
+        rewrite(&mut p);
+        assert_eq!(p.funcs.len(), 3, "the group merged");
+        // Narrowest first: `narrow`'s `a`, then the `b` only `wide` has.
+        assert_eq!(param_tys(&p.funcs[2]), vec![a_ty(), b_ty()]);
+        // `narrow` fills the one slot it owns; `wide` fills both, and its `a`
+        // goes first because that is the slot's type.
+        assert_eq!(arg_locals(p.funcs[0].body().expect("a forwarder")), vec![LocalId(0)]);
+        assert_eq!(
+            arg_locals(p.funcs[1].body().expect("a forwarder")),
+            vec![LocalId(1), LocalId(0)]
+        );
+        // The tail call *inside* the merged function is permuted the same way:
+        // `narrow` calls `wide(unit, n)`, whose `a` argument is second.
+        let ExprKind::Loop { entries } = &p.funcs[2].body().expect("a body").kind else {
+            panic!("the merged function loops")
+        };
+        let ExprKind::Continue { args, entry, .. } = &entries[0].kind else {
+            panic!("`narrow` jumps to `wide`")
+        };
+        assert_eq!(*entry, 1);
+        assert!(matches!(args[0].kind, ExprKind::Local(_)), "the `a` argument leads");
+        assert!(matches!(args[1].kind, ExprKind::Unit), "the `b` argument follows");
+    }
+
+    /// A group with **no** consistent assignment is left unmerged.
+    ///
+    /// Two members of the same arity whose parameters are different types
+    /// disagree about what the group's parameters *are*, not merely about their
+    /// order, so there is no slot list both can read. Merging it anyway is what
+    /// put two types in one slot; leaving it costs the group its mutual
+    /// tail-call elimination and keeps it correct, which is the right way
+    /// round.
+    #[test]
+    fn a_group_with_no_consistent_slots_is_left_alone() {
+        let mut p = program(vec![
+            func("a", vec![0], vec![typed("x", a_ty())], call(1, vec![e(ExprKind::Unit)])),
+            func("b", vec![0], vec![typed("y", b_ty())], call(0, vec![e(ExprKind::Unit)])),
+        ]);
+        rewrite(&mut p);
+        assert_eq!(p.funcs.len(), 2, "nothing was merged");
+        assert!(matches!(p.funcs[0].body().expect("a body").kind, ExprKind::CallFn { .. }));
+        assert!(matches!(p.funcs[1].body().expect("a body").kind, ExprKind::CallFn { .. }));
+    }
+
+    /// An entry **binds and drops** every slot it owns and does not read.
+    ///
+    /// A merged group's entries own disjoint prefixes of the parameter list, so
+    /// `middle::rc` no longer balances them against each other — an entry that
+    /// released a slot beyond its own arity was releasing the `undef`
+    /// `lower::pad` puts there. The obligation that balancing used to discharge
+    /// by accident is real for the entry that *does* own the slot, so it is
+    /// discharged here instead, where only that entry runs it.
+    ///
+    /// `wide`'s second parameter is never read by `wide`'s body, and `narrow`
+    /// has no parameter at that slot at all: exactly one of the two entries
+    /// binds it.
+    #[test]
+    fn an_entry_disposes_of_a_slot_it_owns_and_never_reads() {
+        let mut p = program(vec![
+            func(
+                "narrow",
+                vec![0],
+                vec![typed("n", a_ty())],
+                call(1, vec![e(ExprKind::Local(LocalId(0))), e(ExprKind::Unit)]),
+            ),
+            func(
+                "wide",
+                vec![0, 1],
+                vec![typed("v", a_ty()), typed("w", b_ty())],
+                call(0, vec![e(ExprKind::Local(LocalId(0)))]),
+            ),
+        ]);
+        rewrite(&mut p);
+        let ExprKind::Loop { entries } = &p.funcs[2].body().expect("a body").kind else {
+            panic!("the merged function loops")
+        };
+        // Entry 0 is `narrow`, which owns one slot and reads it.
+        assert!(matches!(entries[0].kind, ExprKind::Continue { .. }), "no disposal to write");
+        // Entry 1 is `wide`, which owns both and reads only the first.
+        let ExprKind::Block { stmts, tail } = &entries[1].kind else {
+            panic!("`wide` binds the slot it never reads")
+        };
+        assert_eq!(stmts.len(), 1, "one slot, one binding");
+        let Stmt::Let { value, .. } = &stmts[0] else { panic!("a binding") };
+        assert!(matches!(value.kind, ExprKind::Local(LocalId(1))), "it names the second slot");
+        assert!(matches!(
+            tail.as_ref().expect("the body follows").kind,
+            ExprKind::Continue { .. }
         ));
     }
 
