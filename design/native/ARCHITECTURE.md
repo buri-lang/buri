@@ -447,11 +447,34 @@ change what `buri run` executes and what a release ships. That flip stays what
 it was — one line, when the refusal goes quiet across the conformance corpus.
 
 `actions.rs` and `commands/build.rs` and `commands/test.rs` each refused a non-JS
-platform with "the backend is not implemented". All three are now gated on
-`native_ready` instead, in the wave that owned each (2c, 3a, 3c) — the wording is
-unchanged, because a toolchain that cannot produce a native artifact must say the
-same thing it always said, and that is what `repositories/cli/output_selection`
-and `repositories/testing/suite_platforms` pin.
+platform with "the backend is not implemented", and all three are gated on
+`native_ready` instead, in the wave that owned each (2c, 3a, 3c). **The wording
+was kept and should not have been.** `native_ready` is a conjunction of three
+questions and it answered a `bool`, so the one sentence had to cover all three —
+and it covered two of them falsely. A `linux/x86_64` output on a mac is refused
+by the *host*, on a machine that had just built `macos/arm64` from the same rule;
+a `--release` build without `backend-llvm` is refused by the *profile*, on a
+toolchain whose debug build of the same output works. Both were told "the
+{platform} backend is not implemented; this toolchain emits JavaScript, build
+with `--output=js`", which named the wrong thing and then pointed at a fix that
+was not one (buri-lang/buri#25, buri-lang/buri#26).
+
+`build/actions.rs`'s **`native_gap`** is the repair: the same three questions in
+the same order, answering *which* one failed as an output, a reason and a fix, and
+`native_ready` is now "is there no gap". All three sites print it through one
+templated diagnostic, `native-artifact-not-available`, so they cannot describe
+one gap three ways. `repositories/cli/output_selection` pins the host half and
+`backend::select`'s own rows pin the profile half — the profile half cannot be a
+golden, because what `--release` answers for the host's own target depends on
+which leg of `cli/tests/README.md`'s bar the toolchain was built on.
+
+What did **not** change is the release refusal itself. A toolchain without
+`backend-llvm` still refuses `--release` rather than falling back to the
+development backend, for the reason §3 gives above: `--release` producing
+different code depending on how the compiler was installed is an unpinned
+toolchain by another name. What the reader gets now is the true reason and the
+two things that would fix it — build without `--release`, which the development
+backend has the target for, or install a toolchain built with the feature.
 
 **One thing those two cases now depend on that they did not:** the *host*. On a
 Linux x86_64 machine `--output=linux/x86_64` is no longer refused — it builds —

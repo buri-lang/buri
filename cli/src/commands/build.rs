@@ -181,9 +181,12 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
     for entry in plan {
         let Entry { label, path, package_path, artifact, platform, output } = entry;
         if platform.is_native() {
-            if !actions::native_ready(actions::target_of(&output), actions::profile_of(&flags)) {
-                eprintln!("error: the {} backend is not implemented", platform.slug());
-                eprintln!("  = this toolchain emits JavaScript; check `--output=js`");
+            if let Some(gap) =
+                actions::native_gap(actions::target_of(&output), actions::profile_of(&flags))
+            {
+                eprintln!("error: no native artifact for {}", gap.output);
+                eprintln!("  = {}", gap.reason);
+                eprintln!("  = fix: {}", gap.fix);
                 return 1;
             }
             match check_native(&label, &path, &package_path, &artifact, &output, &flags, args) {
