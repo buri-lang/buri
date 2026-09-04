@@ -4,7 +4,8 @@ Working notes, not a design document. Each item is something the database
 monorepo writes by hand, with a pointer at the evidence. The sketches exist to be
 argued with.
 
-`design/STANDARD-LIBRARY.md` §5 applies to anything that comes of this: a
+The two rules in `cli/src/compiler/standard_library/mod.rs`'s header apply to
+anything that comes of this: a
 body-less declaration needs a conformance test that calls it, and the cost goes
 on the user-facing page.
 
@@ -520,7 +521,7 @@ hand-written message tables. `render` is the replay line, and it is worth
 shipping in the same wave: it is the reason this is a spec and not a loop, since
 one `[Flag]` drives parse, help, and re-render and they cannot drift. No
 `derive`-generated struct of typed fields — `derive` only attaches conformance
-(`design/STANDARD-LIBRARY.md` §3) — so accessors return `Option<Str>` and the
+(`design/non-goals.md`) — so accessors return `Option<Str>` and the
 caller uses `str.toInt`.
 
 Nick's decision (do this): the standard library should provide two utilities - one to get the CLI args unparsed as a `[Str]`, but it should also provide an opinionated way to create a CLI with parsed args and also implement things like `--help`, `--version`, and other common CLI args. You should provide immediately below some code snippet examples of the interface and the usage of this opinionated CLI parsing + command firing thing.
@@ -1028,7 +1029,7 @@ so the first user of `divFloor` is the standard library. **Fix `math.INFINITY`**
 is a property of whichever float parser ran, not a stated one. Make it a
 body-less `export let INFINITY: Float;` backed by an intrinsic, add `NAN` and
 `NEG_INFINITY` beside it, and pin all three in a conformance test that both
-backends run — `design/STANDARD-LIBRARY.md` §5 requires the test anyway, and the
+backends run — `cli/src/compiler/standard_library/mod.rs`'s rules require the test anyway, and the
 value being identical on JS and native is the whole point. **Defer** the
 saturating-subtract and sign-bit items: `Saturating` and `Checked` already exist
 and were not found, which puts them in §13 rather than here.
