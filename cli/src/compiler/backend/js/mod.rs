@@ -85,7 +85,7 @@ impl Backend for Js {
         }
 
         let release = opts.profile == Profile::Release;
-        let out = generate::generate(program, tables, opts.profile);
+        let out = generate::generate(program, tables, opts.profile, opts.target.platform);
         // Debug builds stay readable: the names are what make a stack trace
         // useful, and `--release` is where size matters.
         let stmts = javascript::minify(out.stmts, &out.roots, release);

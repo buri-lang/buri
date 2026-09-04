@@ -499,6 +499,45 @@ export fn main(): Result<(), Str> {
     let out = scratch.exec_js("cmd/x");
     out.ok();
     assert_eq!(out.stdout, "hi\n", "{}", out.stderr);
+
+    // The other half of `needs_require`, and the one still worth asking: a
+    // page that reaches neither. Every artifact for a platform with a
+    // `process.exit` asks for the prologue now — the exit path flushes through
+    // `fs.writeSync`, because an asynchronous write does not survive one
+    // (buri-lang/buri#37, buri-lang/buri#42) — so `WEB` is where the question
+    // "does this program need `require`?" is still a question, and where the
+    // answer matters: a page has no descriptor to write to, and a bundler
+    // would try to resolve `node:module` for it.
+    let page = "\
+// PLATFORM: WEB — a page, and one that reaches neither `Fs` nor `writeBytes`.
+from \"core/effect\" import { Alloc, Stdout };
+from \"core/host\" import * as host;
+from \"core/io\" import * as io;
+from \"ui/effect\" import { Ui, Watch };
+from \"ui/signal\" import { signal };
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc, Stdout: host.stdout, Ui: host.ui, Watch: host.watch,
+  };
+  let count = signal(ctx, 1);
+  let _ = io.println(ctx, \"count ${count.get(ctx)}\").ignore();
+  .Ok(())
+}
+";
+    let page_scratch = Scratch::repo("a-page-never-asks-for-the-prologue");
+    page_scratch.binary_package("cmd/page", page);
+    page_scratch.run(&["build", "//cmd/page", "--force"]).ok();
+    let page_artifact =
+        std::fs::read_to_string(page_scratch.artifact_in("web", "cmd/page")).unwrap();
+    assert!(
+        !page_artifact.contains("node:module"),
+        "a page reaching neither `Fs` nor `writeBytes` names `node:module`\n\n{page_artifact}"
+    );
+    assert!(
+        !page_artifact.contains("const $require="),
+        "a page reaching neither `Fs` nor `writeBytes` carries the prologue\n\n{page_artifact}"
+    );
 }
 
 /// Two generics instantiated over different contexts get different symbols.
