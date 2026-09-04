@@ -46,6 +46,21 @@
 //! [`ceiling`], which states which rows those are and what each residue is.
 //! Every row where the toolchain can be exact is zero, including every
 //! separator row of (a), which is the maintainer's own case.
+//!
+//! # What it costs
+//!
+//! Six thousand cases and five invariants over them, and every case is a pure
+//! function of one string. So the generated half is run the way the toolchain
+//! runs its own whole-program work: [`judge_with`] fans the cases out over
+//! [`buri::parallel::map_with`] and folds the verdicts back **in case order**,
+//! on one thread, so the report is a function of the corpus and not of the
+//! machine. The one invariant that runs a full analysis gives each worker an
+//! [`Analyzer`] to keep, which is what stops the standard library being
+//! re-parsed once per case, and [`corpus_and_cases`] builds the corpus once for
+//! all seven tests that ask for it.
+//!
+//! None of that is allowed to change an answer, and none of it does: the tables
+//! this prints are the same tables it printed as a serial loop, row for row.
 
 #![allow(
     clippy::unwrap_used,
@@ -127,40 +142,54 @@ fn base_seed() -> u64 {
 }
 
 /// The corpus this run drew from, and every mutation of it, in a fixed order.
-fn corpus_and_cases() -> (Vec<Source>, Vec<Mutation>) {
-    let root = harness::repo_root();
-    let corpus = mutation::corpus(&root);
-    assert!(
-        corpus.len() > 100,
-        "expected the checked-in compiling sources, found {}",
-        corpus.len()
-    );
-    let (seed, per) = (base_seed(), per_kind());
-    let mut out = Vec::new();
-    for src in &corpus {
-        out.extend(mutation::mutations_of(src, seed, per));
-    }
-    (corpus, out)
+///
+/// **Built once for the whole binary.** Seven tests here ask for it and it is
+/// the same answer for all of them: the walk reads two hundred checked-in
+/// sources, parses each to prove it compiles, and draws the same mutations from
+/// the same fixed seed. Building it per test was over a second of the run each
+/// time, seven times over, for a value nothing may modify — `cases` hands out
+/// shared references and there is no `&mut` anywhere in this file.
+///
+/// A `OnceLock` rather than a lazy memo per test because the default harness
+/// runs these tests on threads of one process: the first to arrive builds it
+/// and the rest wait, instead of six of them building their own copy beside it.
+fn corpus_and_cases() -> &'static (Vec<Source>, Vec<Mutation>) {
+    static BUILT: std::sync::OnceLock<(Vec<Source>, Vec<Mutation>)> = std::sync::OnceLock::new();
+    BUILT.get_or_init(|| {
+        let root = harness::repo_root();
+        let corpus = mutation::corpus(&root);
+        assert!(
+            corpus.len() > 100,
+            "expected the checked-in compiling sources, found {}",
+            corpus.len()
+        );
+        let (seed, per) = (base_seed(), per_kind());
+        let mut out = Vec::new();
+        for src in &corpus {
+            out.extend(mutation::mutations_of(src, seed, per));
+        }
+        (corpus, out)
+    })
 }
 
-fn cases() -> Vec<Mutation> {
-    let all = corpus_and_cases().1;
+fn cases() -> Vec<&'static Mutation> {
+    let all = &corpus_and_cases().1;
     // `BURI_RECOVERY_ONLY=<row>` narrows a run to one row of the report, which
     // is how a residue is read case by case rather than five at a time.
     match std::env::var("BURI_RECOVERY_ONLY") {
-        Ok(only) => all.into_iter().filter(|m| Tally::key(m) == only.trim()).collect(),
-        Err(_) => all,
+        Ok(only) => all.iter().filter(|m| Tally::key(m) == only.trim()).collect(),
+        Err(_) => all.iter().collect(),
     }
 }
 
 /// A deterministic spread of at most `cap` of them.
-fn strided(all: &[Mutation], cap: usize) -> Vec<&Mutation> {
+fn strided<'a>(all: &[&'a Mutation], cap: usize) -> Vec<&'a Mutation> {
     let cap = env_num("BURI_RECOVERY_CAP").unwrap_or(cap);
     if all.len() <= cap || cap == 0 {
-        return all.iter().collect();
+        return all.to_vec();
     }
     let stride = all.len() / cap;
-    all.iter().step_by(stride.max(1)).take(cap).collect()
+    all.iter().copied().step_by(stride.max(1)).take(cap).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +255,23 @@ impl Tally {
         self.rows.entry(Tally::key(m)).or_default().violated += 1;
         if self.examples.len() < 5 {
             self.examples.push(format!("{} ({}, {})\n{}", m.origin, m.what, m.nest.name(), indent(&why)));
+        }
+    }
+
+    /// Folds one case's [`Verdict`] in, which is the only way a case reaches
+    /// the counts now that the cases are judged off this thread.
+    fn record(&mut self, m: &Mutation, verdict: Verdict) {
+        match verdict {
+            Verdict::Skipped => {}
+            Verdict::Held => self.seen(m),
+            Verdict::StillValid => {
+                self.seen(m);
+                self.still_valid(m);
+            }
+            Verdict::Violated(why) => {
+                self.seen(m);
+                self.violation(m, why);
+            }
         }
     }
 
@@ -364,6 +410,66 @@ fn ceiling(invariant: &str, row: &str) -> usize {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Running the cases
+// ---------------------------------------------------------------------------
+
+/// What one case came to.
+///
+/// The invariants used to write straight into the [`Tally`] as they went, which
+/// is a running total and therefore the one thing a worker may not hold. So a
+/// case now *returns* what it found and the fold happens on one thread, in case
+/// order — see [`judge_with`].
+enum Verdict {
+    /// Not this invariant's business: not counted, not reported. Only
+    /// [`the_fix_names_the_missing_token`] has such cases — a swap is not a
+    /// missing token, so there is no token for a fix to name.
+    Skipped,
+    /// Counted, and the invariant held.
+    Held,
+    /// Counted, and the mutation left a program the grammar still accepts, so
+    /// there was nothing to hold it to.
+    StillValid,
+    /// Counted, and the invariant did not hold. The string is what the report
+    /// prints for the first five.
+    Violated(String),
+}
+
+/// Judges every case in parallel and folds the verdicts in case order.
+///
+/// **Nothing about the report depends on how the work was divided.** Each case
+/// is a pure function of its own text — the invariants read a parse, a format
+/// or an analysis of one string and nothing else — and
+/// [`buri::parallel::map_with`] returns results in index order, so the counts,
+/// the ceilings and the five examples this prints are exactly what the serial
+/// loop printed. That is asserted rather than argued: the tables in
+/// `cargo test -p buri --test recovery -- --nocapture` are compared before and
+/// after.
+///
+/// `init` is the scratch each worker keeps to itself. Most invariants need
+/// none; `a syntax error stays a syntax error` needs an [`Analyzer`], which is
+/// the whole of why this takes one.
+fn judge_with<S, I, F>(invariant: &str, sample: Sample, cases: &[&Mutation], init: I, each: F)
+where
+    I: Fn() -> S + Sync,
+    F: Fn(&mut S, &Mutation) -> Verdict + Sync,
+{
+    let verdicts = buri::parallel::map_with(cases.len(), init, |state, i| each(state, cases[i]));
+    let mut tally = Tally::default();
+    for (m, verdict) in cases.iter().zip(verdicts) {
+        tally.record(m, verdict);
+    }
+    tally.finish(invariant, sample);
+}
+
+/// The same, for an invariant whose cases need no scratch of their own.
+fn judge<F>(invariant: &str, sample: Sample, cases: &[&Mutation], each: F)
+where
+    F: Fn(&Mutation) -> Verdict + Sync,
+{
+    judge_with(invariant, sample, cases, || (), |(), m| each(m));
+}
+
 /// How many violations one row of `cases` may hold: its rate, plus the swing a
 /// sample of that size has in it.
 fn allowed(invariant: &str, row: &str, cases: usize, sample: Sample) -> usize {
@@ -469,25 +575,60 @@ fn rendered(text: &str, diagnostics: &[Diagnostic]) -> String {
         .collect()
 }
 
-/// Every error the whole front end reports, as the pair that identifies one:
-/// its code and its wording.
+/// One thread's front end, kept between cases.
 ///
-/// Enough to subtract one run's errors from another's, which is what the
-/// cascade invariant does. The *position* is deliberately not part of the key:
-/// a deleted token moves every byte after it, so a diagnostic the file already
-/// carried would otherwise read as one the mutation invented. The cost is that
-/// a cascade wording an unmutated file already produces somewhere else is
-/// masked, which is the safe direction to be wrong in.
-fn analysis_errors(name: &str, text: &str) -> Vec<(String, String)> {
-    let mut map = SourceMap::new();
-    let analysis = driver::analyze_snippet(&mut map, "recovery", text, role_of(name));
-    analysis
-        .diagnostics
-        .items
-        .iter()
-        .filter(|d| matches!(d.severity, Severity::Error))
-        .map(|d| (d.code.clone().unwrap_or_default(), d.message.clone()))
-        .collect()
+/// **The standard library is parsed once per worker rather than once per
+/// case.** `driver::analyze_snippet` builds a fresh [`SourceMap`] and a fresh
+/// parse cache for every call, so five thousand two-hundred-byte snippets each
+/// paid for a fresh parse of every embedded standard library module — which was
+/// most of this suite's runtime. Both structures are built to be reused:
+/// `SourceMap::embedded` hands the same `FileId` back for a module already in
+/// the map, `parser::Cache` is keyed on that id, and `modules::load_source_in`
+/// replaces the snippet's text under one id and forgets just that parse. So the
+/// map a worker holds after its first case is the map it holds after its
+/// thousandth — the same files, with the same ids, in the same order — and
+/// every case is analysed against exactly the state `analyze_snippet` would
+/// have built for it alone.
+///
+/// The `Rc`s inside both make an `Analyzer` neither `Send` nor `Sync`, which is
+/// precisely right: [`buri::parallel::map_with`] builds each worker's scratch
+/// inside that worker and never moves it.
+struct Analyzer {
+    map: SourceMap,
+    cache: buri::parsing::parser::Cache,
+}
+
+impl Analyzer {
+    fn new() -> Analyzer {
+        Analyzer { map: SourceMap::new(), cache: buri::parsing::parser::Cache::new() }
+    }
+
+    /// Every error the whole front end reports, as the pair that identifies
+    /// one: its code and its wording.
+    ///
+    /// Enough to subtract one run's errors from another's, which is what the
+    /// cascade invariant does. The *position* is deliberately not part of the
+    /// key: a deleted token moves every byte after it, so a diagnostic the file
+    /// already carried would otherwise read as one the mutation invented. The
+    /// cost is that a cascade wording an unmutated file already produces
+    /// somewhere else is masked, which is the safe direction to be wrong in.
+    fn errors(&mut self, name: &str, text: &str) -> Vec<(String, String)> {
+        let analysis = driver::analyze_snippet_in(
+            None,
+            &mut self.map,
+            &mut self.cache,
+            "recovery",
+            text,
+            role_of(name),
+        );
+        analysis
+            .diagnostics
+            .items
+            .iter()
+            .filter(|d| matches!(d.severity, Severity::Error))
+            .map(|d| (d.code.clone().unwrap_or_default(), d.message.clone()))
+            .collect()
+    }
 }
 
 /// A source under a `test/` directory is compiled as one, so that its `test`
@@ -519,26 +660,22 @@ fn role_of(name: &str) -> Role {
 #[test]
 fn a_missing_token_is_one_diagnostic() {
     let all = cases();
-    let mut tally = Tally::default();
-    for m in &all {
+    judge("one mistake is one diagnostic", Sample::Whole, &all, |m| {
         let errors = parse_errors(&m.source);
         let bound = m.bound();
-        tally.seen(m);
         if errors.is_empty() {
-            tally.still_valid(m);
-            continue;
+            return Verdict::StillValid;
         }
-        if errors.len() > bound {
-            let why = format!(
-                "{} diagnostics, and {bound} {} allowed:\n{}",
-                errors.len(),
-                if bound == 1 { "is" } else { "are" },
-                indent(&rendered(&m.source, &errors))
-            );
-            tally.violation(m, why);
+        if errors.len() <= bound {
+            return Verdict::Held;
         }
-    }
-    tally.finish("one mistake is one diagnostic", Sample::Whole);
+        Verdict::Violated(format!(
+            "{} diagnostics, and {bound} {} allowed:\n{}",
+            errors.len(),
+            if bound == 1 { "is" } else { "are" },
+            indent(&rendered(&m.source, &errors))
+        ))
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -555,25 +692,19 @@ fn a_missing_token_is_one_diagnostic() {
 #[test]
 fn the_first_diagnostic_lands_at_the_mutation() {
     let all = cases();
-    let mut tally = Tally::default();
-    for m in &all {
+    judge("the caret is on the mistake", Sample::Whole, &all, |m| {
         let errors = parse_errors(&m.source);
-        tally.seen(m);
-        let Some(first) = errors.first() else {
-            tally.still_valid(m);
-            continue;
-        };
+        let Some(first) = errors.first() else { return Verdict::StillValid };
         let (lo, hi) = m.window;
         let at = first.span.start as usize;
-        if at < lo || at > hi {
-            let why = format!(
-                "the first caret is at byte {at}, and the mutation's window is {lo}..{hi}:\n{}",
-                indent(&rendered(&m.source, &errors[..1]))
-            );
-            tally.violation(m, why);
+        if at >= lo && at <= hi {
+            return Verdict::Held;
         }
-    }
-    tally.finish("the caret is on the mistake", Sample::Whole);
+        Verdict::Violated(format!(
+            "the first caret is at byte {at}, and the mutation's window is {lo}..{hi}:\n{}",
+            indent(&rendered(&m.source, &errors[..1]))
+        ))
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -589,25 +720,19 @@ fn the_first_diagnostic_lands_at_the_mutation() {
 #[test]
 fn the_fix_names_the_missing_token() {
     let all = cases();
-    let mut tally = Tally::default();
-    for m in &all {
-        let Some(wants) = m.wants.as_deref() else { continue };
+    judge("the fix names the missing token", Sample::Whole, &all, |m| {
+        let Some(wants) = m.wants.as_deref() else { return Verdict::Skipped };
         let errors = parse_errors(&m.source);
-        tally.seen(m);
-        let Some(first) = errors.first() else {
-            tally.still_valid(m);
-            continue;
-        };
+        let Some(first) = errors.first() else { return Verdict::StillValid };
         let fix = first.fix.clone().unwrap_or_default();
-        if !fix.contains(wants) {
-            let why = format!(
-                "the fix is {fix:?}, and it does not name {wants}:\n{}",
-                indent(&rendered(&m.source, &errors[..1]))
-            );
-            tally.violation(m, why);
+        if fix.contains(wants) {
+            return Verdict::Held;
         }
-    }
-    tally.finish("the fix names the missing token", Sample::Whole);
+        Verdict::Violated(format!(
+            "the fix is {fix:?}, and it does not name {wants}:\n{}",
+            indent(&rendered(&m.source, &errors[..1]))
+        ))
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -628,59 +753,82 @@ fn the_fix_names_the_missing_token() {
 #[test]
 fn a_syntax_error_does_not_become_a_type_error() {
     let (corpus, all) = corpus_and_cases();
+    let all: Vec<&Mutation> = all.iter().collect();
     // Every case, not a stride: a 300-case sample of 5,201 could not see a
     // five-point regression, so its ceilings had to carry a sampling swing a
-    // real regression could hide inside. The whole population costs 43 s and
-    // takes the gate from 83 s to about 120 s — a quarter of the five-minute
-    // bar — and makes every ceiling below exact. `BURI_RECOVERY_CAP` still
-    // narrows a run by hand.
+    // real regression could hide inside. The whole population is what makes
+    // every ceiling below exact, and `BURI_RECOVERY_CAP` still narrows a run by
+    // hand.
+    //
+    // It was also the longest test in the whole `cargo test` run, and for a
+    // reason that had nothing to do with the population: it was one serial loop
+    // of five thousand full analyses, each of which built a `SourceMap` and a
+    // parse cache from nothing and therefore re-parsed the whole standard
+    // library. Sixty-five of the suite's seventy-eight seconds on a ten-core
+    // host, and a hundred and sixty on CI's four-core runner. It is now the
+    // corpus divided between the cores the machine already has, each of which
+    // parses that library once — nine seconds for the whole suite here. See
+    // [`Analyzer`] for the second half and [`judge_with`] for the first;
+    // neither changes which cases run, or what any of them is held to, or what
+    // the table below prints.
     let sample = strided(&all, 0);
     let texts: BTreeMap<&str, &str> =
         corpus.iter().map(|s| (s.name.as_str(), s.text.as_str())).collect();
-    let mut baselines: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-    let mut tally = Tally::default();
-    for m in sample {
-        let errors = parse_errors(&m.source);
-        tally.seen(m);
-        if errors.is_empty() {
-            tally.still_valid(m);
-            continue;
-        }
-        // The syntax errors, by the same key, so that they can be told apart
-        // from everything the checker went on to say.
-        let syntax: Vec<(String, String)> = errors
-            .iter()
-            .map(|d| (d.code.clone().unwrap_or_default(), d.message.clone()))
-            .collect();
-        // The baseline is the *unmutated* file, computed once per file: what
-        // it already said is not something the mutation invented.
-        let original = texts.get(m.file.as_str()).copied().unwrap_or("");
-        let base = baselines
-            .entry(m.file.clone())
-            .or_insert_with(|| analysis_errors(&m.file, original))
-            .clone();
-        let mut remaining = base;
-        let mut cascaded = Vec::new();
-        for e in analysis_errors(&m.file, &m.source) {
-            if let Some(i) = remaining.iter().position(|b| *b == e) {
-                remaining.remove(i);
-                continue;
+
+    // The baselines first, one per file rather than one per case: what the
+    // *unmutated* file already said is not something the mutation invented.
+    // They were already computed once per file, in a memo filled as the loop
+    // went; computing them all up front is what lets the cases below be a pure
+    // function of the case, because a memo shared between workers would be
+    // exactly the running total [`judge_with`] may not hold.
+    let mut files: Vec<&str> = sample.iter().map(|m| m.file.as_str()).collect();
+    files.sort_unstable();
+    files.dedup();
+    let computed = buri::parallel::map_with(files.len(), Analyzer::new, |analyzer, i| {
+        let file = files[i];
+        analyzer.errors(file, texts.get(file).copied().unwrap_or(""))
+    });
+    let baselines: BTreeMap<&str, Vec<(String, String)>> =
+        files.iter().copied().zip(computed).collect();
+
+    judge_with(
+        "a syntax error stays a syntax error",
+        Sample::Whole,
+        &sample,
+        Analyzer::new,
+        |analyzer, m| {
+            let errors = parse_errors(&m.source);
+            if errors.is_empty() {
+                return Verdict::StillValid;
             }
-            if syntax.contains(&e) {
-                continue;
+            // The syntax errors, by the same key, so that they can be told
+            // apart from everything the checker went on to say.
+            let syntax: Vec<(String, String)> = errors
+                .iter()
+                .map(|d| (d.code.clone().unwrap_or_default(), d.message.clone()))
+                .collect();
+            let mut remaining = baselines.get(m.file.as_str()).cloned().unwrap_or_default();
+            let mut cascaded = Vec::new();
+            for e in analyzer.errors(&m.file, &m.source) {
+                if let Some(i) = remaining.iter().position(|b| *b == e) {
+                    remaining.remove(i);
+                    continue;
+                }
+                if syntax.contains(&e) {
+                    continue;
+                }
+                cascaded.push(e);
             }
-            cascaded.push(e);
-        }
-        if !cascaded.is_empty() {
-            let why = format!(
+            if cascaded.is_empty() {
+                return Verdict::Held;
+            }
+            Verdict::Violated(format!(
                 "{} error(s) the mistake invented:\n{}",
                 cascaded.len(),
                 indent(&cascaded.iter().map(|(c, m)| format!("[{c}] {m}\n")).collect::<String>())
-            );
-            tally.violation(m, why);
-        }
-    }
-    tally.finish("a syntax error stays a syntax error", Sample::Whole);
+            ))
+        },
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -701,47 +849,35 @@ fn a_syntax_error_does_not_become_a_type_error() {
 fn a_broken_file_still_formats() {
     let all = cases();
     let sample = strided(&all, CI_FORMATTED);
-    let mut tally = Tally::default();
-    for m in sample {
+    judge("a broken file still formats", Sample::Strided, &sample, |m| {
         let errors = parse_errors(&m.source);
-        tally.seen(m);
         if errors.is_empty() {
-            tally.still_valid(m);
-            continue;
+            return Verdict::StillValid;
         }
         let Some(out) = buri::formatting::source(&m.source) else {
-            tally.violation(m, String::from("the formatter refused the file"));
-            continue;
+            return Verdict::Violated(String::from("the formatter refused the file"));
         };
         if buri::formatting::source(&out).as_deref() != Some(out.as_str()) {
-            tally.violation(m, String::from("formatting the output again moved it"));
-            continue;
+            return Verdict::Violated(String::from("formatting the output again moved it"));
         }
         let (before, after) = (kept(&m.source), kept(&out));
         if before != after {
-            tally.violation(
-                m,
-                format!(
-                    "the tokens moved.\n  in:\n{}\n  out:\n{}",
-                    indent(&format!("{before:?}")),
-                    indent(&format!("{after:?}"))
-                ),
-            );
-            continue;
+            return Verdict::Violated(format!(
+                "the tokens moved.\n  in:\n{}\n  out:\n{}",
+                indent(&format!("{before:?}")),
+                indent(&format!("{after:?}"))
+            ));
         }
         let (was, now) = (regions_kept(&m.source), regions_kept(&out));
         if was != now {
-            tally.violation(
-                m,
-                format!(
-                    "a region the formatter did not read came back changed.\n  in:\n{}\n  out:\n{}",
-                    indent(&was.join("\n---\n")),
-                    indent(&now.join("\n---\n"))
-                ),
-            );
+            return Verdict::Violated(format!(
+                "a region the formatter did not read came back changed.\n  in:\n{}\n  out:\n{}",
+                indent(&was.join("\n---\n")),
+                indent(&now.join("\n---\n"))
+            ));
         }
-    }
-    tally.finish("a broken file still formats", Sample::Strided);
+        Verdict::Held
+    });
 }
 
 /// Every token with the ones layout is allowed to add and drop taken out, as
