@@ -5,7 +5,7 @@
 //! divergence**. Until this file existed the table was a claim: nothing
 //! compiled one program through both pipelines and compared the bytes, so a
 //! row that quietly stopped being true stayed in the document as a sentence.
-//! `design/TODO.md`'s native section said so in as many words — "that test does not
+//! the design notes's native section said so in as many words — "that test does not
 //! exist yet, and until it does the table is a claim rather than a check".
 //!
 //! It was not a check, and four of the rows were wrong. Each is a test below

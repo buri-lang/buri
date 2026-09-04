@@ -9,8 +9,7 @@ who wants to know *whether* something was considered should not have to read all
 seven to find out. Where a row and its document disagree, the document is right —
 this is a table of contents, not a second source.
 
-Nothing here is open. Work that is not done is in
-[`design/TODO.md`](../TODO.md), under "The native backend"; a decision that is
+Nothing here is open. A decision that is
 reversed is reversed in the document that made it, with the reversal recorded
 there rather than deleted.
 

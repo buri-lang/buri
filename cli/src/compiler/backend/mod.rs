@@ -230,7 +230,7 @@ pub trait Backend {
     fn identity(&self) -> String;
 
     /// Intrinsic keys this backend has no implementation of, so "missing
-    /// intrinsic" becomes a question asked per backend (`design/TODO.md#the-native-backend`).
+    /// intrinsic" becomes a question asked per backend .
     ///
     /// Taking the program rather than a list of strings is the point: the list
     /// was accumulated as a side effect of emission, so a program could only be

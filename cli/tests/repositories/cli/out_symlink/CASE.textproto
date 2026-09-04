@@ -9,7 +9,7 @@
 # a link rather than a directory, it names the platform directory relatively,
 # both artifacts are reachable through it, and a build after the link is
 # removed puts it back. When a second backend exists, this case gains the step
-# that tells the two apart — see `design/TODO.md`.
+# that tells the two apart — see the design notes.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.

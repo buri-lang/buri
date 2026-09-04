@@ -52,7 +52,7 @@ run {
 # Recorded rather than asserted clean in passing: nothing reports the
 # unreachable `main.buri`, because `check_sources_declared` treats an entry
 # point as declared by the rule kind and there is no rule of that kind here.
-# That is a gap, not a decision — see `design/TODO.md` and the CLI reference.
+# That is a gap, not a decision — see the design notes and the CLI reference.
 run {
   args: ["lint", "//..."]
   exit: 0
