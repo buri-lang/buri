@@ -709,4 +709,41 @@ mod tests {
         assert!(leftovers.is_empty(), "temporaries left behind: {leftovers:?}");
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// [`Cache::put_file`] **moves** the file in, and what a later placement
+    /// produces is a **different inode** from the entry.
+    ///
+    /// Both halves are the write-once arrangement's terms. The move is the
+    /// saving: the linker's own output becomes the entry rather than being read
+    /// back and written a third time, which for a hundred-megabyte test runner
+    /// is the largest single write `buri test` used to make. The separate inode
+    /// is what pays for it — the entry may not be reachable through the file
+    /// that gets executed, or anything that opens the artifact could mutate the
+    /// bytes the store is keyed on, and the output would additionally inherit
+    /// the entry's identity on every link, which is what
+    /// `link::a_placed_artifact_keeps_the_file_it_overwrites` is about.
+    #[cfg(unix)]
+    #[test]
+    fn an_entry_takes_the_file_and_is_not_the_artifact() {
+        use std::os::unix::fs::MetadataExt;
+        let root = std::env::temp_dir().join(format!("buri-cache-move-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("a temporary directory");
+        let cache = Cache::open(&root);
+        let key = ActionKey::of(b"a linked artifact");
+        let staged = root.join("staged");
+        std::fs::write(&staged, b"an artifact").expect("writing the staged file");
+
+        cache.put_file(&key, &staged);
+        assert!(!staged.exists(), "put_file copied the file instead of moving it");
+        let entry = cache.entry(&key).expect("the entry the file became");
+        assert_eq!(std::fs::read(&entry).expect("the entry"), b"an artifact");
+
+        let out = root.join("artifact");
+        crate::build::link::place_from(&entry, &out).expect("placing the entry");
+        assert_eq!(std::fs::read(&out).expect("the output"), b"an artifact");
+        let ino = |p: &std::path::Path| std::fs::metadata(p).expect("the file").ino();
+        assert_ne!(ino(&out), ino(&entry), "the artifact is the cache entry's own inode");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
