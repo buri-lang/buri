@@ -31,8 +31,8 @@ impl ConvertError {
     }
 }
 
-// //libs/units has its own error type, and `?` does not convert between error
-// types, so the conversion is written once here.
+/// //libs/units has its own error type, and `?` does not convert between error
+/// types, so the conversion is written once here.
 fn bad(e: ParseError): ConvertError {
     ConvertError.Bad(e)
 }

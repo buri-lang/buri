@@ -37,6 +37,30 @@ documentation.
 Each item in that first group turns trait resolution from a lookup into a search
 (Section 5.12.5). They are deferred together, deliberately.
 
+## Struct-of-arrays, and the `derive` that would generate a type
+
+The recurring request that reaches the standard library — a `MultiArrayList<T>`,
+a columnar layout, a `derive Soa` — is one language gap wearing three faces. It
+is not expressible today, and on the JavaScript backend it would not be worth
+expressing:
+
+1. **A struct is already an array** in the JavaScript representation, so
+   `[Point]` is an array of arrays. A columnar `{ xs: [Float], ys: [Float] }`
+   really is faster in a JIT — but a user gets that today by writing the
+   two-field struct themselves, and a library adds nothing.
+2. **A generic `MultiArrayList<T>` is not typeable.** Exposing "column *i* of
+   `T`, at `T`'s *i*-th field type" needs dependent or row types, and Section 5.5
+   has no records.
+3. **The version that would work is a type-generating `derive`** — `derive Soa
+   for Point;` producing a `PointSoa` and its accessors. Today `derive` only
+   attaches a conformance to a type that already exists; generating a *new type*
+   is a language change, and it belongs beside the native backend, which is where
+   the layout would actually pay.
+
+Point 3 is load-bearing well beyond layout, and `core/cli`'s own module comment
+cites it: a typed command handler would need `derive` to build a struct out of a
+value, so a handler is handed an `Arguments` and asks it by name instead.
+
 ## Open questions, honestly flagged
 
 1. *The capture rule (10.6) is strict.* It buys a clean purity theorem at the cost

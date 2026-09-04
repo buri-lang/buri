@@ -5,9 +5,11 @@ description: Use when working with Buri types, generics, traits, derives, effect
 
 # Buri: types, traits, effects, contexts
 
-`buri docs language/types` and `buri docs language/effects` are the normative text;
-`buri docs core/list` renders a standard library module from the source the
-compiler checked.
+`buri docs language/types` and `buri docs language/effects` are the normative
+text. **Look in the library before writing a helper.** `buri docs core/list`
+renders a module from the source the compiler checked, bare `buri docs` lists
+every module there is, and `buri docs search <intent>` — "compare ints", "pad a
+string", "group by key" — prints each hit as the command that reads it.
 
 ## Primitives
 
@@ -22,10 +24,9 @@ compiler checked.
 | `Template` | an interpolated string literal |
 
 `Int = I64`, `Float = F64`, `Uint = U64`, `Byte = U8` are **aliases, not
-distinct types** — a function declared with `Int` and one declared with `I64`
-interoperate with no conversion. There is no `null`; absence is `Option<T>`.
-Everyday code writes `Int` and `Float`; code with a size on the wire writes
-`U8`, `I32`, `F32` and gets exactly that. There is no numeric tower.
+distinct types**: `Int` and `I64` interoperate with no conversion. There is no
+`null`; absence is `Option<T>`. Everyday code writes `Int` and `Float`; code
+with a size on the wire writes `U8`, `I32`, `F32`. There is no numeric tower.
 
 ## Composites
 
@@ -37,8 +38,8 @@ let maybe = xs[0];                      // Option<Int>, never Int
 ```
 
 - **There are no anonymous records.** Every product type is a named `struct`,
-  and every type in the language is nominal — including trait conformance.
-- Two structs with identical fields are different types.
+  and every type is nominal — trait conformance included — so two structs with
+  identical fields are different types.
 - Fields are module-private unless `export`ed. A struct with any private field
   cannot be constructed from scratch elsewhere, but `{ ..u, name: "x" }` still
   works, because it never names the hidden fields.
@@ -140,9 +141,8 @@ types satisfy `Bounded` only.
 ### What traits deliberately lack
 
 No blanket implementations, no associated types, no `where` clauses, no
-supertraits, no trait objects, no dynamic dispatch. Generic code is
-monomorphized, and a generic body is typechecked once with bounds verified at
-the call site.
+supertraits, no trait objects, no dynamic dispatch. Generic code is monomorphized:
+a generic body is typechecked once, with bounds verified at the call site.
 
 ## Method resolution
 

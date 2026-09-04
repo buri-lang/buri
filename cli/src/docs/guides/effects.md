@@ -9,15 +9,15 @@ type; everything below follows from those two things.
 # from "core/fs" import * as fs;
 # from "core/fs" import { FsRead, Path };
 
-// No `ctx`, so this cannot allocate, print, read a file, or open a socket —
-// and neither can anything it calls.
+/// No `ctx`, so this cannot allocate, print, read a file, or open a socket —
+/// and neither can anything it calls.
 fn shortfall(score: Int, needed: Int): Int {
     needed - score
 }
 
-// `Alloc + FsRead` is the whole of what this may do. `FsWrite` is not on the
-// list, so it cannot delete the file it just read; `Stdout` is not either, so
-// it cannot print, however much its caller can.
+/// `Alloc + FsRead` is the whole of what this may do. `FsWrite` is not on the
+/// list, so it cannot delete the file it just read; `Stdout` is not either, so
+/// it cannot print, however much its caller can.
 fn load<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, Str> {
     fs.readText(ctx, at).mapErr(fn(e) => "could not read the file")
 }

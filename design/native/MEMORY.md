@@ -763,10 +763,20 @@ The alternative that would fix all three is a generational copying collector, an
 
 ## 7. `Alloc`, natively: a defined cost model
 
-`design/STANDARD-LIBRARY.md` §1 settles the important half already: **a
-byte-exact cost model has to be *defined*, not measured**, or the numbers are
-not reproducible across backends and every test that asserts one is flaky. That
-stands, and it decides everything below.
+The important half is settled before any of the code: **a byte-exact cost model
+has to be *defined*, not measured**, or the numbers are not reproducible across
+backends and every test that asserts one is flaky. That decides everything
+below.
+
+It is also what made the allocator types real, and the history is worth one
+paragraph because it is the argument anybody proposing to widen them has to
+beat. `GeneralPurpose`, `Arena` and `FixedBuffer` were deliberately deferred
+while the only backend had a garbage collector, on the grounds that a count
+would be synthetic. **What made them real was not the native backend but this
+model**: the charge for an operation is computed from the types rather than
+measured, so the same program charges the same number on both backends by
+construction, and a count is not a JavaScript fact that a native run would
+contradict.
 
 ### 7.1 The model
 
@@ -802,10 +812,10 @@ Two rows deserve their reasons:
   number a test can assert.
 
 Making it a definition also makes it a **commitment**: a change to any row is a
-breaking change to observable behaviour, exactly as
-`design/STANDARD-LIBRARY.md` §1 says. It
-goes in `core/effect`'s own source next to the `Alloc` declaration, where a reader of
-the effect meets it — and it is there now, as a table above `effect Alloc`.
+breaking change to observable behaviour, which is what a defined model buys and
+what it costs. It goes in `core/effect`'s own source next to the `Alloc`
+declaration, where a reader of the effect meets it — and it is there now, as a
+table above `effect Alloc`.
 `middle::layout`'s `charge_list`, `charge_str`, `charge_closure_env`,
 `charge_allocate` and `CHARGE_VIEW` are the same rows as code, and
 `core/alloc`'s `strBytes`, `listBytes` and `closureBytes` are them again as
@@ -838,14 +848,15 @@ accounting policies over the one real allocator. They are not three allocators.
   the request in the message.
 - **`Arena`** — in v1, `GeneralPurpose` with its own separate counter. It does
   *not* free in bulk, and pretending otherwise would be the "synthetic number
-  rather than a measurement" the JavaScript backend was rightly criticised for
-  (`design/STANDARD-LIBRARY.md` §2).
+  rather than a measurement" the JavaScript backend was rightly criticised for.
 
   What would make `Arena` real is a language construct that bounds a context's
   lifetime — a scoped context, such that everything allocated under it is
   unreachable at the end of the scope. That is a language proposal, not a backend
   feature, and it is worth naming precisely so nobody attempts the backend half
-  first: without it, an arena in this language has no scope to end at (§4).
+  first: without it, an arena in this language has no scope to end at (§4). Until
+  a scope exists, what an `Arena` is *for* is attribution — an arena per phase,
+  answering "how much did parsing charge?" without subtracting two totals.
 
 #### 7.2.1 Amendment: the scope exists, and holds the values too
 
@@ -916,8 +927,7 @@ puts a second load in front of every drop of every closure in the language.
 
 ### 7.3 The hook is already there
 
-`design/STANDARD-LIBRARY.md` §2 records the non-obvious part, and it survives
-intact: every
+The non-obvious part survives intact: every
 allocating intrinsic is already handed the context and discards it —
 `$list_map(xs, c, f)`, `$str_split(s, c, sep)`, `$list_range(c, a, b)`. Routing
 it needs no change to any signature.
@@ -931,11 +941,11 @@ counting `GeneralPurpose` is *not* zero-sized — it holds a budget and a total 
 so a context binding one is a real record and the intrinsics receive it. The
 accounting costs exactly the programs that ask for accounting.
 
-`design/STANDARD-LIBRARY.md` §2 also settles that no reserved context slot is
-needed, and
-notes "a native backend knows the layout statically and does neither". That is
-right and it is now stronger than it sounds: natively there is no scan and no
-cache because there is no context value to scan.
+No reserved context slot is needed either — the JavaScript backend reads the
+context's own binding and a native backend knows the layout statically, so
+neither has to scan a slot for one. That is now stronger than it sounds:
+natively there is no scan and no cache because there is no context value to
+scan.
 
 #### 7.3.1 Amendment: the hook is there and the *charge* is not
 

@@ -34,9 +34,9 @@ the annotation you would rather infer, and it is what buys the rest of this
 page: **no inference crosses a function boundary.**
 
 ```buri
-// The signature is the whole contract. Nothing about `total`'s body can
-// change what a caller sees, and nothing about a caller can change how this
-// body checks.
+/// The signature is the whole contract. Nothing about `total`'s body can
+/// change what a caller sees, and nothing about a caller can change how this
+/// body checks.
 fn total(xs: [Int]): Int {
     xs.fold(fn(n, x) => n + x, 0)
 }

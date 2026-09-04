@@ -16,6 +16,19 @@ offside rule. Whitespace separates tokens and is otherwise meaningless.
 /// doc comment; attaches to the declaration that follows
 ```
 
+A fourth form documents the *file*: a `//!` line, legal above the first item of
+a module and nowhere else. `///` attaches downward to the declaration under it
+and `//!` attaches upward to the module around it, which is the whole of the
+difference — one lower down the file is `module-doc-not-first`, because at that
+point it is a mistyped `///` far more often than it is a note about the module.
+
+The third slash is what decides whether prose is **published**. `buri docs
+<module>` renders a module's `//!` text and every exported declaration's `///`,
+the language server shows the same text on hover, and `buri docs search` reads
+it; a `//` reaches none of them, however carefully it is written. A run longer
+than three — `////` — is deliberately an ordinary comment again, so a banner
+rule publishes nothing.
+
 ### 3.3 Identifiers and naming
 
 `IDENT` is `[A-Za-z_][A-Za-z0-9_]*` minus keywords and reserved words.
