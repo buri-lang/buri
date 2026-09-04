@@ -154,7 +154,7 @@
 )]
 
 use crate::compiler::middle::monomorphize::{
-    short_hash, Desc, DescVariant, Func, FuncKind, Program,
+    short_hash, ConShape, Desc, DescVariant, Func, FuncKind, Program,
 };
 use crate::compiler::semantics::typed::{
     self, Arm, Callee, Expr, ExprKind, FieldPat, PatKind, Pattern, PrimOp, TemplatePart,
@@ -362,6 +362,12 @@ fn descriptor_arg(args: &[Expr]) -> Option<usize> {
 /// each operation is the type of a call site that asked for it. That is enough
 /// precisely because a generated function is only ever needed where a call site
 /// exists.
+///
+/// The one thing a *call site* cannot answer is a primitive a generated body
+/// needs and the program never mentions — a `Bool` in a program that derives
+/// `Ord` and no `Eq` — and `Program::shapes` closes it, because it is every
+/// declared type rather than the reached ones. [`Env::discover`] reads it last,
+/// so it fills gaps and overrides nothing.
 struct Env {
     /// Descriptor index to the type it describes.
     ty_of: Vec<Option<Ty>>,
@@ -459,6 +465,28 @@ impl Env {
         }
         if json_variants.is_empty() {
             json_variants = JSON_VARIANTS.iter().map(|s| (*s).to_string()).collect();
+        }
+        // Whatever is still missing, off `Program::shapes` — which is *every*
+        // declared type rather than the reached ones, so it answers where the
+        // readings above cannot: a program that derives `Ord` and never asks
+        // for `==`, never writes a `Bool` literal and never spells a comparison
+        // of its own has no `structuralEq` call site and no literal to read
+        // one from, and its generated `compare` was then built with conditions
+        // of type `Ty::Error` — reported by the verifier as "branches on a
+        // value that is not a Bool" (buri-lang/buri#27). A primitive's type is
+        // its constructor applied to nothing, and `shapes.cons` is indexed by
+        // `TyConId`, so the index *is* the constructor.
+        //
+        // Last, not first, so that every type this pass used to learn from the
+        // program is still the one it learns: `Str` and `Template` are two
+        // constructors over the same primitive (`middle::lower`), and which of
+        // them a body means is a question only the body answers.
+        for (i, shape) in program.shapes.cons.iter().enumerate() {
+            if let ConShape::Prim(p) = shape {
+                prim_of
+                    .entry(*p)
+                    .or_insert_with(|| Ty::Con(TyConId(i as u32), Vec::new()));
+            }
         }
         Env { ty_of, prim_of, result, json_variants }
     }
@@ -861,8 +889,24 @@ impl Generator {
         self.env.prim_of.get(&Prim::Str).cloned().unwrap_or(Ty::Error)
     }
 
+    /// `Bool`, which a generated `compare` needs for its `if` even in a
+    /// program that derives no `Eq`.
+    ///
+    /// It read `result(Op::Eq)` alone, which is the type of a `structuralEq`
+    /// **call site** — so a program that derives `Ord` and never asks for `==`
+    /// had no `Bool` at all, and every `if (a < b)` in a generated `compare`
+    /// was built with a condition of type `Ty::Error`. The verifier caught it
+    /// as "branches on a value that is not a Bool" rather than as a missing
+    /// type (buri-lang/buri#27). `prim_of[Bool]` is the same type, read off a
+    /// `Bool` literal where the program wrote one and off `Program::shapes`
+    /// where it did not — and the shape table is every *declared* type, so it
+    /// answers whatever the program happens to contain.
     fn bool_ty(&self) -> Ty {
-        self.env.result(Op::Eq).cloned().unwrap_or(Ty::Error)
+        self.env
+            .result(Op::Eq)
+            .or_else(|| self.env.prim_of.get(&Prim::Bool))
+            .cloned()
+            .unwrap_or(Ty::Error)
     }
 
     fn local_expr(&self, id: LocalId, ty: &Ty) -> Expr {

@@ -1,0 +1,109 @@
+// SPEC 5.12.3 — what `derive Ord` means where a field is a `[T]`.
+//
+// `derive Eq` over an array was already answered on both backends; ordering was
+// not. The helper the middle end bottoms out at — `deriveArrayCompare`,
+// `([T], [T], fn(T, T) -> Order) -> Order` — had no body on the stencil
+// backend, so `derive Ord` on a type holding an array was a program the front
+// end accepted and no native target could build (buri-lang/buri#27).
+//
+// The order is lexicographic and it is `$cmp`'s array arm: the first
+// `min(m, n)` elements decide it, and where every one of them is `Equal` the
+// **lengths** do. So a prefix sorts below what extends it, and a larger first
+// element outranks any number of smaller ones.
+//
+// Every value is built by a function, so two equal values are two objects: as
+// literals the compiler is free to share one and a comparison would be answered
+// by identity.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/order" import { Order };
+from "core/testing/assert" import * as assert;
+from "//lib/codegen" import { mkLeaf, mkLeaves, mkOctets, mkWords, Tagged };
+
+// --- a scalar element ----------------------------------------------------------------
+
+test "an array of scalars orders element by element" {
+    assert.isTrue(mkOctets([1]) < mkOctets([2]));
+    assert.isFalse(mkOctets([2]) < mkOctets([1]));
+    assert.isTrue(mkOctets([1, 2]) < mkOctets([1, 3]));
+    assert.isFalse(mkOctets([1, 3]) < mkOctets([1, 2]));
+}
+
+test "a prefix sorts below what extends it" {
+    assert.isTrue(mkOctets([]) < mkOctets([0]));
+    assert.isTrue(mkOctets([1]) < mkOctets([1, 0]));
+    assert.isFalse(mkOctets([1, 0]) < mkOctets([1]));
+}
+
+test "the first differing element decides, not the length" {
+    // `[9]` is one element and `[1, 2]` is two, and the order is still the
+    // element's: a comparison that reached for the lengths first would answer
+    // the other way.
+    assert.isTrue(mkOctets([9]) > mkOctets([1, 2]));
+}
+
+test "equal arrays are equal and neither below nor above" {
+    assert.isTrue(mkOctets([1, 2]) == mkOctets([1, 2]));
+    assert.isFalse(mkOctets([1, 2]) < mkOctets([1, 2]));
+    assert.isFalse(mkOctets([1, 2]) > mkOctets([1, 2]));
+    assert.eq(mkOctets([1, 2]).compare(mkOctets([1, 2])), Order.Equal);
+    assert.isTrue(mkOctets([]) == mkOctets([]));
+    assert.isFalse(mkOctets([]) < mkOctets([]));
+}
+
+test "compare answers the three variants" {
+    assert.eq(mkOctets([1]).compare(mkOctets([2])), Order.Less);
+    assert.eq(mkOctets([2]).compare(mkOctets([1])), Order.Greater);
+    assert.eq(mkOctets([1]).compare(mkOctets([1])), Order.Equal);
+    assert.eq(mkOctets([1]).compare(mkOctets([1, 1])), Order.Less);
+    assert.eq(mkOctets([1, 1]).compare(mkOctets([1])), Order.Greater);
+}
+
+// --- a `Str` element -----------------------------------------------------------------
+
+test "an array of strings orders by its elements" {
+    assert.isTrue(mkWords(["a"]) < mkWords(["b"]));
+    assert.isTrue(mkWords(["a"]) < mkWords(["a", "a"]));
+    assert.isTrue(mkWords(["ab"]) > mkWords(["aa", "zz"]));
+    assert.isTrue(mkWords([]) < mkWords([""]));
+    assert.isTrue(mkWords(["a", "b"]) == mkWords(["a", "b"]));
+}
+
+// --- a struct element ----------------------------------------------------------------
+
+test "an array of structs orders field by field within each element" {
+    let a = mkLeaves([mkLeaf(1, "x")]);
+    let b = mkLeaves([mkLeaf(1, "y")]);
+    let c = mkLeaves([mkLeaf(2, "a")]);
+    assert.isTrue(a < b);
+    assert.isTrue(b < c);
+    assert.isTrue(a < c);
+    assert.isTrue(a == mkLeaves([mkLeaf(1, "x")]));
+    assert.isTrue(a < mkLeaves([mkLeaf(1, "x"), mkLeaf(0, "")]));
+}
+
+// --- an enum whose payloads are arrays ------------------------------------------------
+
+test "the variant decides before the array does" {
+    assert.isTrue(Tagged.Empty < Tagged.Bytes([]));
+    assert.isTrue(Tagged.Bytes([255]) < Tagged.Words([]));
+}
+
+test "within one variant the array decides" {
+    assert.isTrue(Tagged.Bytes([1]) < Tagged.Bytes([1, 1]));
+    assert.isTrue(Tagged.Words(["a"]) < Tagged.Words(["b"]));
+    assert.isTrue(Tagged.Bytes([1, 2]) == Tagged.Bytes([1, 2]));
+}
+
+// --- sorting -------------------------------------------------------------------------
+
+test "a derived ordering sorts" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = [mkOctets([2]), mkOctets([1, 5]), mkOctets([]), mkOctets([1])];
+    let sorted = xs.sort(ctx);
+    assert.eq(sorted, [mkOctets([]), mkOctets([1]), mkOctets([1, 5]), mkOctets([2])]);
+}
