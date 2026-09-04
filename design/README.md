@@ -17,7 +17,6 @@ here.
 
 | File | What it is |
 |---|---|
-| [`TODO.md`](./TODO.md) | What is not done: open gaps, deferred work with its reasons, and the decisions to keep saying no to. Completed work is not recorded there. Cite it by heading anchor, never by line number. |
 | [`STANDARD-LIBRARY.md`](./STANDARD-LIBRARY.md) | Why `core/*` contains what it contains, and what the deliberate absences would cost to close. |
 | [`ui-reactivity.md`](./ui-reactivity.md) | Why `ui/*` is shaped the way it is: signals as inert handles, meaning as a role and arrangement as a style, two style tiers, and exhaustive themes. It has shipped, so it keeps the argument and points at the reference; its "As built" section records where compiling it overruled it. |
 | [`grammar-rationale.md`](./grammar-rationale.md) | Every decision that keeps the grammar context-free and unambiguous, with what each one cost. It was section 12 of the specification; a reader writing Buri never needs it, and the compiler's own comments cite it by item number. |

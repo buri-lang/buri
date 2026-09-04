@@ -26,7 +26,6 @@ const STANDALONE: &[&str] = &[
     "README.md",
     "cli/src/docs/SPEC.md",
     "design/README.md",
-    "design/TODO.md",
     "design/STANDARD-LIBRARY.md",
     "cli/tests/README.md",
 ];

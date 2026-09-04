@@ -1,6 +1,6 @@
 # Memory
 
-`design/TODO.md#the-native-backend` states the problem and offers two answers:
+the design notes states the problem and offers two answers:
 "the language has no mutation and no destructors, so native either ships a GC or
 does escape analysis with an arena per `Alloc` scope."
 
@@ -110,7 +110,7 @@ growing a rooting discipline.
 
 ## 4. Why not an arena per `Alloc` scope
 
-This is the one `design/TODO.md#the-native-backend` hopes for, and the honest
+This is the one the design notes hopes for, and the honest
 answer is that the effect system does not carry the information it would need.
 
 **`Alloc` says a function allocates. It does not say when the allocation dies.**

@@ -8,7 +8,7 @@ middle end and a backend is, how the build graph grows, and what
 `--check-reproducible` means once an artifact is an executable.
 
 Everything here is decided. Where a decision contradicts something already
-written down — in `design/TODO.md`, or in the code — the contradiction is named
+written down — in the design notes, or in the code — the contradiction is named
 with a file and a line.
 
 ## 1. The shape of the problem
@@ -269,7 +269,7 @@ pub trait Backend {
 
     /// Intrinsic keys this backend has no implementation of, so
     /// "missing intrinsic" becomes a question asked per backend
-    /// (`design/TODO.md`, "The native backend").
+    /// .
     ///
     /// Takes `&Tables` as well as the program: deciding whether a key has a
     /// body goes through the same code the emission does — `Gen::intrinsic`,
@@ -729,7 +729,7 @@ executable.
 The waves this section scheduled have all landed. The schedule itself is not
 kept: what it planned is now the module layout in §2, the trait in §3, and the
 action graph in §6, and a plan for finished work is a second description of
-those that nothing checks. What remains open is in `design/TODO.md`, under
+those that nothing checks. What remains open is in the design notes, under
 "The native backend".
 
 ## 9. What this does not do

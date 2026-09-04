@@ -23,7 +23,7 @@
 //! that happens to exist. A table turns it into
 //! [`super::Llvm::missing_intrinsics`], which is asked *before* a second is
 //! spent in LLVM — which is the reason that hook is on the trait
-//! (`backend/mod.rs`, `design/TODO.md#the-native-backend`).
+//! (`backend/mod.rs`, the design notes).
 //!
 //! So the mangler lives in `backend/runtime_native.rs` as `symbol_for`, and it
 //! is used only to *name* the symbol a table entry claims; the table decides

@@ -879,7 +879,7 @@ Not a hot-reload, not a REPL, and not a language server. It re-runs `buri test`
 and it does not keep a compiled program alive between runs. The reason to say so
 is that the machinery that would make it more — a persistent process holding the
 checked standard library between runs — is the same machinery
-`design/TODO.md` names as still missing under "Incrementality and caching"
+the design notes names as still missing under "Incrementality and caching"
 ("nothing shares work between processes"), and it is a separate, larger piece
 of work whose first customer
 would be the language server rather than this.
