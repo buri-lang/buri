@@ -17,6 +17,27 @@
 //! implementations, the test runner's — and every one of them must have an
 //! entry in the backend's runtime or code generation fails loudly.
 //!
+//! # Two rules for anything added to `core/*`
+//!
+//! Neither is checked by a compiler pass, and both have been paid for once.
+//!
+//! 1. **Every body-less declaration needs a conformance test that calls it.**
+//!    `cli/tests/language/standard_library.rs` stops after type checking, so a
+//!    declaration with no runtime function behind it passes that suite silently
+//!    and fails only when a real program reaches it. The suites under
+//!    `cli/tests/conformance/lib/` are what actually run the code.
+//! 2. **State the cost.** Every structure here is persistent, and persistent
+//!    structures have costs that mutable ones do not. Saying `set` is O(n/32) is
+//!    better than implying the O(1) a mutable bit set would have. The cost goes
+//!    on the user-facing page — `cli/src/docs/reference/standard-library.md`, in
+//!    the table — and in the module's own `//!` header, not in a `//` comment
+//!    that nothing renders.
+//!
+//! The module's own documentation is the reference for it: `buri docs core/list`
+//! and the website's `reference/std/core/list` are both rendered from the `//!`
+//! and `///` comments in `sources/`, so there is no second copy of the API to
+//! keep in step and a signature on a page is a signature that exists.
+//!
 //! Everything the rest of the compiler asks about a standard library module is
 //! answered from the one table below. It used to be five hand-maintained lists
 //! of the same strings — a `source()` match, a `MODULES` array, an

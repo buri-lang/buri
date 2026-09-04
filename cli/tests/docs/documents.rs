@@ -26,7 +26,7 @@ const STANDALONE: &[&str] = &[
     "README.md",
     "cli/src/docs/SPEC.md",
     "design/README.md",
-    "design/STANDARD-LIBRARY.md",
+    "design/non-goals.md",
     "cli/tests/README.md",
 ];
 
@@ -569,6 +569,93 @@ fn the_standard_library_reference_is_complete() {
         }
     }
     assert!(empty.is_empty(), "these modules render no items: {empty:?}");
+}
+
+/// The prose map and the library it maps, in lockstep.
+///
+/// A module's own page is *generated* — `buri docs core/list` and the site's
+/// `reference/std/core/list` are both rendered from the source the compiler
+/// checked, so no hand-written listing of items can drift from it. What is
+/// still written by hand is
+/// `cli/src/docs/reference/standard-library.md`: the map over the top, which
+/// says which modules there are and what each costs. That half *can* drift, in
+/// exactly one way — a module lands and nothing on the map mentions it — and
+/// this is the assertion that stops it. The check runs in both directions,
+/// because a link to a source file that no longer backs a module is the same
+/// bug seen from the other end.
+#[test]
+fn the_prose_map_names_every_module_and_no_others() {
+    let root = repo_root();
+    let page = read("cli/src/docs/reference/standard-library.md");
+
+    let mut missing = Vec::new();
+    let mut unlinked = Vec::new();
+    for module in buri::compiler::standard_library::MODULES {
+        if !page.contains(module.path) {
+            missing.push(module.path);
+            continue;
+        }
+        match std_source_file(&root, module.source) {
+            Some(file) => {
+                if !page.contains(&format!("sources/{file}")) {
+                    unlinked.push(module.path);
+                }
+            }
+            None => panic!("`{}` has no file under sources/", module.path),
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "these modules exist and the standard library map never names them: {missing:?}.\n  \
+         Add each to `cli/src/docs/reference/standard-library.md` under the heading it \
+         belongs to, with what it costs."
+    );
+    assert!(
+        unlinked.is_empty(),
+        "these modules are named on the map but not linked to their source: {unlinked:?}"
+    );
+
+    // The other direction: nothing on the map links at a file the library does
+    // not ship, which is what a deleted or renamed module leaves behind.
+    let shipped: std::collections::HashSet<String> = buri::compiler::standard_library::MODULES
+        .iter()
+        .filter_map(|m| std_source_file(&root, m.source))
+        .collect();
+    let mut stale = Vec::new();
+    let mut rest = page.as_str();
+    while let Some(at) = rest.find("sources/") {
+        rest = &rest[at + "sources/".len()..];
+        let end = rest.find(".buri").map(|i| i + ".buri".len());
+        if let Some(end) = end {
+            let named = &rest[..end];
+            if named.chars().all(|c| c.is_ascii_lowercase() || c == '_' || c == '.')
+                && !shipped.contains(named)
+            {
+                stale.push(named.to_string());
+            }
+        }
+    }
+    stale.sort();
+    stale.dedup();
+    assert!(stale.is_empty(), "the map links at sources the library does not ship: {stale:?}");
+}
+
+/// Which file under `sources/` a module's text came from.
+///
+/// `MODULES` records what a module *is* and not where it was read from, and the
+/// two do not follow one another — `core/net/http` is `sources/http.buri`. The
+/// bytes are the only thing that cannot be wrong.
+fn std_source_file(root: &std::path::Path, text: &str) -> Option<String> {
+    let dir = root.join("cli/src/compiler/standard_library/sources");
+    for entry in std::fs::read_dir(&dir).ok()?.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|x| x == "buri")
+            && std::fs::read_to_string(&path).is_ok_and(|t| t == text)
+        {
+            return Some(path.file_name()?.to_string_lossy().to_string());
+        }
+    }
+    None
 }
 
 /// Every `///` on an exported standard library item ends up on its page. This

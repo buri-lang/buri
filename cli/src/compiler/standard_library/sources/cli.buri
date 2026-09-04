@@ -195,7 +195,7 @@
 //! back `Option<Str>` and the caller reaches for `str.toInt`, because a
 //! *typed* handler would need this module to build a type out of a value —
 //! `derive` only attaches a conformance to a type that already exists
-//! (`design/STANDARD-LIBRARY.md` §3), and generics cannot do it either: one
+//! (`design/non-goals.md`), and generics cannot do it either: one
 //! `Cli` holds a list of commands, so every command in it would have to be
 //! the same type, which is exactly what a per-command argument struct is not.
 //! A type-safe handler wants reflection or macros, and this language has
