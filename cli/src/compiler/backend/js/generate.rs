@@ -1310,6 +1310,25 @@ impl<'a> Gen<'a> {
                         out.push(Stmt::Expr(v));
                     }
                 } else {
+                    // `bind` spells the subject once per name it reaches, so a
+                    // destructuring pattern spells it more than once — and a
+                    // subject spelled twice is *evaluated* twice. For
+                    // `let (a, b) = f(ctx)` that ran `f` once per element, so
+                    // an effectful `f` performed its effect twice and the two
+                    // halves of one pair came from two different calls
+                    // (buri-lang/buri#30). A name is bound to it first, unless
+                    // the subject is something a second read cannot observe.
+                    let v = if Self::subject_uses(pattern) > 1 && !v.is_duplicable() {
+                        let t = self.fresh();
+                        out.push(Stmt::Var {
+                            kind: VarKind::Const,
+                            name: t.clone(),
+                            init: Some(v),
+                        });
+                        Expr::ident(t)
+                    } else {
+                        v
+                    };
                     self.bind(pattern, &v, out);
                 }
             }
@@ -1616,6 +1635,31 @@ impl<'a> Gen<'a> {
             }
         }
         acc
+    }
+
+    /// How many times [`Self::bind`] would spell the subject for this pattern.
+    ///
+    /// One per name it reaches, because every declaration it emits holds a path
+    /// that starts at the subject — so a pattern binding nothing spells it zero
+    /// times and `(a, b)` spells it twice. The caller that hands `bind` an
+    /// expression rather than a name needs the count: an expression written
+    /// twice is evaluated twice.
+    ///
+    /// An or-pattern answers zero: its bindings are assigned inside its test,
+    /// which reads a subject already bound to a name.
+    fn subject_uses(pattern: &typed::Pattern) -> usize {
+        match &pattern.kind {
+            PatKind::Bind { sub, .. } => 1 + sub.as_deref().map_or(0, Self::subject_uses),
+            PatKind::Tuple(ps) => ps.iter().map(Self::subject_uses).sum(),
+            PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
+                fields.iter().map(|f| Self::subject_uses(&f.pattern)).sum()
+            }
+            PatKind::Array { elems, rest } => {
+                let bound = usize::from(matches!(rest, typed::ArrayRest::Bound(_)));
+                elems.iter().map(Self::subject_uses).sum::<usize>() + bound
+            }
+            _ => 0,
+        }
     }
 
     /// Emits `const` declarations for everything a pattern binds.
