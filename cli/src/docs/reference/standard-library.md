@@ -161,6 +161,31 @@ dependencies and ships no data files. `Zoned` carries a fixed offset in
 minutes, which covers UTC, a stored offset, and arithmetic within one offset.
 It does not cover `America/New_York`, and it does not pretend to.
 
+### Randomness
+
+[`core/random`](../../compiler/standard_library/sources/random.buri) has two
+doors, and the principle behind the split is that **an RNG either takes a seed
+or takes a context**.
+
+`int`, `float` and `bytes` take a context and perform the `Rand` effect. `Gen`
+takes a seed and performs nothing: `random.seeded(7)` is an ordinary value,
+every method answers `(value, Gen)`, and the same seed gives the same sequence
+on every backend and in every process. It is splitmix64, published in the
+module rather than hidden behind an effect, and `split()` answers two streams
+where a program would otherwise be inventing salt constants by hand.
+
+A generator that is a value is what a deterministic simulator needs and could
+not have: a simulation replays a failure from a seed, so its generator cannot be
+something it was handed. `random.gen(ctx)` is the bridge — draw a seed from the
+platform once, then be pure.
+
+`Gen.nextInt` is rejection-sampled, so it has **no modulo bias**; the bounded
+draw is the one place a hand-written generator keeps getting it wrong.
+
+Neither door is a secret. Both are uniform and both are predictable — for `Gen`,
+from a single draw, which is what publishing the algorithm means. What is *not*
+guessable is [`core/crypto`](#cryptography)'s, below.
+
 ### Cryptography
 
 [`core/crypto`](../../compiler/standard_library/sources/crypto.buri) — SHA-256,

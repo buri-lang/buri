@@ -139,6 +139,19 @@ export effect Clock {
     fn sleepMillis(self, millis: Int): ();
 }
 
+/// Uniform numbers, and **only** uniform ones.
+///
+/// This effect promises a *distribution*. It says nothing about
+/// unpredictability, and that silence used to be all there was — which was the
+/// bug, because a reader could not tell whether it was a promise nobody had
+/// written down or one nobody was making. It is the second: the host's
+/// implementation is xoshiro256++ natively and `Math.random` on JavaScript, and
+/// an observer who has seen enough output of either can predict the rest.
+///
+/// A program that needs the other promise names `Entropy` below.
+/// A program that wants a generator it can *replay* uses `core/random`'s `Gen`,
+/// which takes a seed and is a value rather than an effect — the same
+/// distribution, none of the authority, and the same numbers twice.
 export effect Rand {
     fn nextInt(self, lo: Int, hi: Int): Int;
     fn nextFloat(self): Float;
