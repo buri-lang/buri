@@ -861,8 +861,22 @@ impl Generator {
         self.env.prim_of.get(&Prim::Str).cloned().unwrap_or(Ty::Error)
     }
 
+    /// `Bool`, which a generated `compare` needs for its `if` even in a
+    /// program that derives no `Eq`.
+    ///
+    /// It read `result(Op::Eq)` alone, which is the type of a `structuralEq`
+    /// **call site** — so a program that derives `Ord` and never asks for `==`
+    /// had no `Bool` at all, and every `if (a < b)` in a generated `compare`
+    /// was built with a condition of type `Ty::Error`. The verifier caught it
+    /// as "branches on a value that is not a Bool" rather than as a missing
+    /// type. `prim_of[Bool]` is the same type learned from a literal, and
+    /// `assert.isTrue`'s own body carries one.
     fn bool_ty(&self) -> Ty {
-        self.env.result(Op::Eq).cloned().unwrap_or(Ty::Error)
+        self.env
+            .result(Op::Eq)
+            .or_else(|| self.env.prim_of.get(&Prim::Bool))
+            .cloned()
+            .unwrap_or(Ty::Error)
     }
 
     fn local_expr(&self, id: LocalId, ty: &Ty) -> Expr {
