@@ -22,10 +22,10 @@ first two parameters, and a third spelling would cost it.
 ## A program that provokes it
 
 ```buri fail code=effect-param-not-ctx
-# from "core/effect" import { Fs };
 # from "core/fs" import * as fs;
+# from "core/fs" import { FsRead, Path };
 
-fn sneaky<C: Fs>(a: Int, handle: C): Bool {
-    fs.exists(handle, "x")
+fn sneaky<C: FsRead>(a: Int, handle: C, at: Path): Bool {
+    fs.exists(handle, at)
 }
 ```

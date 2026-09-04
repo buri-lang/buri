@@ -27,11 +27,11 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Forty-two of the fifty-one files are in it** — the number the harness
+//! **Forty-six of the fifty-five files are in it** — the number the harness
 //! prints, re-derived from it rather than incremented by hand, and one the
 //! prose has drifted from more than once. The ordinals in the paragraphs below
 //! record *when* a file joined the set and are not a running total of it;
-//! `text/hex.buri`, `calendar/duration.buri` and `cli/arguments.buri` are the
+//! `text/path.buri`, `text/hex.buri` and `cli/arguments.buri` are the
 //! latest, and their own entries say why they are in.
 //! `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
@@ -526,6 +526,11 @@ const PACKAGES: &[Case] = &[
     // none of it meets the `Result<T, RangeError>` shape that holds
     // `numbers/conversions.buri` out.
     included("text/hex.buri"),
+    // `core/path` is pure string work over a `Str` the module normalized once,
+    // so it reaches nothing but `core/str` and `core/list` and needed nothing
+    // from either backend. It is in the corpus rather than beside `core/fs`'s
+    // blocks for that reason: a path is not a filesystem.
+    included("text/path.buri"),
     excluded(
         "numbers/floats.buri",
         "core/math's thirteen *transcendentals*, whose answers IEEE 754 does \

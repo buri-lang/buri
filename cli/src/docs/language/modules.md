@@ -11,7 +11,8 @@ the syntax is here.
 The module path comes **first**, before the specifier list:
 
 ```buri
-from "core/effect" import { Alloc, Fs, Stdout };
+from "core/effect" import { Alloc, Stdout };
+from "core/fs" import { FsRead, FsWrite };
 from "core/list" import * as list;
 from "core/list" import { filter, map };
 from "core/list" import { map as listMap };

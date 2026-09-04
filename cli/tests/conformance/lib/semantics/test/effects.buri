@@ -3,7 +3,7 @@
 // This file used to carry a recorded compiler bug in this comment: an effect
 // *inherited* through a `..spread` could not be used, because the binding the
 // spread copied did not carry the implementing type the base had recorded, and
-// so `context { ..Defaults(), Fs: fs() }` typechecked but any call through
+// so `context { ..Defaults(), FsRead: fs() }` typechecked but any call through
 // the inherited `Clock` failed at monomorphization with "`Clock` could not be
 // resolved to a concrete type". It is fixed — the spread keeps that type
 // (`semantics/expressions.rs`, `check_context_body`) — and the section
@@ -13,18 +13,20 @@
 
 from "core/bytes" import * as bytes;
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, IoError, Listen, Listener, Net, Rand, Received,
-    Request, Response, Serve, ServeError, ServeFailure, Sockets, Stderr, Stdin, Stdout,
-    Tasks,
+    Alloc, Clock, Env, Header, IoError, Listen, Listener, Net, Rand, Received, Request,
+    Response, Serve, ServeError, ServeFailure, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
+from "core/fs" import { FsRead, FsWrite };
 from "core/host/testing" import {
-    alloc, clock, env, fs, net, rand, stderr, stdin, stdout, TestStdout,
+    alloc, clock, env, fs, net, rand, readFileBytes, renameFile, stderr, stdin, stdout,
+    syncFile, TestFs, TestStdout, writeFileBytes,
 };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
+from "core/path" import * as path;
 from "core/random" import * as random;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
@@ -33,8 +35,9 @@ from "core/time" import * as time;
 from "//lib/semantics" import {
     EchoEnv, elapsed, fetchBody, FrozenClock, greet, guarded, joinedWith, loadText,
     loggedWith, OneShotListen, PlanListen, PoolListen, pushedWith, QuietSockets,
-    ReadOnly, repeatedWith, roundTrip, runInOrder, runInOrderNamed, saveText,
-    SerialTasks, serveOnce, shout, stamp, stampedWith, StaticFs, TeapotNet, ticking,
+    ReadOnly, RefusingFs, repeatedWith, roundTrip, runInOrder, runInOrderNamed,
+    saveText, SerialTasks, serveOnce, shout, stamp, stampedWith, StaticFs, TeapotNet,
+    ticking,
 };
 
 // -----------------------------------------------------------------------------
@@ -48,12 +51,21 @@ from "//lib/semantics" import {
 /// A test binds what it needs and no more, so nine bindings is not what a suite
 /// writes — it is what the spreads below are *about*. An effect a declaration
 /// never names has to arrive from somewhere, and this is the somewhere.
+///
+/// **The filesystem is here read-only, and that is a fact about declarations
+/// rather than a preference.** `FsRead` and `FsWrite` are two effects over one
+/// filesystem, so a context that has both has to bind *one* double to both
+/// names — and a declaration's bindings are two separate expressions, so
+/// `FsRead: fs(), FsWrite: fs()` would be two filesystems and a write would
+/// land where the read cannot see it. A block that writes therefore names its
+/// double first and builds the context around it, which is what every writing
+/// test below does.
 context Defaults {
     Alloc: alloc(),
     Stdout: stdout(),
     Stderr: stderr(),
     Stdin: stdin(),
-    Fs: fs(),
+    FsRead: fs(),
     Net: net(),
     Clock: clock(),
     Rand: rand(),
@@ -63,13 +75,13 @@ context Defaults {
 /// Begins with a spread and replaces one binding.
 context Fixture {
     ..Defaults(),
-    Fs: fs().files([("config.toml", "port=8080"), ("empty.txt", "")]),
+    FsRead: fs().files([("config.toml", "port=8080"), ("empty.txt", "")]),
 }
 
 /// A second declaration built from the first, replacing that same binding.
 context OtherPort {
     ..Fixture(),
-    Fs: fs().files([("config.toml", "port=9999")]),
+    FsRead: fs().files([("config.toml", "port=9999")]),
 }
 
 /// A third, built from the second: two spreads between this and `Defaults`,
@@ -84,19 +96,22 @@ context DeepFixture {
 /// with type arguments of its own rather than a bare one.
 context WrappedFixture {
     ..Defaults(),
-    Fs: guarded(fs().files([("a", "A")])),
+    FsRead: guarded(fs().files([("a", "A")])),
 }
 
 /// A context assembled from scratch, naming only two effects.
 context Tiny {
     Alloc: alloc(),
-    Fs: fs().files([("a", "A")]),
+    FsRead: fs().files([("a", "A")]),
 }
 
 /// A context that binds *my* implementations rather than the runner's.
 context Mine {
     Alloc: alloc(),
-    Fs: StaticFs { only: "known.txt", body: "from my own Fs" },
+    // Four methods and a complete implementation: `StaticFs` reads, has no
+    // `FsWrite` at all, and before the split paid eight bodies to say
+    // `.PermissionDenied`.
+    FsRead: StaticFs { only: "known.txt", body: "from my own Fs" },
     Clock: FrozenClock { at: 424242 },
     Env: EchoEnv { always: "echo" },
     // "teapot" as octets — see `TeapotNet`: an effect method takes only `self`,
@@ -110,7 +125,7 @@ context World {
     Stdout: stdout(),
     Stderr: stderr(),
     Stdin: stdin().lines(["a line"]),
-    Fs: fs().files([("w", "W")]),
+    FsRead: fs().files([("w", "W")]),
     Net: net(),
     Clock: clock().at(1000),
     Rand: rand().seed(4),
@@ -123,7 +138,7 @@ context World {
 
 test "a context binds one implementation per effect it names" {
     let ctx = World();
-    assert.isTrue(fs.exists(ctx, "w"));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "w")));
     assert.eq(time.now(ctx).0, 1000);
     assert.eq(assert.some(io.readLine(ctx)), "a line");
     assert.eq(env.args(ctx), ["arg"]);
@@ -135,7 +150,7 @@ test "a context binds one implementation per effect it names" {
 
 test "a declaration may bind every effect at its double's default" {
     let ctx = Defaults();
-    assert.isFalse(fs.exists(ctx, "nothing"));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "nothing")));
     assert.eq(time.now(ctx).0, 0);
     assert.none(io.readLine(ctx));
     assert.eq(env.args(ctx), []);
@@ -145,9 +160,11 @@ test "a declaration may bind every effect at its double's default" {
 }
 
 test "a context expression binds the effects it names" {
+    let disk = fs().files([("x", "1")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("x", "1")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(loadText(ctx, "x")), "1");
 }
@@ -185,26 +202,32 @@ test "a spread of a spread replaces the same binding again" {
 test "a replacement replaces wholesale rather than merging" {
     // Fixture's Fs has empty.txt; OtherPort's does not.
     let ctx = OtherPort();
-    assert.isFalse(fs.exists(ctx, "empty.txt"));
-    assert.isTrue(fs.exists(ctx, "config.toml"));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "empty.txt")));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "config.toml")));
 }
 
 test "an inline context expression may start from a named one" {
+    let disk = fs().files([("config.toml", "port=1")]);
     let ctx = context {
         ..Fixture(),
-        Fs: fs().files([("config.toml", "port=1")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(loadText(ctx, "config.toml")), "port=1");
 }
 
 test "an inline context expression may start from another inline one" {
+    let baseDisk = fs().files([("a", "1")]);
     let base = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "1")]),
+        FsRead: baseDisk,
+        FsWrite: baseDisk,
     };
+    let disk = fs().files([("a", "2")]);
     let ctx = context {
         ..base,
-        Fs: fs().files([("a", "2")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "2");
 }
@@ -256,9 +279,11 @@ test "a binding written after two spreads beats the twice-inherited one" {
 }
 
 test "an inherited effect can be called from an inline context expression" {
+    let disk = fs().files([("a", "1")]);
     let ctx = context {
         ..Defaults(),
-        Fs: fs().files([("a", "1")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(stamp(ctx).0, 0);
     assert.eq(assert.ok(loadText(ctx, "a")), "1");
@@ -270,7 +295,7 @@ test "a spread with nothing written after it inherits every binding" {
         ..Defaults(),
     };
     assert.eq(stamp(ctx).0, 0);
-    assert.isFalse(fs.exists(ctx, "nothing"));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "nothing")));
     assert.eq(assert.err(http.get(ctx, "http://example.com")), .Refused);
 }
 
@@ -293,57 +318,116 @@ test "an inherited binding is the same value, not a fresh one" {
 }
 
 test "a spread carries an implementing type's own type arguments with it" {
-    // `Guarded<TestFs>`, inherited: the wrapper's `impl<C: Fs> Fs for Guarded<C>`
-    // is instantiated from a receiver the spread carried, `TestFs` and all, so
-    // what travels is a whole type rather than a constructor.
+    // `Guarded<TestFs>`, inherited: the wrapper's
+    // `impl<C: FsRead> FsRead for Guarded<C>` is instantiated from a receiver
+    // the spread carried, `TestFs` and all, so what travels is a whole type
+    // rather than a constructor.
     let ctx = context {
         ..WrappedFixture(),
         Clock: clock().at(3),
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
     assert.eq(stamp(ctx).0, 3);
+}
+
+test "an attenuating wrapper refuses the write half and forwards the read" {
+    // One `Guarded` bound to both effects, so the refusal and the read are the
+    // same wrapper over the same filesystem.
+    let wrapped = guarded(fs().files([("a", "A")]));
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: wrapped,
+        FsWrite: wrapped,
+    };
+    assert.eq(assert.ok(loadText(ctx, "a")), "A");
+    assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
 }
 
 // -----------------------------------------------------------------------------
 // Each call to a named context builds a FRESH one (SPEC 11.3)
 // -----------------------------------------------------------------------------
 
+// A writing block names its double first, for the reason `Defaults` states:
+// one filesystem, bound to both of the effects over it.
+fn fixtureDisk(): TestFs {
+    fs().files([("config.toml", "port=8080"), ("empty.txt", "")])
+}
+
 test "a write through one context is visible to that same context" {
-    let ctx = Fixture();
+    let disk = fixtureDisk();
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
+    };
     assert.ok(saveText(ctx, "scratch.txt", "written"));
     assert.eq(assert.ok(loadText(ctx, "scratch.txt")), "written");
 }
 
 test "a write through one context is invisible to the next one built" {
-    let first = Fixture();
+    let firstDisk = fixtureDisk();
+    let first = context {
+        Alloc: alloc(),
+        FsRead: firstDisk,
+        FsWrite: firstDisk,
+    };
     assert.ok(saveText(first, "scratch.txt", "written"));
     assert.eq(assert.ok(loadText(first, "scratch.txt")), "written");
 
-    // Same declaration, second call: a fresh filesystem, so the write is gone.
-    let second = Fixture();
-    assert.isFalse(fs.exists(second, "scratch.txt"));
+    // A second construction: a fresh filesystem, so the write is gone.
+    let secondDisk = fixtureDisk();
+    let second = context {
+        Alloc: alloc(),
+        FsRead: secondDisk,
+        FsWrite: secondDisk,
+    };
+    assert.isFalse(fs.exists(second, path.of(second, "scratch.txt")));
     assert.eq(assert.ok(loadText(second, "config.toml")), "port=8080");
 }
 
-test "two contexts from one declaration are two values, not one handle" {
-    let a = Fixture();
-    let b = Fixture();
+test "two contexts built the same way are two values, not one handle" {
+    let aDisk = fixtureDisk();
+    let a = context {
+        Alloc: alloc(),
+        FsRead: aDisk,
+        FsWrite: aDisk,
+    };
+    let bDisk = fixtureDisk();
+    let b = context {
+        Alloc: alloc(),
+        FsRead: bDisk,
+        FsWrite: bDisk,
+    };
     assert.ok(saveText(a, "only-in-a", "1"));
-    assert.isTrue(fs.exists(a, "only-in-a"));
-    assert.isFalse(fs.exists(b, "only-in-a"));
+    assert.isTrue(fs.exists(a, path.of(a, "only-in-a")));
+    assert.isFalse(fs.exists(b, path.of(b, "only-in-a")));
+}
+
+// The same claim about a *named declaration*, which cannot bind the writable
+// half: two declarations are two filesystems, and the read side sees it,
+// because the second was never told about the file the first was given.
+test "each named declaration builds a filesystem of its own" {
+    let first = Fixture();
+    assert.eq(assert.ok(loadText(first, "config.toml")), "port=8080");
+    let second = Tiny();
+    assert.isFalse(fs.exists(second, path.of(second, "config.toml")));
 }
 
 test "an inline context expression is fresh too" {
+    let aDisk = fs().files([]);
     let a = context {
         Alloc: alloc(),
-        Fs: fs().files([]),
+        FsRead: aDisk,
+        FsWrite: aDisk,
     };
     assert.ok(saveText(a, "f", "1"));
+    let bDisk = fs().files([]);
     let b = context {
-        Fs: fs().files([]),
+        Alloc: alloc(),
+        FsRead: bDisk,
+        FsWrite: bDisk,
     };
-    assert.isFalse(fs.exists(b, "f"));
+    assert.isFalse(fs.exists(b, path.of(b, "f")));
 }
 
 test "freshness applies to a captured stream as well" {
@@ -368,9 +452,11 @@ test "freshness applies to a captured stream as well" {
 // -----------------------------------------------------------------------------
 
 test "files contains exactly the entries it was given" {
+    let disk = fs().files([("a", "A"), ("b", "B")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A"), ("b", "B")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
     assert.eq(assert.ok(loadText(ctx, "b")), "B");
@@ -380,9 +466,11 @@ test "files contains exactly the entries it was given" {
 test "reading a path files does not have gives IoError.NotFound" {
     // `core/effect` declares the variant, and an unknown path is what `.NotFound`
     // is for; the match is exhaustive so a fourth answer cannot hide.
+    let disk = fs().files([("a", "A")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     let which = match (loadText(ctx, "missing")) {
         .Ok(_v) => "ok",
@@ -398,52 +486,65 @@ test "reading a path files does not have gives IoError.NotFound" {
 }
 
 test "files reports existence" {
+    let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Fs: fs().files([("a", "A")]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.isTrue(fs.exists(ctx, "a"));
-    assert.isFalse(fs.exists(ctx, "b"));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "b")));
 }
 
 test "an empty file is a file, not an absent one" {
+    let disk = fs().files([("e", "")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("e", "")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.isTrue(fs.exists(ctx, "e"));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "e")));
     assert.eq(assert.ok(loadText(ctx, "e")), "");
 }
 
 test "a write to files is readable back" {
+    let disk = fs().files([]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(roundTrip(ctx, "note", "hello")), "hello");
 }
 
 test "a write to files replaces the previous body" {
+    let disk = fs().files([("a", "one")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "one")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.ok(saveText(ctx, "a", "two"));
     assert.eq(assert.ok(loadText(ctx, "a")), "two");
 }
 
 test "a fresh filesystem is empty, and nothing seeds it" {
+    let disk = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.isTrue(loadText(ctx, "config.toml").isErr());
-    assert.isFalse(fs.exists(ctx, "config.toml"));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "config.toml")));
 }
 
 test "reading a path a fresh filesystem does not have gives IoError.NotFound" {
+    let disk = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     let which = match (loadText(ctx, "missing")) {
         .Ok(_v) => "ok",
@@ -459,53 +560,65 @@ test "reading a path a fresh filesystem does not have gives IoError.NotFound" {
 }
 
 test "a fresh filesystem is writable within one test" {
+    let disk = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(roundTrip(ctx, "scratch", "x")), "x");
 }
 
 test "readOnly forwards reads" {
+    let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A")]).readOnly(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.isTrue(fs.exists(ctx, "a"));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
 }
 
 test "a write through readOnly FAILS" {
+    let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A")]).readOnly(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
 }
 
 test "readOnly refuses a write to a path that does not exist either" {
+    let disk = fs().files([]).readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([]).readOnly(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.err(saveText(ctx, "new", "B")), .ReadOnly);
 }
 
 test "readOnly leaves the wrapped filesystem untouched" {
+    let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A")]).readOnly(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
 }
 
 test "listDir sees the entries" {
+    let disk = fs().files([("a", "A")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.isTrue(assert.ok(fs.listDir(ctx, "")).len() >= 1);
+    assert.isTrue(assert.ok(fs.listDir(ctx, path.of(ctx, ""))).len() >= 1);
 }
 
 // -----------------------------------------------------------------------------
@@ -517,140 +630,178 @@ test "listDir sees the entries" {
 // -----------------------------------------------------------------------------
 
 test "writeBytes and readBytes carry octets a text encoding cannot" {
+    let disk = fs().files([]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     let raw: [U8] = [0, 1, 254, 255, 128];
-    assert.ok(fs.writeBytes(ctx, "blob", raw));
-    assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
+    assert.ok(fs.writeBytes(ctx, path.of(ctx, "blob"), raw));
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
 }
 
 test "readBytes of a path that is not there is NotFound" {
+    let disk = fs().files([]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.eq(assert.err(fs.readBytes(ctx, "missing")), .NotFound);
+    assert.eq(assert.err(fs.readBytes(ctx, path.of(ctx, "missing"))), .NotFound);
 }
 
 test "filesBytes is the byte twin of files" {
     let raw: [U8] = [255, 0, 17];
+    let disk = fs().filesBytes([("blob", raw)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().filesBytes([("blob", raw)]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
-    assert.isTrue(fs.exists(ctx, "blob"));
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "blob")));
 }
 
 test "text written as octets reads back as text" {
+    let disk = fs().files([]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.writeBytes(ctx, "note", bytes.toUtf8(ctx, "héllo")));
-    assert.eq(assert.ok(fs.readText(ctx, "note")), "héllo");
+    assert.ok(fs.writeBytes(ctx, path.of(ctx, "note"), bytes.toUtf8(ctx, "héllo")));
+    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "note"))), "héllo");
 }
 
 test "writeBytes replaces the whole file" {
+    let disk = fs().files([("a", "one")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "one")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     let two: [U8] = [50];
-    assert.ok(fs.writeBytes(ctx, "a", two));
-    assert.eq(assert.ok(fs.readBytes(ctx, "a")), two);
+    assert.ok(fs.writeBytes(ctx, path.of(ctx, "a"), two));
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "a"))), two);
 }
 
 test "append CREATES the file when it is absent" {
+    let disk = fs().files([]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     let record: [U8] = [1, 2];
-    assert.isFalse(fs.exists(ctx, "log"));
-    assert.ok(fs.append(ctx, "log", record));
-    assert.isTrue(fs.exists(ctx, "log"));
-    assert.eq(assert.ok(fs.readBytes(ctx, "log")), record);
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "log")));
+    assert.ok(fs.append(ctx, path.of(ctx, "log"), record));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "log")));
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "log"))), record);
 }
 
 test "append adds to the end rather than replacing" {
+    let disk = fs().files([]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.append(ctx, "log", [1, 2]));
-    assert.ok(fs.append(ctx, "log", [3]));
-    assert.eq(assert.ok(fs.readBytes(ctx, "log")), [1, 2, 3]);
+    assert.ok(fs.append(ctx, path.of(ctx, "log"), [1, 2]));
+    assert.ok(fs.append(ctx, path.of(ctx, "log"), [3]));
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "log"))), [1, 2, 3]);
 }
 
 test "rename REPLACES the destination" {
+    let disk = fs().files([("new", "N"), ("old", "O")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("new", "N"), ("old", "O")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.rename(ctx, "new", "old"));
-    assert.eq(assert.ok(fs.readText(ctx, "old")), "N");
+    assert.ok(fs.rename(ctx, path.of(ctx, "new"), path.of(ctx, "old")));
+    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "old"))), "N");
 }
 
 test "rename leaves nothing at the source" {
+    let disk = fs().files([("new", "N")]);
     let ctx = context {
-        Fs: fs().files([("new", "N")]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.rename(ctx, "new", "old"));
-    assert.isFalse(fs.exists(ctx, "new"));
-    assert.isTrue(fs.exists(ctx, "old"));
+    assert.ok(fs.rename(ctx, path.of(ctx, "new"), path.of(ctx, "old")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "new")));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "old")));
 }
 
 test "rename of a source that is not there is NotFound" {
+    let disk = fs().files([]);
     let ctx = context {
-        Fs: fs().files([]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.eq(assert.err(fs.rename(ctx, "missing", "other")), .NotFound);
+    assert.eq(
+        assert.err(fs.rename(ctx, path.of(ctx, "missing"), path.of(ctx, "other"))),
+        .NotFound,
+    );
 }
 
 test "remove deletes the file" {
+    let disk = fs().files([("a", "A")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.remove(ctx, "a"));
-    assert.isFalse(fs.exists(ctx, "a"));
-    assert.isTrue(fs.readText(ctx, "a").isErr());
+    assert.ok(fs.remove(ctx, path.of(ctx, "a")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "a")));
+    assert.isTrue(fs.readText(ctx, path.of(ctx, "a")).isErr());
 }
 
 test "remove OF A MISSING FILE is NotFound, not a silent success" {
+    let disk = fs().files([]);
     let ctx = context {
-        Fs: fs().files([]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.eq(assert.err(fs.remove(ctx, "never-there")), .NotFound);
+    assert.eq(assert.err(fs.remove(ctx, path.of(ctx, "never-there"))), .NotFound);
 }
 
 test "makeDir ON AN EXISTING DIRECTORY is Ok" {
+    let disk = fs().files([]);
     let ctx = context {
-        Fs: fs().files([]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.makeDir(ctx, "tenants/one"));
-    assert.ok(fs.makeDir(ctx, "tenants/one"));
-    assert.isTrue(fs.exists(ctx, "tenants/one"));
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "tenants/one")));
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "tenants/one")));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "tenants/one")));
 }
 
 test "makeDir creates the parents too" {
+    let disk = fs().files([]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.makeDir(ctx, "a/b/c"));
-    assert.eq(assert.ok(fs.listDir(ctx, "a")), ["b"]);
-    assert.eq(assert.ok(fs.listDir(ctx, "a/b")), ["c"]);
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a/b/c")));
+    assert.eq(assert.ok(fs.listDir(ctx, path.of(ctx, "a"))), ["b"]);
+    assert.eq(assert.ok(fs.listDir(ctx, path.of(ctx, "a/b"))), ["c"]);
 }
 
 test "makeDir where a file already sits is AlreadyExists" {
+    let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Fs: fs().files([("a", "A")]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.eq(assert.err(fs.makeDir(ctx, "a")), .AlreadyExists);
+    assert.eq(assert.err(fs.makeDir(ctx, path.of(ctx, "a"))), .AlreadyExists);
 }
 
 /// `removeDir` is `makeDir`'s inverse, and the whole of buri-lang/buri#38: the
@@ -661,120 +812,276 @@ test "makeDir where a file already sits is AlreadyExists" {
 /// filesystem gives — which is what lets one block run against `TestFs` here
 /// and against `HostFs` in `cli/tests/native/e2e.rs`.
 test "removeDir deletes an empty directory" {
+    let disk = fs().files([]);
     let ctx = context {
-        Fs: fs().files([]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.makeDir(ctx, "scratch"));
-    assert.isTrue(fs.exists(ctx, "scratch"));
-    assert.ok(fs.removeDir(ctx, "scratch"));
-    assert.isFalse(fs.exists(ctx, "scratch"));
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "scratch")));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "scratch")));
+    assert.ok(fs.removeDir(ctx, path.of(ctx, "scratch")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "scratch")));
 }
 
 test "removeDir OF A DIRECTORY THAT STILL HOLDS SOMETHING is refused" {
+    let disk = fs().files([("scratch/note", "N")]);
     let ctx = context {
-        Fs: fs().files([("scratch/note", "N")]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.makeDir(ctx, "scratch"));
-    assert.isTrue(fs.removeDir(ctx, "scratch").isErr());
-    assert.isTrue(fs.exists(ctx, "scratch"));
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "scratch")));
+    assert.isTrue(fs.removeDir(ctx, path.of(ctx, "scratch")).isErr());
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "scratch")));
 }
 
 test "removeDir IS NOT RECURSIVE, so emptying it first is the program's own walk" {
+    let disk = fs().files([("scratch/note", "N")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("scratch/note", "N")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.makeDir(ctx, "scratch"));
-    assert.ok(fs.remove(ctx, "scratch/note"));
-    assert.ok(fs.removeDir(ctx, "scratch"));
-    assert.isFalse(fs.exists(ctx, "scratch"));
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "scratch")));
+    assert.ok(fs.remove(ctx, path.of(ctx, "scratch/note")));
+    assert.ok(fs.removeDir(ctx, path.of(ctx, "scratch")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "scratch")));
 }
 
 test "removeDir of a path that names nothing is NotFound, and of a file NotADirectory" {
+    let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Fs: fs().files([("a", "A")]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.eq(assert.err(fs.removeDir(ctx, "never-there")), .NotFound);
-    assert.eq(assert.err(fs.removeDir(ctx, "a")), .NotADirectory);
+    assert.eq(assert.err(fs.removeDir(ctx, path.of(ctx, "never-there"))), .NotFound);
+    assert.eq(assert.err(fs.removeDir(ctx, path.of(ctx, "a"))), .NotADirectory);
     // The order the two doubles are written to agree on: a directory nobody
     // recorded is `.NotFound` even where files sit under its name, because a
     // flat map has no containment and "still holds something" is a question
     // only about a directory that is really there.
-    assert.eq(assert.err(fs.removeDir(ctx, "never-there/deeper")), .NotFound);
+    assert.eq(
+        assert.err(fs.removeDir(ctx, path.of(ctx, "never-there/deeper"))),
+        .NotFound,
+    );
 }
 
 test "sync of a file that is there is Ok" {
+    let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Fs: fs().files([("a", "A")]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.sync(ctx, "a"));
+    assert.ok(fs.sync(ctx, path.of(ctx, "a")));
 }
 
 test "sync of a path that is not there is NotFound" {
+    let disk = fs().files([]);
     let ctx = context {
-        Fs: fs().files([]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.eq(assert.err(fs.sync(ctx, "missing")), .NotFound);
+    assert.eq(assert.err(fs.sync(ctx, path.of(ctx, "missing"))), .NotFound);
+}
+
+// -----------------------------------------------------------------------------
+// readBytesIfExists and writeAtomic (§10)
+//
+// Both are written out of the methods above rather than being methods of their
+// own, so what these blocks pin is the composition: which failure becomes a
+// `.None`, and which four calls an atomic write is.
+// -----------------------------------------------------------------------------
+
+test "readBytesIfExists answers .None for a path that names nothing" {
+    let disk = fs().files([]);
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
+    };
+    let answer = assert.ok(fs.readBytesIfExists(ctx, path.of(ctx, "absent")));
+    assert.isTrue(answer.isNone());
+}
+
+test "readBytesIfExists answers the octets when the file is there" {
+    let raw: [U8] = [0, 255, 7];
+    let disk = fs().filesBytes([("blob", raw)]);
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
+    };
+    assert.eq(assert.ok(fs.readBytesIfExists(ctx, path.of(ctx, "blob"))), .Some(raw));
+}
+
+test "readBytesIfExists reports every OTHER failure as a failure" {
+    // "Absent" and "forbidden" are different facts, and a caller that folded
+    // them together would retry the wrong one. The fault plan makes the read
+    // fail with something that is not `.NotFound`.
+    let disk = fs()
+        .files([("blob", "B")])
+        .faults([readFileBytes("blob").fails(.PermissionDenied)]);
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
+    };
+    assert.eq(
+        assert.err(fs.readBytesIfExists(ctx, path.of(ctx, "blob"))),
+        .PermissionDenied,
+    );
+}
+
+test "writeAtomic leaves the new contents and no temporary" {
+    let disk = fs().files([("db", "old")]);
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
+    };
+    let raw: [U8] = [1, 2, 3];
+    assert.ok(fs.writeAtomic(ctx, path.of(ctx, "db"), raw));
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "db"))), raw);
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "db.tmp")));
+}
+
+test "writeAtomic creates the file when it was absent" {
+    let disk = fs().files([]);
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
+    };
+    assert.ok(fs.writeAtomic(ctx, path.of(ctx, "fresh"), [9]));
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "fresh"))), [9]);
+}
+
+test "writeAtomic is the four calls the module header names, in that order" {
+    let disk = fs().files([("db", "old")]);
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
+    };
+    assert.ok(fs.writeAtomic(ctx, path.of(ctx, "db"), [1]));
+    assert.eq(disk.calls(), [
+        writeFileBytes("db.tmp", [1]),
+        syncFile("db.tmp"),
+        renameFile("db.tmp", "db"),
+        syncFile("."),
+    ]);
+    // The directory holding both, which is what makes the rename durable
+    // rather than merely visible. A relative name of one component is in
+    // `.`, so that is the path this syncs.
+}
+
+test "writeAtomic reports the FIRST failure and leaves the destination alone" {
+    let disk = fs()
+        .files([("db", "old")])
+        .faults([renameFile("db.tmp", "db").fails(.CrossDevice)]);
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
+    };
+    assert.eq(assert.err(fs.writeAtomic(ctx, path.of(ctx, "db"), [1])), .CrossDevice);
+    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "db"))), "old");
+}
+
+test "a path with no last component cannot be written atomically" {
+    let disk = fs().files([]);
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
+    };
+    let refused = assert.err(fs.writeAtomic(ctx, path.of(ctx, "/"), [1]));
+    assert.eq(
+        refused,
+        IoError.Other("a path with no file name cannot be written atomically"),
+    );
 }
 
 test "readOnly forwards readBytes" {
     let raw: [U8] = [7, 8];
+    let disk = fs().filesBytes([("blob", raw)]).readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().filesBytes([("blob", raw)]).readOnly(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
 }
 
 test "every writing half of the new surface FAILS through readOnly" {
+    let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A")]).readOnly(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.eq(assert.err(fs.writeBytes(ctx, "a", [1])), .ReadOnly);
-    assert.eq(assert.err(fs.append(ctx, "a", [1])), .ReadOnly);
-    assert.eq(assert.err(fs.rename(ctx, "a", "b")), .ReadOnly);
-    assert.eq(assert.err(fs.remove(ctx, "a")), .ReadOnly);
-    assert.eq(assert.err(fs.makeDir(ctx, "d")), .ReadOnly);
-    assert.eq(assert.err(fs.removeDir(ctx, "d")), .ReadOnly);
-    assert.eq(assert.ok(fs.readText(ctx, "a")), "A");
+    assert.eq(assert.err(fs.writeBytes(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
+    assert.eq(assert.err(fs.append(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
+    assert.eq(
+        assert.err(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
+        .ReadOnly,
+    );
+    assert.eq(assert.err(fs.remove(ctx, path.of(ctx, "a"))), .ReadOnly);
+    assert.eq(assert.err(fs.makeDir(ctx, path.of(ctx, "d"))), .ReadOnly);
+    assert.eq(assert.err(fs.removeDir(ctx, path.of(ctx, "d"))), .ReadOnly);
+    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "a"))), "A");
 }
 
 test "sync is not a write, so readOnly forwards it" {
+    let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
-        Fs: fs().files([("a", "A")]).readOnly(),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.sync(ctx, "a"));
+    assert.ok(fs.sync(ctx, path.of(ctx, "a")));
 }
 
 /// The whole reason the seven exist: a log that is appended to, a commit point
 /// that is a call, and a checkpoint that swaps in atomically.
 test "a write-ahead log commits through append, sync and rename" {
+    let disk = fs().files([]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.makeDir(ctx, "wal"));
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "wal")));
 
     // Two records, each one append, with the commit point stated after each.
-    assert.ok(fs.append(ctx, "wal/log", [1, 10]));
-    assert.ok(fs.sync(ctx, "wal/log"));
-    assert.ok(fs.append(ctx, "wal/log", [2, 20]));
-    assert.ok(fs.sync(ctx, "wal/log"));
-    assert.eq(assert.ok(fs.readBytes(ctx, "wal/log")), [1, 10, 2, 20]);
+    assert.ok(fs.append(ctx, path.of(ctx, "wal/log"), [1, 10]));
+    assert.ok(fs.sync(ctx, path.of(ctx, "wal/log")));
+    assert.ok(fs.append(ctx, path.of(ctx, "wal/log"), [2, 20]));
+    assert.ok(fs.sync(ctx, path.of(ctx, "wal/log")));
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "wal/log"))), [1, 10, 2, 20]);
 
     // Checkpoint: write the temporary, make it durable, swap it in, then make
     // the directory entry durable so the swap survives too.
-    assert.ok(fs.writeBytes(ctx, "wal/checkpoint.tmp", [30]));
-    assert.ok(fs.sync(ctx, "wal/checkpoint.tmp"));
-    assert.ok(fs.rename(ctx, "wal/checkpoint.tmp", "wal/checkpoint"));
-    assert.ok(fs.sync(ctx, "wal"));
-    assert.isFalse(fs.exists(ctx, "wal/checkpoint.tmp"));
-    assert.eq(assert.ok(fs.readBytes(ctx, "wal/checkpoint")), [30]);
+    assert.ok(fs.writeBytes(ctx, path.of(ctx, "wal/checkpoint.tmp"), [30]));
+    assert.ok(fs.sync(ctx, path.of(ctx, "wal/checkpoint.tmp")));
+    assert.ok(
+        fs.rename(
+            ctx,
+            path.of(ctx, "wal/checkpoint.tmp"),
+            path.of(ctx, "wal/checkpoint"),
+        ),
+    );
+    assert.ok(fs.sync(ctx, path.of(ctx, "wal")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "wal/checkpoint.tmp")));
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "wal/checkpoint"))), [30]);
 
     // Truncation after the checkpoint, which is what `remove` is for here.
-    assert.ok(fs.remove(ctx, "wal/log"));
-    assert.eq(assert.ok(fs.listDir(ctx, "wal")), ["checkpoint"]);
+    assert.ok(fs.remove(ctx, path.of(ctx, "wal/log")));
+    assert.eq(assert.ok(fs.listDir(ctx, path.of(ctx, "wal"))), ["checkpoint"]);
 }
 
 // -----------------------------------------------------------------------------
@@ -1225,19 +1532,26 @@ test "MY writeFile decides what a write does" {
     // The runner's `fs()` would have accepted this write, and `readOnly()`
     // would have failed it with `.ReadOnly`; mine fails it with a third error,
     // so the error names which implementation ran.
-    let ctx = Mine();
+    //
+    // `RefusingFs` implements `FsWrite` and nothing else — eight methods, no
+    // reads — which is what a write-only double costs now. Nothing here can
+    // call `loadText`, because this context binds no `FsRead` at all.
+    let ctx = context {
+        Alloc: alloc(),
+        FsWrite: RefusingFs { },
+    };
     assert.eq(assert.err(saveText(ctx, "known.txt", "nope")), .PermissionDenied);
 }
 
 test "MY fileExists is what fs.exists calls" {
     let ctx = Mine();
-    assert.isTrue(fs.exists(ctx, "known.txt"));
-    assert.isFalse(fs.exists(ctx, "anything-else"));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "known.txt")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "anything-else")));
 }
 
 test "MY readDir is what fs.listDir calls" {
     let ctx = Mine();
-    assert.eq(assert.ok(fs.listDir(ctx, "/")), ["known.txt"]);
+    assert.eq(assert.ok(fs.listDir(ctx, path.of(ctx, "/"))), ["known.txt"]);
 }
 
 test "MY clock is what time.now reads" {
@@ -1275,7 +1589,7 @@ test "MY net is what core/net/http is built on" {
 test "one binding may be mine and the rest the runner's" {
     let ctx = context {
         Alloc: alloc(),
-        Fs: StaticFs { only: "k", body: "v" },
+        FsRead: StaticFs { only: "k", body: "v" },
         Clock: clock().at(3),
     };
     assert.eq(assert.ok(loadText(ctx, "k")), "v");
@@ -1285,11 +1599,11 @@ test "one binding may be mine and the rest the runner's" {
 test "a fake is an ordinary value, so two of them are independent" {
     let a = context {
         Alloc: alloc(),
-        Fs: StaticFs { only: "a", body: "A" },
+        FsRead: StaticFs { only: "a", body: "A" },
     };
     let b = context {
         Alloc: alloc(),
-        Fs: StaticFs { only: "b", body: "B" },
+        FsRead: StaticFs { only: "b", body: "B" },
     };
     assert.eq(assert.ok(loadText(a, "a")), "A");
     assert.eq(assert.err(loadText(b, "a")), .NotFound);
@@ -1298,12 +1612,15 @@ test "a fake is an ordinary value, so two of them are independent" {
 
 test "a confined callee receives the same value" {
     // `stamp` names only Clock, so it can do nothing else with this context.
+    let disk = fs().files([]);
     let ctx = context {
+        Alloc: alloc(),
         Clock: FrozenClock { at: 9 },
-        Fs: fs().files([]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(stamp(ctx).0, 9);
-    assert.isFalse(fs.exists(ctx, "anything"));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "anything")));
 }
 
 // -----------------------------------------------------------------------------
@@ -1311,30 +1628,36 @@ test "a confined callee receives the same value" {
 // -----------------------------------------------------------------------------
 
 test "my own attenuator forwards the reads it chose to forward" {
+    let disk = guarded(fs().files([("a", "A")]));
     let ctx = context {
         Alloc: alloc(),
-        Fs: guarded(fs().files([("a", "A")])),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.isTrue(fs.exists(ctx, "a"));
-    assert.isFalse(fs.exists(ctx, "b"));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "b")));
 }
 
 test "my own attenuator refuses the writes it chose to refuse" {
     // The wrapped filesystem would have accepted this write; the wrapper never
     // reaches it, and the error is the wrapper's own.
+    let disk = guarded(fs().files([("a", "A")]));
     let ctx = context {
         Alloc: alloc(),
-        Fs: guarded(fs().files([("a", "A")])),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.err(saveText(ctx, "a", "B")), IoError.Other("guarded"));
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
 }
 
 test "my own attenuator may wrap my own implementation" {
+    let disk = guarded(StaticFs { only: "k", body: "v" });
     let ctx = context {
         Alloc: alloc(),
-        Fs: guarded(StaticFs { only: "k", body: "v" }),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(loadText(ctx, "k")), "v");
     assert.eq(assert.err(loadText(ctx, "other")), IoError.NotFound);
@@ -1342,9 +1665,11 @@ test "my own attenuator may wrap my own implementation" {
 }
 
 test "my own attenuator may wrap the runner's attenuator" {
+    let disk = guarded(fs().files([("a", "A")]).readOnly());
     let ctx = context {
         Alloc: alloc(),
-        Fs: guarded(fs().files([("a", "A")]).readOnly()),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
     // The outer wrapper decides, so it is mine and not `.ReadOnly`.

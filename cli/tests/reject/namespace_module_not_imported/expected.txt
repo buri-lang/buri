@@ -1,10 +1,10 @@
 error: there is nothing named `fs` in scope [unresolved-name]
-  --> cmd/namespace_module_not_imported/main.buri:12:11
+  --> cmd/namespace_module_not_imported/main.buri:15:11
    |
-12 |   let _ = fs.readText(ctx, "wal");
+15 |   let _ = fs.readText(ctx, "wal");
    |           ^^
    |
-   = did you mean `Fs`?
+   = did you mean `Eq`?
    = fix: correct the spelling, or declare it
 
      What to do

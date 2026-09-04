@@ -2,10 +2,12 @@
 // test/routes.buri sees what this file exports, and nothing else — the same
 // rule lib.buri follows for a library.
 
-from "core/effect" import { Alloc, Env, Fs, Stdout };
+from "core/effect" import { Alloc, Env, Stdout };
 from "core/env" import * as env;
+from "core/fs" import { FsRead, FsWrite };
 from "core/host" import * as host;
 from "core/io" import * as io;
+from "core/path" import * as filepath;
 from "core/str" import * as str;
 from "//lib/ledger" import { entry };
 from "//lib/money" import { fromCents };
@@ -19,20 +21,27 @@ from "//cmd/server/routes.buri" import { route };
 
 /// The context is this program's complete effect budget. Under `platform: JS`
 /// this same body would fail to build: a browser platform's `core/host` has no
-/// `fs` to export, so `host.fs` does not resolve — and the error lands on that
-/// line rather than at runtime.
+/// filesystem to export, so `host.fs` does not resolve — and the error
+/// lands on that line rather than at runtime.
+///
+/// The filesystem is two bindings because it is two authorities. `append`
+/// reads the log and then writes it, so this program needs both; a program
+/// that only served the log would bind `FsRead` alone and be unable to change
+/// a byte of it anywhere in its call graph.
 export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Stdout: host.stdout,
-        Fs: host.fs,
+        FsRead: host.fs,
+        FsWrite: host.fs,
         Env: host.env,
     };
 
-    let path = env.get(ctx, "LEDGER_LOG").withDefault("ledger.log");
+    let log = filepath.of(ctx, env.get(ctx, "LEDGER_LOG").withDefault("ledger.log"));
+    let path = log.text();
     let hit = route("/entries");
 
-    match (append(ctx, path, [entry("startup", fromCents(0))])) {
+    match (append(ctx, log, [entry("startup", fromCents(0))])) {
         .Err(_) => .Err(str.format(ctx, "could not open the ledger log at ${path}")),
         .Ok(_) => {
             match (io.println(ctx, "serving ${hit.name} at ${hit.path} from ${path}")) {

@@ -136,7 +136,18 @@ pub const MODULES: &[StdModule] = &[
     // importable anywhere and `core/host` is not.
     m("core/alloc", include_str!("sources/alloc.buri")),
     m("core/io", include_str!("sources/io.buri")),
-    m("core/fs", include_str!("sources/fs.buri")),
+    // Pure string work, and below `core/fs` rather than inside it: every
+    // function in `core/fs` names a filesystem effect in its bounds and its
+    // module doc says the disk is visible in the signature, so a `join` that
+    // touches nothing would be the first exception. `Path` is the type
+    // `core/fs` takes, and this is where it and its methods live.
+    m("core/path", include_str!("sources/path.buri")),
+    // A **platform module**, and the only one outside `core/effect` and
+    // `ui/effect` that declares effects. `FsRead` and `FsWrite` name a `Path`
+    // in every method, `core/path` names `Alloc`, and `core/effect` is below
+    // `core/path` — so the declarations live here, where they can say what
+    // they mean, rather than one module down where they could only say `Str`.
+    StdModule { platform: true, ..m("core/fs", include_str!("sources/fs.buri")) },
     m("core/env", include_str!("sources/env.buri")),
     // The parsed half of `core/env`'s `args`. Not a platform module and not an
     // eager one: it declares no effect — `run` *names* `Env`, `Stdout` and
@@ -349,31 +360,31 @@ const EVERY_PLATFORM: &[Platform] = &Platform::ALL;
 /// `every_host_export_is_in_the_grant_table`.
 const HOST_GRANTS: &[HostGrant] = &[
     HostGrant {
-        effect: "Alloc",
+        effect: "`Alloc`",
         exports: &["HostAlloc", "alloc"],
         platforms: EVERY_PLATFORM,
         because: "every platform can allocate",
     },
     HostGrant {
-        effect: "Stdout",
+        effect: "`Stdout`",
         exports: &["HostStdout", "stdout"],
         platforms: EVERY_PLATFORM,
         because: "every platform has somewhere to write a line",
     },
     HostGrant {
-        effect: "Stderr",
+        effect: "`Stderr`",
         exports: &["HostStderr", "stderr"],
         platforms: EVERY_PLATFORM,
         because: "every platform has somewhere to write a line",
     },
     HostGrant {
-        effect: "Clock",
+        effect: "`Clock`",
         exports: &["HostClock", "clock"],
         platforms: EVERY_PLATFORM,
         because: "every platform can read a clock",
     },
     HostGrant {
-        effect: "Rand",
+        effect: "`Rand`",
         exports: &["HostRand", "rand"],
         platforms: EVERY_PLATFORM,
         because: "every platform has a source of randomness",
@@ -405,33 +416,37 @@ const HOST_GRANTS: &[HostGrant] = &[
     // one thread is waiting is a frozen page. WEB grants it now, and the
     // callback-shaped `Fetch` that stood in for it is gone.
     HostGrant {
-        effect: "Net",
+        effect: "`Net`",
         exports: &["HostNet", "net"],
         platforms: EVERY_PLATFORM,
         because: "every platform can make a request",
     },
     // The two halves that vary. A page has no operating system under it, and
     // nothing but a page has a document over it.
+    // One row for two effects, because there is one filesystem: `host.fs`
+    // implements `FsRead` and `FsWrite` both, and which of the two authorities
+    // a program takes is a fact about its *context* rather than about what the
+    // platform offers. A platform either has a filesystem under it or does not.
     HostGrant {
-        effect: "Fs",
+        effect: "`FsRead` or `FsWrite`",
         exports: &["HostFs", "fs"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no filesystem to read",
     },
     HostGrant {
-        effect: "Stdin",
+        effect: "`Stdin`",
         exports: &["HostStdin", "stdin"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no standard input",
     },
     HostGrant {
-        effect: "Env",
+        effect: "`Env`",
         exports: &["HostEnv", "env"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no command line and no environment",
     },
     HostGrant {
-        effect: "Proc",
+        effect: "`Proc`",
         exports: &["HostProc", "proc"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no process to exit; a mounted interface stays live",
@@ -451,7 +466,7 @@ const HOST_GRANTS: &[HostGrant] = &[
     // thing from the other end: tasks are what servers are built out of, and
     // the browser's story is the one that lands with them.
     HostGrant {
-        effect: "Tasks",
+        effect: "`Tasks`",
         exports: &["HostTasks", "tasks"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "`parallel` returns only when the last task has finished, which freezes a \
@@ -470,27 +485,27 @@ const HOST_GRANTS: &[HostGrant] = &[
     // table now has. `design/ui-reactivity.md`'s open item about host
     // subsetting among the non-UI platforms is closed by that.
     HostGrant {
-        effect: "Listen",
+        effect: "`Listen`",
         exports: &["HostListen", "listen"],
         platforms: &[Platform::Linux, Platform::Macos],
         because: "holding a port open is a native program's authority; a page is served \
                   rather than serving, and its host has no way to accept a connection",
     },
     HostGrant {
-        effect: "Sockets",
+        effect: "`Sockets`",
         exports: &["HostSockets", "sockets"],
         platforms: &[Platform::Linux, Platform::Macos],
         because: "writing to an open socket is granted with `Listen`, and a page neither \
                   accepts connections nor holds one to push on",
     },
     HostGrant {
-        effect: "Ui",
+        effect: "`Ui`",
         exports: &["HostUi", "ui"],
         platforms: &[Platform::Web],
         because: "the reactive graph drives a document, and only a page has one",
     },
     HostGrant {
-        effect: "Watch",
+        effect: "`Watch`",
         exports: &["HostWatch", "watch"],
         platforms: &[Platform::Web],
         because: "reading the reactive graph is meaningless where nothing writes it",
@@ -556,7 +571,7 @@ impl HostGrant {
 /// effect methods had no wrapper at all before this table existed, and nothing
 /// said so.
 pub struct Wrapper {
-    /// The effect, as `core/effect` or `ui/effect` spells it.
+    /// The effect, as `core/effect`, `core/fs` or `ui/effect` spells it.
     pub effect: &'static str,
     /// The method it declares.
     pub method: &'static str,
@@ -579,8 +594,8 @@ const fn w(
 
 /// Every method of every declared effect, and the function that calls it.
 ///
-/// The order is `core/effect`'s declaration order followed by `ui/effect`'s, so
-/// the table reads beside the sources it is about.
+/// The order is `core/effect`'s declaration order, then `core/fs`'s two, then
+/// `ui/effect`'s, so the table reads beside the sources it is about.
 pub const WRAPPERS: &[Wrapper] = &[
     w("Alloc", "allocate", "core/alloc", "alloc.allocate(ctx, bytes)"),
     w("Stdout", "print", "core/io", "io.print(ctx, text)"),
@@ -590,18 +605,18 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Stderr", "eprintln", "core/io", "io.eprintln(ctx, text)"),
     w("Stdin", "readLine", "core/io", "io.readLine(ctx)"),
     w("Stdin", "readBytes", "core/io", "io.readBytes(ctx, n)"),
-    w("Fs", "readFile", "core/fs", "fs.readText(ctx, path)"),
-    w("Fs", "writeFile", "core/fs", "fs.writeText(ctx, path, body)"),
-    w("Fs", "fileExists", "core/fs", "fs.exists(ctx, path)"),
-    w("Fs", "readDir", "core/fs", "fs.listDir(ctx, path)"),
-    w("Fs", "readFileBytes", "core/fs", "fs.readBytes(ctx, path)"),
-    w("Fs", "writeFileBytes", "core/fs", "fs.writeBytes(ctx, path, body)"),
-    w("Fs", "appendFile", "core/fs", "fs.append(ctx, path, body)"),
-    w("Fs", "renameFile", "core/fs", "fs.rename(ctx, source, destination)"),
-    w("Fs", "removeFile", "core/fs", "fs.remove(ctx, path)"),
-    w("Fs", "removeDir", "core/fs", "fs.removeDir(ctx, path)"),
-    w("Fs", "makeDir", "core/fs", "fs.makeDir(ctx, path)"),
-    w("Fs", "syncFile", "core/fs", "fs.sync(ctx, path)"),
+    w("FsRead", "readFile", "core/fs", "fs.readText(ctx, path)"),
+    w("FsRead", "fileExists", "core/fs", "fs.exists(ctx, path)"),
+    w("FsRead", "readDir", "core/fs", "fs.listDir(ctx, path)"),
+    w("FsRead", "readFileBytes", "core/fs", "fs.readBytes(ctx, path)"),
+    w("FsWrite", "writeFile", "core/fs", "fs.writeText(ctx, path, body)"),
+    w("FsWrite", "writeFileBytes", "core/fs", "fs.writeBytes(ctx, path, body)"),
+    w("FsWrite", "appendFile", "core/fs", "fs.append(ctx, path, body)"),
+    w("FsWrite", "renameFile", "core/fs", "fs.rename(ctx, source, destination)"),
+    w("FsWrite", "removeFile", "core/fs", "fs.remove(ctx, path)"),
+    w("FsWrite", "removeDir", "core/fs", "fs.removeDir(ctx, path)"),
+    w("FsWrite", "makeDir", "core/fs", "fs.makeDir(ctx, path)"),
+    w("FsWrite", "syncFile", "core/fs", "fs.sync(ctx, path)"),
     w("Net", "fetch", "core/net/http", "http.send(ctx, request)"),
     w("Clock", "nowMillis", "core/time", "time.now(ctx)"),
     w("Clock", "sleepMillis", "core/time", "time.sleepMs(ctx, millis)"),
@@ -680,7 +695,7 @@ mod tests {
     /// it, which is precisely the hole [`WRAPPERS`] exists to close.
     fn declared_effect_methods() -> Vec<(String, String)> {
         let mut out = Vec::new();
-        for path in ["core/effect", "ui/effect"] {
+        for path in ["core/effect", "core/fs", "ui/effect"] {
             let src = source(path).expect("a platform module");
             let mut effect: Option<String> = None;
             for line in src.lines() {
@@ -969,7 +984,7 @@ mod tests {
     #[test]
     fn tasks_is_granted_off_the_page_and_nowhere_else() {
         let grant = host_grant_of("tasks").expect("`tasks` is in the grant table");
-        assert_eq!(grant.effect, "Tasks");
+        assert_eq!(grant.effect, "`Tasks`");
         assert_eq!(grant.platforms_phrase(), "LINUX, MACOS, JS");
         for platform in Platform::ALL {
             let granted = platform != Platform::Web;
@@ -1014,8 +1029,8 @@ mod tests {
     fn the_server_effects_are_granted_together_and_never_on_a_page() {
         let listen = host_grant_of("listen").expect("`listen` is in the grant table");
         let sockets = host_grant_of("sockets").expect("`sockets` is in the grant table");
-        assert_eq!(listen.effect, "Listen");
-        assert_eq!(sockets.effect, "Sockets");
+        assert_eq!(listen.effect, "`Listen`");
+        assert_eq!(sockets.effect, "`Sockets`");
         assert_eq!(
             listen.platforms, sockets.platforms,
             "`Listen` is granted by [{}] and `Sockets` by [{}]; being a server is one \
@@ -1129,7 +1144,7 @@ mod tests {
     #[test]
     fn an_ungrantable_effect_is_not_told_to_build_elsewhere() {
         let ungrantable = HostGrant {
-            effect: "Nothing",
+            effect: "`Nothing`",
             exports: &["HostNothing", "nothing"],
             platforms: &[],
             because: "nothing implements it",

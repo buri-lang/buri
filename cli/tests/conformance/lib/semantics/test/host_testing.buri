@@ -16,11 +16,12 @@ from "core/actor" import { Actor, Reply };
 from "core/alloc" import * as alloc;
 from "core/crypto" import * as crypto;
 from "core/effect" import {
-    Alloc, Clock, Entropy, Env, Fs, Header, IoError, Net, NetError, Proc, Rand, Region,
+    Alloc, Clock, Entropy, Env, Header, IoError, Net, NetError, Proc, Rand, Region,
     Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
+from "core/fs" import { FsRead, FsWrite };
 
 // The doubles, and the call log's constructors: one per method, ordinary
 // functions of the same module, so a test writes the call it expects the way
@@ -35,6 +36,7 @@ from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/net/server" import { Message, Socket };
+from "core/path" import * as path;
 from "core/proc" import * as proc;
 from "core/random" import * as random;
 from "core/str" import * as str;
@@ -66,8 +68,8 @@ fn stop<C: Proc>(ctx: C, code: Int): () {
     proc.exit(ctx, code)
 }
 
-fn loadText<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, IoError> {
-    fs.readText(ctx, path)
+fn loadText<C: Alloc + FsRead>(ctx: C, at: Str): Result<Str, IoError> {
+    fs.readText(ctx, path.of(ctx, at))
 }
 
 /// One request out and the status back — a function that reaches the network
@@ -85,16 +87,20 @@ fn ping<C: Alloc + Net>(ctx: C, url: Str): Result<Response, NetError> {
     http.get(ctx, url)
 }
 
-fn saveText<C: Alloc + Fs>(ctx: C, path: Str, body: Str): Result<(), IoError> {
-    fs.writeText(ctx, path, body)
+fn saveText<C: Alloc + FsWrite>(ctx: C, at: Str, body: Str): Result<(), IoError> {
+    fs.writeText(ctx, path.of(ctx, at), body)
 }
 
 /// Appends what is at `source` to what is at `into`, creating `into` when it is
 /// absent — one function under test that reads, writes and reports.
-fn copyInto<C: Alloc + Fs>(ctx: C, source: Str, into: Str): Result<(), IoError> {
-    match (fs.readBytes(ctx, source)) {
+fn copyInto<C: Alloc + FsRead + FsWrite>(
+    ctx: C,
+    source: Str,
+    into: Str,
+): Result<(), IoError> {
+    match (fs.readBytes(ctx, path.of(ctx, source))) {
         .Err(e) => .Err(e),
-        .Ok(body) => fs.append(ctx, into, body),
+        .Ok(body) => fs.append(ctx, path.of(ctx, into), body),
     }
 }
 
@@ -271,17 +277,20 @@ test "a fresh filesystem holds nothing" {
     let empty = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: empty,
+        FsRead: empty,
+        FsWrite: empty,
     };
-    assert.isTrue(fs.readText(ctx, "a").isErr());
-    assert.isFalse(fs.exists(ctx, "a"));
+    assert.isTrue(fs.readText(ctx, path.of(ctx, "a")).isErr());
+    assert.isFalse(fs.exists(ctx, path.of(ctx, "a")));
     assert.eq(empty.snapshot().len(), 0);
 }
 
 test "files contains exactly the entries it was given" {
+    let disk = fs().files([("a", "A"), ("b", "B")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A"), ("b", "B")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
     assert.eq(assert.ok(loadText(ctx, "b")), "B");
@@ -291,26 +300,32 @@ test "files contains exactly the entries it was given" {
 test "reading a path the filesystem does not have gives IoError.NotFound" {
     // The match in `which` is exhaustive, so a fourth answer cannot hide behind
     // `isErr`.
+    let disk = fs().files([("a", "A")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(which(loadText(ctx, "missing")), "NotFound");
 }
 
 test "an empty file is a file, not an absent one" {
+    let disk = fs().files([("e", "")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("e", "")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.isTrue(fs.exists(ctx, "e"));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "e")));
     assert.eq(assert.ok(loadText(ctx, "e")), "");
 }
 
 test "a write is readable back, and a second one replaces the body" {
+    let disk = fs().files([("a", "one")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "one")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.ok(saveText(ctx, "a", "two"));
     assert.eq(assert.ok(loadText(ctx, "a")), "two");
@@ -323,7 +338,8 @@ test "each call to fs is a filesystem of its own" {
     let yours = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: mine,
+        FsRead: mine,
+        FsWrite: mine,
     };
     assert.ok(saveText(ctx, "b", "B"));
     assert.eq(yours.snapshot().len(), 0);
@@ -341,15 +357,17 @@ test "filesBytes is the byte twin, and composes with files in either order" {
     let two = fs().filesBytes([("b", raw)]).files([("t", "text")]);
     let a = context {
         Alloc: alloc(),
-        Fs: one,
+        FsRead: one,
+        FsWrite: one,
     };
     let b = context {
         Alloc: alloc(),
-        Fs: two,
+        FsRead: two,
+        FsWrite: two,
     };
-    assert.eq(assert.ok(fs.readBytes(a, "b")), raw);
-    assert.eq(assert.ok(fs.readText(a, "t")), "text");
-    assert.eq(assert.ok(fs.readText(b, "b")), "hi");
+    assert.eq(assert.ok(fs.readBytes(a, path.of(a, "b"))), raw);
+    assert.eq(assert.ok(fs.readText(a, path.of(a, "t"))), "text");
+    assert.eq(assert.ok(fs.readText(b, path.of(b, "b"))), "hi");
     assert.eq(one.snapshot(), two.snapshot());
 }
 
@@ -361,69 +379,89 @@ test "a builder answers a new filesystem and leaves its receiver alone" {
 }
 
 test "octets a text encoding cannot carry survive a round trip" {
+    let disk = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     let raw: [U8] = [0, 1, 254, 255, 128];
-    assert.ok(fs.writeBytes(ctx, "blob", raw));
-    assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
+    assert.ok(fs.writeBytes(ctx, path.of(ctx, "blob"), raw));
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
 }
 
 test "append creates the file when it is absent, then adds to the end" {
+    let disk = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     let whole: [U8] = [1, 10, 2, 20];
-    assert.ok(fs.append(ctx, "log", [1, 10]));
-    assert.ok(fs.append(ctx, "log", [2, 20]));
-    assert.eq(assert.ok(fs.readBytes(ctx, "log")), whole);
+    assert.ok(fs.append(ctx, path.of(ctx, "log"), [1, 10]));
+    assert.ok(fs.append(ctx, path.of(ctx, "log"), [2, 20]));
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "log"))), whole);
 }
 
 test "rename replaces the destination and leaves nothing at the source" {
     let store = fs().files([("from", "F"), ("to", "T")]);
     let ctx = context {
-        Fs: store,
+        Alloc: alloc(),
+        FsRead: store,
+        FsWrite: store,
     };
-    assert.ok(fs.rename(ctx, "from", "to"));
+    assert.ok(fs.rename(ctx, path.of(ctx, "from"), path.of(ctx, "to")));
     assert.eq(store.snapshot(), [("to", "F")]);
-    assert.eq(which(fs.rename(ctx, "gone", "to")), "NotFound");
+    assert.eq(
+        which(fs.rename(ctx, path.of(ctx, "gone"), path.of(ctx, "to"))),
+        "NotFound",
+    );
 }
 
 test "remove of a missing file is NotFound, not a silent success" {
+    let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Fs: fs().files([("a", "A")]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.remove(ctx, "a"));
-    assert.eq(which(fs.remove(ctx, "a")), "NotFound");
+    assert.ok(fs.remove(ctx, path.of(ctx, "a")));
+    assert.eq(which(fs.remove(ctx, path.of(ctx, "a"))), "NotFound");
 }
 
 test "makeDir creates the parents, and a path already naming a file does not" {
+    let disk = fs().files([("f", "F")]);
     let ctx = context {
-        Fs: fs().files([("f", "F")]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.makeDir(ctx, "a/b/c"));
-    assert.isTrue(fs.exists(ctx, "a"));
-    assert.isTrue(fs.exists(ctx, "a/b/c"));
-    assert.eq(which(fs.makeDir(ctx, "f")), "AlreadyExists");
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "a/b/c")));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "a/b/c")));
+    assert.eq(which(fs.makeDir(ctx, path.of(ctx, "f"))), "AlreadyExists");
 }
 
 test "readDir lists the immediate children, files and directories alike" {
+    let disk = fs().files([("d/one", "1"), ("d/deep/two", "2")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("d/one", "1"), ("d/deep/two", "2")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.makeDir(ctx, "d/empty"));
-    assert.eq(assert.ok(fs.listDir(ctx, "d")), ["deep", "empty", "one"]);
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "d/empty")));
+    assert.eq(assert.ok(fs.listDir(ctx, path.of(ctx, "d"))), ["deep", "empty", "one"]);
 }
 
 test "sync answers whether there was anything to have flushed" {
+    let disk = fs().files([("a", "A")]);
     let ctx = context {
-        Fs: fs().files([("a", "A")]),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.sync(ctx, "a"));
-    assert.eq(which(fs.sync(ctx, "missing")), "NotFound");
+    assert.ok(fs.sync(ctx, path.of(ctx, "a")));
+    assert.eq(which(fs.sync(ctx, path.of(ctx, "missing"))), "NotFound");
 }
 
 // -----------------------------------------------------------------------------
@@ -432,51 +470,65 @@ test "sync answers whether there was anything to have flushed" {
 
 test "readOnly forwards every read" {
     let raw: [U8] = [7, 8];
+    let disk = fs().files([("a", "A")]).filesBytes([("blob", raw)]).readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A")]).filesBytes([("blob", raw)]).readOnly(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.eq(assert.ok(fs.readBytes(ctx, "blob")), raw);
-    assert.isTrue(fs.exists(ctx, "a"));
-    assert.isTrue(assert.ok(fs.listDir(ctx, "")).len() >= 1);
+    assert.eq(assert.ok(fs.readBytes(ctx, path.of(ctx, "blob"))), raw);
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
+    assert.isTrue(assert.ok(fs.listDir(ctx, path.of(ctx, ""))).len() >= 1);
 }
 
 test "a write through readOnly FAILS" {
+    let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A")]).readOnly(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
 }
 
 test "readOnly refuses a write to a path that does not exist either" {
+    let disk = fs().readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().readOnly(),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.err(saveText(ctx, "new", "B")), .ReadOnly);
 }
 
 test "every writing half of the surface FAILS through readOnly" {
+    let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().files([("a", "A")]).readOnly(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.eq(assert.err(fs.writeBytes(ctx, "a", [1])), .ReadOnly);
-    assert.eq(assert.err(fs.append(ctx, "a", [1])), .ReadOnly);
-    assert.eq(assert.err(fs.rename(ctx, "a", "b")), .ReadOnly);
-    assert.eq(assert.err(fs.remove(ctx, "a")), .ReadOnly);
-    assert.eq(assert.err(fs.makeDir(ctx, "d")), .ReadOnly);
-    assert.eq(assert.ok(fs.readText(ctx, "a")), "A");
+    assert.eq(assert.err(fs.writeBytes(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
+    assert.eq(assert.err(fs.append(ctx, path.of(ctx, "a"), [1])), .ReadOnly);
+    assert.eq(
+        assert.err(fs.rename(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
+        .ReadOnly,
+    );
+    assert.eq(assert.err(fs.remove(ctx, path.of(ctx, "a"))), .ReadOnly);
+    assert.eq(assert.err(fs.makeDir(ctx, path.of(ctx, "d"))), .ReadOnly);
+    assert.eq(assert.ok(fs.readText(ctx, path.of(ctx, "a"))), "A");
 }
 
 test "sync is not a write, so readOnly forwards it" {
+    let disk = fs().files([("a", "A")]).readOnly();
     let ctx = context {
-        Fs: fs().files([("a", "A")]).readOnly(),
+        Alloc: alloc(),
+        FsRead: disk,
+        FsWrite: disk,
     };
-    assert.ok(fs.sync(ctx, "a"));
+    assert.ok(fs.sync(ctx, path.of(ctx, "a")));
 }
 
 test "readOnly ATTENUATES the same filesystem rather than copying it" {
@@ -486,7 +538,8 @@ test "readOnly ATTENUATES the same filesystem rather than copying it" {
     let guarded = store.readOnly();
     let open = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     assert.ok(saveText(open, "b", "B"));
     assert.eq(assert.ok(guarded.read("b")), "B");
@@ -495,13 +548,16 @@ test "readOnly ATTENUATES the same filesystem rather than copying it" {
 
 test "attenuating a filesystem leaves the one it was called on writable" {
     let store = fs().files([("a", "A")]);
+    let guardedDisk = store.readOnly();
     let guarded = context {
         Alloc: alloc(),
-        Fs: store.readOnly(),
+        FsRead: guardedDisk,
+        FsWrite: guardedDisk,
     };
     let open = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     assert.eq(assert.err(saveText(guarded, "a", "B")), .ReadOnly);
     assert.ok(saveText(open, "a", "C"));
@@ -511,9 +567,11 @@ test "attenuating a filesystem leaves the one it was called on writable" {
 test "the attenuation travels with a builder applied after it" {
     // A builder is configuration and not a write, so it neither fails on a
     // read-only handle nor quietly hands back a writable one.
+    let disk = fs().readOnly().files([("a", "A")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: fs().readOnly().files([("a", "A")]),
+        FsRead: disk,
+        FsWrite: disk,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
     assert.eq(assert.err(saveText(ctx, "a", "B")), .ReadOnly);
@@ -533,7 +591,8 @@ test "read sees what a function under test wrote" {
     let store = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     assert.ok(saveText(ctx, "out/report.txt", "done"));
     assert.eq(assert.ok(store.read("out/report.txt")), "done");
@@ -543,7 +602,8 @@ test "snapshot is sorted by path, whatever order the entries arrived in" {
     let store = fs().files([("c", "C"), ("a", "A")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     assert.ok(saveText(ctx, "b", "B"));
     assert.eq(store.snapshot(), [("a", "A"), ("b", "B"), ("c", "C")]);
@@ -553,10 +613,11 @@ test "snapshot sorts by path and not by insertion, even after a rewrite" {
     let store = fs().files([("z", "Z"), ("m", "M"), ("a", "A")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     assert.ok(saveText(ctx, "m", "M2"));
-    assert.ok(fs.remove(ctx, "z"));
+    assert.ok(fs.remove(ctx, path.of(ctx, "z")));
     assert.eq(store.snapshot(), [("a", "A"), ("m", "M2")]);
 }
 
@@ -569,10 +630,12 @@ test "snapshot reads octets back as the text they spell" {
 test "snapshot is files only: a directory holds no octets" {
     let store = fs().files([("a", "A")]);
     let ctx = context {
-        Fs: store,
+        Alloc: alloc(),
+        FsRead: store,
+        FsWrite: store,
     };
-    assert.ok(fs.makeDir(ctx, "d"));
-    assert.isTrue(fs.exists(ctx, "d"));
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "d")));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "d")));
     assert.eq(store.snapshot(), [("a", "A")]);
 }
 
@@ -586,7 +649,8 @@ test "a function that merges two files is asserted through the environment" {
     let store = fs().files([("app/a.txt", "one"), ("app/b.txt", "two")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     assert.ok(copyInto(ctx, "app/a.txt", "app/merged.txt"));
     assert.ok(copyInto(ctx, "app/b.txt", "app/merged.txt"));
@@ -1128,7 +1192,8 @@ test "the log is the calls that were made, in the order they were made" {
     let store = fs().files([("a", "A")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
     assert.ok(saveText(ctx, "b", "B"));
@@ -1140,7 +1205,8 @@ test "a call that failed is a call: the log is not the successes" {
     let store = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     assert.isTrue(loadText(ctx, "missing").isErr());
     assert.eq(store.calls(), [readFile("missing")]);
@@ -1150,35 +1216,40 @@ test "a write refused through readOnly is still something that was asked" {
     let attenuated = fs().files([("a", "A")]).readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: attenuated,
+        FsRead: attenuated,
+        FsWrite: attenuated,
     };
     assert.eq(which(saveText(ctx, "a", "B")), "ReadOnly");
     assert.eq(attenuated.calls(), [writeFile("a", "B")]);
 }
 
-test "every method of Fs is logged under its own name" {
+test "every method of the filesystem is logged under its own name" {
     let store = fs().files([("a", "A"), ("b", "B")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     let raw: [U8] = [104, 105];
-    let _ = assert.ok(fs.readText(ctx, "a"));
-    assert.ok(fs.writeText(ctx, "a", "A2"));
-    assert.isTrue(fs.exists(ctx, "a"));
-    let _ = assert.ok(fs.listDir(ctx, ""));
-    let _ = assert.ok(fs.readBytes(ctx, "a"));
-    assert.ok(fs.writeBytes(ctx, "c", raw));
-    assert.ok(fs.append(ctx, "c", raw));
-    assert.ok(fs.rename(ctx, "b", "d"));
-    assert.ok(fs.remove(ctx, "d"));
-    assert.ok(fs.makeDir(ctx, "dir"));
-    assert.ok(fs.sync(ctx, "a"));
+    let _ = assert.ok(fs.readText(ctx, path.of(ctx, "a")));
+    assert.ok(fs.writeText(ctx, path.of(ctx, "a"), "A2"));
+    assert.isTrue(fs.exists(ctx, path.of(ctx, "a")));
+    // `path.of(ctx, "")` is `.`: a `Path` is never the empty string, because
+    // no platform opens one. The log records the spelling the filesystem was
+    // actually asked about.
+    let _ = assert.ok(fs.listDir(ctx, path.of(ctx, "")));
+    let _ = assert.ok(fs.readBytes(ctx, path.of(ctx, "a")));
+    assert.ok(fs.writeBytes(ctx, path.of(ctx, "c"), raw));
+    assert.ok(fs.append(ctx, path.of(ctx, "c"), raw));
+    assert.ok(fs.rename(ctx, path.of(ctx, "b"), path.of(ctx, "d")));
+    assert.ok(fs.remove(ctx, path.of(ctx, "d")));
+    assert.ok(fs.makeDir(ctx, path.of(ctx, "dir")));
+    assert.ok(fs.sync(ctx, path.of(ctx, "a")));
     assert.eq(store.calls(), [
         readFile("a"),
         writeFile("a", "A2"),
         fileExists("a"),
-        readDir(""),
+        readDir("."),
         readFileBytes("a"),
         writeFileBytes("c", raw),
         appendFile("c", raw),
@@ -1193,12 +1264,13 @@ test "octets are logged as the text they spell, as snapshot reads them back" {
     let store = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     let hi: [U8] = [104, 105];
     let raw: [U8] = [104, 255];
-    assert.ok(fs.writeBytes(ctx, "b", hi));
-    assert.ok(fs.writeBytes(ctx, "c", raw));
+    assert.ok(fs.writeBytes(ctx, path.of(ctx, "b"), hi));
+    assert.ok(fs.writeBytes(ctx, path.of(ctx, "c"), raw));
     // The constructor spells the octets exactly as the log does, so a fixture
     // that is not text is still a call a test can write down.
     assert.eq(store.calls(), [writeFileBytes("b", hi), writeFileBytes("c", raw)]);
@@ -1221,7 +1293,8 @@ test "a builder answers a new filesystem with a log of its own" {
     let empty = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: empty,
+        FsRead: empty,
+        FsWrite: empty,
     };
     assert.isTrue(loadText(ctx, "a").isErr());
     let filled = empty.files([("a", "A")]);
@@ -1236,11 +1309,13 @@ test "readOnly answers a new view with a log of its own" {
     let attenuated = writable.readOnly();
     let one = context {
         Alloc: alloc(),
-        Fs: writable,
+        FsRead: writable,
+        FsWrite: writable,
     };
     let two = context {
         Alloc: alloc(),
-        Fs: attenuated,
+        FsRead: attenuated,
+        FsWrite: attenuated,
     };
     let _ = assert.ok(loadText(one, "a"));
     assert.isTrue(loadText(two, "missing").isErr());
@@ -1253,7 +1328,8 @@ test "each filesystem logs only what was asked of it" {
     let yours = fs();
     let ctx = context {
         Alloc: alloc(),
-        Fs: mine,
+        FsRead: mine,
+        FsWrite: mine,
     };
     assert.ok(saveText(ctx, "a", "A"));
     assert.eq(mine.calls(), [writeFile("a", "A")]);
@@ -1264,7 +1340,8 @@ test "a function under test is asserted through what it asked for" {
     let store = fs().files([("app/a.txt", "one")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     assert.ok(copyInto(ctx, "app/a.txt", "app/merged.txt"));
     let one: [U8] = [111, 110, 101];
@@ -1458,7 +1535,8 @@ test "a call is compared by its arguments and not by where it came from" {
     let store = fs().files([("a", "A")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: store,
+        FsRead: store,
+        FsWrite: store,
     };
     let _ = assert.ok(loadText(ctx, "a"));
     assert.eq(store.calls(), [readFile("a")]);
@@ -1489,14 +1567,14 @@ struct Configuration {
 
 /// Merges the three files of a configuration directory, naming the first that
 /// could not be read.
-fn getConfiguration<C: Alloc + Fs>(ctx: C): Result<Configuration, Str> {
-    match (fs.readText(ctx, "app/config.toml")) {
+fn getConfiguration<C: Alloc + FsRead>(ctx: C): Result<Configuration, Str> {
+    match (fs.readText(ctx, path.of(ctx, "app/config.toml"))) {
         .Err(e) => .Err(reported(ctx, "app/config.toml", e)),
         .Ok(config) => {
-            match (fs.readText(ctx, "app/secrets.env")) {
+            match (fs.readText(ctx, path.of(ctx, "app/secrets.env"))) {
                 .Err(e) => .Err(reported(ctx, "app/secrets.env", e)),
                 .Ok(secrets) => {
-                    match (fs.readText(ctx, "app/overrides.json")) {
+                    match (fs.readText(ctx, path.of(ctx, "app/overrides.json"))) {
                         .Err(e) => .Err(reported(ctx, "app/overrides.json", e)),
                         .Ok(_extra) => {
                             .Ok(Configuration {
@@ -1543,15 +1621,15 @@ fn reported<C: Alloc>(ctx: C, path: Str, error: IoError): Str {
 
 /// Appends every entry to one write-ahead log, stopping at the first failure —
 /// so what is in the log afterwards is a prefix of what it was asked to write.
-fn commitThree<C: Alloc + Fs>(ctx: C, entries: [[U8]]): Result<(), Str> {
+fn commitThree<C: Alloc + FsWrite>(ctx: C, entries: [[U8]]): Result<(), Str> {
     commitFrom(ctx, entries, 0)
 }
 
-fn commitFrom<C: Alloc + Fs>(ctx: C, entries: [[U8]], i: Int): Result<(), Str> {
+fn commitFrom<C: Alloc + FsWrite>(ctx: C, entries: [[U8]], i: Int): Result<(), Str> {
     match (entries.get(i)) {
         .None => .Ok(()),
         .Some(entry) => {
-            match (fs.append(ctx, "wal", entry)) {
+            match (fs.append(ctx, path.of(ctx, "wal"), entry)) {
                 .Err(e) => .Err(reported(ctx, "wal", e)),
                 .Ok(_written) => commitFrom(ctx, entries, i + 1),
             }
@@ -1561,7 +1639,10 @@ fn commitFrom<C: Alloc + Fs>(ctx: C, entries: [[U8]], i: Int): Result<(), Str> {
 
 /// Fetches the configuration from upstream and caches it, retrying a timeout
 /// once. Nothing is written unless an answer arrived.
-fn refreshFromUpstream<C: Alloc + Fs + Net>(ctx: C, request: Request): Result<(), Str> {
+fn refreshFromUpstream<C: Alloc + FsWrite + Net>(
+    ctx: C,
+    request: Request,
+): Result<(), Str> {
     match (http.send(ctx, request)) {
         .Ok(answer) => cached(ctx, answer),
         .Err(.Timeout) => {
@@ -1574,11 +1655,11 @@ fn refreshFromUpstream<C: Alloc + Fs + Net>(ctx: C, request: Request): Result<()
     }
 }
 
-fn cached<C: Alloc + Fs>(ctx: C, answer: Response): Result<(), Str> {
+fn cached<C: Alloc + FsWrite>(ctx: C, answer: Response): Result<(), Str> {
     match (http.bodyText(ctx, answer.body)) {
         .Err(_bad) => .Err("upstream: not text"),
         .Ok(text) => {
-            match (fs.writeText(ctx, "app/cache.json", text)) {
+            match (fs.writeText(ctx, path.of(ctx, "app/cache.json"), text)) {
                 .Err(e) => .Err(reported(ctx, "app/cache.json", e)),
                 .Ok(_written) => .Ok(()),
             }
@@ -1604,7 +1685,8 @@ test "merges the three files" {
     let files = fs().files(appFiles());
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(getConfiguration(ctx), .Ok(Configuration { name: "demo", token: "abc" }));
 }
@@ -1615,7 +1697,8 @@ test "a secrets file that cannot be read is reported" {
         .faults([readFile("app/secrets.env").fails(.PermissionDenied)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(getConfiguration(ctx), .Err("app/secrets.env: permission denied"));
 }
@@ -1627,7 +1710,8 @@ test "the third append fails and nothing after it is written" {
     ]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: wal,
+        FsRead: wal,
+        FsWrite: wal,
     };
     assert.eq(commitThree(ctx, entries), .Err("wal: disk full"));
     assert.eq(wal.calls(), [
@@ -1645,7 +1729,8 @@ test "nothing is written when upstream times out" {
     let upstream = net().faults([fetch(request).fails(.Timeout)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
         Net: upstream,
     };
     assert.eq(refreshFromUpstream(ctx, request), .Err("upstream: timeout"));
@@ -1665,7 +1750,8 @@ test "a timed-out first attempt is retried" {
     let files = fs();
     let live = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
         Net: upstream,
     };
     assert.ok(refreshFromUpstream(live, request));
@@ -1681,7 +1767,8 @@ test "a fault fires only on the call it names" {
         .faults([readFile("b").fails(.PermissionDenied)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
     assert.eq(which(loadText(ctx, "b")), "PermissionDenied");
@@ -1693,7 +1780,8 @@ test "fails fires on every matching call" {
         .faults([readFile("a").fails(.PermissionDenied)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(which(loadText(ctx, "a")), "PermissionDenied");
     assert.eq(which(loadText(ctx, "a")), "PermissionDenied");
@@ -1706,7 +1794,8 @@ test "failsOnCall fires on the nth matching call and no other" {
         .faults([readFile("a").failsOnCall(2, .NotFound)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
     assert.eq(which(loadText(ctx, "a")), "NotFound");
@@ -1721,7 +1810,8 @@ test "the call number counts matching calls and not calls" {
         .faults([readFile("a").failsOnCall(2, .NotFound)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
     assert.eq(assert.ok(loadText(ctx, "b")), "B");
@@ -1734,7 +1824,8 @@ test "a fault matches by every argument of the call it names" {
     let files = fs().faults([writeFile("a", "B").fails(.PermissionDenied)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.ok(saveText(ctx, "a", "A"));
     assert.eq(which(saveText(ctx, "a", "B")), "PermissionDenied");
@@ -1747,10 +1838,11 @@ test "a fault on one method leaves the other alone" {
     let files = fs().files([("a", "A")]).faults([readFileBytes("a").fails(.NotFound)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
-    assert.isTrue(fs.readBytes(ctx, "a").isErr());
+    assert.isTrue(fs.readBytes(ctx, path.of(ctx, "a")).isErr());
 }
 
 test "a call the plan failed is a call, and it performed nothing" {
@@ -1758,9 +1850,11 @@ test "a call the plan failed is a call, and it performed nothing" {
         .files([("a", "A")])
         .faults([removeFile("a").fails(.PermissionDenied)]);
     let ctx = context {
-        Fs: files,
+        Alloc: alloc(),
+        FsRead: files,
+        FsWrite: files,
     };
-    assert.eq(which(fs.remove(ctx, "a")), "PermissionDenied");
+    assert.eq(which(fs.remove(ctx, path.of(ctx, "a"))), "PermissionDenied");
     assert.eq(files.calls(), [removeFile("a")]);
     assert.eq(files.snapshot(), [("a", "A")]);
 }
@@ -1768,9 +1862,11 @@ test "a call the plan failed is a call, and it performed nothing" {
 test "an error that carries text carries it back unchanged" {
     let files = fs().faults([makeDir("d").fails(.Other("no space"))]);
     let ctx = context {
-        Fs: files,
+        Alloc: alloc(),
+        FsRead: files,
+        FsWrite: files,
     };
-    assert.eq(fs.makeDir(ctx, "d"), .Err(.Other("no space")));
+    assert.eq(fs.makeDir(ctx, path.of(ctx, "d")), .Err(.Other("no space")));
 }
 
 /// Every variant of `IoError`, including the one that carries a `Str`: the plan
@@ -1788,15 +1884,16 @@ test "every IoError variant a plan can name crosses unchanged" {
     ]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
-    assert.eq(fs.readText(ctx, "notFound"), .Err(.NotFound));
-    assert.eq(fs.readText(ctx, "denied"), .Err(.PermissionDenied));
-    assert.eq(fs.readText(ctx, "readOnly"), .Err(.ReadOnly));
-    assert.eq(fs.readText(ctx, "exists"), .Err(.AlreadyExists));
-    assert.eq(fs.readText(ctx, "notADirectory"), .Err(.NotADirectory));
-    assert.eq(fs.readText(ctx, "crossDevice"), .Err(.CrossDevice));
-    assert.eq(fs.readText(ctx, "other"), .Err(.Other("spelled out")));
+    assert.eq(fs.readText(ctx, path.of(ctx, "notFound")), .Err(.NotFound));
+    assert.eq(fs.readText(ctx, path.of(ctx, "denied")), .Err(.PermissionDenied));
+    assert.eq(fs.readText(ctx, path.of(ctx, "readOnly")), .Err(.ReadOnly));
+    assert.eq(fs.readText(ctx, path.of(ctx, "exists")), .Err(.AlreadyExists));
+    assert.eq(fs.readText(ctx, path.of(ctx, "notADirectory")), .Err(.NotADirectory));
+    assert.eq(fs.readText(ctx, path.of(ctx, "crossDevice")), .Err(.CrossDevice));
+    assert.eq(fs.readText(ctx, path.of(ctx, "other")), .Err(.Other("spelled out")));
 }
 
 test "every NetError variant a plan can name crosses unchanged" {
@@ -1872,7 +1969,8 @@ test "a builder after faults keeps the plan" {
     let files = fs().faults([readFile("a").fails(.NotFound)]).files([("a", "A")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(which(loadText(ctx, "a")), "NotFound");
 }
@@ -1883,7 +1981,8 @@ test "faults after a builder keeps the files" {
         .faults([readFile("b").fails(.CrossDevice)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
     assert.eq(which(loadText(ctx, "b")), "CrossDevice");
@@ -1896,7 +1995,8 @@ test "readOnly keeps the plan and the plan is consulted first" {
         .readOnly();
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(which(loadText(ctx, "a")), "NotFound");
 }
@@ -1909,7 +2009,8 @@ test "faults answers a new filesystem and leaves its receiver whole" {
             loadText(
                 context {
                     Alloc: alloc(),
-                    Fs: sound,
+                    FsRead: sound,
+                    FsWrite: sound,
                 },
                 "a",
             ),
@@ -1921,7 +2022,8 @@ test "faults answers a new filesystem and leaves its receiver whole" {
             loadText(
                 context {
                     Alloc: alloc(),
-                    Fs: broken,
+                    FsRead: broken,
+                    FsWrite: broken,
                 },
                 "a",
             ),
@@ -1934,7 +2036,8 @@ test "faults answers a new log" {
     let files = fs().files([("a", "A")]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(assert.ok(loadText(ctx, "a")), "A");
     let broken = files.faults([readFile("a").fails(.NotFound)]);
@@ -1947,7 +2050,8 @@ test "faults answers a new log" {
             loadText(
                 context {
                     Alloc: alloc(),
-                    Fs: broken,
+                    FsRead: broken,
+                    FsWrite: broken,
                 },
                 "a",
             ),
@@ -1967,7 +2071,8 @@ test "the last faults in the chain is the plan" {
         .faults([readFile("a").fails(.NotFound)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(which(loadText(ctx, "a")), "NotFound");
 }
@@ -2005,7 +2110,8 @@ test "a plan whose entries all fire leaves the block passing" {
         .faults([readFile("a").fails(.NotFound), writeFile("b", "C").fails(.ReadOnly)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: files,
+        FsRead: files,
+        FsWrite: files,
     };
     assert.eq(which(loadText(ctx, "a")), "NotFound");
     assert.eq(which(saveText(ctx, "b", "C")), "ReadOnly");

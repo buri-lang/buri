@@ -1,16 +1,18 @@
 // EXPECT: would propagate `IoError`
-from "core/effect" import { Alloc, Fs, Stdout, IoError };
+from "core/effect" import { Alloc, Stdout, IoError };
+from "core/fs" import { FsRead };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/io" import * as io;
+from "core/path" import * as filepath;
 
-fn load<C: Alloc + Fs>(ctx: C, path: Str): Result<Str, Str> {
-  let text = fs.readText(ctx, path)?;
+fn load<C: Alloc + FsRead>(ctx: C, at: Str): Result<Str, Str> {
+  let text = fs.readText(ctx, filepath.of(ctx, at))?;
   .Ok(text)
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Fs: host.fs, Stdout: host.stdout };
+  let ctx = context { Alloc: host.alloc, FsRead: host.fs, Stdout: host.stdout };
   let _ = match (load(ctx, "x")) {
     .Ok(t) => io.println(ctx, "${t}").ignore(),
     .Err(e) => io.println(ctx, "${e}").ignore(),

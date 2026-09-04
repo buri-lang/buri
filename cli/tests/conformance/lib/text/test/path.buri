@@ -1,0 +1,256 @@
+// core/path — a filesystem path as a type rather than as a `Str`.
+//
+// Everything here is pure string work over a value the module normalized once,
+// so the whole file runs on both backends and needs no filesystem at all —
+// which is the point of `core/path` sitting below `core/fs` rather than
+// inside it.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/path" import * as path;
+from "core/path" import { Path };
+from "core/testing/assert" import * as assert;
+
+// -----------------------------------------------------------------------------
+// Normalizing: one spelling per path
+// -----------------------------------------------------------------------------
+
+test "repeated and trailing separators are dropped" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(path.of(ctx, "logs//app/").text(), "logs/app");
+    assert.eq(path.of(ctx, "/var///log//").text(), "/var/log");
+    assert.eq(path.of(ctx, "a/b").text(), "a/b");
+}
+
+test "a `.` component names nothing and is dropped" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(path.of(ctx, "./a/./b").text(), "a/b");
+    assert.eq(path.of(ctx, "/./a").text(), "/a");
+}
+
+test "the empty path is the current directory" {
+    // `""` names nothing on any platform, and `"."` is what a program that
+    // built one out of an empty interpolation meant.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(path.of(ctx, "").text(), ".");
+    assert.eq(path.of(ctx, ".").text(), ".");
+    assert.eq(path.of(ctx, "./.").text(), ".");
+}
+
+test "the root survives normalizing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(path.of(ctx, "/").text(), "/");
+    assert.eq(path.of(ctx, "///").text(), "/");
+}
+
+test "`..` is a component and is NOT resolved" {
+    // Removing `a/..` would rewrite the path through a symbolic link into a
+    // different file. The module header states the rule; this is it.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(path.of(ctx, "a/../b").text(), "a/../b");
+    assert.eq(path.of(ctx, "..").text(), "..");
+    assert.eq(path.of(ctx, "/a/..").text(), "/a/..");
+}
+
+test "two spellings of one path are one value" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(path.of(ctx, "logs//app"), path.of(ctx, "./logs/app/"));
+    assert.isFalse(path.of(ctx, "a/b") == path.of(ctx, "a/../b"));
+}
+
+// -----------------------------------------------------------------------------
+// Joining
+// -----------------------------------------------------------------------------
+
+test "join puts exactly one separator between the two" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let dir = path.of(ctx, "var/log");
+    assert.eq(dir.join(ctx, "app.log").text(), "var/log/app.log");
+    assert.eq(dir.join(ctx, "a/b").text(), "var/log/a/b");
+    assert.eq(dir.join(ctx, "").text(), "var/log");
+}
+
+test "join NEVER replaces the receiver's root" {
+    // The other behaviour — an absolute argument substituting itself — is how
+    // a program that joined a user's string onto its own directory ends up
+    // reading `/etc/passwd`.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        path.of(ctx, "/srv/app").join(ctx, "/etc/passwd").text(),
+        "/srv/app/etc/passwd",
+    );
+    assert.eq(path.of(ctx, "srv").join(ctx, "//x").text(), "srv/x");
+}
+
+test "joining onto the current directory drops it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(path.of(ctx, ".").join(ctx, "a").text(), "a");
+    assert.eq(path.of(ctx, "/").join(ctx, "a").text(), "/a");
+}
+
+// -----------------------------------------------------------------------------
+// Reading a path apart — every one of these is a view, and pure
+// -----------------------------------------------------------------------------
+
+test "parent is the directory the path is in" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(parentText(path.of(ctx, "/var/log/app.log")), .Some("/var/log"));
+    assert.eq(parentText(path.of(ctx, "/var")), .Some("/"));
+    assert.eq(parentText(path.of(ctx, "a/b")), .Some("a"));
+    // A relative name of one component is in the directory a relative path is
+    // relative to, and `.` is the path that names it.
+    assert.eq(parentText(path.of(ctx, "app.log")), .Some("."));
+}
+
+test "the root and the current directory have no parent" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "/").parent().isNone());
+    assert.isTrue(path.of(ctx, ".").parent().isNone());
+}
+
+test "parent is lexical, so a trailing `..` is dropped like any component" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(parentText(path.of(ctx, "a/..")), .Some("a"));
+}
+
+test "fileName is the last component, where it names a file" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(path.of(ctx, "/var/log/app.log").fileName(), .Some("app.log"));
+    assert.eq(path.of(ctx, "app.log").fileName(), .Some("app.log"));
+    assert.isTrue(path.of(ctx, "/").fileName().isNone());
+    assert.isTrue(path.of(ctx, ".").fileName().isNone());
+    // `..` names a directory by where it is resolved from, not by itself.
+    assert.isTrue(path.of(ctx, "a/..").fileName().isNone());
+}
+
+test "extension is what follows the last dot" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(path.of(ctx, "a/report.tar.gz").extension(), .Some("gz"));
+    assert.eq(path.of(ctx, "a/report.tar.gz").stem(), .Some("report.tar"));
+}
+
+test "three names have no extension, and each for its own reason" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // No dot at all.
+    assert.isTrue(path.of(ctx, "README").extension().isNone());
+    assert.eq(path.of(ctx, "README").stem(), .Some("README"));
+    // A dot that begins the name is part of the name.
+    assert.isTrue(path.of(ctx, ".gitignore").extension().isNone());
+    assert.eq(path.of(ctx, ".gitignore").stem(), .Some(".gitignore"));
+    // A dot that ends it separates nothing.
+    assert.isTrue(path.of(ctx, "archive.").extension().isNone());
+    assert.eq(path.of(ctx, "archive.").stem(), .Some("archive."));
+}
+
+test "a path with no file name has neither stem nor extension" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "/").stem().isNone());
+    assert.isTrue(path.of(ctx, "/").extension().isNone());
+}
+
+test "isAbsolute is the half components does not answer" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "/a/b").isAbsolute());
+    assert.isFalse(path.of(ctx, "a/b").isAbsolute());
+    assert.isTrue(path.of(ctx, "/").isAbsolute());
+    assert.isFalse(path.of(ctx, ".").isAbsolute());
+    assert.eq(
+        path.of(ctx, "/a/b").components(ctx),
+        path.of(ctx, "a/b").components(ctx),
+    );
+}
+
+test "components are the names, without the root" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(path.of(ctx, "/var/log/app.log").components(ctx), [
+        "var",
+        "log",
+        "app.log",
+    ]);
+    assert.eq(path.of(ctx, "a/../b").components(ctx), ["a", "..", "b"]);
+    assert.isTrue(path.of(ctx, "/").components(ctx).isEmpty());
+    assert.isTrue(path.of(ctx, ".").components(ctx).isEmpty());
+}
+
+// -----------------------------------------------------------------------------
+// withSuffix — how a sibling temporary is named
+// -----------------------------------------------------------------------------
+
+test "withSuffix appends to the whole name, not to the stem" {
+    // `data.db` and `data.log` want two different temporaries, which is what
+    // replacing the extension would not give them.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(suffixText(ctx, path.of(ctx, "a/data.db")), .Some("a/data.db.tmp"));
+    assert.eq(suffixText(ctx, path.of(ctx, "a/data.log")), .Some("a/data.log.tmp"));
+    assert.eq(suffixText(ctx, path.of(ctx, "plain")), .Some("plain.tmp"));
+}
+
+test "a path with no last component has nothing to append to" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "/").withSuffix(ctx, ".tmp").isNone());
+    assert.isTrue(path.of(ctx, ".").withSuffix(ctx, ".tmp").isNone());
+}
+
+test "the result of withSuffix is normalized like anything else" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(suffixText(ctx, path.of(ctx, "a/b")), .Some("a/b.tmp"));
+    assert.eq(
+        path.of(ctx, "a/b").withSuffix(ctx, "/c").map(fn(p) => p.text()),
+        .Some("a/b/c"),
+    );
+}
+
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
+
+/// `parent` as text, so an assertion can name what it expects.
+fn parentText(p: Path): Option<Str> {
+    p.parent().map(fn(up) => up.text())
+}
+
+fn suffixText<C: Alloc>(ctx: C, p: Path): Option<Str> {
+    p.withSuffix(ctx, ".tmp").map(fn(t) => t.text())
+}

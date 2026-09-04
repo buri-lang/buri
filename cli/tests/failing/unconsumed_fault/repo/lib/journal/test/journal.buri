@@ -2,8 +2,10 @@
 // and passes; the second names a call the code under test never makes, and the
 // runner fails it on the way out of the block with the fault's own spelling.
 
-from "core/effect" import { Alloc, Fs };
+from "core/effect" import { Alloc };
+from "core/fs" import { FsWrite };
 from "core/host/testing" import { alloc, fs, readFile, writeFile };
+from "core/path" import * as path;
 from "core/testing/assert" import * as assert;
 from "//lib/journal" import { record };
 
@@ -11,16 +13,16 @@ test "a fault the code under test reaches is a fault that fired" {
     let disk = fs().faults([writeFile("log", "one").fails(.PermissionDenied)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: disk,
+        FsWrite: disk,
     };
-    assert.isTrue(record(ctx, "log", "one").isErr());
+    assert.isTrue(record(ctx, path.of(ctx, "log"), "one").isErr());
 }
 
 test "a fault whose call never happens fails the test" {
     let disk = fs().faults([readFile("log").fails(.NotFound)]);
     let ctx = context {
         Alloc: alloc(),
-        Fs: disk,
+        FsWrite: disk,
     };
-    assert.ok(record(ctx, "log", "one"));
+    assert.ok(record(ctx, path.of(ctx, "log"), "one"));
 }

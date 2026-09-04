@@ -24,16 +24,17 @@
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Stats };
 from "core/effect" import {
-    Alloc, Clock, Env, Fs, Header, Listen, Listener, Net, NetError, Proc, Rand,
-    Received, Request, Response, Serve, ServeError, Sockets, Stderr, Stdin, Stdout,
-    Tasks,
+    Alloc, Clock, Env, Header, Listen, Listener, Net, NetError, Proc, Rand, Received,
+    Request, Response, Serve, ServeError, Sockets, Stderr, Stdin, Stdout, Tasks,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
+from "core/fs" import { FsRead, FsWrite };
 from "core/host/testing" import * as testing;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
+from "core/path" import * as path;
 from "core/proc" import * as proc;
 from "core/random" import * as random;
 from "core/tasks" import * as tasks;
@@ -184,38 +185,38 @@ fn firstLine<C: Stdin>(ctx: C): Str {
     io.readLine(ctx).withDefault("none")
 }
 
-fn readBack<C: Alloc + Fs>(ctx: C, path: Str): Str {
-    match (fs.readText(ctx, path)) {
+fn readBack<C: Alloc + FsRead>(ctx: C, at: Str): Str {
+    match (fs.readText(ctx, path.of(ctx, at))) {
         .Ok(text) => text,
         .Err(_e) => "missing",
     }
 }
 
-/// The six writing methods of `Fs`, called by name so a missing forward is a
-/// build error. The answers are not asserted — a `TestFs` under a scope answers
+/// The six writing methods of `FsWrite`, called by name so a missing forward
+/// is a build error. The answers are not asserted — a `TestFs` under a scope answers
 /// exactly what it answers without one — only that each call reaches one.
-fn wroteEveryWay<C: Alloc + Fs>(ctx: C): Int {
-    let wroteBytes = match (fs.writeBytes(ctx, "b", [1])) {
+fn wroteEveryWay<C: Alloc + FsWrite>(ctx: C): Int {
+    let wroteBytes = match (fs.writeBytes(ctx, path.of(ctx, "b"), [1])) {
         .Ok(_u) => 8,
         .Err(_e) => 0,
     };
-    let appended = match (fs.append(ctx, "b", [2])) {
+    let appended = match (fs.append(ctx, path.of(ctx, "b"), [2])) {
         .Ok(_u) => 16,
         .Err(_e) => 0,
     };
-    let wroteText = match (fs.writeText(ctx, "c", "c")) {
+    let wroteText = match (fs.writeText(ctx, path.of(ctx, "c"), "c")) {
         .Ok(_u) => 32,
         .Err(_e) => 0,
     };
-    let renamed = match (fs.rename(ctx, "c", "d")) {
+    let renamed = match (fs.rename(ctx, path.of(ctx, "c"), path.of(ctx, "d"))) {
         .Ok(_u) => 64,
         .Err(_e) => 0,
     };
-    let removed = match (fs.remove(ctx, "d")) {
+    let removed = match (fs.remove(ctx, path.of(ctx, "d"))) {
         .Ok(_u) => 128,
         .Err(_e) => 0,
     };
-    let made = match (fs.makeDir(ctx, "e")) {
+    let made = match (fs.makeDir(ctx, path.of(ctx, "e"))) {
         .Ok(_u) => 256,
         .Err(_e) => 0,
     };
@@ -225,17 +226,17 @@ fn wroteEveryWay<C: Alloc + Fs>(ctx: C): Int {
 /// The four reading methods beyond `readFile`, on `wroteEveryWay`'s terms.
 /// `syncFile` is here rather than there because it is not a write — it is the
 /// commit point of one, and there is nothing it could be hiding.
-fn readEveryWay<C: Alloc + Fs>(ctx: C): Int {
-    let exists = if (fs.exists(ctx, "a")) { 1 } else { 0 };
-    let dir = match (fs.listDir(ctx, ".")) {
+fn readEveryWay<C: Alloc + FsRead + FsWrite>(ctx: C): Int {
+    let exists = if (fs.exists(ctx, path.of(ctx, "a"))) { 1 } else { 0 };
+    let dir = match (fs.listDir(ctx, path.of(ctx, "."))) {
         .Ok(_e) => 2,
         .Err(_e) => 0,
     };
-    let bytes = match (fs.readBytes(ctx, "a")) {
+    let bytes = match (fs.readBytes(ctx, path.of(ctx, "a"))) {
         .Ok(_b) => 4,
         .Err(_e) => 0,
     };
-    let synced = match (fs.sync(ctx, "b")) {
+    let synced = match (fs.sync(ctx, path.of(ctx, "b"))) {
         .Ok(_u) => 512,
         .Err(_e) => 0,
     };
@@ -243,7 +244,7 @@ fn readEveryWay<C: Alloc + Fs>(ctx: C): Int {
 }
 
 /// Ten calls, ten bits. Writes first, so `syncFile` has a file to commit.
-fn touchedEveryFile<C: Alloc + Fs>(ctx: C): Int {
+fn touchedEveryFile<C: Alloc + FsRead + FsWrite>(ctx: C): Int {
     let wrote = wroteEveryWay(ctx);
     let read = readEveryWay(ctx);
     wrote + read
@@ -453,7 +454,7 @@ test "a scope forwards standard input" {
 test "a scope forwards the filesystem" {
     let ctx = context {
         Alloc: alloc.generalPurpose(),
-        Fs: testing.fs().files([("a", "A")]),
+        FsRead: testing.fs().files([("a", "A")]),
     };
     assert.eq(alloc.scoped(ctx, fn(c) => readBack(c, "a")), "A");
     assert.eq(alloc.scoped(ctx, fn(c) => readBack(c, "nope")), "missing");
@@ -463,13 +464,19 @@ test "a scope forwards every method of the filesystem" {
     // Ten calls, ten bits. What matters is that each reached the `TestFs`
     // rather than a wrapper that answered for it, and a scope that dropped one
     // of them would not compile.
+    // One double bound to both halves: `FsRead` and `FsWrite` are two effects
+    // over one filesystem, and two `fs()` calls would be two filesystems.
+    let bareDisk = testing.fs().files([("a", "A")]);
     let bare = context {
         Alloc: alloc.generalPurpose(),
-        Fs: testing.fs().files([("a", "A")]),
+        FsRead: bareDisk,
+        FsWrite: bareDisk,
     };
+    let wrappedDisk = testing.fs().files([("a", "A")]);
     let wrapped = context {
         Alloc: alloc.generalPurpose(),
-        Fs: testing.fs().files([("a", "A")]),
+        FsRead: wrappedDisk,
+        FsWrite: wrappedDisk,
     };
     assert.eq(
         alloc.scoped(wrapped, fn(c) => touchedEveryFile(c)),
@@ -632,19 +639,19 @@ test "a server answers the handler it is given" {
 // scope's context to the handler. When `core/net/server` lands, its hook takes
 // this expression unchanged.
 
-fn handle<C: Alloc + Fs + Stdout>(ctx: C, request: Request): Response {
+fn handle<C: Alloc + FsRead + Stdout>(ctx: C, request: Request): Response {
     let _ = io.println(ctx, "serving").ignore();
     // The charge a handler makes on its own behalf, which under `dispatch` is
     // the scope's and not the server's.
     let _ = alloc.allocate(ctx, alloc.strBytes(request.url.len()));
-    match (fs.readText(ctx, request.url)) {
+    match (fs.readText(ctx, path.of(ctx, request.url))) {
         .Ok(_body) => Response { status: 200, headers: [], body: [] },
         .Err(_e) => Response { status: 404, headers: [], body: [] },
     }
 }
 
 /// The wrapping itself, as a plain function over a context and a request.
-fn dispatch<C: Alloc + Fs + Stdout>(ctx: C, request: Request): Response {
+fn dispatch<C: Alloc + FsRead + Stdout>(ctx: C, request: Request): Response {
     alloc.scoped(ctx, fn(c) => handle(c, request))
 }
 
@@ -653,7 +660,7 @@ test "a request handler wrapped in a scope is an ordinary call" {
     let gp = alloc.generalPurpose();
     let ctx = context {
         Alloc: gp,
-        Fs: testing.fs().files([("index.html", "<p>")]),
+        FsRead: testing.fs().files([("index.html", "<p>")]),
         Stdout: out,
     };
 
