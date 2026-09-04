@@ -51,7 +51,6 @@ use inkwell::context::Context;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValue, BasicValueEnum, IntValue, PointerValue};
 
-use std::rc::Rc;
 
 use crate::compiler::middle::ir;
 use crate::compiler::middle::layout::{
