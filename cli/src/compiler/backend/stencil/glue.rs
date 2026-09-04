@@ -119,10 +119,19 @@ pub enum Helper {
 ///
 /// `$` cannot appear in a Buri path, so no `ir::Func::symbol` can collide with
 /// one — the same guarantee `mod.rs`'s pool anchor rests on. The index is the
-/// order the unit first asked for it, which is emission order and therefore
+/// order the *part* first asked for it, which is emission order and therefore
 /// reproducible.
-pub fn symbol(i: usize) -> String {
-    format!("buri$stencil$h{i}")
+///
+/// **Two numbers and not one**, because a unit is emitted in parts and a part
+/// does not know what the parts beside it asked for. `part` is the part's index
+/// within its unit — a function of the member count alone
+/// (`mod.rs::PART_MEMBERS`) — so the pair is unique inside the object however
+/// the work divided, and it is the same pair on every machine. The cost is that
+/// two parts needing the same glue get a copy each; they are local symbols and
+/// `-dead_strip` keeps whichever is reached, which is what a local symbol was
+/// for.
+pub fn symbol(part: usize, i: usize) -> String {
+    format!("buri$stencil$p{part}h{i}")
 }
 
 /// The environment record starts **two** words into its block: the first word

@@ -109,10 +109,13 @@ pub enum RelocKind {
     Pc32,
 }
 
-/// One unit's emitted bytes.
+/// One part of one unit's emitted bytes.
 ///
 /// `base` is zero and stays zero: the emitter's "addresses" are offsets into
-/// this section, and the linker supplies the rest.
+/// this section, and the linker supplies the rest. It is zero for *every* part
+/// of a unit, not only the first — which is what lets a unit's functions be
+/// emitted on several threads and the regions concatenated afterwards
+/// ([`Emitted::append`]).
 pub struct Region {
     /// The instruction stream.
     pub bytes: Vec<u8>,
@@ -331,12 +334,91 @@ impl Region {
     }
 }
 
-/// What one unit's emission comes to.
+/// What one part's emission comes to.
+#[derive(Default)]
 pub struct Emitted {
     pub code: Vec<u8>,
     pub code_relocs: Vec<Reloc>,
     pub pool: Vec<u8>,
     pub pool_relocs: Vec<Reloc>,
+}
+
+/// The alignment a part may be moved to when it is appended to another.
+///
+/// Sixteen, on both machines and whatever the section itself asks for. A part's
+/// own offsets are relative to its base, so a base that is not a multiple of
+/// everything inside it is a misaligned constant: [`Region::pool_const`] aligns
+/// a datum to `max(align, 8)` and `x86.rs` refuses a stencil asking for more
+/// than [`POOL_ALIGN_X86_64`], so sixteen covers every alignment a part can
+/// contain. The code side needs four ([`CODE_ALIGN`], and `align_code(4)` at
+/// every function) and is given sixteen for the same reason: one number, and no
+/// arm of it to get wrong.
+const PART_ALIGN: usize = 16;
+
+impl Emitted {
+    /// Room for the parts about to be appended, so that a thirty-megabyte unit
+    /// is not grown one doubling at a time.
+    pub fn reserve_for<'p, P: IntoIterator<Item = &'p Emitted>>(&mut self, parts: P) {
+        let (mut code, mut pool, mut code_relocs, mut pool_relocs) = (0, 0, 0, 0);
+        for p in parts {
+            code += p.code.len() + PART_ALIGN;
+            pool += p.pool.len() + PART_ALIGN;
+            code_relocs += p.code_relocs.len();
+            pool_relocs += p.pool_relocs.len();
+        }
+        self.code.reserve(code);
+        self.pool.reserve(pool);
+        self.code_relocs.reserve(code_relocs);
+        self.pool_relocs.reserve(pool_relocs);
+    }
+
+    /// Append a part of the same unit, rebasing everything it carries, and
+    /// answer the code offset it landed at.
+    ///
+    /// **This is what makes a unit's functions divisible.** A part is emitted
+    /// into a region whose base is zero, so every offset in it — a function's
+    /// entry, a relocation's site, a pool slot named as an addend — is relative
+    /// to that zero, and moving the part is adding one number to each of them.
+    /// None of the *bytes* are rewritten, because no address is ever baked into
+    /// this backend's code: a call is a relocation (`Jit::resolve`), a pool
+    /// reference is a relocation pair ([`Region::pool_ref`]), and a
+    /// function-local branch was already resolved inside the part, where the
+    /// distance is the same whatever the base is.
+    ///
+    /// The two bases move independently — the code and the pool are two
+    /// sections — so a `Target::Pool` addend takes the pool's and every
+    /// relocation site takes its own section's.
+    pub fn append(&mut self, other: Emitted) -> u64 {
+        while !self.code.len().is_multiple_of(PART_ALIGN) {
+            self.code.push(0);
+        }
+        while !self.pool.len().is_multiple_of(PART_ALIGN) {
+            self.pool.push(0);
+        }
+        let code_base = self.code.len() as u64;
+        let pool_base = self.pool.len() as u64;
+        self.code.extend_from_slice(&other.code);
+        self.pool.extend_from_slice(&other.pool);
+        let rebase = |r: &mut Reloc, base: u64| {
+            r.at += base;
+            match &mut r.target {
+                // A pool offset, whether it is spelled as this relocation's
+                // addend or as the `Here` a pool word holds.
+                Target::Pool => r.addend += pool_base as i64,
+                Target::Here(off) => *off += pool_base,
+                Target::Func(_) | Target::Symbol(_) => {}
+            }
+        };
+        for mut r in other.code_relocs {
+            rebase(&mut r, code_base);
+            self.code_relocs.push(r);
+        }
+        for mut r in other.pool_relocs {
+            rebase(&mut r, pool_base);
+            self.pool_relocs.push(r);
+        }
+        code_base
+    }
 }
 
 #[cfg(test)]
@@ -365,6 +447,65 @@ mod tests {
         assert_eq!(out.code.len(), 6);
         assert_eq!(out.pool.get(0..2), Some(&b"hi"[..]));
         assert_eq!(s & !(1 << 40), 0);
+    }
+
+    /// A part appended to another keeps its bytes and moves its offsets: the
+    /// code by the code base, every pool offset by the pool base, and a
+    /// relocation naming a symbol not at all.
+    ///
+    /// The two bases are different numbers here on purpose — the code and the
+    /// pool are two sections and a part's code is not the same size as its
+    /// pool — so a rebase that used one for both would fail this.
+    #[test]
+    fn a_part_moves_its_offsets_and_not_its_bytes() {
+        let mut first = Region::new();
+        first.put(&[0x11; 20]);
+        first.pool_bytes(b"first pool");
+        let first = first.finish();
+
+        let mut second = Region::new();
+        let at = second.put(&[0x22; 8]);
+        let slot = second.pool_u64(0xdead_beef);
+        second.pool_ref(at, at + 4, slot);
+        let here = second.pool_bytes(b"xy");
+        second.pool_target(Target::Here(here & !(1 << 40)));
+        second.reloc(at, RelocKind::Branch26, Target::Symbol(String::from("buri_rt_flush")));
+        let second = second.finish();
+        let (code_relocs, pool_relocs) = (second.code_relocs.clone(), second.pool_relocs.clone());
+        let (second_code, second_pool) = (second.code.clone(), second.pool.clone());
+
+        let mut whole = first;
+        let base = whole.append(second);
+        // The base is where the second part's code went, and its bytes are
+        // there unchanged.
+        assert_eq!(base, 32, "20 bytes of code, padded to the part alignment");
+        assert_eq!(whole.code.get(base as usize..), Some(&second_code[..]));
+        let pool_base = 16u64; // "first pool" is ten bytes, padded to sixteen.
+        assert_eq!(whole.pool.get(pool_base as usize..), Some(&second_pool[..]));
+
+        // Every relocation of the appended part, moved: its site by its own
+        // section's base, and a pool addend by the pool's.
+        for (before, after) in code_relocs.iter().zip(whole.code_relocs.iter()) {
+            assert_eq!(after.at, before.at + base);
+            match before.target {
+                Target::Pool => assert_eq!(after.addend, before.addend + pool_base as i64),
+                _ => assert_eq!(after.addend, before.addend),
+            }
+        }
+        // The first part had none of its own, so the pool relocations here are
+        // all the second's.
+        for (before, after) in pool_relocs.iter().zip(whole.pool_relocs.iter()) {
+            assert_eq!(after.at, before.at + pool_base);
+            match before.target {
+                Target::Pool => assert_eq!(after.addend, before.addend + pool_base as i64),
+                _ => assert_eq!(after.addend, before.addend),
+            }
+        }
+        // And a symbol is a symbol wherever the part landed.
+        assert!(whole
+            .code_relocs
+            .iter()
+            .any(|r| r.target == Target::Symbol(String::from("buri_rt_flush"))));
     }
 
     /// A pool word that names a symbol becomes a relocation and stays zero in
