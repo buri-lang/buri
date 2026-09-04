@@ -425,7 +425,6 @@ TupleType       ::= "(" Type ("," Type)+ ","? ")"
 
        lambda                (top level only; never a sub-operand)
        ||                    left
-       ??                    right
        &&                    left
        == != < <= > >=       non-associative
        |                     left
@@ -450,7 +449,7 @@ TupleType       ::= "(" Type ("," Type)+ ","? ")"
    the compiler has a sentence.
 
    @cascade _operand
-     OrExpr CoalesceExpr AndExpr CmpExpr BitOrExpr BitXorExpr
+     OrExpr AndExpr CmpExpr BitOrExpr BitXorExpr
      BitAndExpr AddExpr MulExpr           = binary_expression
      UnaryExpr                            = unary_expression
      PostfixExpr
@@ -465,10 +464,7 @@ Lambda          ::= "fn" "(" LambdaParams? ")" (":" Type)? "=>" Expr
 LambdaParams    ::= LambdaParam ("," LambdaParam)* ","?
 LambdaParam     ::= name=IDENT (":" Type)?
 
-OrExpr          ::= OrExpr "||" CoalesceExpr
-                  | CoalesceExpr
-
-CoalesceExpr    ::= AndExpr "??" CoalesceExpr
+OrExpr          ::= OrExpr "||" AndExpr
                   | AndExpr
 
 AndExpr         ::= AndExpr "&&" CmpExpr
@@ -921,7 +917,7 @@ Punctuation     ::= "{" | "}" | "(" | ")" | "[" | "]"
                   | "=" | "=>"
                   | "==" | "!=" | "<" | "<=" | ">" | ">="
                   | "+" | "-" | "*" | "/" | "%"
-                  | "&&" | "||" | "!" | "??"
+                  | "&&" | "||" | "!"
                   | "&" | "|" | "^" | "~"
                   | "?"
 

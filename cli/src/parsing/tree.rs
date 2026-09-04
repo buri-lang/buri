@@ -356,7 +356,6 @@ pub struct TestDecl {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BinOp {
     Or,
-    Coalesce,
     And,
     Eq,
     Ne,
@@ -378,7 +377,6 @@ impl BinOp {
     pub fn text(self) -> &'static str {
         match self {
             BinOp::Or => "||",
-            BinOp::Coalesce => "??",
             BinOp::And => "&&",
             BinOp::Eq => "==",
             BinOp::Ne => "!=",

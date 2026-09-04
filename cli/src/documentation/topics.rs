@@ -161,7 +161,7 @@ pub const TOPICS: &[Topic] = &[
         "Expressions",
         Kind::Language,
         include_str!("../docs/language/expressions.md"),
-        &["if", "match", "method", "call", "lambda", "operator", "precedence", "?", "??", "abort"],
+        &["if", "match", "method", "call", "lambda", "operator", "precedence", "?", "abort"],
         &["language/patterns"],
     ),
     tagged(

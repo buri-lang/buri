@@ -29,7 +29,8 @@ impl<T> Option<T> {
         }
     }
 
-    /// The right operand is produced eagerly; `??` is the short-circuiting form.
+    /// The fallback is produced eagerly, because it is an argument. Where that
+    /// matters, `or` and `andThen` take the work as a function instead.
     export fn withDefault(self, fallback: T): T {
         match (self) {
             .Some(v) => v,

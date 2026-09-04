@@ -253,7 +253,7 @@ net-h3 = ["net", "dep:quinn"]
 #   which is what made an unreferenced networking stack cost twenty-four
 #   bytes instead of a megabyte, and what still holds `quinn` out of it.
 # * `panic = "abort"` because an abort in this language is a write to standard
-#   error and an exit, never an unwind (SPEC 6.10), so the unwinder tables
+#   error and an exit, never an unwind (SPEC 6.9), so the unwinder tables
 #   would be dead weight in every artifact.
 # * `codegen-units = 1` and `debug = 0` are reproducibility and size: one unit
 #   removes the parallel-codegen non-determinism that `--check-reproducible`

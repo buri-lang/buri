@@ -4,69 +4,78 @@ const $k2=[$k0,$k1];
 const $k3=[0,0];
 function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
-  const $t1=__cmd_x_main_buri$lookup($k2,'missing');
-  const self_9=$host_HostStdout_println(ctx_0[1],$t1!==void 0?$t1:'none');
-  let $t2;
-  if(self_9[0]===0){
-    $t2=0;
-  }else if(self_9[0]===1){
-    $t2=0;
+  const self_7=__cmd_x_main_buri$lookup($k2,'missing');
+  let $t1;
+  if(self_7!==void 0){
+    $t1=self_7;
+  }else if(self_7===void 0){
+    $t1='none';
   }else{
     $abort('no arm matched');
   }
-  let $t4;
-  const $t5=__cmd_x_main_buri$port($k2);
-  if($t5[0]===0){
-    $t4='port '+String($t5[1]);
-  }else if($t5[0]===1){
-    let $t6;
-    const $t7=$t5[1];
-    if($t7[0]===0){
-      $t6=$t7[1];
-    }else if($t7[0]===1){
-      $t6=$t7[1];
+  const fallback_2=$t1;
+  const self_12=$host_HostStdout_println(ctx_0[1],fallback_2);
+  let $t3;
+  if(self_12[0]===0){
+    $t3=0;
+  }else if(self_12[0]===1){
+    $t3=0;
+  }else{
+    $abort('no arm matched');
+  }
+  let $t5;
+  const $t6=__cmd_x_main_buri$port($k2);
+  if($t6[0]===0){
+    $t5='port '+String($t6[1]);
+  }else if($t6[0]===1){
+    let $t7;
+    const $t8=$t6[1];
+    if($t8[0]===0){
+      $t7=$t8[1];
+    }else if($t8[0]===1){
+      $t7=$t8[1];
     }else{
       $abort('no arm matched');
     }
-    $t4='bad '+$t6;
+    $t5='bad '+$t7;
   }else{
     $abort('no arm matched');
   }
-  const text_16=$t4;
-  const self_17=$host_HostStdout_println(ctx_0[1],text_16);
-  let $t8;
-  if(self_17[0]===0){
-    $t8=0;
-  }else if(self_17[0]===1){
-    $t8=0;
+  const text_19=$t5;
+  const self_20=$host_HostStdout_println(ctx_0[1],text_19);
+  let $t9;
+  if(self_20[0]===0){
+    $t9=0;
+  }else if(self_20[0]===1){
+    $t9=0;
   }else{
     $abort('no arm matched');
   }
-  let $t10;
-  const $t11=__cmd_x_main_buri$port([]);
-  if($t11[0]===0){
-    $t10='port '+String($t11[1]);
-  }else if($t11[0]===1){
-    let $t12;
-    const $t13=$t11[1];
-    if($t13[0]===0){
-      $t12=$t13[1];
-    }else if($t13[0]===1){
-      $t12=$t13[1];
+  let $t11;
+  const $t12=__cmd_x_main_buri$port([]);
+  if($t12[0]===0){
+    $t11='port '+String($t12[1]);
+  }else if($t12[0]===1){
+    let $t13;
+    const $t14=$t12[1];
+    if($t14[0]===0){
+      $t13=$t14[1];
+    }else if($t14[0]===1){
+      $t13=$t14[1];
     }else{
       $abort('no arm matched');
     }
-    $t10='bad '+$t12;
+    $t11='bad '+$t13;
   }else{
     $abort('no arm matched');
   }
-  const text_24=$t10;
-  const self_25=$host_HostStdout_println(ctx_0[1],text_24);
-  let $t14;
-  if(self_25[0]===0){
-    $t14=0;
-  }else if(self_25[0]===1){
-    $t14=0;
+  const text_27=$t11;
+  const self_28=$host_HostStdout_println(ctx_0[1],text_27);
+  let $t15;
+  if(self_28[0]===0){
+    $t15=0;
+  }else if(self_28[0]===1){
+    $t15=0;
   }else{
     $abort('no arm matched');
   }

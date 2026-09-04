@@ -26,7 +26,7 @@ rule numbers below are the ones the compiler's comments cite. A bare
 6. Struct field names, enum variant names, context bindings, and match-arm
    pattern bindings must each be unique within their scope.
 7. Every arm of a `match` produces a value of the arm type, and no arm may opt
-   out (Section 6.10).
+   out (Section 6.9).
 8. A lambda may not capture an effect-carrying value, nor one whose type could be
    a context at some instantiation (Section 10.6).
 9. Private fields may not be read, written, or matched outside the module that

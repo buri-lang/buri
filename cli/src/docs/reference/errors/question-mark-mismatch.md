@@ -11,7 +11,7 @@ error: `?` on a `Result` needs a `Result` return type, not `I64` [question-mark-
 ## What to do
 
 Return a `Result` from this function, or handle the error here with `match` or
-`??`.
+`withDefault`.
 
 ## Why
 

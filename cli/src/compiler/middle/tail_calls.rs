@@ -18,9 +18,9 @@
 //! Two things about the shape are easy to get wrong, and both were:
 //!
 //!  * **What counts as tail position.** It is not only a block's result, an
-//!    `if` arm and a match arm: the right operand of `&&`, `||` and `??` is
-//!    the whole expression's result whenever it is reached, so a call there is
-//!    a tail call too. [`tail_callees`] decides this, and [`rewrite_tails`]
+//!    `if` arm and a match arm: the right operand of `&&` and `||` is the
+//!    whole expression's result whenever it is reached, so a call there is a
+//!    tail call too. [`tail_callees`] decides this, and [`rewrite_tails`]
 //!    rewrites exactly what it counted — a shape one of them counted and the
 //!    other did not gave a `while (true)` nothing ever continues, which looks
 //!    like elimination and is not.
@@ -120,15 +120,13 @@ fn tail_callees(e: &Expr, out: &mut Vec<usize>) {
         }
         // The right operand of a short-circuiting operator *is* the result
         // whenever it is reached — `a && f(x)` is `f(x)` when `a` holds,
-        // `a || f(x)` is `f(x)` when it does not, and `opt ?? f(x)` is `f(x)`
-        // when `opt` is empty — so it is in tail position when the whole
-        // expression is. The left operand never is: its value is inspected.
+        // and `a || f(x)` is `f(x)` when it does not — so it is in tail
+        // position when the whole expression is. The left operand never is:
+        // its value is inspected.
         //
-        // These are the shapes of `all`, `any` and a linear search, which is
-        // to say the recursion an immutable language writes most often.
-        ExprKind::And { rhs, .. }
-        | ExprKind::Or { rhs, .. }
-        | ExprKind::Coalesce { rhs, .. } => tail_callees(rhs, out),
+        // These are the shapes of `all` and `any`, which is to say the
+        // recursion an immutable language writes most often.
+        ExprKind::And { rhs, .. } | ExprKind::Or { rhs, .. } => tail_callees(rhs, out),
         _ => {}
     }
 }
@@ -344,9 +342,7 @@ fn rewrite_tails(e: &mut Expr, jump: &impl Fn(usize) -> Option<usize>) {
                 rewrite_tails(&mut a.body, jump);
             }
         }
-        ExprKind::And { rhs, .. } | ExprKind::Or { rhs, .. } | ExprKind::Coalesce { rhs, .. } => {
-            rewrite_tails(rhs, jump)
-        }
+        ExprKind::And { rhs, .. } | ExprKind::Or { rhs, .. } => rewrite_tails(rhs, jump),
         _ => {}
     }
 }
@@ -528,7 +524,7 @@ mod tests {
         assert!(matches!(entries[0].kind, ExprKind::Continue { func: None, entry: 0, .. }));
     }
 
-    /// The right operand of `??` is the whole expression's value whenever it is
+    /// The right operand of `||` is the whole expression's value whenever it is
     /// reached, so a call there is a tail call — the shape the historical
     /// miscompile turned on, and the one an analysis and an emitter could
     /// disagree about.

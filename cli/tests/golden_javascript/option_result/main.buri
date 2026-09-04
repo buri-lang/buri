@@ -1,6 +1,6 @@
 // `Option` and `Result` are ordinary enums, so every `Some`, `None`, `Ok` and
-// `Err` is an allocation. `?` and `??` are the two places the backend already
-// knows their shape.
+// `Err` is an allocation. `?` and `withDefault` are the two places the backend
+// already knows their shape.
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -45,7 +45,7 @@ export fn main(): Result<(), Str> {
         Stdout: host.stdout,
     };
     let pairs = [("port", "8080"), ("host", "local")];
-    let fallback = lookup(pairs, "missing") ?? "none";
+    let fallback = lookup(pairs, "missing").withDefault("none");
     let _ = io.println(ctx, "${fallback}").ignore();
     let _ = io
         .println(ctx, match (port(pairs)) {

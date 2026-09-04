@@ -563,11 +563,6 @@ impl<'a, 'b> Infer<'a, 'b> {
             typed::ExprKind::Or { lhs, rhs } => {
                 typed::ExprKind::Or { lhs: Box::new(sub(*lhs)), rhs: Box::new(sub(*rhs)) }
             }
-            typed::ExprKind::Coalesce { lhs, rhs, kind } => typed::ExprKind::Coalesce {
-                lhs: Box::new(sub(*lhs)),
-                rhs: Box::new(sub(*rhs)),
-                kind,
-            },
             typed::ExprKind::Try { base, kind } => {
                 typed::ExprKind::Try { base: Box::new(sub(*base)), kind }
             }

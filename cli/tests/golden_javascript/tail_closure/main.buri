@@ -43,15 +43,19 @@ export fn main(): Result<(), Str> {
     let _ = io
         .println(
             ctx,
-            "${fs.get(0).map(fn(f) => f(100)) ?? -1} ${fs.get(3).map(fn(f) => f(100))
-                ?? -1}",
+            "${fs.get(0).map(fn(f) => f(100)).withDefault(-1)} ${fs
+                .get(3)
+                .map(fn(f) => f(100))
+                .withDefault(-1)}",
         )
         .ignore();
     let _ = io
         .println(
             ctx,
-            "${gs.get(0).map(fn(g) => g(2)) ?? -1} ${gs.get(2).map(fn(g) => g(2))
-                ?? -1}",
+            "${gs.get(0).map(fn(g) => g(2)).withDefault(-1)} ${gs
+                .get(2)
+                .map(fn(g) => g(2))
+                .withDefault(-1)}",
         )
         .ignore();
     .Ok(())

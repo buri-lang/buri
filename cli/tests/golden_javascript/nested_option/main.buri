@@ -1,6 +1,6 @@
 // `None` is absence and `Some(x)` is `x`, which collides exactly once:
 // `Some(None)` would be absence too. Everything here is that corner --
-// construction, matching, `??`, equality, ordering and rendering of an
+// construction, matching, `withDefault`, equality, ordering and rendering of an
 // `Option<Option<T>>`, and of an `Option` that came out of the runtime rather
 // than out of generated code.
 from "core/effect" import { Alloc, Stdout };
@@ -51,7 +51,9 @@ export fn main(): Result<(), Str> {
     let _ = io
         .println(
             ctx,
-            "${flatten_(ss) ?? -1} ${flatten_(sn) ?? -1} ${flatten_(nn) ?? -1}",
+            "${flatten_(ss).withDefault(-1)} ${flatten_(sn).withDefault(-1)} ${flatten_(
+                nn,
+            ).withDefault(-1)}",
         )
         .ignore();
     let _ = io
@@ -79,7 +81,7 @@ export fn main(): Result<(), Str> {
     // `None` sorts before every `Some`, which the comparisons in `$cmp` cannot
     // answer for absence on their own.
     let sorted = [a, b, Holder { inner: .Some(1) }].sort(ctx);
-    let lowest = sorted.first() ?? a;
+    let lowest = sorted.first().withDefault(a);
     let _ = io.println(ctx, "${lowest.show(ctx)}").ignore();
     let _ = io
         .println(ctx, "${b < a} ${a < b} ${a < Holder { inner: .Some(9) }}")

@@ -1,7 +1,6 @@
 ---
 title: `?` propagates a failure
 message: '`?` takes a `Result` or an `Option`, found `{type}`'
-note: 'note that `??` is a single token, so `x??y` is coalescing; write `(x?) ?? y`'
 fix: '`?` propagates a failure; this value is neither a `Result` nor an `Option`'
 ---
 

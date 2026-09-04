@@ -630,7 +630,7 @@ export fn composeThrice<T>(f: fn(T) => T): fn(T) => T {
 }
 
 // =============================================================================
-// 8. `?` and `??`
+// 8. `?` and defaults
 // =============================================================================
 
 export fn sumFirstTwo(xs: [Int]): Option<Int> {
@@ -659,17 +659,7 @@ export fn lambdaTry(xs: [Int]): Option<Int> {
         let t = ys.get(1)?;
         .Some(h * t)
     };
-    .Some(f(xs) ?? -1)
-}
-
-/// `(x?) ?? y` — `??` is a single token, so the parentheses are what make this
-/// try-then-coalesce rather than a parse of `x ?? ?y`.
-export fn tryThenCoalesce(xs: [Int]): Option<Int> {
-    let f = fn(ys: [Int]): Option<Int> => {
-        let head = ys.get(0)?;
-        .Some((ys.get(1) ?? 0) + head)
-    };
-    f(xs)
+    .Some(f(xs).withDefault(-1))
 }
 
 /// The same shape on `Result`.
@@ -682,11 +672,11 @@ export fn lambdaTryResult(a: Str, b: Str): Result<Int, Str> {
 }
 
 export fn defaulted(o: Option<Int>): Int {
-    o ?? 99
+    o.withDefault(99)
 }
 
 export fn defaultedResult(r: Result<Int, Str>): Int {
-    r ?? 77
+    r.withDefault(77)
 }
 
 // =============================================================================
@@ -1347,7 +1337,7 @@ impl Tasks for SerialTasks {
 /// made at instantiation handed the step the implementation instead.
 export fn runInOrder<C: Alloc + Tasks>(ctx: C, items: [Int]): Int {
     let out = tasks.parallel(ctx, items, fn(c, i, item) => i * 100 + item);
-    (out[0] ?? 0) + (out[1] ?? 0)
+    out[0].withDefault(0) + out[1].withDefault(0)
 }
 
 /// The same call, with the step **using** the context it is handed.

@@ -1,0 +1,14 @@
+// EXPECT: `??` is retired
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+fn portOr(cfg: Option<Int>): Int {
+  cfg ?? 8080
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "${portOr(.Some(1))}").ignore();
+  .Ok(())
+}

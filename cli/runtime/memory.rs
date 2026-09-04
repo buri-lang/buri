@@ -406,7 +406,7 @@ unsafe fn header(p: *mut u8) -> *mut Header {
 ///
 /// Returns the **payload** pointer, 16-byte aligned; the header is at `p - 16`.
 /// Never returns null: exhaustion aborts, because SPEC 10.5 says `Alloc` can
-/// fail and SPEC 6.10 says a failure with no value to return is an abort.
+/// fail and SPEC 6.9 says a failure with no value to return is an abort.
 ///
 /// The contents are uninitialized. Use [`buri_rt_alloc_zeroed`] where the
 /// caller does not write every byte.

@@ -135,7 +135,6 @@ pub enum Kind {
     BitNot,
     // -- BinOp, one kind each, in `BinOp`'s own order -----------------------
     Or,
-    Coalesce,
     And,
     Eq,
     Ne,
@@ -169,7 +168,6 @@ impl Kind {
     pub fn of_binop(op: BinOp) -> Kind {
         match op {
             BinOp::Or => Kind::Or,
-            BinOp::Coalesce => Kind::Coalesce,
             BinOp::And => Kind::And,
             BinOp::Eq => Kind::Eq,
             BinOp::Ne => Kind::Ne,
@@ -191,7 +189,6 @@ impl Kind {
     fn binop(self) -> Option<BinOp> {
         Some(match self {
             Kind::Or => BinOp::Or,
-            Kind::Coalesce => BinOp::Coalesce,
             Kind::And => BinOp::And,
             Kind::Eq => BinOp::Eq,
             Kind::Ne => BinOp::Ne,
@@ -958,7 +955,6 @@ impl Tree {
             | Kind::Not
             | Kind::BitNot
             | Kind::Or
-            | Kind::Coalesce
             | Kind::And
             | Kind::Eq
             | Kind::Ne

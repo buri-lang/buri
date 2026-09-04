@@ -16,8 +16,7 @@ from "//lib/semantics/shapes.buri" export {
     saveText, Scale, SerialTasks, serveOnce, shadowed, Shape, shout, showAll, size,
     Slot, slotOr, smallest, sortedShow, stamp, stampedWith, StaticFs, Suit, sumFirstTwo,
     swap, takesWorld, TeapotNet, threeInts, Ticking, ticking, totalGrams, Tree, treeOf,
-    triple, tryThenCoalesce, twice, Version, version, Weigh, weighAndShow, Widget,
-    World, worldHere, Wrap,
+    triple, twice, Version, version, Weigh, weighAndShow, Widget, World, worldHere, Wrap,
 };
 // derived traits
 // newtypes with derived operator traits
@@ -27,7 +26,7 @@ from "//lib/semantics/shapes.buri" export {
 // generic functions
 // generic structs and enums
 // closures
-// `?` and `??`
+// `?` and defaults
 // blocks and scope
 // effect users
 // fakes

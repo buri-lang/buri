@@ -325,25 +325,16 @@ fn anyBelow(n: Int): Bool {
   if (n == 0) { true } else { n < 0 || anyBelow(n - 1) }
 }
 
-fn noneAt(n: Int): Option<Int> {
-  if (n < 0) { .Some(n) } else { .None }
-}
-
-fn searchDown(n: Int): Int {
-  if (n == 0) { 0 } else { noneAt(n) ?? searchDown(n - 1) }
-}
-
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
   let _ = io.println(ctx, "self: ${countDown(10000000, 0)}").ignore();
   let _ = io.println(ctx, "mutual: ${pingA(10000001)}").ignore();
   // The right operand of a short-circuiting operator is a tail position too.
-  // These three are the shapes of `all`, `any` and a linear search, and each
-  // of them recursed on the JavaScript stack until the backend learned to
-  // descend into `&&`, `||` and `??`.
+  // These two are the shapes of `all` and `any`, and both of them recursed on
+  // the JavaScript stack until the backend learned to descend into `&&` and
+  // `||`.
   let _ = io.println(ctx, "and: ${everyBelow(2000000)}").ignore();
   let _ = io.println(ctx, "or: ${anyBelow(2000000)}").ignore();
-  let _ = io.println(ctx, "coalesce: ${searchDown(2000000)}").ignore();
   .Ok(())
 }
 "#,
@@ -362,7 +353,7 @@ export fn main(): Result<(), Str> {
         );
         assert_eq!(
             stdout,
-            "self: 10000000\nmutual: false\nand: true\nor: true\ncoalesce: 0\n",
+            "self: 10000000\nmutual: false\nand: true\nor: true\n",
             "wrong answer on {engine}"
         );
     }

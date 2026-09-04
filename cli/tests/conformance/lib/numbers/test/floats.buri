@@ -53,7 +53,7 @@ test "the float remainder takes the sign of the dividend" {
 test "negating a float" {
     let a: F64 = 1.5;
     assert.eq(-a, -1.5);
-    assert.eq(--a, 1.5);
+    assert.eq(-(-a), 1.5);
     assert.eq(-0.0 == 0.0, true);
 }
 

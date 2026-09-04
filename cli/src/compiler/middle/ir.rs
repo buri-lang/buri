@@ -384,7 +384,7 @@ pub enum Inst {
         drop: Option<FuncIdx>,
     },
 
-    /// `buri_abort(msg)`, which does not return (SPEC 6.10). It is an
+    /// `buri_abort(msg)`, which does not return (SPEC 6.9). It is an
     /// instruction rather than a terminator so that [`Term`] stays the five
     /// cases the design names; the block it appears in ends immediately, with
     /// [`Term::Unreachable`], and [`verify`] checks that.
@@ -583,7 +583,7 @@ pub enum Purity {
 /// direction to be wrong in.
 ///
 /// `nounwind` is not a field. It is true of every function in the language —
-/// there is no unwinding at all (SPEC 6.10) — and a constant stored per
+/// there is no unwinding at all (SPEC 6.9) — and a constant stored per
 /// function is a constant somebody eventually sets to `false`.
 pub struct Facts {
     /// One per [`Signature::params`] entry.
