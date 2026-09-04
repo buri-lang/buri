@@ -1,0 +1,1 @@
+from "//lib/reader/reader.buri" export { read };

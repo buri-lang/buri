@@ -1,0 +1,9 @@
+library {
+    sources: ["writer.buri"]
+    dependencies: ["//lib/one"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/writer.buri"]
+    }
+}

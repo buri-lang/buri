@@ -1,0 +1,8 @@
+library {
+    sources: ["one.buri"]
+    visibility: ["//visibility:public"]
+
+    testing {
+        sources: ["testing/fixture.buri"]
+    }
+}

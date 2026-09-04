@@ -1,0 +1,28 @@
+from "core/effect" import { Alloc, Rand };
+from "core/fs" import { FsRead, FsWrite };
+from "core/host/testing" import { alloc, fs as disk, rand };
+from "core/testing/assert" import * as assert;
+from "//lib/writer" import { written };
+
+// `//lib/reader`'s suite declares a `Fixture` too, in a package that shares no
+// source with this one, and a smaller one. Two tests here rather than one so
+// that this constructor survives the inliner and is still a symbol when the
+// batched binary is linked.
+context Fixture {
+    Alloc: alloc(),
+    FsRead: disk(),
+    FsWrite: disk(),
+    Rand: rand().seed(7),
+}
+
+test "a written list holds what was put in it" {
+    let ctx = Fixture();
+
+    assert.eq(written(ctx, 1), 1);
+}
+
+test "a second written list holds what was put in it" {
+    let ctx = Fixture();
+
+    assert.eq(written(ctx, 2), 1);
+}

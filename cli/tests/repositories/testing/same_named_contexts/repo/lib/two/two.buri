@@ -1,0 +1,7 @@
+from "core/effect" import { Alloc };
+
+/// `//lib/one`'s `hold` under another name, so each library's tests reach
+/// their own generic with their own context.
+export fn keep<C: Alloc>(ctx: C, n: I64): [I64] {
+    [].push(ctx, n)
+}

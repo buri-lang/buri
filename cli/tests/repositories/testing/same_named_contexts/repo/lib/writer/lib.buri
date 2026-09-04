@@ -1,0 +1,1 @@
+from "//lib/writer/writer.buri" export { written };

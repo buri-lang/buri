@@ -1,0 +1,86 @@
+# SPEC 11.3: a `context` declaration is a *module-local* name, and the type it
+# generates has no name at all. Two modules that each declare `context Fixture`
+# declare two different types with two different constructors, and a program
+# holding both has to be able to call each of them.
+#
+# It could not. `monomorphize::name_of` mangled a context constructor as
+# `ctx$<name>` with nothing in front of it, so both landed on `ctx$Fixture` and
+# one definition answered to the other's calls. The symptom was not a wrong
+# answer but a spectacular one: the inliner empties the smaller of the two
+# constructors into its callers, `dce` marks the emptied one unbuilt, the
+# backend emits an *abort* under the shared symbol, and the other module's every
+# test dies on "this function was never built".
+#
+# Two shapes, because the two ways a program comes to hold both declarations are
+# different and only one of them was ever reported:
+#
+#   * `//lib/app` — one suite, one binary, two `testing` surfaces that each
+#     export a `Fixture`. Both backends built this wrong.
+#   * `//lib/writer` + `//lib/reader` — two packages, each declaring its own
+#     `Fixture` in its own test source, batched into one test binary by
+#     `commands/test.rs`'s `run_batch`. Native only, because `--output=` does
+#     not batch — which is exactly why this one hid: each suite alone passed,
+#     JavaScript passed, and a *second* run of the failing command passed too,
+#     since the suite that did pass is cached by then and one fresh suite does
+#     not batch. A cold CI saw red; a developer running it twice never did.
+#
+# Every native run below is cold — the harness copies `repo/` into a fresh
+# scratch tree and no step before it built these targets — and the `--output=js`
+# run beside each is the cross-backend row: the same suites, the same summary,
+# on the backend that defines the language and on the one the host links.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "two modules that declare a context under one name are two contexts, and each caller reaches its own"
+
+# One binary holding both declarations, built natively from cold.
+run {
+  args: ["test", "//lib/app"]
+  exit: 0
+  golden: "app.txt"
+  stream: OUT
+}
+
+# The same suite on the reference backend. One golden for both, so the row is
+# the file rather than a sentence about it.
+run {
+  args: ["test", "//lib/app", "--force", "--output=js"]
+  exit: 0
+  golden: "app.txt"
+  stream: OUT
+}
+
+# Two suites, one batched test binary, cold. This is the reported shape.
+run {
+  args: ["test", "//lib/writer", "//lib/reader"]
+  exit: 0
+  golden: "batched.txt"
+  stream: OUT
+}
+
+# And the same two suites on the reference backend, which compiles them one at
+# a time and must agree about every verdict.
+run {
+  args: ["test", "//lib/writer", "//lib/reader", "--force", "--output=js"]
+  exit: 0
+  golden: "batched.txt"
+  stream: OUT
+}
+
+# The negative twin: one assertion made wrong, so that a green batch above is
+# evidence rather than an assertion about one. On `--output=js` because the
+# report a *native* failure prints is the exit status and a message rather than
+# the runner's two values — `failure_format`'s manifest is the argument.
+edit {
+  file: "lib/writer/test/writer.buri"
+  replace: "assert.eq(written(ctx, 1), 1);"
+  with: "assert.eq(written(ctx, 1), 2);"
+}
+
+run {
+  args: ["test", "//lib/writer", "//lib/reader", "--force", "--output=js"]
+  exit: 1
+  golden: "batched_failure.txt"
+  stream: OUT
+}

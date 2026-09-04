@@ -278,8 +278,10 @@ impl Units {
 ///
 /// A merged tail-call group is named `tail group core/list:a, core/list:b`, so
 /// the module is the last word before the first colon rather than everything
-/// before it. A name with no colon at all — a test body, a context
-/// constructor — has no declaring module and lands in `root`.
+/// before it. A name with no colon at all has no declaring module and lands in
+/// `root` — which is where a generated function with no source of its own
+/// goes, and nothing else: a test body and a context constructor are both
+/// qualified with the module that declares them (`monomorphize::name_of`).
 fn unit_name(debug_name: &str) -> String {
     let Some((head, _)) = debug_name.split_once(':') else {
         return "root".into();
