@@ -39,10 +39,25 @@
 //! `TestFs` is the second value that is not a bare handle, and the second
 //! reason is the first one read again. A fault plan holds `IoError` *values* and
 //! `IoError.Other` carries a `Str`, which `cli/runtime/lib.rs` §2.1 has no way
-//! to hand back across a row — so the plan travels in the program, the eleven
-//! methods of `Fs` are Buri bodies over rows that take the handle, and the
-//! runner holds what it can: the log, the files, and which entries of the plan
-//! have fired.
+//! to hand back across a row — so the plan travels in the program, the twelve
+//! methods of `FsRead` and `FsWrite` are Buri bodies over rows that take the
+//! handle, and the runner holds what it can: the log, the files, and which
+//! entries of the plan have fired.
+//!
+//! **One `TestFs` implements both effects, and a context that reads and writes
+//! has to bind that one value to both names.** Two `fs()` calls are two
+//! filesystems, so `FsRead: fs(), FsWrite: fs()` is a world where a write
+//! lands where the read cannot see it. A block that does both therefore names
+//! its double first:
+//!
+//! ```buri ignore why="a test source is the one place a `test` block is legal, and this file is not one"
+//! let disk = fs().files([("config.toml", "port=8080")]);
+//! let ctx = context { Alloc: alloc(), FsRead: disk, FsWrite: disk };
+//! ```
+//!
+//! A *named* `context` declaration cannot do that at all — its bindings are two
+//! separate expressions — so a declaration binds the half it needs, which is
+//! usually `FsRead`.
 //!
 //! ## The call log
 //!
@@ -404,9 +419,10 @@ impl TestFs {
     /// refused.
     ///
     /// It attenuates *this* filesystem and no other. A test that wants to
-    /// attenuate an `Fs` of its own writes the wrapper, which is an ordinary
-    /// `impl<C: Fs> Fs for Wrapper<C>` and needs nothing from this module
-    /// (SPEC 10.8).
+    /// attenuate a filesystem of its own writes the wrapper, which is an
+    /// ordinary `impl<C: FsWrite> FsWrite for Wrapper<C>` and needs nothing
+    /// from this module (SPEC 10.8) — and is eight methods rather than twelve,
+    /// because the reading half is a second effect it can simply not implement.
     export fn readOnly(self): TestFs {
         TestFs { handle: fsReadOnly(self.handle), plan: self.plan }
     }
@@ -442,7 +458,7 @@ impl TestFs {
 
     /// What this filesystem holds at `path`, or `.Err(.NotFound)`.
     ///
-    /// The same answer `readFile` gives, reachable without the `Fs` effect: a
+    /// The same answer `readFile` gives, reachable without `FsRead`: a
     /// test asserting on what a function *wrote* is reading an environment back
     /// rather than performing an effect, and should not have to bind one to do
     /// it. A read-back is not a call, and no fault fires on one.

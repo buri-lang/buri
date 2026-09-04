@@ -189,9 +189,9 @@ export effect Proc {
 /// first and the work is done with the second.
 ///
 /// **Granted on LINUX, MACOS and JS**, and withheld from WEB, which is the same
-/// three as `Fs` and `Net` and for a reason of the same kind: `parallel` returns
-/// only when the last task has finished, and a page has an interface that
-/// freezing is visible in. A page's concurrency is its event loop.
+/// three as the filesystem and for a reason of the same kind: `parallel`
+/// returns only when the last task has finished, and a page has an interface
+/// that freezing is visible in. A page's concurrency is its event loop.
 ///
 /// How much of it runs at once is a property of the platform and not of this
 /// signature. JavaScript starts the tasks together and awaits them together, on
