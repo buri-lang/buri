@@ -2031,6 +2031,98 @@ mod tests {
         assert!(pairs > 0, "no increment was emitted at all, so nothing was ordered");
     }
 
+    /// Every value a block projects a field out of is still alive when it does
+    /// so.
+    ///
+    /// The rule the two shapes below broke, stated once over the emitted
+    /// instructions: within one basic block, a `DecRef v` may not stand before
+    /// an instruction that reads `v` as the **base** of a projection, unless
+    /// something between them retained `v` again. A projection copies words out
+    /// of the base's block with no count of its own, so a base released first is
+    /// a read of a block the allocator may already have handed to somebody else
+    /// — and, as with the release-then-retain class above, the counts balance
+    /// either way, which is why `check_balance` never saw it.
+    ///
+    /// The two shapes, both in the corpus below:
+    ///
+    ///  * **A projection off a call the inliner pasted in** (issue #33).
+    ///    `middle::inline` replaces `identity(make(ctx))` with the callee's
+    ///    body, which is a `Block` whose tail is that block's own binding.
+    ///    `middle::rc` scanned a projection's base as a *borrow* whatever shape
+    ///    it was, so the block dropped the binding on its way out and the field
+    ///    read that followed copied words out of it afterwards.
+    ///  * **A `match` whose arm reads a sibling field of the scrutinee's base**
+    ///    (issue #39). `match (s.outcome)` binds payloads that point into `s`,
+    ///    and the arm's own read of `s.manager` is `s`'s last use — so the drop
+    ///    landed inside the arm, before the payloads had been read.
+    ///
+    /// Asserted over instructions rather than over the plan for the same reason
+    /// the test above is: this is what the backends are handed.
+    #[test]
+    fn a_projection_never_reads_a_base_this_block_has_already_released() {
+        let p = lower(&program(
+            "from \"core/effect\" import { Alloc };\n\
+             from \"core/host\" import * as host;\n\n\
+             struct Inner { export items: [Str] }\n\
+             struct Outer { export inner: Inner, export tag: Str }\n\
+             enum Held { One { name: Str, rest: [Str] }, Two { name: Str } }\n\
+             struct Holder { export held: Held, export label: Str }\n\n\
+             fn make<C: Alloc>(ctx: C): Outer {\n\
+             \x20 Outer { inner: Inner { items: [\"x\".repeat(ctx, 8)] }, tag: \"y\".repeat(ctx, 8) }\n\
+             }\n\n\
+             fn identity<T>(value: T): T { value }\n\n\
+             fn holder<C: Alloc>(ctx: C): Holder {\n\
+             \x20 Holder {\n\
+             \x20   held: .One { name: \"n\".repeat(ctx, 8), rest: [\"r\".repeat(ctx, 8)] },\n\
+             \x20   label: \"l\".repeat(ctx, 8),\n\
+             \x20 }\n\
+             }\n\n\
+             fn used<C: Alloc>(ctx: C, label: Str, names: [Str]): Int {\n\
+             \x20 label.len() + names.map(ctx, fn(s) => s.len()).len()\n\
+             }\n\n\
+             export fn projected<C: Alloc>(ctx: C): Int {\n\
+             \x20 let inner = identity(make(ctx)).inner;\n\
+             \x20 inner.items.len()\n\
+             }\n\n\
+             export fn armed<C: Alloc>(ctx: C): Int {\n\
+             \x20 let h = holder(ctx);\n\
+             \x20 match (h.held) {\n\
+             \x20   .One { name, rest } => used(ctx, h.label, [name].concat(ctx, rest)),\n\
+             \x20   .Two { name } => used(ctx, h.label, [name]),\n\
+             \x20 }\n\
+             }",
+            "  let ctx = context { Alloc: host.alloc };\n\
+             \x20 let _ = projected(ctx) + armed(ctx);",
+        ));
+        let mut bases = 0usize;
+        for f in &p.funcs {
+            let Some(code) = f.code() else { continue };
+            for block in &code.blocks {
+                let mut released: Vec<ValueId> = Vec::new();
+                for inst in &block.insts {
+                    match inst {
+                        Inst::DecRef { value, .. } => released.push(*value),
+                        Inst::IncRef { value } => released.retain(|v| v != value),
+                        Inst::GetField { agg, .. } | Inst::GetPayload { agg, .. } => {
+                            assert!(
+                                !released.contains(agg),
+                                "{}: v{} is projected out of after this block released it\n{}",
+                                f.debug_name,
+                                agg.0,
+                                p.render_func(f)
+                            );
+                            bases += 1;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        // Not vacuous: the corpus really does project out of counted bases the
+        // same blocks release, which is the situation the rule is about.
+        assert!(bases > 0, "no projection was emitted at all, so nothing was ordered");
+    }
+
     #[test]
     fn arithmetic_lowers_to_one_block() {
         let p = lower_plain(&program(
