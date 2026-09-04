@@ -200,8 +200,12 @@ set -euo pipefail
 target=${1:-target}
 
 case "$(uname -s)" in
-  # 9 097 192 measured with `net` since F8 added the socket double; 9 MiB
-  # leaves ~3.6 %, which is the thinnest this has been. See the note above.
+  # 9 107 264 measured with `net` on aarch64-apple-darwin, which is 10 072 bytes
+  # more than F8's 9 097 192: `Fs` and `Env` reaching both runtime tables
+  # (buri-lang/buri#36) plus `removeDir` (buri-lang/buri#38). The bodies were
+  # already in the archive and unreferenced, so what arrived is what `lto =
+  # "fat"` had been deleting — eleven `std::fs` call sites and one `std::env`.
+  # 9 MiB leaves ~3.5 %, which is the thinnest this has been. See the note above.
   Darwin) budget=9437184 ;;
   # 13 799 068 measured on aarch64-unknown-linux-gnu since F8 added the socket
   # double; F7's figure for the same triple was 13 788 172, and F4's were

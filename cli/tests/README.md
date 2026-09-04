@@ -471,6 +471,15 @@ the suite today builds a `platform: JS` output, and `native_ready` rejects `Js`
 before `select` is reached — but a change that adds a native `--release` test owes
 this paragraph a second look.
 
+**One test now takes that second look on purpose**, and it is named here because
+the paragraph above asked for it:
+`compiler::backend::a_release_refusal_names_the_profile_rather_than_the_platform`
+asks `build::actions::native_gap` for the host's own target under
+`Profile::Release` and asserts *both* answers — a refusal naming `backend-llvm`
+on a default build, and no gap at all under the feature. It drives no CLI and
+builds nothing, so it costs the same on both legs; what it is doing is pinning
+the sentence buri-lang/buri#26 was about, which exists on only one of them.
+
 **CI is not this.** CI runs everything under both feature sets, on both hosts.
 The sequence above is the local edit loop, where the only thing being taken away
 is the same run happening a second time on the same machine a minute later.

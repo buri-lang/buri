@@ -74,6 +74,8 @@ impl Fs for HostFs {
 
     fn removeFile(self, path: Str): Result<(), IoError>;
 
+    fn removeDir(self, path: Str): Result<(), IoError>;
+
     fn makeDir(self, path: Str): Result<(), IoError>;
 
     fn syncFile(self, path: Str): Result<(), IoError>;

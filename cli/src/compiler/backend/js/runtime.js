@@ -2005,6 +2005,19 @@ async function $host_HostFs_removeFile(self, p) {
   }
 }
 
+// `rmdir` and not `rm -r`: the directory must be empty, and one that is not is
+// `ENOTEMPTY`, which `$ioErr` has no classified variant for and so reports as
+// `.Other` carrying the platform's own sentence. `core/fs`'s `removeDir` is
+// where the argument for having no recursive form lives.
+async function $host_HostFs_removeDir(self, p) {
+  try {
+    await $fsp().rmdir(p);
+    return $ok(0);
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+}
+
 // `recursive` is what makes the parents and the already-there case both work;
 // a path naming a file is still `EEXIST`, which is `.AlreadyExists`.
 async function $host_HostFs_makeDir(self, p) {
@@ -4563,6 +4576,36 @@ function $host_testing_fsRemoveFile(h, p) {
   const f = s.files;
   if (!(p in f)) return $host_testing_logged(s, call, $err([0]));
   delete f[p];
+  return $host_testing_logged(s, call, $ok(0));
+}
+
+// `rmdir`: the directory must be there and must be empty. A flat map has no
+// containment, so "empty" is "no file and no recorded directory has it as a
+// prefix" — which is the same question `readDir` answers and the same answer.
+// `ENOTEMPTY` has no classified `IoError` variant, so a directory that still
+// holds something is `.Other`, as it is on a real filesystem.
+function $host_testing_fsRemoveDir(h, p) {
+  const s = $tslot(h);
+  const call = ["removeDir", p, ""];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
+  const clean = p.replace(/\/+$/, "");
+  const root = clean === "" || clean === ".";
+  if (root) return $host_testing_logged(s, call, $err([6, "cannot remove the root"]));
+  // The order is the one `cli/runtime/testing.rs` uses, and the two are written
+  // to agree: a path naming a file is `.NotADirectory`, one naming nothing is
+  // `.NotFound`, and only a directory that is really there can be reported as
+  // still holding something.
+  if (clean in s.files) return $host_testing_logged(s, call, $err([4]));
+  const at = s.dirs.indexOf(clean);
+  if (at < 0) return $host_testing_logged(s, call, $err([0]));
+  const prefix = clean + "/";
+  const held = Object.keys(s.files)
+    .concat(s.dirs)
+    .some(function (k) {
+      return k.startsWith(prefix);
+    });
+  if (held) return $host_testing_logged(s, call, $err([6, "directory not empty"]));
+  s.dirs.splice(at, 1);
   return $host_testing_logged(s, call, $ok(0));
 }
 

@@ -168,6 +168,35 @@ pub enum Ret {
     /// whether `middle::layout` chose a tag or a niche, which is exactly what
     /// rule 3 is protecting.
     Opt,
+    /// [`Ret::Res`], and the entry **also writes `E`'s message** through one
+    /// more trailing out-pointer (`lib.rs` §2.1's message shape).
+    ///
+    /// A column rather than a fact read off `E`, and the difference from the
+    /// two shapes beside it is worth stating: whether an enum error is *named
+    /// by an index* is a property of the type, and whether an entry has
+    /// anything to say when it names the payload-carrying one is a property of
+    /// the **implementation**. `buri_rt_host_fs_read_file` and
+    /// `buri_rt_host_testing_fs_read_file` answer the same
+    /// `Result<Str, IoError>` and have different C signatures, because the
+    /// first can meet an `EISDIR` and the second is a map in memory.
+    ///
+    /// *Where* the message goes is still the type's business, and still not a
+    /// column: `runtime_native::error_message_offset` reads it off `E`'s layout,
+    /// and a row that claims a message for an `E` with nowhere to put one is
+    /// emitted as a plain [`Ret::Res`] — the entry's extra parameter is then
+    /// one the caller never fills, which is the safe direction.
+    ///
+    /// **The four stream writers are deliberately not this**, and it is the one
+    /// judgement in the column. `host.HostStdout.println` can meet an `EPIPE`,
+    /// which `IoError` classifies as `.Other` and would carry a sentence for —
+    /// but the message out-pointer is an address *into the destination*, so a
+    /// function that prints stops being able to keep its `Result` in registers
+    /// (`native/llvm.rs`'s `a_hot_function_has_no_allocas`). Printing is the
+    /// hot path and a stream failure's actionable half is the variant; a
+    /// filesystem failure's is often only in the string, because `ENOTEMPTY`
+    /// and `EISDIR` have no variant at all. So `Fs` carries the message and the
+    /// streams do not, and `cli/runtime/host.rs`'s writers take no `out_err`.
+    ResMsg,
     /// A `Result<T, E>`: an `i32` discriminant, `.Ok`'s payload through a
     /// trailing out-pointer, and an error variant **named by its index**
     /// (`lib.rs` §2.1).
@@ -407,6 +436,59 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostStdout.writeBytes", "buri_rt_host_stdout_write_bytes", Ret::Res),
     e("host.HostStderr.eprint", "buri_rt_host_stderr_eprint", Ret::Res),
     e("host.HostStderr.eprintln", "buri_rt_host_stderr_eprintln", Ret::Res),
+    // -- Fs, the whole effect ------------------------------------------------
+    //
+    // Ten operations, and until they landed the native backend had none of
+    // them: a binary that bound `Fs: host.fs` was refused before code
+    // generation, one key at a time, while `cli/runtime/host.rs` had a body for
+    // every one (buri-lang/buri#36). What was missing was never the body and
+    // never the shape of the *arguments* — it was the shape of the **error**.
+    //
+    // All ten answer `Result<T, IoError>`, and `IoError`'s seventh variant is
+    // `Other(Str)`: the one a real filesystem answers for every kind the other
+    // six do not name. `lib.rs` §2.1 restricted the variant the discriminant
+    // names to carrying no fields, so a row here would have made every
+    // unclassified failure `.Other("")` — a failure that says nothing, where
+    // the JavaScript backend says `EISDIR`. §2.1's message shape is what these
+    // rows wait on, and it is split between the two places it belongs: *where*
+    // the message goes is read off `IoError`'s layout by
+    // `runtime_native::error_message_offset`, and *whether an entry has one* is
+    // [`Ret::ResMsg`], the column below — which is why these eleven carry it and
+    // the five stream writers above deliberately do not.
+    //
+    // `self` is `HostFs`, an empty struct, so it flattens to nothing and no row
+    // here needs a `ctx` column: `effect Fs` declares no context parameter, and
+    // the allocation these do is `buri_rt_alloc`'s.
+    //
+    // `fileExists` is the one that is not a `Result` — it answers `Bool` and
+    // cannot fail — which is why it sits with the scalars below and not here.
+    e("host.HostFs.readFile", "buri_rt_host_fs_read_file", Ret::ResMsg),
+    e("host.HostFs.writeFile", "buri_rt_host_fs_write_file", Ret::ResMsg),
+    e("host.HostFs.readDir", "buri_rt_host_fs_read_dir", Ret::ResMsg),
+    e("host.HostFs.readFileBytes", "buri_rt_host_fs_read_file_bytes", Ret::ResMsg),
+    e("host.HostFs.writeFileBytes", "buri_rt_host_fs_write_file_bytes", Ret::ResMsg),
+    e("host.HostFs.appendFile", "buri_rt_host_fs_append_file", Ret::ResMsg),
+    e("host.HostFs.renameFile", "buri_rt_host_fs_rename_file", Ret::ResMsg),
+    e("host.HostFs.removeFile", "buri_rt_host_fs_remove_file", Ret::ResMsg),
+    e("host.HostFs.removeDir", "buri_rt_host_fs_remove_dir", Ret::ResMsg),
+    e("host.HostFs.makeDir", "buri_rt_host_fs_make_dir", Ret::ResMsg),
+    e("host.HostFs.syncFile", "buri_rt_host_fs_sync_file", Ret::ResMsg),
+    // -- Env, and Stdin beside it -------------------------------------------
+    //
+    // Four rows and no new shape between them, which is what made them the
+    // other half of the same gap: `variable` is an `Option<Str>` and `args` a
+    // `[Str]`, `readLine` an `Option<Str>` and `readBytes` an `Option<[U8]>` —
+    // all four expressible by the `Ret::Opt` and `Ret::Out` this table has had
+    // since it was written. They were absent because no slice had wired the
+    // host surface up, and a program cannot read its own arguments without
+    // them.
+    //
+    // `self` is empty at all four, so the C call of `args` is the out-pointer
+    // and nothing else.
+    e("host.HostEnv.variable", "buri_rt_host_env_variable", Ret::Opt),
+    e("host.HostEnv.args", "buri_rt_host_env_args", Ret::Out),
+    e("host.HostStdin.readLine", "buri_rt_host_stdin_read_line", Ret::Opt),
+    e("host.HostStdin.readBytes", "buri_rt_host_stdin_read_bytes", Ret::Opt),
     // -- the scalar capabilities --------------------------------------------
     e("host.HostFs.fileExists", "buri_rt_host_fs_file_exists", Ret::Scalar),
     e("host.HostClock.nowMillis", "buri_rt_host_clock_now_millis", Ret::Scalar),
@@ -682,6 +764,7 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.fsAppendFile", "buri_rt_host_testing_fs_append_file", Ret::Res),
     e("host_testing.fsRenameFile", "buri_rt_host_testing_fs_rename_file", Ret::Res),
     e("host_testing.fsRemoveFile", "buri_rt_host_testing_fs_remove_file", Ret::Res),
+    e("host_testing.fsRemoveDir", "buri_rt_host_testing_fs_remove_dir", Ret::ResMsg),
     e("host_testing.fsMakeDir", "buri_rt_host_testing_fs_make_dir", Ret::Res),
     e("host_testing.fsSyncFile", "buri_rt_host_testing_fs_sync_file", Ret::Res),
     // -- the fault plan's promise -------------------------------------------
@@ -864,38 +947,16 @@ mod tests {
             "list.zip",
             "list.flatten",
             "json.decode",
-            // `cli/runtime/host.rs` has a body for every one of these, and
-            // this backend still has no row: the gap is the row, not the
-            // body. Not a *shape* either — `TestFs`'s are the same
-            // `Result<T, IoError>` and are in the table above — which is the
-            // distinction this list exists to keep.
-            "host.HostFs.readFile",
-            "host.HostFs.writeFile",
-            "host.HostFs.readDir",
-            "host.HostFs.readFileBytes",
-            "host.HostFs.writeFileBytes",
-            "host.HostFs.appendFile",
-            "host.HostFs.renameFile",
-            "host.HostFs.removeFile",
-            "host.HostFs.makeDir",
-            "host.HostFs.syncFile",
-            // `HostEnv`'s two and `HostStdin`'s two make the statement the
-            // ten above make, and they are here because until this slice they
-            // made none: `cli/runtime/host.rs` has a body for each
-            // (`buri_rt_host_env_variable`, `buri_rt_host_env_args`,
-            // `buri_rt_host_stdin_read_line`, `buri_rt_host_stdin_read_bytes`),
-            // neither runtime table has a row, and neither list named them — so
-            // four keys were unmentioned, and an unmentioned key is an omission
-            // rather than a decision. Naming them is what makes "no row" a
-            // statement, which is the whole job of this list. The row itself
-            // waits on the same slice the `HostFs` ten wait on, and on nothing
-            // else: the shapes are expressible today (`Ret::Opt` carries
-            // `Option<Str>` and `Option<[U8]>`, `Ret::Out` carries `[Str]`), so
-            // what is missing is the row and not a widening of §2.1.
-            "host.HostEnv.variable",
-            "host.HostEnv.args",
-            "host.HostStdin.readLine",
-            "host.HostStdin.readBytes",
+            // `host.HostFs`'s eleven, `host.HostEnv`'s two and
+            // `host.HostStdin`'s two used to be here — fifteen keys with a body
+            // in `cli/runtime/host.rs`, no row in either runtime table, and a
+            // native binary that could not touch a file or read its own
+            // arguments (buri-lang/buri#36). They are rows now, and the two
+            // halves of that gap were different: `Env` and `Stdin` were waiting
+            // on nothing but the row, and `Fs` was waiting on §2.1's message
+            // shape, because `IoError.Other(Str)` is what a real filesystem
+            // answers for every kind the six classified variants do not name.
+            //
             // `host.HostNet.fetch` is absent for a *third* reason, and it is
             // the one this list exists to distinguish. The archive has a body
             // (`cli/runtime/host.rs`), and the shape is not merely missing: it
@@ -1110,6 +1171,179 @@ mod tests {
         // `get` takes no context — it allocates nothing.
         assert_eq!(entry("list.get").and_then(|e| e.ctx), None);
         assert_eq!(entry("host.HostStdout.println").and_then(|e| e.ctx), None);
+    }
+
+    // -- the host surface, against the effect that declares it ---------------
+
+    /// The `core/effect` source, which is where an effect's operations are
+    /// declared and therefore the only list worth checking a table against.
+    fn effect_source() -> &'static str {
+        crate::compiler::standard_library::MODULES
+            .iter()
+            .find(|m| m.path == "core/effect")
+            .map(|m| m.source)
+            .expect("`core/effect` is a module")
+    }
+
+    /// The method names one `effect` block declares, in declaration order.
+    ///
+    /// A scan of the source rather than a second list, for the reason
+    /// [`the_context_column_is_the_declarations_ctx_parameter`] scans one: a
+    /// method added to the effect and forgotten here would be exactly the gap
+    /// this is checking for.
+    fn effect_methods(effect: &str) -> Vec<String> {
+        let source = effect_source();
+        let body = source
+            .split(&format!("export effect {effect} {{"))
+            .nth(1)
+            .unwrap_or_else(|| panic!("no `effect {effect}` in `core/effect`"))
+            .split("\n}")
+            .next()
+            .unwrap_or_else(|| panic!("`effect {effect}` never closes"));
+        let mut out = Vec::new();
+        for line in body.lines() {
+            let Some(rest) = line.trim().strip_prefix("fn ") else { continue };
+            let Some(name) = rest.split('(').next() else { continue };
+            out.push(name.to_string());
+        }
+        out
+    }
+
+    /// **Every operation of `Fs`, `Env` and `Stdin` has a row.**
+    ///
+    /// This is buri-lang/buri#36 as an assertion. `cli/runtime/host.rs` had a
+    /// body for all sixteen and this table had a row for one of them
+    /// (`fileExists`), so a native binary that bound `Fs: host.fs` was refused
+    /// before code generation — one line naming nine operations — while the
+    /// same program ran on JavaScript. The archive was never the gap; the rows
+    /// were, and this is what says they still are not.
+    ///
+    /// Read off the effect rather than listed here, so that buri-lang/buri#38's
+    /// `removeDir` — and the next operation after it — is covered by the commit
+    /// that declares it rather than by somebody remembering this test.
+    #[test]
+    fn every_operation_of_the_host_file_and_environment_effects_has_a_row() {
+        let mut checked = 0usize;
+        for (effect, host) in [("Fs", "HostFs"), ("Env", "HostEnv"), ("Stdin", "HostStdin")] {
+            let methods = effect_methods(effect);
+            assert!(
+                methods.len() >= 2,
+                "the scan found only {} operations of `{effect}`",
+                methods.len()
+            );
+            for method in methods {
+                let key = format!("host.{host}.{method}");
+                assert!(
+                    entry(&key).is_some(),
+                    "`{key}` is declared on `effect {effect}` and has no row, so a native \
+                     program binding it is refused before code generation"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked >= 16, "only {checked} operations were checked");
+    }
+
+    /// **Which entries carry §2.1's message, as a written list.**
+    ///
+    /// A column can be wrong in a way a type cannot — nothing links this table
+    /// to `cli/runtime/host.rs`'s parameter lists, because the archive is
+    /// `include_bytes!`d rather than linked against — so the judgement is
+    /// written down here and not left to a reader to reconstruct.
+    ///
+    /// Two claims, and the second is the one worth the test. Every fallible
+    /// operation of `Fs` carries a message, because `ENOTEMPTY` and `EISDIR`
+    /// have no `IoError` variant at all and the string is the only place the
+    /// failure says which it was. **The five stream writers do not**, and
+    /// `cli/runtime/host.rs`'s `reported` is the other half of that: those five
+    /// take no out-pointer, so a row that gained one here would hand the archive
+    /// an argument it has no parameter for. The reason they were left out is a
+    /// measurement rather than a preference — the pointer is an address into the
+    /// destination, so a function that prints stops keeping its `Result` in
+    /// registers, which `cli/tests/native/llvm.rs`'s
+    /// `a_hot_function_has_no_allocas` is the assertion about.
+    #[test]
+    fn only_the_filesystem_and_one_double_carry_a_message() {
+        let mut carrying: Vec<&str> =
+            ENTRIES.iter().filter(|e| e.ret == Ret::ResMsg).map(|e| e.key).collect();
+        carrying.sort_unstable();
+        assert_eq!(
+            carrying,
+            vec![
+                "host.HostFs.appendFile",
+                "host.HostFs.makeDir",
+                "host.HostFs.readDir",
+                "host.HostFs.readFile",
+                "host.HostFs.readFileBytes",
+                "host.HostFs.removeDir",
+                "host.HostFs.removeFile",
+                "host.HostFs.renameFile",
+                "host.HostFs.syncFile",
+                "host.HostFs.writeFile",
+                "host.HostFs.writeFileBytes",
+                // The one double with a sentence to give: a `TestFs` whose
+                // directory still holds something answers `.Other` for the same
+                // reason a real one does, and writes the same words the
+                // JavaScript double writes so one conformance block reads the
+                // same on both backends.
+                "host_testing.fsRemoveDir",
+            ]
+        );
+        for writer in [
+            "host.HostStdout.print",
+            "host.HostStdout.println",
+            "host.HostStdout.writeBytes",
+            "host.HostStderr.eprint",
+            "host.HostStderr.eprintln",
+        ] {
+            assert_eq!(
+                entry(writer).map(|e| e.ret),
+                Some(Ret::Res),
+                "`{writer}` gained the message shape, and `cli/runtime/host.rs`'s writers take \
+                 no out-pointer for one"
+            );
+        }
+    }
+
+    /// `IoError` is the shape `cli/runtime/lib.rs` §2.1's **message** rule was
+    /// written for, and this is the assertion that ties the rule to the type.
+    ///
+    /// The rule itself is a function of a layout
+    /// (`runtime_native::error_message_offset`, with its own rows over
+    /// hand-built ones); what a layout cannot say is *which* declaration it came
+    /// from. So this reads `core/effect`: exactly one variant of `IoError`
+    /// carries anything, it is the last, and what it carries is one `Str`. An
+    /// eighth variant with a payload, or a payload on any of the first six,
+    /// takes `Fs` back out of the message shape and every row above with it.
+    #[test]
+    fn the_message_shape_is_the_one_io_error_has() {
+        let source = effect_source();
+        let body = source
+            .split("export enum IoError {")
+            .nth(1)
+            .expect("`IoError` is declared in `core/effect`")
+            .split("\n}")
+            .next()
+            .expect("`IoError` never closes");
+        let variants: Vec<&str> = body
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .map(|l| l.trim_end_matches(','))
+            .collect();
+        assert_eq!(variants.len(), 7, "`IoError` has {} variants: {variants:?}", variants.len());
+        let (last, rest) = variants.split_last().expect("seven variants");
+        for variant in rest {
+            assert!(
+                !variant.contains('('),
+                "`IoError.{variant}` carries a payload, and §2.1's message shape admits one \
+                 payload variant and only in last place"
+            );
+        }
+        assert_eq!(
+            *last, "Other(Str)",
+            "§2.1's message shape is one trailing `Str`, and `IoError`'s last variant is not one"
+        );
     }
 
     /// No two rows may claim the same key: `entry` answers the first, so a

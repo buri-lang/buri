@@ -108,6 +108,10 @@ error: `Watch` is an effect, so `read` is not called on a context [effect-method
                .Err(.ReadOnly)
            }
 
+           fn removeDir(self, path: Str): Result<(), IoError> {
+               .Err(.ReadOnly)
+           }
+
            fn makeDir(self, path: Str): Result<(), IoError> {
                .Err(.ReadOnly)
            }

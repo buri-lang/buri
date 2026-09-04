@@ -109,6 +109,10 @@ error: `Stdout` is an effect, so `println` is not called on a context [effect-me
                .Err(.ReadOnly)
            }
 
+           fn removeDir(self, path: Str): Result<(), IoError> {
+               .Err(.ReadOnly)
+           }
+
            fn makeDir(self, path: Str): Result<(), IoError> {
                .Err(.ReadOnly)
            }

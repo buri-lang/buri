@@ -623,6 +623,10 @@ impl<C: Fs> Fs for Scoped<C> {
         self.0.removeFile(path)
     }
 
+    fn removeDir(self, path: Str): Result<(), IoError> {
+        self.0.removeDir(path)
+    }
+
     fn makeDir(self, path: Str): Result<(), IoError> {
         self.0.makeDir(path)
     }

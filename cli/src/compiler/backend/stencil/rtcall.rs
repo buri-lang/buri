@@ -248,19 +248,32 @@ impl Jit<'_> {
                 }
                 None
             }
-            Ret::Void | Ret::NoReturn | Ret::Scalar | Ret::Tag | Ret::Res => None,
+            Ret::Void | Ret::NoReturn | Ret::Scalar | Ret::Tag | Ret::Res | Ret::ResMsg => None,
         };
 
         // `lib.rs` §2.1's `Result<T, E>`: `.Ok`'s payload through an
         // out-pointer where it has bytes, and then **`E`'s own shape** decides
-        // the failure side. An enum error is named by the discriminant's index;
-        // anything else — `bytes.fromUtf8`'s `Utf8Error(Int)` — is a value with
-        // one place to go, so it goes through a second out-pointer and the
-        // discriminant carries nothing but "it failed". Which of the two is not
-        // a column in the table and must not be: it is a fact the type already
-        // makes, and a column could disagree with it.
+        // the failure side. There are three shapes and the type picks which:
+        // an enum error whose variants carry nothing is named by the
+        // discriminant's index alone; an enum error with one trailing
+        // message-carrying variant — `IoError`'s `Other(Str)` — has somewhere
+        // to put a sentence, at the offset
+        // `runtime_native::error_message_offset` reads off the layout; and
+        // anything that is not an enum — `bytes.fromUtf8`'s `Utf8Error(Int)` —
+        // is a value with one place to go, so it goes through a second
+        // out-pointer whole and the discriminant carries nothing but "it
+        // failed". Which of the three is not a column in the table and must not
+        // be: it is a fact the type already makes, and a column could disagree
+        // with it.
+        //
+        // Whether an entry *uses* the third one's message is the one thing here
+        // that is a column ([`Ret::ResMsg`]), and it is about the entry rather
+        // than about `E`: `HostFs` can meet an `EISDIR` and `TestFs` is a map
+        // in memory, and the five stream writers stay out of it because the
+        // pointer is an address into this destination and a function that
+        // prints would stop keeping its `Result` in registers.
         let res = match entry.ret {
-            Ret::Res => {
+            Ret::Res | Ret::ResMsg => {
                 let Some((_, dty)) = dest else {
                     return Err(format!("{}: no destination", entry.key));
                 };
@@ -288,7 +301,38 @@ impl Jit<'_> {
                 if tag_w.is_none() && err_l.size > 0 {
                     ints.push(Src::Addr(dslot + err_at));
                 }
-                Some((l, ok, err, err_at, tag_w, err_l.size))
+                // The message shape: the entry writes `E`'s one `Str` where the
+                // variant that carries it keeps it, so the failure path zeroes
+                // only the bytes in front of it rather than the whole area.
+                let message_at = crate::compiler::backend::runtime_native::error_message_offset(
+                    &err_l,
+                )
+                .filter(|_| tag_w.is_some() && entry.ret == Ret::ResMsg);
+                if let Some(at) = message_at {
+                    ints.push(Src::Addr(dslot + err_at + at));
+                    // The half of the shape the **caller** owes, and it is paid
+                    // *before* the call rather than after it: the message area
+                    // is zeroed here, so an entry that answered a classified
+                    // variant and wrote nothing leaves an empty `Str` behind
+                    // rather than whatever the frame held. Writing it here is
+                    // what lets the same C signature serve `HostFs`, which has
+                    // a message for `.Other`, and `TestFs`, which never
+                    // produces one — and on the `.Ok` path the entry's own
+                    // out-pointer write lands on top of these zeros, because
+                    // the two payloads share the destination's payload area and
+                    // the call happens after this.
+                    let mut off = at;
+                    while off + 8 <= err_l.size {
+                        self.imm_to(dslot + err_at + off, 0);
+                        off += 8;
+                    }
+                    while off < err_l.size {
+                        self.imm_w(dslot + err_at + off, 1, 0);
+                        off += 1;
+                    }
+                }
+                let zero_bytes = message_at.unwrap_or(err_l.size);
+                Some((l, ok, err, err_at, tag_w, zero_bytes))
             }
             _ => None,
         };
@@ -301,7 +345,7 @@ impl Jit<'_> {
             // zero-extended — so a tag that fits its own field is the whole
             // word, and one that is written into an aggregate needs the narrow
             // store below.
-            Ret::Opt | Ret::Tag | Ret::Res => "w",
+            Ret::Opt | Ret::Tag | Ret::Res | Ret::ResMsg => "w",
             Ret::Scalar => {
                 let Some((_, dty)) = dest else {
                     return Err(format!("{}: no destination", entry.key));
@@ -342,8 +386,8 @@ impl Jit<'_> {
         if let Some(w) = narrow {
             self.store_w(dslot, into, w);
         }
-        if let Some((l, ok, err, err_at, tag_w, err_size)) = res {
-            self.store_result_tag(st, dslot, &l, ok, err, err_at, tag_w, err_size);
+        if let Some((l, ok, err, err_at, tag_w, zero_bytes)) = res {
+            self.store_result_tag(st, dslot, &l, ok, err, err_at, tag_w, zero_bytes);
         }
         Ok(())
     }
@@ -360,6 +404,14 @@ impl Jit<'_> {
     /// wrong, and safely wrong — rather than a reference count on whatever the
     /// frame held. `llvm/emit.rs::call_result` zeroes the same bytes for the
     /// same reason.
+    ///
+    /// `zero_bytes` is how far that zeroing reaches, and it is the whole of
+    /// §2.1's message shape on this side: for an `E` whose last variant carries
+    /// a `Str` the entry has *already written* that `Str` at the offset
+    /// `runtime_native::error_message_offset` named, so the zeroing stops in
+    /// front of it and what the runtime wrote is what the program reads. For
+    /// every other `E` it is the error's whole size, which is what this did
+    /// before the shape existed.
     #[allow(
         clippy::too_many_arguments,
         reason = "one `Result` destination's shape, read off two layouts by the \
@@ -374,7 +426,7 @@ impl Jit<'_> {
         err: usize,
         err_at: u32,
         tag_w: Option<u32>,
-        err_size: u32,
+        zero_bytes: u32,
     ) {
         let disc = st.scratch + DISC_WORD * 8;
         let bad = st.label();
@@ -397,11 +449,11 @@ impl Jit<'_> {
         st.place(bad, here);
         if let Some(w) = tag_w {
             let mut off = 0u32;
-            while off + 8 <= err_size {
+            while off + 8 <= zero_bytes {
                 self.imm_to(dslot + err_at + off, 0);
                 off += 8;
             }
-            while off < err_size {
+            while off < zero_bytes {
                 self.imm_w(dslot + err_at + off, 1, 0);
                 off += 1;
             }

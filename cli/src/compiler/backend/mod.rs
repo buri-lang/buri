@@ -437,13 +437,13 @@ pub fn select(target: Target, profile: Profile) -> Result<Box<dyn Backend>, Stri
         // arm above is total for a native debug build, and an arm nothing can
         // reach is a warning rather than a safety net.
         #[cfg(not(feature = "backend-stencil"))]
-        (platform, Profile::Debug) => Err(missing_backend(platform, "backend-stencil")),
+        (_, Profile::Debug) => Err(no_development_code_generator()),
         #[cfg(feature = "backend-llvm")]
         (Platform::Linux | Platform::Macos, Profile::Release) => Ok(Box::new(llvm::Llvm)),
         // Gated the other way for the same reason the debug arm above is: with
         // the feature on the arm above is total for a native release build.
         #[cfg(not(feature = "backend-llvm"))]
-        (platform, Profile::Release) => Err(missing_backend(platform, "backend-llvm")),
+        (_, Profile::Release) => Err(no_optimizing_backend()),
     }
 }
 
@@ -458,14 +458,29 @@ fn no_development_backend(target: Target, why: &str) -> String {
     format!("no development backend for {triple}: {why}")
 }
 
-/// Both arms that call this are `#[cfg(not(...))]`, so a build with both
-/// backends has no caller.
-#[cfg(not(all(feature = "backend-stencil", feature = "backend-llvm")))]
-fn missing_backend(platform: Platform, feature: &str) -> String {
-    format!(
-        "the {} backend is not implemented (it arrives with `{feature}`)",
-        platform.slug()
-    )
+/// What `--release` is refused with on a toolchain built without the
+/// optimizing backend.
+///
+/// It does **not** say "the macos backend is not implemented", which is what it
+/// said for as long as the two sentences were one function, and which was false
+/// twice over on every host that has a development backend: the platform is
+/// implemented, the *profile* is not, and the debug build of the very same
+/// output succeeds (buri-lang/buri#26). What is missing is a cargo feature of
+/// this binary, so that is what the sentence names, and `build::actions`'s
+/// `native_gap` is what pairs it with the fix — build without `--release`,
+/// where the development backend has the target.
+#[cfg(not(feature = "backend-llvm"))]
+fn no_optimizing_backend() -> String {
+    "`--release` needs the optimizing native backend, and this toolchain was \
+     built without `backend-llvm`"
+        .to_string()
+}
+
+/// The same sentence for the other half: a toolchain built
+/// `--no-default-features` has no code generator for a native artifact at all.
+#[cfg(not(feature = "backend-stencil"))]
+fn no_development_code_generator() -> String {
+    "this toolchain was built without a native code generator (`backend-stencil`)".to_string()
 }
 
 /// [`select`] over platform × profile × per-target availability.
@@ -755,6 +770,60 @@ mod tests {
                 assert!(why.contains("backend-llvm"), "{why}");
             }
         }
+    }
+
+    /// **The refusal a `--release` build gets, in full** — the sentence, not
+    /// only the fact that there is one (buri-lang/buri#26).
+    ///
+    /// The row above says `select` names the feature. This one asks
+    /// `build::actions::native_gap`, which is what the three refusal sites
+    /// actually print, and checks the two things the issue was about: that the
+    /// reason blames the **profile** rather than the platform, and that the fix
+    /// says the development backend has this very target — because it does, and
+    /// the sentence this replaced told a reader whose debug build had just
+    /// succeeded that the toolchain emits only JavaScript.
+    ///
+    /// It lives here rather than beside `native_gap` because it reads
+    /// `cfg!(feature = "backend-llvm")`, and `cli/tests/README.md`'s
+    /// verification bar confines that feature to the files this one is in —
+    /// `corpus::the_llvm_feature_is_confined_to_the_files_the_bar_names` is
+    /// what enforces it.
+    #[test]
+    fn a_release_refusal_names_the_profile_rather_than_the_platform() {
+        use crate::build::actions::native_gap;
+        let (Some(platform), arch) = (crate::build::link::host_platform(), crate::build::link::host_arch())
+        else {
+            return;
+        };
+        let target = Target { platform, arch };
+        // A host with no development backend for its own target — an Intel mac
+        // — has a different gap, and it is the one the debug row reports.
+        if native_gap(target, Profile::Debug).is_some() {
+            return;
+        }
+        let gap = native_gap(target, Profile::Release);
+        if cfg!(feature = "backend-llvm") {
+            assert!(
+                gap.is_none(),
+                "a toolchain with the optimizing backend refused its own `--release` build"
+            );
+            return;
+        }
+        let gap = gap.expect("`--release` was not refused on a toolchain without `backend-llvm`");
+        assert!(gap.reason.contains("`--release`"), "{}", gap.reason);
+        assert!(gap.reason.contains("backend-llvm"), "{}", gap.reason);
+        assert!(
+            gap.fix.contains("without `--release`") && gap.fix.contains(&gap.output),
+            "the fix does not say that the development backend has this target: {}",
+            gap.fix
+        );
+        assert!(
+            !gap.reason.contains("emits JavaScript") && !gap.fix.contains("--output=js"),
+            "a toolchain that had just built this target natively claimed to emit only \
+             JavaScript: {} / {}",
+            gap.reason,
+            gap.fix
+        );
     }
 
     /// A `--no-default-features` toolchain answers the diagnostic rather than

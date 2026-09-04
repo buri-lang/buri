@@ -119,6 +119,15 @@ export effect Fs {
     /// Replaces `to`, atomically within one filesystem.
     fn renameFile(self, source: Str, destination: Str): Result<(), IoError>;
     fn removeFile(self, path: Str): Result<(), IoError>;
+    /// Removes the directory, which must be **empty**. `.Err(.Other)` where it
+    /// is not, and `.Err(.NotFound)` where the path names nothing.
+    ///
+    /// Empty and not recursive, deliberately: the recursive version behind a
+    /// one-word name is a mistake that only happens once, and `core/fs`'s
+    /// `removeDir` states the whole rule. It is the operation that lets a
+    /// program that made a scratch directory leave the filesystem as it found
+    /// it — `makeDir` had no inverse at all before it.
+    fn removeDir(self, path: Str): Result<(), IoError>;
     /// Parents included; an existing directory is `.Ok`.
     fn makeDir(self, path: Str): Result<(), IoError>;
     /// The commit point: what was written to `path` is durable when this
