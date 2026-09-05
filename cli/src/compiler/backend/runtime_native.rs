@@ -171,7 +171,7 @@ const STR_BYTES: u32 = 24;
 /// `cli/runtime/manifest.lock` the manifest has outgrown). That is the
 /// "degrades rather than breaks" clause reaching one level further down, and
 /// the reason it is not silent in CI is
-/// `.github/scripts/assert-runtime-archive.sh`.
+/// `cli/tests/ci.rs::the_runtime_archive_is_real`.
 pub const ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/libburi_rt.a"));
 
 /// Whether this toolchain has a runtime to link against.
@@ -450,7 +450,7 @@ mod tests {
     // two say the same thing about such a host and only one of them adds a
     // line to every summary that a reader has to learn to disregard — and a
     // summary with a skip in it is one nobody reads the skips of.
-    // `.github/scripts/assert-no-skips.sh` is the other half of that decision.
+    // `cli/tests/ci.rs::the_only_ignored_tests_are_the_ones_named_here` is the other half of that decision.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn the_archive_is_an_archive() {
         assert_eq!(
@@ -542,7 +542,7 @@ mod tests {
     ///
     /// macOS is the whole of what can be asserted unconditionally: `cli/build.rs`
     /// writes the sidecar empty and bakes nothing there, so both halves are
-    /// pinned. The Linux side is `.github/scripts/assert-runtime-archive.sh`'s,
+    /// pinned. The Linux side is `cli/tests/ci.rs::the_runtime_archive_is_real`'s,
     /// because the answer there depends on what the *builder* had installed and
     /// a unit test cannot tell a contributor's laptop from a release runner —
     /// which is exactly the distinction that script exists to draw.

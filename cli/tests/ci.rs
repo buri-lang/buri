@@ -1,8 +1,13 @@
-//! **The workflow is wired the way the suite believes it is.**
+//! **The build this toolchain was built by is the one it says it was.**
 //!
-//! Three mechanisms in this repository are a promise the test suite makes and
-//! `.github/workflows/ci.yml` keeps, and each of them fails *silently* when the
-//! workflow half is deleted:
+//! This file is two halves. The first reads `.github/workflows/ci.yml` and holds
+//! it to the handful of promises the suite makes about it. The second is the set
+//! of assertions that used to be shell scripts under `.github/scripts/` — the
+//! liveness gates — rewritten as tests, so that they run on a contributor's
+//! machine as well as on a runner and so that a workflow step is one `cargo`
+//! invocation rather than a call into half a thousand lines of bash.
+//!
+//! ## The workflow's half
 //!
 //! * **`BURI_CI=1`.** `cli/tests/harness/ci.rs` turns every
 //!   `if !supported() { return; }` in the native suite into a panic when it is
@@ -10,31 +15,31 @@
 //!   laptop and is exactly the vacuous green a runner must not report. Delete
 //!   the `env:` line and every native test on a runner with a broken toolchain
 //!   passes again, and nothing anywhere says so.
-//! * **The hoisted runtime-crate step.**
-//!   `native::runtime::the_runtime_crate_answers_its_own_tests` shells a nested
-//!   `cargo test` on a laptop and asserts a stamp on a runner, because the
-//!   nested build is a minute of tokio and rustls that belongs in a step with a
-//!   cache and a duration. The stamp is written by
-//!   `.github/scripts/test-runtime-crate.sh`. That test catches a *missing*
-//!   step by failing; what it cannot catch is a job that runs the suite without
-//!   ever having had one.
 //! * **The deferrals.** Two tests in `build/repositories.rs` assert
 //!   milliseconds, are meaningless in a debug profile, and are run by the
 //!   `language-server-budget` job instead of by the `test` matrix.
 //!   `ci::deferred_to` names that job in a string. A string naming a job that
 //!   has been renamed is a skip wearing a deferral's clothes.
-//!
-//! And one that is not about the workflow at all:
-//!
+//! * **No step runs a script from this repository, and no invocation asks for
+//!   part of the suite.** Both are the same rule from two sides: what CI runs
+//!   has to be a thing a contributor can run, and what it runs has to be all of
+//!   it.
 //! * **The ignore list.** `.github/known-skips.txt` is every `#[ignore]` in the
 //!   tree with the defect that removes it. This file holds the tree to that
 //!   list exactly — a new `#[ignore]` fails here, on every machine, before it
 //!   ever reaches a runner, and a row whose test is gone fails here too.
 //!
-//! Nothing in here compiles the toolchain or runs a program; it reads two text
-//! files and the `.rs` files beside it, and it is the cheapest test in the
-//! repository. That is deliberate: a guard nobody minds running is a guard that
-//! stays.
+//! ## The liveness gates
+//!
+//! `cli/build.rs` DEGRADES rather than breaks. A host whose `cc` cannot compile
+//! the generated C gets an empty stencil library; a host with no musl `rust-std`
+//! gets a runtime archive built against the wrong libc; a dependency tree that
+//! will not resolve gets an empty archive. In every one of those states the
+//! suite still runs, every guarded test returns early, and `cargo test` exits
+//! zero having proved nothing. Bytes on disk are the only thing that can tell
+//! that apart from a real run, and the tests at the bottom of this file are what
+//! read them — under `BURI_CI`, because on a laptop an empty library is a fair
+//! answer and on a runner it is a broken machine.
 
 #![allow(
     clippy::unwrap_used,
@@ -355,13 +360,6 @@ fn the_workflow_sets_buri_ci_for_every_job() {
          runner, and a job whose toolchain is broken reports every native test as passed. \
          `cli/tests/harness/ci.rs` is the other half.\n--- the block ---\n{env}"
     );
-    assert!(
-        env.contains("BURI_RT_TESTS_STAMP:"),
-        "the workflow-level `env:` block does not set `BURI_RT_TESTS_STAMP`. It is how \
-         `.github/scripts/test-runtime-crate.sh` and \
-         `native::runtime::the_runtime_crate_answers_its_own_tests` agree on where the step's \
-         stamp goes.\n--- the block ---\n{env}"
-    );
 }
 
 /// The jobs of `ci.yml`, as `name -> the whole of its text`.
@@ -390,132 +388,99 @@ fn jobs(text: &str) -> BTreeMap<String, String> {
     out
 }
 
-/// Every job that runs the whole suite also runs the runtime-crate step and the
-/// no-skips assertion.
+/// **No `run:` step invokes a script file from this repository.**
 ///
-/// "The whole suite" has two shapes now and both are here. The first is
-/// `cargo test -p buri` with no name filter after it. The second is
-/// `.github/scripts/run-suite.sh`, which is the same set — it asks *cargo* for
-/// every test executable rather than being told — run with its binaries
-/// overlapped instead of queued, because `cargo test` runs them one at a time
-/// and that was minutes.
+/// This workflow used to call eight scripts under `.github/scripts/`, one of
+/// them twenty-eight kilobytes of bash, and that was the shape of the problem
+/// rather than an implementation detail of it: a check written in shell runs on
+/// a runner and nowhere else, so the thing a contributor can reproduce and the
+/// thing that decides whether a commit is green drift apart. Every one of those
+/// checks was reading bytes a Rust test could read directly, and they are the
+/// tests at the bottom of this file now.
 ///
-/// Recognising the second shape is not a nicety. This test works by finding the
-/// jobs that run everything and holding each of them to two steps; a job whose
-/// suite command it no longer recognises is a job it silently stops checking,
-/// which is the failure mode the whole file exists to refuse. So the count is
-/// asserted at the bottom: if the shapes here stop matching the workflow, this
-/// fails rather than passing having found nothing.
-///
-/// It is the only shape in which
-/// `native::runtime::the_runtime_crate_answers_its_own_tests` runs at all — the
-/// linux jobs filter to `stencil::` and never reach it, which is why they are
-/// not held to the step.
+/// The one exception is named rather than pattern-matched. `check.sh` in the two
+/// `editors/tree-sitter-*` directories is the grammar's own test runner — a
+/// contributor runs it by hand, it lives beside the grammar it checks, and it is
+/// not CI machinery — so the `tree-sitter` job calls it exactly as a person
+/// would.
 #[test]
-fn every_job_that_runs_the_suite_runs_the_hoisted_step_and_the_guard() {
+fn no_step_runs_a_script_from_the_repository() {
     let text = workflow();
-    let mut whole_suite_jobs = 0;
-    for (name, body) in jobs(&text) {
-        let runs_everything = body.lines().map(str::trim).any(|line| {
-            (line.contains("cargo test -p buri") && !line.contains("--test "))
-                || line.contains("run-suite.sh")
-        });
-        if !runs_everything {
+    let mut offenders: Vec<String> = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.starts_with('#') {
             continue;
         }
-        whole_suite_jobs += 1;
-        assert!(
-            body.contains("test-runtime-crate.sh"),
-            "the `{name}` job runs the whole suite and never runs \
-             .github/scripts/test-runtime-crate.sh. With BURI_CI=1 set, \
-             `the_runtime_crate_answers_its_own_tests` does not shell its own nested `cargo` — it \
-             asserts that step's stamp — so this job would fail on it. Add the step after the \
-             runtime-archive assertion."
-        );
-        assert!(
-            body.contains("assert-no-skips.sh"),
-            "the `{name}` job runs the whole suite and never runs \
-             .github/scripts/assert-no-skips.sh, so an `#[ignore]` added tomorrow would ride \
-             through it green. Pipe the run through `tee` and hand the log to that script."
-        );
-        println!("{name}: runs the suite, the hoisted step and the no-skips guard");
-    }
-    assert!(
-        whole_suite_jobs >= 2,
-        "only {whole_suite_jobs} job(s) in ci.yml were recognised as running the whole suite, and \
-         two have — `test`, which is a matrix of three legs, and `release`. Either the workflow \
-         stopped running the suite anywhere, or the command it runs it with has changed shape and \
-         this test has stopped seeing it, which is a guard passing having checked nothing."
-    );
-}
-
-/// The suite's set of binaries is **cargo's answer**, never a list.
-///
-/// `run-suite.sh` exists because `cargo test` runs the test binaries one at a
-/// time, and the obvious way to overlap them is to write the domains out in the
-/// workflow and start one `cargo test --test <name>` per group. That way is
-/// wrong for a reason no timing can show: the day somebody adds
-/// `cli/tests/effects/main.rs`, a list runs twelve binaries and reports a green
-/// run, and nothing anywhere says the thirteenth was never asked for. The
-/// script therefore asks cargo which test executables exist and runs all of
-/// them, which is the same set `cargo test -p buri` would have run, by
-/// construction rather than by maintenance.
-///
-/// This is what stops that being quietly undone. Two properties, both about the
-/// script rather than about the workflow: it asks cargo, and it does not carry
-/// a list of domain names to run.
-#[test]
-fn the_suite_is_asked_for_as_a_whole() {
-    let path = repo_root().join(".github/scripts/run-suite.sh");
-    let script = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("{} cannot be read: {e}", path.display()));
-
-    assert!(
-        script.contains("--no-run --message-format=json"),
-        "{} no longer asks cargo which test executables exist. The set has to be derived — \
-         `cargo test -p buri --no-run --message-format=json…` and every artifact whose profile \
-         says `test` — because a set that is written down is a set that goes stale on the day a \
-         domain is added, and a suite that quietly stops running one of its binaries is exactly \
-         the green this repository refuses.",
-        path.display()
-    );
-
-    // The domains, as the directory says they are: a `.rs` file directly under
-    // `cli/tests/` or a directory holding a `main.rs`. If any of their names
-    // reaches the script as a `--test` argument, the derivation above has been
-    // replaced by a list wearing its clothes.
-    let tests = repo_root().join("cli").join("tests");
-    let mut domains: Vec<String> = Vec::new();
-    for entry in std::fs::read_dir(&tests).unwrap().flatten() {
-        let name = entry.file_name().to_string_lossy().to_string();
-        if entry.path().is_file() {
-            if let Some(stem) = name.strip_suffix(".rs") {
-                domains.push(stem.to_string());
-            }
-        } else if entry.path().join("main.rs").exists() {
-            domains.push(name);
+        // `.sh` as the end of a file name: `.shared` is not a script, and a
+        // plain substring test would say it was.
+        let names_a_script = line.match_indices(".sh").any(|(at, _)| {
+            let after = line[at + ".sh".len()..].chars().next();
+            !after.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+        });
+        if !names_a_script || line.contains("./check.sh") {
+            continue;
         }
+        offenders.push(format!("{}: {line}", i + 1));
     }
     assert!(
-        domains.len() >= 10,
-        "only {} test binaries were found under {}, and there have been thirteen since `vectors` \
-         landed — this test is asserting nothing",
-        domains.len(),
-        tests.display()
+        offenders.is_empty(),
+        "{} step(s) in ci.yml call a script from this repository:\n  {}\n\nA check written in \
+         shell runs on a runner and nowhere else. Every one of the eight that used to be here was \
+         reading bytes — a stencil library's size, an archive's symbol table, an ELF header — and \
+         the tests at the bottom of this file read the same bytes on every machine. Write it \
+         there, and let the step be `cargo test`.",
+        offenders.len(),
+        offenders.join("\n  ")
     );
-
-    for domain in &domains {
-        let named = format!("--test {domain}");
-        assert!(
-            !script.contains(&named),
-            "{} names `{named}`. The whole point of that script is that it does not know which \
-             binaries exist: it asks cargo and runs all of them. A `--test` argument in there is a \
-             list, and the next domain added is the one it will not have.",
-            path.display()
-        );
-    }
-    println!("{} domain(s), none of them named by the runner", domains.len());
+    let scripts = repo_root().join(".github").join("scripts");
+    assert!(
+        !scripts.exists(),
+        "{} is back. The assertions that lived there are tests in this file; a second copy in \
+         bash is a second answer to the same question, and only one of the two runs on a laptop.",
+        scripts.display()
+    );
 }
+
+/// **No invocation in the workflow asks for part of the suite.**
+///
+/// The shell gate this replaces summed the `filtered out` column off every
+/// `test result:` line, because a stray name filter or a `--skip` on a step's
+/// command line removes tests from a run that still exits zero. The same fact is
+/// legible in the workflow itself: a `--skip` is a deliberate subtraction, and
+/// there is no longer a job that needs one.
+///
+/// The count at the bottom is the guard on the guard. This works by recognising
+/// the invocations that ask for everything, and a shape it stops recognising is
+/// a job it silently stops checking — which is the failure this whole file
+/// exists to refuse.
+#[test]
+fn nothing_in_the_workflow_asks_for_part_of_the_suite() {
+    let text = workflow();
+    let skipping: Vec<&str> =
+        text.lines().map(str::trim).filter(|line| line.contains("--skip ")).collect();
+    assert!(
+        skipping.is_empty(),
+        "these lines in ci.yml pass `--skip`:\n  {}\nA `--skip` removes tests from a run that \
+         still exits zero. If a test must not run in a job, it is a deferral — `ci::deferred_to`, \
+         which names the job that does run it and is held to it below — and not a flag on a \
+         command line.",
+        skipping.join("\n  ")
+    );
+    let whole = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.contains("cargo test -p buri") && !line.contains("--test "))
+        .count();
+    assert!(
+        whole >= 2,
+        "only {whole} invocation(s) in ci.yml run `cargo test -p buri` unfiltered, and two do — \
+         the `test` matrix and the `release` job. Either the workflow stopped running the suite, \
+         or the command has changed shape and this test has stopped seeing it."
+    );
+    println!("{whole} unfiltered `cargo test -p buri` invocation(s), and no `--skip` anywhere");
+}
+
 
 /// Every job declares `timeout-minutes`.
 ///
@@ -568,12 +533,9 @@ fn every_job_declares_a_timeout() {
 ///
 /// `.config/nextest.toml` set `slow-timeout = { period = "60s", terminate-after
 /// = 5 }` for two slices and could never fire: every invocation in `ci.yml` is
-/// `cargo test -p buri`, which does not read that file, and
-/// `scripts/test-linux.sh` says why the runner must not be adopted to make it
-/// fire — two of the three liveness gates parse libtest's own output and
-/// nextest prints neither shape. The file was deleted; the cap it described
-/// lives in `cli/tests/harness/hang.rs` and is proved to fire by a test beside
-/// it. This is what stops the config coming back as a promise again.
+/// `cargo test`, which does not read that file. The file was deleted; the cap it
+/// described lives in `cli/tests/harness/hang.rs` and is proved to fire by a
+/// test beside it. This is what stops the config coming back as a promise again.
 ///
 /// Assembled rather than written, because this file is one of the files the
 /// other tests here walk.
@@ -593,11 +555,9 @@ fn no_runner_config_promises_a_cap_nothing_reads() {
     let workflow = workflow();
     assert!(
         !workflow.contains(&runner),
-        "ci.yml invokes `{runner}`. Two of the three liveness gates read libtest's own output — \
-         `assert-no-skips.sh` sums the `ignored` and `filtered out` counts off every \
-         `test result:` line, and `assert-suite-ran.sh` reads the census out of a `--nocapture` \
-         log — and that runner prints neither shape, so adopting it would disarm both while \
-         everything stayed green. `scripts/test-linux.sh` records the argument in full."
+        "ci.yml invokes `{runner}`. Nothing else in this repository does, so the timeout that \
+         config describes would be a sentence rather than a cap — and a second test runner is a \
+         second set of rules about what counts as a skip, on top of the ones this file holds."
     );
 }
 
@@ -648,12 +608,11 @@ fn workspace_members() -> BTreeMap<String, String> {
 ///
 /// `website` was not, for as long as it had existed: `members = ["cli",
 /// "website"]`, every `cargo test` in the workflow was `-p buri`, and its
-/// forty-one tests ran nowhere. The two mechanisms that exist to catch a test
-/// that does not run were both blind to it — they carry no `#[ignore]`, so the
-/// scan above sees nothing, and they reached no `suite.log`, so
-/// `assert-no-skips.sh` sees nothing either. Both of those ask "was a test
-/// skipped"; this asks the question underneath it, which is whether the suite
-/// was ever asked for at all.
+/// forty-one tests ran nowhere. The mechanisms that exist to catch a test that
+/// does not run were blind to it — they carry no `#[ignore]`, so the scan above
+/// sees nothing, and no runner assumption of theirs was broken, so nothing
+/// panicked. Those ask "was a test skipped"; this asks the question underneath
+/// it, which is whether the suite was ever asked for at all.
 #[test]
 fn every_workspace_member_is_tested_by_a_job() {
     let text = workflow();
@@ -683,8 +642,7 @@ fn every_workspace_member_is_tested_by_a_job() {
         untested.is_empty(),
         "{} workspace member(s) are in `members` and in no `cargo test` in ci.yml, so their tests \
          run on no job:\n  {}\nA package nothing asks for is a package where every test is \
-         skipped, and neither the `#[ignore]` scan nor assert-no-skips.sh can see it — one has \
-         nothing to find and the other never gets a log.",
+         skipped, and the `#[ignore]` scan above cannot see it — there is nothing for it to find.",
         untested.len(),
         untested.join("\n  ")
     );
@@ -749,4 +707,686 @@ fn every_deferral_names_a_job_that_still_asks_for_it() {
     }
     assert!(found > 0, "no `ci::deferred_to` was found; this test would have asserted nothing");
     println!("{found} deferral(s), each naming a job that is in the workflow");
+}
+
+// ---------------------------------------------------------------------------
+// The liveness gates
+//
+// Everything below used to be a shell script under `.github/scripts/`, run as a
+// workflow step against the files `cli/build.rs` had just written. They read the
+// same bytes here — through the constants the toolchain embeds them in, which is
+// the same emptiness `stencil::AVAILABLE` and `runtime_native::AVAILABLE` are
+// computed from — so the question "did this toolchain build for real" is asked
+// by the suite rather than beside it.
+//
+// Each opens with `ci::on()`. That is not a skip in the sense this repository
+// refuses: a contributor with no clang has an empty stencil library and that is
+// the correct state of their machine, while a runner with one is a machine whose
+// setup broke. The guard is which of the two hosts is being asked.
+// ---------------------------------------------------------------------------
+
+#[path = "harness/ci.rs"]
+mod ci;
+
+/// This assertion is about a runner, and this host is not one.
+fn only_on_a_runner(what: &str) -> bool {
+    if ci::on() {
+        return false;
+    }
+    eprintln!("ci: `{what}` is asserted on a runner only (BURI_CI=1 is unset here)");
+    true
+}
+
+/// Every tool the workflow installs is on `PATH`.
+///
+/// Asserted rather than assumed, and asserted *from inside the suite* so that it
+/// is the tests' own claim. A missing tool otherwise presents as a test that
+/// returned early or as a link failure inside a suite three steps later, and
+/// both read as "green" or as "a compiler bug" rather than as "the runner
+/// changed". `cli/tests/native/stencil.rs::cross_tools` is the reason the llvm
+/// three are in the list: it probes them and its callers return quietly when
+/// they are absent, so the tools being present is what makes those tests run.
+#[test]
+fn every_tool_the_workflow_assumes_is_on_path() {
+    if only_on_a_runner("every_tool_the_workflow_assumes_is_on_path") {
+        return;
+    }
+    let mut needed = vec!["cc", "clang", "node", "bun"];
+    if cfg!(target_os = "linux") {
+        needed.extend(["ld.lld", "mold", "llvm-nm", "llvm-objdump", "llvm-readelf", "readelf"]);
+    }
+    let missing: Vec<&str> = needed
+        .into_iter()
+        .filter(|tool| {
+            std::process::Command::new(tool)
+                .arg("--version")
+                .output()
+                .is_ok_and(|out| out.status.success())
+                .eq(&false)
+        })
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "these tools are not on PATH: {}\n\nEvery job that runs this suite installs them (the \
+         `test` matrix's apt step, and `oven-sh/setup-bun`). One that is missing does not fail \
+         anything by itself — it makes a suite return early and report a pass.",
+        missing.join(", ")
+    );
+}
+
+/// **The stencil libraries this toolchain was built with are not empty.**
+///
+/// The failure this catches is SILENT. `cli/build.rs` degrades rather than
+/// breaks: a host whose `cc` cannot compile the generated C gets an empty
+/// library, `stencil::available_for` reads the emptiness, and every test in
+/// `cli/tests/native/stencil.rs` opens with `if !supported() { return; }`. Such
+/// a runner runs the whole suite, reports every test as passed, and proves
+/// nothing. `cargo test`'s exit status cannot tell that apart from a real green
+/// run; this can, because availability is literally `!blob(t).is_empty()`.
+///
+/// The *reverse* degrade is asserted too. A Linux host cannot build the
+/// `macos-arm64` library — `cli/build.rs` gates that target on an
+/// `aarch64-apple-darwin` TARGET — so on Linux that blob must be empty. An
+/// assertion that only ever said "present" would not notice a build script that
+/// started writing every target unconditionally.
+#[test]
+fn the_stencil_libraries_are_real() {
+    use buri::compiler::backend::stencil::{self, abi::StencilTarget};
+
+    if only_on_a_runner("the_stencil_libraries_are_real") {
+        return;
+    }
+    // Both Linux libraries are cross-compilable from any clang, so both are
+    // required on every host — that is what makes `linux-arm64` a container port
+    // rather than a second backend.
+    for target in [StencilTarget::LinuxArm64, StencilTarget::LinuxX86_64] {
+        assert!(
+            stencil::available_for(target),
+            "the `{target:?}` stencil library is empty, so every test guarded on availability \
+             returns early and the suite passes vacuously. `cli/build.rs` writes an empty library \
+             when its `cc` cannot produce that target's objects: check that `CC` is clang and \
+             that this clang can cross-compile."
+        );
+    }
+    let macos = stencil::available_for(StencilTarget::MacosArm64);
+    if cfg!(target_os = "macos") {
+        assert!(
+            macos,
+            "the `macos-arm64` stencil library is empty on a macOS host, which is the host that \
+             builds it. Nothing native can run here."
+        );
+    } else {
+        assert!(
+            !macos,
+            "the `macos-arm64` stencil library is NOT empty on a host that is not macOS. \
+             `cli/build.rs` gates that target on an `aarch64-apple-darwin` TARGET, so either the \
+             gate moved or these are not the bytes they claim to be."
+        );
+    }
+    // Through a binding, because `AVAILABLE` is a `const` and an `assert!` on
+    // one is a lint about a check the compiler could have made — which this is
+    // not: the constant is computed from bytes `cli/build.rs` wrote, so its
+    // value is a fact about the build and not about the source.
+    let runnable: bool = stencil::AVAILABLE;
+    assert!(
+        runnable,
+        "this host's own stencil library is empty (or, on x86-64, `asm.rs` has no entry point for \
+         it), so nothing in the native suite can build a runnable program."
+    );
+}
+
+/// The symbols in the runtime archive, as `nm` reports them.
+///
+/// The archive is bytes in this binary rather than a file, so it is written back
+/// out for `nm` to read. `nm` and not a substring search over the archive: a
+/// search would match a path or a piece of prose that happens to carry a crate's
+/// name, and the assertion below turns on a crate being *absent*, which is
+/// exactly where a false positive would be a red run about nothing.
+fn archive_symbols() -> String {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("ci-archive");
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(buri::compiler::backend::runtime_native::ARCHIVE_NAME);
+    std::fs::write(&path, buri::compiler::backend::runtime_native::ARCHIVE).unwrap();
+    for tool in ["nm", "llvm-nm"] {
+        let Ok(out) = std::process::Command::new(tool).arg(&path).output() else { continue };
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        if !text.trim().is_empty() {
+            return text;
+        }
+    }
+    panic!(
+        "neither `nm` nor `llvm-nm` produced a symbol table for {}, so the assertions about what \
+         the runtime archive carries would pass having read nothing.",
+        path.display()
+    );
+}
+
+/// **The runtime archive is real, is the right size, and carries what it says.**
+///
+/// The other blob `cli/build.rs` writes, and it degrades the same way the
+/// stencil libraries do — an empty archive on a host with no runtime, and, since
+/// the `net` feature, on a dependency tree that cannot be resolved. An empty one
+/// makes every native test return early and the suite pass vacuously.
+///
+/// Four claims beyond emptiness, each of which has been wrong once:
+///
+/// * **The libc.** On Linux the archive is built for `<arch>-unknown-linux-musl`
+///   so that every artifact `buri build` links is a static-PIE musl executable
+///   that runs on any Linux (ARCHITECTURE.md §9). When the musl `rust-std` is
+///   missing `cli/build.rs` falls back to the host's gnu triple, and the
+///   resulting compiler produces artifacts that run on the build machine and on
+///   nothing older — a break that fails for users and for nobody in CI.
+/// * **The size.** Every `buri` binary carries these bytes.
+/// * **The networking crates.** `net` is what links the reactor and the TLS
+///   client; an archive that carries neither has an `https://` that fails at run
+///   time and a suite that never noticed. `quinn` and `aws_lc` are the
+///   tripwires: nothing is supposed to reach them, and `quinn`'s crypto provider
+///   being pinned to `ring` is the decision `aws_lc` is watching.
+/// * **The entropy door.** With `crypto` the archive exports
+///   `buri_rt_host_entropy_bytes`; without it, the compile-time refusal fires
+///   instead. A toolchain in the third state — a feature file saying `crypto`
+///   and no symbol — refuses nothing and fails at the system linker.
+#[test]
+fn the_runtime_archive_is_real() {
+    use buri::build::musl::Libc;
+    use buri::compiler::backend::runtime_native as rt;
+
+    if only_on_a_runner("the_runtime_archive_is_real") {
+        return;
+    }
+    assert!(
+        !rt::ARCHIVE.is_empty(),
+        "libburi_rt.a is empty, so this toolchain has no native runtime: every native test \
+         returns early and the suite passes vacuously. `cli/build.rs` writes an empty archive on \
+         an unsupported host and on a dependency tree it cannot resolve, and the build log carries \
+         a `cargo:warning` saying which."
+    );
+
+    // Measured, not guessed, and re-measured in the commit that moves either.
+    let budget = if cfg!(target_os = "macos") { 9_536_512 } else { 14_680_064 };
+    assert!(
+        rt::ARCHIVE.len() <= budget,
+        "libburi_rt.a is {} bytes, over the {budget}-byte budget for this platform. Every buri \
+         binary carries these bytes. Find out what grew — the usual answer is a dependency whose \
+         code now reaches the archive, or a native library a crate compiled in — then fix it, or \
+         re-measure and re-state the budget here.",
+        rt::ARCHIVE.len()
+    );
+
+    if cfg!(target_os = "linux") {
+        assert!(
+            matches!(rt::libc(), Libc::MuslBaked | Libc::MuslSystem),
+            "libburi_rt.a was built against {:?}, not musl. Executables this toolchain links will \
+             depend on this machine's glibc and will not run on a Linux with an older one — which \
+             fails for users and for nobody in CI. `cli/build.rs` falls back to the host triple \
+             when the musl standard library is missing: the job that built this needs \
+             `rustup target add $(uname -m)-unknown-linux-musl` before its first cargo build.",
+            rt::libc()
+        );
+    } else {
+        assert_eq!(
+            rt::libc(),
+            Libc::Absent,
+            "libburi_rt.a names a Linux libc on a host where there is no Linux libc to name, so \
+             the sidecar belongs to a different build than the archive beside it."
+        );
+    }
+
+    assert!(
+        !rt::h3() || rt::net(),
+        "the archive declares `net-h3` without `net`, and the manifest makes net-h3 imply net. \
+         Either `cli/build.rs` wrote a state cargo cannot produce, or the feature file belongs to \
+         a different archive."
+    );
+
+    let symbols = archive_symbols().to_lowercase();
+    let carries = |crate_name: &str| symbols.contains(crate_name);
+    if rt::net() {
+        for wanted in ["tokio", "rustls", "ring_core", "hyper", "tungstenite"] {
+            assert!(
+                carries(wanted),
+                "libburi_rt.a carries no symbol from `{wanted}`, and it was built with the \
+                 runtime's `net` feature, which is what links the reactor, the TLS client, HTTP/2 \
+                 and WebSockets. An archive in this state has an `https://` or a suspending host \
+                 call that fails at run time and a suite that never noticed."
+            );
+        }
+    } else {
+        for unwanted in ["tokio", "hyper", "rustls", "tungstenite", "ring_core"] {
+            assert!(
+                !carries(unwanted),
+                "libburi_rt.a was built without `net` and carries symbols from `{unwanted}`."
+            );
+        }
+    }
+    for unwanted in ["quinn", "aws_lc"] {
+        assert!(
+            !carries(unwanted),
+            "libburi_rt.a carries symbols from `{unwanted}`, and nothing in the runtime is \
+             supposed to reach it. Either something new does — in which case this list and the \
+             size budget above both move, in the commit that made it deliberate — or a crate was \
+             added to cli/runtime/manifest.toml without an argument for it."
+        );
+    }
+
+    let entropy = carries("buri_rt_host_entropy_bytes");
+    assert_eq!(
+        entropy,
+        rt::crypto(),
+        "the archive's `crypto` feature says {} and its `buri_rt_host_entropy_bytes` door says \
+         {entropy}. With the feature and no door, every program that calls `crypto.randomBytes` \
+         fails at the system linker while the compile-time refusal that exists for exactly this \
+         case stays quiet; with the door and no feature, the toolchain refuses `Entropy` while \
+         carrying the body it refused.",
+        rt::crypto()
+    );
+}
+
+/// **The published `buri` crate carries the native runtime's sources.**
+///
+/// `cli/build.rs` compiles `cli/runtime/` into `libburi_rt.a` at toolchain-build
+/// time, so a registry tarball without those files is a `cargo install buri`
+/// that fails in the build script with nothing to compile. That is exactly what
+/// happened once: the runtime became a cargo package, and `cargo package` skips
+/// any subdirectory of a package that holds a `Cargo.toml` — unconditionally,
+/// ahead of `include`/`exclude` — so the whole directory silently stopped
+/// shipping. Nothing said so, because a checkout still builds.
+///
+/// The fix is that the runtime's manifest is `manifest.toml` and its lockfile is
+/// `manifest.lock`, neither named the way cargo would name it. This is the
+/// assertion that the fix holds.
+///
+/// `--list` rather than a real `cargo package`: the tarball is not wanted, only
+/// its file list, and building it would compile the whole toolchain a second
+/// time. `--allow-dirty` because this runs on a tree with uncommitted work in it
+/// as often as not, and the claim is about the manifest's rules rather than
+/// about the index.
+#[test]
+fn the_published_crate_ships_the_runtime() {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| String::from("cargo"));
+    let out = std::process::Command::new(cargo)
+        .args(["package", "-p", "buri", "--list", "--allow-dirty"])
+        .current_dir(repo_root())
+        .output()
+        .expect("cargo could not be run");
+    assert!(
+        out.status.success(),
+        "`cargo package -p buri --list` failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let listed = String::from_utf8_lossy(&out.stdout);
+    let files: Vec<&str> = listed.lines().map(str::trim).collect();
+
+    // Named one by one rather than counted, because `cli/runtime/switch.rs`
+    // reaches each `.s` file through `include_str!` at compile time: one missing
+    // from the tarball is not a smaller archive, it is a `cargo install buri`
+    // that fails in the build script with "couldn't read".
+    for name in [
+        "lib.rs",
+        "manifest.toml",
+        "manifest.lock",
+        "switch_macos_arm64.s",
+        "switch_linux_arm64.s",
+        "switch_linux_x86_64.s",
+    ] {
+        let wanted = format!("runtime/{name}");
+        assert!(
+            files.contains(&wanted.as_str()),
+            "{wanted} is not in the published buri crate. A `cargo install` from a registry \
+             tarball would fail in cli/build.rs with no runtime to compile. The usual cause is a \
+             `Cargo.toml` that has appeared under `cli/` — cargo package skips the directory that \
+             holds one."
+        );
+    }
+
+    // A floor rather than an equality, so that adding a runtime source is not a
+    // CI failure, and not merely `> 0`, so that shipping one file out of
+    // nineteen is not a pass. Raising it with each new source keeps it tight.
+    let sources = files.iter().filter(|f| f.starts_with("runtime/") && f.ends_with(".rs")).count();
+    assert!(
+        sources >= 19,
+        "the published buri crate carries {sources} runtime sources; cli/runtime holds more than \
+         that, so cargo package is dropping some of them."
+    );
+    println!("the published buri crate carries {sources} runtime sources and both manifests");
+}
+
+// ---------------------------------------------------------------------------
+// The linked Linux image
+// ---------------------------------------------------------------------------
+
+/// A little-endian ELF64 image, read for the four properties CI is about.
+///
+/// A reader rather than `readelf` and a pile of greps, which is what this used
+/// to be: the properties below are a fixed offset into a header each, the file
+/// is already bytes in hand, and a parse that is thirty lines of arithmetic
+/// cannot mis-split a column the way an `awk '{print $(NF-1)}'` can.
+#[cfg(target_os = "linux")]
+struct Image {
+    bytes: Vec<u8>,
+}
+
+#[cfg(target_os = "linux")]
+impl Image {
+    fn read(path: &Path) -> Self {
+        let bytes = std::fs::read(path)
+            .unwrap_or_else(|e| panic!("{} cannot be read: {e}", path.display()));
+        assert!(
+            bytes.len() > 64 && bytes[..4] == *b"\x7fELF" && bytes[4] == 2 && bytes[5] == 1,
+            "{} is not a little-endian ELF64 image",
+            path.display()
+        );
+        Self { bytes }
+    }
+
+    fn u16(&self, at: usize) -> u64 {
+        u64::from(u16::from_le_bytes([self.bytes[at], self.bytes[at + 1]]))
+    }
+
+    fn u32(&self, at: usize) -> u64 {
+        u64::from(u32::from_le_bytes(self.bytes[at..at + 4].try_into().unwrap()))
+    }
+
+    fn u64(&self, at: usize) -> u64 {
+        u64::from_le_bytes(self.bytes[at..at + 8].try_into().unwrap())
+    }
+
+    /// `(p_type, p_flags)` for every program header.
+    fn segments(&self) -> Vec<(u64, u64)> {
+        let off = self.u64(32) as usize;
+        let size = self.u16(54) as usize;
+        (0..self.u16(56) as usize)
+            .map(|i| {
+                let at = off + i * size;
+                (self.u32(at), self.u32(at + 4))
+            })
+            .collect()
+    }
+
+    /// `(name, sh_type, sh_offset, sh_size, sh_link, sh_entsize)` per section.
+    fn sections(&self) -> Vec<(String, u64, u64, u64, u64, u64)> {
+        let off = self.u64(40) as usize;
+        let size = self.u16(58) as usize;
+        let count = self.u16(60) as usize;
+        let names = off + self.u16(62) as usize * size;
+        let names_at = self.u64(names + 24) as usize;
+        (0..count)
+            .map(|i| {
+                let at = off + i * size;
+                let name = self.string(names_at + self.u32(at) as usize);
+                (
+                    name,
+                    self.u32(at + 4),
+                    self.u64(at + 24),
+                    self.u64(at + 32),
+                    self.u32(at + 40),
+                    self.u64(at + 56),
+                )
+            })
+            .collect()
+    }
+
+    fn string(&self, at: usize) -> String {
+        let end = self.bytes[at..].iter().position(|b| *b == 0).unwrap_or(0);
+        String::from_utf8_lossy(&self.bytes[at..at + end]).to_string()
+    }
+
+    /// Whether a symbol of this name is *defined* in the image.
+    ///
+    /// `st_shndx` of `SHN_UNDEF` is what a collected block looks like from here,
+    /// so an undefined symbol of the right name is a failure and not a find.
+    fn defines(&self, symbol: &str) -> bool {
+        for (_, kind, offset, size, link, entsize) in self.sections() {
+            // SHT_SYMTAB, and its `sh_link` names the string table beside it.
+            if kind != 2 || entsize == 0 {
+                continue;
+            }
+            let strings = self.sections()[link as usize].2 as usize;
+            for i in 0..(size / entsize) as usize {
+                let at = offset as usize + i * entsize as usize;
+                if self.string(strings + self.u32(at) as usize) == symbol {
+                    return self.u16(at + 6) != 0;
+                }
+            }
+        }
+        false
+    }
+
+    /// Every `DT_NEEDED` entry, by name — the shared objects a loader would have
+    /// to find. A hermetic artifact names none.
+    fn needed(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for (name, _, offset, size, link, entsize) in self.sections() {
+            if name != ".dynamic" || entsize == 0 {
+                continue;
+            }
+            let strings = self.sections()[link as usize].2 as usize;
+            for i in 0..(size / entsize) as usize {
+                let at = offset as usize + i * entsize as usize;
+                if self.u64(at) == 1 {
+                    out.push(self.string(strings + self.u64(at + 8) as usize));
+                }
+            }
+        }
+        out
+    }
+}
+
+/// **A Linux artifact is a static PIE with a non-executable stack, linked by
+/// both linkers, and it runs.**
+///
+/// Nothing in the build can observe any of this. A glibc-linked binary builds,
+/// links, passes the suite, and fails only on somebody else's machine; an
+/// executable stack is the ABSENCE of a section, which is invisible in the
+/// source; and `--gc-sections` collecting the Buri stack would leave a program
+/// that runs until it recurses. So the properties are asserted on the IMAGE.
+///
+/// **Both linkers.** `build/link.rs::choose` prefers mold on Linux and falls
+/// back to lld, and until this repository had Linux runners every ELF byte it
+/// emitted had been accepted by exactly one linker. `--gc-sections` and the
+/// stack marking are the linker's behaviour and not the emitter's, so each
+/// linker's own output is read.
+///
+/// **And `--check-reproducible`**, driven through the CLI: two builds from two
+/// freshly opened sessions with the cache off, into two directories, compared
+/// byte for byte. A repository written here rather than one of the checked-in
+/// ones, because both native binaries in `cli/tests/example` are refused by the
+/// dev build — `//cmd/server` needs `host.HostFs.readFile` and `//tools/report`
+/// needs `host.HostEnv.args`. A small program that only prints is what this
+/// needs; a small artifact's bytes are no less reproducible.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_linked_linux_artifact_is_a_static_pie_that_runs() {
+    use std::process::Command;
+
+    if !buri::compiler::backend::stencil::AVAILABLE {
+        assert!(
+            !ci::on(),
+            "BURI_CI=1 and this toolchain has no stencils — `the_stencil_libraries_are_real` says \
+             which blob is empty."
+        );
+        eprintln!("ci: skipped (this toolchain builds no runnable native program)");
+        return;
+    }
+
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x86_64" };
+    let selector = if cfg!(target_arch = "aarch64") { "ARM64" } else { "X86_64" };
+    let root = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("ci-static-pie-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+
+    // One repository per invocation: `buri build` writes into the tree it is
+    // given, and an artifact found in a directory two builds wrote to is not
+    // unambiguously the one this step produced.
+    let repo = |name: &str| {
+        let dir = root.join(name).join("repo");
+        std::fs::create_dir_all(dir.join("cmd/app")).unwrap();
+        std::fs::write(dir.join("REPO.buri"), "# a repository with no tags\n").unwrap();
+        std::fs::write(
+            dir.join("cmd/app/BUILD.buri"),
+            format!("binary {{\n    outputs: [\n        {{ platform: LINUX, arch: {selector} }},\n    ]\n}}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("cmd/app/main.buri"),
+            "from \"core/host\" import { stdout };\n\
+             from \"core/io\" import * as io;\n\
+             export fn main(): Result<(), Str> {\n\
+             \x20 match (io.println(stdout, \"reproducible\")) {\n\
+             \x20   .Ok(_) => .Ok(()),\n\
+             \x20   .Err(_) => .Err(\"could not write to standard output\"),\n\
+             \x20 }\n\
+             }\n",
+        )
+        .unwrap();
+        dir
+    };
+
+    let buri = env!("CARGO_BIN_EXE_buri");
+    let output = format!("--output=linux/{arch}");
+
+    let mut linked = 0;
+    for linker in ["mold", "lld"] {
+        let driver = if linker == "lld" { "ld.lld" } else { linker };
+        if !Command::new(driver).arg("--version").output().is_ok_and(|o| o.status.success()) {
+            assert!(!ci::on(), "BURI_CI=1 and `{driver}` is not on PATH");
+            eprintln!("ci: {linker} is not installed, so its image is not read");
+            continue;
+        }
+        linked += 1;
+        let dir = repo(linker);
+        let out = Command::new(buri)
+            .args(["build", "//cmd/app", &output])
+            .env("BURI_LINKER", linker)
+            .current_dir(&dir)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "`buri build` with BURI_LINKER={linker} failed:\n{}\n{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+
+        let artifact = executable_under(&dir).unwrap_or_else(|| {
+            panic!("BURI_LINKER={linker} left no linked artifact under {}", dir.display())
+        });
+        let image = Image::read(&artifact);
+
+        // ELF type DYN, not EXEC: the artifact is position independent, which is
+        // what `-static-pie` asks for and what `-static` alone would not give.
+        assert_eq!(
+            image.u16(16),
+            3,
+            "{linker}: the image is not a PIE, so the `-static-pie` link lost half of itself"
+        );
+
+        let segments = image.segments();
+        // No PT_INTERP. A static PIE self-relocates through musl's `rcrt1.o`
+        // before `main`; an INTERP header means the kernel hands the file to a
+        // dynamic loader instead, and that loader is exactly what is not
+        // guaranteed to exist on the machine the artifact was copied to.
+        assert!(
+            !segments.iter().any(|(kind, _)| *kind == 3),
+            "{linker}: the image has a PT_INTERP header, so it is dynamically loaded"
+        );
+        assert!(
+            image.needed().is_empty(),
+            "{linker}: the image still needs shared libraries: {:?}",
+            image.needed()
+        );
+
+        // One PT_GNU_STACK header, and its flags must not carry PF_X. A missing
+        // header is also a failure: the kernel then falls back to the ABI
+        // default, which for an executable with no PT_GNU_STACK is an executable
+        // stack. `stencil/elf.rs` writes an empty `.note.GNU-stack` into every
+        // unit object, and it is the absence of that section that produces this.
+        let stack = segments.iter().find(|(kind, _)| *kind == 0x6474_e551);
+        let (_, flags) = stack.unwrap_or_else(|| {
+            panic!(
+                "{linker}: the image has no PT_GNU_STACK header, which is exactly the state an \
+                 absent `.note.GNU-stack` produces"
+            )
+        });
+        assert_eq!(
+            flags & 1,
+            0,
+            "{linker}: the stack is EXECUTABLE — `.note.GNU-stack` did not reach the linker"
+        );
+
+        // The Buri stack survived `--gc-sections`. The symbol's own `st_size` is
+        // zero and that is correct rather than suspicious — `elf.rs` emits the
+        // stack as the start of a zero-fill section rather than as a sized
+        // object — so the reservation is asserted on the SECTION and only the
+        // definedness on the symbol.
+        assert!(
+            image.defines("buri$stencil$stack"),
+            "{linker}: `buri$stencil$stack` is not defined in the linked image — --gc-sections \
+             collected the block the stack guard depends on, or the shim stopped naming it"
+        );
+        let bss = image
+            .sections()
+            .into_iter()
+            .find(|(name, ..)| name == ".bss")
+            .unwrap_or_else(|| panic!("{linker}: the image has no .bss at all"));
+        assert_eq!(bss.1, 8, "{linker}: .bss is not NOBITS, so the reservation is bytes on disk");
+        assert!(
+            bss.3 >= 64 * 1024 * 1024,
+            "{linker}: .bss is {} bytes, under the 64 MiB the Buri stack reserves — \
+             --gc-sections took the block",
+            bss.3
+        );
+
+        // And it still runs, linked by this linker, on this machine.
+        let ran = Command::new(&artifact).output().unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&ran.stdout),
+            "reproducible\n",
+            "{linker}: the artifact printed the wrong answer"
+        );
+    }
+    assert!(linked > 0, "neither mold nor ld.lld is installed, so no image was read");
+
+    let dir = repo("reproducible");
+    let out = Command::new(buri)
+        .args(["build", "//cmd/app", &output, "--check-reproducible"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "`buri build --check-reproducible` failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The one linked executable under a directory.
+///
+/// Found by reading rather than by knowing the layout: object files are ELF too,
+/// and `e_type` is what separates a relocatable from an image.
+#[cfg(target_os = "linux")]
+fn executable_under(dir: &Path) -> Option<PathBuf> {
+    let mut found = None;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(at) = stack.pop() {
+        for entry in std::fs::read_dir(&at).ok()?.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else { continue };
+            if bytes.len() < 20 || bytes[..4] != *b"\x7fELF" {
+                continue;
+            }
+            // ET_EXEC or ET_DYN; ET_REL (1) is a unit object.
+            let kind = u16::from_le_bytes([bytes[16], bytes[17]]);
+            if kind == 2 || kind == 3 {
+                found = Some(path);
+            }
+        }
+    }
+    found
 }

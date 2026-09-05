@@ -100,7 +100,7 @@ lists, and `dependencies_stay_behind_the_bar` is what holds it there.
 
 `rustls` and `ring` followed, and they are the expensive half.
 `aarch64-apple-darwin`, `libburi_rt.a`, as C7 left it — F4 and F7 have both
-moved these numbers since, and `.github/scripts/assert-runtime-archive.sh`
+moved these numbers since, and `cli/tests/ci.rs::the_runtime_archive_is_real`
 carries the current ones:
 
 | | bytes | delta |
@@ -118,7 +118,7 @@ contributes twenty-odd `.o` members of C and AArch64 assembly, of which
 `curve25519.o` is 405 KB and `p256-nistz.o` is 173 KB.
 
 **That is over the budget this repository had written down.**
-`.github/scripts/assert-runtime-archive.sh` allowed 7 MiB on macOS and 10 MiB on
+`cli/tests/ci.rs::the_runtime_archive_is_real` allowed 7 MiB on macOS and 10 MiB on
 Linux, measured before either the reactor or TLS. The budget is a ratchet whose
 stated response to being hit is "find out what grew, then fix it or re-measure
 and re-state" — this is the re-statement, 9 MiB and 12 MiB, and the growth is
@@ -160,7 +160,7 @@ lines, and forty lines this repository can reasonably write is the definition of
 "not a dependency". What it does not do — read the macOS keychain — is what
 `SSL_CERT_FILE` is for, and `tls.rs` says so.
 
-`.github/scripts/assert-runtime-archive.sh` holds all of it in CI: the size
+`cli/tests/ci.rs::the_runtime_archive_is_real` holds all of it in CI: the size
 budget, a symbol table that **must** mention `tokio`, `rustls`, `ring`, `hyper`
 and `tungstenite` when the feature file says `net`, and one that must mention
 neither `quinn` — on any leg, `net-h3` included — nor `aws_lc`, a provider that
@@ -252,7 +252,7 @@ The h3 archive is **forty bytes smaller** than the one without it. `quinn` is
 named by one `size_of` in `cli/runtime/net.rs` and reached by nothing else, so
 `lto = "fat"` drops the crate whole — verified with `nm`, which finds no quinn
 symbol in an h3 archive at all — and the forty bytes are the HTTP/3 refusal
-string an h3 build has no use for. So `assert-runtime-archive.sh` holds the h3
+string an h3 build has no use for. So `the_runtime_archive_is_real` holds the h3
 leg to the **same** size budget as the `net` one rather than inventing a larger
 number with nothing behind it, and `quinn` is the only crate left on that
 script's *absent* list, on every leg. `hyper` left it in F4 and `tungstenite` in
@@ -467,7 +467,7 @@ Three things about that shape are decisions rather than mechanics, and
   directory from the published `buri` crate, and a `cargo install buri` from a
   registry tarball then fails in the build script with no runtime to compile.
   That regression is what this repairs; the assertion is
-  `.github/scripts/assert-package-ships-runtime.sh`.
+  `cli/tests/ci.rs::the_published_crate_ships_the_runtime`.
 - **`cargo rustc --`, not `RUSTFLAGS`.** The three flags belong to the runtime
   crate alone. Applied to the whole tree, an empty `-C extra-filename=` is a
   collision the moment two versions of one crate appear — and two do:
@@ -603,34 +603,41 @@ of the lockfiles because nixpkgs' `cargoSetupPostPatchHook` diffs the vendor
 directory's `Cargo.lock` against the one in `src` and refuses a build where they
 differ. `cargoDeps` takes that directory, so there is still no `cargoHash`.
 
-The flake then runs `.github/scripts/assert-runtime-archive.sh` in its own
-`postBuild`. This is the one place the script is not redundant with §3.3's CI
-jobs: `nix build` is a *packaging* path, its failure mode is a silently less
-capable compiler, and the four systems `eachDefaultSystem` covers are all systems
+The flake then repeats the two halves of
+`cli/tests/ci.rs::the_runtime_archive_is_real` a sandbox can ask — the archive is
+not empty, and on Linux it is a musl archive — in its own `postBuild`, because
+this derivation builds the toolchain and never runs its tests. This is the one
+place that assertion is not redundant with §3.3's CI jobs: `nix build` is a
+*packaging* path, its failure mode is a silently less capable compiler, and the four systems `eachDefaultSystem` covers are all systems
 `cli/build.rs`'s `supported` accepts — so there is nothing here to degrade to and
 the empty archive is unambiguously a bug.
 
 ### 3.3 CI
 
 `.github/workflows/ci.yml` runs on push, on pull request and on demand, and it
-is eleven jobs. The three that this document is about:
+is nine jobs. Every step in it is one `cargo` invocation or a few lines of
+inline shell: the eight scripts under `.github/scripts/` it used to call are
+tests in `cli/tests/ci.rs` now, which is what lets a step be the same command a
+contributor types and what makes each assertion below runnable on a laptop.
+
+The three jobs this document is about:
 
 - **`test`** — the whole Rust suite, on every host this toolchain supports:
   `macos-latest` (arm64), `ubuntu-24.04` (x86_64) and `ubuntu-24.04-arm`. Each
   leg sets `CC: clang` and therefore builds its own stencil library, which
-  `.github/scripts/assert-stencils.sh` then holds to being non-empty. There is
+  `cli/tests/ci.rs::the_stencil_libraries_are_real` then holds to being non-empty. There is
   deliberately no leg without `clang`: it would be the same suite with the
   native tests silently skipped, and that is the one shape of green this
   workflow exists to refuse.
-  `.github/scripts/assert-runtime-archive.sh` is the same gate for the runtime
+  `cli/tests/ci.rs::the_runtime_archive_is_real` is the same gate for the runtime
   archive — non-empty, under a per-OS size budget, carrying a symbol from each
   of §1.1.1's linked crates and none from the ones nothing reaches — and it runs
   on all four native jobs, `release` included.
 
   **`net-h3` is built on exactly one of them**, the `x86_64` leg of `test`, as
-  its last step: `BURI_RUNTIME_NET_H3=1 cargo build -p buri`, the same archive
-  script over the h3 archive, and the one test that compares the C-ABI door with
-  the feature file. One job rather than four because nothing about the question
+  its last step: `BURI_RUNTIME_NET_H3=1`, the same archive assertion over the h3
+  archive, and the one test that compares the C-ABI door with the feature file.
+  One job rather than four because nothing about the question
   is per-platform — `quinn` is portable Rust reaching the archive through the
   same nested `cargo` the other five do, and the assertions are about symbols
   and bytes rather than about a syscall — and it is the job's last step because
@@ -638,7 +645,7 @@ is eleven jobs. The three that this document is about:
   measuring a toolchain no other job has. §1.1.3 is what it is holding.
 - **`minimal`** — `cargo build -p buri --no-default-features` on
   `ubuntu-latest`, plus
-  `.github/scripts/assert-package-ships-runtime.sh`, which is the other half of
+  `cli/tests/ci.rs::the_published_crate_ships_the_runtime`, which is the other half of
   "`cargo install buri` works": the tarball has to carry what `cli/build.rs`
   compiles. It is the test that `cargo install buri` still works on a
   machine carrying no LLVM, and it is a job rather than an assertion because
@@ -655,29 +662,40 @@ is eleven jobs. The three that this document is about:
   required job. The version is asserted rather than assumed, which is §8.1's
   one-supported-LLVM policy enforced where it can be.
 
-Two further native jobs, `linux-arm64` and `linux-x86_64`, run the artifacts
-rather than only compiling them, and CODEGEN-STENCIL.md §10 is where they are
-described. `clippy` and `validate` — a matrix of the two Linux architectures
-each — are the lint set and the corpus validation gate; both were steps of
-`test` until it was measured that each compiles the whole workspace *again*,
-under a driver or a profile the suite shares nothing with, in a queue behind
-the longest job in the workflow. `lean`, `tree-sitter` and `nix` complete the
-eleven.
+There were two further native jobs, `linux-arm64` and `linux-x86_64`, which ran
+the artifacts rather than only compiling them; CODEGEN-STENCIL.md §10 describes
+what they asked. They are gone, and nothing they asked is: the `test` matrix's
+Linux legs already ran every one of those tests, and the four steps that were
+genuinely theirs — the census's liveness line, the two linkers, the ELF
+properties of the image each produced, and `--check-reproducible` — are
+`BURI_CI=1` and `cli/tests/ci.rs::a_linked_linux_artifact_is_a_static_pie_that_runs`
+now, which run inside that same suite.
 
-Three things in that file are about **wall clock** rather than about coverage,
-and each is worth naming because each looks like a detail and is minutes:
+`clippy` and `validate` — a matrix of the two Linux architectures each — are the
+lint set and the corpus validation gate; both were steps of `test` until it was
+measured that each compiles the whole workspace *again*, under a driver or a
+profile the suite shares nothing with, in a queue behind the longest job in the
+workflow. `language-server-budget`, `lean`, `tree-sitter` and `nix` complete the
+nine.
 
-- The suite runs through `.github/scripts/run-suite.sh`, which starts the test
-  binaries together rather than in the queue `cargo test` puts them in. Same
-  binaries, same libtest output, same liveness gates reading it: 169 s against
-  73 s on a ten-core mac.
-- `target/<profile>/build` is cached per job. `Swatinem/rust-cache` cleans the
-  workspace's own artifacts out before saving, and `cli/build.rs`'s `OUT_DIR` is
-  one of them — so the runtime archive, a fat-LTO release build of tokio, hyper,
-  rustls and ring, was rebuilt on every job of every run. 51 s of a 141-second
-  cold build on a ten-core mac, and rather more on four cores.
+Two things in that file are about **wall clock** rather than about coverage, and
+each is worth naming because each looks like a detail and is minutes:
+
+- `target/debug/build` is cached on the `test` matrix. `Swatinem/rust-cache`
+  cleans the workspace's own artifacts out before saving, and `cli/build.rs`'s
+  `OUT_DIR` is one of them — so the runtime archive, a fat-LTO release build of
+  tokio, hyper, rustls and ring, was rebuilt on every job of every run. 51 s of
+  a 141-second cold build on a ten-core mac, and rather more on four cores.
 - The validation gate runs under `--profile validate`, which the root
   `Cargo.toml` declares for it and prices at 169 s against 98 s.
+
+A third used to be here and is deliberately not: a shell runner that started the
+fifteen test binaries together rather than in the queue `cargo test` puts them
+in, worth 169 s against 73 s on a ten-core mac. It cost two hundred and seventy
+lines that had to re-derive cargo's own set of executables and re-concatenate
+their logs so that two more scripts could parse them, and those two are tests
+now, so the log had no reader. `cli/tests/README.md` records the number against
+the day it is needed again.
 
 The cross-backend agreement differential test is not a CI feature:
 `cli/tests/native/agreement.rs`
@@ -685,53 +703,18 @@ runs in the ordinary suite on every leg (ARCHITECTURE.md §4).
 
 ### 3.3.1 The same jobs, on the maintainer's own machine
 
-`scripts/test-linux.sh` runs the two arm64 Linux jobs above — `test`'s arm64 leg
-and `linux-arm64` — in a podman container on a mac. It exists because those two
-jobs ask the only questions an arm64 mac cannot ask for itself: whether
-`cli/build.rs` writes a real stencil library under a Debian `clang`, and whether
-the ELF images `build/link.rs` produces actually run. Until it landed the only
-way to ask was to push, so a branch that took six pushes to get right bought six
-matrices, and the bill said so.
+There is no script for this and there is nothing left to script. A `test` job is
+a container with the toolchain in it and then the same `cargo test -p buri` a
+contributor types; `cli/tests/README.md` under "Reproducing a Linux CI leg on a
+mac" carries the one `docker run` line, and the two things that container must
+have are `CC=clang` and `rustup target add <arch>-unknown-linux-musl`, because
+`cli/build.rs` degrades silently without either. `BURI_CI=1` is the third: it is
+what turns a guard that fires into a failure rather than a quiet pass, which is
+the whole reason to run the leg rather than trusting the mac's own suite.
 
-It is a MIRROR rather than a second opinion. Every command in it is a `run:`
-line out of `ci.yml` in that file's order, with the same `env:` — `BURI_CI=1`
-included — the same `.github/scripts/` assertions, and the same `CC: clang`. The
-two places it departs from the workflow are commented in the script and argued
-there, and one of them is worth repeating here: it does **not** run the
-`net-h3` step, because that step's `if:` names `ubuntu-24.04` and no row of the
-matrix has that as its `os`, so the step fires on no runner today.
-
-The base image is an exact `rust:<x.y.z>-trixie` rather than `latest`, and node
-and bun are exact versions checked against the digests their own release hosts
-publish beside them, so a green run means the same thing two days running.
-**trixie and not bookworm is measured rather than preferred**: noble's `clang` is
-18 and trixie's is 19, and under bookworm's 14 the natively linked test runner
-for `cli/tests/failing/aborts` spun in user space forever — no syscalls, no
-signals, `minflt` frozen — which is a miscompile the runner does not have and a
-mirror must not invent.
-
-```
-scripts/test-linux.sh              # both Linux jobs, arm64
-scripts/test-linux.sh --job test   # the suite only
-scripts/test-linux.sh --x86-64     # the same under emulation, and slow
-```
-
-The cargo registry and the target directory are named podman volumes keyed to
-the image recipe, so the first run pays for a cold build, every run after it
-pays for the tests, and moving a pin above empties the directory rather than
-leaving half of it built by the old toolchain. The checkout is mounted
-READ-ONLY and copied into the container, which turns `cli/tests/README.md`'s
-rule that nothing writes into a checked-in tree from a habit into a mount
-option. Nothing is installed on the host but the podman machine, which the
-script creates and starts by itself.
-
-`--x86-64` is for exactly one class of defect, and it is worth its minutes when
-that class is in reach: `asm.rs`'s SysV entry point, `jit.rs`'s `rel32` and
-rip-relative patches and `glue.rs`'s SysV stub are proved on an x86 machine or
-nowhere. Every instruction goes through qemu, so it costs several times the
-arm64 wall clock and the script says so before it starts.
-
-None of this replaces CI, which is still what says `main` is green.
+It replaced a seven-hundred-line mirror of the workflow, and the reason it could
+is the reason this section is short: when every CI step is one `cargo`
+invocation, reproducing CI is running that invocation.
 
 ### 3.4 Without nix
 

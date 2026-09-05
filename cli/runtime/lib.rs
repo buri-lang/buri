@@ -511,7 +511,7 @@
 //! leaves them out of the archive entirely — measurably: an archive built with
 //! `net-h3` is *forty bytes smaller* than one without it, because the QUIC
 //! crate does not reach it and the refusal string does not have to.
-//! `.github/scripts/assert-runtime-archive.sh` holds both halves in CI by
+//! `cli/tests/ci.rs::the_runtime_archive_is_real` holds both halves in CI by
 //! grepping the symbol table — three names that must be there, three that must
 //! not — and each of the three moved across that line in the commit that
 //! linked it. The slice that links one of the other three moves it again.
