@@ -878,6 +878,18 @@ impl<'a, 'b> Infer<'a, 'b> {
         // `instantiate` wants `&mut self`, and a function usually has none.
         let generics = self.c.tables.fn_info(f).generics.clone();
         let targs = self.instantiate(&generics, explicit, span);
+        // A bodyless declaration is the runtime's, and its key carries no type
+        // arguments: what is written here is the only record of what the value
+        // it answers holds. `Infer::check_erased_calls` is where that is held
+        // to, and why; the gate is the whole of what this costs at a call the
+        // question cannot be about.
+        if !targs.is_empty() {
+            let info = self.c.tables.fn_info(f);
+            let watched = info.intrinsic && super::inference::answers_its_own_type(info);
+            if watched {
+                self.erased_calls.push((f, targs.clone(), span));
+            }
+        }
         let self_ty = receiver.as_ref().map(|r| self.resolve(&r.ty));
         let (params, ret) = {
             let info = self.c.tables.fn_info(f);
