@@ -83,6 +83,38 @@ for q in ../zed/languages/buri-build/*.scm; do
   fi
 done
 
+# ...against the grammar in this directory, where Zed compiles them against the
+# grammar at the commit `../zed/extension.toml` pins. When the two drift apart
+# the queries stop compiling in the editor, and a language whose queries do not
+# compile is one Zed does not load: the file opens with no language rather than
+# with no colour. The pinned tree is fetched from GitHub and cannot be read from
+# here, so what is checked is the digest recorded beside the pin. `src/parser.c`
+# is left out of it because it is generated above.
+digest() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi \
+    | cut -d' ' -f1
+}
+
+manifest=../zed/extension.toml
+section='/^\[grammars\.buri_build\]$/,/^\[/'
+recorded=$(sed -n "$section"'{ s/^# grammar-sha256 = "\([0-9a-f]*\)"$/\1/p; }' "$manifest")
+actual=$(digest < grammar.js)
+
+if [ -z "$recorded" ]; then
+  echo "FAIL  $manifest has no \`# grammar-sha256\` under [grammars.buri_build]" >&2
+  echo "      that line is what holds the pin to the grammar; it may not be dropped" >&2
+  exit 1
+fi
+
+if [ "$recorded" != "$actual" ]; then
+  echo "FAIL  the grammar has changed and $manifest still pins the old one" >&2
+  echo "      recorded $recorded" >&2
+  echo "      grammar  $actual" >&2
+  echo "      Push this grammar, then set [grammars.buri_build] \`commit\` to the" >&2
+  echo "      commit that holds it and \`# grammar-sha256\` to the digest above." >&2
+  exit 1
+fi
+
 failures=0
 count=0
 skipped=0

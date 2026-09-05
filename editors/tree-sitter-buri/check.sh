@@ -140,6 +140,44 @@ for q in ../zed/languages/buri/*.scm; do
   fi
 done
 
+# ...against the grammar *in this directory*. Zed compiles the same queries
+# against the grammar at the commit `../zed/extension.toml` pins, and those are
+# two different trees the moment the grammar moves and the pin does not. A query
+# that fails to compile there is worse than a query that colours nothing: the
+# language fails to load, and a `.buri` file opens with no language at all —
+# while `BUILD.buri` goes on working, because the other grammar's pin still
+# matches its queries. That is the shape of the bug this guards.
+#
+# The pinned tree cannot be read from here: Zed fetches it from GitHub and CI
+# clones one commit deep. What can be read is the digest recorded beside the pin,
+# of the two files that decide which node types a query may name. `src/parser.c`
+# is not among them — it is generated above, so hashing it would tie this to the
+# tree-sitter CLI's version rather than to the grammar.
+digest() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi \
+    | cut -d' ' -f1
+}
+
+manifest=../zed/extension.toml
+section='/^\[grammars\.buri\]$/,/^\[/'
+recorded=$(sed -n "$section"'{ s/^# grammar-sha256 = "\([0-9a-f]*\)"$/\1/p; }' "$manifest")
+actual=$(cat grammar.js src/scanner.c | digest)
+
+if [ -z "$recorded" ]; then
+  echo "FAIL  $manifest has no \`# grammar-sha256\` under [grammars.buri]" >&2
+  echo "      that line is what holds the pin to the grammar; it may not be dropped" >&2
+  exit 1
+fi
+
+if [ "$recorded" != "$actual" ]; then
+  echo "FAIL  the grammar has changed and $manifest still pins the old one" >&2
+  echo "      recorded $recorded" >&2
+  echo "      grammar  $actual" >&2
+  echo "      Push this grammar, then set [grammars.buri] \`commit\` to the commit" >&2
+  echo "      that holds it and \`# grammar-sha256\` to the digest above." >&2
+  exit 1
+fi
+
 # A query that compiles can still colour nothing. `check_highlighting.sh` runs
 # the query engine and the language server over one fixture and asserts a named
 # capture and a named token type for each of its tokens.

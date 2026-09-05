@@ -1098,6 +1098,86 @@ fn the_editor_integration_is_whole() {
         !repo_root().join("editors/tree-sitter-buri/queries").exists(),
         "there are two copies of the highlight queries; there must be one"
     );
+
+    let read = |rel: &str| std::fs::read_to_string(repo_root().join(rel)).expect(rel);
+    let manifest = read("editors/zed/extension.toml");
+    let buri = read("editors/zed/languages/buri/config.toml");
+    let build = read("editors/zed/languages/buri-build/config.toml");
+
+    // One extension, two languages, and one suffix between them. Zed scores a
+    // language by the length of the *file name* its longest `path_suffixes`
+    // entry matched, so `BUILD.buri` (ten characters of file name) beats the
+    // `buri` the language next door claims (four characters of extension) and
+    // `lib.buri` matches only the latter. It holds in both directions and only
+    // as long as each side claims what it claims here: give the build language
+    // a bare `buri` and it swallows every source file; take `buri` away from
+    // the Buri language and nothing claims one at all.
+    assert!(
+        buri.contains("path_suffixes = [\"buri\"]"),
+        "the Buri language no longer claims the `buri` suffix, so a `.buri` source has no language"
+    );
+    assert!(
+        build.contains("path_suffixes = [\"BUILD.buri\", \"REPO.buri\"]"),
+        "the Buri Build language claims something other than the two whole file names that are \
+         textproto; a bare suffix here would take every `.buri` source with it"
+    );
+
+    // A language names a grammar, and Zed builds only the grammars this
+    // manifest declares. A `grammar` with no section is a language that fails
+    // to load, which reads from the outside as a file type gone unrecognized.
+    for (language, id) in [(&buri, "buri"), (&build, "buri_build")] {
+        assert!(
+            language.contains(&format!("grammar = \"{id}\"")),
+            "the language no longer names the `{id}` grammar"
+        );
+        assert!(
+            manifest.contains(&format!("[grammars.{id}]")),
+            "editors/zed/extension.toml declares no `{id}` grammar for the language that names it"
+        );
+    }
+
+    // `buri lsp` serves both, because it formats a build file too.
+    assert!(
+        manifest.contains("languages = [\"Buri\", \"Buri Build\"]"),
+        "the language server no longer covers both languages"
+    );
+
+    // Zed fetches each grammar from GitHub at the commit pinned here, and
+    // compiles the in-tree queries against *that* tree. A pin left behind by a
+    // grammar change is a query that fails to compile in the editor and a
+    // language Zed then declines to load — the file opens with no language at
+    // all. `editors/tree-sitter-buri{,-build}/check.sh` compares the digest
+    // recorded beside each pin against the grammar in the tree; what is checked
+    // here is only that the pin and its digest are still there to be compared,
+    // since a pin cannot be resolved from a shallow clone.
+    let commits: Vec<&str> = manifest
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("commit = \"")?.strip_suffix('"'))
+        .collect();
+    let digests: Vec<&str> = manifest
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("# grammar-sha256 = \"")?.strip_suffix('"'))
+        .collect();
+    assert_eq!(commits.len(), 2, "editors/zed/extension.toml no longer pins exactly two grammars");
+    assert_eq!(
+        digests.len(),
+        2,
+        "a `# grammar-sha256` line is missing; it is what holds a pin to the grammar it names, \
+         and check.sh has nothing to compare without it"
+    );
+    for commit in commits {
+        assert!(
+            commit.len() == 40 && commit.chars().all(|c| c.is_ascii_hexdigit()),
+            "`{commit}` is not a commit; Zed fetches this from GitHub and an unresolved \
+             placeholder is an extension that does not build"
+        );
+    }
+    for digest in digests {
+        assert!(
+            digest.len() == 64 && digest.chars().all(|c| c.is_ascii_hexdigit()),
+            "`{digest}` is not a sha256 digest"
+        );
+    }
 }
 
 /// **The `backend-llvm` delta is confined to the files the verification bar
