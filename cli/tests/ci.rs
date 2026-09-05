@@ -868,7 +868,7 @@ fn archive_symbols() -> String {
 /// the `net` feature, on a dependency tree that cannot be resolved. An empty one
 /// makes every native test return early and the suite pass vacuously.
 ///
-/// Four claims beyond emptiness, each of which has been wrong once:
+/// Five claims beyond emptiness, each of which has been wrong once:
 ///
 /// * **The libc.** On Linux the archive is built for `<arch>-unknown-linux-musl`
 ///   so that every artifact `buri build` links is a static-PIE musl executable
@@ -876,12 +876,34 @@ fn archive_symbols() -> String {
 ///   missing `cli/build.rs` falls back to the host's gnu triple, and the
 ///   resulting compiler produces artifacts that run on the build machine and on
 ///   nothing older — a break that fails for users and for nobody in CI.
-/// * **The size.** Every `buri` binary carries these bytes.
+/// * **The size.** Every `buri` binary carries these bytes, and the `net-h3`
+///   archive is held to the same number for the reason the budget states.
 /// * **The networking crates.** `net` is what links the reactor and the TLS
 ///   client; an archive that carries neither has an `https://` that fails at run
-///   time and a suite that never noticed. `quinn` and `aws_lc` are the
-///   tripwires: nothing is supposed to reach them, and `quinn`'s crypto provider
-///   being pinned to `ring` is the decision `aws_lc` is watching.
+///   time and a suite that never noticed. `aws_lc` is the tripwire and is
+///   forbidden on every leg and every feature set: it was never a dependency, so
+///   a second cryptography implementation appearing in every binary means
+///   `quinn`'s own defaults — `rustls-aws-lc-rs` and `platform-verifier` —
+///   turned themselves back on past the `rustls-ring` `manifest.toml` asks for.
+/// * **`quinn`, whose side of the line the FEATURE and the PLATFORM decide
+///   together**, and which is the one claim here that has been re-measured
+///   rather than merely restated. It is what `net-h3` brings in, so with the
+///   feature off it must be absent on every host — the crate is not in the tree
+///   at all. With the feature on, what happens next is the linker's:
+///
+///   * On **macOS**, fat LTO drops it whole. Nothing but `net.rs`'s `size_of`
+///     names it, so the h3 archive carries no `quinn` symbol and is 9 147 960
+///     bytes against the `net` one's 9 146 416 — a QUIC implementation for
+///     1 544 bytes.
+///   * On **Linux**, it does not. The ELF archive keeps quinn's symbol names,
+///     which is what turned the first h3 CI leg red against an assertion ported
+///     from a shell script that had only ever been true on Darwin.
+///
+///   Both directions are asserted on both platforms, because either of them
+///   changing is a fact worth a red X: the day the Linux archive stops carrying
+///   quinn is the day fat LTO started dropping it there too, and the day macOS
+///   starts carrying it is the day something first CALLED into it — which is
+///   the slice the size budget below is waiting for.
 /// * **The entropy door.** With `crypto` the archive exports
 ///   `buri_rt_host_entropy_bytes`; without it, the compile-time refusal fires
 ///   instead. A toolchain in the third state — a feature file saying `crypto`
@@ -903,6 +925,15 @@ fn the_runtime_archive_is_real() {
     );
 
     // Measured, not guessed, and re-measured in the commit that moves either.
+    //
+    // **`net-h3` is held to the SAME number, and that is a measured claim rather
+    // than an omission.** A separate, larger h3 budget would be a number with
+    // nothing behind it, and it would hide exactly the growth this one catches:
+    // on macOS the h3 archive is 9 147 960 bytes against the `net` one's
+    // 9 146 416 — a QUIC implementation for 1 544 bytes, because nothing but
+    // `net.rs`'s `size_of` names it — and on Linux, where quinn's symbols do
+    // survive, the h3 archive is still inside the number below. The slice that
+    // first CALLS into quinn is the one that comes back here and moves it.
     let budget = if cfg!(target_os = "macos") { 9_536_512 } else { 14_680_064 };
     assert!(
         rt::ARCHIVE.len() <= budget,
@@ -959,15 +990,46 @@ fn the_runtime_archive_is_real() {
             );
         }
     }
-    for unwanted in ["quinn", "aws_lc"] {
-        assert!(
-            !carries(unwanted),
-            "libburi_rt.a carries symbols from `{unwanted}`, and nothing in the runtime is \
-             supposed to reach it. Either something new does — in which case this list and the \
-             size budget above both move, in the commit that made it deliberate — or a crate was \
-             added to cli/runtime/manifest.toml without an argument for it."
-        );
-    }
+
+    // `quinn`, in whichever of the four states this archive is in. The doc
+    // comment argues each; the table is here so that a reader of the failure
+    // sees all four at once rather than the one that fired.
+    let quinn_expected = rt::h3() && cfg!(target_os = "linux");
+    assert_eq!(
+        carries("quinn"),
+        quinn_expected,
+        "libburi_rt.a {} symbols from `quinn`, and on {} with `net-h3` {} it should {}.\n\
+         \n\
+         The four states, all measured:\n  \
+           net-h3 off, any host  — absent: the crate is not in the tree at all.\n  \
+           net-h3 on,  macOS     — absent: nothing but `net.rs`'s `size_of` names it, so fat LTO \
+         drops it whole and the archive grows 1 544 bytes.\n  \
+           net-h3 on,  Linux     — present: the ELF archive keeps its symbol names.\n\
+         \n\
+         An unexpected PRESENT with the feature off means a crate was added to \
+         cli/runtime/manifest.toml without an argument for it. An unexpected present on macOS \
+         means something first CALLED into quinn, which is the slice that also re-measures the \
+         size budget above. An unexpected ABSENT on Linux means fat LTO started dropping it \
+         there too, which is good news and a stale assertion: re-measure and move this line.",
+        if carries("quinn") { "carries" } else { "carries no" },
+        std::env::consts::OS,
+        if rt::h3() { "on" } else { "off" },
+        if quinn_expected { "carry them" } else { "carry none" },
+    );
+
+    // `aws_lc` is on the absent list on EVERY leg and every feature set, and it
+    // was never a dependency: a second cryptography implementation appearing is
+    // a feature that turned itself on somewhere and doubled the crypto in every
+    // binary this compiler produces. `quinn` is precisely the crate that would
+    // do it, which is why this is asserted hardest on the leg that has it.
+    assert!(
+        !carries("aws_lc"),
+        "libburi_rt.a carries symbols from `aws_lc`, and nothing in the runtime is supposed to \
+         reach it — it has never been a dependency. `quinn`'s own defaults are \
+         `rustls-aws-lc-rs` and `platform-verifier`, and `cli/runtime/manifest.toml` turns both \
+         off and asks for `rustls-ring`; this is what says so when those defaults next change. A \
+         binary with two cryptography implementations in it is the thing being refused."
+    );
 
     let entropy = carries("buri_rt_host_entropy_bytes");
     assert_eq!(
