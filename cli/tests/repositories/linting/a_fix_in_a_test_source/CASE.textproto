@@ -1,0 +1,46 @@
+# `--fix` writes into a test source and into a testing source, and the rewrite
+# is the same one it makes in a library source: the import goes, and the `ctx`
+# parameter goes with the argument at its call site.
+#
+# The recorded files below are the whole claim. A rewriting tool owes its user
+# two things — that what it wrote is still a program, and that it converges —
+# so the suite is run afterwards and the second `--fix` has nothing left to do.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "lint --fix rewrites a test source and a testing source, and the suite still compiles and passes"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "before.txt"
+}
+
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 0
+  golden: "fix.txt"
+}
+
+file {
+  path: "lib/money/test/cents.buri"
+  golden: "cents.buri"
+}
+
+file {
+  path: "lib/money/testing/fakes.buri"
+  golden: "fakes.buri"
+}
+
+run {
+  args: ["lint", "//...", "--fix"]
+  exit: 0
+  golden: "again.txt"
+}
+
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "test.txt"
+}

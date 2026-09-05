@@ -1,0 +1,114 @@
+0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
+error: `Fs` is not a trait or effect [not-a-trait]
+ --> lib/db/manager.buri:6:20
+  |
+6 | export fn stamp<C: Fs>(ctx: C, name: Str): Str {
+  |                    ^^
+  |
+  = a bound names a declared trait; there are no where clauses
+  = fix: name a declared trait or effect, or declare `Fs` as one
+
+    What to do
+    ──────────
+
+    Name a declared trait or effect, or declare the one you meant.
+
+    Why
+    ───
+
+    A bound is resolved to a declaration and then checked as a table lookup.
+    There are no where clauses and no structural constraints, so there is
+    nothing a bound could name except a trait or an effect.
+
+error: `C` does not satisfy `Alloc` [unsatisfied-bound]
+ --> lib/db/manager.buri:7:5
+  |
+7 |     str.format(ctx, "db/${name}")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: bound the type parameter with `Alloc`, or use a type that has one
+error: expected `Str`, found `Int` [type-mismatch]
+  --> lib/db/manager.buri:10:24
+   |
+10 | export fn count(): Str {
+   |                        ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `Str` is not one
+   = fix: produce a `Str` here, or change what surrounds it to accept an `Int`
+
+     What to do
+     ──────────
+
+     Convert explicitly. The diagnostic names the conversion: .toI64() is exact
+     for every I32, while a narrowing one returns a Result because not every
+     value fits.
+
+     A bare numeric literal is reported as Int or Float, the type it takes when
+     nothing pins it. It is not held to that: annotate it — let x: F64 = 1.0, or
+     let x: U8 = 1 — and it becomes any type of the same kind.
+
+     Why
+     ───
+
+     No promotion of any kind, in either direction. A language that widened
+     silently would make the width of an arithmetic result a property of the
+     expression's shape rather than of what was written, and the one place it
+     matters is the one place nobody looks.
+
+error: `Fs` is not a declared effect [not-an-effect]
+  --> lib/db/test/residency.buri:14:9
+   |
+14 |         Fs: alloc(),
+   |         ^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Fs` is not one
+
+     What to do
+     ──────────
+
+     Name an effect the platform declares, as in Alloc or Stdout.
+
+     Why
+     ───
+
+     A context binds effects to implementations, so each key has to be one — and
+     the set of them is core/effect's, plus ui/effect's where the platform
+     grants them.
+
+error: expected `Str`, found `Int` [type-mismatch]
+  --> lib/db/test/residency.buri:16:23
+   |
+16 |     let region: Str = 1;
+   |                       ^ the annotation is `Str`
+   |
+   = expected: `Str`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `Str` is not one
+   = fix: produce a `Str` here, or change what surrounds it to accept an `Int`
+error: `Fs` is not a trait or effect [not-a-trait]
+ --> lib/db/testing/fakes.buri:6:24
+  |
+6 | export fn fakeStamp<C: Fs>(ctx: C, name: Str): Str {
+  |                        ^^
+  |
+  = a bound names a declared trait; there are no where clauses
+  = fix: name a declared trait or effect, or declare `Fs` as one
+error: `C` does not satisfy `Alloc` [unsatisfied-bound]
+ --> lib/db/testing/fakes.buri:7:5
+  |
+7 |     str.format(ctx, "fake/${name}")
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: bound the type parameter with `Alloc`, or use a type that has one
+error: expected `Str`, found `Int` [type-mismatch]
+  --> lib/db/testing/fakes.buri:10:28
+   |
+10 | export fn fakeCount(): Str {
+   |                            ^ the declared return type is `Str`
+   |
+   = expected: `Str`
+   = actual: `Int`
+   = an integer literal defaults to `Int` but takes any integer type, and `Str` is not one
+   = fix: produce a `Str` here, or change what surrounds it to accept an `Int`

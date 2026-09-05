@@ -1,0 +1,12 @@
+// Another package's suite, and the only reader `Fixture.label` has. Linting
+// //lib/money never loads this file, which is why the testing surface has to
+// exempt what it publishes exactly as `lib.buri` does.
+
+from "core/testing/assert" import * as assert;
+from "//lib/ledger" import { entries };
+from "//lib/money/testing" import { aFixture };
+
+test "the fixture carries its label" {
+    assert.eq(aFixture().label, "f");
+    assert.eq(entries(), 2);
+}

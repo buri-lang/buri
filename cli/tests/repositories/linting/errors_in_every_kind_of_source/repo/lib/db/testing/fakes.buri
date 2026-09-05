@@ -1,0 +1,12 @@
+// A testing source with the same two mistakes. `buri build` never compiles
+// this file, so `buri lint` is where a repository hears about it.
+
+from "core/str" import * as str;
+
+export fn fakeStamp<C: Fs>(ctx: C, name: Str): Str {
+    str.format(ctx, "fake/${name}")
+}
+
+export fn fakeCount(): Str {
+    3
+}

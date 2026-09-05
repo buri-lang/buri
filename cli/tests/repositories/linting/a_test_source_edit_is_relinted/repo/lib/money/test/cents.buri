@@ -1,0 +1,12 @@
+// A suite with a binding nothing reads. The first edit takes it out, and a
+// record written before that edit is a record that must not be replayed.
+
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { Cents, fromCents };
+from "//lib/money/testing" import { fakeCents };
+
+test "the fake answers a hundred and fifty cents" {
+    let doubled = 150 * 2;
+    let made: Cents = fakeCents();
+    assert.eq(made, fromCents(150));
+}

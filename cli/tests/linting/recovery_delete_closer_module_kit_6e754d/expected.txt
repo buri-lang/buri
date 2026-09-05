@@ -1,0 +1,20 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_delete_closer_module_kit_6e754d/lib.buri:4:4
+  |
+4 | // TODO: the kit is not finished.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_module_kit_6e754d/lib.buri:9:1
+  |
+9 | 
+  | ^
+  |
+ --> lib/recovery_delete_closer_module_kit_6e754d/lib.buri:6:22
+  |
+6 | export fn kit(): Str {
+  |                      ^ opened here
+  |
+  = fix: write `}` here

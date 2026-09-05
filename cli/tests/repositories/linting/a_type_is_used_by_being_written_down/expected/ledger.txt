@@ -19,7 +19,9 @@ warning: nothing uses `Ledger` [unused-type]
     this library needs. Then the answer is not to use it here but to re-export
     it from lib.buri: a name on the library's surface is public API and this
     rule does not ask about it, because the consumer this analysis can see is
-    not the only one there is.
+    not the only one there is. A type declared under testing/ is measured
+    against testing/lib.buri the same way, and for the same reason — a fixture
+    is written for another package's suite.
 
     A shape that was meant to be wired in. It was written before the code that
     would build it, and that code was never written. That is the real bug, and

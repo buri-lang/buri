@@ -24,6 +24,11 @@ only reader there is.
 Version control remembers it, and a declaration kept "just in case" costs every
 later reader the work of deciding whether it matters.
 
+A module under `testing/` is asked the same question against its own surface,
+which is `testing/lib.buri`. A fake that file does not carry, and that no module
+beside it imports, is reached by nobody — and a suite that imports the testing
+surface names what it takes, which is what keeps a live fixture quiet.
+
 What is not a fix is reaching for it from a test. A test source cannot be
 imported and is not a use; an export that exists so a test can see an internal
 couples the test to the implementation and makes the library's surface lie.
@@ -33,7 +38,9 @@ should be its own module, published on the surface in its own right.
 
 The rule asks only about module-level declarations. A field's or a variant's
 `export` is about the shape of a type, and whether anything reads it is
-`unused-field`'s and `unused-variant`'s question. Three things also quiet it,
+`unused-field`'s and `unused-variant`'s question. It never speaks about a test
+source, which exports nothing, or about a `test` declaration, which the runner
+reaches rather than the program. Three things also quiet it,
 each because the evidence is not there: a binary has no surface, so nothing in
 one is asked; a module taken whole by `import * as` reaches every name it
 exports, so nothing in that module is asked; and a package one of whose modules

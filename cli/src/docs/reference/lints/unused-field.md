@@ -9,6 +9,6 @@ Writing a field and reading one are different questions, and this rule asks the 
 
 Deleting it is an edit at every literal, which is the point: those are the sites that were computing a value for nobody. Work through them rather than leaving the field in place to avoid the churn.
 
-If the field is there because a caller outside this library reads it, then it belongs to public API and the answer is the library's surface: the exported fields of a type `lib.buri` re-exports are not reported, because the reader this analysis can see is not the only one there is.
+If the field is there because a caller outside this library reads it, then it belongs to public API and the answer is the library's surface: the exported fields of a type `lib.buri` re-exports are not reported, because the reader this analysis can see is not the only one there is. Under `testing/`, that surface is `testing/lib.buri` — a fixture's field is read by another package's suite, which this analysis never loads.
 
 Two things read every field of a type at once, and neither leaves a projection behind to find. A `derive` is a fold over the whole type definition, so a derived `Eq`, `Ord`, `Hash` or `Show` reads every field — a type with one is never reported. So is a value handed to the runtime, or compared structurally. What is left is the field nothing at all looks at.
