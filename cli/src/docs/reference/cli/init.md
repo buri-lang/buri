@@ -50,8 +50,10 @@ dependent does, so it can only assert on what a dependent can call. Run it with
 `buri test //...`.
 
 The `REPO.buri` declares no tags. A repository with no build policy has nothing
-to say there, and what stands in their place is a comment telling the next
-reader where a `tag` block goes.
+to say there, and what stands in their place is a two-line comment pointing at
+[`schema/repo.proto`](../schema/repo.proto), which lists every field the file
+may declare — the next reader needs the whole list, not a paragraph about the
+one field that is missing.
 
 What it does declare is a `lint` block with both of its fields on, so `buri
 build` and `buri test` run the lint catalogue from the first commit and a
