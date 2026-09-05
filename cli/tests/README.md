@@ -291,20 +291,38 @@ cargo test -p buri --features backend-llvm --test native
 BURI_RECOVERY_CAP=0 cargo test -p buri --test recovery   # every case, not a stride
 ```
 
-The first line is what CI runs, unchanged and unwrapped: a step in
-`.github/workflows/ci.yml` is one `cargo` invocation, so the command that
-decides whether a commit is green is the command a contributor types.
+The first line is the whole suite, and it is what the `release` job runs. The
+`test` legs run **the same set with its binaries overlapped**, which is four
+lines of inline shell in `.github/workflows/ci.yml` rather than a script:
+
+```
+cargo test -p buri --no-run --message-format=json-render-diagnostics \
+  | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > units.txt
+xargs -P "$(( $(getconf _NPROCESSORS_ONLN) * 2 ))" -n 1 \
+  sh -c 'exec "$0" --test-threads=2' < units.txt
+```
 
 `cargo test` starts the test binaries **one after another** — that is what the
 command does, not a knob — and the suites here are latency-bound rather than
-core-bound, so most of the machine is idle for most of the run. Measured warm on
-a ten-core mac against `9f5584a0`, the fifteen units are **169 s queued against
-73 s started together**, for 372 CPU-seconds of work either way. A runner that
-starts them together was tried and is gone: it was two hundred and seventy lines
-of shell that had to derive cargo's own set of executables and re-concatenate
-their logs, so that two other shell scripts could parse those logs, and all
-three of those are tests in `ci.rs` now. The minute and a half is the price of
-the whole arrangement being one command.
+core-bound, so most of the machine is idle for most of the run. On a four-core
+runner that is the whole of the longest job's wall clock: measured on run
+33981313436's arm64 leg, the step was 424 s, of which **145 s was compiling and
+280 s was running fifteen binaries in a queue**, the longest of them 54.5 s.
+Started together on a ten-core mac the same fifteen are **83 s against 165 s**,
+for about 400 CPU-seconds of work either way.
+
+Two numbers in that snippet are measured rather than tidy. `--test-threads=2`,
+because a core with one runnable thread on it idles through the `cc` and
+child-process stalls being hidden. **Twice** `nproc` of workers, because of the
+order cargo emits its artifacts in: `native` is the longest unit by a factor of
+two and it is fourteenth of fifteen, so at `nproc` workers it does not start
+until the other thirteen have been dealt out and it alone then holds the run
+open. Sorting the list is the other fix and is not taken — neither binary size
+nor test count predicts a unit's runtime here, the largest binary takes 6 s and
+the smallest takes 26 — so any order worth having would be a hand-written list
+of domain names, and `ci.rs::the_suite_is_asked_for_as_a_whole` is what forbids
+one. The set is cargo's answer, so a domain added tomorrow runs on the day it is
+added.
 
 A merged domain costs nothing in selection: a module is a name prefix, so
 `--test language conformance::` runs exactly what `--test conformance` used to,
@@ -450,11 +468,13 @@ the standard library and a conformance file measures **≈ 20 ms**, against
 uses 1.5 cores of a ten-core machine for a minute is not a domain to give more
 threads — it is a minute during which fourteen other binaries could have been
 running and were not, because `cargo test` starts them one at a time. Same
-tests, same threads, same 372 CPU-seconds: **169 s queued, 73 s overlapped**.
-That lever is real and it is deliberately not pulled: pulling it meant a shell
-runner deriving cargo's own set of test executables, and the three CI assertions
-that read its concatenated log are tests now, so the log had no reader left. If
-the budget below ever stops holding, this paragraph is where to start.
+tests, same threads, same CPU-seconds: **165 s queued, 83 s overlapped** here,
+and 280 s queued on the four-core arm64 runner. That lever is pulled, in four
+lines of inline shell in the `test` legs rather than in a script — "Running
+them" above carries the snippet and the two numbers in it. What made it four
+lines instead of two hundred and seventy is that the three CI assertions which
+used to parse the concatenated log are tests in `ci.rs` now, so the runner has
+only to start the binaries and keep each one's log readable.
 
 ### The five-minute budget
 

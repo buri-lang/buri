@@ -106,8 +106,66 @@ jobs:
           path: target/debug/build
           key: buildscript-${{ matrix.os }}-${{ matrix.arch }}-${{ hashFiles('cli/build.rs', 'cli/runtime/**', 'cli/src/build/sha256.rs', 'cli/src/compiler/backend/stencil/*.rs') }}
           restore-keys: buildscript-${{ matrix.os }}-${{ matrix.arch }}-
-      # `--no-fail-fast`: one failing domain must not hide the other fourteen.
-      - run: cargo test -p buri --no-fail-fast
+      # **The suite, with its binaries overlapped**, because `cargo test` runs
+      # them ONE AT A TIME and on a four-core runner that is the whole of this
+      # job's wall clock. Measured on the arm64 leg of run 33981313436: the step
+      # was 424 s, of which 145 s was compiling and 280 s was running — fifteen
+      # libtest binaries in a queue, the longest 54.5 s, no two ever overlapping,
+      # on a box with four cores that were idle for most of it. These suites wait
+      # on `cc`, on a linker and on a child process rather than on a core.
+      #
+      # So the build is asked for on its own and the binaries it produced are
+      # started together: TWICE `nproc` of them at a time, two test threads each.
+      #
+      # Both halves of that are measured rather than tidy. Two threads because a
+      # core with one runnable thread on it idles through exactly the stalls
+      # being hidden. Twice the core count of WORKERS because of the ORDER cargo
+      # emits its artifacts in: `native` (78 s, the longest unit by a factor of
+      # two) is fourteenth of fifteen and `language` is fifteenth, so at four
+      # workers the longest unit does not start until the other thirteen have
+      # been dealt out, and it alone then holds the run open. At eight, every
+      # unit is started inside the first few seconds and the wall clock is the
+      # longest unit rather than the queue in front of it. Sorting the list would
+      # be the other fix and is not taken: neither binary size nor test count
+      # predicts a unit's runtime here — the largest binary takes 6 s and the
+      # smallest takes 26 — so any order worth having would be a hand-written
+      # list of domain names, which is the thing this step must not contain.
+      #
+      # Sixteen concurrent tests on a four-core leg is not a new number: the
+      # macOS leg already runs `--test-threads=12` inside every binary. Peak
+      # concurrency also lands in the first seconds, while the short units are
+      # the ones running; by the time the compiler-spawning suites are alone,
+      # concurrency has fallen to them.
+      #
+      # **The set is cargo's, never a list.** Every artifact whose PROFILE says
+      # `test` is run — the profile's flag and not the target's, because cargo
+      # marks the plain `buri` binary testable too and running that one is the
+      # CLI with `--test-threads` as its subcommand. It is by construction the
+      # set `cargo test -p buri` would have run, so a domain added under
+      # `cli/tests/` tomorrow runs on the day it is added.
+      # `cli/tests/ci.rs::the_suite_is_asked_for_as_a_whole` holds that, and
+      # holds this to being a derivation rather than a list.
+      #
+      # Every unit runs whatever happens — this is `--no-fail-fast` by
+      # construction, since `xargs` starts what is queued regardless — and each
+      # writes its own log, so a failure's report is not four processes
+      # interleaved. The doctests are the one unit cargo cannot hand over as an
+      # executable; there are none today, and that line is what stops the first
+      # one written from being silently dropped.
+      - name: The suite, with its binaries overlapped
+        run: |
+          set -euo pipefail
+          mkdir -p target/units
+          cargo test -p buri --no-run --message-format=json-render-diagnostics \
+            | jq -r 'select(.profile.test == true) | .executable | select(. != null)' > target/units.txt
+          test -s target/units.txt
+          status=0
+          xargs -P "$(( $(getconf _NPROCESSORS_ONLN) * 2 ))" -n 1 \
+            sh -c 'exec "$0" --test-threads=2 > "target/units/$(basename "$0").log" 2>&1' \
+            < target/units.txt || status=$?
+          tail -n +1 -- target/units/*.log
+          cargo test -p buri --doc
+          exit "$status"
       # The other member of the workspace: `website` depends on `buri` by path,
       # so it links the rlib the step above already built and costs seconds.
       - run: cargo test -p website
