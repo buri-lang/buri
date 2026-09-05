@@ -1,5 +1,13 @@
 name = "Buri"
 grammar = "buri"
+# Every `.buri` file except the two build files next door. Zed scores each
+# language by the length of the file name its longest matching suffix accounted
+# for, so this claims four characters of `lib.buri` and `BUILD.buri` goes to the
+# language that claims all ten of it. Nothing here needs to exclude the build
+# files, and nothing there may claim a bare `buri`.
+#
+# A `.buri` file that opens as plain text is not this line: it is a language Zed
+# could not load. See the pin in `../../extension.toml`.
 path_suffixes = ["buri"]
 line_comments = ["// ", "/// "]
 block_comment = ["/* ", " */"]
