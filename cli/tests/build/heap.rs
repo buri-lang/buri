@@ -30,9 +30,8 @@
 //! blocks, and the runtime quiets the audit for it by name, because a program
 //! that chose where to stop is entitled to be holding values). A simulated
 //! report would prove nothing a switched-off check could not fake. Where that
-//! direction is still asserted is over the native corpus, on real defects with
-//! exact counts asserted both ways: `native::agreement`'s `agree_leaking` rows
-//! and `native::conformance`'s leak ledger.
+//! direction is asserted is `native::runtime`'s `the_heap_check_reports_a_*`
+//! rows, which drive the runtime from C and leak on purpose.
 //!
 //! ```text
 //! cargo test -p buri --test build heap::
