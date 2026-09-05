@@ -2189,6 +2189,20 @@ fn zip_match(heads: &[Ty], recvs: &[Ty], bound: &mut [Option<Ty>]) -> bool {
 /// row here — and the second line is where a reviewer asks which of the three
 /// carries the type.
 ///
+/// # The obligation the *call site* carries
+///
+/// The erasure is one half of the bargain. The other is that the type argument
+/// written at the call is the type the value really has, because it is the
+/// only record of it left: the layout of what comes back is generated from it,
+/// and so is the walk that releases whatever a block holds. A parameter that
+/// appears **only in what the entry answers** has nothing else to determine it,
+/// and a caller that never looks inside the answer determines it with nothing —
+/// the checker then resolves it to `()`, and a release generated for `()` frees
+/// the block and lets go of nothing inside it. `core/actor`'s `stop` was
+/// exactly that, and every undelivered message's payload leaked.
+/// `semantics/inference.rs`'s `check_erased_calls` is where the call site is
+/// now held to it, and `undetermined-intrinsic-type` is what it says.
+///
 /// Sorted, and asserted sorted, so a reader can find a key and a duplicate is
 /// visible. `num.<Prim>.show` and `num.<Prim>.toJson` are **not** here: they
 /// are one fact about every primitive rather than twenty-six, and

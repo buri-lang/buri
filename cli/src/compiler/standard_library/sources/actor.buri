@@ -135,6 +135,13 @@
 //! allocator is active, and inside a scope that is the scope's own arena.
 //! `cli/tests/conformance/lib/actor/test/scoped.buri` is the corpus that reads
 //! each of the four back after its scope has ended.
+//!
+//! Coming back the other way, **every block is asked for through the value that
+//! knows its type** — an `Address`, a `Reply` — and never through a bare
+//! handle. "Taking a block back", below the loop, is why: the entries are
+//! type-erased at the key, so the type argument written at the call is the only
+//! thing that says what the block holds, and the release the compiler generates
+//! is generated from it.
 
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc, Tasks };
@@ -322,7 +329,7 @@ impl<C: Alloc + Tasks, S, M> Address<C, S, M> {
             .Err(e) => .Err(e),
             .Ok(_posted) => {
                 let _ = drive(ctx, self);
-                match (replyTake(ctx, reply.0)) {
+                match (answering(ctx, reply)) {
                     .None => .Err(.Stopped),
                     .Some(answered) => {
                         match (answered.first()) {
@@ -342,7 +349,7 @@ impl<C: Alloc + Tasks, S, M> Address<C, S, M> {
     /// property of the actor rather than of the caller's discipline. Every
     /// `send` and `ask` after this one answers `.Err(.Stopped)` too.
     export fn stop(self, ctx: C): Result<(), Stopped> {
-        match (mailboxClose(ctx, self.handle)) {
+        match (closing(ctx, self)) {
             .None => .Err(.Stopped),
             .Some(held) => {
                 let _ = discarding(ctx, self);
@@ -383,7 +390,7 @@ impl<R> Reply<R> {
 
 /// Every message now in the mailbox, in the order it arrived.
 fn draining<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>, state: S): S {
-    match (mailboxPop(ctx, address.handle)) {
+    match (popped(ctx, address)) {
         .None => state,
         .Some(posted) => {
             match (posted.first()) {
@@ -425,7 +432,7 @@ fn draining<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>, state: S)
 /// belongs to whoever is holding the budget, not to the slice that closed the
 /// hole.
 fn drive<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>): Bool {
-    match (stateTake(ctx, address.handle)) {
+    match (taking(ctx, address)) {
         .None => false,
         .Some(held) => {
             match (held.first()) {
@@ -449,8 +456,13 @@ fn drive<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>): Bool {
 /// The popped block is bound and dropped, which is what releases the message
 /// and everything under it: the runtime gives its reference back and the
 /// ordinary reference counting does the rest.
+///
+/// **`popped` and not `mailboxPop`**, and this is the site the rule below was
+/// written for: nothing here ever looks *inside* the block, so a direct call
+/// would leave the intrinsic's `M` determined by nothing at all. See "Taking a
+/// block back".
 fn discarding<C: Alloc + Tasks, S, M>(ctx: C, address: Address<C, S, M>): () {
-    match (mailboxPop(ctx, address.handle)) {
+    match (popped(ctx, address)) {
         .None => (),
         .Some(_dropped) => discarding(ctx, address),
     }
@@ -476,6 +488,56 @@ fn ending<C: Alloc + Tasks, S>(
 /// with.
 fn crowded(waiting: Int, bound: Int): Bool {
     waiting >= bound
+}
+
+// --- Taking a block back ------------------------------------------------------
+//
+// **Every block the runtime hands back is asked for through the handle's own
+// value, so the type it comes back at is the type it went in at.** The four
+// entries below are one line each and none of them is a convenience: they are
+// where this module states the half of the crossing the runtime cannot state.
+//
+// The nine entries in the next section are *generic intrinsics* — their key
+// carries no type arguments (`middle/monomorphize.rs`'s `GENERIC_INTRINSICS`),
+// so the archive is compiled once against no Buri type and a `[T]` crosses as
+// two words whatever `T` is. The runtime therefore never frees one: it takes a
+// reference, keeps the pointer, and gives that reference back. **The release is
+// the program's**, and the release the compiler generates for a block is the
+// one its *type* asks for — the walk that decrements every counted pointer
+// inside it.
+//
+// So the type argument at each of these calls is not decoration. It is the
+// only thing that says what is inside the block, and where a call leaves it
+// undetermined the checker resolves it to `()` — a type with nothing inside —
+// and the generated release frees the block and lets go of nothing. That was a
+// real defect: `stop` on an actor with messages still waiting called
+// `mailboxPop` at a type nothing determined, because a discard loop never
+// looks inside what it is dropping, and every undelivered message's payload
+// leaked.
+//
+// Naming the handle's owner rather than its `Int` is what makes that
+// unwriteable: an `Address<C, S, M>` determines both of its types, a
+// `Reply<R>` determines its one, and a caller that ignores the answer entirely
+// still calls at the right type.
+
+/// The oldest message in `address`'s mailbox, at the type it was posted at.
+fn popped<C: Tasks, S, M>(ctx: C, address: Address<C, S, M>): Option<[Carried<M>]> {
+    mailboxPop(ctx, address.handle)
+}
+
+/// `address`'s state, at the type the actor was started with.
+fn taking<C: Tasks, S, M>(ctx: C, address: Address<C, S, M>): Option<[Carried<S>]> {
+    stateTake(ctx, address.handle)
+}
+
+/// Closes `address`'s mailbox and answers its final state, at that same type.
+fn closing<C: Tasks, S, M>(ctx: C, address: Address<C, S, M>): Option<[Carried<S>]> {
+    mailboxClose(ctx, address.handle)
+}
+
+/// What was put in `reply`, at the type the `ask` is waiting for.
+fn answering<C: Tasks, R>(ctx: C, reply: Reply<R>): Option<[Carried<R>]> {
+    replyTake(ctx, reply.0)
 }
 
 // --- The runtime's half -------------------------------------------------------

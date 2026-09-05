@@ -363,6 +363,9 @@ pub struct Infer<'a, 'b> {
     pub(crate) lit_checks: Vec<LitCheck>,
     /// Template holes, checked after defaulting so `"${1 + 1}"` is fine.
     pub(crate) hole_checks: Vec<(Ty, Span)>,
+    /// Calls to a bodyless declaration — an intrinsic the runtime supplies —
+    /// with the type arguments the call site instantiated it at.
+    pub(crate) erased_calls: Vec<(FnId, Vec<Ty>, Span)>,
     pub(crate) role: Role,
     /// Whether the body being checked supplies a method of an *effect*.
     ///
@@ -405,6 +408,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             obligations: Vec::new(),
             lit_checks: Vec::new(),
             hole_checks: Vec::new(),
+            erased_calls: Vec::new(),
             role,
             in_effect_impl: false,
             in_main: false,
@@ -449,6 +453,7 @@ impl<'a, 'b> Infer<'a, 'b> {
         self.discharge_obligations();
         self.check_literal_ranges();
         self.check_template_holes();
+        self.check_erased_calls();
         // After the checks above, never before: they read an unbound variable
         // as "not yet known" and would report a type the body never wrote.
         self.subst.default_unconstrained();
@@ -1041,6 +1046,57 @@ impl<'a, 'b> Infer<'a, 'b> {
     /// `impl Show`'s `show<C: Alloc>(self, ctx: C)` has to be *called*, and
     /// there is no context here to call it with, so that conversion stays the
     /// author's: `${p.show(ctx)}`.
+    /// Every call to a **bodyless declaration** was made at a type the body
+    /// determines.
+    ///
+    /// An intrinsic's body is `cli/runtime`, compiled once against no Buri type
+    /// at all, and the key the backend reaches it by carries no type arguments
+    /// (`middle/monomorphize.rs`'s `GENERIC_INTRINSICS`). So the type argument
+    /// at the call site is not merely the caller's opinion of what comes back —
+    /// it is the *only* record of it, and everything the compiler generates
+    /// around the value it answers is generated from it: its layout, and the
+    /// release walk that lets go of whatever the block holds.
+    ///
+    /// A type argument nothing constrains is resolved to `()` a few lines below
+    /// this, which is right for a value the body never inspects and built
+    /// itself, and wrong for one the runtime hands back: `()` holds nothing, so
+    /// the release frees the block and lets go of nothing inside it. That is a
+    /// silent leak of every counted value the block was carrying, and
+    /// `core/actor`'s `stop` is where it was found — a discard loop never looks
+    /// inside what it drops, so nothing there determined the message type.
+    ///
+    /// **Before the defaulting**, because after it the two cases are one type.
+    fn check_erased_calls(&mut self) {
+        let calls = std::mem::take(&mut self.erased_calls);
+        for (f, targs, span) in calls {
+            // The declaration is read in place and the two strings are the only
+            // thing taken out of it, so that reporting nothing costs nothing:
+            // `answers_its_own_type` has already thrown away every call whose
+            // parameters are all determined by an argument, which is most of
+            // them.
+            let (name, parameters) = {
+                let info = self.c.tables.fn_info(f);
+                let mut undetermined: Vec<&str> = Vec::new();
+                for (i, (g, t)) in info.generics.iter().zip(&targs).enumerate() {
+                    if answered_only(&info.params, &info.ret, i as u32)
+                        && mentions_var(&self.subst.resolve(t))
+                    {
+                        undetermined.push(&g.name);
+                    }
+                }
+                if undetermined.is_empty() {
+                    continue;
+                }
+                (info.name.clone(), undetermined.join(", "))
+            };
+            self.c.diags.push(
+                Diagnostic::templated("undetermined-intrinsic-type", span)
+                    .with_bind("function", name)
+                    .with_bind("parameters", parameters),
+            );
+        }
+    }
+
     fn check_template_holes(&mut self) {
         let checks = std::mem::take(&mut self.hole_checks);
         for (ty, span) in checks {
@@ -1279,3 +1335,52 @@ fn unpinned_literal_note(a: &Spelling, b: &Spelling) -> Option<String> {
     ))
 }
 
+/// Whether a **resolved** type still holds an unbound inference variable.
+///
+/// `Subst::resolve` has already followed every binding, so a `Ty::Var` left in
+/// the tree is one nothing in the body ever constrained.
+fn mentions_var(ty: &Ty) -> bool {
+    match ty {
+        Ty::Var(_) => true,
+        Ty::Con(_, args) => args.iter().any(mentions_var),
+        Ty::Array(e) => mentions_var(e),
+        Ty::Tuple(es) => es.iter().any(mentions_var),
+        Ty::Fn(ps, r) => ps.iter().any(mentions_var) || mentions_var(r),
+        _ => false,
+    }
+}
+
+/// Whether a declaration's `i`th type parameter is one **only its answer**
+/// mentions.
+///
+/// That is the shape where the runtime is the sole source of a value of the
+/// type: nothing the caller passes in has it, so nothing the caller passes in
+/// can say what it is. A parameter that also appears in an argument — a step's
+/// error type, a context — is determined by the argument or is a type no value
+/// is ever built at, and neither is this check's business.
+fn answered_only(params: &[ParamInfo], ret: &Ty, i: u32) -> bool {
+    !params.iter().any(|p| mentions_param(&p.ty, i)) && mentions_param(ret, i)
+}
+
+/// Whether a declaration has any such parameter at all.
+///
+/// The gate on the recording side, and it is what keeps this whole check off
+/// the hot path: nearly every generic intrinsic — the whole of `core/list`, the
+/// conversions, the renderers — takes each of its type parameters in an
+/// argument, so nearly every call site answers `false` here and is never
+/// recorded. `core/actor`'s entries are the family it is here for.
+pub(crate) fn answers_its_own_type(info: &FnInfo) -> bool {
+    (0..info.generics.len() as u32).any(|i| answered_only(&info.params, &info.ret, i))
+}
+
+/// Whether a type mentions the `i`th rigid generic parameter of its item.
+fn mentions_param(ty: &Ty, i: u32) -> bool {
+    match ty {
+        Ty::Param(p) => *p == i,
+        Ty::Con(_, args) => args.iter().any(|a| mentions_param(a, i)),
+        Ty::Array(e) => mentions_param(e, i),
+        Ty::Tuple(es) => es.iter().any(|e| mentions_param(e, i)),
+        Ty::Fn(ps, r) => ps.iter().any(|p| mentions_param(p, i)) || mentions_param(r, i),
+        _ => false,
+    }
+}
