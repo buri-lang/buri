@@ -1218,20 +1218,22 @@ referent does.
 
 Both columns are discharged. `.github/workflows/ci.yml` is where it stopped
 being prose: the suite runs on `macos-latest`, `ubuntu-24.04` and
-`ubuntu-24.04-arm`, and the two Linux jobs run the artifacts rather than
+`ubuntu-24.04-arm`, and on the two Linux legs it runs the artifacts rather than
 only compiling them — the stack guard's `mprotect` and Linux's signal
 disposition for a `PROT_NONE` page, the corpus at macOS parity, leak parity
 through `buri_rt_heap_stats`, `--check-reproducible` on a linked Linux artifact,
-and both linkers' idea of an ELF image. Three scripts hold the parts a green
-exit would otherwise hide: `assert-stencils.sh` reads the blob sizes
-`available_for` reads (and asserts the reverse degrade — on a Linux host the
-`macos-arm64` library must be empty), `assert-suite-ran.sh` requires the corpus
-census's own output, because every test in `stencil.rs` opens with
-`if !supported() { return; }` and a runner with no stencils would otherwise pass
-the suite having run nothing, and `assert-elf.sh` checks the linked image for a
-defined `buri$stencil$stack`, a `.bss` still `NOBITS`, and a `PT_GNU_STACK`
-without `E`. The workflow's own comments carry the reasoning; this document does
-not keep a second copy of them.
+and both linkers' idea of an ELF image. Three things hold the parts a green exit
+would otherwise hide, and all three are tests rather than steps:
+`ci.rs::the_stencil_libraries_are_real` reads the same emptiness `available_for`
+reads (and asserts the reverse degrade — on a Linux host the `macos-arm64`
+library must be empty); `BURI_CI=1` makes `harness/ci.rs::skipped` panic, so
+`stencil.rs`'s `if !supported() { return; }` cannot report a pass on a runner
+with no stencils, and `the_corpus_census_is_a_ratchet` pins the compiling set by
+name in both directions; and
+`ci.rs::a_linked_linux_artifact_is_a_static_pie_that_runs` builds a Linux
+artifact through the CLI under each linker in turn and checks the image for a
+defined `buri$stencil$stack`, a `.bss` still `NOBITS`, a `PT_GNU_STACK` without
+`E`, `ET_DYN` with no `PT_INTERP` and no `DT_NEEDED` — then runs it.
 
 Two things there remain **uncovered**, and neither is a step that could be
 renamed into existence:
@@ -1267,14 +1269,14 @@ one thing the flip could not be taken with outstanding.
 **The landed state.** Five of the six are in; item 6 (`swap_arms`) is open and
 is a measurement rather than a correctness gap. `asm::AVAILABLE_X86_64` reads
 **`true`**, so `stencil::AVAILABLE`'s `linux-x86_64` disjunct holds and an
-x86-64 Linux host runs the suite rather than skipping it. CI's `linux-x86_64`
-job is the twin of the `linux-arm64` one and asserts, instead of a skip: the
-corpus census at macOS parity (**26 of 36**, the same 26 by name, checked as a
-set rather than a count), the whole `stencil::` suite running real programs, the
+x86-64 Linux host runs the suite rather than skipping it. CI's `x86_64` `test`
+leg is the twin of the `arm64` one and asserts, instead of a skip: the corpus
+census at macOS parity (**26 of 36**, the same 26 by name, checked as a set
+rather than a count), the whole `stencil::` suite running real programs, the
 stack guard's `mprotect`, leak parity through `buri_rt_heap_stats`,
 `--check-reproducible` on a linked `linux/x86_64` artifact, both linkers'
-images, and a cross emission back to `linux-arm64`. `cargo test -p buri
---no-fail-fast` is green on `ubuntu-24.04`. §10.2's last paragraph and §3.2's
+images, and a cross emission back to `linux-arm64`. `cargo test -p buri` is
+green on `ubuntu-24.04`. §10.2's last paragraph and §3.2's
 table carry the same fact.
 
 The six:
@@ -1350,15 +1352,15 @@ The six:
    measurement — one that now *can* be made, since CI runs these programs, but
    one this change did not make. It is the single thing on this list left open.
 
-**What CI confirms.** `.github/workflows/ci.yml`'s `linux-x86_64` job is the
-twin of the `linux-arm64` one and asserts the same things on the other
-instruction set: the census printed (so the suite was live and the corpus is at
-macOS parity — 26 of 36, the same 26), every program run, the stack guard's
-`mprotect` and Linux's signal disposition for a `PROT_NONE` page, leak parity
-through `buri_rt_heap_stats`, `--check-reproducible` on a linked
-`linux/x86_64` artifact, and both linkers' idea of an ELF image. That job used
-to assert the executing suite **skipped**; it now asserts it **ran**, by the
-same census line, and that is the difference the entry point made.
+**What CI confirms.** `.github/workflows/ci.yml`'s `x86_64` `test` leg is the
+twin of the `arm64` one and asserts the same things on the other instruction
+set: the suite was live (`BURI_CI=1` turns a guard that fires into a failure)
+and the corpus is at macOS parity — 26 of 36, the same 26 — every program run,
+the stack guard's `mprotect` and Linux's signal disposition for a `PROT_NONE`
+page, leak parity through `buri_rt_heap_stats`, `--check-reproducible` on a
+linked `linux/x86_64` artifact, and both linkers' idea of an ELF image. That leg
+used to assert the executing suite **skipped**; it now asserts it **ran**, and
+that is the difference the entry point made.
 
 What a maintainer's own machine can still say is bounded in the same way §10.1
 bounds it, and one thing is worth naming: `linux_x86_64_objects_link_and_every_relocation_resolves`

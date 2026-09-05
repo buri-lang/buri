@@ -86,7 +86,7 @@
         # `rust-bin.stable.latest` is 1.98.0 where this flake's `nixos-25.11`
         # pins 1.91.1. What that costs was not guessed: built on aarch64-darwin,
         # 1.98.0's runtime archive is 9 582 112 bytes against the 9 437 184-byte
-        # Darwin budget in `.github/scripts/assert-runtime-archive.sh`, so the
+        # Darwin budget in `cli/tests/ci.rs`, so the
         # bump alone turns `nix build` red on macOS — an artifact-size decision
         # arriving as a side effect of a Linux packaging one, which is exactly
         # the shape of change this repository argues against. Linux takes the
@@ -264,15 +264,16 @@
 
           # The archive is real, and this build fails if it is not.
           #
-          # `.github/scripts/assert-runtime-archive.sh` is the repository's own
-          # liveness gate, run here rather than reimplemented: non-empty, under
-          # the per-OS size budget, and carrying no symbol from any of the
-          # runtime's four networking crates. It runs on the four native CI jobs
-          # already; the reason it also runs *here* is that the failure it
-          # catches is exactly the one this flake had — `cli/build.rs` degrades
-          # to an empty archive rather than breaking, so a vendoring mistake
-          # produces a green `nix build` and a toolchain with no native backend,
-          # which is invisible until a user's `buri build` refuses.
+          # The same liveness gate `cli/tests/ci.rs::the_runtime_archive_is_real`
+          # is, reduced here to the two halves this sandbox can ask: the archive
+          # is not empty, and on Linux it is a musl archive. The suite's copy is
+          # the fuller one — size budget, symbol table, the entropy door — and it
+          # cannot run here, because this derivation builds the toolchain and
+          # does not run its tests. The reason a copy exists at all is that the
+          # failure it catches is exactly the one this flake had: `cli/build.rs`
+          # degrades to an empty archive rather than breaking, so a vendoring
+          # mistake produces a green `nix build` and a toolchain with no native
+          # backend, which is invisible until a user's `buri build` refuses.
           #
           # An assertion and not a degradation, because on **these** hosts there
           # is nothing to degrade to: `flake-utils.lib.eachDefaultSystem` builds
@@ -282,7 +283,16 @@
           # unsupported host still gets its empty archive; it just does not get
           # it from here.
           postBuild = ''
-            bash .github/scripts/assert-runtime-archive.sh target
+            archive=$(find target -path '*/out/libburi_rt.a' -size +0 | head -1)
+            if [ -z "$archive" ]; then
+              echo "libburi_rt.a is empty or absent: this toolchain has no native backend" >&2
+              exit 1
+            fi
+            if [ "$(uname -s)" = Linux ] && ! grep -qx musl "$archive.libc"; then
+              echo "libburi_rt.a was built against $(cat "$archive.libc"), not musl" >&2
+              exit 1
+            fi
+            echo "libburi_rt.a: $(wc -c < "$archive") bytes"
           '';
 
           # WHICH LIBC THE ARCHIVE IS BUILT AGAINST, AND WHY NOTHING HERE
@@ -300,12 +310,12 @@
           # there, and the `postBuild` assertion above is what says so.
           #
           # This block used to set `BURI_ARCHIVE_LIBC_MAY_BE_GLIBC=1`, the one
-          # escape hatch in `assert-runtime-archive.sh`, because
+          # escape hatch the runtime-archive assertion had, because
           # `pkgs.rustPlatform`'s rustc ships std for the host triple alone and
           # a sandbox has no `rustup` to add a target with. The archive was a
           # `gnu` archive, the baked sysroot was empty, and the toolchain that
           # came out refused every native Linux link. Nothing sets that variable
-          # now — the script no longer has it — and the libc assertion is
+          # now — nothing has it any more — and the libc assertion is
           # load-bearing on `x86_64-linux` and `aarch64-linux` again: a
           # `nix build` that produced a glibc archive would go red.
           #

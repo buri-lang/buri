@@ -58,8 +58,9 @@ cli/tests/
                         page the front end prints for it, case by case
   linting.rs            AND WHAT THE RULES STILL SAY — a lint fixture with one
                         token wrong, through a one-package repository
-  ci.rs                 THE WORKFLOW IS WIRED THE WAY THE SUITE BELIEVES — the
-                        three promises `.github/workflows/ci.yml` has to keep
+  ci.rs                 THE BUILD THIS TOOLCHAIN WAS BUILT BY — what
+                        `.github/workflows/ci.yml` promises, and the liveness
+                        gates that say the toolchain did not degrade
 
   conformance/          a Buri repository: `test/` blocks on language semantics
   reject/               programs that must not compile, with their diagnostics
@@ -282,8 +283,7 @@ for the missing row will find it.
 ## Running them
 
 ```
-cargo test -p buri                                    # everything, one binary at a time
-bash .github/scripts/run-suite.sh suite.log           # everything, overlapped
+cargo test -p buri                                    # everything
 cargo test -p buri --test language                    # one domain
 cargo test -p buri --test language conformance::      # one suite in it
 cargo test -p buri --test native -- --skip float_parity
@@ -291,20 +291,20 @@ cargo test -p buri --features backend-llvm --test native
 BURI_RECOVERY_CAP=0 cargo test -p buri --test recovery   # every case, not a stride
 ```
 
-The second line is the first line's set, run differently, and it is what CI
-runs. `cargo test` starts the test binaries **one after another** — that is
-what the command does, not a knob — and the suites here are latency-bound
-rather than core-bound, so most of the machine is idle for most of the run.
-Measured warm on a ten-core mac against `9f5584a0`: the fifteen units are
-**169 s queued and 73 s started together**, for 372 CPU-seconds of work either
-way. `run-suite.sh` asks cargo which test executables exist, so its set is the
-same one by construction, and it runs each of them directly — they are libtest
-binaries, they print libtest's summaries, and `assert-no-skips.sh` reads its log
-exactly as it read `cargo test`'s. `BURI_SUITE_JOBS` and
-`BURI_SUITE_TEST_THREADS` are its two dials; the script's header prices them.
+The first line is what CI runs, unchanged and unwrapped: a step in
+`.github/workflows/ci.yml` is one `cargo` invocation, so the command that
+decides whether a commit is green is the command a contributor types.
 
-It writes `suite.log` and per-unit logs under `target/suite-logs/`, which is
-where to look when one domain of fifteen failed.
+`cargo test` starts the test binaries **one after another** — that is what the
+command does, not a knob — and the suites here are latency-bound rather than
+core-bound, so most of the machine is idle for most of the run. Measured warm on
+a ten-core mac against `9f5584a0`, the fifteen units are **169 s queued against
+73 s started together**, for 372 CPU-seconds of work either way. A runner that
+starts them together was tried and is gone: it was two hundred and seventy lines
+of shell that had to derive cargo's own set of executables and re-concatenate
+their logs, so that two other shell scripts could parse those logs, and all
+three of those are tests in `ci.rs` now. The minute and a half is the price of
+the whole arrangement being one command.
 
 A merged domain costs nothing in selection: a module is a name prefix, so
 `--test language conformance::` runs exactly what `--test conformance` used to,
@@ -327,6 +327,28 @@ which no live run can manage, and it does not run at all under `BURI_KEEP` — s
 the contract above is unchanged for the run that produced the evidence and for
 hours after it.
 
+### Reproducing a Linux CI leg on a mac
+
+There is no script for it any more, because there is nothing left to script: a
+`test` job is a container with the toolchain in it and then the same
+`cargo test -p buri` typed above. `CC=clang` and the musl `rust-std` are the two
+things the container has to have — `cli/build.rs` degrades silently without
+either, and `ci.rs`'s liveness gates are what say so before the suite spends ten
+minutes proving nothing:
+
+```
+docker run --rm -it -v "$PWD":/w -w /w rust:latest bash -c '
+  apt-get update &&
+  apt-get install -y --no-install-recommends clang lld mold llvm binutils musl-dev musl-tools &&
+  rustup target add "$(uname -m)-unknown-linux-musl" &&
+  CC=clang BURI_CI=1 cargo test -p buri'
+```
+
+`--platform linux/amd64` on the same line runs the x86-64 leg under emulation,
+which works and is slow enough to be an overnight answer rather than an edit
+loop. `BURI_CI=1` is what makes a guard that fires a failure rather than a
+quiet pass, which is the whole reason to run the leg at all.
+
 ### Skips: none on CI, and each one on a host has a name
 
 A test that does not run proves nothing and costs what a running one costs to
@@ -340,8 +362,7 @@ came out by the feature being written rather than by the row being deleted:
 `host.HostAlloc.allocate` has a runtime row.
 `cli/tests/ci.rs::the_only_ignored_tests_are_the_ones_named_here` walks the tree
 and fails if the set it finds is not exactly that file's, so the first new one
-cannot be added quietly; `.github/scripts/assert-no-skips.sh` holds the
-`N ignored` in a CI summary to the same number, which is now zero. The dispositions, in order of preference: fix
+cannot be added quietly, on a runner or on a laptop. The dispositions, in order of preference: fix
 it; `#[cfg]` it out on the host that genuinely cannot answer it, so it is absent
 rather than reported as not run; delete it, if the behaviour it asserts is no
 longer wanted. A row in that file is the last resort and is a named defect, not
@@ -373,23 +394,20 @@ job, and `cli/tests/ci.rs::every_deferral_names_a_job_that_still_asks_for_it`
 holds the name to a job that exists — a deferral whose job has been renamed is
 a plain skip and nothing else would have noticed.
 
-### The runtime crate's tests run in two places
+### The runtime crate's tests are run by a test
 
 `cli/runtime` is a cargo package `cargo test -p buri` cannot reach, and
 `native::runtime::the_runtime_crate_answers_its_own_tests` is what runs its
-ninety-seven assertions. It does so two ways:
+ninety-seven assertions: it shells a nested `cargo test` against the package
+`cli/build.rs` assembles in `$OUT_DIR`, with the same features the archive
+beside this binary was built with. That cold-compiles tokio and rustls the first
+time — about ten seconds here, a minute on a cold runner — into a target
+directory under `CARGO_TARGET_TMPDIR`, and once per checkout after that.
 
-* **Off a runner** it shells a nested `cargo test`, which cold-compiles tokio
-  and rustls the first time — about ten seconds here, a minute on a cold CI
-  macOS runner — into a target directory under `CARGO_TARGET_TMPDIR`.
-* **On a runner** (`BURI_CI=1`) `.github/scripts/test-runtime-crate.sh` runs the
-  same `cargo test` as its own step, with a cache key of its own and a duration
-  in the run summary, and the test asserts the stamp that step writes. The stamp
-  records the SHA-256 of every runtime it tested and the test looks for the one
-  baked into this binary, so a stale `$OUT_DIR` cannot satisfy it.
-
-No host loses the coverage; the minute moves out of a test report and into a
-step that has a cache.
+It was a workflow step once, with a cache key and a stamp file the test read
+instead of running anything. The step is gone: a test that asserts a receipt is
+not the same test as one that asserts a result, and the arrangement cost a
+hundred and fifty lines of bash to save a minute on a runner.
 
 Neither fails on a single reading. A run holding a request over the bar
 measures its whole session again — a fresh server against a fresh copy of the
@@ -433,8 +451,10 @@ uses 1.5 cores of a ten-core machine for a minute is not a domain to give more
 threads — it is a minute during which fourteen other binaries could have been
 running and were not, because `cargo test` starts them one at a time. Same
 tests, same threads, same 372 CPU-seconds: **169 s queued, 73 s overlapped**.
-`.github/scripts/run-suite.sh` above is that, and it is the whole of why the
-budget below still holds on a four-core runner.
+That lever is real and it is deliberately not pulled: pulling it meant a shell
+runner deriving cargo's own set of test executables, and the three CI assertions
+that read its concatenated log are tests now, so the log had no reader left. If
+the budget below ever stops holding, this paragraph is where to start.
 
 ### The five-minute budget
 
@@ -508,12 +528,11 @@ the sentence buri-lang/buri#26 was about, which exists on only one of them.
 The sequence above is the local edit loop, where the only thing being taken away
 is the same run happening a second time on the same machine a minute later.
 
-Two lines of it *are* CI's, though, and both were CI's last change: the suite
-runs through `run-suite.sh` there for the reason above, and the validation gate
-runs under `--profile validate` there too. That second one is the profile the
-root `Cargo.toml` declares for exactly this — validation under `[profile.bench]`
-was costing a fat-LTO, one-codegen-unit build of the whole toolchain to compute
-a boolean, and CI was the last caller still paying it.
+One line of it *is* CI's: the validation gate runs under `--profile validate`
+there too. That is the profile the root `Cargo.toml` declares for exactly this —
+validation under `[profile.bench]` was costing a fat-LTO, one-codegen-unit build
+of the whole toolchain to compute a boolean, and CI was the last caller still
+paying it.
 
 #### The measured number
 

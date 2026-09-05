@@ -72,7 +72,7 @@ fn skip_reason() -> Option<String> {
 ///
 /// The print is the whole point of routing every guard through here: a suite
 /// that returned quietly would report every test as passed on a host with no
-/// backend, which is exactly what `.github/scripts/assert-stencils.sh` exists
+/// backend, which is exactly what `cli/tests/ci.rs::the_stencil_libraries_are_real` exists
 /// to catch.
 ///
 /// And on a runner it does not print, it **panics** — `harness/ci.rs` reads
@@ -1815,7 +1815,7 @@ const FAULT_SAID: &str = "a fault the census put here\nand a second line of it";
 /// The prefix of every line of the child's report.
 ///
 /// Found anywhere in a line rather than anchored to its start, for
-/// `.github/scripts/assert-suite-ran.sh`'s reason: libtest writes
+/// `cli/tests/ci.rs::the_stencil_libraries_are_real`'s reason: libtest writes
 /// `test <name> ... ` **without** a newline, so the child's first line arrives
 /// with that in front of it.
 const LINE: &str = "CENSUS\t";

@@ -60,7 +60,7 @@
 //! been since C7 and had moved on its own: this file's acceptor is compiled
 //! into a `net`-off archive too, and three slices of it landed in between.
 //!
-//! The 9 MiB Darwin budget `assert-runtime-archive.sh` carries is **not** moved
+//! The 9 MiB Darwin budget `the_runtime_archive_is_real` carries is **not** moved
 //! by this slice, and that is the ratchet working rather than the ratchet being
 //! ignored: 8 970 592 is under it by about 4.9 %, and a budget that moves when
 //! it has not been hit is a budget. What it leaves is a thin margin, and the
@@ -69,7 +69,8 @@
 //!
 //! **Linux is a bigger machine and its budget did move.** Every Linux figure
 //! that script carried was a projection, and the first real measurement — taken
-//! in the container `scripts/test-linux.sh` runs, on
+//! in the Linux container BUILD-AND-WATCH.md §3.3.1
+//! describes, on
 //! aarch64-unknown-linux-gnu — showed the projection had been wrong by 1.9 MB:
 //!
 //! ```text
@@ -98,7 +99,7 @@
 //! `ring`'s C and AArch64 assembly, which a `staticlib` bundles whether the
 //! linker needs it or not.
 //!
-//! `.github/scripts/assert-runtime-archive.sh` holds the remaining claim in CI
+//! `cli/tests/ci.rs::the_runtime_archive_is_real` holds the remaining claim in CI
 //! the direct way — it greps the archive's symbol table, requires `tokio`,
 //! `rustls`, `ring` and `hyper` to be **present** when the feature file says
 //! `net`, and requires `tungstenite` and `quinn` to be **absent** on every leg,
