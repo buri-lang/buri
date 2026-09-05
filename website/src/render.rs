@@ -2,8 +2,9 @@
 //!
 //! Every page carries the same chrome — the section bar, the theme picker, the
 //! sidebar for the section it is in — and the same two inline scripts. There
-//! is no external JavaScript and no highlighter in the browser; the only file
-//! a page fetches is the shared stylesheet.
+//! is no external JavaScript and no highlighter in the browser, and the
+//! stylesheet is written into the document rather than linked: a page is one
+//! file, and fetches nothing at all to render itself.
 
 use crate::highlight::escaped;
 use crate::links::{href_from, Resolver, Target};
@@ -108,7 +109,10 @@ pub fn document(site: &Site, page: &Page) -> (String, PageLinks) {
         facts.push_str("</dl>\n");
     }
 
-    let mut out = String::with_capacity(body.len().saturating_add(16 * 1024));
+    let stylesheet = themes::inline_stylesheet();
+    let mut out = String::with_capacity(
+        body.len().saturating_add(stylesheet.len()).saturating_add(16 * 1024),
+    );
     out.push_str("<!doctype html>\n<html lang=\"en\" data-theme=\"");
     out.push_str(themes::DEFAULT);
     out.push_str("\">\n<head>\n<meta charset=\"utf-8\">\n");
@@ -119,10 +123,7 @@ pub fn document(site: &Site, page: &Page) -> (String, PageLinks) {
         escaped(&one_line(&page.summary))
     ));
     out.push_str(&format!("<script>{}</script>\n", boot_script()));
-    out.push_str(&format!(
-        "<link rel=\"stylesheet\" href=\"{}assets/site.css\">\n",
-        crate::links::relative(&page.route, "").trim_start_matches("./")
-    ));
+    out.push_str(&format!("<style>{stylesheet}</style>\n"));
     out.push_str("</head>\n<body>\n");
     out.push_str("<a class=\"skip\" href=\"#content\">Skip to content</a>\n");
     out.push_str(&masthead(page, &mut targets));
@@ -617,6 +618,25 @@ mod tests {
             assert!(html.contains(marker), "the rendered page is missing `{marker}`");
         }
         assert!(!html.contains("<script src="), "the page loads an external script");
+    }
+
+    /// The stylesheet is written into the document rather than linked, so a
+    /// reader with a cold cache paints from the first response and the site
+    /// has no assets directory to lose.
+    #[test]
+    fn a_rendered_page_carries_its_stylesheet_inline() {
+        let (site, page) = a_page();
+        let (html, _) = document(&site, &page);
+        let (head, _) = html.split_once("</head>").expect("a head");
+        let (_, rest) = head.split_once("<style>").expect("a style element in the head");
+        let (css, _) = rest.split_once("</style>").expect("the style element ends");
+        assert!(css.contains("pre .keyword"), "the style element is not the stylesheet");
+        assert!(
+            css.contains(&format!("[data-theme=\"{}\"]", themes::DEFAULT)),
+            "the inlined sheet has no palette for the default scheme"
+        );
+        assert!(!html.contains("<link rel=\"stylesheet\""), "the page still links a stylesheet");
+        assert!(!html.contains("site.css"), "the page still names a stylesheet file");
     }
 
     /// A hover and the click after it must be one request, the map must not

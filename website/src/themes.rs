@@ -314,6 +314,35 @@ pub fn stylesheet() -> String {
     out
 }
 
+/// The stylesheet, safe to write inside a `<style>` element.
+///
+/// Every page carries the sheet inline, and an HTML parser ends a `<style>`
+/// at the first `</style` it sees — inside a CSS string or a comment as
+/// readily as anywhere else, and in any mixture of case. Nothing in the sheet
+/// writes one today; the escape is here so that a rule which one day does
+/// breaks nothing, rather than spilling the rest of the sheet onto the page
+/// as text. A `<` is not valid CSS outside a string, a comment or a `url()`,
+/// and in all three `\/` still reads as `/`, so the escape says the same
+/// thing to a CSS parser and no longer says "end of element" to an HTML one.
+pub fn inline_stylesheet() -> String {
+    escaped_for_style(&stylesheet())
+}
+
+fn escaped_for_style(css: &str) -> String {
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(at) = rest.find("</") {
+        let (before, from) = rest.split_at(at);
+        out.push_str(before);
+        let closes_the_element =
+            from.get(..7).is_some_and(|tag| tag.eq_ignore_ascii_case("</style"));
+        out.push_str(if closes_the_element { "<\\/" } else { "</" });
+        rest = from.get(2..).unwrap_or("");
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Hand-written, no framework. The measure is set on the article rather than
 /// on the page, so a wide table can still overflow its own scroller without
 /// dragging the prose out with it.
@@ -627,5 +656,21 @@ mod tests {
             assert!(css.contains(&format!("[data-theme=\"{}\"]", theme.id)), "{}", theme.id);
         }
         assert!(css.contains("pre .keyword"), "the code classes read the palette");
+    }
+
+    /// The sheet is written inside a `<style>` on every page, so a rule that
+    /// spelled out a closing tag would end the element and print the rest of
+    /// the stylesheet at the reader.
+    #[test]
+    fn a_closing_style_tag_cannot_escape_the_element() {
+        assert_eq!(
+            escaped_for_style("a::after { content: \"</style>\"; }"),
+            "a::after { content: \"<\\/style>\"; }"
+        );
+        assert_eq!(escaped_for_style("/* </STYLE > */"), "/* <\\/STYLE > */");
+        // Anything else that opens with `</` is left exactly as it was.
+        let kept = "a { content: \"</p></b>\"; }";
+        assert_eq!(escaped_for_style(kept), kept);
+        assert!(!inline_stylesheet().to_lowercase().contains("</style"));
     }
 }

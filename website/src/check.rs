@@ -19,9 +19,6 @@ use std::path::Path;
 /// whose every internal link resolves.
 pub fn problems(site: &Site, built: &[PageLinks], out: &Path) -> Vec<String> {
     let mut found = Vec::new();
-    if !out.join("assets/site.css").is_file() {
-        found.push("the stylesheet was not written to assets/site.css".to_string());
-    }
     for page in built {
         let where_ =
             if page.route.is_empty() { "the front page" } else { page.route.as_str() };
