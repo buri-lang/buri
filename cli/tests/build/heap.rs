@@ -17,17 +17,28 @@
 //! | [`an_artifact_buri_ran_is_asked_for_its_blocks_back`] | `buri run`'s native artifact answers the check, and answers `live=0`. |
 //! | [`buri_test_runs_its_test_binaries_under_the_heap_check`] | the check reaches the *test binary* `buri test` spawns, which has an explicit environment of its own and had to be told. |
 //! | [`a_release_artifact_is_asked_for_its_blocks_back_or_is_refused_by_name`] | the same of the *optimizing* pipeline, on a toolchain that has one — and a refusal by name on one that has not. |
-//! | [`a_message_an_actor_never_delivered_is_this_repositorys_known_leak`] | a program that really does leak is really reported — the direction that cannot be faked by a check that is off — and the one leak this repository knows about is pinned at its exact size. |
 //!
 //! Nothing here reads a pass, an IR or a counter: what every row observes is a
 //! line the runtime printed on standard error and the status a command exited
 //! with, both of which a person running `BURI_RT_HEAP_CHECK=1 buri test` sees.
 //!
+//! **The other direction — a program that really leaks is really reported — is
+//! not a row here, because there is no longer a program to write it with.** It
+//! used to be `core/actor`'s discarded-message defect, provoked on purpose and
+//! pinned at its exact size; that defect is fixed, and nothing a *correct*
+//! program can do leaks (`proc.exit` is the one way to stop while holding
+//! blocks, and the runtime quiets the audit for it by name, because a program
+//! that chose where to stop is entitled to be holding values). A simulated
+//! report would prove nothing a switched-off check could not fake. Where that
+//! direction is still asserted is over the native corpus, on real defects with
+//! exact counts asserted both ways: `native::agreement`'s `agree_leaking` rows
+//! and `native::conformance`'s leak ledger.
+//!
 //! ```text
 //! cargo test -p buri --test build heap::
 //! ```
 
-use crate::harness::{ci, run_in_unchecked, Run, Scratch};
+use crate::harness::{ci, Run, Scratch};
 
 /// The platform a binary here declares.
 ///
@@ -73,71 +84,6 @@ test "a suite that allocates" {
     assert.eq(letters.len(), 3);
 }
 "#;
-
-/// **A program that really leaks**, so that the check is proved in the
-/// direction a check that is switched off cannot fake — and so that the one
-/// leak this repository knows about is pinned rather than merely tolerated.
-///
-/// A message posted to an actor and still in its mailbox when `stop` closes it
-/// has its payload released by nobody. `core/actor::stop` closes the mailbox
-/// and then pops what is left, binding each block and letting it go; the block
-/// itself is given back and what it pointed at is not. Three things narrow it:
-/// a message that is *delivered* is clean even when the step throws its payload
-/// away, an actor's state is clean however large it is, and `alloc.copyAcross`
-/// — the deep copy every crossing is made with — is clean on its own. So it is
-/// the discard path, and it is a defect in the code the compiler inserts rather
-/// than in the ten lines of `core/actor` that read.
-///
-/// The payload is `70000` bytes because a block that size is given a mapping of
-/// its own rather than a pooled one, which is what makes the number in the
-/// runtime's sentence the payload's rather than an allocator's rounding.
-///
-/// **When the defect is fixed this test fails**, saying so and asking for its
-/// own deletion together with `harness::KNOWN_LEAKS`'s row. That is deliberate,
-/// and it is the ratchet `native::agreement`'s `agree_leaking` already keeps: a
-/// fixture that is allowed to quietly stop leaking is a fixture that quietly
-/// stops proving anything.
-const LEAKING_TEST: &str = r#"from "core/actor" import * as actor;
-from "core/actor" import { Actor, Reply };
-from "core/effect" import { Alloc, Tasks };
-from "core/host/testing" import { alloc, tasks };
-from "core/testing/assert" import * as assert;
-
-enum Keep {
-    Put(Str),
-    Get(Reply<Str>),
-}
-
-fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep> {
-    Actor {
-        state: initial,
-        step: fn(c, held, message) => {
-            match (message) {
-                .Put(next) => next,
-                .Get(reply) => {
-                    let _ = reply.answer(c, held).ignore();
-                    held
-                },
-            }
-        },
-    }
-}
-
-test "a message a stop discards" {
-    let ctx = context { Alloc: alloc(), Tasks: tasks() };
-    let address = actor.start(ctx, keeper(""));
-    let _ = address.send(ctx, .Put("d".repeat(ctx, 70000))).ignore();
-    assert.eq(address.stop(ctx), .Ok(()));
-}
-"#;
-
-/// The sentence the runtime prints about [`LEAKING_TEST`], in full.
-///
-/// The **exact** count, asserted in both directions: a program that leaks a
-/// block more is a different defect and this test says so, and a program that
-/// has stopped leaking is the fix landing and this test says that instead.
-const LEAKING_SAID: &str =
-    "buri heap check: leak: 1 block(s) and 70000 byte(s) were allocated and never freed";
 
 /// Whether the run reached the native runtime at all.
 ///
@@ -210,47 +156,6 @@ fn buri_test_runs_its_test_binaries_under_the_heap_check() {
     assert!(
         !run.all().contains("allocated=0"),
         "the test binary allocated nothing, so the audit it passed was of an empty heap:\n{}",
-        run.all()
-    );
-}
-
-/// And the direction that matters: a program that leaks is reported, as a
-/// failure a person reading `buri test` cannot miss.
-///
-/// [`run_in_unchecked`] rather than `Scratch::run`, because the harness's own
-/// assertion would panic on this run before the test could read it — which is
-/// the assertion working, and is exactly what this row exists to demonstrate
-/// from the other side.
-///
-/// See [`LEAKING_TEST`] for what the defect is and for what to do on the day it
-/// is fixed.
-#[test]
-fn a_message_an_actor_never_delivered_is_this_repositorys_known_leak() {
-    let scratch = Scratch::repo("heap-leak");
-    scratch.write("lib/leaking/BUILD.buri", LIBRARY);
-    scratch.write("lib/leaking/lib.buri", "export fn version(): Int { 1 }\n");
-    scratch.write("lib/leaking/test/counting.buri", LEAKING_TEST);
-
-    let run = run_in_unchecked(&scratch.root, &["test", "//lib/leaking", "--force"], &[]);
-    if !asked(&run) {
-        no_native_run("buri test //lib/leaking", &run);
-        return;
-    }
-    assert_ne!(run.code, 0, "a leaking suite exited zero:\n{}", run.all());
-    assert!(
-        run.all().contains(LEAKING_SAID),
-        "this program is the repository's one known leak, and the runtime no longer says\n    \
-         {LEAKING_SAID}\nabout it. If it leaks a different number of blocks, that is a \
-         second defect and this test is where it was found. If it leaks nothing, the \
-         defect is fixed — congratulations: delete this test and the matching row in \
-         `harness::KNOWN_LEAKS`, which exists only to let \
-         `repositories::concurrency_and_memory` past the same leak. What the run said:\n{}",
-        run.all()
-    );
-    run.says("//lib/leaking");
-    assert!(
-        run.all().contains("toolchain bug"),
-        "the report blamed the suite rather than the toolchain:\n{}",
         run.all()
     );
 }
