@@ -1534,3 +1534,118 @@ fn a_native_binary_touches_files_and_reads_its_own_arguments() {
         "the program reported removing its scratch directory and it is still there"
     );
 }
+
+// ---------------------------------------------------------------------------
+// An actor stopped with its mailbox full
+// ---------------------------------------------------------------------------
+
+/// A program that posts messages carrying **program-built** strings and then
+/// stops the actor without ever driving it, so every one of them is discarded
+/// rather than delivered.
+///
+/// Three things are load-bearing.
+///
+/// * **The payloads are built rather than written.** A literal lives in the
+///   artifact's constant pool and is `IMMORTAL` (VALUE-MODEL.md 5.2), so a
+///   payload nobody released would still balance. `repeat` allocates.
+/// * **Nothing drives the actor.** `send` runs the mailbox down only when a
+///   post reaches the bound, and the bound is `core/actor`'s `MAILBOX` of 64 —
+///   so four posts and no `ask` leave four messages waiting for a `stop` that
+///   throws them away.
+/// * **The state is a built string too**, and one message *is* delivered
+///   before them, so the row says the discard path is clean without saying the
+///   delivery path is broken.
+fn undelivered_messages() -> String {
+    String::from(
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Reply };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+enum Note {
+    Put(Str),
+    Get(Reply<Str>),
+}
+
+fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Note> {
+    Actor {
+        state: initial,
+        step: fn(c, held, message) => {
+            match (message) {
+                .Put(next) => next,
+                .Get(reply) => {
+                    let _ = reply.answer(c, held).ignore();
+                    held
+                },
+            }
+        },
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let address = actor.start(ctx, keeper("s".repeat(ctx, 7000)));
+    // Delivered: the step keeps this one, and the `ask` drives the mailbox.
+    let _ = address.send(ctx, .Put("d".repeat(ctx, 7000))).ignore();
+    let seen = address.ask(ctx, fn(reply) => .Get(reply));
+    let _ = io.println(ctx, "delivered ${seen.withDefault("").len()}").ignore();
+    // Undelivered: four more posts, no drive, and then the mailbox closes.
+    let _ = address.send(ctx, .Put("a".repeat(ctx, 70000))).ignore();
+    let _ = address.send(ctx, .Put("b".repeat(ctx, 60000))).ignore();
+    let _ = address.send(ctx, .Put("c".repeat(ctx, 50000))).ignore();
+    let _ = address.send(ctx, .Put("e".repeat(ctx, 40000))).ignore();
+    let _ = io.println(ctx, "stopped ${address.stop(ctx).isOk()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **An actor stopped with messages still waiting gives back everything those
+/// messages were carrying.**
+///
+/// `stop` closes the mailbox and drops what is left in it, and dropping a
+/// message has to release the payload inside it and not only the block it
+/// arrived in. This program leaked one block per undelivered message — 220 000
+/// bytes of `Str` — until `core/actor` stopped popping the mailbox at a type
+/// nothing determined: a discard loop never looks inside what it drops, so the
+/// checker resolved the message type to `()`, and the release generated for a
+/// carrier of `()` frees the block and lets go of nothing inside it.
+///
+/// It is here rather than beside a backend because what it asserts is
+/// behaviour: both native pipelines run this row, and the runtime's own audit
+/// is what answers it. `BURI_RT_HEAP_REPORT` is the audit saying so out loud —
+/// a silent pass and a heap check that never ran look the same otherwise.
+#[test]
+fn an_actor_stopped_with_messages_waiting_leaks_none_of_them() {
+    unless_ready!();
+    let binary = built("e2e-actor-undelivered", &undelivered_messages());
+    let out = std::process::Command::new(&binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
+        .env("BURI_RT_HEAP_REPORT", "1")
+        .output()
+        .expect("the program did not start");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        vec!["delivered 7000", "stopped true"],
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("buri heap check: ok"),
+        "the heap audit did not report a clean exit.\nstderr:\n{stderr}"
+    );
+}
+
