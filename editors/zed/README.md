@@ -23,6 +23,22 @@ Zed builds the extension itself, and needs two things to do it:
   `../tree-sitter-buri` or `../tree-sitter-buri-build` is invisible until it is
   committed, pushed, and repinned.
 
+### Repinning is part of changing the grammar
+
+The queries in `languages/` are read from this directory, and Zed compiles them
+against the grammar *at the pinned commit*. Those two go out of step the moment
+the grammar gains a node and the pin does not move — and a query that fails to
+compile is not a file with less colour, it is a language Zed declines to load:
+the file opens as plain text. Because the two grammars are pinned separately,
+that shows up as one half of the extension going quiet while the other half
+works, which reads like a file-type rule gone wrong and is not one.
+
+So: push the grammar, then set that grammar's `commit` to the commit holding it
+and its `# grammar-sha256` to the digest of the files the line names.
+`../tree-sitter-buri/check.sh` and `../tree-sitter-buri-build/check.sh` compare
+that digest against the grammar in the tree and print the new one when it has
+moved, so a grammar change cannot ship with a stale pin unnoticed.
+
 The extension starts `buri lsp` from your `PATH`. It does not download a
 toolchain: an extension that fetched its own would be answering questions about
 a different compiler than the one `buri build` runs.

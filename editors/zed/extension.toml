@@ -15,7 +15,22 @@ path = "editors/tree-sitter-buri"
 # that tracks a moving grammar is an extension that breaks without a change.
 # Zed fetches this commit from GitHub, so it must be one that is pushed —
 # editing the grammar without repinning changes nothing an editor can see.
-commit = "67d32e76e5aab70f77309a89c4fa59a767316404"
+#
+# Repinning is not optional upkeep. `languages/buri/*.scm` live in the tree and
+# are compiled against the grammar at *this* commit, so a query naming a node
+# added since fails to compile — and a language whose queries do not compile is
+# one Zed cannot load at all. What that looks like from the outside is not a
+# file with less colour: it is a `.buri` file with no language, while
+# `BUILD.buri` goes on working because the other grammar's pin still matches its
+# queries. So the pin moves with the grammar, and
+# `editors/tree-sitter-buri/check.sh` fails when it has not.
+commit = "dad6d06b7a94e7ee35df9e9d24f56ac8f6289f99"
+# The digest of `grammar.js` and `src/scanner.c` as of that commit — the two
+# files that decide which node types a query may name. `check.sh` compares it
+# against the working tree, so a grammar change that leaves the pin behind is
+# caught where the grammar is checked rather than in an editor. It is a comment
+# rather than a key because Zed reads this file and knows only its own schema.
+# grammar-sha256 = "7ebb1eca7fb62d7608bf096845089e8e0463c90911d4d897df58c51aaeb855b5"
 
 [grammars.buri_build]
 # A second grammar, because a BUILD.buri is textproto rather than Buri: one
@@ -24,8 +39,10 @@ commit = "67d32e76e5aab70f77309a89c4fa59a767316404"
 repository = "https://github.com/buri-lang/buri"
 path = "editors/tree-sitter-buri-build"
 # Pinned to the commit that lands the grammar. Zed fetches it from GitHub, so
-# the extension builds only once that commit is pushed.
+# the extension builds only once that commit is pushed, and it moves with the
+# grammar for the reason spelled out above.
 commit = "536e85f90ca2f599897216817d411d201268f46d"
+# grammar-sha256 = "b4d42bd5d355db89a8b6dd52b1f2156d68a4a0297e0f914335d18b828d1041ea"
 
 [language_servers.buri]
 name = "Buri"
