@@ -144,7 +144,7 @@ crate-type = ["staticlib"]
 # `net.rs`'s WebSocket half (+77 360, which is small because `http` and
 # `httparse` were already live for hyper's sake, so what arrived is the framing,
 # the masking and one SHA-1). `quinn` is reached by nothing still.
-# `.github/scripts/assert-runtime-archive.sh` is where all of that is asserted
+# `cli/tests/ci.rs::the_runtime_archive_is_real` is where all of that is asserted
 # rather than assumed: five names its symbol table must carry, one it must
 # not.
 #
@@ -170,7 +170,7 @@ crate-type = ["staticlib"]
 # bundles into a `staticlib` whether the linker needs them or not, so
 # `lto = "fat"` cannot touch them. `curve25519.o` alone is 405 KB and
 # `p256-nistz.o` is 173 KB. That total put the archive **over** the 7 MiB budget
-# `.github/scripts/assert-runtime-archive.sh` carried, by about 505 KB, and the
+# `cli/tests/ci.rs::the_runtime_archive_is_real` carried, by about 505 KB, and the
 # budget was re-measured and re-stated there in C7's commit — the ratchet
 # working as written rather than being quietly widened. HTTP/2 added 771 688 on
 # top in F4 and WebSockets 77 360 on top of that in F7, and the Darwin budget
@@ -183,8 +183,8 @@ crate-type = ["staticlib"]
 # **The Linux budget did move, and it moved because it had never been
 # measured.** Every figure that script carried for Linux was the macOS delta
 # added to a number taken before any of these crates was linked. The first real
-# measurement (aarch64-unknown-linux-gnu, in the container `scripts/test-linux.sh`
-# runs) put the archive at 12 407 786 bytes *before* HTTP/2 and 13 611 228
+# measurement (aarch64-unknown-linux-gnu, in the Linux container
+# BUILD-AND-WATCH.md §3.3.1 describes) put the archive at 12 407 786 bytes *before* HTTP/2 and 13 611 228
 # after — so Linux had been at 98.6 % of a 12 MiB budget for two slices, and
 # hyper's 1 203 442 bytes are what took it over. That delta is 1.56x the Darwin
 # one against an archive that is already 1.51x as large, which is ELF's price
@@ -265,7 +265,7 @@ getrandom = { version = "0.4", optional = true, default-features = false }
 # **The provider is `ring`, deliberately and by name.** `quinn`'s own defaults
 # are `rustls-aws-lc-rs` and `platform-verifier`; both are turned off here and
 # `rustls-ring` is turned on, so the h3 archive has exactly one cryptography
-# implementation in it rather than two. `assert-runtime-archive.sh` greps for
+# implementation in it rather than two. `the_runtime_archive_is_real` greps for
 # `aws_lc` on every leg, h3 included, which is what keeps that true when
 # `quinn`'s defaults next change.
 #

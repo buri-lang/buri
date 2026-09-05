@@ -50,9 +50,10 @@
 //!   `buri` crate: a checkout built, and a `cargo install buri` from a registry
 //!   tarball failed here with no runtime to compile. With the manifest under a
 //!   name Cargo does not recognise, `cli/runtime/` is an ordinary directory of
-//!   ordinary files and ships whole. `.github/scripts/assert-package-ships-
-//!   runtime.sh` is the assertion; `cli/tests/language/corpus.rs` holds the
-//!   invariant it rests on — no second `Cargo.toml` anywhere under `cli/`.
+//!   ordinary files and ships whole.
+//!   `cli/tests/ci.rs::the_published_crate_ships_the_runtime` is the assertion;
+//!   `cli/tests/language/corpus.rs` holds the invariant it rests on — no second
+//!   `Cargo.toml` anywhere under `cli/`.
 //!
 //!   Nothing about the compile changes: Cargo still runs `rustc` with the
 //!   package root as its working directory and the crate root as the relative
@@ -160,7 +161,7 @@
 //!   back undefined too, even though the runtime is `panic = "abort"`, because
 //!   `std`'s backtrace machinery references the unwinder whether or not a panic
 //!   ever unwinds. Together they are ~6.6 MB, which is why the size budget in
-//!   `.github/scripts/assert-runtime-archive.sh` is written against the archive
+//!   `cli/tests/ci.rs::the_runtime_archive_is_real` is written against the archive
 //!   alone and not against `OUT_DIR`.
 //!
 //!   **No `-Crelocation-model=pic` is pinned, and that was measured too.**
@@ -188,11 +189,11 @@
 //!   It is deliberately a **separate command** from the build: a single `cargo
 //!   rustc` cannot tell the two failures apart, and "the archive quietly went
 //!   empty because a crate failed to compile" is precisely the silent green
-//!   that `.github/scripts/assert-runtime-archive.sh` exists to refuse.
+//!   that `cli/tests/ci.rs::the_runtime_archive_is_real` exists to refuse.
 //!
 //!   **A sandbox is meant to land in the resolvable case, not in the degraded
 //!   one.** `flake.nix` vendors *both* lockfiles into the one directory this
-//!   nested cargo sees, and runs `assert-runtime-archive.sh` on what comes out,
+//!   nested cargo sees, and runs `the_runtime_archive_is_real` on what comes out,
 //!   because a packaging path that quietly drops the native backend ships a
 //!   different compiler under the same version. The degradation above is for a
 //!   contributor on a plane, not for a release.
@@ -1250,7 +1251,7 @@ fn runtime_archive(manifest: &Path) {
     // feature. A probe rather than a retry-on-failure, deliberately: retrying a
     // failed compile with the feature off would also mask a genuine bug in the
     // runtime's own TLS code as a silently net-less toolchain, which is the
-    // exact silent-green `.github/scripts/assert-runtime-archive.sh` exists to
+    // exact silent-green `cli/tests/ci.rs::the_runtime_archive_is_real` exists to
     // refuse. This asks a question whose answer is known before the build.
     println!("cargo:rerun-if-env-changed=CC");
     let cc = std::env::var("CC").unwrap_or_else(|_| String::from("cc"));

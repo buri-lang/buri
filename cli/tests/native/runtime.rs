@@ -921,8 +921,6 @@ fn the_networking_features_agree_across_the_abi() {
 /// path comes from the build script — `BURI_RT_PKG` — because the package is
 /// *assembled* in `OUT_DIR` and only the script knows where.
 ///
-/// # Two ways to run them, and this test is both
-///
 /// The nested `cargo` below cold-compiles tokio, hyper and rustls the first
 /// time it is asked, which is a minute of `cc` and `rustc` **inside one test**
 /// — invisible in a test report, and invisible to every cache CI has, because
@@ -931,17 +929,13 @@ fn the_networking_features_agree_across_the_abi() {
 /// and it needs no workflow to have been written. On a runner it was sixty
 /// seconds a leg of unattributable time.
 ///
-/// So on a runner the *step* runs them —
-/// `.github/scripts/test-runtime-crate.sh`, which is the same `cargo test` with
-/// a cache key and a line in the run summary — and this test asserts the step
-/// ran. Not that it is configured: that the stamp it writes on success is on
-/// disk. Delete the step from a job and this fails; leave `BURI_CI=1` set with
-/// no step and this fails; and nothing about it can pass while the runtime's
-/// tests have not run.
-///
-/// **No platform loses coverage.** Off a runner (`BURI_CI` unset) the nested
-/// `cargo` runs exactly as it always did, on every host that has a runtime —
-/// which is every host `AVAILABLE` is true on.
+/// It was hoisted into a workflow step once, with a cache key of its own and a
+/// stamp file this test read instead. That bought a duration in a run summary
+/// and cost a hundred and fifty lines of bash, a second copy of the "which
+/// assembled package is this binary's" question, and a test that asserted a
+/// receipt rather than a result. The nested `cargo` runs here on every host now,
+/// runner included: one arrangement, and the thing being asserted is that the
+/// runtime crate's tests passed rather than that a step said so.
 ///
 /// The nested `cargo` gets the same treatment `cli/build.rs`'s does and for the
 /// same reasons: every `CARGO_*` but `CARGO_HOME` removed, so the outer
@@ -950,15 +944,10 @@ fn the_networking_features_agree_across_the_abi() {
 /// `--features net-h3` mirror whatever the archive beside this binary was
 /// actually built with, so this runs the tests of *this* runtime rather than of
 /// a differently-featured one. All three states are reachable from the outside:
-/// the default, `BURI_RUNTIME_NET=0`, and `BURI_RUNTIME_NET_H3=1`. The script
-/// makes the same two decisions from the same two files.
+/// the default, `BURI_RUNTIME_NET=0`, and `BURI_RUNTIME_NET_H3=1`.
 #[test]
 fn the_runtime_crate_answers_its_own_tests() {
     if skip() {
-        return;
-    }
-    if crate::ci::on() {
-        the_ci_step_ran_them();
         return;
     }
     let pkg = Path::new(env!("BURI_RT_PKG"));
@@ -1003,63 +992,6 @@ fn the_runtime_crate_answers_its_own_tests() {
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
-}
-
-/// The runner's half: the hoisted step ran, and it passed.
-///
-/// `BURI_RT_TESTS_STAMP` is set in the workflow's `env:` block and the stamp is
-/// written by `.github/scripts/test-runtime-crate.sh` only after its `cargo
-/// test` exits zero, so its presence is the step's own report rather than a
-/// claim about the workflow's text. Both halves of that are failures here: a
-/// job with the variable and no step leaves no file, and a job with neither
-/// leaves no variable.
-///
-/// The stamp's contents are read, not just its existence — a `mkdir` or a
-/// truncated write would otherwise satisfy this — and what is checked is a
-/// **digest, not a path**. A target directory can hold several assembled
-/// packages (a restored cache's, a `--features` build's), only one of which is
-/// the one this binary was compiled against, and the file paths do not say
-/// which. `libburi_rt.a.sha256` does: the script records the digest of every
-/// distinct runtime it tested, `archive_hash()` is the digest of the archive
-/// baked into this binary, and the question "were the tests that ran the tests
-/// of THIS runtime" is exactly whether the second is among the first.
-fn the_ci_step_ran_them() {
-    let stamp = std::env::var("BURI_RT_TESTS_STAMP").unwrap_or_else(|_| {
-        panic!(
-            "BURI_CI=1 and BURI_RT_TESTS_STAMP is unset. On a runner this test does not shell a \
-             nested `cargo` — `.github/scripts/test-runtime-crate.sh` runs the runtime crate's \
-             tests as a step, and this variable is how the step and this test agree on where the \
-             step's stamp goes. Set it in the workflow's `env:` block, beside BURI_CI."
-        )
-    });
-    let text = std::fs::read_to_string(&stamp).unwrap_or_else(|e| {
-        panic!(
-            "BURI_CI=1 and there is no stamp at {stamp} ({e}). The runtime crate's own tests are \
-             run by `.github/scripts/test-runtime-crate.sh` on a runner, and that script writes \
-             this file only after its `cargo test` exits zero — so either the step is missing \
-             from this job or it has not run yet. Add it after the runtime-archive assertion and \
-             before the suite."
-        )
-    });
-    assert!(
-        text.starts_with("ok\n"),
-        "the stamp at {stamp} does not say the runtime crate's tests passed:\n{text}"
-    );
-    let tested: Vec<&str> =
-        text.lines().filter_map(|line| line.strip_prefix("runtime: ")).collect();
-    assert!(!tested.is_empty(), "the stamp at {stamp} names no runtime it tested:\n{text}");
-    let ours = buri::compiler::backend::runtime_native::archive_hash();
-    assert!(
-        tested.iter().any(|digest| *digest == ours),
-        "the step tested {} runtime(s) and none of them is the one in this binary. Tested:\n  \
-         {}\nThis binary's `libburi_rt.a`: {ours}\n\nThe usual cause is a stale `$OUT_DIR` under \
-         the target directory — a restored cache's, or a differently-featured build's — that the \
-         script found and this binary was not compiled against. It tests every DISTINCT runtime \
-         it finds, so a miss here means the one in this binary was not on disk when the step ran.",
-        tested.len(),
-        tested.join("\n  ")
-    );
-    eprintln!("runtime crate: tested by the CI step ({stamp})\n{text}");
 }
 
 // ---------------------------------------------------------------------------

@@ -1709,7 +1709,7 @@ assumed.
 
 **What the toolchain ships, per platform.** The runtime archive is
 `include_bytes!`d into every `buri` binary, so its size is the toolchain's size,
-and `.github/scripts/assert-runtime-archive.sh` is the ratchet that holds it.
+and `cli/tests/ci.rs::the_runtime_archive_is_real` is the ratchet that holds it.
 Its numbers, and the one this tree reproduced on 2026-09-01:
 
 | triple | `net` off | `net` | `net-h3` | budget | headroom |
@@ -1720,7 +1720,7 @@ Its numbers, and the one this tree reproduced on 2026-09-01:
 The Darwin figure is not quoted from the script: a `cargo build --release -p
 buri` in this worktree produced an archive of exactly 9,097,192 bytes, and the
 script passed over it. The Linux figure is the script's own, measured in the
-container `scripts/test-linux.sh` runs, and it is now the **musl** triple's:
+Linux container BUILD-AND-WATCH.md §3.3.1 describes, and it is now the **musl** triple's:
 the Linux link is static-musl, and the archive it builds is 13,938,046 bytes
 against 13,799,068 for the `gnu` triple it replaced — 139 KB and 1.0% larger,
 which is musl's standard library rather than anything this repository did. It
