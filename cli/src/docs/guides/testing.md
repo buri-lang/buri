@@ -56,9 +56,8 @@ buri test //lib/money
 
 A test takes no parameters and returns nothing: it passes by getting to the end
 without an assertion failing, and the first failure inside it ends that test
-alone — the rest of the file still runs. The title is what
-a failure is reported by and what `--filter` matches, so two tests in one file
-may not share one.
+alone — the rest of the file still runs. A failure reports the title, and
+`--filter` matches it, so two tests in one file may not share one.
 
 Notice the import: the suite reaches its own library through `//lib/money` — the
 surface, the same name a dependent writes — and not through
@@ -136,14 +135,17 @@ not name it is a proof that nothing it calls, however deep, can.
 ## Doubles are values, not a framework
 
 Every member of `core/host/testing` is a function you call, and each call mints
-a fresh double, so nothing leaks from one test to the next. The defaults are
-chosen to fail loudly rather than plausibly: `fs()` is an empty in-memory
-filesystem — one double answering both `FsRead` and `FsWrite`, so a context
-that reads and writes binds the *same* value under both names, and two calls to
-`fs()` would be two filesystems sharing nothing — `net()` refuses every
-request, `clock()` is stopped at zero, `rand()`
-is seeded, `stdin()` is at end of input, and `stdout()` is captured rather than
-printed.
+a fresh double, so nothing leaks from one test to the next. The defaults fail
+loudly rather than plausibly:
+
+- `fs()` is an empty in-memory filesystem — one double answering both `FsRead`
+  and `FsWrite`, so a context that reads and writes binds the *same* value
+  under both names.
+- `net()` refuses every request.
+- `clock()` is stopped at zero.
+- `rand()` is seeded.
+- `stdin()` is at end of input.
+- `stdout()` captures rather than prints.
 
 Configure one by calling a builder on it, which answers a *new* double and
 leaves the old one alone. Then read the environment back at the end of the test:

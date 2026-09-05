@@ -61,8 +61,7 @@ looking and splits *which* effect from *what* it does into two names.
 
 The implementations that really do something live in `core/host`, which exports
 one value per effect the platform grants — `host.alloc`, `host.stdout`,
-`host.fs`, `host.fs`, `host.net` and the rest — and **only the module
-that exports `main`
+`host.fs`, `host.net` and the rest — and **only the module that exports `main`
 may import it**. `main` takes no parameters. It names the effects the program is
 to have, binds each to an implementation, and hands the result down:
 

@@ -12,18 +12,18 @@ the normative pages.
 
 ## Five rules the layout follows from
 
-1. **A directory with a `BUILD.buri` is a package.** Subdirectories without
-   one belong to the nearest ancestor package. A directory is not a unit of
-   anything.
-2. **`lib.buri` is a library's whole public surface.** A name it does not
-   export is unreachable from outside the library — as a function *and* as a
-   method.
-3. **`main.buri` is a binary's entry point** and exports `main`. Its rule
-   declares which outputs to produce.
-4. **Tests live in `test/` and see only the target's surface.** Fixtures for
-   *other people's* tests live in `testing/`.
-5. **Everything is declared.** No globs, no discovery. A `.buri` file that no
-   rule lists is an error; one listed twice is an error too.
+- **A directory with a `BUILD.buri` is a package.** Subdirectories without
+  one belong to the nearest ancestor package. A directory is not a unit of
+  anything.
+- **`lib.buri` is a library's whole public surface.** A name it does not
+  export is unreachable from outside the library — as a function *and* as a
+  method.
+- **`main.buri` is a binary's entry point** and exports `main`. Its rule
+  declares which outputs to produce.
+- **Tests live in `test/` and see only the target's surface.** Fixtures for
+  *other people's* tests live in `testing/`.
+- **Everything is declared.** No globs, no discovery. A `.buri` file that no
+  rule lists is an error; one listed twice is an error too.
 
 ```
 REPO.buri                  # repository root, tag vocabulary, lint policy

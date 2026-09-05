@@ -1,4 +1,4 @@
-## User interfaces
+# User interfaces
 
 The `ui/*` modules are the reactivity vocabulary: a much larger surface than
 `core/*`, and a different kind of thing. They are part of the standard library
@@ -18,6 +18,18 @@ authority to read or write it travels through `ctx`** — the same split `Alloc`
 and `Region` use. So a `Signal<T>` may be captured by an event handler, and the
 handler takes its context as a parameter rather than closing over one.
 
+```buri
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import { Signal };
+
+/// The lambda captures the handle. The authority arrives as `c`.
+export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
+    ui.button(.Const("add one"), fn(c, _event) => clicks.update(c, fn(n) => n + 1))
+}
+```
+
 | | Cost |
 |---|---|
 | `signal(ctx, v)` | O(1) |
@@ -31,7 +43,7 @@ run, so a read behind an `if` subscribes to the branch taken and not to the
 other one. Writing a value identical to the one already there is not a change
 and re-runs nothing.
 
-### The tree
+## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
 seventeen functions that build one. `ui/style` is how a container arranges and
@@ -70,7 +82,7 @@ update: the handler runs inside a transaction, so three writes cause one pass
 over the watchers rather than three. A field and a toggle have no change event
 at all, because they are bound to a `Signal` and what the reader typed is in it.
 
-### Styling, and the two tiers a style can be in
+## Styling, and the two tiers a style can be in
 
 `ui/style` is 45 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
@@ -129,7 +141,7 @@ inlines any function that is pure by its signature — no `ctx`, no effect-carry
 `self`, no allocator — which is a question about a signature and not about a
 body.
 
-### Design tokens, and why exhaustiveness is the whole contract
+## Design tokens, and why exhaustiveness is the whole contract
 
 A design token is a name whose value the app decides. Every package that uses
 tokens — a library or an app, the rules are the same — declares its own closed

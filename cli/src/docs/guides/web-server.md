@@ -190,8 +190,7 @@ it, and `onMessage` answers the next — so per-socket state is a value rather t
 a table keyed by socket, and an actor's address is a good thing for it to be. A
 `Socket` is inert, which is what makes that work: one integer, copyable, and
 sendable to an actor that can push on it long after the request that opened it
-returned. `broadcast` above is the shape — `Sockets` and nothing else, no
-listener and no port. The hooks are in
+returned. `broadcast` above is the shape. The hooks are in
 [the standard library](../reference/standard-library.md).
 
 The hooks name the path they are served at, and naming it is not optional:

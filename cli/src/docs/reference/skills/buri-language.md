@@ -11,7 +11,9 @@ Rust-shaped data declarations, Roc-shaped ideas about platforms and effects.
 The normative text ships in the binary: `buri docs language/lexical`,
 `language/modules`, `language/types`, `language/expressions`, `language/patterns`,
 `language/evaluation`, `language/functions`, `language/effects` and
-`language/programs`. `buri docs search <words>` looks in every page at once — in the prose, not only the names, so a question like `buri docs search compare ints` works — and prints each hit as the command that reads it.
+`language/programs`. `buri docs search <words>` looks in every page at once — in the prose, not only
+the names, so a question like `buri docs search compare ints` works — and prints
+each hit as the command that reads it.
 
 **Explore the library before writing a helper.** Bare `buri docs` lists every
 `core/*` and `ui/*` module in one screen; `buri docs core/str` renders one from
@@ -22,45 +24,45 @@ answer that compiles.
 
 ## The twelve things that will trip you up
 
-1. **No mutation.** Every binding is final. No assignment operator, no `mut`,
-   no interior mutability, no references, no borrow checker, no lifetimes.
-2. **No loops.** Iteration is recursion — implementations must eliminate tail
-   calls, including mutual ones — or a fold.
-3. **No `return`.** Postfix `?` is the only early exit in the language.
-4. **No `null` and no `undefined`.** Absence is `Option<T>`, and indexing an
-   array yields `Option<T>` rather than `T`.
-5. **`else` is mandatory**, conditions are parenthesised, and there is no
-   truthiness: `if (n < 0) { ... } else { ... }`.
-6. **No implicit numeric conversion of any kind.** `1.0 + 1` is an error, and
-   so is `I32 + I64`. Convert with a method: `a.toI64()`.
-7. **Effects arrive as a parameter named `ctx`, and are *performed* by handing
-   it to a function.** A function with no `ctx` and no effect-carrying `self`
-   cannot touch the world; and `ctx.println("hi")` is not how you print —
-   `io.println(ctx, "hi")` is, because an effect method is not callable on the
-   value that carries it (`effect-method-call`). `core/io`, `core/fs`,
-   `core/env`, `core/time`, `core/random`, `core/alloc`, `core/net/http`,
-   `core/net/server`, `core/proc`, `core/tasks` and `ui/signal` are the doors.
-   The filesystem is **two** effects, `FsRead` and `FsWrite`, both declared in
-   `core/fs` rather than `core/effect`, and every function there takes a `Path`
-   from `core/path` rather than a `Str`. See the `buri-types` skill.
-8. **A bare identifier in a pattern is always a binding.** `None` binds a
-   variable; write `.None` or `Option.None` to match the variant.
-9. **`Result` may not be discarded.** `let _ = someResult()` is a compile
-   error (`result-discarded`), and so is a `_` further down the pattern —
-   `let (n, _) = (1, someResult())` — and so is leaving the call standing as a
-   statement. Consume it with `?`, `match` or `.withDefault(...)`, or drop it
-   on purpose with `.ignore()`, which `buri lint` reports as
-   `discarded-result`. **A print answers one too**, so a line a program does
-   not care about is `let _ = io.println(ctx, "hi").ignore();` — and a program
-   that does care answers instead, with `mapErr` to carry the `IoError` into
-   its own error type.
-10. **No relative imports.** A module path is `core/...`, `ui/...`, or
-    `//...` from the repository root, and means the same module everywhere.
-11. **Methods live in an `impl` block in their type's own module**, and are
-    reached through the receiver's type rather than through scope — so they
-    need no import, and you cannot add one to somebody else's type.
-12. **There is no `panic`, no `unreachable`, no bottom type.** Every case is
-    handled. Division by zero and stack exhaustion *abort*; nothing catches.
+- **No mutation.** Every binding is final. No assignment operator, no `mut`,
+  no interior mutability, no references, no borrow checker, no lifetimes.
+- **No loops.** Iteration is recursion — implementations must eliminate tail
+  calls, including mutual ones — or a fold.
+- **No `return`.** Postfix `?` is the only early exit in the language.
+- **No `null` and no `undefined`.** Absence is `Option<T>`, and indexing an
+  array yields `Option<T>` rather than `T`.
+- **`else` is mandatory**, conditions are parenthesised, and there is no
+  truthiness: `if (n < 0) { ... } else { ... }`.
+- **No implicit numeric conversion of any kind.** `1.0 + 1` is an error, and
+  so is `I32 + I64`. Convert with a method: `a.toI64()`.
+- **Effects arrive as a parameter named `ctx`, and are *performed* by handing
+  it to a function.** A function with no `ctx` and no effect-carrying `self`
+  cannot touch the world; and `ctx.println("hi")` is not how you print —
+  `io.println(ctx, "hi")` is, because an effect method is not callable on the
+  value that carries it (`effect-method-call`). `core/io`, `core/fs`,
+  `core/env`, `core/time`, `core/random`, `core/alloc`, `core/net/http`,
+  `core/net/server`, `core/proc`, `core/tasks` and `ui/signal` are the doors.
+  The filesystem is **two** effects, `FsRead` and `FsWrite`, both declared in
+  `core/fs` rather than `core/effect`, and every function there takes a `Path`
+  from `core/path` rather than a `Str`. See the `buri-types` skill.
+- **A bare identifier in a pattern is always a binding.** `None` binds a
+  variable; write `.None` or `Option.None` to match the variant.
+- **`Result` may not be discarded.** `let _ = someResult()` is a compile
+  error (`result-discarded`), and so is a `_` further down the pattern —
+  `let (n, _) = (1, someResult())` — and so is leaving the call standing as a
+  statement. Consume it with `?`, `match` or `.withDefault(...)`, or drop it
+  on purpose with `.ignore()`, which `buri lint` reports as
+  `discarded-result`. **A print answers one too**, so a line a program does
+  not care about is `let _ = io.println(ctx, "hi").ignore();` — and a program
+  that does care answers instead, with `mapErr` to carry the `IoError` into
+  its own error type.
+- **No relative imports.** A module path is `core/...`, `ui/...`, or
+  `//...` from the repository root, and means the same module everywhere.
+- **Methods live in an `impl` block in their type's own module**, and are
+  reached through the receiver's type rather than through scope — so they
+  need no import, and you cannot add one to somebody else's type.
+- **There is no `panic`, no `unreachable`, no bottom type.** Every case is
+  handled. Division by zero and stack exhaustion *abort*; nothing catches.
 
 ## A whole program
 

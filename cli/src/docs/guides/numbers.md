@@ -1,4 +1,4 @@
-## Numbers: two names, one set of types
+# Numbers: two names, one set of types
 
 Most code wants to say "a number." Some code — binary formats, checksums,
 graphics, FFI — needs an exact width and wants the compiler to hold it there.

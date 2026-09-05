@@ -1,4 +1,4 @@
-## Methods, and traits as interfaces
+# Methods, and traits as interfaces
 
 A method is declared **inside an `impl` block for its type**, and takes `self`
 as its first parameter:
@@ -62,12 +62,12 @@ somebody else's interface.
 
 Because a type has exactly one defining module and conformance is declared, there
 is exactly one candidate per `(trait, type)`. Coherence, orphan rules, and
-instance search aren't restricted — they're unrepresentable. It also keeps a
+instance search are not restricted — they are unrepresentable. It also keeps a
 module's public API from implicitly including *which traits its types happen to
-satisfy*, which is what would otherwise coarsen incremental rebuilds. Blanket impls, associated types, `where` clauses, supertraits,
-and trait objects are all deliberately absent: each turns resolution from a
-lookup into a search, and the search is the entire compile-time cost of a trait
-system.
+satisfy*, which is what would otherwise coarsen incremental rebuilds. Blanket
+impls, associated types, `where` clauses, supertraits, and trait objects are all
+deliberately absent: each turns resolution from a lookup into a search, and the
+search is the entire compile-time cost of a trait system.
 
 Operators are trait methods, which is what makes newtypes usable:
 
@@ -84,5 +84,5 @@ struct Meters(F64);
 
 And an operator implementation **cannot allocate or perform an effect** — `a + b`
 has no argument position for a context. You cannot write an expensive `+` in this
-language, which is why operator overloading is safe here in a way it isn't
+language, which is why operator overloading is safe here in a way it is not
 elsewhere.
