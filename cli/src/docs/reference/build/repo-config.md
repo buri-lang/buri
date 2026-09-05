@@ -91,8 +91,8 @@ is nothing to declare here. A repository that does not ship to JS does not need
 to say so: with no library or tag naming a platform, nothing constrains anything,
 and a JS build is only attempted if some binary lists a JS output.
 
-Note that a restriction written as a whitelist means adding a platform to the
-toolchain cannot silently widen code written before it existed — the reason
+A restriction written as a whitelist means adding a platform to the toolchain
+cannot silently widen code written before it existed — the reason
 `platforms` lives under `requires` and is never spelled as an exclusion.
 
 ## `lint`

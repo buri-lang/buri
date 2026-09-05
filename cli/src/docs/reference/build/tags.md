@@ -194,7 +194,7 @@ first.
 
 A `stable` binary reaching an `experimental` library reads identically, which
 is the point: one mechanism, one diagnostic shape, whether the question is
-deployment or maturity. Note that `stable` is opt-in. Nothing is defaulted, so
+deployment or maturity. `stable` is opt-in. Nothing is defaulted, so
 a binary that says nothing about maturity is not checked for it; a binary that
 refuses to ship unfinished code says so. That is a real loss of enforcement
 compared to a mandatory axis, traded for there being no resolution algorithm to

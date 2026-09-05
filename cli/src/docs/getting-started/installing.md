@@ -51,9 +51,10 @@ moment it lands:
 | `.gitignore` | What the build writes |
 | `.agent/skills/` | The agent skills, one directory per skill |
 
-That last row is the reason to run `init` rather than copy files out of a page: a coding agent working in the repository gets the toolchain's own
-account of the language, the type system, the build system, testing, and the
-CLI, written by the release that is installed. Each is also a page here,
+That last row is the reason to run `init` rather than copy files out of a page:
+a coding agent working in the repository gets the toolchain's own account of the
+language, the type system, the build system, testing, and the CLI, written by
+the release that is installed. Each is also a page here,
 starting with [the language skill](../reference/skills/buri-language.md).
 
 `buri init` never writes over your work. A `REPO.buri` at the target means the
