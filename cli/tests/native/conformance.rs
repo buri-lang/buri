@@ -850,10 +850,10 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
 /// the loop below asserts it of all of them and this table is the place a new
 /// finding goes while it is being worked on. The last rows went with three
 /// defects in `middle::rc`, none of which was in the file the row named — a
-/// `?` that left the function without releasing what it still held, a
-/// `let _ = …` that bound nothing and so released nothing, and a `..base`
-/// update that threw away the reference the base held for the field it
-/// replaced.
+/// `?` that left the function without releasing what an enclosing construct
+/// would have released after it, a `let _ = …` that bound nothing and so
+/// released nothing, and a `..base` update that threw away the reference the
+/// base held for the field it replaced.
 const KNOWN_LEAKS: &[(&str, u64, &str)] = &[];
 
 /// What the ledger says a file leaks, or zero.

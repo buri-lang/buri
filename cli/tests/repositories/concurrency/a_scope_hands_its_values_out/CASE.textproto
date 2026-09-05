@@ -17,15 +17,6 @@
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
-#
-# **This case is the one run in the repository that leaks**, and it is listed by
-# name in cli/tests/harness/mod.rs's KNOWN_LEAKS: the last block below leaves a
-# message in an actor's mailbox for `stop` to discard, and a discarded message's
-# payload is released by nobody. The leak is `core/actor`'s and not this case's
-# — it reproduces with no scope in sight, and `build::heap` provokes it on
-# purpose and pins the number — so the run below is made again without the heap
-# check and the goldens record what the case was written to assert. The day the
-# defect is fixed, `build::heap` goes red and says to delete both.
 
 doc: "a value built inside a scope survives the scope, at every crossing a program can reach"
 
