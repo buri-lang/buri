@@ -232,9 +232,9 @@ ambiguous at all.
 
 Two layers are below that line and keep the method form:
 
-* **the standard library**, which is where those wrapper functions are, so its
+- **the standard library**, which is where those wrapper functions are, so its
   bodies are the only thing that reaches an effect at all; and
-* **the body of an `impl` that supplies an effect**, which is where the
+- **the body of an `impl` that supplies an effect**, which is where the
   operation is implemented — this is what keeps Section 10.8's attenuation
   wrapper writable, and `ReadOnly<C>`'s `self.0.readFile(path)` cannot become
   `fs.readText(self.0, at)`, because that wrapper is bounded
@@ -638,9 +638,9 @@ Static confinement is a fact about the type checker; attenuation is a fact about
 the value, and survives anything that later escapes the type system. Use the
 first by default and the second at trust boundaries.
 
-Note that attenuation narrows the *context*, not one effect out of it. That
-is what keeps the `ctx` rule satisfiable: there is still exactly one
-effect-carrying parameter.
+Attenuation narrows the *context*, not one effect out of it. That is what keeps
+the `ctx` rule satisfiable: there is still exactly one effect-carrying
+parameter.
 
 **The `self.0.readFile(path)` above is the carve-out of Section 10.2, and it
 has to be.** A body supplying an effect is where the operation is implemented,

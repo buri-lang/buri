@@ -74,8 +74,8 @@ library {
 }
 ```
 
-`lib.buri` is absent from `sources` on purpose: the rule kind names it, the way
-`library` names it. Everything else in the package is listed one path at a time,
+`lib.buri` is absent from `sources` on purpose: the `library` rule kind names
+it. Everything else in the package is listed one path at a time,
 and a `.buri` file no rule lists is an error rather than a file quietly left out
 of the build.
 

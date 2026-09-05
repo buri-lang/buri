@@ -6,15 +6,15 @@ effects.
 
 Three ideas define it:
 
-1. **There is no mutation.** Every binding is final. There are no references, no
-   borrowing, and no lifetimes. Values are values.
-2. **Effects travel through arguments.** The ability to allocate, read a file, or
-   open a socket is a *value* of an unforgeable type. A function that was not
-   handed one cannot perform that effect. Purity is therefore a property you can
-   read off a signature, not a property the compiler asks you to trust.
-3. **The grammar is context-free and unambiguous.** Parsing never consults name
-   resolution or types. `design/grammar-rationale.md` documents each design decision that pays for
-   this, and what was given up to get it.
+- **There is no mutation.** Every binding is final. There are no references, no
+  borrowing, and no lifetimes. Values are values.
+- **Effects travel through arguments.** The ability to allocate, read a file, or
+  open a socket is a *value* of an unforgeable type. A function that was not
+  handed one cannot perform that effect. Purity is therefore a property you can
+  read off a signature, not a property the compiler asks you to trust.
+- **The grammar is context-free and unambiguous.** Parsing never consults name
+  resolution or types. `design/grammar-rationale.md` documents each design decision that pays for
+  this, and what was given up to get it.
 
 Version 0.3 is deliberately small: primitives, arrays, tuples, structs, enums,
 functions, methods, and traits. Data and behaviour are declared

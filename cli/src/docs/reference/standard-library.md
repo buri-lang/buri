@@ -1,4 +1,4 @@
-## The standard library
+# The standard library
 
 The standard library ships with the toolchain. It is never listed in a
 `dependencies`, it is available to every target, and it cannot be replaced —
@@ -13,7 +13,7 @@ signature that exists, and `buri docs core/list.map` renders one item of it.
 page is the map over the top of that: which modules there are, what each one
 costs, and what is deliberately absent.
 
-### The purity tiers
+## The purity tiers
 
 Every function sits in one of three tiers, and the tier is visible in the
 signature rather than in a comment. This is
@@ -31,7 +31,7 @@ are pure; `map` and `filter` are not. A `F32x4` is four numbers in a struct, so
 every operation in `core/simd` is pure — the vector types are exactly the shape
 the rule was drawn around.
 
-### Values and control
+## Values and control
 
 [`core/option`](../../compiler/standard_library/sources/option.buri),
 [`core/result`](../../compiler/standard_library/sources/result.buri),
@@ -53,7 +53,7 @@ columns and a `DESC` is a value rather than a `match` written out. `order.int`,
 IEEE's, and IEEE leaves a `NaN` unordered, so it answers `.Equal` for a pair it
 could not order.
 
-### Text
+## Text
 
 [`core/str`](../../compiler/standard_library/sources/str.buri),
 [`core/char`](../../compiler/standard_library/sources/char.buri),
@@ -143,7 +143,7 @@ could not order.
   Text and octets are two questions about one stream, so they are two
   operations, and a program should ask only one of them.
 
-### Collections
+## Collections
 
 [`core/list`](../../compiler/standard_library/sources/list.buri),
 [`core/queue`](../../compiler/standard_library/sources/queue.buri),
@@ -198,7 +198,7 @@ two queues holding the same elements need not have the same front/back split,
 two maps built in different orders need not have the same bucket layout, and two
 ordered maps built in different orders need not have the same tree.
 
-### Numbers and vectors
+## Numbers and vectors
 
 [`core/simd`](../../compiler/standard_library/sources/simd.buri) — `F32x4` and `I32x4`.
 
@@ -209,7 +209,7 @@ backend with vector registers can lower directly, and the same kernel written
 as a fold over a list is not, because a fold says "in this order". Do not
 benchmark against a scalar loop expecting a win; there is not one today.
 
-### Time
+## Time
 
 [`core/time`](../../compiler/standard_library/sources/time.buri) is the clock,
 and reading it is an effect.
@@ -246,7 +246,7 @@ dependencies and ships no data files. `Zoned` carries a fixed offset in
 minutes, which covers UTC, a stored offset, and arithmetic within one offset.
 It does not cover `America/New_York`, and it does not pretend to.
 
-### Randomness
+## Randomness
 
 [`core/random`](../../compiler/standard_library/sources/random.buri) has two
 doors, and the principle behind the split is that **an RNG either takes a seed
@@ -271,7 +271,7 @@ Neither door is a secret. Both are uniform and both are predictable — for `Gen
 from a single draw, which is what publishing the algorithm means. What is *not*
 guessable is [`core/crypto`](#cryptography)'s, below.
 
-### Checksums
+## Checksums
 
 [`core/hash`](../../compiler/standard_library/sources/hash.buri) — `fnv1a32`,
 `fnv1a64`, `crc32c` and `siphash24`, pure over `[U8]`.
@@ -297,7 +297,7 @@ is the same answer another implementation gives. That also makes the package a
 hard test of the language: U32 and U64 wrapping arithmetic, both shifts, and the
 same numbers where a `U64` is a machine word and where it is a `BigInt`.
 
-### Cryptography
+## Cryptography
 
 [`core/crypto`](../../compiler/standard_library/sources/crypto.buri) — SHA-256,
 HMAC-SHA-256, a constant-time comparison, and the platform's cryptographic
@@ -351,7 +351,7 @@ a log record where four would do. That is what [`core/hash`](#checksums) is for,
 and the two modules are separate so that a program says which it meant by which
 it imports.
 
-### User interfaces
+## User interfaces
 
 [`ui/effect`](../../compiler/standard_library/sources/ui_effect.buri),
 [`ui/signal`](../../compiler/standard_library/sources/ui_signal.buri),
@@ -363,7 +363,7 @@ it imports.
 second reserved root. They have a page of their own:
 [user interfaces](../guides/user-interfaces.md).
 
-### The platform
+## The platform
 
 [`core/effect`](../../compiler/standard_library/sources/effect.buri) declares
 most of the effects and
@@ -646,7 +646,7 @@ it — `core/host/testing` is importable only from a test source — and a test
 cannot reach the real one. See
 [testing](./build/testing.md).
 
-### Allocators
+## Allocators
 
 [`core/alloc`](../../compiler/standard_library/sources/alloc.buri) —
 `GeneralPurpose`, `Arena`, `FixedBuffer`. Three implementations of `Alloc`,
@@ -705,7 +705,7 @@ view charges nothing — and the list and string rows are charged by definition
 and reported to no allocator. The model is written down beside `Alloc` in
 `core/effect`, where a reader of the effect meets it.
 
-### What is deliberately not here
+## What is deliberately not here
 
 - **Struct-of-arrays / `MultiArrayList`.** Not typeable today: exposing "column
   *i* of `T`, at `T`'s *i*-th field type" needs dependent or row types, and
