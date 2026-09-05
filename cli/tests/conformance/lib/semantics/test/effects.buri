@@ -2430,6 +2430,7 @@ test "an upgrade runs onOpen and then onClose, and the close carries a reason" {
         port: 0,
         onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
         websocket: .Some(server.WebSocket {
+            path: "/socket",
             onOpen: fn(c, _socket, request) => {
                 let _opened = io.println(c, "open ${request.url}");
                 request.url
@@ -2465,6 +2466,7 @@ fn closedWith(code: Int): Str {
         port: 0,
         onRequest: fn(_c, _r) => Response { status: 200, headers: [], body: [] },
         websocket: .Some(server.WebSocket {
+            path: "/socket",
             onOpen: fn(_c, _socket, _request) => 0,
             onMessage: fn(_c, _socket, state, _message) => state,
             onClose: fn(c, _socket, _state, reason) => {
@@ -2515,10 +2517,72 @@ test "a request that is not an upgrade reaches onRequest on a socket server" {
             Response { status: 200, headers: [], body: [] }
         },
         websocket: .Some(server.WebSocket {
+            path: "/socket",
             onOpen: fn(c, _socket, request) => {
                 let _opened = io.println(c, "opened ${request.url}");
                 0
             },
+            onMessage: fn(_c, _socket, state, _message) => state,
+            onClose: fn(_c, _socket, _state, _reason) => (),
+        }),
+    });
+    assert.eq(sink.captured(), "handled /socket\n");
+}
+
+test "an upgrade to a path the hooks do not name is an ordinary request" {
+    // **The third way the upgrade does not happen**, and it is the one a
+    // program controls. `Scripted` here would upgrade — its socket is 9, and
+    // the block above shows it saying `.Ok(9)` for the same connection — but
+    // the hooks are served at `/chat` and the request is for `/socket`, so
+    // `listenUpgrade` is never asked and the request reaches `onRequest`
+    // exactly as it does on a server with no hooks at all.
+    let sink = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Listen: Scripted { sink: sink, socket: 9, code: 1000 },
+        Sockets: QuietSockets { },
+        Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    let _served = server.serve(ctx, server.Server {
+        port: 0,
+        onRequest: fn(c, request) => {
+            let _handled = io.println(c, "handled ${request.url}");
+            Response { status: 200, headers: [], body: [] }
+        },
+        websocket: .Some(server.WebSocket {
+            path: "/chat",
+            onOpen: fn(c, _socket, request) => {
+                let _opened = io.println(c, "opened ${request.url}");
+                0
+            },
+            onMessage: fn(_c, _socket, state, _message) => state,
+            onClose: fn(_c, _socket, _state, _reason) => (),
+        }),
+    });
+    assert.eq(sink.captured(), "handled /socket\n");
+}
+
+test "the path a WebSocket names is matched exactly, with no trailing-slash forgiveness" {
+    // `"/socket"` and `"/socket/"` are two different paths, which is the
+    // whole of the normalisation rule: there is none.
+    let sink = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Listen: Scripted { sink: sink, socket: 9, code: 1000 },
+        Sockets: QuietSockets { },
+        Stdout: sink,
+        Tasks: SerialTasks { label: "s", bias: 0 },
+    };
+    let _served = server.serve(ctx, server.Server {
+        port: 0,
+        onRequest: fn(c, request) => {
+            let _handled = io.println(c, "handled ${request.url}");
+            Response { status: 200, headers: [], body: [] }
+        },
+        websocket: .Some(server.WebSocket {
+            path: "/socket/",
+            onOpen: fn(_c, _socket, _request) => 0,
             onMessage: fn(_c, _socket, state, _message) => state,
             onClose: fn(_c, _socket, _state, _reason) => (),
         }),

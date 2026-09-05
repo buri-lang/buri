@@ -194,6 +194,14 @@ returned. `broadcast` above is the shape — `Sockets` and nothing else, no
 listener and no port. The hooks are in
 [the standard library](../reference/standard-library.md).
 
+The hooks name the path they are served at, and naming it is not optional:
+`WebSocket { path: "/socket", onOpen: …, onMessage: …, onClose: … }`. The match
+is the request's path, exactly — no query string and no normalisation, so
+`"/socket"` and `"/socket/"` are two different paths — and a request to any
+other one is an ordinary request that reaches `onRequest`, upgrade headers and
+all. So the rest of a WebSocket server's URL space still routes the way the
+`match` above routes it.
+
 ## Stopping
 
 `SIGTERM` and `SIGINT` do not kill a program holding a port. The platform stops
