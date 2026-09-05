@@ -1534,3 +1534,150 @@ fn a_native_binary_touches_files_and_reads_its_own_arguments() {
         "the program reported removing its scratch directory and it is still there"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A projection off a value that arrives through a tail
+// ---------------------------------------------------------------------------
+
+/// A **chain** of field reads off a generic call's result, where the field in
+/// the middle of the chain holds a list of built strings.
+///
+/// `middle::inline` replaces `identity(outer(ctx, 3))` with the callee's body,
+/// and a body is a `Block` — so `.inner` is a projection off a value that
+/// arrives through a tail. `middle::rc` owns such a base rather than borrowing
+/// it, which means the projection increfs the field it hands on: what `.inner`
+/// produces is an owned reference with **no name**, and the `.lines` read one
+/// step further along is the only thing that ever looks at it.
+///
+/// Both payloads are built rather than written. A literal lives in the
+/// artifact's constant pool and is `IMMORTAL` (VALUE-MODEL.md 5.2), so a
+/// string nobody released would still balance; `repeat` and `map` allocate, and
+/// three strings behind one list is a block per element plus the list.
+fn chained_projection() -> String {
+    String::from(
+        r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+struct Inner { lines: [Str] }
+struct Outer { inner: Inner, tag: Str }
+
+fn outer<C: Alloc>(ctx: C, n: Int): Outer {
+    Outer {
+        inner: Inner { lines: [1, 2, 3].mapCtx(ctx, fn(c, i) => "line".repeat(c, n + i)) },
+        tag: "t".repeat(ctx, n),
+    }
+}
+
+fn identity<T>(value: T): T { value }
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let held = identity(outer(ctx, 3)).inner.lines.len();
+    let joined = identity(outer(ctx, 4)).inner.lines.join(ctx, ",").len();
+    let _ = io.println(ctx, "held ${held} joined ${joined}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// The same projection, reached through the **standard library** instead of a
+/// `let`: `Option.withDefault` is a `match` the inliner pastes in, so
+/// `held.withDefault(fallback).octets` is a field read off a tail too.
+///
+/// Both arms are exercised and both allocate. `.Some` answers the payload and
+/// throws the fallback away; `.None` answers the fallback — and the fallback
+/// here holds a **built** list rather than `list.empty<U8>()`, so the arm that
+/// costs no block in `native::agreement`'s row costs one here.
+fn defaulted_projection() -> String {
+    String::from(
+        r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+struct Wrapper { octets: [U8] }
+
+fn payload<C: Alloc>(ctx: C, n: Int): [U8] {
+    [1, 2, 3].map(ctx, fn(i) => (i + n).wrapToU8())
+}
+
+fn size(held: Option<Wrapper>, fallback: Wrapper): Int {
+    held.withDefault(fallback).octets.len()
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let present = size(
+        .Some(Wrapper { octets: payload(ctx, 10) }),
+        Wrapper { octets: payload(ctx, 20) },
+    );
+    let absent = size(.None, Wrapper { octets: payload(ctx, 30) });
+    let _ = io.println(ctx, "present ${present} absent ${absent}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A projection off a value that arrives through a tail gives its base
+/// back.**
+///
+/// This is the under-decrement half of issue #33, and it is one defect behind
+/// two shapes. Owning a tail-shaped base is what stopped the enclosing block
+/// from releasing its own binding underneath the field read; it also made the
+/// projection take a count of its own, and `rc::fresh` — the function that says
+/// which values are temporaries nobody named — did not report a projection off
+/// a `Block` as one. So the count went out and never came back, at one block a
+/// call.
+///
+/// It is here rather than beside a backend because what it asserts is
+/// behaviour: both native pipelines run this row, and the runtime's own audit
+/// is what answers it. `BURI_RT_HEAP_REPORT` is the audit saying so out loud —
+/// a silent pass and a heap check that never ran look the same otherwise.
+#[test]
+fn a_projection_off_an_inlined_calls_result_leaks_nothing() {
+    unless_ready!();
+    heap_is_clean(
+        "e2e-projection-chained",
+        &chained_projection(),
+        &["held 3 joined 74"],
+    );
+}
+
+/// The same defect through `Option.withDefault`, which is the spelling a
+/// program is far likelier to write than a hand-rolled `identity`.
+#[test]
+fn a_projection_off_a_defaulted_option_leaks_nothing() {
+    unless_ready!();
+    heap_is_clean(
+        "e2e-projection-defaulted",
+        &defaulted_projection(),
+        &["present 3 absent 3"],
+    );
+}
+
+/// Builds a program, runs it under the runtime's exit audit, and requires that
+/// it printed those lines, exited zero, and gave every block back.
+fn heap_is_clean(name: &str, source: &str, lines: &[&str]) {
+    let binary = built(name, source);
+    let out = std::process::Command::new(&binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
+        .env("BURI_RT_HEAP_REPORT", "1")
+        .output()
+        .expect("the program did not start");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(stdout.lines().collect::<Vec<_>>(), lines.to_vec(), "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("buri heap check: ok"),
+        "the heap audit did not report a clean exit.\nstderr:\n{stderr}"
+    );
+}
