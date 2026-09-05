@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+ --> lib/recovery_insert_stray_brace_entry_2922b2/lib.buri:2:5
+  |
+2 |     @ 2
+  |     ^
+  |
+  = expected: an expression
+  = actual: `@`
+  = fix: write a value here

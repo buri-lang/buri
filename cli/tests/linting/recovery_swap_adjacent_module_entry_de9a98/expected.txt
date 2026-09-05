@@ -1,0 +1,9 @@
+error: expected `:`, found `I64` [unexpected-token]
+ --> lib/recovery_swap_adjacent_module_entry_de9a98/lib.buri:1:20
+  |
+1 | export fn entries()I64 : {
+  |                    ^^^
+  |
+  = expected: `:`
+  = actual: `I64`
+  = fix: write `:` here

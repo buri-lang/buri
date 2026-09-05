@@ -1,0 +1,18 @@
+// The suite that uses the fakes. Nothing here is a finding: this case is about
+// the `testing/` half, and `fakeCents` being called from here is what keeps it
+// off `dead-code`'s list.
+
+from "core/effect" import { Alloc, Stdout };
+from "core/host/testing" import { alloc, stdout };
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { Cents };
+from "//lib/money/testing" import { fakeCents };
+
+test "the fake answers a Cents" {
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: stdout(),
+    };
+    let made: Cents = fakeCents(ctx);
+    assert.eq(made, made);
+}

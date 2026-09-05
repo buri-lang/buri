@@ -1,0 +1,25 @@
+// A suite with two mechanical mistakes: an import nothing uses, and a helper
+// that asks every caller for a context it never touches. Both carry byte
+// edits, and `--fix` applies them here exactly as it does in a library source
+// — the second one rewrites the call site as well as the signature.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { Cents, fromCents };
+from "//lib/money/testing" import { fakeCents };
+
+fn width<C: Alloc>(label: Str): Int {
+    label.len()
+}
+
+test "the fake answers a hundred and fifty cents" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let made: Cents = fakeCents();
+    assert.eq(made, fromCents(150));
+    assert.eq(width("abc"), 3);
+    assert.eq(str.format(ctx, "${made.0}"), "150");
+}

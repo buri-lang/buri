@@ -1,0 +1,8 @@
+// A fake with an import nothing uses. `--fix` rewrites this file the same way
+// it rewrites a library source.
+
+from "//lib/money" import { Cents, fromCents };
+
+export fn fakeCents(): Cents {
+    fromCents(150)
+}

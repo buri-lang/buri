@@ -1,0 +1,17 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/recovery_insert_stray_module_kit_dc30f3/lib.buri:4:4
+  |
+4 | // TODO: the kit is not finished.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+error: expected a function body, found `extra` [unexpected-token]
+ --> lib/recovery_insert_stray_module_kit_dc30f3/lib.buri:6:22
+  |
+6 | export fn kit(): Str extra {
+  |                      ^^^^^
+  |
+  = expected: a function body
+  = actual: `extra`
+  = fix: write `{ ... }` after the return type

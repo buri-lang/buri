@@ -17,6 +17,21 @@
 //! than downgraded, and every command that prints a report says which rules
 //! those were: a finding that is silently absent is worse than one that was
 //! never written, because nothing on the screen says a check did not run.
+//!
+//! **What the catalogue is asked about is every source a rule declares**: the
+//! library's or the binary's own, the `test { sources }` beside them, and the
+//! `testing { sources }` a suite imports. A suite is code, so a suite is
+//! linted, and `--fix` rewrites a test source like any other. Two rules answer
+//! differently in a test source and each says why at its own definition —
+//! `check_dead_code`, because a test source exports nothing and a `test`
+//! declaration is a root, and `check_ctx_rebindings`, because a context may be
+//! built there.
+//!
+//! The report is not only the catalogue: whatever the checker said about the
+//! target's whole closure rides along with it (see `one_target`), which is
+//! how a type error in a test source reaches a terminal that only ever runs
+//! `buri lint`. `buri build` compiles no test source at all, so on that half of
+//! a repository this command is the only one that speaks.
 #![allow(
     clippy::print_stdout,
     clippy::print_stderr,
@@ -708,6 +723,13 @@ fn check_dependencies(
 /// Four checks ask this and every one of them wants the same set, so it is one
 /// function: a lint that walked a dependency's bodies would report findings
 /// against code the author cannot edit.
+///
+/// **A test source and a `testing/` helper are in it.** [`analysis_of`] loads a
+/// target with `with_tests`, and a suite is the package's own code as much as
+/// the library is — so every rule that asks this set asks it of all three kinds
+/// of file, and nothing here sorts them. The two rules that answer differently
+/// in a test source say so themselves: [`check_dead_code`] and
+/// [`check_ctx_rebindings`].
 fn modules_of(
     analysis: &crate::compiler::driver::Analysis,
     own: PackageId,
@@ -1385,6 +1407,21 @@ fn check_test_titles(
 ///
 /// Only module-level items. A field's or a variant's `export` is about the
 /// shape of a type, and asking whether it is "reached" is a different question.
+///
+/// **A `testing/` module is asked the same question against its own surface.**
+/// Test-only code is code, and an `export` under `testing/` that
+/// `testing/lib.buri` does not carry and no module beside it imports is
+/// reached by nothing either — a fake nobody can name is a fake nobody uses.
+/// The only thing that changes is which file the fix names. What keeps a live
+/// helper quiet is the ordinary evidence: a test source importing
+/// `//lib/money/testing` names what it takes, and every one of those names
+/// lands in `wanted` below, so a fixture a suite in this package uses is used.
+///
+/// **A test source is not asked, and cannot be.** A test source may not
+/// `export` (TESTING.md, "What a test can reach"), so there is no declaration
+/// in one for this rule to have an opinion about — and a `test` declaration is
+/// a root by definition: the runner reaches it, and nothing in the program has
+/// to.
 fn check_dead_code(
     session: &Session,
     target: TargetId,
@@ -1408,6 +1445,10 @@ fn check_dead_code(
         return;
     }
     let Some(surface) = analysis.checked.surfaces.get(&own) else { return };
+    let surface: BTreeSet<&str> = surface.iter().map(String::as_str).collect();
+    let testing = testing_surface(session, analysis, own);
+    let testing: Option<BTreeSet<&str>> =
+        testing.as_ref().map(|names| names.iter().map(String::as_str).collect());
 
     // What a sibling module inside the same package imports or re-exports, and
     // which sibling modules are taken whole by `import * as x`. A namespace
@@ -1445,11 +1486,22 @@ fn check_dead_code(
         if m.pkg != Some(own) {
             continue;
         }
-        // `lib.buri` is the surface; what it exports is the answer, not the
-        // question. Test sources are not importable at all.
-        if m.path.ends_with("/lib") || !matches!(m.role, crate::compiler::modules::Role::Source) {
-            continue;
-        }
+        // A surface file is the answer rather than the question: `lib.buri` and
+        // the `testing/lib.buri` beside it publish what they declare as much as
+        // what they re-export, so a declaration in one is on the surface by
+        // construction and `published` below exempts it.
+        //
+        // Which file decides whether this module's exports leave the package.
+        // A test source has neither: it exports nothing and nothing may import
+        // it, so there is no declaration here to ask about.
+        let (published, decides) = match m.role {
+            crate::compiler::modules::Role::Source => (&surface, "lib.buri"),
+            crate::compiler::modules::Role::TestOnly => match &testing {
+                Some(names) => (names, "testing/lib.buri"),
+                None => continue,
+            },
+            _ => continue,
+        };
         // A generated module is not a file anybody can edit, so neither of the
         // two fixes this rule offers exists for one. A `.proto` schema exports
         // the whole of what it declares — that is what a schema *is* — and
@@ -1462,10 +1514,10 @@ fn check_dead_code(
         }
         for item in &m.ast.items {
             let Some((name, span)) = exported_name(&m.ast.tree, item) else { continue };
-            if surface.contains(name) || wanted.contains(name) {
+            if published.contains(name) || wanted.contains(name) {
                 continue;
             }
-            let lib = format!("{}/lib.buri", session.workspace.package(own).path);
+            let lib = format!("{}/{decides}", session.workspace.package(own).path);
             diagnostics.push(
                 Diagnostic::templated("dead-code", span)
                     .with_bind("name", name)
@@ -1524,6 +1576,13 @@ fn check_dead_code(
 /// this analysis. A non-exported field is private to its declaring module even
 /// on a published type, so it is still asked about. A binary has no surface at
 /// all, and nothing in one is exempt.
+///
+/// **A shape declared under `testing/` is measured against the testing
+/// surface**, which is `testing/lib.buri`. The reasoning is the same one word
+/// for word — a name that file carries may be built and read by a test suite
+/// in a package this analysis never loaded — and the two surfaces are kept
+/// apart rather than merged so that a name on one of them cannot exempt a
+/// declaration the other publishes.
 ///
 /// **One finding per dead shape.** A type nothing uses has no read fields and
 /// no matched variants by construction, so it is reported once rather than once
@@ -1590,6 +1649,21 @@ fn check_unused_declarations(
     let reportable = editable_modules_of(analysis, own);
     // A package with no library has no surface, and nothing in it is exempt.
     let surface = analysis.checked.surfaces.get(&own);
+    // A shape declared under `testing/` is published by `testing/lib.buri`
+    // rather than by `lib.buri`, and the consumer that justifies it is another
+    // package's test suite — which this analysis never loaded. So the testing
+    // surface exempts exactly as the library's does; without it, a fixture
+    // written for somebody else's suite is reported as a field nothing reads.
+    let testing = testing_surface(session, analysis, own);
+    let published = |module: ModuleId, name: &str| -> bool {
+        let role = analysis.loaded.modules.get(module.index()).map(|m| m.role);
+        match role {
+            Some(crate::compiler::modules::Role::TestOnly) => {
+                testing.as_ref().is_some_and(|names| names.contains(name))
+            }
+            _ => surface.is_some_and(|names| names.contains(name)),
+        }
+    };
 
     for (index, con) in tables.tycons.iter().enumerate() {
         if !reportable.contains(&con.module) || con.span.is_none() {
@@ -1604,8 +1678,8 @@ fn check_unused_declarations(
         // Published, or possibly published: either way this rule does not ask
         // about it, and neither does it ask about the exported fields and the
         // variants underneath, which are the shape a consumer reaches through.
-        let exempt = con.exported
-            && (surface_in_doubt || surface.is_some_and(|s| s.contains(&con.name)));
+        let exempt =
+            con.exported && (surface_in_doubt || published(con.module, con.name.as_str()));
         if !census.built.contains(&id) && !names.written.contains(&con.name) {
             if !exempt {
                 diagnostics.push(
@@ -2056,6 +2130,12 @@ fn line_end(text: &str, at: u32) -> u32 {
 /// so it records the bindings and this reports the ones in the package's own
 /// editable code (see [`Checked::ctx_rebindings`]).
 ///
+/// **Which is why it never fires in a test source or under `testing/`, and why
+/// that is an answer rather than a skip.** Both are places a context may be
+/// *built* (SPEC 11.3), so a `let ctx = …` there is the real thing — the same
+/// answer the rule gives inside `main`'s body, for the same reason. There is
+/// nothing here that asks what kind of module it is looking at.
+///
 /// [`Checked::ctx_rebindings`]: crate::compiler::semantics::resolve::Checked::ctx_rebindings
 fn check_ctx_rebindings(
     own: PackageId,
@@ -2350,18 +2430,52 @@ fn published_by(
         .get(&own)
         .map(|names| names.iter().cloned().collect())
         .unwrap_or_default();
-    let testing = session.workspace.package(own).module_path("testing/lib.buri");
-    for m in &analysis.loaded.modules {
-        if m.pkg != Some(own) || m.path != testing {
-            continue;
-        }
-        for item in &m.ast.items {
-            if let crate::parsing::tree::Item::ReExport(r) = item {
+    out.extend(testing_surface(session, analysis, own).unwrap_or_default());
+    out
+}
+
+/// What `testing/lib.buri` publishes, and `None` where the package has no such
+/// module in this analysis.
+///
+/// The testing surface is `lib.buri`'s opposite number for the test-only half
+/// of a package, and every rule that exempts a published name has to count it:
+/// a fake, a fixture or a matcher is written for **somebody else's** test
+/// suite, so the reader that justifies it is a package this analysis never
+/// loaded. That is exactly [`check_dead_code`]'s stance on `lib.buri`, applied
+/// to the file that decides the same question one directory down.
+///
+/// The distinction between "no testing surface" and "a testing surface that
+/// publishes nothing" is the reason for the `Option`: the first is a package
+/// with no test-only code at all, and the second is one whose surface is empty
+/// on purpose, where every `export` under `testing/` really is unreached.
+fn testing_surface(
+    session: &Session,
+    analysis: &crate::compiler::driver::Analysis,
+    own: PackageId,
+) -> Option<BTreeSet<String>> {
+    let path = session.workspace.package(own).module_path("testing/lib.buri");
+    let m = analysis
+        .loaded
+        .modules
+        .iter()
+        .find(|m| m.pkg == Some(own) && m.path == path)?;
+    let mut out = BTreeSet::new();
+    for item in &m.ast.items {
+        // Both halves of a surface, as `Checker::compute_surfaces` reads the
+        // library's: the names this file re-exports from the modules beside it,
+        // and the ones it declares and exports itself.
+        match item {
+            crate::parsing::tree::Item::ReExport(r) => {
                 out.extend(r.specs.iter().map(|sp| m.ast.tree.name(sp.name).to_string()));
+            }
+            other => {
+                if let Some((name, _)) = exported_name(&m.ast.tree, other) {
+                    out.insert(name.to_string());
+                }
             }
         }
     }
-    out
+    Some(out)
 }
 
 /// One element of a comma-separated list, and the separator that goes with it.

@@ -1,0 +1,43 @@
+# A suite is code, so a suite is linted. Every rule in the catalogue's general
+# half — the ones that read a module's own text and bodies rather than the build
+# graph — is made to fire once inside `test/cents.buri`, and the library beside
+# it is written correctly so the report cannot be mistaken for the library's.
+#
+# Two rules of the general half are deliberately absent, and both are absences
+# rather than skips:
+#
+# * `dead-code`. A test source may not `export` and nothing may import one
+#   (TESTING.md), so it has no declaration this rule could have an opinion
+#   about — and a `test` declaration is a root by definition, which the last
+#   step below shows by running the suite. Not one of the twenty-odd findings
+#   here is a `dead-code` finding about a test.
+# * `ctx-rebinding`. A test source is one of the few places a context may be
+#   *built* (SPEC 11.3), so `let ctx = …` there is the real thing rather than a
+#   name holding something else. The rule's condition is the checker's and the
+#   answer is genuinely "no", the same answer it gives inside `main`.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "every general rule fires inside a test source, and the suite it fires on still compiles and runs"
+
+run {
+  args: ["lint", "//lib/money"]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//lib/money", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# The suite runs. Every finding above is about code that works, and every
+# `test` declaration is reached by the runner rather than by the program — which
+# is why none of them is ever reported unreached.
+run {
+  args: ["test", "//lib/money"]
+  exit: 0
+  golden: "test.txt"
+}

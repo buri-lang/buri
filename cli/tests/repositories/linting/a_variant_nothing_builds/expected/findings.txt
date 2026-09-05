@@ -26,6 +26,10 @@ warning: nothing constructs or matches `Step.Decrement` [unused-variant]
      the question rather than an oversight: a derived fold reads every field's
      value, and it puts a value into no case at all.
 
+     An enum on a surface is not reported: lib.buri for a library's,
+     testing/lib.buri for a fixture's. A consumer this analysis cannot see may
+     build any of its cases.
+
 warning: nothing constructs or matches `Step.Reset` [unused-variant]
   --> lib/money/steps.buri:14:5
    |

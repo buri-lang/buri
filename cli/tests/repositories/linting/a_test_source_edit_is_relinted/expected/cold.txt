@@ -1,0 +1,40 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/kit/kit.buri:4:4
+  |
+4 | // TODO: the kit is not finished.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+
+    Resolve or remove these markers before merging.
+
+warning: `doubled` is bound and never used [unused-variable]
+ --> lib/money/test/cents.buri:9:9
+  |
+9 |     let doubled = 150 * 2;
+  |         ^^^^^^^
+  |
+  = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
+  = fix: use it, delete the `let`, or write `_` in its place
+
+    An unused local variable is dead weight: the reader has to prove to
+    themselves it does not matter. It usually signals one of three things — a
+    computation whose result is never consumed (delete the computation, not just
+    the assignment), a leftover from a refactor that moved logic elsewhere, or a
+    value you meant to use and forgot to wire in (the real bug).
+
+    Decide which it is before deleting. If the right-hand side has side effects
+    you still need, keep the call but drop the binding. If it was meant to be
+    returned or passed on, finish that thread rather than silencing the warning.
+    Suppressing it with a throwaway name hides the question instead of answering
+    it.
+
+warning: str is imported but not used [unused-import]
+ --> lib/money/testing/fakes.buri:3:29
+  |
+3 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import

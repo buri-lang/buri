@@ -1,0 +1,3 @@
+export entries fn(): I64 {
+    2
+}

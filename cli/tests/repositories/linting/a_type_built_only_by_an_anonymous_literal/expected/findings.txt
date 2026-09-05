@@ -19,7 +19,9 @@ warning: nothing reads `Stamp.note` [unused-field]
      If the field is there because a caller outside this library reads it, then
      it belongs to public API and the answer is the library's surface: the
      exported fields of a type lib.buri re-exports are not reported, because the
-     reader this analysis can see is not the only one there is.
+     reader this analysis can see is not the only one there is. Under testing/,
+     that surface is testing/lib.buri — a fixture's field is read by another
+     package's suite, which this analysis never loads.
 
      Two things read every field of a type at once, and neither leaves a
      projection behind to find. A derive is a fold over the whole type
@@ -49,7 +51,9 @@ warning: nothing uses `Ghost` [unused-type]
      outside this library needs. Then the answer is not to use it here but to
      re-export it from lib.buri: a name on the library's surface is public API
      and this rule does not ask about it, because the consumer this analysis can
-     see is not the only one there is.
+     see is not the only one there is. A type declared under testing/ is
+     measured against testing/lib.buri the same way, and for the same reason — a
+     fixture is written for another package's suite.
 
      A shape that was meant to be wired in. It was written before the code that
      would build it, and that code was never written. That is the real bug, and

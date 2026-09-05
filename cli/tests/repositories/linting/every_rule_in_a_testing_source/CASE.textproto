@@ -1,0 +1,56 @@
+# A `testing/` module is a library that happens to be test-only, so it is held
+# to the same catalogue. Every rule in the general half fires once inside
+# `testing/fakes.buri`, and `dead-code` is among them: an `export` that
+# `testing/lib.buri` does not carry and nothing beside it names is reached by
+# nobody, exactly as the same shape in an ordinary library source is. The fix
+# the diagnostic prints names `testing/lib.buri`, because that is the file that
+# decides this half's surface.
+#
+# The two negatives are what make the positive worth anything, and both are in
+# the same report:
+#
+# * `fakeCents` is on the testing surface and the only thing that ever calls it
+#   is the suite next door. It is not reported.
+# * `Fixture` is on the testing surface and its field is read only by
+#   //lib/ledger's suite — a file that linting //lib/money never loads. Neither
+#   the type nor the field is reported, which is the whole reason the testing
+#   surface has to exempt what it publishes: a fixture is written for somebody
+#   else's test.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "every general rule fires inside a testing source, dead-code included, while the testing surface keeps a fake and a fixture alive"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//...", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# The two suites run, so every finding above is about code that works.
+run {
+  args: ["test", "//..."]
+  exit: 0
+  golden: "test.txt"
+}
+
+# `stale`'s two fixes are opposites and both end the finding. This is the one
+# the diagnostic names first: put it on the surface `testing/lib.buri` decides.
+edit {
+  file: "lib/money/testing/lib.buri"
+  replace: "export { aFixture, fakeCents, Fixture };"
+  with: "export { aFixture, fakeCents, Fixture, stale };"
+}
+
+run {
+  args: ["lint", "//...", "--error-format=json"]
+  exit: 1
+  golden: "surfaced.json"
+}

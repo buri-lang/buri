@@ -1,0 +1,13 @@
+library {
+    sources: ["manager.buri"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/residency.buri"]
+        dependencies: ["//lib/db/testing"]
+    }
+
+    testing {
+        sources: ["testing/fakes.buri"]
+    }
+}

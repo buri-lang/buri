@@ -1,0 +1,155 @@
+// A test-only helper module, written the way one really goes wrong. Every rule
+// in the catalogue's general half fires here once, and each is the same rule
+// the library one directory up is held to.
+
+// TODO: these fakes are not finished.
+
+from "core/effect" import { Alloc };
+from "core/effect" import { IoError, Stdout };
+from "core/io" import * as io;
+from "core/order" import { Order };
+from "core/str" import * as str;
+from "//lib/money" import { Cents, fromCents };
+
+let HEX_DIGITS: Str = "0123456789abcdef";
+
+let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+
+struct Ledger {
+    entries: I64,
+    note: Str,
+}
+
+struct Receipt {
+    total: I64,
+}
+
+enum Shade {
+    Light,
+    Dark,
+}
+
+// On the testing surface, and read only by another package's suite. A fixture
+// is written for somebody else's test, so the surface is what keeps it alive.
+export struct Fixture {
+    export label: Str,
+}
+
+export fn aFixture(): Fixture {
+    Fixture { label: "f" }
+}
+
+// Exported, not on the testing surface, and named by nothing beside it:
+// reached by nobody, exactly as the same shape in a library source is.
+export fn stale(): I64 {
+    1
+}
+
+fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {
+    a + b + c + d + e + f
+}
+
+fn compareInts(left: Int, right: Int): Order {
+    if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }
+}
+
+fn width<C: Alloc>(ctx: C, label: Str): Int {
+    label.len()
+}
+
+fn announce<C: Alloc + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+    io.println(ctx, "-- ${label}")
+}
+
+fn drop<C: Stdout>(ctx: C, line: Str): () {
+    let _ = io.println(ctx, line).ignore();
+}
+
+fn byHand<C: Stdout>(ctx: C, line: Str): () {
+    match (io.println(ctx, line)) {
+        .Ok(_written) => (),
+        .Err(_error) => (),
+    }
+}
+
+fn depth(n: I64): Str {
+    if (n > 0) {
+        if (n > 10) {
+            if (n > 100) {
+                if (n > 1000) {
+                    if (n > 10000) { "huge" } else { "large" }
+                } else {
+                    "big"
+                }
+            } else {
+                "medium"
+            }
+        } else {
+            "small"
+        }
+    } else {
+        "none"
+    }
+}
+
+fn spell(n: I64): Str {
+    match (n) {
+        0 => "zero",
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        4 => "four",
+        5 => "five",
+        6 => "six",
+        7 => "seven",
+        8 => "eight",
+        9 => "nine",
+        10 => "ten",
+        11 => "eleven",
+        12 => "twelve",
+        13 => "thirteen",
+        14 => "fourteen",
+        15 => "fifteen",
+        16 => "sixteen",
+        17 => "seventeen",
+        18 => "eighteen",
+        19 => "nineteen",
+        20 => "twenty",
+        21 => "twenty-one",
+        22 => "twenty-two",
+        23 => "twenty-three",
+        24 => "twenty-four",
+        25 => "twenty-five",
+        26 => "twenty-six",
+        27 => "twenty-seven",
+        28 => "twenty-eight",
+        29 => "twenty-nine",
+        30 => "thirty",
+        31 => "thirty-one",
+        32 => "thirty-two",
+        33 => "thirty-three",
+        34 => "thirty-four",
+        35 => "thirty-five",
+        _ => "many",
+    }
+}
+
+// On the testing surface, and called only by the suite next door.
+export fn fakeCents<C: Alloc + Stdout>(ctx: C): Cents {
+    let unread = total(1, 2, 3, 4, 5, 6);
+    let ledger = Ledger { entries: 2, note: "unread" };
+    let shade: Shade = .Light;
+    let _ = drop(ctx, "one");
+    let _ = byHand(ctx, "two");
+    let _ = announce(ctx, "three").ignore();
+    let _ = compareInts(1, 2);
+    let _ = match (shade) {
+        _ => (),
+    };
+    let counted = ledger.entries
+        + width(ctx, depth(5))
+        + spell(7).len()
+        + HEX_DIGITS.len()
+        + NANOS_PER_MILLISECOND;
+    fromCents(counted)
+}

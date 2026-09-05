@@ -1,9 +1,0 @@
-error: expected `:`, found `@` [unexpected-token]
- --> lib/recovery_insert_stray_module_prose_ec124a/lib.buri:1:24
-  |
-1 | export fn shout(s: Str)@ : Str {
-  |                        ^
-  |
-  = expected: `:`
-  = actual: `@`
-  = fix: write `:` here

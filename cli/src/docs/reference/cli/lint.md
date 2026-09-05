@@ -44,6 +44,30 @@ not, is worse than the finding it was hiding.
 Import order is not a lint. `buri format` sorts imports, so an unsorted import
 run is not a finding to report — it is a file that has not been formatted.
 
+## What it reads
+
+Every source a rule declares: `sources`, the `test { sources }` beside them, and
+the `testing { sources }` a suite imports. A suite is code, so a suite is
+linted, and `--fix` rewrites a test source and a testing source exactly as it
+rewrites a library source.
+
+Two rules answer differently in a test source, and neither is a skip:
+
+- `dead-code` never fires there. A test source may not `export` and nothing may
+  import one, so it has no declaration the rule could ask about — and a `test`
+  declaration is reached by the runner rather than by the program, which makes
+  it a root by definition.
+- `ctx-rebinding` never fires there. A test source is one of the few places a
+  context may be *built*, so `let ctx = …` is the real thing, the same answer
+  the rule gives inside `main`.
+
+A `testing/` module has both. Its surface is `testing/lib.buri`, which decides
+what leaves the test-only half exactly as `lib.buri` decides what leaves the
+library — so `dead-code` reports an `export` that file does not carry, and
+`unused-type`, `unused-field` and `unused-variant` leave alone what it does.
+A fixture is written for somebody else's suite, and that suite is in a package
+this analysis never loaded.
+
 ## Exit status
 
 `0` if there was nothing to report, `1` if there was anything at all. Severity
@@ -59,7 +83,11 @@ pattern that names nothing, or a build file that does not read.
 ## When the code does not compile
 
 The catalogue still runs, and the report holds both halves: the errors the front
-end found, and every finding those errors cannot have caused. A file with a
+end found, and every finding those errors cannot have caused. The errors are the
+whole closure's, tests included, so `buri lint` says more here than `buri build`
+does: a bound naming an effect that no longer exists is reported in a library
+source, in a testing source and in a key of a context a test source builds,
+while a build compiles only the first of the three. A file with a
 mistake in one function is still a file with an import nothing uses, and holding
 the second answer back until the first is fixed makes the tool tell you one
 thing at a time about a file you are already looking at. A syntax error is an
