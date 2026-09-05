@@ -1,0 +1,31 @@
+/// An accumulator folded one word at a time.
+///
+/// The shape `core/cli`'s own parser is written in: each word is added through
+/// a `..acc` update whose new list is grown out of the field it replaces.
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+
+/// The words seen so far, and the last of them.
+export struct Ledger {
+    export words: [Str],
+    export last: Str,
+}
+
+/// Nothing seen yet.
+export fn empty(): Ledger {
+    Ledger { words: list.empty<Str>(), last: "" }
+}
+
+/// Every word from `at` onwards, folded in.
+export fn folded<C: Alloc>(ctx: C, words: [Str], at: Int, acc: Ledger): Ledger {
+    match (words.get(at)) {
+        .None => acc,
+        .Some(word) => {
+            folded(ctx, words, at + 1, Ledger {
+                ..acc,
+                words: acc.words.push(ctx, word),
+                last: word,
+            })
+        },
+    }
+}

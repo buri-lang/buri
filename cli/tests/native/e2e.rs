@@ -1952,3 +1952,133 @@ fn heap_is_clean(name: &str, source: &str, lines: &[&str]) {
         "the heap audit did not report a clean exit.\nstderr:\n{stderr}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Two more ways a program lost a block it was still holding
+// ---------------------------------------------------------------------------
+//
+// Both were found by the heap check over `cli/tests/conformance`, and neither
+// is about the file whose ledger row named it: `semantics/effects.buri` and
+// `semantics/host_testing.buri` are the rows, and both root causes are in
+// `middle::rc`. Payloads are built at run time throughout, for the reason
+// [`replaced_fields`] states: a literal is `IMMORTAL` and would balance while
+// leaking.
+
+/// A `?` inside a **`match` arm**, where what leaks is not a local.
+///
+/// [`early_return`] is the half of this that a *name* covers: an owned local
+/// live across the `?`, released on the escape path with the rest of what the
+/// abandoned continuation would have released. This is the other half. A
+/// `match` on a scrutinee it built itself has no binding to release it by, so
+/// the drop is keyed on the `match`'s own [`rc::Position::After`] — and an arm
+/// that escapes through a `?` never reaches it. `core/fs`'s `writeAtomic` is
+/// the shape: `path.withSuffix(ctx, ".tmp")` is matched, the arm writes and
+/// syncs and renames through three `?`s, and the temporary path leaked once per
+/// write that failed.
+///
+/// Two runs, because the point is the difference between them: `wrote` takes
+/// the continuation and `failed` takes the escape, so the audit is of a program
+/// in which the early return really ran.
+fn early_return_out_of_an_arm() -> String {
+    String::from(
+        r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+fn refused(at: Int): Result<Int, Str> {
+    if (at > 1) { .Err("refused") } else { .Ok(at) }
+}
+
+fn suffixed<C: Alloc>(ctx: C, seed: Str): Option<Str> {
+    .Some(seed.repeat(ctx, 30000))
+}
+
+/// `temp` points into an `Option` this `match` built, and the release of that
+/// `Option` sits after the arms — past the `?`.
+fn through_an_arm<C: Alloc>(ctx: C, seed: Str, at: Int): Result<Int, Str> {
+    match (suffixed(ctx, seed)) {
+        .None => .Err("none"),
+        .Some(temp) => {
+            let n = refused(at)?;
+            .Ok(n + temp.len())
+        },
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let wrote = through_an_arm(ctx, "a", 0);
+    let failed = through_an_arm(ctx, "b", 7);
+    let _ = io.println(ctx, "wrote ${wrote.isOk()} failed ${failed.isOk()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// A value a statement **discards**: `let _ = f(ctx);`.
+///
+/// The pattern binds nothing, so there was no name for the "bound and never
+/// read" drop to hang on and the initializer's value had no owner at all. It is
+/// the shape a discarded `assert.ok(…)` in a test source is written in, which
+/// is how nineteen of `core/host/testing`'s answers went missing.
+fn discarded_bindings() -> String {
+    String::from(
+        r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+fn made<C: Alloc>(ctx: C, seed: Str): Str {
+    seed.repeat(ctx, 50000)
+}
+
+/// `assert.ok`'s shape: a `match` that consumes the value and hands out a piece
+/// of it, whose caller then throws the piece away.
+fn taken(r: Result<Str, Str>, fallback: Str): Str {
+    match (r) {
+        .Ok(v) => v,
+        .Err(_e) => fallback,
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    // Discarded outright.
+    let _ = made(ctx, "a");
+    // And discarded after a `match` handed it out of a value it consumed.
+    let _ = taken(.Ok(made(ctx, "b")), "");
+    let kept = made(ctx, "c");
+    let _ = io.println(ctx, "kept ${kept.len()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **An escaping `?` gives back what the construct around it would have.**
+///
+/// The drops a `?` skips are not only the last-use drops of locals: they are
+/// every drop this pass placed after an *enclosing* node, and the value a
+/// `match` built to scrutinise is the one with no name to be found by.
+#[test]
+fn an_early_return_out_of_a_match_arm_releases_what_the_match_built() {
+    unless_ready!();
+    heap_is_clean(
+        "e2e-early-return-in-an-arm",
+        &early_return_out_of_an_arm(),
+        &["wrote true failed false"],
+    );
+}
+
+/// **A statement that discards a value releases it.**
+///
+/// `semantics/host_testing.buri` was the ledger row: nineteen strings and byte
+/// lists the test platform's doubles had answered with, every one of them
+/// thrown away by a `let _ = …;` that bound nothing.
+#[test]
+fn a_discarded_binding_releases_what_it_discarded() {
+    unless_ready!();
+    heap_is_clean("e2e-discarded-bindings", &discarded_bindings(), &["kept 50000"]);
+}
