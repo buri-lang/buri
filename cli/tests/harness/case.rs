@@ -969,7 +969,7 @@ fn drive_session(case: &str, dir: &Path, args: &[&str], session: &str) -> super:
 
     let mut argv: Vec<&str> = args.to_vec();
     argv.push("--color=never");
-    let mut child = Command::new(super::buri())
+    let mut child = super::buri_command()
         .args(&argv)
         // A recorded session is a byte stream, and the language server sweeps
         // whole repositories on a worker thread — so where a sweep's publishes
