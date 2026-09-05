@@ -845,11 +845,6 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
 /// file reaches, and the shape of each is in `BURI_RT_HEAP_CHECK=trace`'s dump
 /// — which prints every surviving block's size, count and first bytes.
 const KNOWN_LEAKS: &[(&str, u64, &str)] = &[
-    // 70 000 bytes of one repeated character with a count of 1: the payload
-    // `core/actor`'s `copyAcross` deep-copies on its way out of the scope. The
-    // copy is a block of its own (`buri_rt_copy_block`) and nothing releases
-    // it once the mailbox has been read.
-    ("actor/scoped.buri", 1, "an actor payload copied out of a scope is never released"),
     // A 64-byte list of small integers with a count of 2 — one increment more
     // than the value has holders.
     ("data/lists.buri", 1, "a list built inside a closure keeps a reference nothing drops"),

@@ -284,6 +284,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("unclosed-delimiter", "Every delimiter a construct opens is closed"),
     e!("undeclared-testing-surface", "A `testing/` directory is declared by a `testing` block", &["build/build-files"]),
     e!("underivable", "A derive is a fold over the type's components"),
+    e!("undetermined-intrinsic-type", "A runtime operation is called at a type the body determines"),
     e!("unexpected-character", "Every byte of a source file starts a token"),
     e!("unexpected-token", "The grammar expected something else here"),
     e!("uninhabited", "A type with no finite value cannot be constructed"),
