@@ -844,25 +844,17 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
 /// under-decrement somewhere between `middle::rc` and the runtime entries the
 /// file reaches, and the shape of each is in `BURI_RT_HEAP_CHECK=trace`'s dump
 /// — which prints every surviving block's size, count and first bytes.
-const KNOWN_LEAKS: &[(&str, u64, &str)] = &[
-    // A 64-byte list of small integers with a count of 2 — one increment more
-    // than the value has holders.
-    ("data/lists.buri", 1, "a list built inside a closure keeps a reference nothing drops"),
-    // The path string a filesystem double was asked about.
-    ("semantics/effects.buri", 1, "a path handed to the filesystem double outlives it"),
-    // Nineteen: the strings and byte lists the test platform's doubles hand
-    // back — captured output, stdin lines, filesystem entries — plus one
-    // 48-byte record holding two of them.
-    ("semantics/host_testing.buri", 19, "the values `core/host/testing`'s doubles answer with"),
-    // The same family reached through `env.args` and the filesystem, plus the
-    // argument strings themselves.
-    ("cli/arguments.buri", 27, "the argument and filesystem values the doubles answer with"),
-    // Program values this time rather than the runtime's: a `Str`, two
-    // integer lists and the records over them.
-    ("proto/binary.buri", 8, "decoded message fields outlive the message"),
-    // Two bytes with a count of 2 — the `[U8]` a UTF-8 encoding produced.
-    ("text/bytes.buri", 1, "an encoded byte list keeps a reference nothing drops"),
-];
+///
+/// **It is empty**, and the sentence above is why that is worth writing down
+/// rather than deleting: every corpus file comes back with an empty heap, so
+/// the loop below asserts it of all of them and this table is the place a new
+/// finding goes while it is being worked on. The last rows went with three
+/// defects in `middle::rc`, none of which was in the file the row named — a
+/// `?` that left the function without releasing what it still held, a
+/// `let _ = …` that bound nothing and so released nothing, and a `..base`
+/// update that threw away the reference the base held for the field it
+/// replaced.
+const KNOWN_LEAKS: &[(&str, u64, &str)] = &[];
 
 /// What the ledger says a file leaks, or zero.
 fn allowed_leak(path: &str) -> u64 {
@@ -1438,4 +1430,3 @@ fn the_native_set_can_fail() {
         "the failure did not name the assertion:\nstdout:\n{out}\nstderr:\n{err}"
     );
 }
-
