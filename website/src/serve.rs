@@ -219,9 +219,13 @@ mod tests {
         assert_eq!(percent_decoded("/100%"), "/100%");
     }
 
+    /// Every file the generator writes today is a page — the stylesheet is
+    /// inside each of them — so the rest of the table is what the server would
+    /// say about an asset the site does not yet have.
     #[test]
     fn a_page_is_served_as_html() {
         assert_eq!(content_type(Path::new("a/index.html")), "text/html; charset=utf-8");
-        assert_eq!(content_type(Path::new("assets/site.css")), "text/css; charset=utf-8");
+        assert_eq!(content_type(Path::new("assets/anything.css")), "text/css; charset=utf-8");
+        assert_eq!(content_type(Path::new(".website-generated")), "application/octet-stream");
     }
 }
