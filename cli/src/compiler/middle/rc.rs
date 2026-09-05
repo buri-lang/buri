@@ -119,7 +119,9 @@
 //!   numbering, exported so that `lower` numbers nodes with this module's
 //!   function rather than with a second copy of the rule.
 //! * A [`Site`] says: at node `n`, [`Position::Before`] (before the node's own
-//!   code) or [`Position::After`] (after the node's value exists), apply
+//!   code), [`Position::After`] (after the node's value exists) or
+//!   [`Position::Escape`] (on the early return a `?` leaves the function by,
+//!   where the node's value never exists at all), apply
 //!   [`RcOp`] to the SSA value currently holding [`Site::local`]. Sites at one
 //!   `(node, position)` fire **in list order**, which matters where an arm
 //!   entry increfs three bindings and then decrefs the value they came out of.
@@ -282,7 +284,7 @@ impl NodeId {
 }
 
 /// Where a reference operation goes relative to the node it is keyed on.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Position {
     /// Before the node's own code runs. Used for a drop at the entry of a
     /// branch, and for a drop of a parameter nothing reads.
@@ -290,6 +292,28 @@ pub enum Position {
     /// After the node's value exists. Used for the increment a duplicating use
     /// needs.
     After,
+    /// On the path that **leaves the function** from this node without
+    /// producing its value: a `?` whose operand was `.None` or `.Err(e)`.
+    ///
+    /// Only [`ExprKind::Try`] has one, and it is a position rather than a node
+    /// because the early return has no node of its own — `lower::try_` invents
+    /// the block it lives in. `Before` runs on both paths and `After` runs only
+    /// on the one that continues, so neither can carry a drop that belongs to
+    /// the escape alone: the drops a `?` needs are exactly [`Scan::balance`]'s
+    /// — everything this function still owns that the abandoned continuation
+    /// would have released.
+    Escape,
+}
+
+impl Position {
+    /// The order the positions are emitted in at one node, for [`order_sites`].
+    fn ordinal(self) -> u8 {
+        match self {
+            Position::Before => 0,
+            Position::After => 1,
+            Position::Escape => 2,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -305,7 +329,7 @@ pub enum RcOp {
 /// temporary has no name, which is why it is named by the node that produced
 /// it — `f(g(x))` where `f` borrows has to drop what `g` returned, and there is
 /// no binding to hang that on.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Target {
     Local(LocalId),
     Node(NodeId),
@@ -374,56 +398,6 @@ pub struct FuncPlan {
     /// the local is a parent this expression is the last use of. Empty unless
     /// [`Options::sharing`] is on. See MEMORY.md §5.5.
     pub inherits: Vec<(NodeId, LocalId)>,
-    /// What a `?` has to release on the path where it **leaves the function**,
-    /// keyed by the [`ExprKind::Try`] node and sorted by it.
-    ///
-    /// A `?` is a return the tree does not spell as one: `lower`'s `try_`
-    /// branches to a block that builds `.None`/`.Err(e)` and returns, and
-    /// nothing on that path runs any of the drops this pass placed *after* the
-    /// node — the flush at the end of the enclosing block, the drop of a
-    /// `match`'s freshly-built scrutinee, the last-use drop of a local the
-    /// code below the `?` would have read. Every one of those is a block the
-    /// function still holds when it leaves, so on the failing path they leak.
-    ///
-    /// So each `Try` carries its own list, and `lower` emits a `decref` for
-    /// every entry into the cold block before the return. Two rules decide
-    /// what is on it, and the second is what keeps it from freeing the value
-    /// being returned:
-    ///
-    /// * every drop this pass places at an **ancestor's** [`Position::After`]
-    ///   — those are exactly the drops the fall-through path would have run;
-    /// * every owned local **live across** the `?`, whose last-use drop sits
-    ///   below it.
-    ///
-    /// A [`Target::Node`] at or inside the `Try`'s own subtree is excluded:
-    /// that is the operand the `?` tested, and the error it hands back is a
-    /// payload read out of it.
-    ///
-    /// `lower` skips a target nothing has bound yet, so an entry naming a
-    /// value the failing path never built costs nothing.
-    pub escapes: Vec<(NodeId, Target)>,
-    /// The **fields a `..base` update throws away**: the node of an
-    /// [`ExprKind::StructUpdate`], and the index of a counted field the update
-    /// replaces.
-    ///
-    /// `S { ..s, xs: ys }` is lowered as a fresh construction whose carried
-    /// fields are words read straight out of `s` ([`lower`]'s `GetField`s), so
-    /// this pass counts the base as **consumed**: the one reference `s` held is
-    /// what pays for every field the new value carries over, and no increment
-    /// or decrement is emitted between them. That accounting is exact for a
-    /// field that is carried and one short for a field that is *not* — the
-    /// reference `s` held for `xs` is paid to nobody, and the old list leaks.
-    /// `core/cli`'s parser is where it was found: every token folded into the
-    /// accumulator through `Arguments { ..acc, positionalValues: … }` left the
-    /// previous list behind, one per word on the command line.
-    ///
-    /// So each replaced counted field is released once, out of the base, and
-    /// `lower` is where the read happens because a field of a base is not a
-    /// node this pass can name. It holds whether the base was consumed or
-    /// duplicated: a base something still reads is incremented at this node
-    /// instead, which buys a reference for every field including the one being
-    /// replaced.
-    pub discards: Vec<(NodeId, u32)>,
 }
 
 impl Default for FuncPlan {
@@ -440,8 +414,6 @@ impl Default for FuncPlan {
             reuse: Vec::new(),
             unclassified: Vec::new(),
             inherits: Vec::new(),
-            escapes: Vec::new(),
-            discards: Vec::new(),
         }
     }
 }
@@ -463,11 +435,6 @@ impl FuncPlan {
         self.sites.iter().filter(move |s| s.node == node && s.at == at)
     }
 
-    /// What the `?` at `node` releases on the path where it leaves the
-    /// function. See [`FuncPlan::escapes`].
-    pub fn escaping(&self, node: NodeId) -> impl Iterator<Item = Target> + '_ {
-        self.escapes.iter().filter(move |(n, _)| *n == node).map(|(_, t)| *t)
-    }
 }
 
 /// What `lower` reads.
@@ -914,8 +881,6 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             reuse: Vec::new(),
             unclassified: Vec::new(),
             inherits: Vec::new(),
-            escapes: Vec::new(),
-            discards: Vec::new(),
         };
         if let Some(body) = f.body() {
             let mut sizes: Vec<u32> = Vec::new();
@@ -941,8 +906,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
                 self_params: plan.params.clone(),
                 inherits: Vec::new(),
                 tries: Vec::new(),
-                escapes: Vec::new(),
-                discards: Vec::new(),
+                escaped: HashSet::default(),
                 opts,
             };
             for (k, p) in f.params.iter().enumerate() {
@@ -1014,9 +978,6 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             // and so a plan reads the same way twice. `Scan` keeps the list
             // distinct as it fills it, which is what stops one block being
             // released twice on a failing path.
-            scan.escapes.sort_by_key(|(n, _)| n.0);
-            plan.escapes = scan.escapes;
-            plan.discards = scan.discards;
             order_sites(&mut plan.sites);
         }
         funcs.push(plan);
@@ -1063,7 +1024,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
 /// different values have to keep.
 fn order_sites(sites: &mut [Site]) {
     sites.sort_by_key(|s| {
-        (s.node.0, matches!(s.at, Position::After), matches!(s.op, RcOp::DecRef))
+        (s.node.0, s.at.ordinal(), matches!(s.op, RcOp::DecRef))
     });
 }
 
@@ -2076,10 +2037,10 @@ struct Scan<'a> {
     /// the other way round: [`Scan::push`] looks the `?`s up by subtree when
     /// the drop is placed.
     tries: Vec<NodeId>,
-    /// [`FuncPlan::escapes`], as it is found.
-    escapes: Vec<(NodeId, Target)>,
-    /// [`FuncPlan::discards`], as it is found.
-    discards: Vec<(NodeId, u32)>,
+    /// What each `?` has already been told to release, so that a target owed
+    /// twice — by [`Scan::escape`] and again by a drop an ancestor defers —
+    /// is released once.
+    escaped: HashSet<(NodeId, Target)>,
     opts: &'a Options,
 }
 
@@ -2136,9 +2097,7 @@ impl Scan<'_> {
             if matches!(target, Target::Node(n) if n.0 >= t.0) {
                 continue;
             }
-            if !self.escapes.contains(&(t, target)) {
-                self.escapes.push((t, target));
-            }
+            self.push_escape(t, target);
         }
     }
 
@@ -2296,6 +2255,13 @@ impl Scan<'_> {
     /// #33, and `lower.rs`'s
     /// `a_projection_never_reads_a_base_this_block_has_already_released` is
     /// what the emitted instructions have to say about it.
+    ///
+    /// **Owning the base is half of the answer.** [`Scan::projected`] then
+    /// increfs the field and releases the base, so the projection is holding
+    /// an owned reference with no name — and [`fresh`] is what tells the
+    /// enclosing construct to drop it. The two have to agree about the same
+    /// bases or the count goes out and does not come back; [`fresh_leaf`]
+    /// asks `compound` for that reason.
     fn tail_shaped_base(&mut self, base: &Expr) -> bool {
         compound(base) && self.counted_ty(&base.ty.clone())
     }
@@ -2370,6 +2336,37 @@ impl Scan<'_> {
             if self.owned.contains(&l) {
                 self.push(node, Position::Before, RcOp::DecRef, Target::Local(l));
             }
+        }
+    }
+
+    /// Drops, on the path a `?` leaves the function by, every owned local the
+    /// abandoned continuation would have released.
+    ///
+    /// [`Scan::balance`] with the sibling's liveness fixed at "nothing": an
+    /// early return reads none of what is live after the `?`, so all of it is
+    /// extra. Counted-ness is not filtered here for the same reason it is not
+    /// there — `lower` skips a local nothing has bound, and both backends make
+    /// a reference operation on an uncounted type a no-op.
+    fn escape(&mut self, node: NodeId, live: &Live) {
+        let mut held: Vec<LocalId> = live.iter().copied().collect();
+        held.sort_by_key(|l| l.0);
+        for l in held {
+            if self.owned.contains(&l) {
+                self.push_escape(node, Target::Local(l));
+            }
+        }
+    }
+
+    /// One drop on the escape path of the `?` at `node`, once.
+    ///
+    /// Two rules put things on that path and they overlap: an owned local live
+    /// across the `?` ([`Scan::escape`]) may *also* be one whose drop an
+    /// enclosing construct has deferred to its own [`Position::After`]
+    /// ([`Scan::owe_on_escape`]). Releasing it twice is an over-decrement, and
+    /// the set is what makes the second attempt a no-op.
+    fn push_escape(&mut self, node: NodeId, target: Target) {
+        if self.escaped.insert((node, target)) {
+            self.push(node, Position::Escape, RcOp::DecRef, target);
         }
     }
 
@@ -2623,25 +2620,27 @@ impl Scan<'_> {
                 // Scanning the operand in the enclosing liveness is what keeps
                 // a drop off a path that never reached it.
                 let bid = self.child(id, 0);
-                // "Nothing after it runs" is also why the failing path has to
-                // let go of what the function is still holding, and
-                // [`FuncPlan::escapes`] is that list. It is recorded before the
-                // operand is scanned, because a `?` inside the operand of
-                // another one is inside *this* node's subtree too and owes the
-                // same drops.
+                // Recorded before the operand is scanned, because a `?`
+                // inside the operand of another one is inside *this* node's
+                // subtree too and owes the same drops. [`Scan::push`] is what
+                // reads it.
                 self.tries.push(id);
-                // An owned local something below the `?` still reads has its
-                // drop below the `?` as well. The other half — the drops this
-                // pass places after an enclosing node — is [`Scan::push`]'s.
-                let mut across: Vec<LocalId> =
-                    live.iter().copied().filter(|l| self.owned.contains(l)).collect();
-                across.sort_by_key(|l| l.0);
-                for l in across {
-                    if self.is_counted(l) && !self.escapes.contains(&(id, Target::Local(l))) {
-                        self.escapes.push((id, Target::Local(l)));
-                    }
-                }
                 let out = self.expr(base, bid, live, mode);
+                // ...and the other half of that sentence: *because* nothing
+                // after it runs, the drops the continuation would have
+                // performed never happen on the escape path, and every owned
+                // local still live there is leaked. `?` is a two-way branch
+                // whose cold arm returns, so it wants exactly what
+                // [`Scan::balance`] gives a branch whose sibling reads more
+                // than it does — `live ∩ owned`, dropped at the entry of the
+                // arm that reads nothing. `Position::Escape` is that entry.
+                //
+                // `live` rather than `out`: a local the operand *consumed* is
+                // read for the last time before the branch and is gone by it,
+                // and releasing it here would be the second release of one
+                // reference. What survives into the escape is what the code
+                // after the `?` would have gone on to read.
+                self.escape(id, live);
                 self.flush(id);
                 out
             }
@@ -2689,22 +2688,6 @@ impl Scan<'_> {
                 let after = self.expr(base, bid, &after, Mode::Borrow);
                 self.flush(id);
                 after
-            }
-            // The ordinary update — the one every native build takes, because
-            // `sharing` is off there and the arm above is JavaScript's. Its
-            // children are scanned exactly as a construction's are; what it
-            // adds is [`FuncPlan::discards`], the reference the base held for a
-            // field the update replaces and the new value does not carry over.
-            ExprKind::StructUpdate { updates, .. } => {
-                let out = self.children(e, id, live);
-                for (i, value) in updates {
-                    let ty = value.ty.clone();
-                    if self.counted_ty(&ty) {
-                        let index = u32::try_from(*i).unwrap_or(u32::MAX);
-                        self.discards.push((id, index));
-                    }
-                }
-                out
             }
             _ => self.children(e, id, live),
         }
@@ -3209,6 +3192,12 @@ fn borrowed_root(e: &Expr) -> Option<LocalId> {
 /// an `ExprKind::CallFn`, and the string it returns had nobody left to drop it.
 /// All of them, so that a branch answering a borrowed alias is not dropped on
 /// the strength of a branch beside it that allocates.
+///
+/// **Every value this answers `true` for is a value somebody has to drop**, and
+/// that makes it one half of a pair: [`Scan::projected`] takes a count exactly
+/// where this says a temporary was made, and [`Scan::drop_temporary`] releases
+/// it exactly where this says so too. [`fresh_leaf`]'s projection case is where
+/// the two once disagreed.
 fn fresh(e: &Expr) -> bool {
     let tails = tails(e);
     !tails.is_empty() && tails.into_iter().all(fresh_leaf)
@@ -3224,7 +3213,21 @@ fn fresh_leaf(e: &Expr) -> bool {
     | ExprKind::CtxGet { base, .. }
     | ExprKind::Index { base, .. } = &e.kind
     {
-        return fresh(base);
+        // A **tail-shaped** base is the second way a projection ends up
+        // holding a count of its own: [`Scan::tail_shaped_base`] promotes a
+        // `Block`, an `If` or a `Match` base to [`Mode::Own`], and
+        // [`Scan::projected`] then increfs the field and releases the base
+        // exactly as it does for a fresh one. So what comes out is an owned
+        // reference with no name — a temporary — and saying otherwise here is
+        // saying nobody has to drop it.
+        //
+        // `middle::inline` is what makes it common: a call it pasted in is a
+        // `Block`, so `identity(outer()).inner.items` and
+        // `held.withDefault(w).octets` are both a projection off a block. The
+        // countedness the promotion also asks for is not asked again — a
+        // counted field implies a counted aggregate (`join`), so a drop that
+        // fires here is a drop of a count the promotion took.
+        return fresh(base) || compound(base);
     }
     matches!(
         e.kind,

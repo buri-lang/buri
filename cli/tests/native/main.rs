@@ -24,7 +24,9 @@
 //! reading, and neither shows up in what a program printed until the recycled
 //! memory happens to hold something that changes an answer. Five such defects
 //! have shipped. Every one was found by a person running a program and
-//! noticing that the answer was wrong.
+//! noticing that the answer was wrong — and the sixth, the under-decrement
+//! half of #33 below, is the first this net found instead, on the day the heap
+//! check went on for every program in the domain.
 //!
 //! So this domain carries four layers, and each one turns a class of that
 //! silence into a red test. None of them reads a pass, an IR, a plan or a
@@ -44,12 +46,13 @@
 //!
 //! Each row is an experiment: the fix was reverted in a worktree, the net was
 //! run, and the tree was restored. **A layer that catches nothing it was built
-//! for is a layer that gets fixed or gets written down**, and two rows below
-//! are written down.
+//! for is a layer that gets fixed or gets written down**, and the three rows
+//! that need a paragraph have one below.
 //!
 //! | Defect, re-introduced | 1 audit | 2 quarantine | 3 differential | 4 generator | First red, and how long |
 //! |---|---|---|---|---|---|
-//! | **#33** `rc.rs`: a projection borrows a tail-shaped base | **yes** | no | no | no | 93 s — 2 agreement rows, on the *exact* leak count |
+//! | **#33a** `rc.rs`: a projection borrows a tail-shaped base | no | no | no | no | **not caught** — see below |
+//! | **#33b** `rc.rs`: `fresh` does not see a tail-shaped projection | **yes** | no | no | **yes** | 46 s — 2 agreement rows and 2 `e2e` rows; 97 s through the generator |
 //! | **#39** `rc.rs`: a match does not keep its scrutinee's root | no | **yes** | no | **yes** | 47 s — `a_match_arms_bindings_survive_a_sibling_field_read` exits `-1` |
 //! | **#29a** `tail_calls.rs`: a merged group's slots typed by position | no | no | no | **yes** | 0.1 s — `every_ownership_program_compiles`; 88 s through the agreement row |
 //! | **#29b** `rc.rs`: a `Loop`'s entries balanced against each other | no | no | no | no | **not caught** — see below |
@@ -57,7 +60,7 @@
 //! | synthetic **over**-decrement (a projection stops retaining) | yes | **yes** | **yes** | **yes** | 78 s — 30 native tests, 112 verdict disagreements, 17 use-after-free reports |
 //! | synthetic **under**-decrement (a projection retains twice) | **yes** | no | no | **yes** | 47 s — 25 native tests |
 //!
-//! ### The two rows that are written down rather than fixed
+//! ### The three rows with a paragraph
 //!
 //! **#29b is not caught, and the reason is that the same commit fixed it
 //! twice.** `rc.rs` stopped balancing a `Loop`'s entries against each other,
@@ -69,19 +72,34 @@
 //! fix rather than a hole in the net — but it is also the honest answer to
 //! "would this have caught #29b", and the answer is no.
 //!
-//! **#33 is caught by the audit and not by the quarantine**, which is the
-//! opposite of what the report describes. The reason is that the defect's
-//! *corruption* half no longer reproduces from that revert alone — the
-//! program in the row answers correctly today with the fix taken out — while
-//! its counting half does: the row leaks exactly one block with the fix in
-//! and none with it out, and `agree_leaking` pins the number in both
-//! directions. A change to `rc`'s counting on that shape is red whichever way
-//! it moves the count, which is the property a ratchet has and a threshold
-//! does not.
+//! **#33 is one defect with two halves, and only the second half is caught.**
+//! Issue #33 was reported as corruption: a projection off a value that arrives
+//! through a tail — `identity(outer()).inner`, which the inliner turns into a
+//! projection off a `Block` — borrowed its base, so the block released its own
+//! binding between the call and the field read. Owning the base instead is
+//! **#33a**, and reverting it is not caught by any of the four layers: the
+//! corruption no longer reproduces from that revert alone, the programs in
+//! the rows answer correctly, and their heaps balance. What is red is
+//! `lower.rs`'s `a_projection_never_reads_a_base_this_block_has_already_released`,
+//! in 0.8 s — a unit test that reads the emitted instructions, which is
+//! exactly the kind of assertion none of these four layers makes. That is not
+//! a hole to fix here; it is where the coverage for that half lives.
+//!
+//! **#33b is the other half, and it shipped for as long as #33a did.** Owning
+//! the base means the projection increfs the field it hands on and releases
+//! the base there, so what comes out is an owned reference with no name — and
+//! `rc::fresh`, the function that says which values those are, read a
+//! projection as a temporary only when its base was a construction or a call.
+//! A base the inliner turned into a `Block` is neither, so the count went out
+//! and never came back. That is a plain under-decrement and the audit sees it:
+//! the two agreement rows carried it as a known leak of exactly one block each
+//! for as long as it was open, and the ownership generator finds it too, once
+//! `fuzz.rs` was allowed to draw the `wrapped(.Some(..))` shape it had been
+//! holding back *because* of this leak.
 //!
 //! ### What the matrix does not say
 //!
-//! Layer 3 fired on one row of seven. That is not a surprise and not a
+//! Layer 3 fired on one row of eight. That is not a surprise and not a
 //! failure: a verdict differs only when a defect changes an *answer*, and four
 //! of these seven change only a count. It is in the net for the defect that
 //! does change an answer, which is the one a leak check cannot see — and the

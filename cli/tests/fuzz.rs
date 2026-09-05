@@ -2944,34 +2944,40 @@ fn rc_line(rng: &mut Rng) -> (String, String) {
                 0 => (String::from("defaulted(.None)"), 0),
                 1 if present => (format!("matched(.Some([{bytes}]))"), n),
                 1 => (String::from("matched(.None)"), 0),
-                // `wrapped(.Some(..))` is **not drawn**, and this is the one
-                // place in this generator where a shape is held back. It
-                // leaks — an `Option` whose payload is a *struct* holding a
-                // list drops the payload's list when `withDefault` takes the
-                // `Some` arm — and it is pinned as its own test next door
-                // (`native/agreement.rs`'s
-                // `an_option_of_a_struct_holding_a_list_still_leaks_its_payload`,
-                // which asserts the exact number of blocks so a fix fails it).
-                // A search that walked into a known finding on most draws
-                // would report that one bug for ever and never reach a second,
-                // which is the argument `known_signatures` makes for the
-                // recorded corpus, applied to a finding the corpus cannot hold
-                // because it needs a backend this host may not have.
+                // `wrapped(.Some(..))` **used to be held back**, and it was
+                // the one place in this generator where a shape was. It leaked
+                // one block per call, and a search that walks into a known
+                // finding on most draws reports that one bug for ever and
+                // never reaches a second — the argument `known_signatures`
+                // makes for the recorded corpus, applied to a finding the
+                // corpus cannot hold because it needs a backend this host may
+                // not have.
                 //
-                // The `.None` arm **is** drawn, and it is the same
-                // under-decrement: `withDefault` drops the struct it did not
-                // answer with on either arm. It costs no block because the
-                // struct it drops here holds `list.empty<U8>()` and an empty
-                // list is not a block — which is a claim about the *backends*
-                // and not about `rc`, and it was false on one of them. The
-                // LLVM backend answered `list.empty` with a zero-byte
-                // allocation, so this draw leaked exactly one block there and
-                // none on the debug backend, and this search is what found it
-                // (`backend/llvm/emit.rs`'s `empty_list`, and
-                // `native/llvm.rs`'s `an_empty_list_is_not_a_block`). Left
-                // drawn: it is now the cheapest program in this file that
-                // would notice the two backends parting company over what an
-                // empty list costs.
+                // It is drawn now because the leak is fixed, and the diagnosis
+                // is why it belongs back in the search rather than only in the
+                // row that pinned it. It was never `withDefault`'s doing:
+                // `held.withDefault(w).octets` is a projection off a call the
+                // inliner pasted in, so it is shape 1 of this file's six
+                // reached through the standard library instead of a `let`.
+                // `rc::fresh` did not read such a projection as the temporary
+                // it is, so the count the projection took was never given
+                // back (`native/agreement.rs`'s
+                // `an_option_whose_payload_holds_an_array_agrees`). Drawing it
+                // is what makes this search able to notice that again.
+                //
+                // The `.None` arm is the same call with nothing in the option,
+                // and it costs no block because the struct it reads through
+                // holds `list.empty<U8>()` and an empty list is not a block —
+                // which is a claim about the *backends* and not about `rc`,
+                // and it was false on one of them. The LLVM backend answered
+                // `list.empty` with a zero-byte allocation, so this draw leaked
+                // exactly one block there and none on the debug backend, and
+                // this search is what found it (`backend/llvm/emit.rs`'s
+                // `empty_list`, and `native/llvm.rs`'s
+                // `an_empty_list_is_not_a_block`).
+                2 if present => {
+                    (format!("wrapped(.Some(Wrapper {{ octets: [{bytes}] }}))"), n)
+                }
                 2 => (String::from("wrapped(.None)"), 0),
                 _ if present => {
                     (format!("wrappedMatch(.Some(Wrapper {{ octets: [{bytes}] }}))"), n)
