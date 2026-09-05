@@ -1,0 +1,33 @@
+// EXPECT: is missing `path`
+//
+// `WebSocket.path` is a plain `Str` and not an `Option`, so a program cannot
+// stand up a socket server without saying where the socket is served. All
+// three hooks are here; the path is the only thing left out, and the
+// diagnostic names it and nothing else.
+//
+// The plan is built rather than served, because `Listen` is not granted on the
+// platform a reject case is compiled for — and it does not need to be: the
+// literal is where the refusal happens.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import { Server, WebSocket };
+
+fn plan<C: Alloc>(ctx: C): Server<C, Int> {
+  Server {
+    port: 3000,
+    onRequest: fn(_c, _request) => http.status(404),
+    websocket: .Some(WebSocket {
+      onOpen: fn(_c, _socket, _request) => 0,
+      onMessage: fn(_c, _socket, state, _message) => state,
+      onClose: fn(_c, _socket, _state, _reason) => (),
+    }),
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _said = io.println(ctx, "${plan(ctx).port}").ignore();
+  .Ok(())
+}

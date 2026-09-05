@@ -200,9 +200,17 @@
 //! ## WebSockets
 //!
 //! **The upgrade is invisible.** A `Server` with a `websocket` accepts upgrade
-//! requests and runs `onOpen`; a `Server` without one does not, and the same
-//! request reaches `onRequest` like any other. There is no branch in a handler,
-//! no "accept the upgrade" call, and no way for a program to be half upgraded.
+//! requests at the path its hooks name and runs `onOpen`; a `Server` without
+//! one does not, and the same request reaches `onRequest` like any other. There
+//! is no branch in a handler, no "accept the upgrade" call, and no way for a
+//! program to be half upgraded.
+//!
+//! **The hooks say where they are served, and saying it is not optional.**
+//! `WebSocket.path` is a plain required field: a request whose path is not that
+//! one is an ordinary request even when every RFC 6455 header is on it, so the
+//! rest of a WebSocket server's URL space is still the handler's. The match is
+//! exact — the query string is not compared, and nothing is normalised, so
+//! `"/socket"` and `"/socket/"` are two different paths.
 //!
 //! ```buri
 //! from "core/actor" import * as actor;
@@ -245,6 +253,7 @@
 //!             port: 3000,
 //!             onRequest: fn(_c, _request) => http.status(404),
 //!             websocket: .Some(server.WebSocket {
+//!                 path: "/socket",
 //!                 onOpen: fn(c, _socket, _request) => actor.start(c, counter()),
 //!                 onMessage: fn(c, socket, counted, _message) => {
 //!                     let _posted = counted.send(c, .Increment);
@@ -264,6 +273,9 @@
 //! }
 //! ```
 //!
+//! * **Every other path is the handler's.** The example answers `404` from
+//!   `onRequest`, and that is what a client asking to upgrade `/` is told —
+//!   the same answer it would get from a server with no `websocket` at all.
 //! * **`onOpen` decides what a socket carries**, every later hook is handed it,
 //!   and `onMessage` answers the next one — so per-socket state is a value on a
 //!   stack rather than a table keyed by socket. Above it is an actor's address;
@@ -368,16 +380,22 @@ export struct Server<C, S> {
     /// without a certificate is refused at the bind rather than quietly served
     /// in HTTP/1.1.
     export tls: Option<Tls>,
-    /// What this server does with a WebSocket. `.None` is a server that has
-    /// none, and on it an upgrade request is an ordinary request — it reaches
-    /// `onRequest` like any other, which is where a server that does not do
-    /// WebSockets should answer it.
+    /// What this server does with a WebSocket, and the path it does it at.
+    /// `.None` is a server that has none, and on it an upgrade request is an
+    /// ordinary request — it reaches `onRequest` like any other, which is where
+    /// a server that does not do WebSockets should answer it.
     ///
     /// **The upgrade is invisible.** There is no "accept the upgrade" call and
     /// no branch in a handler: with hooks present, a client that asks for a
-    /// socket gets one and `onOpen` runs; without them, nothing about the
-    /// request is special. That is the whole of the switch, and it is why this
-    /// is an `Option` of the hooks rather than a `Bool` beside them.
+    /// socket *at `WebSocket.path`* gets one and `onOpen` runs; without them,
+    /// nothing about the request is special. That is the whole of the switch,
+    /// and it is why this is an `Option` of the hooks rather than a `Bool`
+    /// beside them.
+    ///
+    /// **The hooks name their path and it is not optional**, so a WebSocket
+    /// server is still an ordinary server everywhere else: an upgrade request
+    /// to any path but that one reaches `onRequest` exactly as it would on a
+    /// server whose `websocket` is `.None`.
     export websocket: Option<WebSocket<C, S>>,
     /// How many messages one socket's outbound buffer holds before the socket
     /// is closed with `.Overflow`. `.None` leaves the number to the runtime.
@@ -644,15 +662,24 @@ fn answering<C: Listen, S>(
 }
 
 /// One connection, once its request has been read: a socket if the client
-/// asked for one and this server has hooks, and an ordinary request otherwise.
+/// asked for one at the path the hooks name, and an ordinary request otherwise.
 ///
 /// **Every way the upgrade does not happen ends in `onRequest`**, which is what
-/// "the upgrade is invisible" means from the loop's side. A server with no
-/// hooks never asks; a server with hooks asks about every request and is told
-/// `.Err` for all the ones that were not upgrades, and the connection is
-/// untouched either way — so a client that sent `GET /` to a WebSocket server
-/// and a client that sent an upgrade to a plain one are both answered by the
+/// "the upgrade is invisible" means from the loop's side. There are now three
+/// of them and they all end in the same call. A server with no hooks never
+/// asks; a server whose hooks are served at another path never asks either,
+/// because the path is compared here, before the acceptor is spoken to at all;
+/// and a server that does ask is told `.Err` for every request that was not an
+/// upgrade. The connection is untouched in all three — so a client that sent
+/// `GET /` to a WebSocket server, a client that sent an upgrade to `/other`,
+/// and a client that sent an upgrade to a plain server are all answered by the
 /// handler, which is where a program's own answer lives.
+///
+/// **The path is compared in Buri and not in the runtime.** `listenUpgrade`
+/// takes a connection and nothing else, and it stays that way: the request has
+/// already been read by the time this runs, `Request.path` is pure, and a
+/// routing rule that lived behind the C ABI would be a rule a program could
+/// not read.
 fn taking<C: Listen, S>(
     ctx: C,
     connection: Int,
@@ -663,9 +690,15 @@ fn taking<C: Listen, S>(
     match (websocket) {
         .None => answered(ctx, connection, request, onRequest),
         .Some(hooks) => {
-            match (ctx.listenUpgrade(connection)) {
-                .Err(_notAnUpgrade) => answered(ctx, connection, request, onRequest),
-                .Ok(socket) => opened(ctx, hooks, Socket(socket), request),
+            if (request.path() == hooks.path) {
+                match (ctx.listenUpgrade(connection)) {
+                    .Err(_notAnUpgrade) => {
+                        answered(ctx, connection, request, onRequest)
+                    },
+                    .Ok(socket) => opened(ctx, hooks, Socket(socket), request),
+                }
+            } else {
+                answered(ctx, connection, request, onRequest)
             }
         },
     }
@@ -898,6 +931,23 @@ export enum CloseReason {
 /// a hook that pushes on a socket says `C: Sockets` at the place it is written
 /// and a program whose context lacks it does not compile.
 export struct WebSocket<C, S> {
+    /// The path this socket is served at. Required, because a server that
+    /// upgrades every URL it is asked about has no URLs left for anything
+    /// else.
+    ///
+    /// **An exact match on the path, and nothing else.** The comparison is the
+    /// request's `path` — the query string is not part of it, so a token in
+    /// `?t=…` reaches `onOpen` on the `Request` and does not have to be spelled
+    /// here — and it is `==` with no normalisation of any kind: `"/socket"` and
+    /// `"/socket/"` are two different paths, and a socket served at one is not
+    /// served at the other. That costs a program the trailing slash it meant to
+    /// write; it buys a rule with no cases in it, which is the trade this
+    /// module makes everywhere a string is compared.
+    ///
+    /// A request to any other path is an ordinary request and reaches
+    /// `onRequest`, upgrade headers and all — see `Server.websocket`, where
+    /// that list is written out.
+    export path: Str,
     /// A client's upgrade was accepted. Answers the socket's first state.
     ///
     /// The `Request` is the one that asked — its path, its headers, its query —

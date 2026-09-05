@@ -460,9 +460,15 @@ serving; `WEB` grants no `Tasks` either, so a server on a page is refused
 twice.
 
 **A `Server` with a `websocket` speaks WebSockets, and the upgrade is
-invisible.** With hooks present a client that asks for a socket gets one and
-`onOpen` runs; without them the same request reaches `onRequest` like any other,
-and there is no branch in a handler either way. `onOpen` answers the socket's
+invisible.** With hooks present a client that asks for a socket at the path the
+hooks name gets one and `onOpen` runs; without them the same request reaches
+`onRequest` like any other, and there is no branch in a handler either way.
+`WebSocket.path` is a required field and not an `Option`, because a server that
+upgraded every URL would have none left for anything else: the request's path is
+compared to it exactly — the query string is not part of the comparison and
+nothing is normalised, so `"/socket"` and `"/socket/"` are two different paths —
+and an upgrade request to any other path is an ordinary request answered by
+`onRequest`, exactly as it would be on a server whose `websocket` is `.None`. `onOpen` answers the socket's
 first state, every later hook is handed the current one, and `onMessage` answers
 the next — so per-socket state is a value rather than a table keyed by socket,
 and the counter-per-socket example in `buri docs core/net/server` is an actor's
