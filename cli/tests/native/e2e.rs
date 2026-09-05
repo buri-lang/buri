@@ -219,6 +219,75 @@ export fn main(): Result<(), Str> {{
     )
 }
 
+/// A server whose hooks are served at **one** path, and whose handler answers
+/// every other one.
+///
+/// `WebSocket.path` is a plain required field, so this program cannot be
+/// written without saying where the socket lives — and having said it, the
+/// server is an ordinary one everywhere else. `requestLimit: 2` is what makes
+/// it finish: the ordinary request is the first, the upgrade is the second, and
+/// once the socket closes the next `listenAccept` is `.Closed`.
+fn path_scoped_socket_server() -> String {
+    format!(
+        r#"from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {{
+    let ctx = context {{
+        Alloc: host.alloc,
+        Listen: host.listen,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    }};
+    let plan = server.Server {{
+        port: 0,
+        onRequest: fn(c, request) => http.text(c, str.format(c, "handled ${{request.path()}}")),
+        requestLimit: .Some(2),
+        idleTimeoutMillis: .Some(20000),
+        websocket: .Some(server.WebSocket {{
+            path: "/socket",
+            onOpen: fn(c, _socket, request) => {{
+                let _said = io.println(c, "opened ${{request.path()}}").ignore();
+                0
+            }},
+            onMessage: fn(c, socket, seen, message) => {{
+                match (message) {{
+                    .Text(text) => {{
+                        let said = str.format(c, "echo ${{text}}");
+                        let _sent = socket.send(c, .Text(said));
+                        seen + 1
+                    }},
+                    .Binary(_data) => seen,
+                }}
+            }},
+            onClose: fn(_c, _socket, _seen, _reason) => (),
+        }}),
+    }};
+    match (server.bind(ctx, plan)) {{
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(listener) => {{
+{padding}
+            let _announced = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+            match (server.run(ctx, listener, plan)) {{
+                .Err(e) => .Err(server.errorText(e)),
+                .Ok(_ok) => {{
+                    let _done = io.println(ctx, "served").ignore();
+                    .Ok(())
+                }},
+            }}
+        }},
+    }}
+}}
+"#,
+        padding = padding(),
+    )
+}
+
 /// A server with **no** `websocket` field, which is the whole of the
 /// fall-through claim.
 ///
@@ -322,6 +391,7 @@ export fn main(): Result<(), Str> {{
         idleTimeoutMillis: .Some(20000),
         socketBuffer: .Some(1),
         websocket: .Some(server.WebSocket {{
+            path: "/socket",
             onOpen: fn(_c, _socket, _request) => 0,
             onMessage: fn(c, socket, sent, _message) => sent + flood(c, socket, {flood}),
             onClose: fn(c, socket, _sent, reason) => {{
@@ -434,6 +504,7 @@ export fn main(): Result<(), Str> {{
         requestLimit: .Some(1),
         idleTimeoutMillis: .Some(20000),
         websocket: .Some(server.WebSocket {{
+            path: "/socket",
             onOpen: fn(_c, _socket, _request) => 0,
             // The second world: the same function, the same argument shapes,
             // and a client on the far side of a real socket.
@@ -843,6 +914,73 @@ fn an_upgrade_request_reaches_the_request_handler_when_a_server_has_no_hooks() {
         "the handler was not given the request's own path.\nthe whole reply was:\n{reply}"
     );
     let out = crate::shared::finished(running);
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+}
+
+/// **A WebSocket is served at the path it names, and nowhere else.**
+///
+/// One server, one binary, two clients, and the two halves of the rule:
+///
+/// * an upgrade request to `/elsewhere` — every RFC 6455 header on it — is
+///   answered by `onRequest` with a `200` and the handler's own body, which is
+///   character for character what the same request gets from a server with no
+///   `websocket` at all; and
+/// * an upgrade request to `/socket`, the path the hooks named, becomes a
+///   socket: `onOpen` runs and `onMessage` answers on the wire.
+///
+/// The two are asserted against *one* server on purpose. Either half alone is
+/// satisfiable by a server that is broken in the other direction — a server
+/// that upgraded nothing would pass the first, and the old server that upgraded
+/// everything would pass the second — and only both together say that the path
+/// is what chose.
+#[test]
+fn a_websocket_is_served_only_at_the_path_its_hooks_name() {
+    unless_ready!();
+    let binary = built("e2e-socket-path", &path_scoped_socket_server());
+    let running = crate::shared::announced(&binary);
+    let port = running.2;
+
+    // The wrong path, asked for with a complete upgrade request.
+    let back =
+        dialled(port, crate::shared::upgrade_request("/elsewhere").as_bytes(), Until::Closed);
+    let reply = String::from_utf8_lossy(&back).to_string();
+    assert!(
+        !reply.contains("101 "),
+        "an upgrade request to a path the hooks do not name was upgraded: {reply}"
+    );
+    assert!(
+        reply.starts_with("HTTP/1.1 200 "),
+        "an upgrade request to another path was not answered as a request: {reply}"
+    );
+    let body = body_of(&reply)
+        .unwrap_or_else(|| panic!("the reply has no blank line after its head: {reply}"));
+    assert_eq!(
+        body, "handled /elsewhere",
+        "the handler did not answer the request the socket declined.\nthe whole reply was:\n{reply}"
+    );
+
+    // The declared path, on the same server.
+    let mut client = crate::shared::Talking::to_at(port, "/socket");
+    client.say("hi");
+    let heard = client.heard();
+    client.hush();
+    let out = crate::shared::finished(running);
+    assert_eq!(
+        heard.as_deref(),
+        Some("echo hi"),
+        "the socket at the declared path did not carry the hook's answer.\nthe server said:\n{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains("opened /socket"),
+        "`onOpen` did not run for the request to the declared path:\n{}",
+        out.stdout
+    );
+    assert!(
+        !out.stdout.contains("opened /elsewhere"),
+        "`onOpen` ran for a path the hooks do not name:\n{}",
+        out.stdout
+    );
     assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
 }
 

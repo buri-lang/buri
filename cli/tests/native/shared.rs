@@ -1302,6 +1302,7 @@ export fn main(): Result<(), Str> {{
     requestLimit: .Some(1),
     idleTimeoutMillis: .Some(20000),
     websocket: .Some(server.WebSocket {{
+      path: "/socket",
       onOpen: fn(c, _socket, _request) => actor.start(c, counter()),
       onMessage: fn(c, socket, counted, _message) => {{
         let _posted = counted.send(c, .Increment);
@@ -1418,6 +1419,7 @@ export fn main(): Result<(), Str> {{
     requestLimit: .Some({members}),
     idleTimeoutMillis: .Some(20000),
     websocket: .Some(server.WebSocket {{
+      path: "/socket",
       onOpen: fn(c, socket, _request) => {{
         let _joined = members.send(c, .Joined(socket));
         socket
