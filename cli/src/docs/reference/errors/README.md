@@ -57,21 +57,21 @@ its wording, and the tests fail with the page named.
 
 `{placeholder}` is the one piece of templating.
 
-* **Names are `snake_case`, and spelled out.** `{function}`, never `{fn}` or
+- **Names are `snake_case`, and spelled out.** `{function}`, never `{fn}` or
   `{fnName}`. A test enforces the shape; the project's no-abbreviations rule
   covers the rest.
-* **`{{` and `}}` are the literal braces.** A fix that shows
+- **`{{` and `}}` are the literal braces.** A fix that shows
   `` `impl Eq for ... { ... }` `` writes `{{ ... }}`, or the template would read
   `{ ... }` as a placeholder named `" ... "` and the snake-case test would
   reject it.
-* **There are no filters, no conditionals, and no pluralization.** The call site
+- **There are no filters, no conditionals, and no pluralization.** The call site
   binds whole finished phrases. Where the wording varies by more than an
   interpolated name — a fix that reads one way with a near-miss suggestion and
   another way without — the site sets that field itself after its last `bind`,
   and the page leaves it out.
-* **Placeholders are allowed in `message`, `label`, `note` and `fix` only.**
+- **Placeholders are allowed in `message`, `label`, `note` and `fix` only.**
   `title` and the body are static.
-* **One code is one message.** Two emission sites that need genuinely different
+- **One code is one message.** Two emission sites that need genuinely different
   sentences are two rules and want two codes. Two sites whose sentences differ
   only in an interpolated noun are one code with a placeholder.
 
@@ -98,21 +98,21 @@ Below the frontmatter, the page is freeform markdown, and it is printed under
 the diagnostic — wrapped to the terminal width, indented to the `= fix:` column,
 and dimmed when colour is on.
 
-* **Once per code per run.** The second `type-mismatch` in a build prints the
+- **Once per code per run.** The second `type-mismatch` in a build prints the
   diagnostic and no body. The set is process-wide, so a command that opens
   several sessions still owes the reader one copy.
-* **`--dense` suppresses it**, on `build`, `test`, `lint`, `run` and `docs`.
-* **`--error-format=json` never carries it.** The JSON is byte-identical to what
+- **`--dense` suppresses it**, on `build`, `test`, `lint`, `run` and `docs`.
+- **`--error-format=json` never carries it.** The JSON is byte-identical to what
   it was before pages held the wording.
-* **Four things are dropped before printing**: the `#` title (it is a copy of the
+- **Four things are dropped before printing**: the `#` title (it is a copy of the
   frontmatter title, which is never printed), the fenced `text` specimen of
   the diagnostic itself (the reader is looking at the real one), the
   `buri fail code=…` reproduction, and any heading those leave empty. A page
   that is frontmatter plus a reproduction therefore prints nothing at all.
-* **Inline markdown is flattened.** `` `x` `` prints as `x` and `*x*` prints as
+- **Inline markdown is flattened.** `` `x` `` prints as `x` and `*x*` prints as
   `*x*` — the asterisks survive, so prefer backticks. A markdown numbered list
   renders as running prose.
-* Write the body about the *rule*, not about the page's own example. The body is
+- Write the body about the *rule*, not about the page's own example. The body is
   static and the diagnostic above it is not, so a body that names a concrete type
   will sooner or later sit under a diagnostic about a different one.
 
@@ -269,9 +269,9 @@ be moved from one to the other whenever its sentence reads better for it.
 Three families are deliberately parallel rather than unified, because their
 sentences are:
 
-* `{expected}` / `{found}` — `expected …, found …`.
-* `{expected}` / `{given}` — `takes …, but … were given`.
-* `{expected}` / `{matched}` — the same, for a pattern.
+- `{expected}` / `{found}` — `expected …, found …`.
+- `{expected}` / `{given}` — `takes …, but … were given`.
+- `{expected}` / `{matched}` — the same, for a pattern.
 
 `{arity}` is always the *N* in `{arity}-tuple`; `{count}` is a number in prose.
 `{package_path}`, `{owner_path}` and `{to_package_path}` are paths with no

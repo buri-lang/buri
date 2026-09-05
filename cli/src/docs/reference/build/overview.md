@@ -31,24 +31,24 @@ to be specific enough to argue with.
 Five rules produce the layout every Buri repository has, and everything else in
 these documents follows from them:
 
-1. **A directory with a `BUILD.buri` is a package.** Subdirectories without one
-   belong to the nearest ancestor package, so `posting/rules.buri` is part of
-   `//lib/ledger`. Organize freely; a directory is not a unit of anything.
-2. **`lib.buri` is a library's whole public surface.** It exports, or
-   re-exports, everything another target can see. A name that does not appear in
-   `lib.buri` cannot be imported from outside the library, however public it is
-   within it.
-3. **`main.buri` is a compilation entry point** and exports `main`. Its build
-   rule declares which outputs to produce — a Linux binary, a macOS binary, a JS
-   module, or several at once.
-4. **Tests live in `test/` and see only the target's surface.** A library's
-   tests import `//lib/money` — its surface, the same name a dependent
-   writes — and not the files behind it. A library's fixtures *for other
-   people's tests* live in `testing/`, and that segment in a path is what makes
-   them unimportable from production code.
-5. **Everything is declared.** Sources, test sources, dependencies, outputs,
-   visibility, tags. No globs, no discovery, no implicit `..` walk. A file on
-   disk that no rule lists is an error.
+- **A directory with a `BUILD.buri` is a package.** Subdirectories without one
+  belong to the nearest ancestor package, so `posting/rules.buri` is part of
+  `//lib/ledger`. Organize freely; a directory is not a unit of anything.
+- **`lib.buri` is a library's whole public surface.** It exports, or
+  re-exports, everything another target can see. A name that does not appear in
+  `lib.buri` cannot be imported from outside the library, however public it is
+  within it.
+- **`main.buri` is a compilation entry point** and exports `main`. Its build
+  rule declares which outputs to produce — a Linux binary, a macOS binary, a JS
+  module, or several at once.
+- **Tests live in `test/` and see only the target's surface.** A library's
+  tests import `//lib/money` — its surface, the same name a dependent
+  writes — and not the files behind it. A library's fixtures *for other
+  people's tests* live in `testing/`, and that segment in a path is what makes
+  them unimportable from production code.
+- **Everything is declared.** Sources, test sources, dependencies, outputs,
+  visibility, tags. No globs, no discovery, no implicit `..` walk. A file on
+  disk that no rule lists is an error.
 
 ## Tags, in one paragraph
 
@@ -89,31 +89,31 @@ These were the open questions of the first draft. They are decided, and each
 cost is recorded because a later change should have to argue with it. The page
 that owns each decision has the argument.
 
-1. **`test` and `assert` are reserved words** ([`language/programs.md`
-   §11.2](../../language/programs.md)). *Costs:* no function may be named
-   `test`, no namespace `assert`.
-2. **One library per package.** *Buys:* `//lib/money` names a directory, a
-   library, and a module at once, so no label ever needs a `:target`. *Costs:*
-   splitting a library in two is a directory move.
-3. **`lib.buri` may hold logic** ([`libraries.md`](./libraries.md#the-re-export-declaration)).
-   *Costs:* the surface is no longer auditable by shape — a reader has to
-   notice `export fn` alongside the re-exports.
-4. **Tags are labels, and the policy lives on the tag declaration**
-   ([`tags.md`](./tags.md)). *Costs:* nothing can require a binary to take a
-   position, since a `forbids` rule fires only once two tags collide.
-   Enforcement is opt-in, traded for there being no resolution algorithm.
-5. **Golden values live in the suite's own source**
-   ([`testing.md`](./testing.md#test-data-and-golden-files)). *Costs:* an editor,
-   rather than the runner, is what rewrites one.
-6. **Test-only code is marked by its path, not by a field**
-   ([`libraries.md`](./libraries.md#the-testing-surface)). *Costs:* `testing`
-   is a reserved directory name, and there is nothing to grep for in a build
-   file.
+- **`test` and `assert` are reserved words** ([`language/programs.md`
+  §11.2](../../language/programs.md)). *Costs:* no function may be named
+  `test`, no namespace `assert`.
+- **One library per package.** *Buys:* `//lib/money` names a directory, a
+  library, and a module at once, so no label ever needs a `:target`. *Costs:*
+  splitting a library in two is a directory move.
+- **`lib.buri` may hold logic** ([`libraries.md`](./libraries.md#the-re-export-declaration)).
+  *Costs:* the surface is no longer auditable by shape — a reader has to
+  notice `export fn` alongside the re-exports.
+- **Tags are labels, and the policy lives on the tag declaration**
+  ([`tags.md`](./tags.md)). *Costs:* nothing can require a binary to take a
+  position, since a `forbids` rule fires only once two tags collide.
+  Enforcement is opt-in, traded for there being no resolution algorithm.
+- **Golden values live in the suite's own source**
+  ([`testing.md`](./testing.md#test-data-and-golden-files)). *Costs:* an editor,
+  rather than the runner, is what rewrites one.
+- **Test-only code is marked by its path, not by a field**
+  ([`libraries.md`](./libraries.md#the-testing-surface)). *Costs:* `testing`
+  is a reserved directory name, and there is nothing to grep for in a build
+  file.
 
 ## Still open
 
-1. **External repositories.** The `@repo//pkg` label syntax is reserved and
-   unimplemented; today the only sources are your repository and `core/*`.
-2. **Remote caching and execution.** Not specified. The action-key design in
-   [`hermeticity.md`](./hermeticity.md) is chosen so
-   that adding one is a transport change rather than a semantic one.
+- **External repositories.** The `@repo//pkg` label syntax is reserved and
+  unimplemented; today the only sources are your repository and `core/*`.
+- **Remote caching and execution.** Not specified. The action-key design in
+  [`hermeticity.md`](./hermeticity.md) is chosen so
+  that adding one is a transport change rather than a semantic one.

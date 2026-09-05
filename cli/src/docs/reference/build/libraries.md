@@ -107,35 +107,35 @@ in this repository contains one.
 
 The rules the compiler enforces:
 
-1. **A `//pkg/...` import requires a matching `dependencies` entry** for `//pkg`
-   in the importing target's rule, and visibility from the importing package.
-   Both directions are errors: a use with no entry, and an entry nothing uses.
-2. **A `//pkg/inner.buri` import resolves only inside `//pkg`.** From outside,
-   the diagnostic points at the library:
+- **A `//pkg/...` import requires a matching `dependencies` entry** for `//pkg`
+  in the importing target's rule, and visibility from the importing package.
+  Both directions are errors: a use with no entry, and an entry nothing uses.
+- **A `//pkg/inner.buri` import resolves only inside `//pkg`.** From outside,
+  the diagnostic points at the library:
 
-   ```
-   error: //lib/money/cents.buri is internal to //lib/money [internal-import]
-     --> lib/ledger/entry.buri:4:6
-      |
-    4 | from "//lib/money/cents.buri" import { Cents };
-      |      ^^^^^^^^^^^^^^^^^^^^^^^^
-      |
-      = only names re-exported by lib/money/lib.buri are available
-      = fix: import the library instead: from "//lib/money" import { ... }
-   ```
-3. **A file and a package of the same name are two different modules.** If
-   `lib/money/cents/` is a package, its surface is `//lib/money/cents` and the
-   file beside it is `//lib/money/cents.buri`. These used to be one spelling and
-   one of the two had to be renamed; they are two strings now — a surface named
-   as a module and a file named as a file — and the layout is legal.
-4. **Rules inside a package do not reach into each other.** A binary imports the
-   co-located library as `//pkg` — its surface, like any other dependent —
-   never `//pkg/render.buri`; the library may not import `//pkg/main.buri` at
-   all.
-5. **A path containing a `testing` segment is importable only from a test
-   source.** See below.
-6. **Circular imports are an error** at the module level already; package cycles
-   are the same rule one level up.
+  ```
+  error: //lib/money/cents.buri is internal to //lib/money [internal-import]
+    --> lib/ledger/entry.buri:4:6
+     |
+   4 | from "//lib/money/cents.buri" import { Cents };
+     |      ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = only names re-exported by lib/money/lib.buri are available
+     = fix: import the library instead: from "//lib/money" import { ... }
+  ```
+- **A file and a package of the same name are two different modules.** If
+  `lib/money/cents/` is a package, its surface is `//lib/money/cents` and the
+  file beside it is `//lib/money/cents.buri`. These used to be one spelling and
+  one of the two had to be renamed; they are two strings now — a surface named
+  as a module and a file named as a file — and the layout is legal.
+- **Rules inside a package do not reach into each other.** A binary imports the
+  co-located library as `//pkg` — its surface, like any other dependent —
+  never `//pkg/render.buri`; the library may not import `//pkg/main.buri` at
+  all.
+- **A path containing a `testing` segment is importable only from a test
+  source.** See below.
+- **Circular imports are an error** at the module level already; package cycles
+  are the same rule one level up.
 
 ## The `testing/` surface
 
