@@ -1,0 +1,29 @@
+# A suite built on `core/host/testing`'s doubles, run under the runtime's heap
+# audit — which is what `buri test` puts a linked test binary under, and what
+# this case is here to keep true.
+#
+# `cli/tests/harness/mod.rs` sets `BURI_RT_HEAP_CHECK=1` on every `buri` run in
+# this suite and `buri test` forwards it into the test binaries it runs, so a
+# block the suite fails to give back is an exit of 97 and a failed run rather
+# than a number nobody looks at. The three tests are the three shapes
+# `middle::rc` used to lose a block on — a value a binding discards, a `?` that
+# leaves with something still held, and a `..base` update that replaces a
+# field — each written the way a test source reaches them: the answer of a
+# filesystem double, a fault plan's refusal, and the arguments an environment
+# double hands back.
+#
+# The claim is the report, and the report is the same on both backends: three
+# tests, all passing. What differs is what a failure would have been — natively
+# the heap check stops the binary, and on JavaScript there is no heap to check.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a suite whose values come from the testing doubles passes with the runtime's heap audit switched on"
+
+run {
+  args: ["test", "//lib/ledger", "--force"]
+  exit: 0
+  golden: "pass.txt"
+  stream: OUT
+}

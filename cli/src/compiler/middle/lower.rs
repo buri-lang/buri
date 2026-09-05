@@ -378,13 +378,20 @@ impl Types {
 #[derive(Default)]
 struct Sites {
     at: HashMap<(u32, bool), Vec<rc::Site>>,
+    /// What a `?` releases on the path where it leaves the function, by node.
+    /// The third position, and the one that is not a point in the tree:
+    /// `try_`'s cold block is a place only lowering knows about.
+    escapes: HashMap<u32, Vec<rc::Target>>,
+    /// The counted fields a `..base` update replaces, by node. See
+    /// `rc::FuncPlan::discards`.
+    discards: HashMap<u32, Vec<u32>>,
     ids: HashMap<*const Expr, rc::NodeId>,
 }
 
 impl Sites {
     fn of(plan: Option<&rc::FuncPlan>, body: Option<&Expr>) -> Sites {
         let (Some(plan), Some(body)) = (plan, body) else { return Sites::default() };
-        if plan.sites.is_empty() {
+        if plan.sites.is_empty() && plan.escapes.is_empty() && plan.discards.is_empty() {
             return Sites::default();
         }
         let mut sites = Sites::default();
@@ -398,6 +405,12 @@ impl Sites {
                 .or_default()
                 .push(*site);
         }
+        for (node, target) in &plan.escapes {
+            sites.escapes.entry(node.0).or_default().push(*target);
+        }
+        for (node, index) in &plan.discards {
+            sites.discards.entry(node.0).or_default().push(*index);
+        }
         sites
     }
 
@@ -407,6 +420,14 @@ impl Sites {
 
     fn get(&self, node: rc::NodeId, after: bool) -> &[rc::Site] {
         self.at.get(&(node.0, after)).map(Vec::as_slice).unwrap_or_default()
+    }
+
+    fn escaping(&self, node: rc::NodeId) -> &[rc::Target] {
+        self.escapes.get(&node.0).map(Vec::as_slice).unwrap_or_default()
+    }
+
+    fn discarding(&self, node: rc::NodeId) -> &[u32] {
+        self.discards.get(&node.0).map(Vec::as_slice).unwrap_or_default()
     }
 }
 
@@ -754,6 +775,25 @@ impl FnLower<'_> {
         self.check_plan_order(node, after, &emitted);
     }
 
+    /// Emits the drops a `?` owes on the path where it leaves the function.
+    ///
+    /// [`Sites::escaping`] is the list and `rc::FuncPlan::escapes` is where it
+    /// comes from. The same skip as [`FnLower::rc`]: a target nothing has
+    /// bound yet is a value this path never built, so there is nothing to
+    /// release. No ordering question — every entry is a decrement, they name
+    /// distinct targets, and the block ends in a return.
+    fn release(&mut self, node: rc::NodeId) {
+        let targets: Vec<rc::Target> = self.sites.escaping(node).to_vec();
+        for target in targets {
+            let value = match target {
+                rc::Target::Local(l) => self.env.get(l.index()).copied().flatten(),
+                rc::Target::Node(n) => self.node_values.get(&n).copied(),
+            };
+            let Some(value) = value else { continue };
+            self.push(Inst::DecRef { value, drop: None });
+        }
+    }
+
     /// The plan-order invariant: **no value is released at a key and retained
     /// at that same key**.
     ///
@@ -866,6 +906,7 @@ impl FnLower<'_> {
                 // `..base` is evaluated first and once, and the replacements
                 // run in field order — which is what the struct literal this
                 // is shorthand for would have done.
+                let node = self.sites.id_of(e);
                 let b = self.expr(base);
                 let arity = self.tables.tycon(*con).fields().len();
                 let mut fields = Vec::with_capacity(arity);
@@ -887,7 +928,23 @@ impl FnLower<'_> {
                         }
                     }
                 }
-                self.emit(ty, |dest| Inst::MakeStruct { dest, fields })
+                let made = self.emit(ty, |dest| Inst::MakeStruct { dest, fields });
+                // The reference the base held for a field this update replaces
+                // is paid to nobody — the new value carries its own — so it is
+                // released here (`rc::FuncPlan::discards`). **After** the
+                // construction, because a replacement is allowed to be built
+                // out of the field it replaces (`S { ..s, xs: s.xs.push(x) }`)
+                // and the old list has to outlive that read.
+                if let Some(node) = node {
+                    let discards: Vec<u32> = self.sites.discarding(node).to_vec();
+                    for i in discards {
+                        let f = self.field_type(&base.ty, i as usize);
+                        let old =
+                            self.emit(f, |dest| Inst::GetField { dest, agg: b, index: i });
+                        self.push(Inst::DecRef { value: old, drop: None });
+                    }
+                }
+                made
             }
             ExprKind::EnumLit { variant, args, .. } => {
                 let fields = self.exprs(args);
@@ -963,7 +1020,10 @@ impl FnLower<'_> {
                 self.cur = join;
                 *self.code.get(join).params.first().or_ice("the join takes one parameter")
             }
-            ExprKind::Try { base, kind } => self.try_(ty, base, *kind),
+            ExprKind::Try { base, kind } => {
+                let node = self.sites.id_of(e);
+                self.try_(ty, base, *kind, node)
+            }
 
             ExprKind::Prim { op, prim, args } => self.prim(ty, *op, *prim, args),
             ExprKind::StructuralEq { negate, args } => {
@@ -1090,7 +1150,13 @@ impl FnLower<'_> {
     /// different types with different layouts — the JavaScript backend can
     /// return what it matched (`generate.rs:2074`) only because there both are
     /// the same array.
-    fn try_(&mut self, ty: Type, base: &Expr, kind: OptionOrResult) -> ValueId {
+    fn try_(
+        &mut self,
+        ty: Type,
+        base: &Expr,
+        kind: OptionOrResult,
+        node: Option<rc::NodeId>,
+    ) -> ValueId {
         let v = self.expr(base);
         let held = self.held_variant(&base.ty, kind);
         let ok = self.tag_is(v, held);
@@ -1105,6 +1171,15 @@ impl FnLower<'_> {
         // The cold arm: `.None` and `.Err(e)` both leave the function
         // (CODEGEN-LLVM.md §6 marks this block cold).
         self.cur = fail_b;
+        // And a function that leaves has to give back what it is still
+        // holding. Nothing below this node runs on this path, so every drop
+        // `middle::rc` placed after an enclosing node — and every local whose
+        // last use is below the `?` — is owed here instead
+        // (`rc::FuncPlan::escapes`). Before the error is read out of `v`,
+        // which the list never names.
+        if let Some(node) = node {
+            self.release(node);
+        }
         let ret = self.ret.clone();
         let ret_ty = self.type_of(&ret);
         let out = match kind {
@@ -2448,6 +2523,8 @@ export fn step(n: Int): Int {
                 reuse: Vec::new(),
                 unclassified: Vec::new(),
                 inherits: Vec::new(),
+                escapes: Vec::new(),
+                discards: Vec::new(),
             });
         }
 

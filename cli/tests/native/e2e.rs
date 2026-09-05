@@ -1649,3 +1649,256 @@ fn an_actor_stopped_with_messages_waiting_leaks_none_of_them() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// The three ways a program used to lose a block it was still holding
+// ---------------------------------------------------------------------------
+//
+// One root cause each, all three in `middle::rc`, and all three found by the
+// heap check over `cli/tests/conformance` — `semantics/effects.buri`,
+// `semantics/host_testing.buri` and `cli/arguments.buri` were the ledger rows
+// that went with them. None of the three is about the file it was found in,
+// which is why each is here as a program of its own: a few lines with nothing
+// between them and the defect, run under the runtime's own audit on both
+// native pipelines.
+//
+// **Every payload is built at run time.** A literal lives in the artifact's
+// constant pool and is `IMMORTAL` (VALUE-MODEL.md 5.2), so a block nobody
+// released would still balance and all three rows would pass vacuously.
+// `repeat` allocates.
+
+/// What a function is **still holding when a `?` takes the early exit**.
+///
+/// `?` is the one early return in the language, and `lower`'s cold arm was a
+/// return with nothing before it: none of the drops the pass placed below the
+/// `?` ran on that path. Both halves of "below" are here — `held` is a local
+/// whose last use is under the `?`, and `temp` is a binding out of a `match`
+/// whose freshly-built scrutinee that `match` releases after its arms.
+fn early_return_holdings() -> String {
+    String::from(
+        r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+fn refused(): Result<Int, Str> {
+    .Err("refused")
+}
+
+/// `held` is built above the `?` and read below it, so the function is holding
+/// it at the moment the `?` leaves.
+fn across<C: Alloc>(ctx: C, seed: Str): Result<Int, Str> {
+    let held = seed.repeat(ctx, 40000);
+    let n = refused()?;
+    .Ok(n + held.len())
+}
+
+fn suffixed<C: Alloc>(ctx: C, seed: Str): Option<Str> {
+    .Some(seed.repeat(ctx, 30000))
+}
+
+/// The same thing one construct over: `temp` points into an `Option` this
+/// `match` built, and the release of that `Option` sits after the arms.
+fn inside_an_arm<C: Alloc>(ctx: C, seed: Str): Result<Int, Str> {
+    match (suffixed(ctx, seed)) {
+        .None => .Err("none"),
+        .Some(temp) => {
+            let n = refused()?;
+            .Ok(n + temp.len())
+        },
+    }
+}
+
+fn why(r: Result<Int, Str>): Str {
+    match (r) {
+        .Ok(_n) => "unexpected",
+        .Err(said) => said,
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let one = why(across(ctx, "a"));
+    let two = why(inside_an_arm(ctx, "b"));
+    let _ = io.println(ctx, "across ${one}").ignore();
+    let _ = io.println(ctx, "arm ${two}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// A value a statement **discards**: `let _ = f(ctx);`.
+///
+/// The pattern binds nothing, so there was no name for the "bound and never
+/// read" drop to hang on and nothing released what the initializer built. It is
+/// the shape every discarded `assert.ok(…)` in a test source is written in,
+/// which is how nineteen of `core/host/testing`'s answers went missing.
+fn discarded_bindings() -> String {
+    String::from(
+        r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+fn made<C: Alloc>(ctx: C, seed: Str): Str {
+    seed.repeat(ctx, 50000)
+}
+
+/// `assert.ok`'s shape: a `match` that consumes the value and hands out a
+/// piece of it, whose caller then throws the piece away.
+fn taken(r: Result<Str, Str>, fallback: Str): Str {
+    match (r) {
+        .Ok(v) => v,
+        .Err(_e) => fallback,
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    // Discarded outright.
+    let _ = made(ctx, "a");
+    // And discarded after a `match` handed it out of a value it consumed.
+    let _ = taken(.Ok(made(ctx, "b")), "");
+    let kept = made(ctx, "c");
+    let _ = io.println(ctx, "kept ${kept.len()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// The field a **`..base` update replaces**.
+///
+/// The update is lowered as a fresh construction whose carried fields are words
+/// read straight out of the base, so the base's one reference is what pays for
+/// all of them — and the field being replaced was paid to nobody. Every token
+/// `core/cli` folded into its accumulator left the previous list behind.
+///
+/// The program prints what the accumulator ended up holding as well as running
+/// under the audit, and that half is not decoration: the release goes *after*
+/// the construction precisely because a replacement may be built out of the
+/// field it replaces, and getting that order wrong is a wrong answer rather
+/// than a leak.
+fn replaced_fields() -> String {
+    String::from(
+        r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Ledger {
+    words: [Str],
+    last: Str,
+    seen: Int,
+}
+
+/// Two counted fields replaced at once, and the list is grown out of the very
+/// field it overwrites.
+fn added<C: Alloc>(ctx: C, acc: Ledger, word: Str): Ledger {
+    Ledger { ..acc, words: acc.words.push(ctx, word), last: word, seen: acc.seen + 1 }
+}
+
+fn folded<C: Alloc>(ctx: C, words: [Str], at: Int, acc: Ledger): Ledger {
+    match (words.get(at)) {
+        .None => acc,
+        .Some(word) => folded(ctx, words, at + 1, added(ctx, acc, word)),
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let words = ["a".repeat(ctx, 3), "b".repeat(ctx, 4), "c".repeat(ctx, 5)];
+    let start = Ledger { words: list.empty<Str>(), last: "-".repeat(ctx, 1), seen: 0 };
+    let end = folded(ctx, words, 0, start);
+    let joined = end.words.join(ctx, ",");
+    let _ = io.println(ctx, "folded ${joined}").ignore();
+    let _ = io.println(ctx, "last ${end.last} seen ${end.seen}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A `?` gives back everything the function was still holding.**
+///
+/// `semantics/effects.buri` was the ledger row and `core/fs`'s `writeAtomic`
+/// was the code: the temporary path it builds for the write leaked whenever the
+/// rename failed, because the failing arm of a `?` returned without running any
+/// of the drops below it.
+#[test]
+fn an_early_return_releases_what_the_function_still_holds() {
+    unless_ready!();
+    let binary = built("e2e-early-return-holdings", &early_return_holdings());
+    let (stdout, stderr) = audited(&binary);
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        vec!["across refused", "arm refused"],
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("buri heap check: ok"),
+        "the heap audit did not report a clean exit.\nstderr:\n{stderr}"
+    );
+}
+
+/// **A statement that discards a value releases it.**
+///
+/// `semantics/host_testing.buri` was the ledger row: nineteen strings and byte
+/// lists the test platform's doubles had answered with, every one of them
+/// thrown away by a `let _ = …;` that bound nothing.
+#[test]
+fn a_discarded_binding_releases_what_it_discarded() {
+    unless_ready!();
+    let binary = built("e2e-discarded-bindings", &discarded_bindings());
+    let (stdout, stderr) = audited(&binary);
+    assert_eq!(stdout.lines().collect::<Vec<_>>(), vec!["kept 50000"], "stderr:\n{stderr}");
+    assert!(
+        stderr.contains("buri heap check: ok"),
+        "the heap audit did not report a clean exit.\nstderr:\n{stderr}"
+    );
+}
+
+/// **A record update releases the field it replaces.**
+///
+/// `cli/arguments.buri` was the ledger row and `core/cli`'s parser was the
+/// code: one list left behind per word on the command line, by
+/// `Arguments { ..acc, positionalValues: acc.positionalValues.push(ctx, word) }`.
+#[test]
+fn a_record_update_releases_the_field_it_replaces() {
+    unless_ready!();
+    let binary = built("e2e-replaced-fields", &replaced_fields());
+    let (stdout, stderr) = audited(&binary);
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        vec!["folded aaa,bbbb,ccccc", "last ccccc seen 3"],
+        "stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("buri heap check: ok"),
+        "the heap audit did not report a clean exit.\nstderr:\n{stderr}"
+    );
+}
+
+/// Runs a program under the heap check with the audit reporting out loud, and
+/// answers its two streams.
+///
+/// `BURI_RT_HEAP_REPORT` is what makes "it leaked nothing" different from "the
+/// check never ran": without it a clean exit is silent, and so is a binary
+/// built against a runtime with the audit compiled out.
+fn audited(binary: &PathBuf) -> (String, String) {
+    let out = std::process::Command::new(binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
+        .env("BURI_RT_HEAP_REPORT", "1")
+        .output()
+        .expect("the program did not start");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    (stdout, stderr)
+}
+

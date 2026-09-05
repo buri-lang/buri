@@ -374,6 +374,56 @@ pub struct FuncPlan {
     /// the local is a parent this expression is the last use of. Empty unless
     /// [`Options::sharing`] is on. See MEMORY.md §5.5.
     pub inherits: Vec<(NodeId, LocalId)>,
+    /// What a `?` has to release on the path where it **leaves the function**,
+    /// keyed by the [`ExprKind::Try`] node and sorted by it.
+    ///
+    /// A `?` is a return the tree does not spell as one: `lower`'s `try_`
+    /// branches to a block that builds `.None`/`.Err(e)` and returns, and
+    /// nothing on that path runs any of the drops this pass placed *after* the
+    /// node — the flush at the end of the enclosing block, the drop of a
+    /// `match`'s freshly-built scrutinee, the last-use drop of a local the
+    /// code below the `?` would have read. Every one of those is a block the
+    /// function still holds when it leaves, so on the failing path they leak.
+    ///
+    /// So each `Try` carries its own list, and `lower` emits a `decref` for
+    /// every entry into the cold block before the return. Two rules decide
+    /// what is on it, and the second is what keeps it from freeing the value
+    /// being returned:
+    ///
+    /// * every drop this pass places at an **ancestor's** [`Position::After`]
+    ///   — those are exactly the drops the fall-through path would have run;
+    /// * every owned local **live across** the `?`, whose last-use drop sits
+    ///   below it.
+    ///
+    /// A [`Target::Node`] at or inside the `Try`'s own subtree is excluded:
+    /// that is the operand the `?` tested, and the error it hands back is a
+    /// payload read out of it.
+    ///
+    /// `lower` skips a target nothing has bound yet, so an entry naming a
+    /// value the failing path never built costs nothing.
+    pub escapes: Vec<(NodeId, Target)>,
+    /// The **fields a `..base` update throws away**: the node of an
+    /// [`ExprKind::StructUpdate`], and the index of a counted field the update
+    /// replaces.
+    ///
+    /// `S { ..s, xs: ys }` is lowered as a fresh construction whose carried
+    /// fields are words read straight out of `s` ([`lower`]'s `GetField`s), so
+    /// this pass counts the base as **consumed**: the one reference `s` held is
+    /// what pays for every field the new value carries over, and no increment
+    /// or decrement is emitted between them. That accounting is exact for a
+    /// field that is carried and one short for a field that is *not* — the
+    /// reference `s` held for `xs` is paid to nobody, and the old list leaks.
+    /// `core/cli`'s parser is where it was found: every token folded into the
+    /// accumulator through `Arguments { ..acc, positionalValues: … }` left the
+    /// previous list behind, one per word on the command line.
+    ///
+    /// So each replaced counted field is released once, out of the base, and
+    /// `lower` is where the read happens because a field of a base is not a
+    /// node this pass can name. It holds whether the base was consumed or
+    /// duplicated: a base something still reads is incremented at this node
+    /// instead, which buys a reference for every field including the one being
+    /// replaced.
+    pub discards: Vec<(NodeId, u32)>,
 }
 
 impl Default for FuncPlan {
@@ -390,6 +440,8 @@ impl Default for FuncPlan {
             reuse: Vec::new(),
             unclassified: Vec::new(),
             inherits: Vec::new(),
+            escapes: Vec::new(),
+            discards: Vec::new(),
         }
     }
 }
@@ -409,6 +461,12 @@ impl FuncPlan {
     /// The operations at one node, in the order they must be emitted.
     pub fn at(&self, node: NodeId, at: Position) -> impl Iterator<Item = &Site> {
         self.sites.iter().filter(move |s| s.node == node && s.at == at)
+    }
+
+    /// What the `?` at `node` releases on the path where it leaves the
+    /// function. See [`FuncPlan::escapes`].
+    pub fn escaping(&self, node: NodeId) -> impl Iterator<Item = Target> + '_ {
+        self.escapes.iter().filter(move |(n, _)| *n == node).map(|(_, t)| *t)
     }
 }
 
@@ -856,6 +914,8 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             reuse: Vec::new(),
             unclassified: Vec::new(),
             inherits: Vec::new(),
+            escapes: Vec::new(),
+            discards: Vec::new(),
         };
         if let Some(body) = f.body() {
             let mut sizes: Vec<u32> = Vec::new();
@@ -880,6 +940,9 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
                 named: vec![None; sizes.len()],
                 self_params: plan.params.clone(),
                 inherits: Vec::new(),
+                tries: Vec::new(),
+                escapes: Vec::new(),
+                discards: Vec::new(),
                 opts,
             };
             for (k, p) in f.params.iter().enumerate() {
@@ -947,6 +1010,13 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
             plan.reuse = scan.reuse;
             plan.unclassified = scan.unclassified;
             plan.inherits = scan.inherits;
+            // By node, so `lower` can find one `?`'s list by a binary search
+            // and so a plan reads the same way twice. `Scan` keeps the list
+            // distinct as it fills it, which is what stops one block being
+            // released twice on a failing path.
+            scan.escapes.sort_by_key(|(n, _)| n.0);
+            plan.escapes = scan.escapes;
+            plan.discards = scan.discards;
             order_sites(&mut plan.sites);
         }
         funcs.push(plan);
@@ -1998,6 +2068,18 @@ struct Scan<'a> {
     self_params: Vec<ir::Ownership>,
     /// [`FuncPlan::inherits`], as it is found.
     inherits: Vec<(NodeId, LocalId)>,
+    /// Every `?` node this body holds, in the order the scan reached them.
+    ///
+    /// The scan runs backwards and a `?` is an exit the tree does not spell,
+    /// so a construct cannot know at the moment it defers a drop whether the
+    /// subtree it is deferring past contains one. This is that question, asked
+    /// the other way round: [`Scan::push`] looks the `?`s up by subtree when
+    /// the drop is placed.
+    tries: Vec<NodeId>,
+    /// [`FuncPlan::escapes`], as it is found.
+    escapes: Vec<(NodeId, Target)>,
+    /// [`FuncPlan::discards`], as it is found.
+    discards: Vec<(NodeId, u32)>,
     opts: &'a Options,
 }
 
@@ -2024,6 +2106,40 @@ impl Scan<'_> {
 
     fn push(&mut self, node: NodeId, at: Position, op: RcOp, target: Target) {
         self.sites.push(Site { node, at, op, target });
+        // A drop placed *after* a node runs on the path that falls out of that
+        // node's bottom, and a `?` inside it has no such path: it returns. So
+        // the same drop is owed on the failing path of every `?` this node
+        // encloses, and this is the one place that can see both — the drop as
+        // it is placed, and the `?`s the scan has already been through.
+        if op == RcOp::DecRef && at == Position::After {
+            self.owe_on_escape(node, target);
+        }
+    }
+
+    /// Records `target` against every `?` **inside** `node`'s subtree.
+    ///
+    /// Subtree rather than "every `?` seen": a [`NodeId`] is a pre-order index
+    /// and a subtree is the contiguous run `[node, node + size)`, so the test
+    /// is two comparisons. Without it a drop placed after one statement would
+    /// be owed by a `?` in the *next* statement, which the scan reached first
+    /// because it runs backwards — and that drop has already run by then.
+    fn owe_on_escape(&mut self, node: NodeId, target: Target) {
+        let size = self.sizes.get(node.0 as usize).copied().unwrap_or(1);
+        let end = node.0.saturating_add(size);
+        for t in self.tries.clone() {
+            if t.0 <= node.0 || t.0 >= end {
+                continue;
+            }
+            // The `?`'s own operand is what the failing path reads its error
+            // out of, so a temporary at or inside the `?` is the one thing on
+            // that path that must survive it.
+            if matches!(target, Target::Node(n) if n.0 >= t.0) {
+                continue;
+            }
+            if !self.escapes.contains(&(t, target)) {
+                self.escapes.push((t, target));
+            }
+        }
     }
 
     /// Scans something and reports what jumped out of it: the keys of the
@@ -2335,6 +2451,22 @@ impl Scan<'_> {
                             let mut bound: Vec<LocalId> = Vec::new();
                             pattern.binds(&mut bound);
                             bound.sort_by_key(|l| l.0);
+                            // `let _ = f(ctx);` **binds nothing**, so there is
+                            // no name for the "bound and never read" drop below
+                            // to hang on and the value had nobody to release
+                            // it: `let _ = assert.ok(store.read("a"));` leaked
+                            // the `Str` the read answered. A statement that
+                            // discards its value is a statement, whatever the
+                            // keyword in front of it, so it is scanned as
+                            // `Stmt::Expr` is — borrowed, and the temporary it
+                            // built dropped after it.
+                            if bound.is_empty() {
+                                live_after =
+                                    self.expr(value, sid, &live_after, Mode::Borrow);
+                                self.drop_temporary(value, sid, sid);
+                                self.flush(sid);
+                                continue;
+                            }
                             // Bound and never read: dropped where it was bound
                             // rather than at the end. Which ones those are has
                             // to be decided *here*, because the liveness the
@@ -2491,6 +2623,24 @@ impl Scan<'_> {
                 // Scanning the operand in the enclosing liveness is what keeps
                 // a drop off a path that never reached it.
                 let bid = self.child(id, 0);
+                // "Nothing after it runs" is also why the failing path has to
+                // let go of what the function is still holding, and
+                // [`FuncPlan::escapes`] is that list. It is recorded before the
+                // operand is scanned, because a `?` inside the operand of
+                // another one is inside *this* node's subtree too and owes the
+                // same drops.
+                self.tries.push(id);
+                // An owned local something below the `?` still reads has its
+                // drop below the `?` as well. The other half — the drops this
+                // pass places after an enclosing node — is [`Scan::push`]'s.
+                let mut across: Vec<LocalId> =
+                    live.iter().copied().filter(|l| self.owned.contains(l)).collect();
+                across.sort_by_key(|l| l.0);
+                for l in across {
+                    if self.is_counted(l) && !self.escapes.contains(&(id, Target::Local(l))) {
+                        self.escapes.push((id, Target::Local(l)));
+                    }
+                }
                 let out = self.expr(base, bid, live, mode);
                 self.flush(id);
                 out
@@ -2539,6 +2689,22 @@ impl Scan<'_> {
                 let after = self.expr(base, bid, &after, Mode::Borrow);
                 self.flush(id);
                 after
+            }
+            // The ordinary update — the one every native build takes, because
+            // `sharing` is off there and the arm above is JavaScript's. Its
+            // children are scanned exactly as a construction's are; what it
+            // adds is [`FuncPlan::discards`], the reference the base held for a
+            // field the update replaces and the new value does not carry over.
+            ExprKind::StructUpdate { updates, .. } => {
+                let out = self.children(e, id, live);
+                for (i, value) in updates {
+                    let ty = value.ty.clone();
+                    if self.counted_ty(&ty) {
+                        let index = u32::try_from(*i).unwrap_or(u32::MAX);
+                        self.discards.push((id, index));
+                    }
+                }
+                out
             }
             _ => self.children(e, id, live),
         }
@@ -3419,14 +3585,36 @@ export fn main(): Result<(), Str> {
                         let sid = self.child(id, k);
                         match s {
                             Stmt::Let { pattern, value, .. } => {
+                                let mut bound = Vec::new();
+                                pattern.binds(&mut bound);
+                                // `let _ = f(ctx);` binds nothing and so is a
+                                // statement that discards its value: the scan
+                                // reads it exactly as a `Stmt::Expr` and so
+                                // does this.
+                                if bound.is_empty() {
+                                    // `suppress` for the reason the bound case
+                                    // has it: the drop of what this statement
+                                    // discards is keyed on the value's own
+                                    // node, so it is applied once, here, and
+                                    // after the temporary it releases exists.
+                                    let held = self.suppress.replace(sid);
+                                    self.walk(value, sid, Mode::Borrow, st);
+                                    self.suppress = held;
+                                    let ty = value.ty.clone();
+                                    if fresh(value)
+                                        && matches!(self.counted.counted(&ty), Answer::Yes)
+                                    {
+                                        st.bump_temp(sid, 1);
+                                    }
+                                    self.sites(sid, Position::After, st);
+                                    continue;
+                                }
                                 // The drop of a binding nothing reads is keyed
                                 // on the value's node, and it happens *after*
                                 // the binding exists.
                                 let held = self.suppress.replace(sid);
                                 self.walk(value, sid, Mode::Own, st);
                                 self.suppress = held;
-                                let mut bound = Vec::new();
-                                pattern.binds(&mut bound);
                                 for b in bound {
                                     if self.counted_local(b) {
                                         st.bump(b, 1);
