@@ -1,0 +1,13 @@
+# A library and the suite that drives it through `core/host/testing`'s doubles.
+#
+# Nothing here names a platform: `buri test` runs the suite wherever the
+# invocation says, which on a toolchain with a native backend is a linked test
+# binary — and that is the half this case is about, because a linked test
+# binary is the only one whose heap the runtime audits on the way out.
+library {
+    sources: ["fold.buri"]
+
+    test {
+        sources: ["test/heap.buri"]
+    }
+}

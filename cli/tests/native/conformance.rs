@@ -844,14 +844,17 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
 /// under-decrement somewhere between `middle::rc` and the runtime entries the
 /// file reaches, and the shape of each is in `BURI_RT_HEAP_CHECK=trace`'s dump
 /// — which prints every surviving block's size, count and first bytes.
-const KNOWN_LEAKS: &[(&str, u64, &str)] = &[
-    // The path string a filesystem double was asked about.
-    ("semantics/effects.buri", 1, "a path handed to the filesystem double outlives it"),
-    // Nineteen: the strings and byte lists the test platform's doubles hand
-    // back — captured output, stdin lines, filesystem entries — plus one
-    // 48-byte record holding two of them.
-    ("semantics/host_testing.buri", 19, "the values `core/host/testing`'s doubles answer with"),
-];
+///
+/// **It is empty**, and the sentence above is why that is worth writing down
+/// rather than deleting: every corpus file comes back with an empty heap, so
+/// the loop below asserts it of all of them and this table is the place a new
+/// finding goes while it is being worked on. The last rows went with three
+/// defects in `middle::rc`, none of which was in the file the row named — a
+/// `?` that left the function without releasing what an enclosing construct
+/// would have released after it, a `let _ = …` that bound nothing and so
+/// released nothing, and a `..base` update that threw away the reference the
+/// base held for the field it replaced.
+const KNOWN_LEAKS: &[(&str, u64, &str)] = &[];
 
 /// What the ledger says a file leaks, or zero.
 fn allowed_leak(path: &str) -> u64 {
@@ -1427,4 +1430,3 @@ fn the_native_set_can_fail() {
         "the failure did not name the assertion:\nstdout:\n{out}\nstderr:\n{err}"
     );
 }
-
