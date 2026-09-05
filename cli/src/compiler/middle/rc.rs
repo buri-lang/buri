@@ -119,7 +119,9 @@
 //!   numbering, exported so that `lower` numbers nodes with this module's
 //!   function rather than with a second copy of the rule.
 //! * A [`Site`] says: at node `n`, [`Position::Before`] (before the node's own
-//!   code) or [`Position::After`] (after the node's value exists), apply
+//!   code), [`Position::After`] (after the node's value exists) or
+//!   [`Position::Escape`] (on the early return a `?` leaves the function by,
+//!   where the node's value never exists at all), apply
 //!   [`RcOp`] to the SSA value currently holding [`Site::local`]. Sites at one
 //!   `(node, position)` fire **in list order**, which matters where an arm
 //!   entry increfs three bindings and then decrefs the value they came out of.
@@ -282,7 +284,7 @@ impl NodeId {
 }
 
 /// Where a reference operation goes relative to the node it is keyed on.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Position {
     /// Before the node's own code runs. Used for a drop at the entry of a
     /// branch, and for a drop of a parameter nothing reads.
@@ -290,6 +292,28 @@ pub enum Position {
     /// After the node's value exists. Used for the increment a duplicating use
     /// needs.
     After,
+    /// On the path that **leaves the function** from this node without
+    /// producing its value: a `?` whose operand was `.None` or `.Err(e)`.
+    ///
+    /// Only [`ExprKind::Try`] has one, and it is a position rather than a node
+    /// because the early return has no node of its own — `lower::try_` invents
+    /// the block it lives in. `Before` runs on both paths and `After` runs only
+    /// on the one that continues, so neither can carry a drop that belongs to
+    /// the escape alone: the drops a `?` needs are exactly [`Scan::balance`]'s
+    /// — everything this function still owns that the abandoned continuation
+    /// would have released.
+    Escape,
+}
+
+impl Position {
+    /// The order the positions are emitted in at one node, for [`order_sites`].
+    fn ordinal(self) -> u8 {
+        match self {
+            Position::Before => 0,
+            Position::After => 1,
+            Position::Escape => 2,
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -993,7 +1017,7 @@ pub fn analyze(program: &Program, counted: &mut dyn Counted, opts: &Options) -> 
 /// different values have to keep.
 fn order_sites(sites: &mut [Site]) {
     sites.sort_by_key(|s| {
-        (s.node.0, matches!(s.at, Position::After), matches!(s.op, RcOp::DecRef))
+        (s.node.0, s.at.ordinal(), matches!(s.op, RcOp::DecRef))
     });
 }
 
@@ -2257,6 +2281,24 @@ impl Scan<'_> {
         }
     }
 
+    /// Drops, on the path a `?` leaves the function by, every owned local the
+    /// abandoned continuation would have released.
+    ///
+    /// [`Scan::balance`] with the sibling's liveness fixed at "nothing": an
+    /// early return reads none of what is live after the `?`, so all of it is
+    /// extra. Counted-ness is not filtered here for the same reason it is not
+    /// there — `lower` skips a local nothing has bound, and both backends make
+    /// a reference operation on an uncounted type a no-op.
+    fn escape(&mut self, node: NodeId, live: &Live) {
+        let mut held: Vec<LocalId> = live.iter().copied().collect();
+        held.sort_by_key(|l| l.0);
+        for l in held {
+            if self.owned.contains(&l) {
+                self.push(node, Position::Escape, RcOp::DecRef, Target::Local(l));
+            }
+        }
+    }
+
     /// Scans one expression, given what is live *after* it, and answers what is
     /// live before it. Emits every site the expression itself needs.
     ///
@@ -2492,6 +2534,21 @@ impl Scan<'_> {
                 // a drop off a path that never reached it.
                 let bid = self.child(id, 0);
                 let out = self.expr(base, bid, live, mode);
+                // ...and the other half of that sentence: *because* nothing
+                // after it runs, the drops the continuation would have
+                // performed never happen on the escape path, and every owned
+                // local still live there is leaked. `?` is a two-way branch
+                // whose cold arm returns, so it wants exactly what
+                // [`Scan::balance`] gives a branch whose sibling reads more
+                // than it does — `live ∩ owned`, dropped at the entry of the
+                // arm that reads nothing. `Position::Escape` is that entry.
+                //
+                // `live` rather than `out`: a local the operand *consumed* is
+                // read for the last time before the branch and is gone by it,
+                // and releasing it here would be the second release of one
+                // reference. What survives into the escape is what the code
+                // after the `?` would have gone on to read.
+                self.escape(id, live);
                 self.flush(id);
                 out
             }
