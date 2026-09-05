@@ -1103,8 +1103,11 @@ fn run_native(
     let program_path = binary.path().display().to_string();
 
     let blocks = match run_blocks(&program_path, limit, selected.len(), &seed_of(key).to_string()) {
-        Ok(Some(blocks)) => blocks,
-        Ok(None) => return Err(timed_out(session, target, limit)),
+        Ok(Verdicts::Blocks(blocks)) => blocks,
+        Ok(Verdicts::TimedOut) => return Err(timed_out(session, target, limit)),
+        Ok(Verdicts::HeapCheck(line)) => {
+            return Err(heap_check_failed(&session.workspace.label(target), &line))
+        }
         Err(e) => {
             diagnostics.push(
                 Diagnostic::error(Span::NONE, format!("cannot run the test binary: {e}"))
@@ -1148,6 +1151,32 @@ const RESUME: &str = "BURI_TEST_FROM";
 /// belong to several suites and a suite's order is its own.
 const SEED: &str = "BURI_TEST_SEED";
 
+/// The runtime's test-mode heap check, and its report knob
+/// (`cli/runtime/memory.rs`).
+///
+/// **Both are handed to the test binary from this process's own environment**,
+/// which is the one place `build/spawn.rs`'s cleared environment is deliberately
+/// leaked through. The reason is that the audit is a question about the program
+/// the toolchain *produced* — did it give back every block it took? — and there
+/// is no other way to ask it of a binary this process spawned. A suite's record
+/// does not depend on the answer: a clean run produces the same verdicts it
+/// would have produced without the check, and a run that fails it produces no
+/// record at all.
+const HEAP_CHECK: [&str; 2] = ["BURI_RT_HEAP_CHECK", "BURI_RT_HEAP_REPORT"];
+
+/// The status `cli/runtime/memory.rs` stops a program with when the heap check
+/// fails. Not 1, which is what an ordinary abort exits with, so this number
+/// means "the program finished and then failed the invariant".
+const HEAP_CHECK_STATUS: i32 = 97;
+
+/// The prefix every line the heap check prints carries.
+const HEAP_CHECK_LINE: &str = "buri heap check:";
+
+/// What the heap check said, out of a run's standard error.
+fn heap_check_said(stderr: &str) -> Option<&str> {
+    stderr.lines().find(|l| l.starts_with(HEAP_CHECK_LINE))
+}
+
 /// The order `anyOrder()` schedules with, for a suite whose key is `key`.
 ///
 /// **The action key is the content hash** (D-10). It is a hash of every source
@@ -1178,6 +1207,24 @@ enum Block {
     Failed { message: String, diff: Option<Diff>, order: Option<String> },
 }
 
+/// What running a test binary's blocks produced.
+///
+/// Three answers rather than two, because a heap-check failure is neither a
+/// verdict nor a timeout: the blocks all ran and every one of them may have
+/// passed, and what failed is the *binary* — it did not give back every block
+/// it allocated. Attributing that to whichever block happened to be last would
+/// name a test that is not the problem, so it comes back as its own thing and
+/// the caller reports it against the suite.
+enum Verdicts {
+    /// One verdict per block, in the binary's own numbering.
+    Blocks(Vec<Block>),
+    /// The suite's `timeout_seconds` elapsed.
+    TimedOut,
+    /// The runtime's heap check stopped the binary, and this is the line it
+    /// printed.
+    HeapCheck(String),
+}
+
 /// Runs a native test binary until every one of its `count` blocks has a
 /// verdict, and says what each did.
 ///
@@ -1198,7 +1245,7 @@ fn run_blocks(
     limit: Option<u32>,
     count: usize,
     seeds: &str,
-) -> std::io::Result<Option<Vec<Block>>> {
+) -> std::io::Result<Verdicts> {
     let mut blocks: Vec<Block> = Vec::with_capacity(count);
     let mut from = 0usize;
     while from < count {
@@ -1206,8 +1253,27 @@ fn run_blocks(
         let out =
             match execute(program, None, limit, &[(RESUME, start.as_str()), (SEED, seeds)])? {
             Execution::Finished(out) => out,
-            Execution::TimedOut => return Ok(None),
+            Execution::TimedOut => return Ok(Verdicts::TimedOut),
         };
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        // The heap check's own line is **never swallowed**, whichever way the
+        // run ended. A failure comes back as [`Verdicts::HeapCheck`] and is
+        // reported against the suite; the other line it can print is the
+        // `BURI_RT_HEAP_REPORT` receipt of a clean audit, which a reader asked
+        // for and would not otherwise see, because a test binary's standard
+        // error belongs to the runner rather than to the terminal.
+        if out.status.code() == Some(HEAP_CHECK_STATUS) {
+            return Ok(Verdicts::HeapCheck(
+                heap_check_said(&stderr)
+                    .unwrap_or(
+                        "the test binary exited with the heap-check status and said nothing",
+                    )
+                    .to_string(),
+            ));
+        }
+        if let Some(line) = heap_check_said(&stderr) {
+            eprintln!("{line}");
+        }
         // A run that ended without aborting is a verdict for **every** block
         // from here on, because every one of them ran and none of them stopped
         // the process. Those verdicts are real, not assumed.
@@ -1227,7 +1293,7 @@ fn run_blocks(
         let message = match &noted {
             Some(n) => n.message.clone(),
             None => {
-                let text = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                let text = stderr.trim().to_string();
                 if text.is_empty() {
                     format!("the run exited {}", out.status.code().unwrap_or(-1))
                 } else {
@@ -1245,7 +1311,7 @@ fn run_blocks(
         blocks.push(Block::Failed { message, diff, order });
         from = at + 1;
     }
-    Ok(Some(blocks))
+    Ok(Verdicts::Blocks(blocks))
 }
 
 /// One block's verdict as the runner's JSON, which is where a native record and
@@ -1673,7 +1739,12 @@ fn run_batch(
         selected.len(),
         &per_block.join(","),
     ) {
-        Ok(Some(blocks)) => blocks,
+        Ok(Verdicts::Blocks(blocks)) => blocks,
+        // Including a heap-check failure, which is deliberately *not* reported
+        // from here: a batch is several suites in one binary, so the audit
+        // cannot say which of them leaked. Abandoning the batch sends every
+        // member back through [`run_native`], where the same binary is built
+        // per suite and the leak is reported against the one that has it.
         _ => return,
     };
 
@@ -1836,6 +1907,31 @@ fn timed_out(session: &Session, target: TargetId, limit: Option<u32>) -> Diagnos
     diagnostics
 }
 
+/// The diagnostic a suite whose binary failed the runtime's heap check gets.
+///
+/// **A leak is the toolchain's bug and not the suite's**, which is why this
+/// says so rather than pointing at a test: the blocks a program allocates are
+/// released by code `middle::rc` inserted, and a block that outlived the
+/// program means that pass got the count wrong. `line` is the runtime's own
+/// sentence — how many blocks, how many bytes, or which reference operation
+/// reached a freed one — because the number is what a report needs and this
+/// process has no better words for it.
+fn heap_check_failed(label: &str, line: &str) -> Diagnostics {
+    let mut diagnostics = Diagnostics::new();
+    diagnostics.push(
+        Diagnostic::error(
+            Span::NONE,
+            format!("the test binary for {label} failed the heap check: {line}"),
+        )
+        .with_fix(
+            "this is a toolchain bug rather than a bug in the suite: a program's memory is \
+             released by code the compiler inserted. Please report it with the suite that \
+             provoked it",
+        ),
+    );
+    diagnostics
+}
+
 enum Execution {
     Finished(std::process::Output),
     TimedOut,
@@ -1887,6 +1983,15 @@ fn execute(
     // rest of the environment — is unchanged by there being one.
     for (name, value) in env {
         cmd.env(name, value);
+    }
+    // The heap check, forwarded from this process rather than invented here.
+    // `HEAP_CHECK`'s own comment is the argument; the shape of it is that a
+    // harness — or a person — says `BURI_RT_HEAP_CHECK=1 buri test` and the
+    // binary that runs the blocks is the process that answers.
+    for name in HEAP_CHECK {
+        if let Some(value) = std::env::var_os(name) {
+            cmd.env(name, value);
+        }
     }
     let mut child = cmd
         .stdout(Stdio::piped())

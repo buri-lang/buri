@@ -15,7 +15,6 @@
 //! ```
 use crate::harness::*;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// BUILD-FILES.md: what a rule declares, and the diagnostics that fire when
 /// the declaration and the code disagree.
@@ -806,7 +805,7 @@ struct Editor {
 
 impl Editor {
     fn open(root: &Path) -> Editor {
-        let process = Command::new(buri())
+        let process = buri_command()
             .arg("lsp")
             .current_dir(root)
             .stdin(std::process::Stdio::piped())

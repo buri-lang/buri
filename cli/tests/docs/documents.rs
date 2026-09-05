@@ -14,6 +14,49 @@ fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
 }
 
+/// The `buri` binary, **under the runtime's test-mode heap check**.
+///
+/// `cli/tests/harness/mod.rs`'s section of the same name is the argument for
+/// why every process a suite starts runs under it. This binary does not carry
+/// the harness — it is about documents rather than about repositories — so the
+/// two lines it needs are here, and every spawn in this file goes through them
+/// rather than through `Command::new` so that there is nothing to remember.
+///
+/// `buri docs test` is the command in this file that runs Buri programs: it
+/// compiles each transcript in the documentation and checks what it printed.
+fn buri() -> std::process::Command {
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_buri"));
+    cmd.env("BURI_RT_HEAP_CHECK", "1");
+    cmd
+}
+
+/// Runs `buri` in `dir` and answers what it said, having first checked that no
+/// Buri program it started leaked a block or reached a freed one.
+fn ran(dir: &Path, args: &[&str]) -> std::process::Output {
+    let out = buri().args(args).current_dir(dir).output().expect("the buri binary runs");
+    heap_ok(&format!("buri {}", args.join(" ")), &out);
+    out
+}
+
+/// Panics if the heap check has anything to say about a run.
+///
+/// The status, because a program run directly *is* the process the check
+/// stopped; and the text, because a program `buri test` or `buri docs test` ran
+/// is a child, and what comes back is the runner's exit code with the check's
+/// sentence in its report.
+fn heap_ok(what: &str, out: &std::process::Output) {
+    let said = String::from_utf8_lossy(&out.stderr).to_string()
+        + &String::from_utf8_lossy(&out.stdout);
+    let line = said
+        .lines()
+        .find(|l| l.contains("buri heap check:") && !l.contains("buri heap check: ok"));
+    assert!(
+        out.status.code() != Some(97) && line.is_none(),
+        "`{what}` did not give back every block it allocated: {}\n{said}",
+        line.unwrap_or("it exited 97, the heap-check status, and said nothing")
+    );
+}
+
 /// Every markdown document the toolchain is responsible for that is not a
 /// registered topic — the hand-written root `README.md` first among them.
 ///
@@ -277,11 +320,7 @@ fn every_topic_is_servable() {
 /// a lie and the agent's first request fails.
 #[test]
 fn every_manifest_id_is_fetchable() {
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-        .args(["docs", "manifest"])
-        .current_dir(std::env::temp_dir())
-        .output()
-        .expect("the buri binary runs");
+    let out = ran(&std::env::temp_dir(), &["docs", "manifest"]);
     assert!(out.status.success(), "`buri docs manifest` failed");
     let text = String::from_utf8_lossy(&out.stdout);
     assert_eq!(text.lines().count(), 1, "the manifest must be one line");
@@ -314,11 +353,7 @@ fn every_manifest_id_is_fetchable() {
             scope.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
                 let Some(id) = ids.get(i) else { return };
-                let got = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-                    .args(["docs", id, "--format=json"])
-                    .current_dir(std::env::temp_dir())
-                    .output()
-                    .expect("the buri binary runs");
+                let got = ran(&std::env::temp_dir(), &["docs", id, "--format=json"]);
                 if !got.status.success() {
                     broken.lock().unwrap().push(id.clone());
                 }
@@ -340,12 +375,9 @@ fn docs_work_outside_a_repository() {
         vec!["docs", "search", "effects"],
         vec!["docs", "grammar"],
     ] {
-        let out = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-            .args(&args)
-            .arg("--color=never")
-            .current_dir(std::env::temp_dir())
-            .output()
-            .expect("the buri binary runs");
+        let mut argv: Vec<&str> = args.clone();
+        argv.push("--color=never");
+        let out = ran(&std::env::temp_dir(), &argv);
         assert!(out.status.success(), "`buri {}` failed outside a repository", args.join(" "));
         assert!(!out.stdout.is_empty(), "`buri {}` printed nothing", args.join(" "));
     }
@@ -376,13 +408,10 @@ fn search_answers_an_intent_and_every_result_is_runnable() {
         (&["hex"][..], "core/bytes.toHex"),
         (&["ignore", "a", "result"][..], "core/result.ignore"),
     ] {
-        let out = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-            .args(["docs", "search"])
-            .args(query)
-            .arg("--color=never")
-            .current_dir(std::env::temp_dir())
-            .output()
-            .expect("the buri binary runs");
+        let mut argv: Vec<&str> = vec!["docs", "search"];
+        argv.extend(query.iter().copied());
+        argv.push("--color=never");
+        let out = ran(&std::env::temp_dir(), &argv);
         assert!(out.status.success(), "`buri docs search {}` failed", query.join(" "));
         let listing = String::from_utf8_lossy(&out.stdout).to_string();
 
@@ -402,11 +431,7 @@ fn search_answers_an_intent_and_every_result_is_runnable() {
         // …and a command that is offered is a command that works. Running one
         // is what says the two halves agree: an id search prints and an id
         // `buri docs` accepts are the same id.
-        let page = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-            .args(["docs", want, "--color=never"])
-            .current_dir(std::env::temp_dir())
-            .output()
-            .expect("the buri binary runs");
+        let page = ran(&std::env::temp_dir(), &["docs", want, "--color=never"]);
         assert!(page.status.success(), "`buri docs {want}` was offered and does not run");
         assert!(!page.stdout.is_empty(), "`buri docs {want}` printed nothing");
     }
@@ -416,11 +441,8 @@ fn search_answers_an_intent_and_every_result_is_runnable() {
 /// `command` per hit, spelled out rather than reassembled from the id.
 #[test]
 fn a_json_search_hit_carries_its_command() {
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-        .args(["docs", "search", "compare", "ints", "--format=json"])
-        .current_dir(std::env::temp_dir())
-        .output()
-        .expect("the buri binary runs");
+    let out =
+        ran(&std::env::temp_dir(), &["docs", "search", "compare", "ints", "--format=json"]);
     assert!(out.status.success());
     let json = String::from_utf8_lossy(&out.stdout).to_string();
     assert_eq!(json.lines().count(), 1, "JSON output must be one line");
@@ -434,11 +456,7 @@ fn a_json_search_hit_carries_its_command() {
 /// about, so it exits 2 and suggests something.
 #[test]
 fn an_unknown_topic_exits_two_with_a_suggestion() {
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-        .args(["docs", "language/effect", "--color=never"])
-        .current_dir(std::env::temp_dir())
-        .output()
-        .expect("the buri binary runs");
+    let out = ran(&std::env::temp_dir(), &["docs", "language/effect", "--color=never"]);
     assert_eq!(out.status.code(), Some(2));
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("language/effects"), "expected a suggestion, got:\n{err}");
@@ -519,7 +537,7 @@ fn no_document_invents_a_flag() {
 #[test]
 fn a_closed_pipe_is_not_an_error() {
     use std::io::Read;
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
 
     for args in [
         vec!["docs", "language/types"],
@@ -527,7 +545,7 @@ fn a_closed_pipe_is_not_an_error() {
         vec!["docs", "manifest"],
         vec!["docs"],
     ] {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_buri"))
+        let mut child = buri()
             .args(&args)
             .arg("--color=never")
             .current_dir(std::env::temp_dir())
@@ -689,11 +707,10 @@ fn documented_items_carry_their_documentation() {
 /// re-export list *is* the API.
 #[test]
 fn a_workspace_library_renders_its_public_surface() {
-    let out = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-        .args(["docs", "//lib/money/lib.buri", "--format=markdown"])
-        .current_dir(repo_root().join("cli/tests/example"))
-        .output()
-        .expect("the buri binary runs");
+    let out = ran(
+        &repo_root().join("cli/tests/example"),
+        &["docs", "//lib/money/lib.buri", "--format=markdown"],
+    );
     assert!(out.status.success(), "`buri docs //lib/money/lib.buri` failed");
     let page = String::from_utf8_lossy(&out.stdout);
 
@@ -811,11 +828,7 @@ fn a_repository_can_test_its_own_documentation() {
     // tracked file in the working copy.
     let example = copy_of_the_example_monorepo();
 
-    let ok = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-        .args(["docs", "test", "--color=never"])
-        .current_dir(&example)
-        .output()
-        .expect("the buri binary runs");
+    let ok = ran(&example, &["docs", "test", "--color=never"]);
     assert!(
         ok.status.success(),
         "`buri docs test` failed in the worked monorepo:\n{}",
@@ -832,11 +845,7 @@ fn a_repository_can_test_its_own_documentation() {
     assert_ne!(broken, original, "the transcript this test perturbs has moved");
     std::fs::write(&readme, &broken).expect("writing the README");
 
-    let bad = std::process::Command::new(env!("CARGO_BIN_EXE_buri"))
-        .args(["docs", "test", "--color=never"])
-        .current_dir(&example)
-        .output()
-        .expect("the buri binary runs");
+    let bad = ran(&example, &["docs", "test", "--color=never"]);
 
     assert_eq!(bad.status.code(), Some(1), "a wrong transcript must fail");
     let err = String::from_utf8_lossy(&bad.stderr);

@@ -30,7 +30,6 @@
 use crate::harness::*;
 
 use std::path::Path;
-use std::process::Command;
 
 /// The corpus: the closed platform enum, and `--check-reproducible`.
 #[test]
@@ -217,7 +216,7 @@ fn two_concurrent_builds_leave_the_cache_intact() {
     // toolchain has a backend for; what is being contended is the cache, not
     // the native backend that does not exist yet.
     let spawn = || {
-        Command::new(buri())
+        buri_command()
             .args(["build", "//cmd/web", "//lib/money", "//lib/ledger", "--color=never"])
             .current_dir(&scratch.root)
             .stdout(std::process::Stdio::piped())

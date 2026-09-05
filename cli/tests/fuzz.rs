@@ -556,7 +556,7 @@ fn safety_fires(input: &str) -> Option<String> {
 /// Output goes to files rather than pipes: a compiler writing megabytes into a
 /// pipe nobody is draining deadlocks, and a deadlock is not the finding.
 fn run_watched(dir: &Path, args: &[&str], timeout: Duration) -> Result<String, String> {
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     let out_path = dir.join("fuzz.stdout");
     let err_path = dir.join("fuzz.stderr");
     let (out_file, err_file) = (
@@ -565,7 +565,7 @@ fn run_watched(dir: &Path, args: &[&str], timeout: Duration) -> Result<String, S
     );
     let mut argv: Vec<&str> = args.to_vec();
     argv.push("--color=never");
-    let mut child = Command::new(harness::buri())
+    let mut child = harness::buri_command()
         .args(&argv)
         .current_dir(dir)
         .stdin(Stdio::null())
