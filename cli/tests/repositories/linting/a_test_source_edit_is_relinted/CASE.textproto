@@ -1,0 +1,60 @@
+# The lint record is keyed on the closure the analysis read, and that closure
+# holds a target's test sources and its testing sources — `buri lint` analyses
+# with the tests in. So an edit to either invalidates the record, and the claim
+# is made the way `lint_reuses_what_did_not_move` makes its own: the last two
+# steps are recorded against **one** golden, one of them incremental and one of
+# them with the cache thrown away. A record that survived an edit it should not
+# have shows up as a difference between two files that are required to be one.
+#
+# //lib/kit is the control. Neither edit is in its closure, so its finding is
+# replayed from the record every time — which is what makes "the money package
+# was analysed again" a claim about this cache rather than about a cold run.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "editing a test source and editing a testing source each invalidate the lint record, and the incremental report is the cold one byte for byte"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "cold.txt"
+}
+
+# The suite's dead binding goes. Only a test source moved.
+edit {
+  file: "lib/money/test/cents.buri"
+  replace: "    let doubled = 150 * 2;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "after_test_edit.txt"
+}
+
+# The fake's unused import goes. Only a testing source moved.
+edit {
+  file: "lib/money/testing/fakes.buri"
+  replace: "from \"core/str\" import * as str;\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "after_testing_edit.txt"
+}
+
+run {
+  args: ["clean"]
+  exit: 0
+}
+
+# The same tree, with nothing remembered about it. Same golden, on purpose.
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "after_testing_edit.txt"
+}

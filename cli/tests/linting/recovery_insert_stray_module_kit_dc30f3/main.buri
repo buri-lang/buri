@@ -1,0 +1,8 @@
+// A package neither edit can reach. Its finding is the one that has to come
+// back from the record byte for byte while //lib/money is analysed again.
+
+// TODO: the kit is not finished.
+
+export fn kit(): Str extra {
+    "kit"
+}

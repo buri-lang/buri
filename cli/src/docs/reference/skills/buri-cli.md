@@ -169,6 +169,11 @@ undeclared, visibility and tag violations, package and import cycles, and the
 hygiene rules — an import nothing uses, an `export` nothing reaches, a test
 that asserts nothing. Each finding carries a stable code.
 
+It reads `sources`, `test { sources }` and `testing { sources }` alike: a suite
+meets the same rules, and the checker's errors about all three are in the report.
+Only `dead-code` and `ctx-rebinding` never fire in a test source, and a
+`testing/` module's surface is `testing/lib.buri`.
+
 `--fix` applies the findings with exactly one mechanical answer, then runs the
 whole check again from the files on disk. Build-file findings (`missing-dep`,
 `unused-library`, `duplicate-source`) are handed to `buri gen`;

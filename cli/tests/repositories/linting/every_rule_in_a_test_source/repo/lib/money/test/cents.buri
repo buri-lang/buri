@@ -1,0 +1,154 @@
+// A test source written the way a hurried one really goes wrong, with one
+// finding per rule in the catalogue's general half. None of them is about
+// testing: every one of them is the same rule the library one directory up is
+// held to, and a suite is code.
+
+// TODO: this suite is not finished.
+
+from "core/effect" import { Alloc };
+from "core/effect" import { IoError, Stdout };
+from "core/host/testing" import { alloc, stdout };
+from "core/io" import * as io;
+from "core/order" import { Order };
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "//lib/money" import { Cents, fromCents };
+
+let HEX_DIGITS: Str = "0123456789abcdef";
+
+let NANOS_PER_MILLISECOND: I64 = 1_000_000;
+
+struct Ledger {
+    entries: I64,
+    note: Str,
+}
+
+struct Receipt {
+    total: I64,
+}
+
+enum Shade {
+    Light,
+    Dark,
+}
+
+fn total(a: I64, b: I64, c: I64, d: I64, e: I64, f: I64): I64 {
+    a + b + c + d + e + f
+}
+
+fn compareInts(left: Int, right: Int): Order {
+    if (left < right) { .Less } else if (left > right) { .Greater } else { .Equal }
+}
+
+fn width<C: Alloc>(ctx: C, label: Str): Int {
+    label.len()
+}
+
+fn announce<C: Alloc + Stdout>(ctx: C, label: Str): Result<(), IoError> {
+    io.println(ctx, "-- ${label}")
+}
+
+fn drop<C: Stdout>(ctx: C, line: Str): () {
+    let _ = io.println(ctx, line).ignore();
+}
+
+fn byHand<C: Stdout>(ctx: C, line: Str): () {
+    match (io.println(ctx, line)) {
+        .Ok(_written) => (),
+        .Err(_error) => (),
+    }
+}
+
+fn depth(n: I64): Str {
+    if (n > 0) {
+        if (n > 10) {
+            if (n > 100) {
+                if (n > 1000) {
+                    if (n > 10000) { "huge" } else { "large" }
+                } else {
+                    "big"
+                }
+            } else {
+                "medium"
+            }
+        } else {
+            "small"
+        }
+    } else {
+        "none"
+    }
+}
+
+fn spell(n: I64): Str {
+    match (n) {
+        0 => "zero",
+        1 => "one",
+        2 => "two",
+        3 => "three",
+        4 => "four",
+        5 => "five",
+        6 => "six",
+        7 => "seven",
+        8 => "eight",
+        9 => "nine",
+        10 => "ten",
+        11 => "eleven",
+        12 => "twelve",
+        13 => "thirteen",
+        14 => "fourteen",
+        15 => "fifteen",
+        16 => "sixteen",
+        17 => "seventeen",
+        18 => "eighteen",
+        19 => "nineteen",
+        20 => "twenty",
+        21 => "twenty-one",
+        22 => "twenty-two",
+        23 => "twenty-three",
+        24 => "twenty-four",
+        25 => "twenty-five",
+        26 => "twenty-six",
+        27 => "twenty-seven",
+        28 => "twenty-eight",
+        29 => "twenty-nine",
+        30 => "thirty",
+        31 => "thirty-one",
+        32 => "thirty-two",
+        33 => "thirty-three",
+        34 => "thirty-four",
+        35 => "thirty-five",
+        _ => "many",
+    }
+}
+
+test "the suite is held to every rule the library is" {
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: stdout(),
+    };
+    let unread = total(1, 2, 3, 4, 5, 6);
+    let ledger = Ledger { entries: 2, note: "unread" };
+    let shade: Shade = .Light;
+    drop(ctx, "one");
+    byHand(ctx, "two");
+    let _ = announce(ctx, "three").ignore();
+    assert.eq(ledger.entries, 2);
+    assert.eq(compareInts(1, 2), .Less);
+    assert.eq(width(ctx, "abc"), 3);
+    assert.eq(depth(5), "small");
+    assert.eq(spell(7), "seven");
+    assert.eq(HEX_DIGITS.len(), 16);
+    assert.eq(NANOS_PER_MILLISECOND, 1_000_000);
+    assert.eq(fromCents(1), Cents(1));
+    match (shade) {
+        _ => (),
+    }
+}
+
+test "a title that\nwraps" {
+    assert.eq(spell(2), "two");
+}
+
+test "a test that asserts nothing is still a test" {
+    let _ = spell(1);
+}

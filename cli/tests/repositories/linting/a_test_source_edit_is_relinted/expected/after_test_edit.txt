@@ -1,0 +1,19 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/kit/kit.buri:4:4
+  |
+4 | // TODO: the kit is not finished.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+
+    Resolve or remove these markers before merging.
+
+warning: str is imported but not used [unused-import]
+ --> lib/money/testing/fakes.buri:3:29
+  |
+3 | from "core/str" import * as str;
+  |                             ^^^
+  |
+  = Unused imports make the dependency graph messy and makes the codebase harder to maintain and clean up
+  = fix: remove the import

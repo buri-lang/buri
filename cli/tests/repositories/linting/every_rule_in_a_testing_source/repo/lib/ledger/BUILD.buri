@@ -1,0 +1,9 @@
+library {
+    sources: ["entry.buri"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/entry.buri"]
+        dependencies: ["//lib/money/testing"]
+    }
+}

@@ -1,0 +1,12 @@
+// A library source with two mistakes the checker catches: a bound naming an
+// effect that no longer exists, and a body whose type is not the one declared.
+
+from "core/str" import * as str;
+
+export fn stamp<C: Fs>(ctx: C, name: Str): Str {
+    str.format(ctx, "db/${name}")
+}
+
+export fn count(): Str {
+    2
+}

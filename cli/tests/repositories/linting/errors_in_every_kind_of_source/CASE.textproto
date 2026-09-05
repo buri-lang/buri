@@ -1,0 +1,98 @@
+# A lint report is not only the catalogue. `buri lint` analyses every target's
+# whole closure with the tests in, so everything the checker says about that
+# closure is in the report too — and an error is an error, so the command exits
+# nonzero whether or not a single rule fired.
+#
+# The mistake here is the one a language change really leaves behind: an effect
+# that has been split into two, named by a bound in a library source, by a bound
+# in a testing source, and by a key of a context in a test source. `buri build`
+# compiles none of the last two, so a repository that only ever built would hear
+# about a third of this.
+#
+# What the catalogue does with a module that did not check is unchanged and is
+# stated in `lint.rs`'s `Unchecked`: a rule stays quiet for exactly the body or
+# the module whose evidence went missing, and answers everywhere the error
+# cannot reach. That is why `count` is still reported nothing about while
+# `stamp`'s file holds an error, and why the type errors below do not silence
+# the rest of the report.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "buri lint reports the checker's errors in a library source, a testing source and a test source alike, and exits nonzero"
+
+run {
+  args: ["lint", "//..."]
+  exit: 1
+  golden: "lint.txt"
+}
+
+run {
+  args: ["lint", "//...", "--error-format=json"]
+  exit: 1
+  golden: "lint.json"
+}
+
+# `buri test` compiles the suite, so it says the same things about the same
+# three files. The two reports are of one analysis.
+run {
+  args: ["test", "//..."]
+  exit: 1
+  golden: "test.txt"
+}
+
+# The bound names the effect that exists, and the two counts answer the type
+# they were declared with.
+edit {
+  file: "lib/db/manager.buri"
+  replace: "from \"core/str\" import * as str;"
+  with: "from \"core/effect\" import { Alloc };\nfrom \"core/str\" import * as str;"
+}
+
+edit {
+  file: "lib/db/manager.buri"
+  replace: "export fn stamp<C: Fs>(ctx: C, name: Str): Str {"
+  with: "export fn stamp<C: Alloc>(ctx: C, name: Str): Str {"
+}
+
+edit {
+  file: "lib/db/manager.buri"
+  replace: "export fn count(): Str {"
+  with: "export fn count(): Int {"
+}
+
+edit {
+  file: "lib/db/testing/fakes.buri"
+  replace: "from \"core/str\" import * as str;"
+  with: "from \"core/effect\" import { Alloc };\nfrom \"core/str\" import * as str;"
+}
+
+edit {
+  file: "lib/db/testing/fakes.buri"
+  replace: "export fn fakeStamp<C: Fs>(ctx: C, name: Str): Str {"
+  with: "export fn fakeStamp<C: Alloc>(ctx: C, name: Str): Str {"
+}
+
+edit {
+  file: "lib/db/testing/fakes.buri"
+  replace: "export fn fakeCount(): Str {"
+  with: "export fn fakeCount(): Int {"
+}
+
+edit {
+  file: "lib/db/test/residency.buri"
+  replace: "        Fs: alloc(),\n"
+  with: ""
+}
+
+edit {
+  file: "lib/db/test/residency.buri"
+  replace: "let region: Str = 1;"
+  with: "let region: Str = \"eu\";"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}

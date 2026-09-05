@@ -1,0 +1,11 @@
+warning: this comment is marked `TODO` [warning-comment]
+ --> lib/kit/kit.buri:4:4
+  |
+4 | // TODO: the kit is not finished.
+  |    ^^^^
+  |
+  = a marker says the code is unfinished, and a report is where unfinished work belongs rather than in whatever grep somebody remembers to run
+  = fix: finish the work, or delete the marker
+
+    Resolve or remove these markers before merging.
+
