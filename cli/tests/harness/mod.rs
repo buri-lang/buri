@@ -203,66 +203,6 @@ pub fn heap_check_failure(code: i32, text: &str) -> Option<String> {
     }
 }
 
-/// A run this repository **knows** leaks, and the exact sentence the runtime
-/// prints about it.
-struct KnownLeak {
-    /// The command, as `Run::what` spells it.
-    what: &'static str,
-    /// The runtime's own line, in full. Matched as a substring, because a leak
-    /// `buri test` reports arrives wrapped in that command's diagnostic.
-    said: &'static str,
-    /// What it is, for whoever meets it.
-    why: &'static str,
-}
-
-/// **The one leak in this repository that is known, and what the harness does
-/// about it.**
-///
-/// A command listed here is run twice when — and only when — it produces
-/// *exactly* the sentence its row names: once under the check, which is how the
-/// row is recognised, and once without it, and the second run is what the
-/// caller gets. That is not the check being switched off. It is one command
-/// whose *golden output* would otherwise record a defect that has nothing to do
-/// with what the case was written to assert, and every other command in this
-/// repository — including every other command in the same case — is checked as
-/// before.
-///
-/// The pair is what keeps it narrow. A leak of a different size, in a different
-/// command, or anywhere else at all matches no row and is a failing test, so
-/// adding a row is an act with a paper trail rather than a way to get a red
-/// suite green.
-///
-/// **The row is pinned from the other side**, by a test that provokes the
-/// defect on purpose and asserts the number: `build::heap`'s
-/// `a_message_an_actor_never_delivered_is_this_repositorys_known_leak`. That is
-/// what stops a row from outliving the bug it describes — fixing the defect
-/// turns that test red, and its message says to delete both.
-const KNOWN_LEAKS: &[KnownLeak] = &[KnownLeak {
-    what: "buri test //lib/vault --force",
-    said: "buri heap check: leak: 1 block(s) and 70000 byte(s) were allocated and never freed",
-    why: "a message still in an actor's mailbox when `core/actor::stop` closes it has its \
-          payload block released by nobody: `stop`'s discard loop pops the message and lets \
-          the block go, the block's own allocation is given back, and what it pointed at is \
-          not. A message that is *delivered* is clean, and so is an actor's state however \
-          large, so this is the discard path alone. Found by this repository's own heap \
-          check the day `buri test` began forwarding it into the binaries it spawns; open, \
-          and reproduced on purpose by `build::heap`",
-}];
-
-/// The row this run matches, if it matches one.
-fn known_leak(run: &Run) -> Option<&'static KnownLeak> {
-    let said = heap_check_failure(run.code, &run.all())?;
-    KNOWN_LEAKS.iter().find(|k| k.what == run.what && said.contains(k.said))
-}
-
-/// Whether a run is given the heap check. [`Heap::Off`] is one command in this
-/// file's [`KNOWN_LEAKS`] table and nothing else.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Heap {
-    Checked,
-    Off,
-}
-
 // ---------------------------------------------------------------------------
 // Running the CLI
 // ---------------------------------------------------------------------------
@@ -313,8 +253,6 @@ impl Run {
     /// independent of the answer the caller wanted, so it is asked before the
     /// caller gets the chance to want anything.
     ///
-    /// A test that is *about* a leak wants the `Run` rather than a panic, and
-    /// uses [`run_in_unchecked`].
     pub fn heap_ok(&self) -> &Run {
         if let Some(said) = heap_check_failure(self.code, &self.all()) {
             panic!(
@@ -455,17 +393,6 @@ pub fn run_in_with_env(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Run {
     run_in_full(dir, args, None, env, None)
 }
 
-/// The same, **without** the heap assertion, for the one kind of test that
-/// needs the `Run` a leak produced rather than a panic: a test about the check
-/// itself.
-///
-/// Nothing else may call this. A suite that is not asserting on the heap check
-/// and reaches for this is a suite switching the check off, which is the thing
-/// the assertion exists to prevent.
-pub fn run_in_unchecked(dir: &Path, args: &[&str], env: &[(&str, &str)]) -> Run {
-    run_in_raw(dir, args, None, env, None, Heap::Checked)
-}
-
 /// The same, with bytes on standard input.
 ///
 /// `buri lsp` is the only command that reads stdin, and it reads until the
@@ -493,7 +420,7 @@ pub fn run_in_merged(dir: &Path, args: &[&str]) -> Run {
         // The raw form: what the child said went into a file rather than down a
         // pipe, so there is nothing for the heap assertion to read until the
         // file has been read back. It is asked below instead.
-        run_in_raw(dir, args, None, &[], Some((file, second)), Heap::Checked)
+        run_in_raw(dir, args, None, &[], Some((file, second)))
     };
     let text = std::fs::read_to_string(&path).expect("the capture file reads back");
     let _ = std::fs::remove_file(&path);
@@ -509,10 +436,8 @@ pub fn run_in_merged(dir: &Path, args: &[&str]) -> Run {
 /// place every one of them passes through: `run_in`, `run_in_with_env`,
 /// `run_in_with_stdin`, `Scratch::run` and everything built on them.
 ///
-/// The one exception is a command in [`KNOWN_LEAKS`] that produced exactly the
-/// sentence its row names: that is run a second time without the check, and the
-/// second run is what the caller sees. [`KNOWN_LEAKS`] carries the argument for
-/// it, and it is one command.
+/// There is no exception and no way to ask for one: every run is checked, and
+/// a leak is a failing test.
 fn run_in_full(
     dir: &Path,
     args: &[&str],
@@ -520,16 +445,9 @@ fn run_in_full(
     env: &[(&str, &str)],
     capture: Option<(std::fs::File, std::fs::File)>,
 ) -> Run {
-    let run = run_in_raw(dir, args, stdin, env, capture, Heap::Checked);
-    let Some(known) = known_leak(&run) else {
-        run.heap_ok();
-        return run;
-    };
-    eprintln!(
-        "`{}` is this repository's one known leak, so it is run again without the check — {}",
-        run.what, known.why
-    );
-    run_in_raw(dir, args, stdin, env, None, Heap::Off)
+    let run = run_in_raw(dir, args, stdin, env, capture);
+    run.heap_ok();
+    run
 }
 
 fn run_in_raw(
@@ -538,14 +456,8 @@ fn run_in_raw(
     stdin: Option<&[u8]>,
     env: &[(&str, &str)],
     capture: Option<(std::fs::File, std::fs::File)>,
-    heap: Heap,
 ) -> Run {
     let mut cmd = buri_command();
-    if heap == Heap::Off {
-        // Empty rather than removed, and the runtime reads the two the same
-        // way: neither an unset variable nor one holding no mode names one.
-        cmd.env(HEAP_CHECK.0, "");
-    }
     // `--color=never` belongs to `buri`, so it goes *before* any `--`.
     // Appended, it would land in the argument list `buri run` hands to the
     // program, and a golden would record the harness rather than the product.
