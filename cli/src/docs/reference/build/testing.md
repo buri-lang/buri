@@ -41,6 +41,9 @@ into the library.
   context is **created** rather than received, which is why `core/host/testing`
   is importable only from a test source.
 
+A test source is code, so [`buri lint`](../cli/lint.md#what-it-reads) holds it to
+every rule a library source is held to, and `--fix` rewrites it the same way.
+
 `core/testing/assert` is an ordinary module — the name `assert` comes from
 `import * as assert`, and nothing stops a file calling it something else.
 
@@ -109,7 +112,8 @@ it in the build, and a consuming suite names `//lib/ledger/testing` in its own
 `test.dependencies`, the same label mechanism as any other dependency.
 
 - `testing/lib.buri` decides that surface exactly as `lib.buri` decides the
-  library's one level up.
+  library's one level up — including for `buri lint`, which reports an `export`
+  that file does not carry as `dead-code` and leaves alone the shapes it does.
 - A `context` declaration may be **exported** only from a path with a `testing`
   segment ([`language/programs.md` §11.3](../../language/programs.md)).
 - What those modules may import, and why the restriction is carried by the path

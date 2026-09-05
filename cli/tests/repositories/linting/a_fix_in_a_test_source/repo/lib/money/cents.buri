@@ -1,0 +1,9 @@
+// The library. Nothing here is a finding: what `--fix` rewrites in this case
+// is the suite and the fakes beside it.
+
+derive Eq, Show for Cents;
+export struct Cents(export I64);
+
+export fn fromCents(c: I64): Cents {
+    Cents(c)
+}

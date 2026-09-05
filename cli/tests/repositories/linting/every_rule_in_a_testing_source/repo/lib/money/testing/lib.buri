@@ -1,0 +1,4 @@
+// The testing surface. It decides what leaves the `testing/` half exactly as
+// `lib.buri` one directory up decides what leaves the library — which is why
+// `stale` below, which this file does not carry, is reached by nothing.
+from "//lib/money/testing/fakes.buri" export { aFixture, fakeCents, Fixture };

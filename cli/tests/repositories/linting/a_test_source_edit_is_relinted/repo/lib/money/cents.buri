@@ -1,0 +1,9 @@
+// The library. It never moves in this case, and it never has a finding: what
+// the two edits below touch is the suite and the fakes.
+
+derive Eq, Show for Cents;
+export struct Cents(export I64);
+
+export fn fromCents(c: I64): Cents {
+    Cents(c)
+}

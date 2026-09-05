@@ -1,0 +1,13 @@
+library {
+    sources: ["cents.buri"]
+    visibility: ["//visibility:public"]
+
+    test {
+        sources: ["test/cents.buri"]
+        dependencies: ["//lib/money/testing"]
+    }
+
+    testing {
+        sources: ["testing/fakes.buri"]
+    }
+}

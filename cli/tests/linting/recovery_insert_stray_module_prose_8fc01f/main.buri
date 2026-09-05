@@ -1,3 +1,0 @@
-export fn shout(s: Str): ? Str {
-    s
-}

@@ -118,9 +118,19 @@ fn proto_schemas() {
 /// The generated half of that question is `cli/tests/linting.rs`, six hundred
 /// of them, with the rate of lost findings pinned as an invariant and the
 /// parity between this command and the language server stated alongside it.
+///
+/// Five more are about **where** the catalogue runs, which is everywhere a
+/// package's own code is: a suite and a `testing/` helper are code, and both
+/// are held to every rule the library beside them is. Two of them fire the
+/// whole general half once inside a test source and once inside a testing
+/// source; one shows `--fix` rewriting both kinds of file; one shows an edit to
+/// either invalidating the lint record; and the last shows that a lint report
+/// carries the checker's errors as well as the catalogue's findings, in all
+/// three kinds of source, which is more than `buri build` can say because
+/// `buri build` compiles only one of them.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 55);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 60);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the

@@ -1,0 +1,8 @@
+// A fake with an import nothing uses. The second edit takes it out.
+
+from "core/str" import * as str;
+from "//lib/money" import { Cents, fromCents };
+
+export fn fakeCents(): Cents {
+    fromCents(150)
+}

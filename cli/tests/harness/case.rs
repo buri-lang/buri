@@ -874,6 +874,13 @@ pub const A_RUN_THAT_ASSERTED_NOTHING: &[&str] = &[
     "failing/no_tests",
     "failing/counts",
     "testing/filter",
+    // The suite is the subject and it does not compile on purpose: the case is
+    // about `buri lint` reporting the checker's errors in a test source and a
+    // testing source, and the `buri test` step is there to show that the two
+    // commands print the same sentences about the same three files. "Did not
+    // compile" is half of what that step asserts; the error text above it is
+    // the other half, and it is what the golden is read for.
+    "linting/errors_in_every_kind_of_source",
 ];
 
 /// The two shapes a recorded report collapses into when it stops being one.

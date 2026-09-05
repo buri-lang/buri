@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> lib/recovery_delete_closer_module_entry_c2aa58/lib.buri:4:1
+  |
+4 | 
+  | ^
+  |
+ --> lib/recovery_delete_closer_module_entry_c2aa58/lib.buri:1:26
+  |
+1 | export fn entries(): I64 {
+  |                          ^ opened here
+  |
+  = fix: write `}` here
