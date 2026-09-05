@@ -689,13 +689,15 @@ each is worth naming because each looks like a detail and is minutes:
 - The validation gate runs under `--profile validate`, which the root
   `Cargo.toml` declares for it and prices at 169 s against 98 s.
 
-A third used to be here and is deliberately not: a shell runner that started the
-fifteen test binaries together rather than in the queue `cargo test` puts them
-in, worth 169 s against 73 s on a ten-core mac. It cost two hundred and seventy
-lines that had to re-derive cargo's own set of executables and re-concatenate
-their logs so that two more scripts could parse them, and those two are tests
-now, so the log had no reader. `cli/tests/README.md` records the number against
-the day it is needed again.
+A third is the `test` legs' suite step, which starts the test binaries together
+rather than in the queue `cargo test` puts them in. It went away with the shell
+scripts and came back four lines long once the assertions that used to parse its
+concatenated log were tests: the set is asked of cargo, `xargs` starts twice
+`nproc` of them with two test threads each, and each writes its own log. On the
+arm64 leg of run 33981313436 those binaries were 280 s of a 424-second step,
+against 145 s of compiling; `cli/tests/README.md` carries the snippet and the
+two numbers in it, and `cli/tests/ci.rs::the_suite_is_asked_for_as_a_whole`
+holds it to being a derivation rather than a list of domain names.
 
 The cross-backend agreement differential test is not a CI feature:
 `cli/tests/native/agreement.rs`

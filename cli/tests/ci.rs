@@ -467,6 +467,12 @@ fn nothing_in_the_workflow_asks_for_part_of_the_suite() {
          command line.",
         skipping.join("\n  ")
     );
+    // Two shapes ask for everything, and both are here. `cargo test -p buri`
+    // with no name filter after it is the plain one, which the `release` job
+    // uses. The `test` matrix's is the same set with its binaries started
+    // together rather than queued — cargo is asked which test executables exist
+    // and every one of them is run — and `the_suite_is_asked_for_as_a_whole`
+    // below is what holds that to being a derivation rather than a list.
     let whole = text
         .lines()
         .map(str::trim)
@@ -474,11 +480,125 @@ fn nothing_in_the_workflow_asks_for_part_of_the_suite() {
         .count();
     assert!(
         whole >= 2,
-        "only {whole} invocation(s) in ci.yml run `cargo test -p buri` unfiltered, and two do — \
-         the `test` matrix and the `release` job. Either the workflow stopped running the suite, \
-         or the command has changed shape and this test has stopped seeing it."
+        "only {whole} invocation(s) in ci.yml ask for `cargo test -p buri` unfiltered, and there \
+         are more than that — the `test` matrix's `--no-run` derivation and its doctests, and the \
+         `release` job. Either the workflow stopped running the suite, or the command has changed \
+         shape and this test has stopped seeing it."
     );
     println!("{whole} unfiltered `cargo test -p buri` invocation(s), and no `--skip` anywhere");
+}
+
+/// The `run:` block of the step that runs the suite with its binaries
+/// overlapped, from its `- name:` to the next step at the same indentation.
+fn overlapped_step(text: &str) -> String {
+    let marker = "- name: The suite, with its binaries overlapped";
+    let Some(at) = text.find(marker) else {
+        panic!(
+            "ci.yml has no step called `The suite, with its binaries overlapped`. That step is \
+             where the whole suite is run on every `test` leg; a workflow without it is a \
+             workflow whose longest job runs no tests, or one where the step was renamed and \
+             this file stopped reading it."
+        )
+    };
+    let body = &text[at..];
+    let mut out = String::new();
+    for (i, line) in body.lines().enumerate() {
+        if i > 0 && line.starts_with("      - ") {
+            break;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+/// **The suite's set of binaries is cargo's answer, never a list.**
+///
+/// `cargo test` runs the test binaries one at a time, and on a four-core runner
+/// that is the whole of a `test` leg's wall clock: measured on run
+/// 33981313436's arm64 leg, 145 s of compiling and 280 s of running them in a
+/// queue. So the workflow asks for the build, then starts the binaries together.
+///
+/// The obvious way to write that is to list the domains in the workflow and run
+/// one `cargo test --test <name>` per group. That way is wrong for a reason no
+/// timing can show: the day somebody adds `cli/tests/effects/main.rs`, a list
+/// runs fifteen binaries, reports a green run, and nothing anywhere says the
+/// sixteenth was never asked for. So the set is asked of cargo — every artifact
+/// whose **profile** says `test` — which is the set `cargo test -p buri` would
+/// have run, by construction rather than by maintenance.
+///
+/// This is what stops that being quietly undone. Four properties, all about the
+/// step rather than about the suite: it asks cargo, it reads the profile's flag
+/// and not the target's, it actually RUNS what it derived, and it names no
+/// domain of its own.
+#[test]
+fn the_suite_is_asked_for_as_a_whole() {
+    let text = workflow();
+    let step = overlapped_step(&text);
+
+    assert!(
+        step.contains("--no-run --message-format=json"),
+        "the overlapped step no longer asks cargo which test executables exist. The set has to be \
+         derived — `cargo test -p buri --no-run --message-format=json…` — because a set that is \
+         written down is a set that goes stale on the day a domain is added, and a suite that \
+         quietly stops running one of its binaries is exactly the green this repository \
+         refuses.\n--- the step ---\n{step}"
+    );
+    assert!(
+        step.contains(".profile.test"),
+        "the overlapped step no longer selects on the artifact's PROFILE. Cargo marks the plain \
+         `buri` binary testable in its *target* object whether or not the artifact is a libtest \
+         harness, so a filter on the target's flag runs the CLI with `--test-threads` as its \
+         subcommand. The profile's `test` flag is the one that means \
+         harness.\n--- the step ---\n{step}"
+    );
+    assert!(
+        step.contains("xargs") && step.contains("--test-threads"),
+        "the overlapped step derives the set and never runs it. `--no-run` builds the binaries \
+         and stops; something has to start them.\n--- the step ---\n{step}"
+    );
+    assert!(
+        step.contains("--doc"),
+        "the overlapped step does not ask for the doctests. They are the one unit cargo cannot \
+         hand over as an executable, so they are absent from the derivation above — there are \
+         zero of them today, and this is what stops the first one written from being silently \
+         dropped.\n--- the step ---\n{step}"
+    );
+
+    // The domains, as the directory says they are: a `.rs` file directly under
+    // `cli/tests/` or a directory holding a `main.rs`. If any of their names
+    // reaches the step, the derivation has been replaced by a list wearing its
+    // clothes.
+    let tests = repo_root().join("cli").join("tests");
+    let mut domains: Vec<String> = Vec::new();
+    for entry in std::fs::read_dir(&tests).unwrap().flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if entry.path().is_file() {
+            if let Some(stem) = name.strip_suffix(".rs") {
+                domains.push(stem.to_string());
+            }
+        } else if entry.path().join("main.rs").exists() {
+            domains.push(name);
+        }
+    }
+    assert!(
+        domains.len() >= 10,
+        "only {} test binaries were found under {}, and there have been more than ten since \
+         `vectors` landed — this test is asserting nothing",
+        domains.len(),
+        tests.display()
+    );
+    for domain in &domains {
+        let named = format!("--test {domain}");
+        assert!(
+            !step.contains(&named),
+            "the overlapped step names `{named}`. The whole point of it is that it does not know \
+             which binaries exist: it asks cargo and runs all of them. A `--test` argument in \
+             there is a list, and the next domain added is the one it will not \
+             have.\n--- the step ---\n{step}"
+        );
+    }
+    println!("{} domain(s), none of them named by the overlapped step", domains.len());
 }
 
 
