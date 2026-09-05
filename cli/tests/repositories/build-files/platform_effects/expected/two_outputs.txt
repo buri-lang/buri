@@ -45,20 +45,20 @@ error: `fs` implements `FsRead` or `FsWrite`, which is not allowed on the WEB pl
      A module is checked against the platforms it is being compiled for, and
      that is one of three answers:
 
-     * A build is producing one output, and that output is the answer.
+     - A build is producing one output, and that output is the answer.
      buri build --output=js on a binary that also declares a WEB output is
      compiling the JS one; refusing it on WEB's behalf would report an error in
      a place that is not building. The same holds for a documentation snippet
      pinned with platform= on its fence.
 
-     * A binary's entry point — main.buri, the one module that may import
+     - A binary's entry point — main.buri, the one module that may import
      core/host at all — is checked against every platform its outputs name, plus
      every platform its suite names in test.platforms. All of them have to
      compile, so a binary declaring [MACOS, WEB] and binding FsRead: host.fs is
      refused, and the message names WEB. A batched test binary links main in,
      which is why the suite's platforms count too.
 
-     * Every other module is checked against the platforms **its own rule
+     - Every other module is checked against the platforms **its own rule
      declared**, and a rule that declared none is never checked at all. A
      library that says nothing about platforms is platform-generic: it may end
      up in a page or in a server, and neither of those is a fact about the
