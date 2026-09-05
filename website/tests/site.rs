@@ -79,7 +79,6 @@ fn the_site_builds_from_the_documentation_in_the_tree() {
 
     for page in [
         "index.html",
-        "assets/site.css",
         "getting-started/index.html",
         "getting-started/installing/index.html",
         "guides/index.html",
@@ -115,9 +114,53 @@ fn the_site_builds_from_the_documentation_in_the_tree() {
     );
     assert!(!front.contains("<script src="), "the site loads no external script");
     assert!(
+        !front.contains("<link rel=\"stylesheet\""),
+        "the site loads an external stylesheet"
+    );
+    assert!(
         front.contains("preloadOnHover"),
         "the front page does not preload the pages its links point at"
     );
+
+    let _ = std::fs::remove_dir_all(&out);
+}
+
+/// A page is one file: the stylesheet is written into every document, and
+/// nothing is fetched to render it.
+#[test]
+fn every_page_carries_its_stylesheet_and_fetches_nothing() {
+    let out = temporary("inline-css");
+    succeeded(&website(&["--out", out.to_str().unwrap()]), "the build");
+
+    let mut pages = 0usize;
+    for file in tree(&out) {
+        if file.extension().and_then(|e| e.to_str()) != Some("html") {
+            continue;
+        }
+        pages += 1;
+        let html = std::fs::read_to_string(out.join(&file)).unwrap();
+        let (head, _) = html
+            .split_once("</head>")
+            .unwrap_or_else(|| panic!("`{}` has no head", file.display()));
+        let (_, rest) = head
+            .split_once("<style>")
+            .unwrap_or_else(|| panic!("`{}` carries no stylesheet", file.display()));
+        let (css, _) = rest
+            .split_once("</style>")
+            .unwrap_or_else(|| panic!("`{}` never closes its stylesheet", file.display()));
+        assert!(
+            css.contains("pre .keyword") && css.contains("[data-theme="),
+            "`{}` carries a style element that is not the stylesheet",
+            file.display()
+        );
+        assert!(
+            !html.contains("<link rel=\"stylesheet\"") && !html.contains("site.css"),
+            "`{}` still points at a stylesheet file",
+            file.display()
+        );
+    }
+    assert!(pages > 200, "only {pages} pages; the site is not the whole corpus");
+    assert!(!out.join("assets").exists(), "the build still writes an assets directory");
 
     let _ = std::fs::remove_dir_all(&out);
 }
