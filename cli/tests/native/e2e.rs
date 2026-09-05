@@ -1536,6 +1536,161 @@ fn a_native_binary_touches_files_and_reads_its_own_arguments() {
 }
 
 // ---------------------------------------------------------------------------
+// The two shapes that leaked a block the program could still name
+// ---------------------------------------------------------------------------
+
+/// One program, run under the runtime's own exit audit, with its output.
+///
+/// `BURI_RT_HEAP_REPORT` is the receipt: a clean run and a run in which the
+/// check was never switched on are otherwise the same silence, so the rows
+/// below assert on the line the runtime prints rather than on the absence of
+/// one.
+fn heap_checked(name: &str, source: &str) -> (Vec<String>, String) {
+    let binary = built(name, source);
+    let out = std::process::Command::new(&binary)
+        .env("BURI_RT_HEAP_CHECK", "1")
+        .env("BURI_RT_HEAP_REPORT", "1")
+        .output()
+        .expect("the program did not start");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("buri heap check: ok"),
+        "the heap audit did not report a clean exit.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    (stdout.lines().map(str::to_string).collect(), stderr)
+}
+
+/// A functional update that **replaces** a field holding a counted value.
+///
+/// Every payload is built at run time. A literal lives in the artifact's
+/// constant pool and is `IMMORTAL` (VALUE-MODEL.md §5.2), so a leaked one would
+/// still balance and this row would assert nothing.
+///
+/// Three updates, because the leak is per replaced field rather than per
+/// update, and because the third is the shape a decoder is written in — the
+/// replacement *reads the field it replaces*, which is what
+/// `cli/src/build/protogen.rs` generates for a repeated field and what
+/// `proto/binary.buri` leaked eight blocks of.
+fn replaced_fields() -> String {
+    String::from(
+        r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+struct Basket {
+    export label: Str,
+    export items: [Str],
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let base = Basket {
+        label: "b".repeat(ctx, 9000),
+        items: ["i".repeat(ctx, 8000)],
+    };
+    // The old `items` is carried by nothing the update built.
+    let swapped = Basket { ..base, items: ["j".repeat(ctx, 7000)] };
+    // The label as well as the list, so the row is not about one repr.
+    let renamed = Basket { ..base, label: "r".repeat(ctx, 6000) };
+    // And the accumulating shape: the replacement is grown out of the field it
+    // replaces, which a unique list may answer by writing in place.
+    let grown = Basket { ..base, items: base.items.concat(ctx, swapped.items) };
+    let _ = io.println(ctx, "${base.items.len()} ${swapped.items.len()}").ignore();
+    let _ = io.println(ctx, "${renamed.label.len()} ${grown.items.len()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A functional update gives back the value of every field it replaces.**
+///
+/// `S { ..base, f: v }` takes `..base` as a whole — a construction owns what it
+/// is handed — and builds a struct carrying only the fields it did not replace.
+/// The old value of a replaced field was therefore counted for by nobody: one
+/// leaked block per replaced counted field, whether or not `base` outlives the
+/// update. `data/lists.buri` and `proto/binary.buri` both had a ledger row for
+/// it, the second because generated decoders accumulate a repeated field by
+/// updating the message once per element.
+#[test]
+fn a_functional_update_releases_the_field_it_replaced() {
+    unless_ready!();
+    let (stdout, stderr) = heap_checked("e2e-struct-update-replaced", &replaced_fields());
+    assert_eq!(stdout, vec!["1 1", "6000 2"], "stderr:\n{stderr}");
+}
+
+/// A `?` whose operand fails while the function still owns something.
+///
+/// `step` owns its parameter — the tail hands it on into the answer — and reads
+/// it *after* the `?`, so on the escape path there is a live `Str` and no
+/// continuation left to release it. This is `core/bytes`'s `Reader.takeVarint`
+/// with the names changed, which is the row `text/bytes.buri` carried.
+///
+/// Both arms are exercised: `ok` takes the continuation and `bad` takes the
+/// escape, so the audit is of a program in which the early return really ran.
+fn early_return() -> String {
+    String::from(
+        r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+struct Frame {
+    export body: Str,
+    export at: Int,
+}
+
+fn parse(at: Int): Result<Int, Str> {
+    if (at > 1) { .Err("short") } else { .Ok(at) }
+}
+
+fn step(frame: Frame): Result<(Int, Frame), Str> {
+    let next = parse(frame.at)?;
+    .Ok((next, frame))
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let ok = step(Frame { body: "o".repeat(ctx, 9000), at: 0 });
+    let bad = step(Frame { body: "z".repeat(ctx, 6000), at: 7 });
+    let _ = io.println(ctx, "${ok.isOk()} ${bad.isOk()}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A `?` that leaves the function releases what the function still owns.**
+///
+/// The early return is a branch whose arm runs no more of the body, so every
+/// drop the rest of the body would have performed is a drop that never happens
+/// — and an owned value live across the `?` is leaked exactly when the `?`
+/// fails. It is a *branch*, so the fix is the one a branch already gets:
+/// `middle::rc` balances the escape against the continuation, and
+/// `middle::lower` puts those drops in the block the early return is built in.
+#[test]
+fn an_early_return_releases_what_the_function_still_owns() {
+    unless_ready!();
+    let (stdout, stderr) = heap_checked("e2e-try-escape", &early_return());
+    assert_eq!(stdout, vec!["true false"], "stderr:\n{stderr}");
+}
+
+
+
+// ---------------------------------------------------------------------------
 // An actor stopped with its mailbox full
 // ---------------------------------------------------------------------------
 
