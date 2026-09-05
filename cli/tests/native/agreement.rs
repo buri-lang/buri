@@ -549,46 +549,35 @@ fn both(row: &str, source: &str) -> (Ran, Vec<(&'static str, Ran)>) {
     (js, natives)
 }
 
-/// A **must agree** row: every backend prints `expected`, exits zero, and
-/// says nothing on standard error.
+/// A **must agree** row: every backend prints `expected`, exits zero, says
+/// nothing on standard error, and gives back every block it took.
 ///
 /// `expected` is asserted as well as agreement, because two backends that
-/// agree on the wrong answer agree.
+/// agree on the wrong answer agree. The heap is asserted separately from the
+/// status, so a leak is reported as a leak: the audit exits non-zero with its
+/// own sentence on standard error, and "exited 134" is not a thing to read.
+///
+/// **There is no leaking variant of this function any more.** There was one,
+/// `agree_leaking`, which pinned an exact block count for the two rows that
+/// were known to leak — the projection off a generic call and the option
+/// holding an array. Both were the same missing release and both are fixed, so
+/// the permission went with them: a row that leaks now fails here, and a row
+/// that leaks *on purpose* would have to say so in a function somebody writes
+/// again and argues for.
 fn agree(row: &str, source: &str, expected: &str) {
-    agree_leaking(row, source, expected, 0, "");
-}
-
-/// [`agree`], for a row whose program is **known to leak**.
-///
-/// The count is exact and is asserted in both directions, which is what keeps
-/// this from being a way to switch the heap check off: a row that leaks a
-/// block more fails, and a row that has stopped leaking fails too and says to
-/// call [`agree`] instead. `why` is what a reader gets in place of a surprise.
-///
-/// One row uses it today. There is no general permission here — a second
-/// caller is a second finding, and it has to say what it is.
-fn agree_leaking(row: &str, source: &str, expected: &str, blocks: u64, why: &str) {
     let (js, natives) = both(row, source);
     assert_eq!(js.stderr, "", "{row}: JavaScript printed to standard error");
     assert_eq!(js.status, 0, "{row}: JavaScript exited {}", js.status);
     assert_eq!(js.stdout, expected, "{row}: JavaScript printed something else");
     for (name, ran) in &natives {
-        match crate::shared::leaked_blocks(ran.status, &ran.stderr) {
-            Some(n) if n == blocks && blocks != 0 => {
-                eprintln!("backend agreement: {row} leaks {n} block(s) on `{name}` — {why}");
-            }
-            Some(n) => panic!(
-                "{row}: `{name}` leaked {n} block(s) and this row expects {blocks}. \
+        if let Some(n) = crate::shared::leaked_blocks(ran.status, &ran.stderr) {
+            panic!(
+                "{row}: `{name}` leaked {n} block(s). \
                  `BURI_RT_HEAP_CHECK=trace` prints every surviving block."
-            ),
-            None if blocks != 0 => panic!(
-                "{row}: `{name}` no longer leaks — {why} is fixed, so call `agree` here"
-            ),
-            None => {
-                assert_eq!(ran.stderr, "", "{row}: `{name}` printed to standard error");
-                assert_eq!(ran.status, 0, "{row}: `{name}` exited {}", ran.status);
-            }
+            );
         }
+        assert_eq!(ran.stderr, "", "{row}: `{name}` printed to standard error");
+        assert_eq!(ran.status, 0, "{row}: `{name}` exited {}", ran.status);
         assert_eq!(
             ran.stdout, js.stdout,
             "{row}: `{name}` and JavaScript disagree.\n  javascript: {:?}\n  {name}: {:?}",
@@ -3607,10 +3596,22 @@ export fn main(): Result<(), Str> {
 /// Three spellings, because the report's own bisection is that the `let` is
 /// what decides: the inline projection was fine, an `[Int]` was fine, and the
 /// let-bound `[Leaf]` aborted.
+///
+/// **The promotion is only half of an owned value, and the other half took a
+/// second pass.** Owning the base means the projection increfs the field it
+/// hands on and releases the base there, so what comes out is an owned
+/// reference with **no name** — a temporary, and somebody has to drop it.
+/// `rc::fresh` is the function that says which values those are, and it did
+/// not count this one: it read a projection as a temporary only when the
+/// *base* was a construction or a call, and a base the inliner turned into a
+/// `Block` is neither. So `identity(outer()).inner` was increfed and never
+/// released, and this row leaked exactly one block — the `[Leaf]` the middle
+/// field of the chain holds — from the day the heap check was switched on
+/// until `fresh` learned that a tail-shaped base makes a temporary too.
 #[test]
 fn a_projection_off_a_generic_calls_result_agrees() {
     rows_or_skip!();
-    agree_leaking(
+    agree(
         "projection off a generic call",
         r#"
 from "core/host" import { stdout, alloc };
@@ -3639,13 +3640,6 @@ export fn main(): Result<(), Str> {
 }
 "#,
         "2 2 2\n",
-        1,
-        "a chained projection off an inlined call — `identity(outer()).inner.items` — \
-         never releases the intermediate. The single-step spellings on the two lines \
-         below it are clean, and so is the same chain off a plain call; what leaks is \
-         the `[Leaf]` the *middle* field of the chain holds. Found by the universal \
-         heap check the day it was switched on, and open: the corruption half of \
-         issue #33 is fixed and its under-decrement half is not",
     );
 }
 
@@ -3815,10 +3809,19 @@ export fn main(): Result<(), Str> {
 /// is left of the report is the claim underneath it — an option's payload is
 /// read out at every payload type, on every backend — and a shape nothing
 /// pins is a shape the next rewrite of `withDefault` is free to break.
+///
+/// Keeping it is what caught a second defect. `wrapped` leaked one block per
+/// `.Some` and it was never `withDefault`'s fault:
+/// `held.withDefault(w).octets` is a projection off a call the inliner pasted
+/// in, which is [`a_projection_off_a_generic_calls_result_agrees`] above, at a
+/// different type and reached through the standard library rather than a
+/// `let`. One change to `rc::fresh` moved both rows, and the `.None` line —
+/// the same missing release, costing no block because an empty list is not
+/// one — is still here to say the two backends agree about that too.
 #[test]
 fn an_option_whose_payload_holds_an_array_agrees() {
     rows_or_skip!();
-    agree_leaking(
+    agree(
         "option holding an array",
         r#"
 from "core/host" import { stdout, alloc };
@@ -3855,20 +3858,6 @@ export fn main(): Result<(), Str> {
 }
 "#,
         "3 3 3 3 0 0\n",
-        1,
-        "`wrapped(.Some(..))` leaks its payload's list. `Option<T>.withDefault` where \
-         `T` is a **struct holding a list** drops the struct without releasing what the \
-         struct holds; the same call at `Option<[U8]>` is clean, and so is the `match` \
-         spelling on the line below it. Found by the ownership generator in \
-         `cli/tests/fuzz.rs`, which is why that generator does not draw this call — the \
-         note there says so. \
-         `wrapped(.None)` is the *same* under-decrement, and it is on the row rather \
-         than held out because it costs no block on either backend: the struct it drops \
-         holds `list.empty<U8>()`, and an empty list is not a block. It is here because \
-         it once was one — the LLVM backend answered `list.empty` with a zero-byte \
-         allocation, so this line leaked there and nowhere else, and the ownership \
-         search found the disagreement (`llvm.rs`'s `an_empty_list_is_not_a_block`). \
-         The count is one on *both* native backends now, which is the claim",
     );
 }
 

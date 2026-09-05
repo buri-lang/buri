@@ -2180,6 +2180,13 @@ impl Scan<'_> {
     /// #33, and `lower.rs`'s
     /// `a_projection_never_reads_a_base_this_block_has_already_released` is
     /// what the emitted instructions have to say about it.
+    ///
+    /// **Owning the base is half of the answer.** [`Scan::projected`] then
+    /// increfs the field and releases the base, so the projection is holding
+    /// an owned reference with no name — and [`fresh`] is what tells the
+    /// enclosing construct to drop it. The two have to agree about the same
+    /// bases or the count goes out and does not come back; [`fresh_leaf`]
+    /// asks `compound` for that reason.
     fn tail_shaped_base(&mut self, base: &Expr) -> bool {
         compound(base) && self.counted_ty(&base.ty.clone())
     }
@@ -3043,6 +3050,12 @@ fn borrowed_root(e: &Expr) -> Option<LocalId> {
 /// an `ExprKind::CallFn`, and the string it returns had nobody left to drop it.
 /// All of them, so that a branch answering a borrowed alias is not dropped on
 /// the strength of a branch beside it that allocates.
+///
+/// **Every value this answers `true` for is a value somebody has to drop**, and
+/// that makes it one half of a pair: [`Scan::projected`] takes a count exactly
+/// where this says a temporary was made, and [`Scan::drop_temporary`] releases
+/// it exactly where this says so too. [`fresh_leaf`]'s projection case is where
+/// the two once disagreed.
 fn fresh(e: &Expr) -> bool {
     let tails = tails(e);
     !tails.is_empty() && tails.into_iter().all(fresh_leaf)
@@ -3058,7 +3071,21 @@ fn fresh_leaf(e: &Expr) -> bool {
     | ExprKind::CtxGet { base, .. }
     | ExprKind::Index { base, .. } = &e.kind
     {
-        return fresh(base);
+        // A **tail-shaped** base is the second way a projection ends up
+        // holding a count of its own: [`Scan::tail_shaped_base`] promotes a
+        // `Block`, an `If` or a `Match` base to [`Mode::Own`], and
+        // [`Scan::projected`] then increfs the field and releases the base
+        // exactly as it does for a fresh one. So what comes out is an owned
+        // reference with no name — a temporary — and saying otherwise here is
+        // saying nobody has to drop it.
+        //
+        // `middle::inline` is what makes it common: a call it pasted in is a
+        // `Block`, so `identity(outer()).inner.items` and
+        // `held.withDefault(w).octets` are both a projection off a block. The
+        // countedness the promotion also asks for is not asked again — a
+        // counted field implies a counted aggregate (`join`), so a drop that
+        // fires here is a drop of a count the promotion took.
+        return fresh(base) || compound(base);
     }
     matches!(
         e.kind,
