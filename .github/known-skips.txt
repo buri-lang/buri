@@ -6,10 +6,10 @@
 #   * `cli/tests/ci.rs::the_only_ignored_tests_are_the_ones_named_here` walks
 #     the tree for `#[ignore`, and fails if the set it finds is not exactly the
 #     set below. That is the ratchet, and it runs on every machine.
-#   * `.github/scripts/assert-no-skips.sh` counts the lines here and holds the
-#     `N ignored` in a `cargo test` summary to that number. That is the runner's
-#     half, and it catches a skip that arrives some way the source scan cannot
-#     see.
+#   * `cli/tests/harness/ci.rs::skipped` PANICS under `BURI_CI=1`. That is the
+#     runner's half, and it catches the other kind of skip entirely — a runtime
+#     `if !supported() { return; }`, which libtest reports as a pass and no
+#     source scan can see.
 #
 # The format is `<path>::<test> — <why>`. `#` starts a comment; blank lines are
 # ignored. An entry is a DEFECT WITH A NAME, not a permission: a row here is a
@@ -31,6 +31,6 @@
 # `host.HostAlloc.allocate` has a `runtime_table.rs` row reaching the archive
 # body the release backend already called.
 #
-# Empty is therefore the floor, not a starting state: both readers above hold
+# Empty is therefore the floor, not a starting state: the scan above holds
 # `ignored` to zero, so the next `#[ignore]` anybody writes fails the suite on
 # their own machine until it is either fixed or argued for here.

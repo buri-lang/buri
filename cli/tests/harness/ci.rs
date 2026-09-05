@@ -8,11 +8,12 @@
 //! right rule *for a host*.
 //!
 //! It is the wrong rule for a runner. Every job in `.github/workflows/ci.yml`
-//! installs clang, lld, mold, llvm and a JavaScript engine, asserts each of
-//! them is on `PATH`, and asserts the stencil libraries and the runtime archive
-//! are non-empty bytes on disk *before* the suite starts. A guard that fires
-//! there is not "this host cannot"; it is "something the workflow guarantees
-//! stopped being true", and the only honest report of that is a failure.
+//! that runs this suite installs clang, lld, mold, llvm and a JavaScript
+//! engine, and `cli/tests/ci.rs` asserts — from inside the same run — that each
+//! of them is on `PATH` and that the stencil libraries and the runtime archive
+//! are non-empty bytes. A guard that fires there is not "this host cannot"; it
+//! is "something the workflow guarantees stopped being true", and the only
+//! honest report of that is a failure.
 //!
 //! So the same guard reads `BURI_CI`:
 //!
@@ -74,11 +75,11 @@ pub fn skipped(domain: &str, why: &str) -> bool {
         panic!(
             "BURI_CI=1 and `{domain}` skipped: {why}.\n\
              \n\
-             Every runner in .github/workflows/ci.yml installs this suite's tools and asserts \
-             the stencil libraries and the runtime archive are real bytes before the suite \
-             starts, so this guard cannot fire on one that is still set up the way the workflow \
-             says it is. Something the workflow guarantees stopped being true — that is the bug, \
-             and a test that returned quietly here would have reported it as a pass."
+             Every runner in .github/workflows/ci.yml installs this suite's tools, and \
+             `cli/tests/ci.rs` holds the stencil libraries and the runtime archive to being real \
+             bytes, so this guard cannot fire on a runner that is still set up the way the \
+             workflow says it is. Something the workflow guarantees stopped being true — that is \
+             the bug, and a test that returned quietly here would have reported it as a pass."
         );
     }
     eprintln!("{domain}: skipped ({why})");
