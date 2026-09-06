@@ -7,16 +7,15 @@
 //! non-negative number smaller than 2^32 and none of that arises.
 //!
 //! **What this costs.** A `BitSet` is a value, like everything else, so `set`
-//! copies the word array — O(n/32), not O(1). That is what a persistent bit
-//! set costs, and it is worth saying plainly rather than implying the O(1) a
-//! mutable one would have. What it buys over `[Bool]` is a factor of 32 in
-//! space and whole-word `union`/`intersect`/`difference`.
+//! copies the word array: O(n/32), not O(1). That is the price of a persistent
+//! bit set, and better said plainly than left to imply the O(1) a mutable one
+//! would have. Against `[Bool]` it buys a factor of 32 in space, plus whole-word
+//! `union`, `intersect` and `difference`.
 //!
-//! **Why the work is in free functions and the methods delegate.** A lambda
-//! may not capture `self` (SPEC 10.6), and every operation here is a `map` or
-//! a `filter` over the words. Binding the fields first and passing them to a
-//! plain function is what lets the lambda close over an `[Int]` rather than
-//! over a receiver.
+//! **Why the work sits in free functions and the methods delegate.** A lambda
+//! may not capture `self` (SPEC 10.6), and every operation here is a `map` or a
+//! `filter` over the words. Binding the fields first and passing them to a plain
+//! function lets the lambda close over an `[Int]` rather than over a receiver.
 //!
 //! ```buri run
 //! from "core/bitset" import * as bitset;
@@ -53,9 +52,9 @@ let WORD: Int = 32;
 
 /// The words, low bits first, and how many bits the set was created to hold.
 ///
-/// `capacity` is not derivable from `words.len()` — a set of 33 bits and a set
-/// of 64 both need two words — and membership beyond it is defined to be
-/// false, so it has to be carried.
+/// You cannot derive `capacity` from `words.len()`: a set of 33 bits and a set
+/// of 64 both need two words. Membership beyond it is false by definition, so
+/// the set carries the number.
 export struct BitSet {
     words: [Int],
     export capacity: Int,
@@ -181,9 +180,9 @@ impl BitSet {
 
 /// Word-at-a-time, which is the whole reason to pack bits at all.
 ///
-/// The result's capacity is the larger of the two, and a word only one of them
-/// has is combined with zero — so `union` grows and `intersect` does not,
-/// without either needing to say so.
+/// The result's capacity is the larger of the two, and a word only one side has
+/// combines with zero. So `union` grows and `intersect` does not, without either
+/// having to say so.
 fn combine<C: Alloc>(
     ctx: C,
     words: [Int],

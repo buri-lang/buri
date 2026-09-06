@@ -7,17 +7,16 @@
 //!
 //! Tracking is automatic. The runtime knows which computation is running, so
 //! `get` inside one records an edge from the cell to it, and a write marks
-//! everything that read the cell out of date. Dependencies are collected
-//! afresh on every run, so a read behind an `if` is tracked exactly: the
-//! branch not taken creates no edge.
+//! everything that read the cell out of date. The runtime collects dependencies
+//! afresh on every run, so it tracks a read behind an `if` exactly: the branch
+//! not taken creates no edge.
 
 from "ui/effect" import { Scope, Ui, Watch };
 
 /// An index into the runtime graph.
 ///
-/// Phantom in `T`: the value lives in the graph, not here, which is why
-/// holding one carries no authority and why capturing one needs no bound on
-/// `T`.
+/// Phantom in `T`: the value lives in the graph, not here. That is why holding
+/// one carries no authority, and why capturing one needs no bound on `T`.
 export struct Signal<T>(Int);
 
 impl<T> Signal<T> {
@@ -37,11 +36,11 @@ impl<T> Signal<T> {
 
     /// Replaces the value with a function of the old one.
     ///
-    /// Takes `Ui` rather than `Watch` because it writes, and the read it does on
-    /// the way records no dependency — not by exception, but because there is
-    /// nothing to record it against. The runtime tracks against the computation
-    /// that is running, a computation is handed a `Scope`, and a `Scope` cannot
-    /// write. So the only place `update` can be called from is outside one.
+    /// Takes `Ui` rather than `Watch` because it writes. The read it does on the
+    /// way records no dependency, and not by exception: there is nothing to
+    /// record it against. The runtime tracks against the running computation, a
+    /// computation gets a `Scope`, and a `Scope` cannot write. So `update` can
+    /// only be called from outside a computation.
     export fn update<C: Ui>(self, ctx: C, f: fn(T) => T): () {
         ctx.write(self.0, f(ctx.read(self.0)))
     }
@@ -53,11 +52,11 @@ export fn signal<C: Ui, T>(ctx: C, initial: T): Signal<T> {
 }
 
 /// Registers a computation run for its effect on the world rather than its
-/// value: once now, and again whenever anything it read has changed.
+/// value: once now, and again whenever anything it read changes.
 ///
-/// Named `watch` rather than `effect` because `effect` is a keyword. The
-/// closure receives a `Scope` and can therefore only *read* the graph, which
-/// is what makes it safe to re-run at a time the program did not choose.
+/// Named `watch` rather than `effect` because `effect` is a keyword. The closure
+/// receives a `Scope`, so it can only *read* the graph. That is what makes it
+/// safe to re-run at a time the program did not choose.
 export fn watch<C: Ui>(ctx: C, run: fn(Scope) => ()): () {
     ctx.watch(run)
 }

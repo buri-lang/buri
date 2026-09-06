@@ -12,8 +12,8 @@
 //! (SPEC 8.1), so it is the natural shape here rather than a compromise. A
 //! ring buffer would need mutation to be worth anything.
 //!
-//! Everything that grows the queue names `Alloc`, and everything that only
-//! looks at it does not — the split SPEC 10.5 draws, visible in the
+//! Everything that grows the queue names `Alloc`, and everything that only looks
+//! at it does not. That is the split SPEC 10.5 draws, made visible in the
 //! signatures.
 //!
 //! ```buri run
@@ -53,10 +53,10 @@ from "core/list" import * as list;
 /// The head reversed, and the tail in order. See the module comment: the
 /// reversal is what makes both ends an append.
 ///
-/// The fields are not exported: the two lists are an implementation of a
-/// sequence, not the sequence itself, and two different pairs can represent
-/// the same queue. `derive Eq` would compare the representation rather than
-/// the contents, so `Eq` is `equals` below instead.
+/// The fields stay private: the two lists implement a sequence, they are not the
+/// sequence itself, and two different pairs can stand for the same queue.
+/// `derive Eq` would compare the representation rather than the contents, so
+/// equality is `equals` below instead.
 export struct Queue<T> {
     front: [T],
     back: [T],
@@ -69,9 +69,9 @@ export fn empty<T>(): Queue<T> {
 
 /// A queue holding the elements of a list, front first.
 ///
-/// They all go in `back`, in order, which is what `push`ing each of them in
-/// turn would have produced — and costs no reversal to build. Pure: the list
-/// already exists, and this borrows it rather than copying it.
+/// They all go in `back`, in order, which is what `push`ing each of them in turn
+/// would have produced, and it costs no reversal to build. Pure: the list already
+/// exists, and this borrows it rather than copying it.
 export fn of<T>(items: [T]): Queue<T> {
     Queue { front: list.empty<T>(), back: items }
 }

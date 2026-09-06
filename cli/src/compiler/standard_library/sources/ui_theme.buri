@@ -1,49 +1,46 @@
 //! ui/theme — what a package's design tokens mean, decided by the app.
 //!
-//! A library that uses tokens declares its own closed vocabulary as an
-//! ordinary enum and styles itself against that; the app that uses the library
-//! closes the loop at mount with one theme per library, mapping that library's
-//! tokens to its own or to raw values. Exhaustiveness is the whole contract:
-//! when a library adds a token, every consumer fails to compile until its
-//! theme maps it (`design/ui-reactivity.md` §Design tokens).
+//! A library that uses tokens declares its own closed vocabulary as an ordinary
+//! enum and styles itself against that. The app closes the loop at mount with
+//! one theme per library, mapping that library's tokens to its own or to raw
+//! values. Exhaustiveness is the whole contract: when a library adds a token,
+//! every consumer fails to compile until its theme maps it
+//! (`design/ui-reactivity.md` §Design tokens).
 //!
-//! ## The two halves, and which package writes which
-//!
-//! **The package that owns a vocabulary writes a `themed`** — one small
+//! **The package that owns a vocabulary writes a `themed`.** That is one small
 //! function taking a mapping, `fn(Token) => Color`, and answering the `themed`
 //! below applied to one binding per token: `(Token.Surface.color(),
-//! f(.Surface))`, and so on down the enum. It is the one function only that
-//! package can write, because only that package knows what its tokens are.
+//! f(.Surface))`, and so on down the enum. Only that package can write it,
+//! because only that package knows what its tokens are.
 //!
-//! **The app that uses the package writes the mapping**, as an ordinary
-//! function whose `match` over the package's enum is the compatibility check,
-//! and hands `cardlib.themed(cardTheme)` to `mount` alongside one entry for
-//! every other package it uses. The worked example is in the guide's
-//! standard-library page, under "Design tokens".
+//! **The app that uses the package writes the mapping.** It is an ordinary
+//! function whose `match` over the package's enum is the compatibility check.
+//! The app hands `cardlib.themed(cardTheme)` to `mount`, alongside one entry
+//! for every other package it uses. The guide's standard-library page works the
+//! example through under "Design tokens".
 //!
 //! A binding's left half is the token *written the way the owning package
-//! writes it*, and its right half is what that token is worth. The right half
-//! may itself be another token, which is how a chain — a library's token to the
-//! app's token to a value — is expressed; the chain is followed once, at mount.
+//! writes it*. Its right half is what that token is worth, and it may be another
+//! token — that is how you chain a library's token to the app's token to a
+//! value. Mount follows the chain once.
 //!
-//! ## What it costs at run time, and why that is nothing
-//!
-//! A token is a custom property in the stylesheet, so every class is decided at
-//! compile time and no theme changes any of them. Installing a theme writes one
-//! `:root` block of values; switching one rewrites the same block. That is why
-//! dark mode is a `Prop<Bool>` here rather than a second stylesheet: nothing is
-//! re-extracted, no element is touched, and the browser repaints from the
-//! variables it already had.
+//! At run time this costs nothing. A token is a custom property in the
+//! stylesheet, so every class is settled at compile time and no theme changes
+//! any of them. Installing a theme writes one `:root` block of values, and
+//! switching one rewrites the same block. That is why dark mode is a
+//! `Prop<Bool>` here rather than a second stylesheet: nothing is re-extracted,
+//! no element is touched, and the browser repaints from the variables it
+//! already had.
 
 from "ui/prop" import { Prop };
 from "ui/style" import { Color };
 
 /// One package's tokens, resolved to values.
 ///
-/// Opaque: it is built by `themed` or by `switching` and read only by `mount`.
-/// The field is private, so no program outside this module can build a theme
-/// or take one apart — the same shape as `ui/effect`'s `Scope`, and what keeps
-/// the type opaque now that an exported enum exports every variant it has.
+/// Opaque: `themed` and `switching` build one, and only `mount` reads it. The
+/// field is private, so no program outside this module can build a theme or take
+/// one apart. Same shape as `ui/effect`'s `Scope`, and it is what keeps the type
+/// opaque now that an exported enum exports every variant it has.
 export struct Theme(ThemeKind);
 
 /// What a theme is, kept private so that `Theme` stays opaque.
@@ -51,8 +48,8 @@ enum ThemeKind {
     /// Each token, paired with what it is worth.
     Values([(Color, Color)]),
     /// The first list while the condition reads true, the second while it reads
-    /// false. The lists are one theme each; an array is how a value refers to
-    /// its own type.
+    /// false. Each list holds one theme; an array is how a value refers to its
+    /// own type.
     Switching(Prop<Bool>, [Theme], [Theme]),
 }
 
@@ -62,20 +59,20 @@ enum ThemeKind {
 /// which is `Token.Surface.color()` — with the colour it is worth. That colour
 /// may be another package's token, and the chain resolves at mount.
 ///
-/// A binding whose left half is not a token names nothing and is ignored: there
-/// is no custom property for `.Rgb(0, 0, 0)` to be the value of.
+/// A binding whose left half is not a token names nothing, and `mount` skips
+/// it: there is no custom property for `.Rgb(0, 0, 0)` to be the value of.
 export fn themed(bindings: [(Color, Color)]): Theme {
     Theme(.Values(bindings))
 }
 
 /// Whichever of two themes the condition currently picks.
 ///
-/// This is dark mode, and it is deliberately not a second stylesheet: when the
-/// condition changes, the custom-property block is written again and every
-/// class on every element stays exactly as it was.
+/// This is dark mode, and it is deliberately not a second stylesheet. When the
+/// condition changes, the runtime writes the custom-property block again and
+/// every class on every element stays exactly as it was.
 ///
 /// The condition is a `Prop<Bool>`, so it can be a constant, a signal the app
-/// writes, or a computation over one — a media query bridged into a signal, a
+/// writes, or a computation over one: a media query bridged into a signal, a
 /// stored preference, a switch in the page.
 export fn switching(condition: Prop<Bool>, whenTrue: Theme, whenFalse: Theme): Theme {
     Theme(.Switching(condition, [whenTrue], [whenFalse]))

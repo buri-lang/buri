@@ -2,18 +2,17 @@
 //!
 //! **This is not `core/crypto`, and the distinction is the whole reason the
 //! module exists.** Nothing here is a digest. A checksum answers *did these
-//! octets change on the way here*, and every one of these can be forged by
-//! anybody who wants to: given a target value, producing a message that hashes
-//! to it is arithmetic rather than work. `core/crypto`'s `sha256` is the one to
-//! reach for when the answer has to survive an adversary, and it costs
-//! thirty-two octets of frame to say so.
+//! octets change on the way here*, and anybody who wants to can forge every one
+//! of them: given a target value, producing a message that hashes to it is
+//! arithmetic rather than work. Reach for `core/crypto`'s `sha256` when the
+//! answer has to survive an adversary; it costs thirty-two octets of frame to
+//! say so.
 //!
-//! What these are for is the case `core/crypto` is the wrong size for: a
-//! flipped bit in a log record, a bucket index in a hash table, a fingerprint
-//! that lets two runs of a simulator be compared. Four octets of guard on a
-//! record is a decision a storage format makes on purpose, and a
-//! reimplementation of FNV-1a in every repository that made it is the cost of
-//! not having this module.
+//! These are for the cases `core/crypto` is the wrong size for: a flipped bit in
+//! a log record, a bucket index in a hash table, a fingerprint that lets you
+//! compare two runs of a simulator. A storage format puts four octets of guard
+//! on a record on purpose, and without this module every repository that made
+//! that call reimplements FNV-1a.
 //!
 //! Each is written in the language and pinned to the vectors its publisher
 //! wrote down, so the answer is the same on every backend and is the same
@@ -68,9 +67,9 @@ from "core/bytes" import * as bytes;
 // `1a` means, and it is the variant everybody actually uses: FNV-1 multiplies
 // first and disperses a low octet worse.
 
-/// Where a 32-bit hash starts, for a checksum carried across calls rather than
-/// taken over a list that already exists: `fnv1a32(b)` is `fnv1a32Step` folded
-/// over `b` from here.
+/// Where a 32-bit hash starts. Use it for a checksum carried across calls rather
+/// than taken over a list that already exists: `fnv1a32(b)` is `fnv1a32Step`
+/// folded over `b` from here.
 export let FNV1A32_OFFSET: U32 = 0x811c9dc5;
 
 /// Where a 64-bit hash starts.

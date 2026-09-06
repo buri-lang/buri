@@ -1,14 +1,14 @@
 //! core/io — printing and reading a line.
 //!
-//! These are free functions over a context, so they keep the context first, and
-//! they are the *only* way to reach `Stdout`, `Stderr` and `Stdin`: an effect is
-//! performed by handing the context to a function, never by calling a method on
-//! it (SPEC 10.2).
+//! These are free functions over a context, so the context comes first. They
+//! are the *only* way to reach `Stdout`, `Stderr` and `Stdin`: you perform an
+//! effect by handing the context to a function, never by calling a method on it
+//! (SPEC 10.2).
 //!
-//! **A print answers `Result<(), IoError>`.** A closed pipe, a full disk and a
-//! revoked permission are things that happen to a print, and the signature says
-//! so. Discarding a `Result` is an error in both of the two places a value can
-//! be dropped, so a program that does not care about the failure writes the one
+//! **A print answers `Result<(), IoError>`.** Closed pipes, full disks and
+//! revoked permissions all happen to prints, and the signature says so. Buri
+//! rejects a discarded `Result` in both of the two places a value can be
+//! dropped, so a program that does not care about the failure writes the one
 //! greppable spelling of a deliberate drop:
 //!
 //! ```buri role=std
@@ -20,7 +20,7 @@
 //! }
 //! ```
 //!
-//! `core/effect`'s `Stdout` is where that decision is argued in full.
+//! `core/effect`'s `Stdout` argues that decision in full.
 
 from "core/effect" import { IoError, Stderr, Stdin, Stdout };
 
@@ -49,13 +49,13 @@ export fn readLine<C: Stdin>(ctx: C): Option<Str> {
 /// Exactly `n` octets from standard input, or fewer at end of input.
 ///
 /// Text and octets are two different questions about the same stream, so they
-/// are two different operations: `readLine` decodes, this does not. Mixing them
-/// on one stream is undefined, and a program should pick one.
+/// get two operations: `readLine` decodes, this does not. Mixing them on one
+/// stream is undefined. Pick one.
 export fn readBytes<C: Stdin>(ctx: C, n: Int): Option<[U8]> {
     ctx.readBytes(n)
 }
 
-/// Octets to standard output, encoded as nothing.
+/// Octets to standard output, with no encoding at all.
 export fn writeBytes<C: Stdout>(ctx: C, b: [U8]): Result<(), IoError> {
     ctx.writeBytes(b)
 }
