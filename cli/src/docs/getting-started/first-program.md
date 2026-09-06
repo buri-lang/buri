@@ -1,8 +1,8 @@
 # Your first program
 
-In this tutorial we will create a Buri repository, run its tests, change the
-one library in it, and watch that change come out on the terminal. It takes
-about ten minutes.
+You are going to create a Buri repository, run its tests, change the one
+library in it, and watch that change come out on the terminal. It takes about
+ten minutes.
 
 You need `buri` on your `PATH` first — [installing](./installing.md) has the
 three ways to get it.
@@ -34,9 +34,8 @@ Move into it:
 $ cd hello-buri
 ```
 
-Eight of those files are the repository; the five under `.agent/skills` are
-the agent skills for this toolchain, so that a coding agent working here has
-them.
+Eight of those files are the repository. The five under `.agent/skills` are
+this toolchain's agent skills, so a coding agent working here has them.
 
 ## Look at what it wrote
 
@@ -46,9 +45,8 @@ declares one library, listing its sources and its tests one path at a time.
 `libs/greeting/greeting.buri` holds that library's one function, `greeting`,
 which answers `"hello world"`.
 
-`apps/hello/main.buri` is the program. The `context` it builds is this
-program's entire effect budget — it can allocate and it can print, and nothing
-else:
+`apps/hello/main.buri` is the program. The `context` it builds is the whole
+effect budget: this program can allocate and it can print, and nothing else.
 
 ```buri repo=cli/src/docs/init package=//apps/hello role=entry
 from "core/effect" import { Alloc, Stdout };
@@ -104,8 +102,8 @@ FAIL //libs/greeting  test/greeting.buri  "the greeting"
 0 passed, 1 failed, 0 skipped (0.3s)
 ```
 
-The suite is telling us the truth: we changed what the library answers and did
-not change what we claim it answers.
+The suite is right. You changed what the library answers without changing what
+you claim it answers.
 
 ## Make the test agree
 
@@ -130,5 +128,5 @@ That is the whole loop: change the code, run the suite, run the program.
 ## Next
 
 [Tutorial: a small program, end to end](./tutorial.md) builds a real command
-line program from an empty directory — two libraries, a binary, and the tests
+line program from an empty directory: two libraries, a binary, and the tests
 that hold them up.

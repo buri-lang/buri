@@ -2,14 +2,14 @@
 
 Being a server is three authorities, and a program names the ones it uses.
 `Listen` accepts connections. `Sockets` pushes on one somebody else accepted.
-`Net` — `core/net/http`'s effect — talks *out* to other servers. They are three
-rather than one because a program that answers requests need not be one that can
-make them, and a context is where that is written down.
+`Net`, which is `core/net/http`'s effect, talks *out* to other servers. They are
+three rather than one because a program that answers requests need not be one
+that can make them, and a context is where you write that down.
 
-`core/net/server` is the accepting half; `core/net/http` is the client half and
-the place `Request` and `Response` are documented. There is one shape for an HTTP
-message here, so a handler answers with the same `Response` a client reads, built
-by the same `http.text`, `http.json` and `http.status`.
+`core/net/server` is the accepting half. `core/net/http` is the client half, and
+the place `Request` and `Response` are documented. There is one shape for an
+HTTP message here, so a handler answers with the same `Response` a client reads,
+built by the same `http.text`, `http.json` and `http.status`.
 
 ## Two routes and a JSON body
 
@@ -24,7 +24,7 @@ binary {
 
 `LINUX` and `MACOS` are the platforms that grant `Listen`, and `outputs` is
 where a binary says which it is for. One that declares none builds for JS, which
-grants neither `Listen` nor `Sockets` — see
+grants neither `Listen` nor `Sockets`. See
 [what refuses to serve](#what-refuses-to-serve).
 
 ```buri
@@ -82,9 +82,9 @@ $ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/nope
 ```
 
 `request.path()` is the URL's path with neither query nor fragment, and it is
-pure — asking a request where it is going costs no allocation. `request.query()`
-is everything after the first `?`. Routing is an ordinary `match`, and `route` is
-an ordinary function: nothing about it knows it is a handler.
+pure: asking a request where it is going costs no allocation. `request.query()`
+is everything after the first `?`. Routing is an ordinary `match`, and `route`
+is an ordinary function. Nothing about it knows it is a handler.
 
 `Tasks` is in the bound because `run` fans the accept loop out over
 `listener.handlers` workers rather than driving one. Handlers running at the same
@@ -92,19 +92,19 @@ time is authority like any other, so a program that grants `Listen` and not
 `Tasks` does not compile.
 
 Every field of `Server` but `port` and `onRequest` is an `Option` the literal may
-leave out — the address, the protocols, a certificate, a request limit, an idle
+leave out: the address, the protocols, a certificate, a request limit, an idle
 timeout, a drain deadline, the WebSocket hooks, a socket buffer. Leaving one out
-is not choosing a default; it is declining to choose, and the runtime picks.
-`buri docs core/net/server` has the table of what this one picks, and
-`bind` and `run` are `serve`'s two halves for a program that needs the port
-number before it answers anything.
+is not choosing a default. It is declining to choose, and the runtime picks.
+`buri docs core/net/server` has the table of what this one picks. `bind` and
+`run` are `serve`'s two halves, for a program that needs the port number before
+it answers anything.
 
 ## State that outlives a request
 
 A handler answers and returns, so anything it has to remember lives behind a
-mailbox. An actor is a value — an initial state and a step — and `start` gives it
-one and answers an `Address` a handler may capture, because an address holds no
-context of its own.
+mailbox. An actor is a value: an initial state and a step. `start` gives it a
+mailbox and answers an `Address` a handler may capture, because an address holds
+no context of its own.
 
 ```buri name=counting
 # from "core/actor" import * as actor;
@@ -178,15 +178,15 @@ $ curl -s http://127.0.0.1:3000/health
 {"status":"ok","served":3}
 ```
 
-`send` and `ask` both answer a `Result` — `.Err(.Stopped)` once the actor has
-stopped — and a handler that cannot act on a stopped counter drops it with
-`ignore`, which [`discarded-result`](../reference/lints/discarded-result.md)
-reports so that every such decision is in one list. [Tasks and
-actors](./concurrency.md) is the rest of the model.
+`send` and `ask` both answer a `Result`, `.Err(.Stopped)` once the actor has
+stopped. A handler that cannot act on a stopped counter drops it with `ignore`,
+and [`discarded-result`](../reference/lints/discarded-result.md) reports every
+such decision in one list. [Tasks and actors](./concurrency.md) is the rest of
+the model.
 
 A `Server` with a `websocket` field speaks WebSockets, and the upgrade is
-invisible: `onOpen` answers what the socket carries, every later hook is handed
-it, and `onMessage` answers the next — so per-socket state is a value rather than
+invisible. `onOpen` answers what the socket carries, every later hook is handed
+it, and `onMessage` answers the next. So per-socket state is a value rather than
 a table keyed by socket, and an actor's address is a good thing for it to be. A
 `Socket` is inert, which is what makes that work: one integer, copyable, and
 sendable to an actor that can push on it long after the request that opened it
@@ -195,18 +195,18 @@ returned. `broadcast` above is the shape. The hooks are in
 
 The hooks name the path they are served at, and naming it is not optional:
 `WebSocket { path: "/socket", onOpen: …, onMessage: …, onClose: … }`. The match
-is the request's path, exactly — no query string and no normalisation, so
-`"/socket"` and `"/socket/"` are two different paths — and a request to any
-other one is an ordinary request that reaches `onRequest`, upgrade headers and
-all. So the rest of a WebSocket server's URL space still routes the way the
-`match` above routes it.
+is the request's path exactly, with no query string and no normalisation, so
+`"/socket"` and `"/socket/"` are two different paths. A request to any other
+path is an ordinary request that reaches `onRequest`, upgrade headers and all,
+so the rest of a WebSocket server's URL space still routes the way the `match`
+above routes it.
 
 ## Stopping
 
 `SIGTERM` and `SIGINT` do not kill a program holding a port. The platform stops
-accepting, lets the requests in flight be answered, and then tells the accept
-loop the listener is closed — so `serve` returns `.Ok(())`, `main` falls off its
-own end, and whatever a program does after `serve` still happens:
+accepting, answers the requests in flight, and then tells the accept loop the
+listener is closed. So `serve` returns `.Ok(())`, `main` falls off its own end,
+and whatever a program does after `serve` still happens:
 
 ```text
 $ ./.buri/out/macos-arm64/cmd/server/server &
@@ -257,8 +257,8 @@ test "a broadcast reaches every socket in the room" {
 ```
 
 Mark the three functions `export` and the suite reaches them through the
-binary's entry point — `from "//cmd/server/main.buri" import { broadcast, hits,
-route };` — which is the whole of a binary's surface. [Testing your
+binary's entry point: `from "//cmd/server/main.buri" import { broadcast, hits,
+route };`. That file is the whole of a binary's surface. [Testing your
 code](./testing.md) is the rest of it.
 
 ```text
@@ -275,9 +275,10 @@ deliberately does not:
 | `tasks()` | Program order by default, then `anyOrder()`, `seed(n)`, `everyOrder()` and `faults([...])` — the double whose subject is scheduling rather than state |
 | `Listen` | **No double.** What a fake acceptor answers is the test's own decision, so it is a struct with an `impl Listen`, written where it is needed |
 
-The asymmetry is not an omission. A hand-written `Sockets` could record nothing —
-an effect method takes only `self`, and `self` is immutable — so the recording
-half has to be a handle into runner-side state, and the deciding half does not.
+The asymmetry is not an omission. A hand-written `Sockets` could record nothing,
+because an effect method takes only `self` and `self` is immutable. So the
+recording half has to be a handle into runner-side state, and the deciding half
+does not.
 
 ## What refuses to serve
 
@@ -286,8 +287,8 @@ half has to be a handle into runner-side state, and the deciding half does not.
 | `Listen`, `Sockets` | `LINUX`, `MACOS` |
 | `Tasks` | `LINUX`, `MACOS`, `JS` |
 
-Under `platform: WEB` this program is refused twice, on the two lines that
-asked:
+Under `platform: WEB` the compiler refuses this program twice, on the two lines
+that asked:
 
 ```text
 $ buri build //cmd/server
@@ -309,8 +310,8 @@ error: `tasks` implements `Tasks`, which is not allowed on the WEB platform [eff
    = fix: drop `Tasks` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS
 ```
 
-Each entry of `outputs` is checked against the whole graph separately, so a
-binary can pass for MACOS and fail for JS — [compile to
+The compiler checks each entry of `outputs` against the whole graph separately,
+so a binary can pass for MACOS and fail for JS. [Compile to
 JavaScript](./compile-to-js.md) is that half.
 
 ## Next

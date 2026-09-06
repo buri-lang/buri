@@ -1,25 +1,25 @@
 # Using the build system
 
-Everything in a Buri repository is declared: which files a target compiles,
+You declare everything in a Buri repository: which files a target compiles,
 which libraries it may use, and who may use it. Nothing is discovered by
 walking the filesystem, and there are two rule kinds to learn rather than a
 rule language. This page teaches enough of both to work in any Buri repository.
 
-The exact rules — every schema field, every visibility pattern, and the
-reasoning behind each — are in
+The exact rules are in
 [`reference/build/overview.md`](../reference/build/overview.md) and
-[`reference/build/build-files.md`](../reference/build/build-files.md).
+[`reference/build/build-files.md`](../reference/build/build-files.md): every
+schema field, every visibility pattern, and the reasoning behind each.
 
 ## The root, and what a package is
 
-`REPO.buri` is what makes a directory the repository root. `//` in every label
-and every module path resolves against it, so a name means the same thing typed
-from any subdirectory. `buri init` writes one; you will rarely touch it again,
-because it holds the tag vocabulary and the lint policy and nothing else
+`REPO.buri` makes a directory the repository root. `//` in every label and every
+module path resolves against it, so a name means the same thing typed from any
+subdirectory. `buri init` writes one, and you will rarely touch it again: it
+holds the tag vocabulary and the lint policy, and nothing else
 ([`repo-config.md`](../reference/build/repo-config.md)).
 
-Below it, **a directory holding a `BUILD.buri` is a package** — the unit that
-gets built, tested, and depended on:
+Below it, **a directory holding a `BUILD.buri` is a package**. That is the unit
+you build, test, and depend on:
 
 ```
 REPO.buri
@@ -49,9 +49,9 @@ cmd/
       routes.buri
 ```
 
-A subdirectory with no `BUILD.buri` of its own is not a boundary of anything:
+A subdirectory with no `BUILD.buri` of its own is not a boundary of anything.
 `posting/rules.buri` is a source of `//lib/ledger`, listed by that path. Split a
-growing library into directories freely; it costs no rule, no dependency edge,
+growing library into directories freely: it costs no rule, no dependency edge,
 and no visibility entry.
 
 Two filenames are fixed. `lib.buri` is a library's public surface, and
@@ -74,10 +74,9 @@ library {
 }
 ```
 
-`lib.buri` is absent from `sources` on purpose: the `library` rule kind names
-it. Everything else in the package is listed one path at a time,
-and a `.buri` file no rule lists is an error rather than a file quietly left out
-of the build.
+`lib.buri` is absent from `sources` on purpose, because the `library` rule kind
+names it. You list everything else in the package one path at a time. A `.buri`
+file no rule lists is an error, not a file quietly left out of the build.
 
 The surface is a file, not a field:
 
@@ -93,10 +92,10 @@ from "//lib/money/cents.buri" export {
 from "//lib/money/parse.buri" export { parse, ParseError };
 ```
 
-Module paths are absolute; there are no relative imports. A library's surface is
-named as a module — `//lib/money` — and every other file is named by its path
-inside the package, `//lib/money/cents.buri`, which resolves only from within
-the library.
+Module paths are absolute. There are no relative imports. A library's surface is
+a module, `//lib/money`. Every other file is named by its path inside the
+package, `//lib/money/cents.buri`, and that path resolves only from within the
+library.
 
 So an internal file exports whatever the rest of the library needs, and
 `lib.buri` decides which of that leaves the package:
@@ -128,7 +127,7 @@ impl Cents {
 }
 ```
 
-That boundary is the compiler's rule and not a convention: a name `lib.buri`
+That boundary is the compiler's rule, not a convention. A name `lib.buri`
 withholds does not resolve in another package, as a free function or as a
 method. [`libraries.md`](../reference/build/libraries.md) has the re-export
 forms and how imports resolve.
@@ -155,15 +154,15 @@ binary {
 }
 ```
 
-`main.buri` is required, is not listed in `sources`, and exports `main`. Each
-entry in `outputs` is checked separately against the whole dependency graph, so
-`buri build //cmd/server` here produces two artifacts and can succeed for one
-platform while failing for another. `tags` say what the code *is*; what follows
-from a tag is declared once in `REPO.buri`
+`main.buri` is required, exports `main`, and is not listed in `sources`. The
+compiler checks each entry in `outputs` separately against the whole dependency
+graph, so `buri build //cmd/server` here produces two artifacts and can succeed
+for one platform while failing for another. `tags` say what the code *is*. What
+follows from a tag is declared once in `REPO.buri`
 ([`tags-policy.md`](./tags-policy.md) is the task, and
 [`tags.md`](../reference/build/tags.md) the rules).
 
-A package may hold both rules — a library that also ships a small CLI — and then
+A package may hold both rules, a library that also ships a small CLI. Even then
 the binary reaches its neighbour only through `//tools/report`, the same label
 anybody else writes.
 
@@ -177,7 +176,7 @@ A label is a package path and never carries a target name:
 | `//lib/...` | Every target under `lib/`, including `lib` itself |
 | `//...` | Every target in the repository |
 
-Patterns are accepted on the command line and never in a build file:
+You may write a pattern on the command line, never in a build file:
 
 ```sh
 buri build //...                  every target
@@ -186,18 +185,17 @@ buri run //cmd/server             build and run the binary
 buri query 'rdeps(//lib/money)'   what would break if this changed
 ```
 
-Labels are absolute, so the command above means the same thing from any
-directory, and the same string is what an import writes:
+Labels are absolute, so the commands above mean the same thing from any
+directory, and an import writes the same string:
 `from "//lib/money" import { Cents };`.
 
 ## Adding a dependency
 
 Three things have to agree, and the compiler checks all three.
 
-**Use it.** An import is the usual way, but not the only one — a method resolves
+**Use it.** An import is the usual way, but not the only one. A method resolves
 through its receiver's type, so calling `e.amount.format(ctx)` on a `Cents` that
-arrived from `//lib/money` is a use of that library even when no import names
-it:
+arrived from `//lib/money` uses that library even when no import names it:
 
 ```buri repo=cli/tests/example
 # from "core/effect" import { Alloc };
@@ -211,8 +209,8 @@ fn line<C: Alloc>(ctx: C, e: Entry): Str {
 ```
 
 **Declare it.** Add the label to `dependencies`, or let `buri gen` do it. An
-entry no source uses is an error too, in the other direction — the list
-describes the code or it describes nothing:
+entry no source uses is an error too, in the other direction: the list describes
+the code or it describes nothing.
 
 ```
 error: cmd/server/routes.buri imports //lib/money, which is not in dependencies
@@ -227,7 +225,7 @@ error: cmd/server/routes.buri imports //lib/money, which is not in dependencies
 `core/*` is the exception: it ships with the toolchain, is available everywhere,
 and is never listed.
 
-**Be allowed to.** `visibility` on the library being depended on decides who may
+**Be allowed to.** The `visibility` on the library you depend on decides who may
 write that edge, and a rule that omits it is private to its own package:
 
 ```textproto schema=build
@@ -254,14 +252,14 @@ error: //cmd/web depends on //lib/store, which is not visible to it
    = to allow this, add "//cmd/web" to visibility in lib/store/BUILD.buri
 ```
 
-Widen it with a pattern (`//cmd/...`), name the one package that needs it, or —
-often the better answer — put the shared piece in a library both may see.
+Widen it with a pattern (`//cmd/...`), or name the one package that needs it.
+Often the better answer is to put the shared piece in a library both may see.
 
 ## Let `buri gen` write the boring fields
 
-The repetition a declared build costs is paid by a tool. `buri gen` rewrites the
-fields that merely restate the source tree — `sources`, `proto_sources`,
-`dependencies`, and their `test` and `testing` counterparts — from the files
+A tool pays the repetition a declared build costs. `buri gen` rewrites the
+fields that merely restate the source tree: `sources`, `proto_sources`,
+`dependencies`, and their `test` and `testing` counterparts. It reads the files
 that exist and the imports they write:
 
 ```sh
