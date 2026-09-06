@@ -16,9 +16,8 @@ error: a lambda may not capture `c`, which carries an effect [lambda-captures-ef
      Why
      ───
 
-     A closure's type is the whole of what a caller can see about it. A lambda
-     that had closed over a context would carry authority behind a type
-     mentioning no effect, and the guarantee that a signature says what a
-     function may do would hold for every function except the ones written as
-     lambdas.
+     A closure's type is all a caller can see about it. A lambda that closed
+     over a context would carry authority behind a type mentioning no effect.
+     The guarantee that a signature says what a function may do would then hold
+     for every function except the ones written as lambdas.
 

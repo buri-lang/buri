@@ -10,14 +10,14 @@ error: "//lib/money/cents.buri" does not export `markup` [no-such-export]
     What to do
     ──────────
 
-    If the module declares the name and holds it back, add export to the
-    declaration there. If it declares no such name, the spelling is the mistake
-    — the diagnostic says which of the two it is, and offers the nearest
-    exported name.
+    If the module declares the name but holds it back, add export to the
+    declaration there. If it declares no such name, the spelling is the mistake.
+    The diagnostic says which of the two it is, and offers the nearest exported
+    name.
 
     Why
     ───
 
-    A re-export may name only what its module path exports, so a library's
-    surface can never be wider than the modules it is built from.
+    A re-export may name only what its module path exports. So a library's
+    surface is never wider than the modules it is built from.
 

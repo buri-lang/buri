@@ -15,16 +15,18 @@ warning: `spare` is bound and never used [unused-variable]
    = a binding nothing reads is either a computation whose result is dead or a value that was meant to be wired in and was not
    = fix: use it, delete the `let`, or write `_` in its place
 
-     An unused local variable is dead weight: the reader has to prove to
-     themselves it does not matter. It usually signals one of three things — a
-     computation whose result is never consumed (delete the computation, not
-     just the assignment), a leftover from a refactor that moved logic
-     elsewhere, or a value you meant to use and forgot to wire in (the real
-     bug).
+     An unused local is dead weight: every reader has to prove to themselves
+     that it does not matter. It usually means one of three things.
+
+     - A computation whose result nobody consumes. Delete the computation, not just
+     the binding.
+
+     - A leftover from a refactor that moved the logic elsewhere.
+     - A value you meant to use and forgot to wire in. That is the real bug.
 
      Decide which it is before deleting. If the right-hand side has side effects
-     you still need, keep the call but drop the binding. If it was meant to be
-     returned or passed on, finish that thread rather than silencing the
+     you still need, keep the call but drop the binding. If the value was meant
+     to be returned or passed on, finish that thread rather than silencing the
      warning. Suppressing it with a throwaway name hides the question instead of
      answering it.
 
@@ -45,12 +47,12 @@ error: a statement ends with `;` [missing-terminator]
     Why
     ───
 
-    A declaration that binds a value or a name is terminated, and one that opens
-    a brace-delimited body is not: let, type, derive, an import and a
-    tuple-struct end with ;; a fn, a struct with fields, an enum, a trait and an
-    impl end with }. The rule is about what the declaration's last token already
-    is, so nothing has to be remembered per keyword.
+    A declaration that binds a value or a name ends with ;. One that opens a
+    brace-delimited body does not. So let, type, derive, an import and a
+    tuple-struct end with ;, while a fn, a struct with fields, an enum, a trait
+    and an impl end with }. The rule follows the declaration's last token, so
+    you remember nothing per keyword.
 
-    Inside a block the same ; is what separates one statement from the next, and
-    what says an expression's value is discarded rather than returned.
+    Inside a block, that same ; separates one statement from the next and says
+    the expression's value is discarded rather than returned.
 
