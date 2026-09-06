@@ -5,13 +5,13 @@ message: 'bound `{bound}` on `{param}` is not used by this function'
 note: "a bound on a context parameter is a demand made of every caller — it says the function needs that capability, and one the body never exercises makes callers hold a capability for nothing"
 fix: remove the bound
 ---
-A `ctx` parameter says a function touches the world; its **bounds** say which
-parts of it. `fn save<C: Alloc + FsWrite>(ctx: C, …)` reads as "this allocates and
-this writes files", and every caller has to be holding a context that can do
+A `ctx` parameter says a function touches the world. Its **bounds** say which
+parts of it. `fn save<C: Alloc + FsWrite>(ctx: C, …)` reads as "this allocates
+and this writes files", and every caller has to be holding a context that can do
 both. A bound the body never exercises makes that sentence false in the
-direction that costs the most: it is a demand on the caller for a capability
-the code does not use, and it spreads, because the caller's own signature has
-to carry the bound to satisfy it.
+direction that costs the most. It demands a capability the code does not use,
+and it spreads, because the caller's own signature has to carry the bound to
+satisfy it.
 
 There are exactly two ways a body uses a bound, and each of them is a call:
 
@@ -20,19 +20,19 @@ There are exactly two ways a body uses a bound, and each of them is a call:
 the callee's own type parameter at `C`, and the callee's bounds become demands
 on `C`. Every bound the callee names is used; the ones it does not name are not.
 
-This is where an *effect* is used, and it is the only place. An effect method is
-called through the module that wraps the effect rather than on the context
-(SPEC 10.2), so `io.println(ctx, x)` is what makes `Stdout` used: `println` is
-declared `<C2: Stdout>`, instantiating it at `C` raises the `Stdout`
-obligation, and that obligation is what is read here. The bound is exercised
-exactly as before — the evidence is simply one node further along.
+This is where an *effect* is used, and it is the only place. You call an effect
+method through the module that wraps the effect rather than on the context
+(SPEC 10.2), so `io.println(ctx, x)` is what makes `Stdout` used. `println` is
+declared `<C2: Stdout>`; instantiating it at `C` raises the `Stdout` obligation,
+and that obligation is what the rule reads. The bound is exercised exactly as
+before — the evidence simply sits one node further along.
 
 **A function-typed parameter.** `render(ctx, label)`, where `render: fn(C, Str)
 => Str`, hands the whole context to code this function cannot see. So it uses
 **every** bound: the callback was written against `C` as declared, and nothing
 here can say which parts of it the callback reaches.
 
-Nothing else is a use. A bound is a demand, and the checker consults a type
+Nothing else is a use. A bound is a demand. The checker consults a type
 parameter's bound list when it discharges the obligation an instantiation
 raised, and — for a trait's methods, which an effect's are not — when it
 resolves a method on a receiver of that type. Both are calls, and both are
@@ -41,7 +41,7 @@ written down in the checked tree.
 ## What is not asked
 
 **A method supplied by an `impl` is not asked.** Its generics must match the
-trait's declaration bound for bound, so an implementation cannot drop one; if a
+trait's declaration bound for bound, so an implementation cannot drop one. If a
 bound is dead there, it is dead on the trait, and that is the trait's question.
 
 **A function with no body is not asked.** A trait method's signature, an
@@ -49,26 +49,26 @@ effect's operation and the standard library's intrinsic declarations describe
 what an implementation will be handed, and there is no body to read.
 
 **A parameter that is not a context is not asked.** The rule looks at the type
-parameter the `ctx` parameter is declared at, and only where at least one of
-its bounds is an `effect`. A `T: Eq` on ordinary data is a different question
-with a different answer.
+parameter the `ctx` parameter is declared at, and only where at least one of its
+bounds is an `effect`. A `T: Eq` on ordinary data is a different question with a
+different answer.
 
-**A body that did not check is not asked.** Unlike `unused-context`, which can
-fall back to the text because a context has exactly one spelling, a bound has
-none: it is used through callees whose own bounds name it, and a callee's name
-is not a token the lexer can recognise as *this* bound. Now that an effect is
-reached through a module alias — `io.println`, `fs.readText` — a text fallback
-is imaginable where it was not before; it is not built, and this paragraph
-records that as a choice rather than an impossibility. Where the typed tree is
-truncated, the evidence is gone and the rule says nothing.
+**A body that did not check is not asked.** `unused-context` can fall back to
+the text, because a context has exactly one spelling. A bound has none: it is
+used through callees whose own bounds name it, and a callee's name is not a
+token the lexer can recognise as *this* bound. Now that an effect is reached
+through a module alias — `io.println`, `fs.readText` — a text fallback is at
+least imaginable where it was not before. Nobody has built one, and this
+paragraph records that as a choice rather than an impossibility. Where the typed
+tree is truncated, the evidence is gone and the rule says nothing.
 
 ## The fix
 
-Delete the bound. Unlike a `ctx` parameter, a bound needs no call site to be
-touched, and that is not an accident: a bound is something the function demands
-of its callers, and dropping a demand cannot break one. So the edit stays
-inside the declaration, and it is offered whether or not the name is on the
-library's surface.
+Delete the bound. Unlike a `ctx` parameter, a bound touches no call site, and
+that is not an accident: a bound is something the function demands of its
+callers, and dropping a demand cannot break one. So the edit stays inside the
+declaration, and it is offered whether or not the name is on the library's
+surface.
 
 **The bytes are per parameter, not per bound.** A bound list is one piece of
 text with shared separators — the ranges that delete `FsWrite` and `Io` from
@@ -76,6 +76,6 @@ text with shared separators — the ranges that delete `FsWrite` and `Io` from
 one rewrite rather than several. Every finding about one parameter carries that
 same rewrite, `buri lint --fix` applies it once, and the run after it is clean.
 
-The bytes are withheld where the text between the bounds is anything but the
-separators: a comment written inside a bound list is a reader's sentence about
-the code, and this deletes text rather than reformatting it.
+The rule withholds the bytes where the text between the bounds is anything but
+the separators. A comment written inside a bound list is a reader's sentence
+about the code, and this edit deletes text rather than reformatting it.

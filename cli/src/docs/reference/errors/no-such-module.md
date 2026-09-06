@@ -18,7 +18,7 @@ repository, from its root. A surface is named as a module — `"core/list"`,
 
 ## Why
 
-A path matching neither names nothing, and the error says so where the path is
+A path matching neither kind names nothing. The error lands where the path is
 written rather than where the missing name is later used.
 
 ## A program that provokes it

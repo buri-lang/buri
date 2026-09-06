@@ -21,15 +21,15 @@ fn firstOr(xs: [Int], fallback: Int): Int {
 }
 ```
 
-A chain of them chains as method calls do —
-`a.withDefault(b.withDefault(c))` where `a ?? b ?? c` used to be written, or
-`a.or(b).withDefault(c)` when `a` and `b` are both `Option<T>`.
+Chains chain the way method calls do. `a ?? b ?? c` becomes
+`a.withDefault(b.withDefault(c))`, or `a.or(b).withDefault(c)` when `a` and `b`
+are both `Option<T>`.
 
-The one thing the operator did that the method does not is leave the default
-*unevaluated* until it is needed. `withDefault` takes it as an argument, so it
-is computed either way. Where that matters — a fallback that allocates, or a
-call worth not making — write the `match` out, which is the only shape that
-promises the absent branch is the one that runs it:
+The operator did one thing the method does not: it left the default
+*unevaluated* until something needed it. `withDefault` takes the default as an
+argument, so it is computed either way. Where that matters — a fallback that
+allocates, or a call worth not making — write the `match` out. It is the only
+shape that promises the default runs in the absent branch alone:
 
 ```buri
 fn portOr(port: Option<Int>): Int {
@@ -47,13 +47,14 @@ fn expensiveDefault(): Int {
 ## Why
 
 `??` was a second way to say `withDefault`, and the two were not equally
-reachable: the method is found by typing `.` after a value, and the operator had
-to be learnt from the precedence table. It was also the only right-associative
-rung in that table, so every reader of the grammar paid for it once and every
+reachable. You find the method by typing `.` after a value; you had to learn the
+operator from the precedence table. It was also the only right-associative rung
+in that table, so every reader of the grammar paid for it once and every
 implementation of the parser paid for it again.
 
 Removing it leaves one spelling, and the one that composes: a method sits in a
-chain beside `map`, `filter` and `okOr`, where the operator had to interrupt one.
+chain beside `map`, `filter` and `okOr`, where the operator had to interrupt
+one.
 
 ## A program that provokes it
 

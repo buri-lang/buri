@@ -15,21 +15,21 @@ error: this toolchain was built without networking, so `host.HostListen.listen` 
 
 Install or build a toolchain whose runtime archive has networking in it. The
 runtime's `net` feature is on by default, so an ordinary `cargo build -p buri`
-produces one; `BURI_RUNTIME_NET=0` is what turns it off, and a machine that
-could not reach the runtime's dependencies when the toolchain was built gets the
-same result with a warning in the build log.
+produces one. `BURI_RUNTIME_NET=0` turns it off, and a machine that could not
+reach the runtime's dependencies when the toolchain was built gets the same
+result plus a warning in the build log.
 
 ## Why
 
-The compiler and the runtime are admitted through different doors. A toolchain
-without a release code generator is a toolchain a contributor can still work
-with; a runtime without networking is a *language capability* missing, and the
-program that reaches for it has to be told so in those words.
+The compiler and the runtime are admitted through different doors. A
+contributor can still work with a toolchain that has no release code generator.
+A runtime without networking is a missing *language capability*, and a program
+that reaches for it deserves to hear that in those words.
 
-It is told before code generation rather than at link time. The alternative is
-an unresolved `buri_rt_*` symbol from the system linker, naming a mangled symbol
-in a message about an archive — a sentence about this repository's internals
+The compiler says so before code generation rather than at link time. Otherwise
+the system linker reports an unresolved `buri_rt_*` symbol — a mangled name in a
+message about an archive, which is a sentence about this repository's internals
 handed to somebody who wrote a program.
 
-Nothing about the program is wrong, and nothing in it needs editing. A different
-toolchain compiles it unchanged.
+Nothing about your program is wrong, and nothing in it needs editing. A
+different toolchain compiles it unchanged.

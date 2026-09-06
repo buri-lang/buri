@@ -20,25 +20,25 @@ says what is in it.
 
 An operation the runtime supplies has no Buri body. The runtime is compiled
 once, against no Buri type at all, and the key a backend reaches it by carries
-no type arguments — so a `[T]` crosses the boundary as two words whatever `T`
-is, and the runtime neither reads an element nor frees a block.
+no type arguments. A `[T]` crosses the boundary as two words whatever `T` is,
+and the runtime never reads an element or frees a block.
 
-That makes the type argument at the call site load-bearing. Everything the
-compiler generates around the value the call answers is generated from it: how
-wide the value is, and — where it is a block — the walk that releases whatever
-the block holds when the last reference to it goes.
+That makes the type argument at the call site load-bearing. The compiler
+generates everything around the value the call answers from it: how wide the
+value is, and — where it is a block — the walk that releases whatever the block
+holds when the last reference to it goes.
 
 A type parameter that appears **only in what the operation answers** has nothing
-else to be determined by: no argument carries it, so if the body never looks
-inside the answer either, nothing in the program says what came back. The
-checker resolves such a type to `()`, which is right for a value the body never
-inspects and never received — and wrong here, because the runtime handed back a
-real value. A release generated for `()` frees the block and lets go of nothing
-inside it, and everything the block was carrying leaks.
+else to determine it. No argument carries it, so if the body never looks inside
+the answer either, nothing in the program says what came back. The checker
+resolves such a type to `()`. That is right for a value the body never inspects
+and never received, and wrong here, because the runtime handed back a real
+value. A release generated for `()` frees the block and lets go of nothing
+inside it, so everything the block was carrying leaks.
 
-That is not a hypothetical. `core/actor`'s `stop` discards whatever is still in
-a mailbox, and a discard loop never opens a message — so nothing determined the
-message type, and every undelivered payload leaked. The module pops through a
-helper that takes the `Address` now: the address carries the message type, so a
+That is not hypothetical. `core/actor`'s `stop` discards whatever is still in a
+mailbox, and a discard loop never opens a message. Nothing determined the
+message type, and every undelivered payload leaked. The module now pops through
+a helper that takes the `Address`: the address carries the message type, so a
 loop that never looks inside a message still drops it at the type it was posted
 at.

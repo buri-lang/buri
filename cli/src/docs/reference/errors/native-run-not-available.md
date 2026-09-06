@@ -16,13 +16,13 @@ error: this toolchain cannot build a macos test binary in the debug profile [nat
 Either give this invocation a backend it can use, or say out loud that the suite
 runs on JavaScript.
 
-`buri test --output=js` says it for one invocation, and changes nothing in the
-repository. `test { platforms: [JS] }` says it for the suite, and is the right
-answer when the suite belongs there for good — a suite testing the JavaScript
+`buri test --output=js` says it for one invocation and changes nothing in the
+repository. `test { platforms: [JS] }` says it for the suite, which is the right
+answer when the suite belongs there for good — one testing the JavaScript
 target's `I64`, say.
 
-The other direction is to fix the toolchain, and the message names which profile
-was asked for because the two have different requirements:
+The other direction is to fix the toolchain. The message names the profile you
+asked for, because the two need different things:
 
 - **debug** wants the `backend-stencil` feature (on by default), a stencil
   library for this host's triple, the runtime archive `cargo build -p buri`
@@ -34,19 +34,18 @@ was asked for because the two have different requirements:
 ## Why
 
 `buri test` runs a suite that names no platform on the host, natively. That is
-the default rather than a preference that gives way, and this page exists
-because it used to be one: the run fell back to JavaScript with a note on
-standard error, and a suite reported as passing had run on a backend nobody
-chose. The note went into a stream that a green run's reader does not read, so
-what the pass proved — that the *other* backend agrees with itself — was not
-what it appeared to prove.
+the default rather than a preference that gives way. It used to give way: the
+run fell back to JavaScript with a note on standard error, and a suite reported
+as passing had run on a backend nobody chose. Nobody reads standard error on a
+green run, so the pass proved something other than what it appeared to — that
+the *other* backend agrees with itself.
 
-A refusal is louder and shorter. Nothing about the program is wrong, and nothing
-in it needs editing; what is missing is a piece of this toolchain, and the two
-escape hatches above are both somebody saying where the suite runs rather than
-the runner deciding on its behalf.
+A refusal is louder and shorter. Nothing about your program is wrong, and
+nothing in it needs editing. What is missing is a piece of this toolchain, and
+both escape hatches above are you saying where the suite runs instead of the
+runner deciding on your behalf.
 
 A platform a suite *asked* for is refused separately, with
-[`platform-not-implemented`](platform-not-implemented.md) — the difference is
+[`platform-not-implemented`](platform-not-implemented.md). The difference is
 that a suite naming `platforms` has somewhere to delete the request from, and a
 suite naming none does not.

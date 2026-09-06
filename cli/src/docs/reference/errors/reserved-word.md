@@ -16,9 +16,9 @@ Pick another name.
 
 ## Why
 
-The word is reserved for a future version of the language rather than used by
-this one, so it is refused now instead of becoming a source-breaking change
-later. `buri docs grammar` lists the whole set under `ReservedWord`.
+The word is reserved for a future version of the language, not used by this
+one. Refusing it now avoids a source-breaking change later. `buri docs grammar`
+lists the whole set under `ReservedWord`.
 
 ## A program that provokes it
 

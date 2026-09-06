@@ -16,9 +16,9 @@ Move `..` to the end: `[first, ..rest]` is legal, `[..init, last]` is not.
 
 ## Why
 
-An array pattern matches a prefix and then binds the remainder. Allowing a rest
-in the middle would make matching a search rather than a walk, and the cost
-would be paid on every array pattern in the language.
+An array pattern matches a prefix and then binds the remainder. A rest in the
+middle would turn matching into a search, and every array pattern in the
+language would pay for it.
 
 ## A program that provokes it
 

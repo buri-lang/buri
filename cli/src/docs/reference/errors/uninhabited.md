@@ -12,14 +12,14 @@ error: `Endless` can never be constructed [uninhabited]
 
 ## What to do
 
-Give the type a variant that does not mention itself, the way `.None`
-terminates an `Option`.
+Give the type a variant that does not mention itself, the way `.None` terminates
+an `Option`.
 
 ## Why
 
 Every variant recurses, so building one would need one already. There is no
-laziness and no null to break the cycle with, which is why this is caught at
-the declaration rather than at the first attempt to construct one.
+laziness and no null to break the cycle with. That is why the compiler catches
+this at the declaration rather than at the first attempt to construct one.
 
 ## A program that provokes it
 

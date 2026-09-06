@@ -5,10 +5,24 @@ message: "nothing reads `{type}.{name}`"
 note: filling a field in is not reading it, so a field every literal supplies and nothing ever consults is storage the program carries and never opens
 fix: delete the field, or read it
 ---
-Writing a field and reading one are different questions, and this rule asks the second. A field every literal dutifully fills, that no expression ever projects out and no pattern ever binds, costs a value at every construction site and answers nothing.
+Writing a field and reading one are different questions, and this rule asks the
+second. A field every literal dutifully fills, that no expression ever projects
+out and no pattern ever binds, costs a value at every construction site and
+answers nothing.
 
-Deleting it is an edit at every literal, which is the point: those are the sites that were computing a value for nobody. Work through them rather than leaving the field in place to avoid the churn.
+Deleting it is an edit at every literal, which is the point: those are the sites
+that were computing a value for nobody. Work through them rather than leaving
+the field in place to avoid the churn.
 
-If the field is there because a caller outside this library reads it, then it belongs to public API and the answer is the library's surface: the exported fields of a type `lib.buri` re-exports are not reported, because the reader this analysis can see is not the only one there is. Under `testing/`, that surface is `testing/lib.buri` — a fixture's field is read by another package's suite, which this analysis never loads.
+If the field is there because a caller outside this library reads it, it is
+public API, and the answer is the library's surface. The rule never reports the
+exported fields of a type `lib.buri` re-exports, because the readers this
+analysis can see are not the only readers there are. Under `testing/`, that
+surface is `testing/lib.buri`: a fixture's field is read by another package's
+suite, which this analysis never loads.
 
-Two things read every field of a type at once, and neither leaves a projection behind to find. A `derive` is a fold over the whole type definition, so a derived `Eq`, `Ord`, `Hash` or `Show` reads every field — a type with one is never reported. So is a value handed to the runtime, or compared structurally. What is left is the field nothing at all looks at.
+Two things read every field of a type at once, and neither leaves a projection
+behind to find. A `derive` is a fold over the whole type definition, so a
+derived `Eq`, `Ord`, `Hash` or `Show` reads every field, and a type with one is
+never reported. A value handed to the runtime, or compared structurally, is the
+other. What is left is the field nothing at all looks at.

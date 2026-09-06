@@ -11,9 +11,9 @@ fn compareInts(left: Int, right: Int): Order {
 }
 ```
 
-That function is `order.int`. Not "like" it — `core/order` declares it with
-that body, character for character, and the reason it is in the library is that
-every program that sorts a pair of numbers needs it.
+That function is `order.int`. Not "like" it: `core/order` declares it with that
+body, character for character. It is in the library because every program that
+sorts a pair of numbers needs it.
 
 Comparators travel in packs. One of them arrives because `derive Ord` did not
 reach somewhere, and then there are four: one for `Int`, one for `Bool`, one for
@@ -30,19 +30,20 @@ the whole set:
   `Order.flip`, `Order.isLess`, `Order.isEqual` read one back.
 
 **One operation, two addresses.** `a.compare(b)` is the method on the receiver
-and `order.int(a, b)` is the free function; both answer an `Order` and the
-second is the one a `sortBy` argument wants. Reaching for the receiver and
-finding nothing is not evidence that the library has nothing — for `Int`,
-`Bool`, `Float` and `Char` the comparator lives in `core/order`.
+and `order.int(a, b)` is the free function. Both answer an `Order`, and the
+second is the one a `sortBy` argument wants. If you reach for the receiver and
+find nothing, that is not evidence the library has nothing: for `Int`, `Bool`,
+`Float` and `Char` the comparator lives in `core/order`.
 
 The rule fires on the shape and on the direction. `if (a < b) { .Less } else if
-(a > b) { .Greater } else { .Equal }` is the finding; the same chain with
-`.Greater` and `.Less` swapped is a *reversed* order, means something else, and
-is not reported — though `order.reverse` says it better. A chain with a fourth
-branch is not this shape either, which is how a total float order that sorts
-`NaN` deliberately stays out of the report: `order.float` answers `.Equal` for
-a `NaN`, and a function that wanted something else is not a copy of it.
+(a > b) { .Greater } else { .Equal }` is the finding. The same chain with
+`.Greater` and `.Less` swapped is a *reversed* order and means something else,
+so the rule leaves it alone — though `order.reverse` says it better. A chain
+with a fourth branch is not this shape either, which is how a total float order
+that sorts `NaN` deliberately stays out of the report: `order.float` answers
+`.Equal` for a `NaN`, so a function that wanted something else is not a copy of
+it.
 
-Only the primitives `core/order` has an exact comparator for are reported. A
-comparator over `U8` or `I32` is left alone, because `order.int` takes an `Int`
-and a fix that does not type-check is not a fix.
+The rule reports only the primitives `core/order` has an exact comparator for.
+It leaves a comparator over `U8` or `I32` alone, because `order.int` takes an
+`Int`, and a fix that does not type-check is not a fix.

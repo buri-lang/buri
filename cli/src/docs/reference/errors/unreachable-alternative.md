@@ -12,21 +12,21 @@ error: this alternative is unreachable [unreachable-alternative]
 
 ## What to do
 
-Delete the alternative. The arm keeps the alternatives that still do
-something, so nothing else about it changes.
+Delete the alternative. The arm keeps the alternatives that still do something,
+so nothing else about it changes.
 
 ## Why
 
-`A | B` is an arm that matches two ways, and each way is a claim that some
-value reaches it. An alternative the arms above already cover — or one the
-alternatives to its left in the same arm already cover — is a claim that is
-never true, and it is reported for the reason a whole unreachable arm is: the
-usual cause is a pattern in the wrong place, and dead text in an arm reads as
-handled.
+`A | B` is an arm that matches two ways, and each way claims that some value
+reaches it. An alternative the arms above already cover — or one the
+alternatives to its left in the same arm already cover — makes a claim that is
+never true. The compiler reports it for the reason it reports a whole
+unreachable arm: the usual cause is a pattern in the wrong place, and dead text
+in an arm reads as handled.
 
 An arm with no live alternative at all is one `unreachable-arm` instead, so the
-two never fire on the same arm. The alternatives asked about are the arm's own,
-separated by `|` at the top of its pattern; an alternation nested inside a
+two never fire on the same arm. The alternatives in question are the arm's own,
+separated by `|` at the top of its pattern. An alternation nested inside a
 constructor, as in `.Some(true | false)`, counts toward coverage but is not
 reported branch by branch.
 
