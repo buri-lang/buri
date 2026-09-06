@@ -6,21 +6,21 @@ is the operational half of it.
 
 ## What they are for, and what they are not for
 
-**Byte-stability over time, and nothing else.** Two runs a year apart compile
-the same bytes, so a difference between them is a difference in the compiler
-rather than a difference in the generator — which is a program under active
-development, and a change to it moves the bytes it emits without moving any code
-the benchmark measures.
+**Byte-stability over time, and nothing else.** Two runs a year apart compile the
+same bytes, so any difference between them is a difference in the compiler. The
+generator is under active development, and a change to it moves the bytes it
+emits without moving any code the benchmark measures.
 
-They are *not* the corpus. The headline scale is 100,000 lines, that is 3.5 MB of
-source, and 3.5 MB has no business in a git history whose whole size is 15 MB.
-Everything above 512 KiB and every profile not listed below is generated per run
-— or, where the bytes still have to be pinned, gets a manifest in
-`cli/benches/pinned/` and no source at all. That is the third corpus kind, it is
-what the scale tier runs on, and `design/PERFORMANCE.md` §3.1 says when to reach
-for which.
-The suite reports both readings of `mixed` for exactly this reason: when the
-compiler changes, the generated and the saved rows move together; when the
+These are *not* the corpus. The headline scale is 100,000 lines, which is 3.5 MB
+of source, and 3.5 MB has no business in a git history whose whole size is 15 MB.
+So the harness generates everything above 512 KiB and every profile not listed
+below on each run. Where the bytes still have to be pinned, the corpus gets a
+manifest in `cli/benches/pinned/` and no source at all. That is the third corpus
+kind, the scale tier runs on it, and `design/PERFORMANCE.md` §3.1 says when to
+reach for which.
+
+The suite reports both readings of `mixed` for exactly this reason. When the
+compiler changes, the generated and the saved rows move together. When the
 *generator* changes, only the generated one moves.
 
 ## Layout
@@ -36,31 +36,32 @@ cli/benches/corpora/
     src/main.buri
 ```
 
-`src/` rather than files at the top so that `manifest.txt` can never be mistaken
-for a module and the size cap is computed over one subtree.
+Sources sit under `src/` rather than at the top, so nothing can mistake
+`manifest.txt` for a module and the size cap covers one subtree.
 
 **Filename order is load-bearing.** `Loader::load_source_in` returns early on a
-path it has already seen, so an import has to be loaded before its importer. The
-manifest records nothing about order: the loader sorts by filename, with
-`main.buri` last by an explicit rule in `corpus.rs`. `m0000` … `m9999` is what
-the generator emits and what `--record` preserves. A corpus whose modules do not
-sort into dependency order will not load, and `--validate` is where you find out.
+path it has already seen, so an import has to load before its importer. The
+manifest records nothing about order. The loader sorts by filename, with
+`main.buri` last by an explicit rule in `corpus.rs`. The generator emits
+`m0000` … `m9999` and `--record` preserves that. A corpus whose modules do not
+sort into dependency order will not load, and `--validate` is where you find
+out.
 
 **No `BUILD.buri` in a corpus, and no corpus under `cli/tests`.**
 `cli/tests/formatting.rs`'s `every_checked_in_build_file_is_formatted` walks
-`cli/tests` and `cli/src` and matches `BUILD.buri`/`REPO.buri`, so no build file
-of this directory's is swept. Keep it that way.
+`cli/tests` and `cli/src` matching `BUILD.buri` and `REPO.buri`, so it sweeps no
+build file of this directory's. Keep it that way.
 
-**The source here *is* swept, and passes.** Since `GENERATOR_REVISION` 7 the
-last thing `generate.rs` does to a module is hand it to `formatting::source`, so
-every file under `src/` is exactly what `buri format` writes and
-`cli/tests/language/corpus.rs::every_source_in_the_repository_is_formatted`
-holds it to that along with the rest of the tree — a corpus is no longer an
-exception to the one layout. What it *is* an exception to is `BURI_BLESS`: the
-fix for a drift here is `--record`, not laying the file out where it sits, and
-the test says so and leaves the file alone (`GENERATED_NOT_BLESSED`). Blessing
-would write bytes no generator wrote and leave `manifest.txt` pinning a corpus
-that is no longer on disk.
+**The source here *is* swept, and passes.** Since `GENERATOR_REVISION` 7 the last
+thing `generate.rs` does to a module is hand it to `formatting::source`, so every
+file under `src/` is exactly what `buri format` writes.
+`cli/tests/language/corpus.rs::every_source_in_the_repository_is_formatted` holds
+it to that along with the rest of the tree, and a corpus is no longer an
+exception to the one layout. It *is* an exception to `BURI_BLESS`: the fix for a
+drift here is `--record`, not laying the file out where it sits, so the test says
+so and leaves the file alone (`GENERATED_NOT_BLESSED`). Blessing would write bytes
+no generator wrote and leave `manifest.txt` pinning a corpus that is no longer on
+disk.
 
 ## The caps
 
@@ -69,21 +70,21 @@ that is no longer on disk.
 | Per corpus | 512 KiB | `--record` |
 | Total under `cli/benches/corpora` | 2 MiB | `--record` and `--validate` |
 
-`--validate` prints the total in its footer, so the budget is a number somebody
-watches rather than a limit somebody discovers.
+`--validate` prints the total in its footer, so somebody watches the budget as a
+number rather than discovering it as a limit.
 
 ## What is saved
 
 | Corpus | Why this one |
 |---|---|
 | `mixed-1k` | The cheapest byte-stable anchor for every phase. |
-| `mixed-10k` | **The anchor.** Big enough that the prelude floor is small and the rates are the real ones. |
+| `mixed-10k` | **The anchor.** Big enough that the prelude floor is small and the rates are real. |
 | `mixed-many-files-1k` | Byte-stable per-module overhead. |
 | `mixed-few-files-1k` | Its control. |
-| `wide-match-1k` | The shape with a known algorithmic gap; the series that will show it closing. |
+| `wide-match-1k` | The shape with a known algorithmic gap; this series is what will show it closing. |
 | `many-small-fns-1k` | Per-item lowering. |
 | `few-large-fns-1k` | Per-body lowering. |
-| `derive-heavy-1k` | `middle::derives` runs only on the native branch, so no JS row can see it. |
+| `derive-heavy-1k` | `middle::derives` runs only on the native branch, so no JS row sees it. |
 
 ## Regenerating
 
@@ -92,50 +93,48 @@ cargo bench -p buri --bench compiler -- --record=mixed-10k               # new
 BURI_BLESS=1 cargo bench -p buri --bench compiler -- --record=mixed-10k  # overwrite
 ```
 
-`--record` names the profile by the longest profile name that prefixes the corpus
-name (`mixed-many-files-1k` records `mixed-many-files`, not `mixed`) and the
-scale by the trailing `1k` / `10k`. `--shape=<profile>`, `--scale=<n>`,
+`--record` takes the profile from the longest profile name that prefixes the
+corpus name (`mixed-many-files-1k` records `mixed-many-files`, not `mixed`), and
+the scale from the trailing `1k` or `10k`. `--shape=<profile>`, `--scale=<n>`,
 `--seed=<hex>` and `--param k=v` override any of that. It validates before it
-writes: a corpus that does not compile is not written at all.
+writes, so a corpus that does not compile never lands.
 
-Overwriting needs `BURI_BLESS=1`, the convention `cli/tests/formatting.rs`
-already uses, because re-recording is a break in a measurement series and should
-be deliberate.
+Overwriting needs `BURI_BLESS=1`, the convention `cli/tests/formatting.rs` already
+uses. Re-recording breaks a measurement series, so it should be deliberate.
 
 ## Staleness policy
 
 A language change breaks saved corpora. In order:
 
-1. **`--validate` compiles them**, whatever `--set` was asked for, and CI runs
-   `--validate --quick`. A corpus that no longer compiles is a build failure on
-   the commit that caused it rather than a discovery six weeks later.
-2. **The fix is a re-record with a bumped `revision`**, in the same commit as the
+1. **`--validate` compiles them**, whatever `--set` you asked for, and CI runs
+   `--validate --quick`. A corpus that no longer compiles fails the build on the
+   commit that caused it rather than surfacing six weeks later.
+2. **Fix it by re-recording with a bumped `revision`**, in the same commit as the
    language change. `--json` carries `corpus_revision`, so a tracking script sees
-   a break in the series rather than a step in it. The directory name does not
-   change: a stable key with a visible discontinuity beats a new key nothing
-   joins to.
-3. **A corpus that cannot be re-recorded is deleted, not repaired.** A corpus
-   nobody can regenerate is a megafile with extra steps.
-4. **A corpus stale for a release is deleted**, whatever the reason. The value of
-   the saved set is that it is small and alive.
-5. `GENERATOR_REVISION` in `generate.rs` is bumped by hand whenever a change
-   there would move the bytes of any profile. A manifest naming an *older*
-   revision is legal and expected — that is the point — so `--validate` prints it
-   as a note and never as an error.
+   a break in the series rather than a step in it. The directory name stays put: a
+   stable key with a visible discontinuity beats a new key nothing joins to.
+3. **Delete a corpus you cannot re-record. Do not repair it.** A corpus nobody can
+   regenerate is a megafile with extra steps.
+4. **Delete a corpus that has been stale for a release**, whatever the reason. The
+   saved set is worth having because it is small and alive.
+5. Bump `GENERATOR_REVISION` in `generate.rs` by hand whenever a change there
+   would move the bytes of any profile. A manifest naming an *older* revision is
+   legal and expected — that is the point — so `--validate` prints it as a note
+   and never as an error.
 6. **A change to the formatter is a change to the generator.** `laid_out` is the
    last thing every emitter does, so a printer that starts breaking a line
-   somewhere else moves every corpus. The gate that notices first is the
-   repository-wide format sweep above, and the fix is this same ceremony: bump
-   `GENERATOR_REVISION`, re-record all eight, re-pin all forty, write the note
-   in `design/PERFORMANCE.md` §6.
+   somewhere else moves every corpus. The repository-wide format sweep above
+   notices first, and the fix is this same ceremony: bump `GENERATOR_REVISION`,
+   re-record all eight, re-pin all forty, write the note in
+   `design/PERFORMANCE.md` §6.
 
 ## The digest
 
 `buri::build::cache::hash_bytes` — the same SHA-256 every cache key uses — over
 the module path, a NUL, the file's bytes and a NUL, for every module in sorted
-path order. `corpus.rs::load` checks it on every read, so a corpus edited by hand
+path order. `corpus.rs::load` checks it on every read, so a hand-edited corpus
 fails loudly instead of quietly measuring something nobody generated.
 
-`.gitattributes` carries `cli/benches/corpora/** -text`: the root `* text=auto`
-would permit line-ending translation on checkout, and a translated corpus is one
-whose digest no longer matches its manifest.
+`.gitattributes` carries `cli/benches/corpora/** -text`. The root `* text=auto`
+would permit line-ending translation on checkout, and a translated corpus no
+longer matches its manifest's digest.
