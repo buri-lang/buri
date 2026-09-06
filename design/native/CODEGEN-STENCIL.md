@@ -135,9 +135,9 @@ in this library has one of two prototypes:
 `x0` points into the **Buri stack**, and `x1`–`x3`/`d0`–`d2` are the CPS
 register file — the paper's Figure 8 pass-through parameters, which cost
 nothing because AAPCS64 already has an argument at the same ordinal in the
-same register. A stencil ends in `__attribute__((musttail)) return
-_JIT_CONT(...)`, which compiles to a single `b`, and the copy elides even that
-when the continuation is the next stencil.
+same register. A stencil ends in
+`__attribute__((musttail)) return _JIT_CONT(...)`, which compiles to a single
+`b`, and the copy elides even that when the continuation is the next stencil.
 
 Every SSA value gets a byte range in a frame. An aggregate lives **flat** in
 that range at its real `middle::layout` offsets, so `MakeStruct`, `GetField`,
@@ -774,15 +774,15 @@ and is where that fact lives.
 element pair, then the out-pointer. What differs here is only *where* an
 argument is. Cranelift builds a value list and lets its register allocator
 place it; this backend has no register allocator at the call boundary, so the
-stencil has to spell out where each argument is, and the shape is `(integers,
-floats, result)` — 132 shapes per family, ten integers rather than eight
-because the ninth and tenth go on the **machine** stack, which is entirely
-clang's business (the stencil is the zero-register prototype, so nothing of
-this backend's is live across the call). `buri_rt_str_replace` is the entry
-that needs them, being three `Str`s flattened and an out-pointer. Integers and
-floats are counted separately, because AAPCS64 assigns the two register banks
-independently: a double in argument position three still goes in `d0` if it is
-the first float.
+stencil has to spell out where each argument is, and the shape is
+`(integers, floats, result)` — 132 shapes per family, ten integers rather than
+eight because the ninth and tenth go on the **machine** stack, which is
+entirely clang's business (the stencil is the zero-register prototype, so
+nothing of this backend's is live across the call). `buri_rt_str_replace` is
+the entry that needs them, being three `Str`s flattened and an out-pointer.
+Integers and floats are counted separately, because AAPCS64 assigns the two
+register banks independently: a double in argument position three still goes
+in `d0` if it is the first float.
 
 There are **two families of that shape**, and `rtcall.rs::c_call_to` picks per
 call site:
@@ -891,13 +891,13 @@ above the byte that mattered.
 
 AAPCS64 hid it completely: Rust's arm64 codegen zeroes the register on the way
 out, so every arm64 run agreed with every other backend. SysV does not, and
-the symptom was `assert.isFalse` failing on five conformance files and `p ==
-q` answering `true` for two strings that differ — a `Bool` read out of the
-garbage above `al`. `sources.rs::RETURN_SHAPES` now has a shape per C return
-width, and `rtcall::scalar_kind` picks it from the destination's own IR type,
-which is the same fact Cranelift builds its call signature from. The cast is
-inside the stencil, so it costs the `movzx` the psABI already required of the
-caller and nothing more.
+the symptom was `assert.isFalse` failing on five conformance files and
+`p == q` answering `true` for two strings that differ — a `Bool` read out of
+the garbage above `al`. `sources.rs::RETURN_SHAPES` now has a shape per C
+return width, and `rtcall::scalar_kind` picks it from the destination's own IR
+type, which is the same fact Cranelift builds its call signature from. The
+cast is inside the stencil, so it costs the `movzx` the psABI already required
+of the caller and nothing more.
 
 ### 5.3 `I128`, which is where a backend can fall short of the type system
 
@@ -1244,14 +1244,14 @@ Three tests, not steps, hold the parts a green exit would otherwise hide.
 `ci.rs::the_stencil_libraries_are_real` reads the same emptiness
 `available_for` reads, and asserts the reverse degrade: on a Linux host the
 `macos-arm64` library must be empty. `BURI_CI=1` makes
-`harness/ci.rs::skipped` panic, so `stencil.rs`'s `if !supported() { return;
-}` cannot report a pass on a runner with no stencils, and
-`the_corpus_census_is_a_ratchet` pins the compiling set by name in both
-directions. And `ci.rs::a_linked_linux_artifact_is_a_static_pie_that_runs`
-builds a Linux artifact through the CLI under each linker in turn and checks
-the image for a defined `buri$stencil$stack`, a `.bss` still `NOBITS`, a
-`PT_GNU_STACK` without `E`, `ET_DYN` with no `PT_INTERP` and no `DT_NEEDED` —
-then runs it.
+`harness/ci.rs::skipped` panic, so `stencil.rs`'s
+`if !supported() { return; }` cannot report a pass on a runner with no
+stencils, and `the_corpus_census_is_a_ratchet` pins the compiling set by name
+in both directions. And
+`ci.rs::a_linked_linux_artifact_is_a_static_pie_that_runs` builds a Linux
+artifact through the CLI under each linker in turn and checks the image for a
+defined `buri$stencil$stack`, a `.bss` still `NOBITS`, a `PT_GNU_STACK`
+without `E`, `ET_DYN` with no `PT_INTERP` and no `DT_NEEDED` — then runs it.
 
 Two things there remain **uncovered**, and neither is a step that could be
 renamed into existence:
@@ -1542,13 +1542,13 @@ narrowest thing that would work:
   nothing else points anywhere. **There is deliberately no `--sysroot`**, and
   that is a measurement rather than an omission: it was the obvious flag, and
   it makes the link *fail*. clang locates its GCC installation relative to the
-  sysroot, a staged directory has none, and the link ended at `mold: fatal:
-  cannot open crtbeginS.o` — then, once those crt objects were baked too, at
-  `mold: fatal: library not found: gcc`. The flag buys nothing the two
-  prefixes do not already buy, because a link reads no headers. Which files a
-  link needs, and in what order, stays the driver's business; `-nostdlib` with
-  a hand-assembled crt sequence was the alternative, and it was rejected on
-  exactly that.
+  sysroot, a staged directory has none, and the link ended at
+  `mold: fatal: cannot open crtbeginS.o` — then, once those crt objects were
+  baked too, at `mold: fatal: library not found: gcc`. The flag buys nothing
+  the two prefixes do not already buy, because a link reads no headers. Which
+  files a link needs, and in what order, stays the driver's business;
+  `-nostdlib` with a hand-assembled crt sequence was the alternative, and it
+  was rejected on exactly that.
 - **`-static-pie`, not `-static`.** Both backends emit position-independent
   code, and musl ships the `rcrt1.o` that self-relocates a static PIE before
   `main`. The same flag serves debug and release: a *dynamic* musl executable
