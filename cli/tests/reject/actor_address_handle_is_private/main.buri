@@ -20,7 +20,6 @@ export fn main(): Result<(), Str> {
     let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
     let address = actor.start(ctx, Actor {
         state: 0,
-        mailbox: .None,
         onStop: .None,
         step: fn(_c, count, _message: Ping) => count + 1,
     });

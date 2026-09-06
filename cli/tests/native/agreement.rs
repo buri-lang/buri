@@ -3358,12 +3358,13 @@ export fn main(): Result<(), Str> {
 /// struct and how a niche `Option<[T]>` is spelled, so one green pipeline says
 /// nothing about the other.
 ///
-/// Five claims in seven lines of output: two sends and an `ask` see the state
-/// the sends left; a mailbox of sixty-four holds three messages until the
-/// `ask` runs them down, in the order they were sent; a mailbox of one is run
-/// down by the sender that filled it; `onStop` runs once with the final state,
-/// and the two actors' hooks answer their own numbers; and every operation
-/// after `stop` — a `send`, an `ask`, and a second `stop` — is `.Err`.
+/// Five claims in eight lines of output: two sends and an `ask` see the state
+/// the sends left; the mailbox holds three messages until the `ask` runs them
+/// down, in the order they were sent; sixty-five posts and nothing that asks
+/// leave the sixty-fifth for `stop` to discard, because the post that found the
+/// box at its bound ran all sixty-four down; `onStop` runs once with the final
+/// state, and the three actors' hooks answer their own numbers; and every
+/// operation after `stop` — a `send`, an `ask`, and a second `stop` — is `.Err`.
 #[test]
 fn an_actor_counts_the_same_on_every_backend() {
     rows_or_skip!();
@@ -3371,7 +3372,7 @@ fn an_actor_counts_the_same_on_every_backend() {
         "actor counter",
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Reply, Stopped };
+from "core/actor" import { Actor, Address, Reply, Stopped };
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -3381,7 +3382,7 @@ enum CounterMessage {
   Get(Reply<Int>),
 }
 
-fn counter<C: Alloc + Stdout + Tasks>(bound: Int): Actor<C, Int, CounterMessage> {
+fn counter<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage> {
   Actor {
     state: 0,
     step: fn(c, count, message) => {
@@ -3394,7 +3395,20 @@ fn counter<C: Alloc + Stdout + Tasks>(bound: Int): Actor<C, Int, CounterMessage>
       }
     },
     onStop: .Some(fn(c, last) => io.println(c, "stopped at ${last}").ignore()),
-    mailbox: .Some(bound),
+  }
+}
+
+fn pump<C: Alloc + Stdout + Tasks>(
+  ctx: C,
+  address: Address<C, Int, CounterMessage>,
+  left: Int,
+): () {
+  match (left <= 0) {
+    true => (),
+    false => {
+      let _ = address.send(ctx, .Add(1)).ignore();
+      pump(ctx, address, left - 1)
+    },
   }
 }
 
@@ -3405,21 +3419,28 @@ export fn main(): Result<(), Str> {
     Tasks: host.tasks,
   };
 
-  // A mailbox of one: the second `send` finds the box full and runs it down,
-  // which is what the bound buys and what makes the digits below `12`.
-  let counted = actor.start(ctx, counter(1));
+  // Two posts and an ask: the ask is what runs them down, so the answer is the
+  // state the sends left.
+  let counted = actor.start(ctx, counter());
   let _ = counted.send(ctx, .Add(1)).ignore();
   let _ = counted.send(ctx, .Add(2)).ignore();
   let total = counted.ask(ctx, fn(reply) => .Get(reply));
   let _ = io.println(ctx, "total ${total.withDefault(-1)}").ignore();
 
-  // A mailbox of sixty-four: nothing is stepped until the `ask` asks.
-  let queued = actor.start(ctx, counter(64));
+  // Three posts, under the bound, so nothing is stepped until the `ask` asks.
+  let queued = actor.start(ctx, counter());
   let _ = queued.send(ctx, .Add(10)).ignore();
   let _ = queued.send(ctx, .Add(20)).ignore();
   let _ = queued.send(ctx, .Add(30)).ignore();
   let batched = queued.ask(ctx, fn(reply) => .Get(reply));
   let _ = io.println(ctx, "batched ${batched.withDefault(-1)}").ignore();
+
+  // Sixty-five posts and nothing that asks: the sixty-fourth found the box at
+  // its bound and ran every waiting message down, and the sixty-fifth is what
+  // the `stop` discards.
+  let filled = actor.start(ctx, counter());
+  let _ = pump(ctx, filled, 65);
+  let _ = filled.stop(ctx).ignore();
 
   let _ = counted.stop(ctx).ignore();
   let _ = queued.stop(ctx).ignore();
@@ -3445,7 +3466,8 @@ fn gone2(r: Result<Int, Stopped>): Str {
   }
 }
 "#,
-        "total 3\nbatched 60\nstopped at 3\nstopped at 60\nafter stopped\nasked stopped\nagain stopped\n",
+        "total 3\nbatched 60\nstopped at 64\nstopped at 3\nstopped at 60\n\
+         after stopped\nasked stopped\nagain stopped\n",
     );
 }
 
