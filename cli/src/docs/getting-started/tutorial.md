@@ -1,14 +1,14 @@
 # Tutorial: a small program, end to end
 
-In this tutorial we will build `convert`, a command line program that turns one
-length into another. We will write two libraries, a binary that depends on
-them, and the tests that hold all three up — starting from an empty directory
-and finishing with a program that runs. It takes about half an hour.
+You are going to build `convert`, a command line program that turns one length
+into another: two libraries, a binary that depends on them, and the tests that
+hold all three up. You start from an empty directory and finish with a program
+that runs. It takes about half an hour.
 
-Do [your first program](./first-program.md) before this one: it assumes `buri`
-is installed and that you have run `buri test` and `buri run` once.
+Do [your first program](./first-program.md) first. This page assumes `buri` is
+installed and that you have run `buri test` and `buri run` once.
 
-This is what we are building:
+This is what you are building:
 
 ```text
 $ buri run //apps/convert -- 26.2 mi km
@@ -17,15 +17,15 @@ $ buri run //apps/convert -- 26.2 mi km
 
 ## 1. The repository
 
-Make every directory we will need, and move in:
+Make every directory you need, and move in:
 
 ```text
 $ mkdir -p convert/libs/units/test convert/libs/convert/test convert/apps/convert
 $ cd convert
 ```
 
-Write `REPO.buri`. Its presence is what makes this directory the repository
-root, and what `//` resolves against in every label and every module path:
+Write `REPO.buri`. That file makes this directory the repository root, and `//`
+resolves against it in every label and every module path:
 
 ```textproto schema=repo
 # The repository root. Its presence is what `//` resolves against.
@@ -38,8 +38,8 @@ lint {
 ## 2. The library that knows about lengths
 
 Write `libs/units/BUILD.buri`. A directory with a build file in it is a
-package, and this one declares a library: its sources, its tests, and who may
-depend on it, each listed one path at a time:
+package. This one declares a library, listing its sources, its tests, and who
+may depend on it one path at a time:
 
 ```textproto schema=build
 library {
@@ -142,8 +142,8 @@ impl Quantity {
 }
 ```
 
-Write `libs/units/lib.buri`. It is not in `sources` because the rule kind names
-it: it is the library's entire public surface, and a name missing from it
+Write `libs/units/lib.buri`. It is not in `sources`, because the rule kind
+names it. It is the library's entire public surface: a name missing from it
 cannot be reached from another package, as a function or as a method:
 
 ```buri repo=cli/tests/tutorial package=//libs/units
@@ -194,10 +194,9 @@ $ buri test //libs/units
 
 ## 3. The second library: the command line
 
-`//libs/units` knows nothing about a command line, and we are going to keep it
-that way. Write `libs/convert/BUILD.buri`. This one has a `dependencies` list,
-and the edge it declares is the only reason `//libs/units` is reachable from
-here:
+`//libs/units` knows nothing about a command line, and it stays that way. Write
+`libs/convert/BUILD.buri`. This one has a `dependencies` list, and the edge it
+declares is the only reason `//libs/units` is reachable from here:
 
 ```textproto schema=build
 library {
@@ -211,7 +210,7 @@ library {
 }
 ```
 
-Write `libs/convert/convert.buri`. Everything above `run` is pure; `run` is the
+Write `libs/convert/convert.buri`. Everything above `run` is pure. `run` is the
 one function that reads the world and writes to it, and its bounds say exactly
 which parts of the world it gets:
 
@@ -294,9 +293,9 @@ from "//libs/convert/convert.buri" export {
 
 ## 4. A test that hands `run` a world of our own
 
-`run` needs `Env` to read the command line. A test gives it one by writing a
-struct with the effect's two methods on it — an effect is an ordinary
-interface, so there is no mocking framework and nothing global to stub.
+`run` needs `Env` to read the command line. A test hands it one: a struct with
+the effect's two methods on it. An effect is an ordinary interface, so there is
+no mocking framework and nothing global to stub.
 
 Write `libs/convert/test/convert.buri`:
 
@@ -344,7 +343,7 @@ test "run reads its arguments and prints one line" {
 }
 ```
 
-The last test never opens a terminal and never reads a real command line:
+The last test never opens a terminal and never reads a real command line.
 `FixedArgs` is the arguments, `stdout()` is a captured stream, and `captured()`
 reads back what the program wrote to it. Run every suite in the repository:
 
@@ -353,7 +352,7 @@ $ buri test
 6 passed, 0 failed, 0 skipped (0.2s, 3 cached)
 ```
 
-The three cached ones are `//libs/units`, unchanged since we last ran it.
+The three cached ones are `//libs/units`, unchanged since you last ran it.
 
 ## 5. The binary
 
@@ -402,9 +401,9 @@ $ buri run //apps/convert -- 5 km ft
 
 ## 6. Format and lint the whole repository
 
-`buri format` is the one canonical layout — four-space indent, sorted imports,
-no options — and it prints the files it rewrote. `buri lint` is the checks
-beyond type checking:
+`buri format` is the one canonical layout: four-space indent, sorted imports,
+no options. It prints the files it rewrote. `buri lint` runs the checks beyond
+type checking:
 
 ```text
 $ buri format
@@ -415,9 +414,9 @@ no findings
 `buri format` printed nothing, because every file above was already laid out
 the way it lays a file out.
 
-That is the program: eleven files, two libraries with a build file, a surface,
-a source file and a suite each, a binary with a build file and a `main`, and a
-repository root over the top of them.
+That is the program, in eleven files: two libraries, each with a build file, a
+surface, a source file and a suite; a binary with a build file and a `main`;
+and a repository root over the top of them.
 
 ## Where to go next
 
