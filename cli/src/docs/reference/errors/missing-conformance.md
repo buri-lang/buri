@@ -14,10 +14,10 @@ Bind a value whose type has `impl Alloc for ...`.
 
 ## Why
 
-Conformance is declared and never inferred, so a type with all the right
-methods still does not satisfy an effect until an `impl` says it does. An
-effect is an ordinary interface, which is why a test double is a struct with
-those methods and an `impl` block.
+You declare conformance; the compiler never infers it. A type with all the right
+methods still does not satisfy an effect until an `impl` says so. An effect is
+an ordinary interface, which is why a test double is a struct with those methods
+and an `impl` block.
 
 ## A program that provokes it
 
