@@ -31,7 +31,7 @@ test "one sender's messages arrive in the order it sent them" {
         Stdout: stdout(),
         Tasks: tasks(),
     };
-    let counted = actor.start(ctx, counter(0, .None));
+    let counted = actor.start(ctx, counter(0));
     let _ = counted.send(ctx, .Increment).ignore();
     let _ = counted.send(ctx, .Add(2)).ignore();
     let _ = counted.send(ctx, .Add(3)).ignore();
@@ -40,17 +40,20 @@ test "one sender's messages arrive in the order it sent them" {
 }
 
 test "a mailbox at its bound is run down rather than grown" {
+    let sink = stdout();
     let ctx = context {
         Alloc: alloc(),
-        Stdout: stdout(),
+        Stdout: sink,
         Tasks: tasks(),
     };
-    let counted = actor.start(ctx, counter(0, .Some(1)));
-    let _ = counted.send(ctx, .Increment).ignore();
-    let _ = counted.send(ctx, .Add(2)).ignore();
-    let _ = counted.send(ctx, .Add(3)).ignore();
-    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(123));
+    // `stop` discards what is still waiting, so what `onStop` prints is what
+    // the mailbox had already run down. Sixty-five posts and nothing that asks:
+    // the post that found the box full stepped all sixty-four, and the one
+    // after it is what the stop throws away.
+    let counted = actor.start(ctx, counter(0));
+    let _ = pump(ctx, counted, 65);
     assert.eq(counted.stop(ctx), .Ok(()));
+    assert.eq(sink.captured(), "final 64\n");
 }
 
 test "more messages than the default mailbox holds still all arrive" {
@@ -59,7 +62,7 @@ test "more messages than the default mailbox holds still all arrive" {
         Stdout: stdout(),
         Tasks: tasks(),
     };
-    let counted = actor.start(ctx, counter(0, .None));
+    let counted = actor.start(ctx, counter(0));
     let _ = pump(ctx, counted, 65);
     assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(65));
     assert.eq(counted.stop(ctx), .Ok(()));
@@ -72,7 +75,7 @@ test "onStop runs once, with the final state" {
         Stdout: sink,
         Tasks: tasks(),
     };
-    let counted = actor.start(ctx, counter(0, .None));
+    let counted = actor.start(ctx, counter(0));
     let _ = counted.send(ctx, .Add(4)).ignore();
     assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(4));
     assert.eq(sink.captured(), "");
@@ -88,7 +91,7 @@ test "everything after a stop is refused" {
         Stdout: stdout(),
         Tasks: tasks(),
     };
-    let counted = actor.start(ctx, counter(0, .None));
+    let counted = actor.start(ctx, counter(0));
     assert.eq(counted.stop(ctx), .Ok(()));
     assert.eq(counted.send(ctx, .Increment), .Err(.Stopped));
     assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Err(.Stopped));

@@ -98,8 +98,8 @@
 //! **The actor steps on the task that drives it.** `send` posts and answers;
 //! `ask` posts, then runs the mailbox down until its reply is there; `stop`
 //! closes, discards what is left, and runs `onStop`. A mailbox at its bound is
-//! drained by the next `send` rather than growing, which is what `mailbox`
-//! buys.
+//! drained by the next `send` rather than growing, so the bound limits how much
+//! work may *wait*, never how much may arrive.
 //!
 //! It is a *scheduling* decision and not a semantic one, and it is the same
 //! shape `core/tasks` already ships: `parallel` runs its steps on carriers of
@@ -155,11 +155,8 @@ from "core/effect" import { Alloc, Tasks };
 /// the code around it could: allocate, print, read a clock, ask another actor.
 /// `S` is the state and `M` is the protocol.
 ///
-/// `onStop` and `mailbox` are `Option` fields, so a literal may leave them out
-/// and the checker fills in `.None` (SPEC 5.6). An omitted `onStop` is no hook
-/// at all; an omitted `mailbox` is [`MAILBOX`], **and this module names that
-/// number** where `core/net/server` deliberately leaves its own defaults to
-/// the runtime — see [`MAILBOX`], which is where the exception is argued.
+/// `onStop` is an `Option`, so a literal may leave it out and the checker fills
+/// in `.None` (SPEC 5.6): no hook at all, rather than an empty one.
 export struct Actor<C, S, M> {
     /// What the state is before any message.
     export state: S,
@@ -168,8 +165,6 @@ export struct Actor<C, S, M> {
     /// Run once, with the final state, when the actor stops. `.None` is no
     /// hook rather than an empty one, so nothing is called.
     export onStop: Option<fn(C, S) => ()>,
-    /// How many messages may wait at once. `.None` is [`MAILBOX`].
-    export mailbox: Option<Int>,
 }
 
 /// Where messages go — the actor's public half.
@@ -186,15 +181,15 @@ export struct Actor<C, S, M> {
 /// one (SPEC 10.6), which is what makes an address usable as another actor's
 /// state.
 export struct Address<C, S, M> {
-    /// The mailbox, as the runtime knows it.
-    export handle: Int,
+    /// The mailbox, as the runtime knows it — this module's own, because an
+    /// address is the authority to send and not the number that authority is
+    /// spelled with, and nothing outside here can do anything with an `Int`
+    /// the runtime issued.
+    handle: Int,
     /// `Actor::step`, carried.
     step: fn(C, S, M) => S,
     /// `Actor::onStop`, carried.
     onStop: Option<fn(C, S) => ()>,
-    /// The bound the mailbox was opened with — a number, always, because it
-    /// is enforced from here.
-    bound: Int,
 }
 
 /// The handle an `ask` sends and its answer comes back through.
@@ -242,19 +237,18 @@ fn carried<T>(value: T): Carried<T> {
     Carried { pad: 0, value: value }
 }
 
-/// How many messages wait in a mailbox that asked for no number.
+/// How many messages may wait in a mailbox.
 ///
-/// **This module names the number, where `core/net/server` deliberately does
-/// not.** The convention there is that `.None` is the absence of a choice and
-/// the runtime turns it into a default, and it holds because nothing but the
-/// runtime ever has to know what the default was. Here `send` is what enforces
-/// the bound — it runs the mailbox down when a post reaches it — so a bound
-/// only the runtime knew would be a bound the driver could not respect, and an
-/// actor that filled up would wait for a drain nobody was going to do.
-/// `cli/runtime/rt.rs`'s `MAILBOX` is the same number from the other side, and
+/// **The bound is written here and not only in the runtime**, which is the one
+/// place this module departs from `core/net/server`'s convention that a default
+/// is the runtime's to choose. `send` is what enforces it — it runs the mailbox
+/// down when a post arrives at the bound — so a number only the runtime knew
+/// would be a number the driver could not respect, and an actor that filled up
+/// would wait for a drain nobody was going to do. `cli/runtime/rt.rs`'s
+/// `MAILBOX` is the same number from the other side, and
 /// `the_default_mailbox_is_the_one_core_actor_names` is the two of them held
 /// together.
-export let MAILBOX: Int = 64;
+let MAILBOX: Int = 64;
 
 // --- Starting -----------------------------------------------------------------
 
@@ -272,12 +266,10 @@ export fn start<C: Alloc + Tasks, S, M>(
     ctx: C,
     actor: Actor<C, S, M>,
 ): Address<C, S, M> {
-    let bound = actor.mailbox.withDefault(MAILBOX);
     Address {
-        handle: mailboxOpen(ctx, alloc.copyAcross([carried(actor.state)]), bound),
+        handle: mailboxOpen(ctx, alloc.copyAcross([carried(actor.state)]), MAILBOX),
         step: actor.step,
         onStop: actor.onStop,
-        bound: bound,
     }
 }
 
@@ -292,14 +284,13 @@ impl<C: Alloc + Tasks, S, M> Address<C, S, M> {
     /// scope, it is leaving *all* of them: `copyOut` copies onto whichever
     /// allocator is active, which inside a scope is the arena about to go back.
     ///
-    /// **A mailbox at its bound is run down here**, before this call answers,
-    /// which is the whole of what `Actor::mailbox` buys: the queue is a bound
-    /// on how much work may wait, not on how much may arrive.
+    /// **A mailbox at its bound is run down here**, before this call answers:
+    /// the queue bounds how much work may wait, not how much may arrive.
     export fn send(self, ctx: C, message: M): Result<(), Stopped> {
         match (mailboxPush(ctx, self.handle, alloc.copyAcross([carried(message)]))) {
             .None => .Err(.Stopped),
             .Some(waiting) => {
-                match (crowded(waiting, self.bound)) {
+                match (crowded(waiting)) {
                     false => .Ok(()),
                     true => {
                         let _ = drive(ctx, self);
@@ -484,10 +475,9 @@ fn ending<C: Alloc + Tasks, S>(
     }
 }
 
-/// Whether a mailbox holding `waiting` messages is at the bound it was opened
-/// with.
-fn crowded(waiting: Int, bound: Int): Bool {
-    waiting >= bound
+/// Whether a mailbox holding `waiting` messages is at [`MAILBOX`].
+fn crowded(waiting: Int): Bool {
+    waiting >= MAILBOX
 }
 
 // --- Taking a block back ------------------------------------------------------

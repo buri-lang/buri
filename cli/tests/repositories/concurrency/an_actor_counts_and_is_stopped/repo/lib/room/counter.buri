@@ -12,15 +12,11 @@ export enum CounterMessage {
     Get(Reply<Int>),
 }
 
-/// `bound` is `Actor.mailbox`: `.None` is `core/actor`'s own `MAILBOX`, which
-/// is sixty-four.
 export fn counter<C: Alloc + Stdout + Tasks>(
     initial: Int,
-    bound: Option<Int>,
 ): Actor<C, Int, CounterMessage> {
     Actor {
         state: initial,
-        mailbox: bound,
         onStop: .Some(fn(c, count) => {
             let _ = io.println(c, "final ${count}").ignore();
             ()

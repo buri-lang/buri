@@ -576,11 +576,11 @@ fn counter<C>(initial: Int): Actor<C, Int, CounterMessage> {
 
 It needs no test double, and that is a property of the shape rather than an
 omission: `step` is an ordinary function in an ordinary field, so testing an
-actor is calling it. The mailbox is bounded — `mailbox: .Some(1)`, or the
-module's own `MAILBOX` — and a `send` that fills it runs the actor down rather
-than letting the queue grow. **The actor steps on the task that drives it**:
-`ask` runs the mailbox down before it reads its reply, and `stop` before it
-runs `onStop`. That is a scheduling decision and not a semantic one — the
+actor is calling it. The mailbox holds sixty-four messages and is not
+configurable: a `send` that fills it runs the actor down rather than letting the
+queue grow, so the bound limits how much work may wait, never how much may
+arrive. **The actor steps on the task that drives it**: `ask` runs the mailbox
+down before it reads its reply, and `stop` before it runs `onStop`. That is a scheduling decision and not a semantic one — the
 answers are the same either way, exactly as `parallel`'s two arms answer the
 same list — but it means an actor is not yet a way to get work done in the
 background.
