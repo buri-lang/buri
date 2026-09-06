@@ -11,23 +11,23 @@ Rust-shaped data declarations, Roc-shaped ideas about platforms and effects.
 The normative text ships in the binary: `buri docs language/lexical`,
 `language/modules`, `language/types`, `language/expressions`, `language/patterns`,
 `language/evaluation`, `language/functions`, `language/effects` and
-`language/programs`. `buri docs search <words>` looks in every page at once — in the prose, not only
-the names, so a question like `buri docs search compare ints` works — and prints
-each hit as the command that reads it.
+`language/programs`. `buri docs search <words>` searches every page at once, prose
+and names alike, so `buri docs search compare ints` works. Each hit prints as the
+command that reads it.
 
 **Explore the library before writing a helper.** Bare `buri docs` lists every
-`core/*` and `ui/*` module in one screen; `buri docs core/str` renders one from
-the source the compiler checked, and `buri docs core/str.padStart` renders a
+`core/*` and `ui/*` module in one screen. `buri docs core/str` renders one module
+from the source the compiler checked, and `buri docs core/str.padStart` renders a
 single item. Comparators, hex, base64, varints, grouping, checksums, dates,
-argument parsing and a CLI are already there, and a hand-rolled one is a wrong
+argument parsing and a CLI are already there. Hand-roll one and you get a wrong
 answer that compiles.
 
 ## The twelve things that will trip you up
 
 - **No mutation.** Every binding is final. No assignment operator, no `mut`,
   no interior mutability, no references, no borrow checker, no lifetimes.
-- **No loops.** Iteration is recursion — implementations must eliminate tail
-  calls, including mutual ones — or a fold.
+- **No loops.** Iterate with recursion or a fold. Implementations must
+  eliminate tail calls, mutual ones included.
 - **No `return`.** Postfix `?` is the only early exit in the language.
 - **No `null` and no `undefined`.** Absence is `Option<T>`, and indexing an
   array yields `Option<T>` rather than `T`.
@@ -35,32 +35,32 @@ answer that compiles.
   truthiness: `if (n < 0) { ... } else { ... }`.
 - **No implicit numeric conversion of any kind.** `1.0 + 1` is an error, and
   so is `I32 + I64`. Convert with a method: `a.toI64()`.
-- **Effects arrive as a parameter named `ctx`, and are *performed* by handing
-  it to a function.** A function with no `ctx` and no effect-carrying `self`
-  cannot touch the world; and `ctx.println("hi")` is not how you print —
-  `io.println(ctx, "hi")` is, because an effect method is not callable on the
-  value that carries it (`effect-method-call`). `core/io`, `core/fs`,
+- **Effects arrive as a parameter named `ctx`. You perform one by handing
+  `ctx` to a function.** A function with no `ctx` and no effect-carrying `self`
+  cannot touch the world. And `ctx.println("hi")` is not how you print:
+  `io.println(ctx, "hi")` is, because you cannot call an effect method on the
+  value carrying it (`effect-method-call`). The doors are `core/io`, `core/fs`,
   `core/env`, `core/time`, `core/random`, `core/alloc`, `core/net/http`,
-  `core/net/server`, `core/proc`, `core/tasks` and `ui/signal` are the doors.
-  The filesystem is **two** effects, `FsRead` and `FsWrite`, both declared in
-  `core/fs` rather than `core/effect`, and every function there takes a `Path`
-  from `core/path` rather than a `Str`. See the `buri-types` skill.
+  `core/net/server`, `core/proc`, `core/tasks` and `ui/signal`. The filesystem
+  is **two** effects, `FsRead` and `FsWrite`. `core/fs` declares both, not
+  `core/effect`, and every function there takes a `Path` from `core/path`
+  rather than a `Str`. See the `buri-types` skill.
 - **A bare identifier in a pattern is always a binding.** `None` binds a
   variable; write `.None` or `Option.None` to match the variant.
-- **`Result` may not be discarded.** `let _ = someResult()` is a compile
-  error (`result-discarded`), and so is a `_` further down the pattern —
-  `let (n, _) = (1, someResult())` — and so is leaving the call standing as a
+- **You may not discard a `Result`.** `let _ = someResult()` is a compile
+  error (`result-discarded`). So is a `_` further down the pattern, as in
+  `let (n, _) = (1, someResult())`, and so is leaving the call standing as a
   statement. Consume it with `?`, `match` or `.withDefault(...)`, or drop it
   on purpose with `.ignore()`, which `buri lint` reports as
-  `discarded-result`. **A print answers one too**, so a line a program does
-  not care about is `let _ = io.println(ctx, "hi").ignore();` — and a program
-  that does care answers instead, with `mapErr` to carry the `IoError` into
-  its own error type.
+  `discarded-result`. **A print returns one too.** A line the program does not
+  care about reads `let _ = io.println(ctx, "hi").ignore();`. A program that
+  does care handles it, and uses `mapErr` to carry the `IoError` into its own
+  error type.
 - **No relative imports.** A module path is `core/...`, `ui/...`, or
   `//...` from the repository root, and means the same module everywhere.
-- **Methods live in an `impl` block in their type's own module**, and are
-  reached through the receiver's type rather than through scope — so they
-  need no import, and you cannot add one to somebody else's type.
+- **Methods live in an `impl` block in their type's own module.** You reach
+  them through the receiver's type rather than through scope, so they need no
+  import, and you cannot add one to somebody else's type.
 - **There is no `panic`, no `unreachable`, no bottom type.** Every case is
   handled. Division by zero and stack exhaustion *abort*; nothing catches.
 
@@ -109,12 +109,12 @@ export fn main(): Result<(), Str> {
 ```
 
 `main` takes no parameters, returns `Result<(), Str>`, and is the only place in
-a program where `core/host` may be imported and a context built. `.Ok(())`
-exits 0; `.Err(msg)` prints `msg` on stderr and exits 1.
+a program that may import `core/host` and build a context. `.Ok(())` exits 0.
+`.Err(msg)` prints `msg` on stderr and exits 1.
 
-**The effect names have to be imported.** `context { Alloc: host.alloc }` with
-no `from "core/effect" import { Alloc };` above it fails with
-`not-an-effect` — a common first mistake.
+**Import the effect names.** `context { Alloc: host.alloc }` without
+`from "core/effect" import { Alloc };` above it fails with `not-an-effect`, a
+common first mistake.
 
 ## Modules
 
@@ -128,25 +128,26 @@ from "core/list" import * as list;
 from "//lib/money" import { Cents };
 ```
 
-- `from "core/list" import *;` is not derivable — the only wildcard form is
-  `* as <name>`. Every unqualified name in a module is written in that module.
-- A declaration is module-private unless prefixed `export`. Struct fields carry
-  their own `export`, so a struct's name and its representation are exported
-  separately. An enum's variants take the enum's visibility and write no
-  `export` of their own.
+- The grammar has no `from "core/list" import *;`. The only wildcard form is
+  `* as <name>`, so every unqualified name in a module is written in that
+  module.
+- A declaration stays module-private unless you prefix it with `export`.
+  Struct fields carry their own `export`, so you export a struct's name and its
+  representation separately. An enum's variants take the enum's visibility and
+  write no `export` of their own.
 - Re-export mirrors import: `from "//lib/money/cents.buri" export { Cents, add };`.
   There is no `export *`.
 - `impl` and `derive` are never exported.
-- Declaration order does not matter; mutual recursion needs no forward
+- Declaration order does not matter, and mutual recursion needs no forward
   declarations. Circular imports are an error.
-- A surface is named as a module — `"core/list"`, `"//lib/money"`,
-  `"//lib/money/testing"` — by anyone allowed to name it, its own suite
-  included. Everything else is a file, and only its own package may name it:
-  `"//lib/money/cents.buri"`, `"//cmd/app/main.buri"`. A path with the file
-  name left off is `import-path-without-a-file`; one that leaves the package
-  and names a file inside is `internal-import`.
-- A `testing` directory segment makes a module test-only.
-  `core/host` is importable only from the module exporting `main`.
+- Anyone allowed to name a surface names it as a module: `"core/list"`,
+  `"//lib/money"`, `"//lib/money/testing"`, its own suite included. Everything
+  else is a file, and only its own package may name it, as in
+  `"//lib/money/cents.buri"` or `"//cmd/app/main.buri"`. Leave the file name
+  off and you get `import-path-without-a-file`. Leave the package and name a
+  file inside it and you get `internal-import`.
+- A `testing` directory segment makes a module test-only. Only the module
+  exporting `main` may import `core/host`.
 
 ## Declarations
 
@@ -167,19 +168,19 @@ impl Meters {
 derive Eq, Ord, Show for Meters;
 ```
 
-- The return type is **required** on every top-level `fn`; parameter types are
-  required. Lambdas and `let` bindings are inferred (Hindley–Milner).
+- Every top-level `fn` **must** write its return type, and its parameter
+  types. The compiler infers lambdas and `let` bindings (Hindley–Milner).
 - No overloading, no default arguments, no variadics.
-- Every function inside an `impl` takes `self` first; no function outside one
-  may. An `impl` may appear only in the module declaring its type.
+- Every function inside an `impl` takes `self` first, and no function outside
+  one may. An `impl` may appear only in the module declaring its type.
 - Struct update: `User { ..u, secret: "new" }`. Field shorthand: `User { id }`.
 
 ## Expressions
 
-Everything produces a value — `if`, `match`, blocks. `let` is the only
-statement, and there are no expression statements outside a test source. Inside
-one, any expression of type `()` is a statement — a call, a `match`, an `if`, a
-block — and each ends with `;`.
+Everything produces a value: `if`, `match`, blocks. `let` is the only
+statement, and expression statements exist only in a test source. There, any
+expression of type `()` is a statement — a call, a `match`, an `if`, a block —
+and each ends with `;`.
 
 ```buri
 let hypotenuse = {
@@ -201,8 +202,8 @@ let inc = fn(x) => x + 1;
 let sum = xs.fold(fn(acc, x) => acc + x, 0);
 ```
 
-- A `match` scrutinee is parenthesised, arms are comma-separated (the comma is
-  required even after a brace-terminated body), the first matching arm wins,
+- Parenthesise a `match` scrutinee. Arms are comma-separated, and the comma is
+  required even after a brace-terminated body. The first matching arm wins,
   guards do not count toward exhaustiveness, and a non-exhaustive or
   unreachable arm is a compile error.
 - Comparison is **non-associative**: `a < b < c` is a parse error.
@@ -222,11 +223,11 @@ fn loadPort<C: Alloc + FsRead>(ctx: C, at: Path): Result<Int, ConfigError> {
 }
 ```
 
-`?` on a `Result<T, E>` requires the enclosing function to return
-`Result<_, E>`; there is no automatic error conversion — use `result.mapErr`.
-There is no coalescing operator: `withDefault` is a method on both `Option<T>`
-and `Result<T, E>`. It takes the fallback as an argument, so it is evaluated
-either way; write the `match` out where the fallback must not run.
+`?` on a `Result<T, E>` needs the enclosing function to return `Result<_, E>`.
+Nothing converts the error for you, so reach for `result.mapErr`. There is no
+coalescing operator either. `withDefault` is a method on both `Option<T>` and
+`Result<T, E>`, and it takes the fallback as an argument, so it runs either
+way. Write the `match` out where the fallback must not run.
 
 ## Patterns
 
@@ -248,50 +249,51 @@ patterns must be irrefutable.
 
 Strict, with a fully specified order: `let` bindings top to bottom, call
 arguments left to right, binary operands left to right except `&&` and `||`.
-That is what makes effect sequencing meaningful, since effects are ordinary
-calls rather than a monad.
+That order is what makes effect sequencing mean anything, since effects are
+ordinary calls rather than a monad.
 
-Values are immutable, so lambdas capture by value and capture is unobservable
-— except for the effect capture rule in the `buri-types` skill.
+Values are immutable, so lambdas capture by value and you cannot observe the
+capture. The one exception is the effect capture rule in the `buri-types`
+skill.
 
 ## Strings and numbers
 
-- `"a ${b} c"` has type `Template`, not `Str`, and constructing one allocates
-  nothing — which is why `io.println(ctx, "hi ${name}")` needs only `Stdout`.
+- `"a ${b} c"` has type `Template`, not `Str`, and building one allocates
+  nothing, which is why `io.println(ctx, "hi ${name}")` needs only `Stdout`.
   `str.format(ctx, "...")` turns one into a `Str`, and that allocates.
-- `Str` widens implicitly to `Template` in argument position. It is the only
-  implicit conversion in the language.
+- `Str` widens implicitly to `Template` in argument position, the only implicit
+  conversion in the language.
 - Hole types are `Int`/`Float` (any width), `Bool`, `Char`, `Str`.
 - Integer literals default to `Int` (= `I64`) and floats to `Float` (= `F64`)
-  only when nothing else pins them. There are no literal suffixes; a literal
-  that does not fit its type is a compile error.
-- Integer `/` truncates toward zero, `%` takes the sign of the dividend,
-  division by zero aborts, and overflow is **undefined behaviour** — use
+  only when nothing else pins them. There are no literal suffixes, and a
+  literal that does not fit its type is a compile error.
+- Integer `/` truncates toward zero and `%` takes the sign of the dividend.
+  Division by zero aborts, and overflow is **undefined behaviour**, so use
   `checkedAdd`/`wrappingAdd`/`saturatingAdd` or `core/bits` when it matters.
-- `==` on floats is an equivalence relation: `NaN == NaN` is true. `<` and
+- `==` on floats is an equivalence relation, so `NaN == NaN` is true. `<` and
   friends stay IEEE-754, so they disagree with `==` at `NaN`.
 
 ## Conventions
 
 `UpperCamelCase` types and variants, `lowerCamelCase` functions and bindings,
-`SCREAMING_SNAKE_CASE` constants, `lowercase` modules. None of it is enforced
-by the grammar. `buri format` is the one canonical layout — four-space indent,
-sorted leading imports, a struct's fields and an enum's variants one to a line
-however short they are, no options.
+`SCREAMING_SNAKE_CASE` constants, `lowercase` modules. The grammar enforces
+none of it. `buri format` gives you the one canonical layout: four-space
+indent, sorted leading imports, a struct's fields and an enum's variants one to
+a line however short they are, no options.
 
 **The third slash is what publishes.** `//` runs to the end of the line and
-`/* */` nests; neither is ever rendered. `///` above a declaration is a
-**documentation comment**, and `//!` at the top of a file documents the module —
-those two are what `buri docs <module>`, editor hover and `buri docs search`
-read, and their fenced examples are compiled by the test suite like any other.
-So a note a *caller* needs gets `///`, above the `export fn`, `struct`, `enum`,
-field or variant it describes; `//` is for the reader of the body. A `//!` lower
-down the file is `module-doc-not-first` — it attaches upward, to the module, and
-is legal only above the first item.
+`/* */` nests, and neither is ever rendered. `///` above a declaration is a
+**documentation comment**, and `//!` at the top of a file documents the module.
+`buri docs <module>`, editor hover and `buri docs search` read those two, and
+the test suite compiles their fenced examples like any other. So put a note a
+*caller* needs in a `///` above the `export fn`, `struct`, `enum`, field or
+variant it describes, and keep `//` for the reader of the body. A `//!` lower
+down the file is `module-doc-not-first`: it attaches upward, to the module, so
+it is legal only above the first item.
 
 ## When something does not compile
 
-Every diagnostic ends with a code in brackets, such as
-`[unsatisfied-bound]`. `buri docs error <code>` explains that code and shows a
-program that provokes it; `buri docs error` lists them all. A `buri lint`
-finding carries a code the same way, looked up with `buri docs lint <code>`.
+Every diagnostic ends with a code in brackets, such as `[unsatisfied-bound]`.
+`buri docs error <code>` explains one and shows a program that provokes it, and
+`buri docs error` lists them all. A `buri lint` finding carries a code the same
+way; look it up with `buri docs lint <code>`.
