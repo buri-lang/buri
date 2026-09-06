@@ -7,11 +7,11 @@
 //!
 //! **There is no timezone database, and there will not be one.** tzdata is
 //! megabytes that change several times a year, and this toolchain has no
-//! dependencies and ships no data files. What is here instead is `Zoned`: a
-//! civil date-time and a fixed offset in minutes. That covers UTC, a stored
-//! offset, and arithmetic within one offset. It does not cover
-//! "America/New_York", and it does not pretend to — a library that answered
-//! that question from a stale table would be worse than one that says no.
+//! dependencies and ships no data files. `Zoned` is here instead: a civil
+//! date-time and a fixed offset in minutes. That covers UTC, a stored offset,
+//! and arithmetic within one offset. It does not cover "America/New_York", and
+//! it does not pretend to. A library that answered that question from a stale
+//! table would be worse than one that says no.
 //!
 //! The conversion between a date and a day number is Howard Hinnant's
 //! `days_from_civil`, which is exact for the proleptic Gregorian calendar over
@@ -54,9 +54,8 @@ from "core/time" import { Duration, Instant };
 // One `Duration`, and it is `core/time`'s: a length of time is not a calendar
 // fact, and a method may only be declared in its receiver's defining module
 // (SPEC 6.7.3), so a `Duration` here could never meet an `Instant` there. The
-// name is re-exported rather than moved silently, so `from "core/date" import
-// { Duration }` still resolves — to the same type, with the constructors and
-// the arithmetic it did not use to have.
+// re-export keeps `from "core/date" import { Duration }` resolving, to the same
+// type, with the constructors and the arithmetic it did not use to have.
 from "core/time" export { Duration };
 
 derive Eq, Ord, Show, Hash for Date;
@@ -294,9 +293,8 @@ export fn toInstant(dt: DateTime): Instant {
     )
 }
 
-/// The length of time between two instants. `b.duration(a)` says the same
-/// thing on the receiver, and is the spelling to reach for now that it can be
-/// written.
+/// The length of time between two instants. `b.duration(a)` says the same thing
+/// on the receiver, and is the spelling to reach for now that you can write it.
 export fn between(a: Instant, b: Instant): Duration {
     b.duration(a)
 }

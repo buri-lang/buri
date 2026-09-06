@@ -46,8 +46,8 @@ from "core/list" import * as list;
 
 /// The buckets, and how many entries are spread across them.
 ///
-/// `size` is carried rather than recomputed: `len` is asked far more often
-/// than the map is built, and summing the buckets would make it O(b).
+/// The map carries `size` rather than recomputing it: programs ask `len` far
+/// more often than they build a map, and summing the buckets would make it O(b).
 export struct Map<K, V> {
     buckets: [[(K, V)]],
     export size: Int,
@@ -86,10 +86,10 @@ fn replaceAt<K, V, C: Alloc>(
 
 /// The empty map.
 ///
-/// Pure, and with no buckets at all: the first `insert` allocates them. That
-/// is not an optimisation, it is what makes the function callable — a context
-/// type is generated and has no name (SPEC 11.3), so `empty<Str, Int, C>()`
-/// could not be written, and a written type argument list is all-or-nothing.
+/// Pure, and with no buckets at all: the first `insert` allocates them. That is
+/// not an optimisation, it is what makes the function callable. The compiler
+/// generates a context type and gives it no name (SPEC 11.3), so nobody can write
+/// `empty<Str, Int, C>()`, and a written type argument list is all-or-nothing.
 export fn empty<K, V>(): Map<K, V> {
     Map { buckets: list.empty<[(K, V)]>(), size: 0 }
 }
@@ -144,9 +144,9 @@ impl<K: Hash + Eq, V> Map<K, V> {
         });
         let bucket = kept.push(ctx, (key, value));
         // Splice rather than rebuild by index. A lambda may not capture
-        // `buckets`, because `V` is unbounded and `[[(K, V)]]` would carry an
-        // effect at `V := C` (SPEC 10.6) — and this is the cheaper spine copy
-        // anyway, with no `get` per bucket.
+        // `buckets`: `V` is unbounded, so `[[(K, V)]]` would carry an effect at
+        // `V := C` (SPEC 10.6). It is the cheaper spine copy anyway, with no
+        // `get` per bucket.
         let next = replaceAt(ctx, buckets, target, bucket);
         Map {
             buckets: next,
@@ -196,8 +196,8 @@ impl<K: Hash + Eq, V> Map<K, V> {
             })
     }
 
-    /// Twice the buckets, everything rehashed. Called from `insert` when the
-    /// load factor is exceeded, so the association lists stay short and lookup
+    /// Twice the buckets, everything rehashed. `insert` calls it once the entries
+    /// outgrow the load factor, so the association lists stay short and lookup
     /// stays expected-constant.
     fn grow<C: Alloc>(self, ctx: C): Map<K, V> {
         // From nothing, the initial size; otherwise twice what there was.
@@ -208,11 +208,11 @@ impl<K: Hash + Eq, V> Map<K, V> {
         };
         let all = self.buckets.flatten(ctx);
         // One pass over the entries, each dropped into its new bucket, rather
-        // than one pass over the entries per bucket. Written as a fold because a
-        // fold's lambda takes the accumulator as a *parameter*: the bucket-per-
-        // index form had to capture `all`, and a lambda may not capture a
-        // `[(K, V)]` when `V` is unbounded and so could be a context (SPEC 10.6).
-        // `count` it does capture, and an `Int` never carries anything.
+        // than one pass over the entries per bucket. A fold, because a fold's
+        // lambda takes the accumulator as a *parameter*: the bucket-per-index
+        // form had to capture `all`, and a lambda may not capture a `[(K, V)]`
+        // when `V` is unbounded and so could be a context (SPEC 10.6). It does
+        // capture `count`, and an `Int` never carries anything.
         let blank = list.repeat(ctx, list.empty<(K, V)>(), count);
         // `acc` is annotated because the accumulator's type comes from `blank`,
         // which the checker has not reached yet: type information flows
@@ -235,8 +235,8 @@ impl<K: Hash + Eq, V> Map<K, V> {
 /// elements arrived in.
 ///
 /// A free function here rather than a method on `[T]`, because the answer is a
-/// map: `core/list` is the bottom of the dependency order and cannot name one.
-/// Its shape is `of`'s — context first, then the data.
+/// map: `core/list` sits at the bottom of the dependency order and cannot name
+/// one. It takes `of`'s shape — context first, then the data.
 ///
 /// ```buri run
 /// from "core/effect" import { Alloc, Stdout };
@@ -279,9 +279,9 @@ export fn groupBy<A, K: Hash + Eq, C: Alloc>(
 /// One element per key rather than a group of them: `key(x)` to `x`, with a
 /// later element replacing an earlier one that answered the same key.
 ///
-/// The index a list is looked up through. `groupBy` is the shape to reach for
-/// when the key is not unique — this one *silently* keeps the last, because a
-/// map holds one value per key and there is nowhere to put the other.
+/// This is the index you look a list up through. Reach for `groupBy` when the
+/// key is not unique: this one *silently* keeps the last, because a map holds one
+/// value per key and there is nowhere to put the other.
 export fn indexBy<A, K: Hash + Eq, C: Alloc>(
     ctx: C,
     xs: [A],

@@ -8,27 +8,26 @@
 //! nothing, and the type system says so.
 //!
 //! **`Duration` lives here rather than in `core/date`.** It used to be the
-//! calendar's, which meant `instant.plus(d)` could not be written at all: a
-//! method may only be declared in its receiver's defining module (SPEC 6.7.3),
-//! so a `Duration` in one module and an `Instant` in another can never meet on
-//! either of them. `core/date` re-exports the name, so `from "core/date" import
-//! { Duration }` still resolves to this type — there is one `Duration`, and the
-//! calendar is a caller of it rather than its owner.
+//! calendar's, which made `instant.plus(d)` impossible to write: a method may
+//! only be declared in its receiver's defining module (SPEC 6.7.3), so a
+//! `Duration` in one module and an `Instant` in another can never meet on either
+//! of them. `core/date` re-exports the name, so `from "core/date" import
+//! { Duration }` still resolves to this type. There is one `Duration`, and the
+//! calendar calls it rather than owning it.
 //!
 //! **A `Duration` counts nanoseconds and an `Instant` counts milliseconds.**
 //! That is not an oversight in either direction: a timeout, a measurement and a
 //! budget are routinely finer than a millisecond, while the clock this module
 //! reads reports whole milliseconds and cannot honestly claim better. So
-//! `instant.plus(d)` moves by `d.millis()` — a length finer than a millisecond
-//! moves an instant by nothing — and that truncation is stated here rather than
-//! discovered.
+//! `instant.plus(d)` moves by `d.millis()`, and a length finer than a millisecond
+//! moves an instant by nothing. Better said here than discovered.
 //!
 //! **Every arithmetic operation saturates.** Overflow is undefined behaviour
-//! (SPEC 6.2), and a deadline is exactly where a program cannot afford it: the
-//! shape this replaces is `checkedMul`, then `checkedSub`, then a guess from
-//! the sign. `hours(1_000_000_000)` is the largest `Duration` rather than a
-//! wrapped negative one, and a deadline that saturates is a deadline that has
-//! not passed.
+//! (SPEC 6.2), and a deadline is exactly where a program cannot afford it. This
+//! replaces `checkedMul`, then `checkedSub`, then a guess from the sign.
+//! `hours(1_000_000_000)` is the largest `Duration` rather than a wrapped
+//! negative one, and a deadline that saturates is a deadline that has not
+//! passed.
 //!
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
@@ -131,9 +130,9 @@ impl Duration {
         self.0
     }
 
-    /// Truncated towards zero, as every getter below is: `millis` of 1,999,999
-    /// nanoseconds is 1, not 2. A length that has been rounded is a length that
-    /// no longer adds up, so nothing here rounds.
+    /// Truncates towards zero, as every getter below does: `millis` of 1,999,999
+    /// nanoseconds is 1, not 2. A rounded length no longer adds up, so nothing
+    /// here rounds.
     export fn micros(self): Int {
         self.0 / NANOS_PER_MICROSECOND
     }
@@ -284,10 +283,10 @@ impl Instant {
 
     /// Whether this point is at or past `deadline`.
     ///
-    /// The whole deadline check, and the reason it is one method: the shape it
-    /// replaces is a multiply that may overflow, a subtract that may overflow,
-    /// and a decision taken from the sign of whichever one answered. Both ends
-    /// here are points, both saturate, and `>=` is the answer.
+    /// The whole deadline check, and the reason it is one method: it replaces a
+    /// multiply that may overflow, a subtract that may overflow, and a decision
+    /// taken from the sign of whichever one answered. Both ends here are points,
+    /// both saturate, and `>=` is the answer.
     export fn hasPassed(self, deadline: Instant): Bool {
         self.0 >= deadline.0
     }

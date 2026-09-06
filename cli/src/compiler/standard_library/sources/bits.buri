@@ -1,18 +1,18 @@
 //! core/bits — bit manipulation.
 //!
-//! `shl` and `shr` are functions rather than operators because there is no
-//! `<<` or `>>` token: longest-match lexing would turn the `>>` closing nested
-//! type arguments into a shift. Removing the operators removes the problem
-//! rather than papering over it with a position-dependent lexer (design/grammar-rationale.md 12.6).
+//! `shl` and `shr` are functions, not operators. Buri has no `<<` or `>>`
+//! token: longest-match lexing would read the `>>` that closes nested type
+//! arguments as a shift. Dropping the operators removes the problem instead of
+//! papering over it with a position-dependent lexer (design/grammar-rationale.md 12.6).
 
 /// Shifting by a count at or beyond the width of the type aborts. Overflow is
-/// undefined, but a shift count has no defensible answer at all, and the guard
-/// is a comparison the shift itself already needs.
+/// undefined, but a bad shift count has no defensible answer at all, and the
+/// guard is a comparison the shift already needs.
 export fn shl(x: Int, n: Int): Int;
 
 export fn shr(x: Int, n: Int): Int;
 
-/// Arithmetic shift right: the sign bit is replicated.
+/// Arithmetic shift right: the sign bit repeats into the vacated places.
 export fn sar(x: Int, n: Int): Int;
 
 export fn popCount(x: Int): Int;
