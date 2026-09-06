@@ -7,19 +7,19 @@ that the incremental test cache already exists.
 
 ## 1. The dependency policy ends, and what replaces it
 
-The policy used to be "no dependencies at all", and native code generation ended
-that: a retargetable code generator is not something this repository can write.
-What replaced it is a **bar** rather than a list, because a list is a thing
-people add to. The bar and the argument for each of its three clauses are in the
-root `Cargo.toml`, where somebody about to add a dependency will meet them; they
-are not restated here.
+The policy used to be "no dependencies at all", and native code generation
+ended that: a retargetable code generator is not something this repository can
+write. What replaced it is a **bar** rather than a list, because a list is a
+thing people add to. The bar and the argument for each of its three clauses
+live in the root `Cargo.toml`, where somebody about to add a dependency will
+meet them, so this document does not restate them.
 
-What belongs here is what the bar admitted, and why each one clears it — and,
-since 2026-08-30, *which* of the two admitted sets admitted it. The bar is one
-sentence applied twice, because "a crate a contributor installs" and "a crate
-every user of this compiler ships inside their own binary" are not the same
-decision. The root `Cargo.toml` states both halves; §1.1 is the first and §1.1.1
-is the second.
+What belongs here is what the bar admitted, why each one clears it, and —
+since 2026-08-30 — *which* of the two admitted sets admitted it. The bar is
+one sentence applied twice, because "a crate a contributor installs" and "a
+crate every user of this compiler ships inside their own binary" are not the
+same decision. The root `Cargo.toml` states both halves; §1.1 is the first and
+§1.1.1 is the second.
 
 ### 1.1 The toolchain's admitted set
 
@@ -30,28 +30,28 @@ is the second.
 That is the whole list, and it is one row **off by default**, so the toolchain
 `cargo install buri` builds has no dependency closure at all. It had one until
 2026-08-29: `cranelift-{codegen,frontend,module,object,native}` behind
-`backend-cranelift`, and `target-lexicon` and `object`, which came in with them.
-Removing that backend (CODEGEN-STENCIL.md §13) took thirty-eight transitive
-crates with it — over half of `Cargo.lock` — and restored "none at all" for the
-default build without restoring it as a policy. The bar is still the bar, and
-the flake still carries a `cargoHash` because a build **with** `backend-llvm`
-still has something to hash.
+`backend-cranelift`, plus `target-lexicon` and `object`, which came in with
+them. Removing that backend (CODEGEN-STENCIL.md §13) took thirty-eight
+transitive crates with it — over half of `Cargo.lock` — and restored "none at
+all" for the default build without restoring it as a policy. The bar is still
+the bar, and the flake still carries a `cargoHash` because a build **with**
+`backend-llvm` still has something to hash.
 
 The backend that took the debug seat admits nothing. `backend-stencil`
 (CODEGEN-STENCIL.md) is on by default and its feature list is empty: the
 copy-and-patch code generator is written in this repository, and the one thing
-it needs from outside is a host `cc` — a platform interface in exactly the sense
-the bar means, already required by the link step, and absent from the lockfile.
-§2 has what having it on costs.
+it needs from outside is a host `cc` — a platform interface in exactly the
+sense the bar means, already required by the link step, and absent from the
+lockfile. §2 has what having it on costs.
 
 ### 1.1.1 The runtime's admitted set, which is closed by an exact list
 
 `libburi_rt.a` is linked into every native binary this compiler produces, so a
 crate admitted to `cli/runtime/manifest.toml` is a crate admitted into
-strangers' programs. Same bar, one extra clause: the set is **closed by an exact
-list**, asserted as an equality by `dependencies_stay_behind_the_bar`, so that a
-seventh crate — and equally a removal — is a failing test rather than a review
-comment.
+strangers' programs. Same bar, one extra clause: the set is **closed by an
+exact list**, asserted as an equality by `dependencies_stay_behind_the_bar`,
+so that a seventh crate — and equally a removal — is a failing test rather
+than a review comment.
 
 | Crate | Feature | Why it clears the bar |
 |---|---|---|
@@ -62,29 +62,30 @@ comment.
 | `tungstenite` | `net` | RFC 6455 framing and the handshake, and **linked**: every WebSocket message a server sends or reads is framed through it. A protocol with a specification and a conformance suite, not an algorithm. |
 | `quinn` | `net-h3` | QUIC, which is what HTTP/3 runs on: congestion control, loss recovery, stream multiplexing and connection migration over UDP. The only entry behind a feature that is **off by default** — §1.1.3. |
 
-`net` is **on by default**, which is the opposite of `backend-llvm` and for a
-reason the bar's third clause makes: turning `backend-llvm` off costs a release
-code generator a contributor can do without, while turning `net` off costs a
-*language capability*. So the degradation has to be a diagnostic naming the
-missing effect rather than a link error, which is why the toolchain learns the
-feature's state through `Backend::missing_intrinsics` instead of finding out at
+`net` is **on by default**, which is the opposite of `backend-llvm`, for a
+reason the bar's third clause makes: turning `backend-llvm` off costs a
+release code generator a contributor can do without, while turning `net` off
+costs a *language capability*. So the degradation has to be a diagnostic
+naming the missing effect rather than a link error, which is why the toolchain
+learns the feature's state through `Backend::missing_intrinsics` instead of
+finding out at `cc` time.
 `cc` time.
 
 The crates were admitted a slice **ahead of any code that uses them**, so that
 what they cost could be measured before anything depended on the answer.
 `cli/runtime/net.rs` names one type from each and exports two entries that
 answer "was this toolchain built with the networking stack"; no intrinsic key
-mangles to a symbol in that file. On `aarch64-apple-darwin` the archive was
-5 987 472 bytes with `net` off and 5 987 496 with it on: twenty-four bytes,
-because `lto = "fat"` is whole-program across the dependency rlibs and Rust code
-nothing reaches does not reach the archive. One of the six is still in exactly
-that state — `quinn` — and the other five are not.
+mangles to a symbol in that file. On `aarch64-apple-darwin` the archive was 5
+987 472 bytes with `net` off and 5 987 496 with it on: twenty-four bytes,
+because `lto = "fat"` is whole-program across the dependency rlibs and Rust
+code nothing reaches does not reach the archive. One of the six is still in
+exactly that state — `quinn` — and the other five are not.
 
-**`tokio` was linked first, once and deliberately.** `cli/runtime/rt.rs` is the
-carrier runtime — the reactor handle, the carrier pool with its 512 KiB stacks
-and the task table — and `Clock::sleepMillis` and `Net::fetch`
-wait on it through `park_on`, so the reactor and its timer wheel are in the
-archive on purpose:
+**`tokio` was linked first, once and deliberately.** `cli/runtime/rt.rs` is
+the carrier runtime — the reactor handle, the carrier pool with its 512 KiB
+stacks and the task table — and `Clock::sleepMillis` and `Net::fetch` wait on
+it through `park_on`, so the reactor and its timer wheel are in the archive on
+purpose:
 
 | `aarch64-apple-darwin`, `libburi_rt.a` | bytes |
 |---|---|
@@ -92,9 +93,9 @@ archive on purpose:
 | after | 6 220 904 |
 | the reactor | +185 424 |
 
-`mio` and `socket2` arrive with it and are tokio's platform layer rather than a
-seventh and eighth dependency; the direct set is still the six the table above
-lists, and `dependencies_stay_behind_the_bar` is what holds it there.
+`mio` and `socket2` arrive with it and are tokio's platform layer rather than
+a seventh and eighth dependency. The direct set is still the six the table
+above lists, and `dependencies_stay_behind_the_bar` is what holds it there.
 
 ### 1.1.2 What `https://` cost, and the budget it moved
 
@@ -108,96 +109,100 @@ carries the current ones:
 | `net` off | 6 130 536 | |
 | `net` on — the reactor and the TLS client | 8 198 904 | +2 068 368 |
 
-Of that delta, 185 424 bytes is the reactor above and **1.72 MiB** is TLS —
-1 804 592 as each was measured in the commit that linked it; the remaining
-~78 KB is the runtime's own code growing in the slices between. About 845 KB of
-the TLS figure is the one
-thing LTO cannot touch: a dependency's **native** object code, which `rustc`
-bundles into a `staticlib` whether the linker needs it or not. `ring`
-contributes twenty-odd `.o` members of C and AArch64 assembly, of which
-`curve25519.o` is 405 KB and `p256-nistz.o` is 173 KB.
+Of that delta, 185 424 bytes is the reactor above and **1.72 MiB** is TLS — 1
+804 592 as each was measured in the commit that linked it; the remaining ~78
+KB is the runtime's own code growing in the slices between. About 845 KB of
+the TLS figure is the one thing LTO cannot touch: a dependency's **native**
+object code, which `rustc` bundles into a `staticlib` whether the linker needs
+it or not. `ring` contributes twenty-odd `.o` members of C and AArch64
+assembly, of which `curve25519.o` is 405 KB and `p256-nistz.o` is 173 KB.
 
 **That is over the budget this repository had written down.**
-`cli/tests/ci.rs::the_runtime_archive_is_real` allowed 7 MiB on macOS and 10 MiB on
-Linux, measured before either the reactor or TLS. The budget is a ratchet whose
-stated response to being hit is "find out what grew, then fix it or re-measure
-and re-state" — this is the re-statement, 9 MiB and 12 MiB, and the growth is
-named rather than absorbed. F4 re-stated the Linux half a second time, at
-14 MiB: every Linux figure before it had been a projection, and the first real
-measurement came in 1.9 MB above it. Every `buri` binary is 1.72 MiB larger for
-having a TLS client in it.
+`cli/tests/ci.rs::the_runtime_archive_is_real` allowed 7 MiB on macOS and 10
+MiB on Linux, measured before either the reactor or TLS. The budget is a
+ratchet whose stated response to being hit is "find out what grew, then fix it
+or re-measure and re-state". This is the re-statement, 9 MiB and 12 MiB, and
+the growth is named rather than absorbed. F4 re-stated the Linux half a second
+time, at 14 MiB: every Linux figure before it had been a projection, and the
+first real measurement came in 1.9 MB above it. Every `buri` binary is 1.72
+MiB larger for having a TLS client in it.
 
 **`ring` rather than `aws-lc-rs`**, the other provider `rustls` ships:
 `aws-lc-rs` wants `cmake` at build time, which is a second tool to require of
 `cargo install buri`. `ring` wants a C compiler, which the toolchain already
 requires for the stencil library and which `build/link.rs` shells out to for
-every native artifact anyway — and `cli/build.rs` **probes** for it and falls
-back to `--no-default-features` with a `cargo:warning` when it is missing, so a
-host without one gets a working toolchain, working `http://`, and an `https://`
-that refuses at run time naming the feature. The pure-Rust providers were
-considered: `rustls-rustcrypto` says of itself that it is unaudited and not for
-production use, and a TLS stack in every binary this compiler produces is the
-last place to accept that.
+every native artifact anyway. `cli/build.rs` **probes** for it and falls back
+to `--no-default-features` with a `cargo:warning` when it is missing, so a
+host without one gets a working toolchain, working `http://`, and an
+`https://` that refuses at run time naming the feature. The pure-Rust
+providers were considered: `rustls-rustcrypto` says of itself that it is
+unaudited and not for production use, and a TLS stack in every binary this
+compiler produces is the last place to accept that.
 
 **`ring` is declared as a direct dependency although no line of the runtime
 names it.** The code reaches it through `rustls::crypto::ring`, so `rustls`'s
-own feature would have pulled it in silently — and `dependencies_stay_behind_the_bar`
-reads `cli/runtime/manifest.toml`, not the lockfile, so 845 KB of object code in
-every user's binary would have been invisible to the test that guards what
-ships. `net.rs` names a type from it for the same reason it names one from each
-of the others: removing the entry must stop compiling.
+own feature would have pulled it in silently — and
+`dependencies_stay_behind_the_bar` reads `cli/runtime/manifest.toml`, not the
+lockfile, so 845 KB of object code in every user's binary would have been
+invisible to the test that guards what ships. `net.rs` names a type from it
+for the same reason it names one from each of the others: removing the entry
+must stop compiling.
 
 **Trust anchors: the host's own PEM bundle, no crate.** `cli/runtime/tls.rs`
 reads `/etc/ssl/cert.pem` and the four Linux spellings beside it, and
 `SSL_CERT_FILE` replaces that — the variable OpenSSL, `curl` and `git` already
 honour. The two candidates that would have been crates both lost on the bar's
-first clause: `webpki-roots` is a quarter-megabyte of *data this repository
-would be shipping*, pinning trust to a crate version rather than to the machine,
-and `rustls-native-certs` costs three transitive crates plus a link-time
+first clause. `webpki-roots` is a quarter-megabyte of *data this repository
+would be shipping*, pinning trust to a crate version rather than to the
+machine. `rustls-native-certs` costs three transitive crates plus a link-time
 `Security.framework` on macOS that a `staticlib` handed to `cc` cannot carry
 without every artifact's link line growing a flag. Reading a PEM file is forty
-lines, and forty lines this repository can reasonably write is the definition of
-"not a dependency". What it does not do — read the macOS keychain — is what
+lines, and forty lines this repository can reasonably write is the definition
+of "not a dependency". What it does not do — read the macOS keychain — is what
 `SSL_CERT_FILE` is for, and `tls.rs` says so.
 
 `cli/tests/ci.rs::the_runtime_archive_is_real` holds all of it in CI: the size
-budget, a symbol table that **must** mention `tokio`, `rustls`, `ring`, `hyper`
-and `tungstenite` when the feature file says `net`, and one that must mention
-neither `quinn` — on any leg, `net-h3` included — nor `aws_lc`, a provider that
-was never a dependency.
+budget, a symbol table that **must** mention `tokio`, `rustls`, `ring`,
+`hyper` and `tungstenite` when the feature file says `net`, and one that must
+mention neither `quinn` — on any leg, `net-h3` included — nor `aws_lc`, a
+provider that was never a dependency.
 
 **How the toolchain knows.** `cli/build.rs` writes `libburi_rt.a.features`
 beside the archive and beside its digest — the Cargo features the archive was
 built with, one per line, and empty when there is no archive at all.
-`runtime_native::FEATURES` is an `include_str!` of it and `runtime_native::net()`
-a whole-line lookup in that, which is the same "one `OUT_DIR`, one run of the script,
-so the bytes and the facts about them travel together" argument the baked digest
-is written for. Not a `--cfg`, for the reason the archive's *emptiness* rather
-than a `--cfg` is the availability signal: conditional compilation would need a
-`check-cfg` list to know about, and a fact that travels beside the bytes cannot
-be paired with another build's.
+`runtime_native::FEATURES` is an `include_str!` of it and
+`runtime_native::net()` a whole-line lookup in that, on the same argument the
+baked digest is written for: one `OUT_DIR`, one run of the script, so the
+bytes and the facts about them travel together. Not a `--cfg`, for the reason
+the archive's *emptiness* rather than a `--cfg` is the availability signal:
+conditional compilation would need a `check-cfg` list to know about, and a
+fact that travels beside the bytes cannot be paired with another build's.
 
-What reads it is `Backend::missing_intrinsics`, on both native backends. The
+`Backend::missing_intrinsics` reads it, on both native backends. The
 `host.HostListen.*`, `host.HostSockets.*` and `host.HostTasks.*` family is
 missing on a toolchain whose archive has no `net`, whatever the backend has a
-body for, and `backend::split_networking` sorts that half out from the ordinary
-"this backend has no implementation of" half at each of the two emission sites.
-The refusal is `networking-not-available`, whose fix names the feature rather
-than asking for a bug report: the program is fine and the toolchain is what has
-to change. The refusal landed **before any of those keys existed**, on purpose,
-so that the day one arrived it arrived with its diagnostic already written
-rather than as an unresolved `buri_rt_*` symbol from `cc`. The first one is
-`host.HostTasks.parallel`, and it is answered by `cli/runtime/rt.rs` — behind
-`net`, beside the carrier pool it fans out onto — so on a `BURI_RUNTIME_NET=0`
+body for, and `backend::split_networking` sorts that half out from the
+ordinary "this backend has no implementation of" half at each of the two
+emission sites. The refusal is `networking-not-available`, whose fix names the
+feature rather than asking for a bug report: the program is fine and the
+toolchain is what has to change.
+
+The refusal landed **before any of those keys existed**, on purpose, so that
+the day one arrived it arrived with its diagnostic already written rather than
+as an unresolved `buri_rt_*` symbol from `cc`. The first one is
+`host.HostTasks.parallel`, answered by `cli/runtime/rt.rs` — behind `net`,
+beside the carrier pool it fans out onto — so on a `BURI_RUNTIME_NET=0`
 toolchain a program that calls `core/tasks` is refused by name before code
-generation. That is what was designed, and it is now exercised rather than only
-argued for. `host.HostListen.*` is no longer ahead of its first key either:
-`Listen` is granted on `LINUX` and `MACOS`, `core/net/server` runs the accept
-loop over `listenBind`, `listenAccept`, `listenRespond` and `listenClose`, and
-`cli/runtime/net.rs` answers all four with a hand-framed HTTP/1.1 server behind
-that same feature — so a program that serves meets a `BURI_RUNTIME_NET=0`
-toolchain through this rule and by name, exactly as one that calls `core/tasks`
-does. `host.HostSockets.*` has bodies in that file too
+generation. That is what was designed, and it is now exercised rather than
+only argued for.
+
+`host.HostListen.*` is no longer ahead of its first key either. `Listen` is
+granted on `LINUX` and `MACOS`, `core/net/server` runs the accept loop over
+`listenBind`, `listenAccept`, `listenRespond` and `listenClose`, and
+`cli/runtime/net.rs` answers all four with a hand-framed HTTP/1.1 server
+behind that same feature — so a program that serves meets a
+`BURI_RUNTIME_NET=0` toolchain through this rule and by name, exactly as one
+that calls `core/tasks` does. `host.HostSockets.*` has bodies in that file too
 (`buri_rt_host_sockets_socket_send_text`, `_send_bytes` and `_close`) and is
 the one family still ahead of a caller, for a reason that is no longer the
 grant table's: `Sockets` is granted alongside `Listen`, but nothing performs a
@@ -207,26 +212,27 @@ remember on the day an upgrade lands.
 
 ### 1.1.3 `net-h3`: the one feature that is off, and what a toolchain without it says
 
-HTTP/3 is behind a feature of its own and that feature is **not** in `default`.
-The concurrency note gated h3 "behind configuration until the crate is trusted",
-and a cargo feature outside the default set is what that gate is.
+HTTP/3 is behind a feature of its own and that feature is **not** in
+`default`. The concurrency note gated h3 "behind configuration until the crate
+is trusted", and a cargo feature outside the default set is that gate.
 
 The bar admits `quinn` on the same grounds as the other five — QUIC is
-congestion control, loss recovery, stream multiplexing and connection migration
-over UDP, which is a transport protocol and not something this repository would
-write — but the *default* is the opposite of `net`'s, and the reason is who
-pays. `net`'s five are what a program that speaks the network at all needs, so a
-toolchain that could not would make `Net` a build-flag question for every user.
-`quinn` is what a program that has **asked for HTTP/3** needs, and asking is the
-difference: a user who never mentions `.Http3` should not resolve, compile or
+congestion control, loss recovery, stream multiplexing and connection
+migration over UDP, which is a transport protocol and not something this
+repository would write — but the *default* is the opposite of `net`'s, and the
+reason is who pays. `net`'s five are what a program that speaks the network at
+all needs, so a toolchain that could not would make `Net` a build-flag
+question for every user. `quinn` is what a program that has **asked for
+HTTP/3** needs, and asking is the difference: a user who never mentions
+`.Http3` should not resolve, compile or ship a QUIC stack.
 ship a QUIC stack.
 
 `BURI_RUNTIME_NET_H3=1` is the switch, and `cli/build.rs` turns it into
 `--features net-h3` on the nested `cargo` and a second line in
 `libburi_rt.a.features`. **`net-h3` implies `net`** — QUIC carries TLS 1.3
 inside the transport and wants the same reactor — so the two are never
-independent, and an h3 features file without `net` in it is a state Cargo cannot
-produce and the CI script refuses.
+independent, and an h3 features file without `net` in it is a state Cargo
+cannot produce and the CI script refuses.
 
 **It costs the archive nothing, and that is measured rather than assumed.**
 `aarch64-apple-darwin`:
@@ -239,98 +245,101 @@ produce and the CI script refuses.
 
 **What it does cost, and it is not bytes, is the lockfile.** `manifest.lock`
 grows by **23 entries** — `quinn`, `quinn-proto`, `quinn-udp` and their tree —
-and Cargo records an optional dependency in the lock whether or not the feature
-is on, so `cargo fetch --locked` walks them on a default build too. Measured
-against an empty `CARGO_HOME`: **89 crates, 19 MB** where it used to be 66.
-That is paid once per cold registry, by the resolution probe rather than by the
-compile — nothing in the 23 is *built* unless `net-h3` is on — and the case
-where it is not paid at all is the case §2.2's degradation covers: a host that
-cannot reach them gets an empty archive and a `cargo:warning`, exactly as it did
-with five crates.
+and Cargo records an optional dependency in the lock whether or not the
+feature is on, so `cargo fetch --locked` walks them on a default build too.
+Measured against an empty `CARGO_HOME`: **89 crates, 19 MB** where it used to
+be 66. That is paid once per cold registry, by the resolution probe rather
+than by the compile — nothing in the 23 is *built* unless `net-h3` is on — and
+the case where it is not paid at all is the case §2.2's degradation covers: a
+host that cannot reach them gets an empty archive and a `cargo:warning`,
+exactly as it did with five crates.
 
 The h3 archive is **forty bytes smaller** than the one without it. `quinn` is
 named by one `size_of` in `cli/runtime/net.rs` and reached by nothing else, so
 `lto = "fat"` drops the crate whole — verified with `nm`, which finds no quinn
 symbol in an h3 archive at all — and the forty bytes are the HTTP/3 refusal
-string an h3 build has no use for. So `the_runtime_archive_is_real` holds the h3
-leg to the **same** size budget as the `net` one rather than inventing a larger
-number with nothing behind it, and `quinn` is the only crate left on that
-script's *absent* list, on every leg. `hyper` left it in F4 and `tungstenite` in
-F7; the slice that first calls into `quinn` is the one that moves it, in the
-commit that does.
+string an h3 build has no use for. So `the_runtime_archive_is_real` holds the
+h3 leg to the **same** size budget as the `net` one rather than inventing a
+larger number with nothing behind it, and `quinn` is the only crate left on
+that script's *absent* list, on every leg. `hyper` left it in F4 and
+`tungstenite` in F7; the slice that first calls into `quinn` is the one that
+moves it, in the commit that does.
 
 **The provider is `ring`, by name.** `quinn`'s own defaults are
 `rustls-aws-lc-rs` and `platform-verifier`; both are off in
-`cli/runtime/manifest.toml` and `rustls-ring` is on, so an h3 binary carries one
-cryptography implementation rather than two. The `aws_lc` grep C7 added as a
-tripwire is what checks it, and `quinn` is exactly the crate it was watching
+`cli/runtime/manifest.toml` and `rustls-ring` is on, so an h3 binary carries
+one cryptography implementation rather than two. The `aws_lc` grep C7 added as
+a tripwire is what checks it, and `quinn` is exactly the crate it was watching
 for.
 
 **What a toolchain without it does is return, not refuse.** `Server`'s
 `protocols` field accepts `.Http3` on every toolchain; `serve` answers
-`.Err(Unsupported)` on one whose archive has no QUIC in it. Three things follow
-from that being a value:
+`.Err(Unsupported)` on one whose archive has no QUIC in it. Three things
+follow from that being a value:
 
 * It is **not an abort.** A toolchain built without a feature is a
   configuration the program can report, log or fall back from — `lib.rs` §5
   reserves aborting for an invariant that is already broken, and this is not
   one.
-* It is **not a compile-time refusal**, unlike `net`. The keys an HTTP/3 server
-  is reached through are `host.HostListen.*`, which `missing_intrinsics`
-  already covers for `net`; the protocol is a *field of a value*, so there is no
-  key for a key-shaped rule to match. Refusing every program that mentions
-  `serve` would refuse every server that was only ever going to speak
-  HTTP/1.1 — the same argument `host.HostNet.fetch` and `https://` already
-  carry.
+* It is **not a compile-time refusal**, unlike `net`. The keys an HTTP/3
+  server is reached through are `host.HostListen.*`, which
+  `missing_intrinsics` already covers for `net`; the protocol is a *field of a
+  value*, so there is no key for a key-shaped rule to match. Refusing every
+  program that mentions `serve` would refuse every server that was only ever
+  going to speak HTTP/1.1 — the same argument `host.HostNet.fetch` and
+  `https://` already carry.
 * It is **one line at the call site.** `cli/runtime/net.rs::serves` takes a
   `Protocol` and answers `Result<(), &'static str>`; F2's `serve` walks the
-  field with `net::serves(protocol)?`. The feature, the file beside the archive,
-  the capability bit, the `buri_rt_net_h3_available` door and the sentence all
-  landed in this slice so that the slice with a server in it spends them rather
+  field with `net::serves(protocol)?`. The feature, the file beside the
+  archive, the capability bit, the `buri_rt_net_h3_available` door and the
+  sentence all landed in this slice so that the slice with a server in it
+  spends them rather than designs them.
   than designs them.
 
-`runtime_native::h3()` is the toolchain's half, read from the same feature file
-by the same whole-line rule `net()` uses — which is why the rule is whole lines:
-`net-h3` contains `net`. Nothing in the compiler branches on it yet, and F2 —
-the slice this sentence used to name as the first that would — landed without
-needing to, as did F3 through F8: the refusal is `cli/runtime/net.rs::serves`'s,
-taken at the bind, so a `Server` naming `.Http3` on a toolchain without QUIC
-answers `.Err(Unsupported)` with the compiler none the wiser. What reads it
-today is still a test, and it is worth naming because it is the property this
-slice actually holds:
-`the_networking_features_agree_across_the_abi` in `cli/tests/native/runtime.rs`
-links the archive, calls `buri_rt_net_h3_available` through the C ABI, and
-compares the answer with `h3()`. Those two paths — a `#[cfg]` folded into a
-constant, and a build script writing a line into a file — cannot see each other,
-so their agreement is what says the flag round-trips.
+`runtime_native::h3()` is the toolchain's half, read from the same feature
+file by the same whole-line rule `net()` uses — which is why the rule is whole
+lines: `net-h3` contains `net`. Nothing in the compiler branches on it yet. F2
+— the slice this sentence used to name as the first that would — landed
+without needing to, as did F3 through F8: the refusal is
+`cli/runtime/net.rs::serves`'s, taken at the bind, so a `Server` naming
+`.Http3` on a toolchain without QUIC answers `.Err(Unsupported)` with the
+compiler none the wiser. What reads it today is still a test, and it is worth
+naming because it is the property this slice actually holds.
+`the_networking_features_agree_across_the_abi` in
+`cli/tests/native/runtime.rs` links the archive, calls
+`buri_rt_net_h3_available` through the C ABI, and compares the answer with
+`h3()`. Those two paths — a `#[cfg]` folded into a constant, and a build
+script writing a line into a file — cannot see each other, so their agreement
+is what says the flag round-trips.
 
 ### 1.2 The file watcher: not a dependency, because there is no watcher
 
-`notify` is the obvious dependency for `--watch`, and it does not clear the bar —
-but the interesting part is that this design does not need it, and the reason is
-specific rather than ideological.
+`notify` is the obvious dependency for `--watch`, and it does not clear the
+bar. The interesting part is that this design does not need it, and the reason
+is specific rather than ideological.
 
-A general-purpose file watcher is genuinely hard, and the evidence is one-sided:
-**Zed maintained its own FSEvents crate for years and has now migrated to
-`notify`**; **Zig's `zig build --watch` used kqueue on macOS and did not fire at
-all when saving from VS Code or Zed** (`ziglang/zig#21905`) until it was rewritten
-on FSEvents in 2025. Editor atomic saves produce `Create` + rename + `Remove` and
-never `Modify(Data)`; inotify is inode-based so watching a file rather than its
-parent silently dies on the first save; macOS enforces an undocumented FSEvents
-path limit at roughly `RLIMIT_NOFILE / 10`. Hand-rolling that is not admissible
-under any policy, and this document is not proposing it.
+A general-purpose file watcher is genuinely hard, and the evidence is
+one-sided. **Zed maintained its own FSEvents crate for years and has now
+migrated to `notify`.** **Zig's `zig build --watch` used kqueue on macOS and
+did not fire at all when saving from VS Code or Zed** (`ziglang/zig#21905`),
+until it was rewritten on FSEvents in 2025. Editor atomic saves produce
+`Create` + rename + `Remove` and never `Modify(Data)`; inotify is inode-based,
+so watching a file rather than its parent silently dies on the first save;
+macOS enforces an undocumented FSEvents path limit at roughly
+`RLIMIT_NOFILE / 10`. Hand-rolling that is not admissible under any policy,
+and this document is not proposing it.
 
-**The proposal is not to watch.** The build already knows the exact set of files
-that can affect an action, because it reads and hashes every one of them to
-compute a key: `contribute` enumerates a rule's sources and proto sources, and
-`test_key` adds the suite's sources, its data, and the closure of every library
-the suite's own `dependencies` name. (That last was **missing from both** until
-wave 3c — a test-only helper was compiled into the suite and hashed into
-nothing, so editing one served the previous verdict. It is one bug in two
-places, and the two are fixed in one place: `watch::inputs` and `test_key` walk
-the same edges, which is the property this section is claiming.) So the watch set
-is a *declared, enumerated, usually-few-hundred-file* set,
-and detecting change in it is a `stat` sweep:
+**The proposal is not to watch.** The build already knows the exact set of
+files that can affect an action, because it reads and hashes every one of them
+to compute a key: `contribute` enumerates a rule's sources and proto sources,
+and `test_key` adds the suite's sources, its data, and the closure of every
+library the suite's own `dependencies` name. (That last was **missing from
+both** until wave 3c — a test-only helper was compiled into the suite and
+hashed into nothing, so editing one served the previous verdict. It is one bug
+in two places, and the two are fixed in one place: `watch::inputs` and
+`test_key` walk the same edges, which is the property this section is
+claiming.) So the watch set is a *declared, enumerated,
+usually-few-hundred-file* set, and detecting change in it is a `stat` sweep:
 
 ```
 every 150 ms:
@@ -339,31 +348,32 @@ every 150 ms:
 ```
 
 At a few hundred files that is well under a millisecond of syscalls. At ten
-thousand it is a few milliseconds, still under 3% of one core at this interval.
-It cannot miss an edit that is on disk when the sweep runs, it has no platform
-code, and it is immune to every item in the paragraph above — an atomic save
-changes the inode, which the tuple notices; a rename changes the set; a file
-appearing that no rule declares is invisible, which is correct, because a file no
-rule declares cannot change an action.
+thousand it is a few milliseconds, still under 3% of one core at this
+interval. It cannot miss an edit that is on disk when the sweep runs, it has
+no platform code, and it is immune to every item in the paragraph above: an
+atomic save changes the inode, which the tuple notices; a rename changes the
+set; a file appearing that no rule declares is invisible, which is correct,
+because a file no rule declares cannot change an action.
 
-Two properties fall out for free, and both are things a real watcher has to work
-for:
+Two properties fall out for free, and both are things a real watcher has to
+work for:
 
-- **The build cannot re-trigger itself.** Only declared *sources* are polled, and
-  the build writes to `.buri/`. Trunk needs a one-second post-build cooldown and
-  bacon a grace period specifically to stop their own writes retriggering; here
-  there is nothing to cool down. (`--accept` was the exception — it wrote golden
-  files into the source tree, and §4.3 refused to combine it with `--watch`. It
-  is retired, so no mode of `buri test` writes to the source tree at all.)
-- **`.git/`, `target/` and `node_modules/` are not watched**, without an ignore
-  file, because they are not declared. That is the single most common source of
-  watcher pathology, absent by construction.
+- **The build cannot re-trigger itself.** Only declared *sources* are polled,
+  and the build writes to `.buri/`. Trunk needs a one-second post-build
+  cooldown and bacon a grace period specifically to stop their own writes
+  retriggering; here there is nothing to cool down. (`--accept` was the
+  exception — it wrote golden files into the source tree, and §4.3 refused to
+  combine it with `--watch`. It is retired, so no mode of `buri test` writes
+  to the source tree at all.)
+- **`.git/`, `target/` and `node_modules/` are not watched**, without an
+  ignore file, because they are not declared. That is the single most common
+  source of watcher pathology, absent by construction.
 
-The threshold at which this stops being right is a repository with tens of
-thousands of declared sources, and the growth path is `notify` behind a
-`watch-events` feature with the poller as the fallback — which is the arrangement
-every serious Rust build tool ends up at anyway (watchexec, dioxus and
-rust-analyzer all pair `notify` with a poll watcher for the cases it fails on).
+This stops being right at a repository with tens of thousands of declared
+sources, and the growth path is `notify` behind a `watch-events` feature with
+the poller as the fallback — the arrangement every serious Rust build tool
+ends up at anyway (watchexec, dioxus and rust-analyzer all pair `notify` with
+a poll watcher for the cases it fails on).
 
 ## 2. Cargo features, and keeping `cargo install` easy
 
@@ -374,42 +384,43 @@ backend-stencil = []
 backend-llvm    = ["dep:inkwell"]
 ```
 
-There is no `backend-js` feature. The JavaScript backend is always compiled in:
-it needs nothing, it is what `driver::host_platform` still returns, and a
-feature whose only possible value is "on" is a flag nobody should have to read.
+There is no `backend-js` feature. The JavaScript backend is always compiled
+in: it needs nothing, it is what `driver::host_platform` still returns, and a
+feature whose only possible value is "on" is a flag nobody should have to
+read.
 
 There is no `backend-cranelift` feature either, and there was one — on by
 default, pulling five crates and a triple parser — until 2026-08-29.
 CODEGEN-STENCIL.md §13 is why it went and what went with it.
 
 **`backend-stencil` is on by default and adds no crate.** Its feature list is
-empty: the copy-and-patch backend (CODEGEN-STENCIL.md) is written here, and what
-it needs from outside is a host `cc`, which is the same tool `build/link.rs`
+empty: the copy-and-patch backend (CODEGEN-STENCIL.md) is written here, and
+what it needs from outside is a host `cc`, the same tool `build/link.rs`
 already shells out to in order to produce an artifact at all. What being on
-*does* cost is build time. `cli/build.rs` generates about twenty-three thousand
-C functions, compiles them with the host `cc` in twelve parallel shards, reads
-the objects back and extracts one stencil per exported symbol — and does that
-three times, once per target (CODEGEN-STENCIL.md §3, §3.2). That is an
-install-time cost paid once per toolchain build rather than a cost inside the
-loop, which is the same argument `libburi_rt.a` is built on, and it is the
-reason the feature is worth having a name. It costs size too: the three
+*does* cost is build time. `cli/build.rs` generates about twenty-three
+thousand C functions, compiles them with the host `cc` in twelve parallel
+shards, reads the objects back and extracts one stencil per exported symbol —
+and does that three times, once per target (CODEGEN-STENCIL.md §3, §3.2). That
+is an install-time cost paid once per toolchain build rather than a cost
+inside the loop, which is the same argument `libburi_rt.a` is built on, and it
+is the reason the feature is worth having a name. It costs size too: the three
 libraries are `include_bytes!`d, and they are 11.93 MB of the shipped `buri`
 (PERFORMANCE.md §5).
 
 It degrades rather than breaks, and what "degrades" means changed when this
-backend took the debug seat. A host with no `cc`, or one with no library for its
-target, gets an **empty** library; `stencil::AVAILABLE` reads the emptiness and
-the backend reports itself unavailable, exactly as `runtime_native::AVAILABLE`
-does for the archive. `actions::native_ready` is then false and `host_platform()`
-answers `Js`, so a build still produces a JavaScript artifact. `buri test` does
-**not** quietly follow: a suite that names no platform is refused with
-`native-run-not-available`, naming the platform and the profile, because a suite
-run on a backend nobody chose reports a pass about the other backend
-(ARCHITECTURE.md §4). `--output=js`, or `test { platforms: [JS] }`, is how a
-suite runs there on purpose. That is a real degradation rather than a no-op — it
-used to be a no-op, because `select` returned Cranelift and this backend was
-never asked — and it is the same degradation a toolchain built
-`--no-default-features` has always had.
+backend took the debug seat. A host with no `cc`, or one with no library for
+its target, gets an **empty** library. `stencil::AVAILABLE` reads the
+emptiness and the backend reports itself unavailable, exactly as
+`runtime_native::AVAILABLE` does for the archive. `actions::native_ready` is
+then false and `host_platform()` answers `Js`, so a build still produces a
+JavaScript artifact. `buri test` does **not** quietly follow: a suite that
+names no platform is refused with `native-run-not-available`, naming the
+platform and the profile, because a suite run on a backend nobody chose
+reports a pass about the other backend (ARCHITECTURE.md §4). `--output=js`, or
+`test { platforms: [JS] }`, is how a suite runs there on purpose. That is a
+real degradation rather than a no-op — it used to be a no-op, because `select`
+returned Cranelift and this backend was never asked — and it is the same
+degradation a toolchain built `--no-default-features` has always had.
 
 **`backend-llvm` is off by default.** It needs LLVM 21 installed and
 `LLVM_SYS_211_PREFIX` set (CODEGEN-LLVM.md §8). `cargo install buri` must not
@@ -418,26 +429,26 @@ require that, so it does not.
 ### 2.1 What a toolchain without LLVM does
 
 It refuses `--release` for a native platform, with a diagnostic naming the
-feature — it does not fall back to the debug backend. A `--release` build that silently
-produced different code depending on how the compiler happened to be installed
-is the wrong kind of surprise, and a refusal naming the feature is the right
-one.
+feature. It does not fall back to the debug backend: a `--release` build that
+silently produced different code depending on how the compiler happened to be
+installed is the wrong kind of surprise, and a refusal naming the feature is
+the right one.
 
 The hazard that follows is two `buri` binaries with identical sources and
-different capabilities. **Nothing pins which one a repository is built with**:
+different capabilities. **Nothing pins which one a repository is built with.**
 `REPO.buri` used to name an exact toolchain version and its SHA-256, and that
-pin was removed because a pin earns its keep only where a toolchain is fetched
-and nothing fetches one (`buri docs build/hermeticity`). What stands in its
-place is the refusal above — a toolchain that cannot do the job says so rather
-than doing a different one — plus `Backend::identity()` (ARCHITECTURE.md §3),
-which puts the LLVM version into every release `codegen` key, so two
-LLVM-enabled toolchains built against different LLVMs do not share cache
-entries.
+pin was removed because a pin earns its keep only where a toolchain is
+fetched, and nothing fetches one (`buri docs build/hermeticity`). What stands
+in its place is the refusal above — a toolchain that cannot do the job says so
+rather than doing a different one — plus `Backend::identity()`
+(ARCHITECTURE.md §3), which puts the LLVM version into every release `codegen`
+key, so two LLVM-enabled toolchains built against different LLVMs do not share
+cache entries.
 
 ### 2.2 The runtime archive
 
-`cli/runtime` is a Rust static library with a C ABI (VALUE-MODEL.md §10), built
-for the host by `cli/build.rs`:
+`cli/runtime` is a Rust static library with a C ABI (VALUE-MODEL.md §10),
+built for the host by `cli/build.rs`:
 
 ```
 <assemble $OUT_DIR/rt-pkg from cli/runtime/: manifest.toml -> Cargo.toml,
@@ -451,11 +462,12 @@ cargo rustc --release --lib --locked \
 ```
 
 and `include_bytes!`-ed into the binary through
-`backend::runtime_native::ARCHIVE`. `cargo` and `rustc` are already required to
-build the toolchain, so this adds no tool; it adds nothing to the *toolchain's*
-lockfile, because the runtime has one of its own; and `--target <host triple>`
-names the one triple this build supports, which is why cross-compilation is
-refused rather than half-working (ARCHITECTURE.md §9).
+`backend::runtime_native::ARCHIVE`. `cargo` and `rustc` are already required
+to build the toolchain, so this adds no tool. It adds nothing to the
+*toolchain's* lockfile, because the runtime has one of its own. And
+`--target <host triple>` names the one triple this build supports, which is
+why cross-compilation is refused rather than half-working (ARCHITECTURE.md
+§9).
 
 Three things about that shape are decisions rather than mechanics, and
 `cli/build.rs`'s header argues each in full:
@@ -475,12 +487,12 @@ Three things about that shape are decisions rather than mechanics, and
 - **A tree that cannot be *resolved* degrades; one that cannot be *compiled*
   does not.** `cargo fetch --locked`, offline first, is the probe. It answers
   the plane, the sandbox, and the stale lockfile with an empty archive, a
-  `cargo:warning` naming which, and a toolchain that still builds; a crate that
-  resolved and then failed to compile fails the build, because that is a broken
-  runtime rather than a missing one.
+  `cargo:warning` naming which, and a toolchain that still builds. A crate
+  that resolved and then failed to compile fails the build, because that is a
+  broken runtime rather than a missing one.
 
-The three settings past the obvious ones each fix something measured rather than
-guessed, on `aarch64-apple-darwin`. Two of them now live in the runtime's
+The three settings past the obvious ones each fix something measured rather
+than guessed, on `aarch64-apple-darwin`. Two of them now live in the runtime's
 `[profile.release]`, where a reader looks for them, and the third stays on the
 command line because Cargo has no profile key for it:
 
@@ -492,13 +504,13 @@ command line because Cargo has no profile key for it:
   driver linking the whole surface comes out at 470 KB.
 
   Since 2026-08-30 the link also *decides* whether to name the archive at all
-  (`build/link.rs::runtime_archive_for`): the objects are asked whether any of
+  (`build/link.rs::runtime_archive_for`): it asks the objects whether any of
   them carries a `buri_rt_*` symbol, and the answer gates both the staged file
   and the `runtime` term in the `link` key. **It does not make any artifact
   smaller, and it was measured before it was believed.** Both native entry
   points call `buri_rt_argv_init` and `buri_rt_flush` on every path, so the
-  emptiest program the language can express already names three runtime symbols
-  and the answer is "link it" for every Buri program there is:
+  emptiest program the language can express already names three runtime
+  symbols and the answer is "link it" for every Buri program there is:
 
   ```text
   libburi_rt.a                          6 035 480 bytes
@@ -506,34 +518,36 @@ command line because Cargo has no profile key for it:
   hello world                             374 640    6.2%
   ```
 
-  Dead-stripping is still the whole of what keeps an artifact small, exactly as
-  the paragraph above says. What the decision buys today is the cache: a link
-  that names no archive no longer folds the archive's digest into its key, so
-  editing `cli/runtime` stops relinking artifacts that never linked it — a set
-  that is empty for Buri programs and is not empty for the object-level link
-  suite. What it will buy is the day an entry point stops needing the runtime,
-  which is a change to one answer rather than to the key's format.
+  Dead-stripping is still the whole of what keeps an artifact small, exactly
+  as the paragraph above says. What the decision buys today is the cache: a
+  link that names no archive no longer folds the archive's digest into its
+  key, so editing `cli/runtime` stops relinking artifacts that never linked it
+  — a set that is empty for Buri programs and is not empty for the
+  object-level link suite. What it will buy is the day an entry point stops
+  needing the runtime, which is a change to one answer rather than to the
+  key's format.
 - **`-C metadata=buri_rt -C extra-filename=`.** Without these, the archive's
   bytes depend on the *output path*, because the member names inside it carry
-  rustc's symbol hash. Two `OUT_DIR`s produced archives differing by a few dozen
-  bytes, and the difference would have been invisible until the hash below made
-  it a cache miss. With them, and with `--remap-path-prefix`, two builds of the
-  same tree produce byte-identical archives — which is what
-  `--check-reproducible` (ARCHITECTURE.md §7) needs from every input to a link.
-- **`-C panic=abort`** because SPEC 6.9 says an abort is a write to standard
+  rustc's symbol hash. Two `OUT_DIR`s produced archives differing by a few
+  dozen bytes, and the difference would have been invisible until the hash
+  below made it a cache miss. With them, and with `--remap-path-prefix`, two
+  builds of the same tree produce byte-identical archives — which is what
+  `--check-reproducible` (ARCHITECTURE.md §7) needs from every input to a
+  link.
+- **`-C panic=abort`**, because SPEC 6.9 says an abort is a write to standard
   error and an exit, never an unwind, so the tables would be dead weight in
   every artifact.
 
-The archive's SHA-256 enters the `link` key (ARCHITECTURE.md §6.2), so editing the
-runtime relinks every artifact and recompiles none — which is right, because the
-runtime is linked and not compiled against.
+The archive's SHA-256 enters the `link` key (ARCHITECTURE.md §6.2), so editing
+the runtime relinks every artifact and recompiles none — which is right,
+because the runtime is linked and not compiled against.
 `backend::runtime_native::archive_hash()` is what supplies it.
 
-**On a host with no runtime** — anything that is not macOS or Linux — the build
-script writes an *empty* archive and `runtime_native::AVAILABLE` is false. That
-is the "degrades rather than breaks" clause of §1's dependency bar applied to
-the runtime itself: `cargo build -p buri` succeeds everywhere, the JavaScript
-backend is unaffected, and the native backends are the only thing that is
+**On a host with no runtime** — anything that is not macOS or Linux — the
+build script writes an *empty* archive and `runtime_native::AVAILABLE` is
+false. That is the "degrades rather than breaks" clause of §1's dependency bar
+applied to the runtime itself: `cargo build -p buri` succeeds everywhere, the
+JavaScript backend is unaffected, and the native backends are the only thing
 missing, which they would have been anyway.
 
 ## 3. nix and CI
@@ -555,191 +569,202 @@ devShells.default = pkgs.mkShell {          # mkShell, not mkShellNoCC: llvm-sys
 Four notes, each of which is a mistake someone would otherwise make:
 
 - **`llvmPackages_21`**, pinned deliberately (CODEGEN-LLVM.md §8). The flake's
-  `nixos-25.05` provides 18.1.8, 19.1.7 (the default), 20.1.8 and 21.1.2, and no
-  22 — so pinning LLVM 22 would require bumping the flake's nixpkgs, which is a
-  change to how the whole toolchain is built in service of a codegen decision.
+  `nixos-25.05` provides 18.1.8, 19.1.7 (the default), 20.1.8 and 21.1.2, and
+  no 22 — so pinning LLVM 22 would require bumping the flake's nixpkgs, which
+  is a change to how the whole toolchain is built in service of a codegen
+  decision.
 
-  **The policy, ruled on and stated in full at CODEGEN-LLVM.md §8.1:** there is
-  **exactly one** supported LLVM at any moment, and the pin is the latest that
-  inkwell and this flake both carry — which is why this line and `cli/Cargo.toml`'s
-  `llvm21-1` are one decision written twice, and why they may never disagree.
-  Multi-version support is refused permanently; a contributor who wants a
-  different LLVM gets it by not using `nix develop`, and then owns the mismatch.
-  Bumping is a **routine chore**, not a compatibility event: bump this
-  `llvmPackages_N`, the inkwell feature, `LLVM_SYS_<N>1_PREFIX`, and
-  `backend/llvm/attrs.rs`'s location list, then let
-  `the_bitmask_matches_llvm_21s_location_list` catch the one of those four that
-  fails silently. No deprecation window, because there is no second version to
-  deprecate. The LLVM version is an internal detail — nothing a program, a BUILD
-  file or a diagnostic names — with `Backend::identity()` the sole exception, and
-  that is a cache key rather than an interface.
-- **`llvm.dev`**, not `llvm`. The `.dev` output carries `bin/llvm-config` and the
-  headers; the default output does not, and the failure does not say so.
-- **`mkShell` rather than `mkShellNoCC`.** `llvm-sys`'s build script needs a C++
-  compiler, and the link step shells out to `cc` (CODEGEN-STENCIL.md §12.3), as
-  does `cli/build.rs` for the stencil library (§2). This is a change to the
-  existing shell, which is `mkShellNoCC` today.
-- **`mold` on Linux only** (2.39.1 on 25.05). It is ELF-only and does not support
-  macOS. `lld` follows the default `llvmPackages`, so it is 19.1.7 here — which is
-  fine, because a linker's version need not match the compiler's.
+  **The policy, ruled on and stated in full at CODEGEN-LLVM.md §8.1:** there
+  is **exactly one** supported LLVM at any moment, and the pin is the latest
+  that inkwell and this flake both carry — which is why this line and
+  `cli/Cargo.toml`'s `llvm21-1` are one decision written twice, and why they
+  may never disagree. Multi-version support is refused permanently; a
+  contributor who wants a different LLVM gets it by not using `nix develop`,
+  and then owns the mismatch. Bumping is a **routine chore**, not a
+  compatibility event: bump this `llvmPackages_N`, the inkwell feature,
+  `LLVM_SYS_<N>1_PREFIX`, and `backend/llvm/attrs.rs`'s location list, then
+  let `the_bitmask_matches_llvm_21s_location_list` catch the one of those four
+  that fails silently. No deprecation window, because there is no second
+  version to deprecate. The LLVM version is an internal detail — nothing a
+  program, a BUILD file or a diagnostic names — with `Backend::identity()` the
+  sole exception, and that is a cache key rather than an interface.
+
+- **`llvm.dev`**, not `llvm`. The `.dev` output carries `bin/llvm-config` and
+  the headers; the default output does not, and the failure does not say so.
+- **`mkShell` rather than `mkShellNoCC`.** `llvm-sys`'s build script needs a
+  C++ compiler, and the link step shells out to `cc` (CODEGEN-STENCIL.md
+  §12.3), as does `cli/build.rs` for the stencil library (§2). This is a
+  change to the existing shell, which is `mkShellNoCC` today.
+- **`mold` on Linux only** (2.39.1 on 25.05). It is ELF-only and does not
+  support macOS. `lld` follows the default `llvmPackages`, so it is 19.1.7
+  here — which is fine, because a linker's version need not match the
+  compiler's.
 
 ### 3.2 `packages.default`
 
 Built **with** `backend-llvm`, because a `nix build` produces the release
-toolchain and a release toolchain must be able to produce release artifacts. That
-means `nativeBuildInputs = [ llvm.dev ]` and `LLVM_SYS_211_PREFIX`. The vendoring
-needs nothing: `inkwell`'s closure is named by `./Cargo.lock` and is fetched
-already, whether or not the feature is on.
+toolchain and a release toolchain must be able to produce release artifacts.
+That means `nativeBuildInputs = [ llvm.dev ]` and `LLVM_SYS_211_PREFIX`. The
+vendoring needs nothing: `./Cargo.lock` names `inkwell`'s closure and fetches
+it already, whether or not the feature is on.
 
 **Two lockfiles, one vendor directory.** §1.1 and §1.1.1 are two dependency
 trees, and a sandboxed build carries both or it carries neither usefully:
 `cli/build.rs` runs a nested `cargo` for `cli/runtime`, and a vendor directory
-holding only `./Cargo.lock`'s closure sends it down the degradation path of §2.2
-— empty archive, `runtime_native::AVAILABLE == false`, a green `nix build` and a
-toolchain with no native backend. `rustPlatform.importCargoLock` takes one
-`lockFile`, so the flake calls it twice and links both results into a third
-directory, keyed by `name-version`; the merge is of the *directories* rather than
-of the lockfiles because nixpkgs' `cargoSetupPostPatchHook` diffs the vendor
-directory's `Cargo.lock` against the one in `src` and refuses a build where they
-differ. `cargoDeps` takes that directory, so there is still no `cargoHash`.
+holding only `./Cargo.lock`'s closure sends it down the degradation path of
+§2.2 — empty archive, `runtime_native::AVAILABLE == false`, a green
+`nix build` and a toolchain with no native backend.
+`rustPlatform.importCargoLock` takes one `lockFile`, so the flake calls it
+twice and links both results into a third directory, keyed by `name-version`.
+The merge is of the *directories* rather than of the lockfiles, because
+nixpkgs' `cargoSetupPostPatchHook` diffs the vendor directory's `Cargo.lock`
+against the one in `src` and refuses a build where they differ. `cargoDeps`
+takes that directory, so there is still no `cargoHash`.
 
 The flake then repeats the two halves of
-`cli/tests/ci.rs::the_runtime_archive_is_real` a sandbox can ask — the archive is
-not empty, and on Linux it is a musl archive — in its own `postBuild`, because
-this derivation builds the toolchain and never runs its tests. This is the one
-place that assertion is not redundant with §3.3's CI jobs: `nix build` is a
-*packaging* path, its failure mode is a silently less capable compiler, and the four systems `eachDefaultSystem` covers are all systems
-`cli/build.rs`'s `supported` accepts — so there is nothing here to degrade to and
-the empty archive is unambiguously a bug.
+`cli/tests/ci.rs::the_runtime_archive_is_real` a sandbox can ask — the archive
+is not empty, and on Linux it is a musl archive — in its own `postBuild`,
+because this derivation builds the toolchain and never runs its tests. This is
+the one place that assertion is not redundant with §3.3's CI jobs: `nix build`
+is a *packaging* path, its failure mode is a silently less capable compiler,
+and the four systems `eachDefaultSystem` covers are all systems
+`cli/build.rs`'s `supported` accepts — so there is nothing here to degrade to
+and the empty archive is unambiguously a bug.
 
 ### 3.3 CI
 
 `.github/workflows/ci.yml` runs on push, on pull request and on demand, and it
 is nine jobs. Every step in it is one `cargo` invocation or a few lines of
 inline shell: the eight scripts under `.github/scripts/` it used to call are
-tests in `cli/tests/ci.rs` now, which is what lets a step be the same command a
-contributor types and what makes each assertion below runnable on a laptop.
+tests in `cli/tests/ci.rs` now, which is what lets a step be the same command
+a contributor types and what makes each assertion below runnable on a laptop.
 
 The three jobs this document is about:
 
 - **`test`** — the whole Rust suite, on every host this toolchain supports:
   `macos-latest` (arm64), `ubuntu-24.04` (x86_64) and `ubuntu-24.04-arm`. Each
   leg sets `CC: clang` and therefore builds its own stencil library, which
-  `cli/tests/ci.rs::the_stencil_libraries_are_real` then holds to being non-empty. There is
-  deliberately no leg without `clang`: it would be the same suite with the
-  native tests silently skipped, and that is the one shape of green this
-  workflow exists to refuse.
-  `cli/tests/ci.rs::the_runtime_archive_is_real` is the same gate for the runtime
-  archive — non-empty, under a per-OS size budget, carrying a symbol from each
-  of §1.1.1's linked crates and none from the ones nothing reaches — and it runs
-  on all four native jobs, `release` included.
+  `cli/tests/ci.rs::the_stencil_libraries_are_real` then holds to being
+  non-empty. There is deliberately no leg without `clang`: it would be the
+  same suite with the native tests silently skipped, and that is the one shape
+  of green this workflow exists to refuse.
+  `cli/tests/ci.rs::the_runtime_archive_is_real` is the same gate for the
+  runtime archive — non-empty, under a per-OS size budget, carrying a symbol
+  from each of §1.1.1's linked crates and none from the ones nothing reaches —
+  and it runs on all four native jobs, `release` included.
 
   **`net-h3` is built on exactly one of them**, the `x86_64` leg of `test`, as
-  its last step: `BURI_RUNTIME_NET_H3=1`, the same archive assertion over the h3
-  archive, and the one test that compares the C-ABI door with the feature file.
-  One job rather than four because nothing about the question
-  is per-platform — `quinn` is portable Rust reaching the archive through the
+  its last step: `BURI_RUNTIME_NET_H3=1`, the same archive assertion over the
+  h3 archive, and the one test that compares the C-ABI door with the feature
+  file. One job rather than four because nothing about the question is
+  per-platform — `quinn` is portable Rust reaching the archive through the
   same nested `cargo` the other five do, and the assertions are about symbols
-  and bytes rather than about a syscall — and it is the job's last step because
-  it rebuilds the archive and relinks `buri`, so anything after it would be
-  measuring a toolchain no other job has. §1.1.3 is what it is holding.
+  and bytes rather than about a syscall — and it is the job's last step
+  because it rebuilds the archive and relinks `buri`, so anything after it
+  would be measuring a toolchain no other job has. §1.1.3 is what it is
+  holding.
+
 - **`minimal`** — `cargo build -p buri --no-default-features` on
   `ubuntu-latest`, plus
-  `cli/tests/ci.rs::the_published_crate_ships_the_runtime`, which is the other half of
-  "`cargo install buri` works": the tarball has to carry what `cli/build.rs`
-  compiles. It is the test that `cargo install buri` still works on a
-  machine carrying no LLVM, and it is a job rather than an assertion because
-  "it builds without the optional system library" is only true if something
-  builds it that way. The default-feature build needs no job of its own: every
-  `test` leg is one.
+  `cli/tests/ci.rs::the_published_crate_ships_the_runtime`, which is the other
+  half of "`cargo install buri` works": the tarball has to carry what
+  `cli/build.rs` compiles. It is the test that `cargo install buri` still
+  works on a machine carrying no LLVM, and it is a job rather than an
+  assertion because "it builds without the optional system library" is only
+  true if something builds it that way. The default-feature build needs no job
+  of its own: every `test` leg is one.
 - **`release`** — the only leg that turns `backend-llvm` on. x86-64 only, and
-  **advisory** (`continue-on-error: true`). The reason is named in the workflow
-  rather than left to be discovered: LLVM 21 is not in Ubuntu 24.04 — noble
-  ships 18 — so the job depends on apt.llvm.org, which is third-party
+  **advisory** (`continue-on-error: true`). The workflow names the reason
+  rather than leaving it to be discovered: LLVM 21 is not in Ubuntu 24.04 —
+  noble ships 18 — so the job depends on apt.llvm.org, which is third-party
   infrastructure with no uptime guarantee, and a red X caused by a 404 teaches
   people to ignore a red X. arm64 is not attempted, because apt.llvm.org's
   architecture coverage per release is not something to discover inside a
   required job. The version is asserted rather than assumed, which is §8.1's
   one-supported-LLVM policy enforced where it can be.
 
-There were two further native jobs, `linux-arm64` and `linux-x86_64`, which ran
-the artifacts rather than only compiling them; CODEGEN-STENCIL.md §10 describes
-what they asked. They are gone, and nothing they asked is: the `test` matrix's
-Linux legs already ran every one of those tests, and the four steps that were
-genuinely theirs — the census's liveness line, the two linkers, the ELF
-properties of the image each produced, and `--check-reproducible` — are
-`BURI_CI=1` and `cli/tests/ci.rs::a_linked_linux_artifact_is_a_static_pie_that_runs`
-now, which run inside that same suite.
+There were two further native jobs, `linux-arm64` and `linux-x86_64`, which
+ran the artifacts rather than only compiling them; CODEGEN-STENCIL.md §10
+describes what they asked. They are gone, and nothing they asked is: the
+`test` matrix's Linux legs already ran every one of those tests, and the four
+steps that were genuinely theirs — the census's liveness line, the two
+linkers, the ELF properties of the image each produced, and
+`--check-reproducible` — are `BURI_CI=1` and
+`cli/tests/ci.rs::a_linked_linux_artifact_is_a_static_pie_that_runs` now,
+which run inside that same suite.
 
-`clippy` and `validate` — a matrix of the two Linux architectures each — are the
-lint set and the corpus validation gate; both were steps of `test` until it was
-measured that each compiles the whole workspace *again*, under a driver or a
-profile the suite shares nothing with, in a queue behind the longest job in the
-workflow. `language-server-budget`, `lean`, `tree-sitter` and `nix` complete the
-nine.
+`clippy` and `validate` — a matrix of the two Linux architectures each — are
+the lint set and the corpus validation gate. Both were steps of `test` until
+it was measured that each compiles the whole workspace *again*, under a driver
+or a profile the suite shares nothing with, in a queue behind the longest job
+in the workflow. `language-server-budget`, `lean`, `tree-sitter` and `nix`
+complete the nine.
 
-Two things in that file are about **wall clock** rather than about coverage, and
-each is worth naming because each looks like a detail and is minutes:
+Two things in that file are about **wall clock** rather than about coverage,
+and each is worth naming because each looks like a detail and is minutes:
 
 - `target/debug/build` is cached on the `test` matrix. `Swatinem/rust-cache`
   cleans the workspace's own artifacts out before saving, and `cli/build.rs`'s
-  `OUT_DIR` is one of them — so the runtime archive, a fat-LTO release build of
-  tokio, hyper, rustls and ring, was rebuilt on every job of every run. 51 s of
-  a 141-second cold build on a ten-core mac, and rather more on four cores.
+  `OUT_DIR` is one of them — so the runtime archive, a fat-LTO release build
+  of tokio, hyper, rustls and ring, was rebuilt on every job of every run. 51
+  s of a 141-second cold build on a ten-core mac, and rather more on four
+  cores.
 - The validation gate runs under `--profile validate`, which the root
   `Cargo.toml` declares for it and prices at 169 s against 98 s.
 
-A third is the `test` legs' suite step, which starts the test binaries together
-rather than in the queue `cargo test` puts them in. It went away with the shell
-scripts and came back four lines long once the assertions that used to parse its
-concatenated log were tests: the set is asked of cargo, `xargs` starts twice
-`nproc` of them with two test threads each, and each writes its own log. On the
-arm64 leg of run 33981313436 those binaries were 280 s of a 424-second step,
-against 145 s of compiling; `cli/tests/README.md` carries the snippet and the
-two numbers in it, and `cli/tests/ci.rs::the_suite_is_asked_for_as_a_whole`
-holds it to being a derivation rather than a list of domain names.
+A third is the `test` legs' suite step, which starts the test binaries
+together rather than in the queue `cargo test` puts them in. It went away with
+the shell scripts and came back four lines long once the assertions that used
+to parse its concatenated log were tests: the set is asked of cargo, `xargs`
+starts twice `nproc` of them with two test threads each, and each writes its
+own log. On the arm64 leg of run 33981313436 those binaries were 280 s of a
+424-second step, against 145 s of compiling. `cli/tests/README.md` carries the
+snippet and the two numbers in it, and
+`cli/tests/ci.rs::the_suite_is_asked_for_as_a_whole` holds it to being a
+derivation rather than a list of domain names.
 
 The cross-backend agreement differential test is not a CI feature:
-`cli/tests/native/agreement.rs`
-runs in the ordinary suite on every leg (ARCHITECTURE.md §4).
+`cli/tests/native/agreement.rs` runs in the ordinary suite on every leg
+(ARCHITECTURE.md §4).
 
 ### 3.3.1 The same jobs, on the maintainer's own machine
 
-There is no script for this and there is nothing left to script. A `test` job is
-a container with the toolchain in it and then the same `cargo test -p buri` a
-contributor types; `cli/tests/README.md` under "Reproducing a Linux CI leg on a
-mac" carries the one `docker run` line, and the two things that container must
-have are `CC=clang` and `rustup target add <arch>-unknown-linux-musl`, because
-`cli/build.rs` degrades silently without either. `BURI_CI=1` is the third: it is
-what turns a guard that fires into a failure rather than a quiet pass, which is
-the whole reason to run the leg rather than trusting the mac's own suite.
+There is no script for this and there is nothing left to script. A `test` job
+is a container with the toolchain in it and then the same `cargo test -p buri`
+a contributor types. `cli/tests/README.md` under "Reproducing a Linux CI leg
+on a mac" carries the one `docker run` line, and the two things that container
+must have are `CC=clang` and `rustup target add <arch>-unknown-linux-musl`,
+because `cli/build.rs` degrades silently without either. `BURI_CI=1` is the
+third: it turns a guard that fires into a failure rather than a quiet pass,
+which is the whole reason to run the leg rather than trusting the mac's own
+suite.
 
-It replaced a seven-hundred-line mirror of the workflow, and the reason it could
-is the reason this section is short: when every CI step is one `cargo`
+It replaced a seven-hundred-line mirror of the workflow, and the reason it
+could is the reason this section is short: when every CI step is one `cargo`
 invocation, reproducing CI is running that invocation.
 
 ### 3.4 Without nix
 
-**The default build needs no library and no system package.** `cargo build -p
-buri`, `cargo test -p buri` and `cargo install buri` work on a machine with a
-Rust toolchain and a C compiler and no LLVM, no lld and no mold anywhere on it —
-and, since 2026-08-29, with nothing in the dependency closure either (§1.1).
-That is the whole point of §2's default set, and it is the state a contributor
-is in unless they go looking for the other one.
+**The default build needs no library and no system package.**
+`cargo build -p buri`, `cargo test -p buri` and `cargo install buri` work on a
+machine with a Rust toolchain and a C compiler and no LLVM, no lld and no mold
+anywhere on it — and, since 2026-08-29, with nothing in the dependency closure
+either (§1.1). That is the whole point of §2's default set, and it is the
+state a contributor is in unless they go looking for the other one.
 
 `cc` is the one thing that is not optional, and it is not new: the link step
-drives the platform C compiler (CODEGEN-STENCIL.md §12.3) and
+drives the platform C compiler (CODEGEN-STENCIL.md §12.3), and
 `cli/tests/native/runtime.rs` compiled a C driver against the runtime archive
 from the first native wave. It is Xcode's command-line tools on macOS
-(`xcode-select --install`) and `build-essential` on Debian-likes. `cli/build.rs`
-also uses it to generate the stencil library (§2), and that is the one place the
-requirement got sharper: a host without `cc` still builds a `buri`, and gets an
-empty library, a backend that reports itself unavailable, a JavaScript artifact
-from a build, and a `native-run-not-available` refusal from every suite that
-does not name a platform.
+(`xcode-select --install`) and `build-essential` on Debian-likes.
+`cli/build.rs` also uses it to generate the stencil library (§2), and that is
+the one place the requirement got sharper: a host without `cc` still builds a
+`buri`, and gets an empty library, a backend that reports itself unavailable,
+a JavaScript artifact from a build, and a `native-run-not-available` refusal
+from every suite that does not name a platform.
 
-Everything below is for the two things the default build does not do: build the
-**LLVM** backend, and link with something faster than the system linker.
+Everything below is for the two things the default build does not do: build
+the **LLVM** backend, and link with something faster than the system linker.
 
 | | macOS | Debian / Ubuntu | Fedora / Arch |
 |---|---|---|---|
@@ -751,36 +776,37 @@ Everything below is for the two things the default build does not do: build the
 Three things about that table are worth stating rather than leaving to be
 discovered:
 
-- **The version should be 21, and as landed nothing forces it.** CODEGEN-LLVM.md
-  §8 asks for `llvm-sys`'s `strict-versioning`, so that an LLVM 22 on the
-  machine is a build failure rather than a silent substitution — which is the
-  behaviour a compiler whose central claim is byte-identical output should have.
-  It is *not* enabled by the manifest wave 2a landed, because inkwell exposes no
-  passthrough for it (its `llvm21-1` feature expands to `llvm-sys-211` and
-  nothing else), and reaching it would mean a second direct dependency on
-  `llvm-sys` — which is a second thing behind §1's bar, for a flag. Until that
-  is decided, `Backend::identity()` is what stops two toolchains built against
-  different LLVMs from sharing cached objects, and `llvm-config --version` is
-  what a contributor should check.
-- **`LLVM_SYS_211_PREFIX` points at the directory containing `bin/llvm-config`**,
-  not at a lib directory. If `llvm-config --version` prints `21.1.x`, its prefix
-  is the right answer: `export LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)`.
+- **The version should be 21, and as landed nothing forces it.**
+  CODEGEN-LLVM.md §8 asks for `llvm-sys`'s `strict-versioning`, so that an
+  LLVM 22 on the machine is a build failure rather than a silent substitution
+  — the behaviour a compiler whose central claim is byte-identical output
+  should have. The manifest wave 2a landed does *not* enable it, because
+  inkwell exposes no passthrough for it (its `llvm21-1` feature expands to
+  `llvm-sys-211` and nothing else), and reaching it would mean a second direct
+  dependency on `llvm-sys` — a second thing behind §1's bar, for a flag. Until
+  that is decided, `Backend::identity()` is what stops two toolchains built
+  against different LLVMs from sharing cached objects, and
+  `llvm-config --version` is what a contributor should check.
+- **`LLVM_SYS_211_PREFIX` points at the directory containing
+  `bin/llvm-config`**, not at a lib directory. If `llvm-config --version`
+  prints `21.1.x`, its prefix is the right answer:
+  `export LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)`.
 - **mold is Linux-only.** It is ELF-only and fails with "mold does not support
   macOS"; the Mach-O fork, `sold`, was archived in November 2024 with its own
-  author recommending Apple's linker. macOS contributors want `lld` or nothing,
-  and nothing is a perfectly good answer — §7.3's fallback is that with neither
-  mold nor lld present everything works, more slowly, and no flag has to be set
-  to get a working build.
+  author recommending Apple's linker. macOS contributors want `lld` or
+  nothing, and nothing is a perfectly good answer — §7.3's fallback is that
+  with neither mold nor lld present everything works, more slowly, and no flag
+  has to be set to get a working build.
 
 ## 4. `buri test --watch`
 
 ### 4.1 Watch mode is a loop over the cache
 
 The incremental test cache already exists and already does the hard part.
-`run_on` (`test.rs`) computes `test_key`, consults `Cache`, and returns
-cached results with `Provenance::Cache` when the key hits; the summary already
-prints "`n` cached" (`test.rs`). Only a clean run is cached, deliberately
-— "a failure is what you are trying to fix, and re-running it should re-run it"
+`run_on` (`test.rs`) computes `test_key`, consults `Cache`, and returns cached
+results with `Provenance::Cache` when the key hits; the summary already prints
+"`n` cached" (`test.rs`). Only a clean run is cached, deliberately — "a
+failure is what you are trying to fix, and re-running it should re-run it"
 (`test.rs`) — which is exactly the behaviour a watch loop wants.
 
 So **watch mode is a loop around `cmd_test`, and the incrementality is the
@@ -808,25 +834,24 @@ loop:
 
 Per selected target, the union of:
 
-- every path `contribute` enumerates for every member of the target's closure —
-  the rule's entry point, its `sources`, its `proto_sources`, and its
+- every path `contribute` enumerates for every member of the target's closure
+  — the rule's entry point, its `sources`, its `proto_sources`, and its
   `testing/` sources (`actions.rs`);
-- every path `test_key` enumerates — the suite's `sources`, its `data`, and the
-  closure of every library its `test { dependencies }` and
+- every path `test_key` enumerates — the suite's `sources`, its `data`, and
+  the closure of every library its `test { dependencies }` and
   `testing { dependencies }` name;
 - every package's `BUILD.buri`, for every package in the closure;
 - the repository's `REPO.buri`.
 
-The first two are exactly the inputs the keys are computed from, so a change that
-does not move a key does not exist as far as the loop is concerned — and a change
-that does move one is guaranteed to be seen, because the same enumeration
-produced both.
+The first two are exactly the inputs the keys are computed from, so a change
+that does not move a key does not exist as far as the loop is concerned — and
+a change that does move one is guaranteed to be seen, because the same
+enumeration produced both.
 
-The last two are not in any key's *input* list but change the graph itself: a new
-dependency edge, a new source, a changed tag vocabulary. A change to either
-re-opens the `Session`, because `Workspace::load` is what reads them
-(`session.rs`) and a `Session` holds a loaded graph rather than a
-directory.
+The last two are not in any key's *input* list but change the graph itself: a
+new dependency edge, a new source, a changed tag vocabulary. A change to
+either re-opens the `Session`, because `Workspace::load` is what reads them
+(`session.rs`), and a `Session` holds a loaded graph rather than a directory.
 
 The parse cache (`Session::parsed`) is discarded on reopen and kept otherwise,
 which is what makes a second run of an unchanged suite cost nothing.
@@ -835,80 +860,80 @@ which is what makes a second run of an unchanged suite cost nothing.
 
 **150 ms sweep, and a settle window of one further quiet sweep.** So a save is
 acted on between 150 and 300 ms after it lands, and a sequence of writes — a
-formatter rewriting twelve files, a `git checkout` — is coalesced into one run.
-For comparison, watchexec debounces at 50 ms, trunk at 25 ms plus a one-second
-post-build cooldown, and bacon at 15 ms; those are event-driven and pay per event,
-where this pays per sweep, so the number is a sweep interval rather than a
-debounce and is correspondingly larger. It is not configurable in v1. A flag
-here is a flag nobody can choose a value for.
+formatter rewriting twelve files, a `git checkout` — is coalesced into one
+run. For comparison, watchexec debounces at 50 ms, trunk at 25 ms plus a
+one-second post-build cooldown, and bacon at 15 ms; those are event-driven and
+pay per event, where this pays per sweep, so the number is a sweep interval
+rather than a debounce and is correspondingly larger. It is not configurable
+in v1. A flag here is a flag nobody can choose a value for.
 
 Two combinations are refused, at argument parsing, with exit 2:
 
 - **`--watch --force`.** `--force` turns every cache hit into a run
   (`test.rs`), so every keystroke would re-run every suite in the selection.
   That is the opposite of the mode.
-- **`--watch` without a TTY.** A watch loop in CI is a hung job. The check is on
-  stdout being a terminal, and the diagnostic says so and names `buri test`.
+- **`--watch` without a TTY.** A watch loop in CI is a hung job. The check is
+  on stdout being a terminal, and the diagnostic says so and names
+  `buri test`.
 
 There was a third. **`--watch --accept`** was refused because `--accept` was
 "the one mode that writes to the source tree", and rewriting golden files on a
-timer silently accepts a regression while you are reading the failure. The flag
-rewrote what a suite declared in `test { data }`; that field is retired, and the
-flag went with it.
+timer silently accepts a regression while you are reading the failure. The
+flag rewrote what a suite declared in `test { data }`; that field is retired,
+and the flag went with it.
 
 ### 4.4 The terminal
 
-- **The screen is not cleared.** Scrollback is where the failure you are fixing
-  is; the previous run's output is the thing you are comparing against. Each run
-  is separated by a rule with the time on it, which is one line and is greppable:
-  `── 14:02:31 ─────`.
+- **The screen is not cleared.** Scrollback is where the failure you are
+  fixing is, and the previous run's output is the thing you are comparing
+  against. A rule with the time on it separates each run, which is one line
+  and is greppable: `── 14:02:31 ─────`.
 - **One summary line per run**, in the format `cmd_test` already prints
   (`test.rs`): `12 passed, 1 failed, 0 skipped (0.4s, 8 cached)`. Failures
-  print above it exactly as they do without `--watch`, through `report_failure`,
-  so a suite's output does not depend on which mode it was run in.
-- **A run with nothing to do prints nothing at all.** If every suite was served
-  from the cache and every one passed, the loop is silent. A watch mode that
-  prints on every sweep trains you not to read it.
-- **`--explain` works**, and in watch mode it is the most useful it has ever been:
-  one `test` line per suite per run with `cached` or `run`, which is the
-  incrementality claim being observable rather than asserted
-  (`arguments.rs`).
-- **Ctrl-C exits 0**, whatever the last run said. The exit status of a watch loop
-  is about the loop; a red suite is on the screen, and encoding it in `$?` would
-  make `buri test --watch` unusable in a shell with a prompt that shows the last
-  status.
+  print above it exactly as they do without `--watch`, through
+  `report_failure`, so a suite's output does not depend on which mode it was
+  run in.
+- **A run with nothing to do prints nothing at all.** If every suite was
+  served from the cache and every one passed, the loop is silent. A watch mode
+  that prints on every sweep trains you not to read it.
+- **`--explain` works**, and in watch mode it is the most useful it has ever
+  been: one `test` line per suite per run with `cached` or `run`, which is the
+  incrementality claim being observable rather than asserted (`arguments.rs`).
+- **Ctrl-C exits 0**, whatever the last run said. The exit status of a watch
+  loop is about the loop; a red suite is on the screen, and encoding it in
+  `$?` would make `buri test --watch` unusable in a shell with a prompt that
+  shows the last status.
 
 ### 4.5 What it is not
 
-Not a hot-reload, not a REPL, and not a language server. It re-runs `buri test`
-and it does not keep a compiled program alive between runs. The reason to say so
-is that the machinery that would make it more — a persistent process holding the
-checked standard library between runs — is the same machinery
-the design notes names as still missing under "Incrementality and caching"
-("nothing shares work between processes"), and it is a separate, larger piece
-of work whose first customer
-would be the language server rather than this.
+Not a hot-reload, not a REPL, and not a language server. It re-runs
+`buri test` and it does not keep a compiled program alive between runs. The
+reason to say so is that the machinery that would make it more — a persistent
+process holding the checked standard library between runs — is the same
+machinery the design notes name as still missing under "Incrementality and
+caching" ("nothing shares work between processes"), and it is a separate,
+larger piece of work whose first customer would be the language server rather
+than this.
 
 ## 5. Implementation waves
 
-The waves have landed. The collision map that made them safe to run in parallel
-is not kept — it described who was allowed to write which file during a rollout
-that is over, and what it produced is the module layout in
+The waves have landed. The collision map that made them safe to run in
+parallel is not kept: it described who was allowed to write which file during
+a rollout that is over, and what it produced is the module layout in
 ARCHITECTURE.md §2 and the action graph in ARCHITECTURE.md §6.
 
-What is kept is the **legend**, because the wave labels are still module headers
-in the source (`//! ... **Wave 2b.**`) and a reader who meets one needs
-somewhere to look it up. It is one table for the whole corpus rather than one
-per document, so it lives at
-[`design/README.md`](../README.md), under "Wave numbering", together with the
-one piece of wave 3c that did not land.
+What is kept is the **legend**, because the wave labels are still module
+headers in the source (`//! ... **Wave 2b.**`) and a reader who meets one
+needs somewhere to look it up. It is one table for the whole corpus rather
+than one per document, so it lives at [`design/README.md`](../README.md),
+under "Wave numbering", together with the one piece of wave 3c that did not
+land.
 
 ### What is not in any wave
 
 DWARF (CODEGEN-LLVM.md §7 sketches it, CODEGEN-STENCIL.md §11 declines it for
-the debug backend),
-cross-*linking* (ARCHITECTURE.md §9 refuses it), ThinLTO (ARCHITECTURE.md §5.2
-leaves the door open), general niche discovery (VALUE-MODEL.md §6), and
-small-string optimization (VALUE-MODEL.md §3.2). Each is named where it is
-declined so that a later reader finds the reason next to the decision rather than
-in a plan.
+the debug backend), cross-*linking* (ARCHITECTURE.md §9 refuses it), ThinLTO
+(ARCHITECTURE.md §5.2 leaves the door open), general niche discovery
+(VALUE-MODEL.md §6), and small-string optimization (VALUE-MODEL.md §3.2). Each
+is named where it is declined, so that a later reader finds the reason next to
+the decision rather than in a plan.
