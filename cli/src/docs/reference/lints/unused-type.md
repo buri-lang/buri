@@ -5,12 +5,26 @@ message: "nothing uses `{name}`"
 note: a type nothing names, builds or matches is a shape the program does not have
 fix: delete it, or use it — a type meant to be published belongs on the library's surface
 ---
-A struct or an enum nobody writes down and nobody builds is a shape that exists only in the file that declares it. It is usually one of three things.
+A struct or an enum nobody writes down and nobody builds is a shape that exists
+only in the file that declares it. It is usually one of three things.
 
-**A leftover.** The code that used it moved or went away and the declaration stayed. Delete it, and anything that existed only to support it — its `impl` block, its `derive` line, the constructor nobody calls. Version control remembers.
+**A leftover.** The code that used it moved or went away and the declaration
+stayed. Delete it, and anything that existed only to support it — its `impl`
+block, its `derive` line, the constructor nobody calls. Version control
+remembers.
 
-**A shape that was meant to be published.** It models something a caller outside this library needs. Then the answer is not to use it here but to re-export it from `lib.buri`: a name on the library's surface is public API and this rule does not ask about it, because the consumer this analysis can see is not the only one there is. A type declared under `testing/` is measured against `testing/lib.buri` the same way, and for the same reason — a fixture is written for another package's suite.
+**A shape that was meant to be published.** It models something a caller outside
+this library needs. Then the answer is not to use it here but to re-export it
+from `lib.buri`. A name on the library's surface is public API, and this rule
+does not ask about it, because the consumers this analysis can see are not the
+only ones there are. A type declared under `testing/` is measured against
+`testing/lib.buri` the same way, and for the same reason: a fixture is written
+for another package's suite.
 
-**A shape that was meant to be wired in.** It was written before the code that would build it, and that code was never written. That is the real bug, and finishing it is the fix.
+**A shape that was meant to be wired in.** Somebody wrote it before the code
+that would build it, and that code was never written. That is the real bug, and
+finishing it is the fix.
 
-A type's own `impl` and `derive` blocks are not uses of it: they describe the shape rather than reach for it. That is what keeps a dead type with ten methods on it a dead type.
+A type's own `impl` and `derive` blocks are not uses of it. They describe the
+shape rather than reach for it, which is what keeps a dead type with ten methods
+on it a dead type.
