@@ -560,35 +560,39 @@ overlapped waiting rather than more processors.
 
 `core/actor` is the other half of concurrency: state that outlives one call,
 behind a mailbox. An actor is a *value*, an initial state and a
-`step: fn(C, S, M) => S`, and `start` gives it a mailbox and answers an
-`Address`. The enum is the protocol. A variant carrying no `Reply` is a `send`.
-A variant carrying a `Reply<R>` is an `ask` that yields an `R`. `stop` closes
-the mailbox, discards what is left, and runs `onStop` once with the final state.
-Everything after that answers `.Err(.Stopped)`.
+`step: fn(C, S, M) => Stepped<S, R>`, and `start` gives it a mailbox and answers
+an `Address`. Two enums are the protocol: `M` is what you may send and `R` is
+what comes back, and a `Stepped` is what the step answers with — the state the
+next message sees, and the answer this one gets. `sendMessage` posts a message
+and hands that answer back. `stop` closes the mailbox, discards what is left,
+and runs `onStop` once with the final state. Everything after that answers
+`.Err(.Stopped)`.
 
 ```buri
-from "core/actor" import { Actor, Reply };
+from "core/actor" import { Actor, Stepped };
 
 enum CounterMessage {
     Increment,
-    Get(Reply<Int>),
+    Get,
 }
 
-fn counter<C>(initial: Int): Actor<C, Int, CounterMessage> {
-    Actor { state: initial, step: fn(c, count, message) => count + 1 }
+fn counter<C>(initial: Int): Actor<C, Int, CounterMessage, Int> {
+    Actor {
+        state: initial,
+        step: fn(c, count, message) => Stepped { state: count + 1, answer: count + 1 },
+    }
 }
 ```
 
 It needs no test double, and that falls out of the shape rather than being an
 omission: `step` is an ordinary function in an ordinary field, so you test an
 actor by calling it. The mailbox holds sixty-four messages and you cannot
-configure it. A `send` that fills it runs the actor down rather than letting the
-queue grow, so the bound limits how much work may wait, never how much may
-arrive. **The actor steps on the task that drives it.** `ask` runs the mailbox
-down before it reads its reply, and `stop` before it runs `onStop`. That is a
-scheduling decision and not a semantic one, since the answers are the same
-either way, exactly as `parallel`'s two arms answer the same list. But it means
-an actor is not yet a way to get work done in the background.
+configure it. **The actor steps on the task that drives it.** `sendMessage` runs
+the mailbox down before it answers, and `stop` before it runs `onStop`, so the
+bound is what limits how much work may wait for a driver busy somewhere else.
+That is a scheduling decision and not a semantic one, since the answers are the
+same either way, exactly as `parallel`'s two arms answer the same list. But it
+means an actor is not yet a way to get work done in the background.
 
 `core/net/http` documents `Request` and `Response`, the two types `Net.fetch`
 speaks in. It re-exports them from `core/effect`, where the effect's own

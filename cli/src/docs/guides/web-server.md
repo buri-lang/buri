@@ -108,7 +108,7 @@ no context of its own.
 
 ```buri name=counting
 # from "core/actor" import * as actor;
-# from "core/actor" import { Actor, Address, Reply };
+# from "core/actor" import { Actor, Address, Stepped };
 # from "core/effect" import { Alloc, Request, Response, Sockets, Tasks };
 # from "core/json" import * as json;
 # from "core/json" import { Json };
@@ -116,23 +116,17 @@ no context of its own.
 # from "core/net/server" import { Socket };
 # from "core/str" import * as str;
 
-/// The counter's protocol. A variant carrying no `Reply` is a `send`; one
-/// carrying a `Reply<R>` is an `ask` that yields an `R`.
+/// The counter's protocol: what a handler may send, and what it gets back.
 enum Hits {
     Seen,
-    Total(Reply<Int>),
 }
 
-fn hits<C: Alloc + Tasks>(): Actor<C, Int, Hits> {
+fn hits<C: Alloc + Tasks>(): Actor<C, Int, Hits, Int> {
     Actor {
         state: 0,
         step: fn(c, seen, message) => {
             match (message) {
-                .Seen => seen + 1,
-                .Total(reply) => {
-                    let _ = reply.answer(c, seen).ignore();
-                    seen
-                },
+                .Seen => Stepped { state: seen + 1, answer: seen + 1 },
             }
         },
     }
@@ -140,13 +134,12 @@ fn hits<C: Alloc + Tasks>(): Actor<C, Int, Hits> {
 
 fn route<C: Alloc + Tasks>(
     ctx: C,
-    counted: Address<C, Int, Hits>,
+    counted: Address<C, Int, Hits, Int>,
     request: Request,
 ): Response {
-    let _ = counted.send(ctx, .Seen).ignore();
+    let seen = counted.sendMessage(ctx, .Seen).withDefault(0);
     match (request.path()) {
         "/health" => {
-            let seen = counted.ask(ctx, fn(reply) => .Total(reply)).withDefault(0);
             let body = Json.Object([
                 ("status", .Str("ok")),
                 ("served", .Num(seen.toF64())),
@@ -178,11 +171,12 @@ $ curl -s http://127.0.0.1:3000/health
 {"status":"ok","served":3}
 ```
 
-`send` and `ask` both answer a `Result`, `.Err(.Stopped)` once the actor has
-stopped. A handler that cannot act on a stopped counter drops it with `ignore`,
-and [`discarded-result`](../reference/lints/discarded-result.md) reports every
-such decision in one list. [Tasks and actors](./concurrency.md) is the rest of
-the model.
+`sendMessage` answers a `Result`, `.Err(.Stopped)` once the actor has stopped. A
+handler that cannot act on a stopped counter drops it with `withDefault` or
+`ignore`, and
+[`discarded-result`](../reference/lints/discarded-result.md) reports every such
+decision in one list. [Tasks and actors](./concurrency.md) is the rest of the
+model.
 
 A `Server` with a `websocket` field speaks WebSockets, and the upgrade is
 invisible. `onOpen` answers what the socket carries, every later hook is handed
