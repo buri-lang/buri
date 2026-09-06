@@ -1,12 +1,12 @@
 # Enforce policy with tags
 
 Say a repository has code that opens sockets and code that runs untrusted input,
-and the two may never end up in one artifact. Tags are how that is written down
-and checked.
+and the two may never end up in one artifact. Tags are how you write that down,
+and how the build checks it.
 
 ## Declare the vocabulary
 
-Every tag is declared once, in `REPO.buri`, with what it costs:
+You declare every tag once, in `REPO.buri`, with what it costs:
 
 ```textproto schema=repo
 tag {
@@ -28,8 +28,8 @@ tag {
 }
 ```
 
-Write `doc` as the policy rather than a restatement of the name — it is printed
-in the diagnostic, and by then the reader wants to know why.
+Write `doc` as the policy rather than a restatement of the name. The diagnostic
+prints it, and by then the reader wants to know why.
 
 `forbids` is symmetric, so declaring it on one of the pair is the whole
 statement. Put it on the restricted side, which is where somebody will look.
@@ -62,9 +62,9 @@ binary {
 Adding a library that reuses an existing tag never touches `REPO.buri`, and
 changing what `net` means never touches a library.
 
-A tag `REPO.buri` does not declare is `unknown-tag`, with the nearest declared
-name suggested — so a typo cannot quietly turn a checked build into an unchecked
-one.
+A tag `REPO.buri` does not declare is `unknown-tag`, and the error suggests the
+nearest declared name, so a typo cannot quietly turn a checked build into an
+unchecked one.
 
 ## Watch it fail
 
@@ -84,10 +84,10 @@ error: //apps/scan cannot contain both "net" and "sandboxed" code [tag-violation
   = fix: drop one of the two dependencies, or split //apps/scan into a target per side
 ```
 
-The path is printed because the interesting question is never "which library is
-tagged `net`" but who dragged it in. The check runs at every target, not only at
-binaries, so an unsatisfiable library is reported at itself rather than at
-whichever binary reaches it first.
+The error prints the path because the interesting question is never "which
+library is tagged `net`", it is who dragged it in. The check runs at every
+target, not only at binaries, so the build reports an unsatisfiable library at
+itself rather than at whichever binary reaches it first.
 
 ## Ask before you build
 
@@ -106,7 +106,7 @@ $ buri query 'path(//apps/scan, //libs/socket)'
 ## Restrict a tag to platforms
 
 `requires { platforms: [...] }` is a whitelist, and it accumulates down the
-closure. `net` requiring Linux and macOS above means every library tagged `net`
+closure. Above, `net` requires Linux and macOS, so every library tagged `net`
 inherits that, and a binary asking for a JavaScript output fails a second way:
 
 ```text
@@ -124,6 +124,6 @@ closure has left.
 ---
 
 Tags answer "what may end up in one artifact." For "who may write this
-dependency edge," use `visibility`. Exact semantics — the closure union, the
-platform intersection, and why `forbids` has no platforms — are in
-[`tags.md`](../reference/build/tags.md).
+dependency edge," use `visibility`. [`tags.md`](../reference/build/tags.md) has
+the exact semantics: the closure union, the platform intersection, and why
+`forbids` has no platforms.

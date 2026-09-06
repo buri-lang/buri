@@ -1,12 +1,13 @@
 # Import a `.proto` schema
 
-A `.proto` file in a package becomes a module. Nothing is written to the source
-tree: there is no `_pb.buri` to check in and no generation step to forget.
+A `.proto` file in a package becomes a module. The compiler writes nothing to
+your source tree: there is no `_pb.buri` to check in and no generation step to
+forget.
 
 ## Put the schema in the package
 
-It must be an edition-2026 schema. `syntax = "proto3"` is refused, and so are
-proto2 and the older editions.
+The schema must be edition 2026. The compiler refuses `syntax = "proto3"`, and
+proto2 and the older editions with it.
 
 ```proto
 // libs/wire/point.proto
@@ -43,8 +44,8 @@ A schema no rule lists is `unused-library`, the same error a stray `.buri` gets.
 
 ## Decide what leaves the library
 
-A schema exports everything it declares — that is what a schema *is* — and the
-library boundary applies to the generated module unchanged. `lib.buri` picks:
+A schema exports everything it declares, because that is what a schema *is*. The
+library boundary applies to the generated module unchanged, so `lib.buri` picks:
 
 ```text
 // libs/wire/lib.buri
@@ -58,7 +59,7 @@ spelling and it is the file's name.
 
 ## Use the types
 
-Each message brings a default, a binary codec, and a JSON codec: for `Point`
+Each message brings a default, a binary codec, and a JSON codec. For `Point`
 those are `defaultPoint`, `encodePoint`/`decodePoint`, and
 `encodePointJson`/`decodePointJson`. Encoding and decoding allocate, so they
 take a context — here for an `Address` message in another repository:
@@ -75,7 +76,7 @@ export fn roundTrip<C: Alloc>(ctx: C, a: Address): Result<Address, ProtoError> {
 
 **Every singular field is an `Option`**, because presence is the edition's
 default. Setting one is `.Some(...)`, leaving it out is `.None`, and the two are
-different messages on the wire. The default is what makes a message with more
+different messages on the wire. That default is what makes a message with more
 than a few fields writable:
 
 ```buri repo=cli/tests/conformance package=//lib/proto
@@ -91,7 +92,7 @@ malformed four-kilobyte message says where it went wrong.
 
 ## Share a schema between packages
 
-Depend on the library and use what its `lib.buri` re-exported — a generated
+Depend on the library and use what its `lib.buri` re-exported: a generated
 module is inside the boundary like any other. One schema may `import` another,
 and when it does both must belong to the same rule.
 
