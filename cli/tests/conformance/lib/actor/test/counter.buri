@@ -8,7 +8,7 @@
 // optimizing one.
 
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Address, Reply };
+from "core/actor" import { Actor, Address, Stepped };
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/host/testing" import { alloc, stdout, tasks };
 from "core/io" import * as io;
@@ -17,22 +17,27 @@ from "core/testing/assert" import * as assert;
 enum CounterMessage {
     Increment,
     Add(Int),
-    Get(Reply<Int>),
+    Get,
+}
+
+derive Eq, Show for CounterAnswer;
+enum CounterAnswer {
+    Done,
+    Count(Int),
 }
 
 /// The note's counter, with `Add` beside `Increment` so that ordering is
 /// visible in the answer rather than only in the count.
-fn counter<C: Alloc + Tasks>(initial: Int): Actor<C, Int, CounterMessage> {
+fn counter<C: Alloc + Tasks>(
+    initial: Int,
+): Actor<C, Int, CounterMessage, CounterAnswer> {
     Actor {
         state: initial,
         step: fn(c, count, message) => {
             match (message) {
-                .Increment => count + 1,
-                .Add(n) => count * 10 + n,
-                .Get(reply) => {
-                    let _ = reply.answer(c, count).ignore();
-                    count
-                },
+                .Increment => Stepped { state: count + 1, answer: .Done },
+                .Add(n) => Stepped { state: count * 10 + n, answer: .Done },
+                .Get => Stepped { state: count, answer: .Count(count) },
             }
         },
     }
@@ -44,9 +49,9 @@ test "the note's counter answers two increments" {
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
-    let _ = counted.send(ctx, .Increment).ignore();
-    let _ = counted.send(ctx, .Increment).ignore();
-    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(2));
+    let _ = counted.sendMessage(ctx, .Increment).ignore();
+    let _ = counted.sendMessage(ctx, .Increment).ignore();
+    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(2)));
     let _ = counted.stop(ctx).ignore();
 }
 
@@ -56,57 +61,53 @@ test "one sender's messages arrive in the order it sent them" {
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
-    let _ = counted.send(ctx, .Add(1)).ignore();
-    let _ = counted.send(ctx, .Add(2)).ignore();
-    let _ = counted.send(ctx, .Add(3)).ignore();
+    let _ = counted.sendMessage(ctx, .Add(1)).ignore();
+    let _ = counted.sendMessage(ctx, .Add(2)).ignore();
+    let _ = counted.sendMessage(ctx, .Add(3)).ignore();
     // `count * 10 + n` is order-sensitive on purpose: 123 and not 321.
-    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(123));
+    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(123)));
     let _ = counted.stop(ctx).ignore();
 }
 
-test "a mailbox at its bound is run down rather than grown" {
+test "more messages than the mailbox holds still all arrive" {
     let ctx = context {
         Alloc: alloc(),
         Tasks: tasks(),
     };
-    // Sixty-five posts into a mailbox that holds sixty-four. Nobody asked and
-    // nobody stopped, so the only thing that could have stepped the actor is
-    // the `send` that found the queue at its bound — and it stepped every
-    // message waiting, which is why the answer is the whole sixty-five and not
-    // some prefix of them.
+    // Sixty-five posts into a mailbox that holds sixty-four. Each one runs the
+    // box down before it answers, so the bound is never reached and the answer
+    // is the whole sixty-five rather than some prefix of them.
     let counted = actor.start(ctx, counter(0));
     increments(ctx, counted, 65);
-    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(65));
+    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(65)));
     let _ = counted.stop(ctx).ignore();
 }
 
-test "the drain happens at the bound and not at the stop" {
+test "every message is stepped before the stop, so the stop discards none" {
     let sink = stdout();
     let ctx = context {
         Alloc: alloc(),
         Stdout: sink,
         Tasks: tasks(),
     };
-    // `stop` discards what is still waiting, so what `onStop` prints is exactly
-    // what the mailbox had already run down. Sixty-five posts leave one behind:
-    // the sixty-fourth found the queue full and stepped all sixty-four, and the
-    // sixty-fifth is still sitting there when the stop throws it away.
+    // `stop` discards what is still waiting, and after sixty-five sends there
+    // is nothing waiting: what `onStop` prints is every message.
     let counted = actor.start(ctx, logged());
     increments(ctx, counted, 65);
     assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(sink.captured(), "final 64\n");
+    assert.eq(sink.captured(), "final 65\n");
 }
 
-/// Posts `n` increments, one `send` at a time.
+/// Posts `n` increments, one `sendMessage` at a time.
 fn increments<C: Alloc + Tasks>(
     ctx: C,
-    counted: Address<C, Int, CounterMessage>,
+    counted: Address<C, Int, CounterMessage, CounterAnswer>,
     n: Int,
 ): () {
     match (n <= 0) {
         true => (),
         false => {
-            let _ = counted.send(ctx, .Increment).ignore();
+            let _ = counted.sendMessage(ctx, .Increment).ignore();
             increments(ctx, counted, n - 1)
         },
     }
@@ -118,10 +119,10 @@ test "a send after a stop is .Err(.Stopped)" {
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
-    let _ = counted.send(ctx, .Increment).ignore();
+    let _ = counted.sendMessage(ctx, .Increment).ignore();
     assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(counted.send(ctx, .Increment), .Err(.Stopped));
-    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Err(.Stopped));
+    assert.eq(counted.sendMessage(ctx, .Increment), .Err(.Stopped));
+    assert.eq(counted.sendMessage(ctx, .Get), .Err(.Stopped));
     // And a second `stop` is refused, which is what makes `onStop` run once
     // without the caller having to remember.
     assert.eq(counted.stop(ctx), .Err(.Stopped));
@@ -135,12 +136,10 @@ test "onStop runs once, with the final state" {
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, logged());
-    let _ = counted.send(ctx, .Add(4)).ignore();
-    let _ = counted.send(ctx, .Add(5)).ignore();
-    // The `ask` is what runs the two posts down, so the state the hook is
-    // handed is theirs. Nothing has been printed yet either way: the hook runs
-    // at the stop and not before.
-    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(45));
+    let _ = counted.sendMessage(ctx, .Add(4)).ignore();
+    let _ = counted.sendMessage(ctx, .Add(5)).ignore();
+    // Nothing has been printed yet: the hook runs at the stop and not before.
+    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(45)));
     assert.eq(sink.captured(), "");
     assert.eq(counted.stop(ctx), .Ok(()));
     assert.eq(sink.captured(), "final 45\n");
@@ -150,37 +149,18 @@ test "onStop runs once, with the final state" {
 }
 
 /// The same counter with a hook that prints the state it ends on.
-fn logged<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage> {
+fn logged<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAnswer> {
     Actor {
         state: 0,
         step: fn(c, count, message) => {
             match (message) {
-                .Increment => count + 1,
-                .Add(n) => count * 10 + n,
-                .Get(reply) => {
-                    let _ = reply.answer(c, count).ignore();
-                    count
-                },
+                .Increment => Stepped { state: count + 1, answer: .Done },
+                .Add(n) => Stepped { state: count * 10 + n, answer: .Done },
+                .Get => Stepped { state: count, answer: .Count(count) },
             }
         },
         onStop: .Some(fn(c, last) => io.println(c, "final ${last}").ignore()),
     }
-}
-
-test "a message that discards its reply leaves the ask stopped" {
-    let ctx = context {
-        Alloc: alloc(),
-        Tasks: tasks(),
-    };
-    // A step that never answers: `ask` has nothing to read, and says so
-    // rather than waiting for an answer nobody is going to give.
-    let silent = actor.start(ctx, mute());
-    assert.eq(silent.ask(ctx, fn(reply) => .Get(reply)), .Err(.Stopped));
-    let _ = silent.stop(ctx).ignore();
-}
-
-fn mute<C: Alloc + Tasks>(): Actor<C, Int, CounterMessage> {
-    Actor { state: 0, step: fn(c, count, message) => count }
 }
 
 test "testing an actor is calling its step" {
@@ -191,23 +171,34 @@ test "testing an actor is calling its step" {
     // No mailbox, no address, no runtime: the step is an ordinary function in
     // an ordinary field, which is why this module ships no test double.
     let step = counter(0).step;
-    assert.eq(step(ctx, 7, .Increment), 8);
-    assert.eq(step(ctx, 7, .Add(2)), 72);
+    assert.eq(step(ctx, 7, .Increment), Stepped { state: 8, answer: .Done });
+    assert.eq(step(ctx, 7, .Add(2)), Stepped { state: 72, answer: .Done });
+    assert.eq(step(ctx, 7, .Get), Stepped { state: 7, answer: .Count(7) });
 }
 
-// **An interim, and the file's one case that is.** What `core/actor` promises
-// is the first half of the assertion below: `stop` closes the mailbox and
-// *discards what is still in it*, so `onStop` sees the state the discarded
-// messages never reached. What makes three sends leave three messages still in
-// it is a **scheduling** answer and not a semantic one — `send` posts and
-// returns, and runs the mailbox down only where the post found it at the bound
-// (`actor.buri`'s "When the actor runs"). On the day an actor gets a task of
-// its own — `design/native/DECISIONS.md`'s `core/actor` row, "`send` is the
-// spelling again" — a stop may find the mailbox already stepped, and the
-// number below becomes `123` or anything between. It is that arm, and nothing
-// else, that is entitled to change this line; a driver that quietly stopped
-// discarding would still have to fail here first.
-test "today's driver leaves three sends for `stop` to discard" {
+test "the same step, through the actor" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    // The block above and this one are the same three answers, once by calling
+    // the step and once by posting to it.
+    let counted = actor.start(ctx, counter(7));
+    assert.eq(counted.sendMessage(ctx, .Increment), .Ok(.Done));
+    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(8)));
+    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.eq(counted.sendMessage(ctx, .Get), .Err(.Stopped));
+}
+
+// **The file's one case that was pinned as an interim, and it has moved.** It
+// used to read "today's driver leaves three sends for `stop` to discard": three
+// posts below the bound, nothing that asked, and an `onStop` that saw the state
+// the discarded messages never reached. `send` is gone and `sendMessage` runs
+// the mailbox down before it answers, so there is nothing left to discard and
+// the hook sees all three. What `core/actor` promises either way is the same
+// sentence — `stop` discards what is *still* in the mailbox — and the number
+// below is what today's driver leaves in it.
+test "a stop discards nothing, because every send already ran" {
     let sink = stdout();
     let ctx = context {
         Alloc: alloc(),
@@ -215,12 +206,9 @@ test "today's driver leaves three sends for `stop` to discard" {
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, logged());
-    // Three posts into a mailbox nothing has run down, then a stop: the note
-    // says the rest are discarded, so the final state is the one they never
-    // reached.
-    let _ = counted.send(ctx, .Add(1)).ignore();
-    let _ = counted.send(ctx, .Add(2)).ignore();
-    let _ = counted.send(ctx, .Add(3)).ignore();
+    let _ = counted.sendMessage(ctx, .Add(1)).ignore();
+    let _ = counted.sendMessage(ctx, .Add(2)).ignore();
+    let _ = counted.sendMessage(ctx, .Add(3)).ignore();
     assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(sink.captured(), "final 0\n");
+    assert.eq(sink.captured(), "final 123\n");
 }

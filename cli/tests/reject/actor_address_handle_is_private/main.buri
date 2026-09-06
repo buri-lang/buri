@@ -2,11 +2,11 @@
 //
 // An `Address` is the authority to send, not the number that authority is
 // spelled with. The mailbox's handle is how `core/actor` reaches the runtime —
-// `send`, `ask` and `stop` all pass it back — and it is private to that module,
-// so a program cannot read it out and cannot mint an `Address` around one of
-// its own. What crosses is the address, and every use of it goes through the
-// functions the module exports.
-from "core/actor" import { Actor };
+// `sendMessage` and `stop` both pass it back — and it is private to that
+// module, so a program cannot read it out and cannot mint an `Address` around
+// one of its own. What crosses is the address, and every use of it goes through
+// the functions the module exports.
+from "core/actor" import { Actor, Stepped };
 from "core/actor" import * as actor;
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/host" import * as host;
@@ -21,7 +21,7 @@ export fn main(): Result<(), Str> {
     let address = actor.start(ctx, Actor {
         state: 0,
         onStop: .None,
-        step: fn(_c, count, _message: Ping) => count + 1,
+        step: fn(_c, count, _message: Ping) => Stepped { state: count + 1, answer: () },
     });
     let _ = io.println(ctx, "mailbox ${address.handle}").ignore();
     let _stopped = address.stop(ctx).ignore();
