@@ -17,12 +17,12 @@ Import it from a file listed in a target's `test.sources`, or drop the import.
 
 ## Why
 
-The restriction is carried by the path rather than by a field, so it is visible
-where the import is written and there is nothing to remember to declare. Any
-module path with a `testing` *directory* segment is covered —
-`core/testing/assert`, `//lib/ledger/testing`, `//lib/testing/fakes`. A file
-called `testing.buri` is not one: the
-segment that would have made it test-only is the file's own name.
+The path carries the restriction rather than a field, so you can see it where
+the import is written and there is nothing to remember to declare. Any module
+path with a `testing` *directory* segment is covered: `core/testing/assert`,
+`//lib/ledger/testing`, `//lib/testing/fakes`. A file called `testing.buri` is
+not one, because the segment that would have made it test-only is the file's own
+name.
 
 ## A program that provokes it
 

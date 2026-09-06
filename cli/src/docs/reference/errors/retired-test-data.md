@@ -39,22 +39,20 @@ test "renders the statement" {
 }
 ```
 
-A golden that is read straight back is a golden the filesystem is not doing
-anything for, and the shorter spelling of the same test is
-`assert.eq(render(), "coffee  $4.50")`.
+If the golden is read straight back, the filesystem is doing nothing for it. The
+shorter spelling of the same test is `assert.eq(render(), "coffee  $4.50")`.
 
 ## Why
 
 `data` named files on disk, and the *runner* read them and handed the suite
 their contents. That made a suite's filesystem a fact about the build rather
-than about the program, and it could only be told to a suite the toolchain ran
-under a runner. A linked test binary has none: `data()` in a native test binary
-was empty, so a package that declared `data` read `.Err(.NotFound)` where
-`buri test` read the file. The toolchain hid that by sending every suite
-declaring `data` back to JavaScript — one build-file field deciding which
-backend a suite was allowed to run on, to protect an answer the two backends did
-not agree about.
+than about the program, and only a suite the toolchain ran under a runner could
+be told it. A linked test binary has no runner: `data()` there was empty, so a
+package that declared `data` read `.Err(.NotFound)` where `buri test` read the
+file. The toolchain hid that by sending every suite declaring `data` back to
+JavaScript — one build-file field deciding which backend a suite was allowed to
+run on, to protect an answer the two backends did not agree about.
 
-`fs().files([...])` is the same seeding written where it can be honest: it is
+`fs().files([...])` is the same seeding written where it can be honest. It is
 the suite's own text, both backends read it the same way, and nothing in the
 build file decides what the program sees.

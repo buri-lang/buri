@@ -18,13 +18,12 @@ name with `let` and write the field access, call or index against the name.
 
 `if`, `match`, `context` and a bare block are expressions, and they end with
 `}`. If a `}` could be followed by `.`, `(` or `[`, then
-`if (c) { a } else { b } { x: 1 }` would have two readings — a struct literal
-headed by the `if`, and an `if` followed by a block — and neither the reader nor
-the parser could tell which was meant (design/grammar-rationale.md 12.13).
+`if (c) { a } else { b } { x: 1 }` would have two readings: a struct literal
+headed by the `if`, or an `if` followed by a block. Neither you nor the parser
+could tell which was meant (design/grammar-rationale.md 12.13).
 
-Refusing the chain outright is what keeps the `}` at the end of a block-like
-expression from being a place where the meaning of the file depends on the next
-token.
+Refusing the chain outright keeps the `}` at the end of a block-like expression
+from being a place where the next token decides what the file means.
 
 ## A program that provokes it
 

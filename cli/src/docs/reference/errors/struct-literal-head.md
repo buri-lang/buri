@@ -18,9 +18,9 @@ expected type is known.
 ## Why
 
 The grammar admits `f(x) { a: 1 }` because it decides shape without consulting
-name resolution; the checker is where the head is required to be a type. So
-this is a rule the parser deliberately does not enforce, and the diagnostic
-arrives one phase later than it looks like it should.
+name resolution. The checker is where the head has to be a type. So the parser
+deliberately lets this through, and the diagnostic arrives one phase later than
+it looks like it should.
 
 ## A program that provokes it
 
