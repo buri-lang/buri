@@ -10,28 +10,28 @@ mutability, no aliasing hazard, and therefore no borrow checker and no lifetimes
 let u2 = User { ..u, name: "new" };
 ```
 
-An implementation is expected to make this cheap through structural sharing and
-opportunistic in-place update when a value is provably not shared. That is an
-implementation strategy, not a language rule, and it is never observable.
+An implementation should make this cheap: share structure, and update in place
+where it can prove a value is not shared. That is an implementation strategy
+rather than a language rule, and nothing can observe it.
 
 ### 8.2 Strictness and order
 
 Buri is strict. Evaluation order is fully specified:
 
-1. `let` bindings in a block are evaluated top to bottom, before the block's
-   result expression.
-2. Call arguments are evaluated left to right, then the function is applied.
-3. Operands of binary operators are evaluated left to right, except for `&&`
-   and `||`, which short-circuit.
-4. `if` evaluates its condition, then exactly one branch.
-5. `match` evaluates its scrutinee, then tests arms in order, evaluating each
-   guard only when its pattern matched.
+- A block evaluates its `let` bindings top to bottom, before its result
+  expression.
+- A call evaluates its arguments left to right, then applies the function.
+- A binary operator evaluates its operands left to right, except for `&&` and
+  `||`, which short-circuit.
+- `if` evaluates its condition, then exactly one branch.
+- `match` evaluates its scrutinee, then tests arms in order, evaluating each
+  guard only when its pattern matched.
 
-This matters more than it usually would: because effects are performed by
-ordinary function calls rather than by a monad, **specified evaluation order is
-what makes effect sequencing meaningful.** An implementation may reorder or
-eliminate work only where the result is indistinguishable, and calls that consume
-an effect are never indistinguishable.
+This matters more here than it usually would. Effects happen through ordinary
+function calls rather than through a monad, so **a specified evaluation order is
+what makes effect sequencing mean anything.** An implementation may reorder or
+eliminate work only where the result is indistinguishable, and a call that
+consumes an effect is never indistinguishable.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let _ = io.println(ctx, "first").ignore();
@@ -60,25 +60,25 @@ cost:
 | A statically known group of functions tail-call each other | merge the group into one function with a dispatch switch | one branch per bounce |
 | A tail call through a value of function type | trampoline: return a thunk, drive it from a loop | one allocation per bounce |
 
-The first two cover essentially all Buri code, and both are exact — the emitted
+The first two cover essentially all Buri code, and both are exact: the emitted
 loop is what a hand-written loop would have been. They apply because Buri has no
-dynamic dispatch: there are no trait objects and no virtual calls, so the call
-graph of direct calls is fully known, and generic calls become direct after
-monomorphization.
+dynamic dispatch. There are no trait objects and no virtual calls, so the
+compiler knows the whole graph of direct calls, and generic calls become direct
+after monomorphization.
 
-Only the third case costs anything, and it arises solely when a function *value*
-is invoked in tail position. An implementation should apply the cheaper
-transformation wherever the callee is statically known, and may specialize a
-call site whose function value is known to avoid the trampoline entirely.
+Only the third case costs anything, and it arises only when a tail call invokes a
+function *value*. An implementation should apply the cheaper transformation
+wherever it knows the callee statically, and may specialize a call site whose
+function value it knows, dropping the trampoline entirely.
 
-One consequence is observable: an abort inside a transformed group reports fewer
+One consequence is observable. An abort inside a transformed group reports fewer
 stack frames than the source suggests, because those frames no longer exist.
-Implementations should preserve source positions through the transformation so
-that the reported location is still correct.
+Implementations should carry source positions through the transformation, so the
+reported location is still correct.
 
 ### 8.4 Closures
 
-Lambdas capture by value. Since values are immutable, capture is unobservable —
-with one exception, the capture rule of Section 10.6.
+Lambdas capture by value. Values are immutable, so nothing can observe the
+capture — with one exception, the capture rule of Section 10.6.
 
 ---

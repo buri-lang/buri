@@ -1,30 +1,30 @@
 ## 1. Introduction
 
-Buri is a strict, purely functional, statically typed language with TypeScript-shaped
-syntax, Rust-shaped data declarations, and Roc-shaped ideas about platforms and
-effects.
+Buri is a strict, purely functional, statically typed language. The syntax looks
+like TypeScript, the data declarations look like Rust, and the ideas about
+platforms and effects come from Roc.
 
 Three ideas define it:
 
 - **There is no mutation.** Every binding is final. There are no references, no
   borrowing, and no lifetimes. Values are values.
 - **Effects travel through arguments.** The ability to allocate, read a file, or
-  open a socket is a *value* of an unforgeable type. A function that was not
-  handed one cannot perform that effect. Purity is therefore a property you can
-  read off a signature, not a property the compiler asks you to trust.
+  open a socket is a *value* of an unforgeable type. A function nobody handed one
+  to cannot perform that effect. So you read purity off a signature instead of
+  taking the compiler's word for it.
 - **The grammar is context-free and unambiguous.** Parsing never consults name
-  resolution or types. `design/grammar-rationale.md` documents each design decision that pays for
-  this, and what was given up to get it.
+  resolution or types. `design/grammar-rationale.md` records each design decision
+  that pays for this, and what it gave up.
 
 Version 0.3 is deliberately small: primitives, arrays, tuples, structs, enums,
-functions, methods, and traits. Data and behaviour are declared
-separately; there is no mutable state, no inheritance, and no dynamic dispatch. A
-method is an ordinary function whose first parameter is `self`, and a trait is an
-interface satisfied nominally — neither introduces a runtime mechanism.
+functions, methods, and traits. You declare data and behaviour separately. There
+is no mutable state, no inheritance, and no dynamic dispatch. A method is an
+ordinary function whose first parameter is `self`. A trait is an interface a type
+satisfies nominally. Neither adds a runtime mechanism.
 
-There are also no loops. Iteration is recursion — guaranteed tail-call
-eliminated — or a fold. A `for`/`while` sugar was drafted for this version and
-cut; `design/non-goals.md` records why.
+There are also no loops. You iterate with recursion — guaranteed tail-call
+eliminated — or with a fold. A `for`/`while` sugar was drafted for this version
+and cut; `design/non-goals.md` records why.
 
 ### 1.1 A taste
 

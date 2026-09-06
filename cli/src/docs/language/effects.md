@@ -81,42 +81,40 @@ export effect FsWrite {
 `core/effect` declares `Alloc`, `Net`, `Clock`, `Rand`, `Entropy`, `Env`,
 `Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`, and `Sockets`, and
 `core/fs` declares `FsRead` and `FsWrite`. **Only platform modules may declare
-effects**; `effect` in ordinary code is a compile error, so the set of things a
-Buri program can do to the world is fixed by its platform rather than
-open-ended.
+effects**; `effect` in ordinary code is a compile error. So a program's platform
+fixes what that program can do to the world, rather than leaving it open-ended.
 
 Two things about that second module are deliberate.
 
 **The filesystem is two effects because it is two grants.** A program that reads
-its configuration has not thereby earned the right to delete it, and the
-difference is one a reader of a context should be able to see: a
-`<C: Alloc + FsRead>` is a promise the compiler keeps, because nothing that
-function hands `ctx` to can ask for `FsWrite` from a context that does not bind
-it. The cost is that a program doing both binds both, which is the price of
-saying which one a caller has.
+its configuration has not thereby earned the right to delete it, and a reader of
+a context should be able to see the difference. A `<C: Alloc + FsRead>` is a
+promise the compiler keeps: nothing that function hands `ctx` to can ask for
+`FsWrite` from a context that does not bind it. The cost is that a program doing
+both binds both, which is the price of saying which one a caller has.
 
 **They are declared in `core/fs` rather than in `core/effect` because their
-methods name `Path`.** `core/path` names `Alloc`, and `core/effect` cannot
-import a module that imports it — the same constraint that puts `IoError` and
-`Request` beside the effects that name them. So the declarations live on the
-side of that dependency where they can say what they mean, and `core/fs` is a
-platform module for exactly that reason. It re-exports `Path`, so
+methods name `Path`.** `core/path` names `Alloc`, and `core/effect` cannot import
+a module that imports it — the same constraint that puts `IoError` and `Request`
+beside the effects that name them. So the declarations live on the side of that
+dependency where they can say what they mean, and `core/fs` is a platform module
+for exactly that reason. It re-exports `Path`, so
 `from "core/fs" import { FsRead, Path }` is one import rather than two.
 
-`Rand` and `Entropy` are two effects over what looks like one capability, and
-the split is the clearest example on this page of what an effect is *for*.
-`Rand` promises a distribution and nothing more — the test platform's is seeded,
-so a failing test reproduces — while `Entropy` promises that somebody who has
-watched the output cannot predict the rest. A program says which it meant by
-which it binds, and a program that needed the second and was handed the first
-would have no symptom at all. `core/random` is the door onto one and
-`core/crypto` onto the other. It is the same shape as the filesystem's split one
-paragraph up: two grants, because they are two promises.
+`Rand` and `Entropy` are two effects over what looks like one capability, and the
+split is the clearest example on this page of what an effect is *for*. `Rand`
+promises a distribution and nothing more — the test platform's is seeded, so a
+failing test reproduces. `Entropy` promises that somebody who has watched the
+output cannot predict the rest. A program says which it meant by which it binds,
+and a program that needed the second and got the first would show no symptom at
+all. `core/random` is the door onto one, `core/crypto` onto the other. Same shape
+as the filesystem's split one paragraph up: two grants, because they are two
+promises.
 
 `Net.fetch` takes one value and answers one value, and those two types are the
 whole of what an HTTP message is in this language — the same `Request` a server
 hands a handler, not a second shape for the other direction. Three things follow
-from the declarations above and are worth saying out loud:
+from the declarations above:
 
 - **A wire spelling never appears in Buri code.** `GET` is written `.Get`, and
   the three letters live in the platform's implementation. A method the enum
@@ -127,16 +125,16 @@ from the declarations above and are worth saying out loud:
   `core/bytes`' job and answers a `Result`, so a body that is not text says so
   where it is read.
 
-`https://` is checked, not merely accepted. The server's certificate is verified
-against your machine's own trust anchors — the PEM bundle the platform keeps,
-which on macOS is `/etc/ssl/cert.pem` and on Linux one of the four usual paths —
-and a certificate that does not check out is a `NetError::Transport` naming what
-was wrong and which trust set it was checked against. Setting `SSL_CERT_FILE` to
-a PEM bundle **replaces** those anchors, the same way it does for OpenSSL,
-`curl` and `git`; it is what a private or corporate authority is for, and on
-macOS it is also how a root that lives only in the keychain is reached. There is
-no way to turn verification off, and none is planned: a `Net` a program could
-ask to trust anybody is not a capability, it is a hole.
+`https://` is checked, not merely accepted. The platform verifies the server's
+certificate against your machine's own trust anchors: the PEM bundle it keeps,
+which on macOS is `/etc/ssl/cert.pem` and on Linux one of the four usual paths. A
+certificate that does not check out is a `NetError::Transport` naming what was
+wrong and which trust set it was checked against. Setting `SSL_CERT_FILE` to a
+PEM bundle **replaces** those anchors, the same way it does for OpenSSL, `curl`
+and `git`. That is what a private or corporate authority is for, and on macOS it
+is also how you reach a root that lives only in the keychain. There is no way to
+turn verification off, and none is planned: a `Net` a program could ask to trust
+anybody is not a capability, it is a hole.
 
 An effect is a trait in every other respect — same declaration shape, same
 nominal conformance, same `impl`, same bounds. Two rules separate them:
@@ -144,11 +142,11 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
 - an effect's implementors are **effect-carrying**, and so may be passed only as
   `self` or `ctx` (Section 10.2);
 - **no type may implement both an effect and a trait.** A type is either part of
-  the world or part of your data, and the boundary is checked rather than
-  assumed. It holds for composites too: an effect-carrying type — one that
-  merely *mentions* an effect, such as a `Holder<C>` storing a context —
+  the world or part of your data, and the compiler checks that boundary rather
+  than assuming it. It holds for composites too. An effect-carrying type — one
+  that merely *mentions* an effect, such as a `Holder<C>` storing a context —
   satisfies no ordinary bound either, whatever `impl`s its head constructor
-  carries. That is what lets Section 10.6 conclude that a `T: Ord` is never a
+  carries. That is what lets Section 10.6 conclude a `T: Ord` is never a
   context.
 
 A function names the effects it needs as **bounds** on its context parameter:
@@ -211,43 +209,43 @@ through `ctx`.
 
 ### An effect is performed by a function, not by a method
 
-**An effect's methods are called through the module that wraps the effect,
-never on the value that carries it.** `ctx.println(text)` is
-`io.println(ctx, text)`; `ctx.readFile(path)` is `fs.readText(ctx, path)`;
-`ctx.allocate(n)` is `alloc.allocate(ctx, n)`. Every method of every declared
-effect has exactly one such function, and calling one on a value is
-`effect-method-call`, which names the function and the module it comes from.
+**You call an effect's methods through the module that wraps the effect, never on
+the value that carries it.** `ctx.println(text)` is `io.println(ctx, text)`;
+`ctx.readFile(path)` is `fs.readText(ctx, path)`; `ctx.allocate(n)` is
+`alloc.allocate(ctx, n)`. Every method of every declared effect has exactly one
+such function. Calling one on a value is `effect-method-call`, which names the
+function and the module it comes from.
 
-A context is the set of things a program may do, and the point of writing it
-down is that a reader can see what a function reaches for. `x.f(y)` hides that:
-the receiver is the smallest, quietest part of a call, and an effect performed
-through one reads like a method on an ordinary value. Passing the context as an
-argument puts the authority where the reader is already looking, and it makes
-the two halves — *which* effect, and *what* it does — two names instead of one.
-It also settles a question the method form left open: method lookup through a
-bound searches every effect the bound declares, so two effects claiming one
-verb make that verb ambiguous for everybody who binds both (`Ui.read` and
-`Watch.read` are the shipped case), while a module-qualified call cannot be
-ambiguous at all.
+A context is the set of things a program may do, and you write it down so a
+reader can see what a function reaches for. `x.f(y)` hides that. The receiver is
+the smallest, quietest part of a call, and an effect performed through one reads
+like a method on an ordinary value. Passing the context as an argument puts the
+authority where the reader is already looking, and it splits the two halves —
+*which* effect, and *what* it does — into two names instead of one.
+
+It also settles a question the method form left open. Method lookup through a
+bound searches every effect the bound declares, so two effects claiming one verb
+make that verb ambiguous for everybody who binds both — `Ui.read` and
+`Watch.read` are the shipped case. A module-qualified call cannot be ambiguous at
+all.
 
 Two layers are below that line and keep the method form:
 
 - **the standard library**, which is where those wrapper functions are, so its
   bodies are the only thing that reaches an effect at all; and
 - **the body of an `impl` that supplies an effect**, which is where the
-  operation is implemented — this is what keeps Section 10.8's attenuation
-  wrapper writable, and `ReadOnly<C>`'s `self.0.readFile(path)` cannot become
-  `fs.readText(self.0, at)`, because that wrapper is bounded
-  `Alloc + FsRead` where the `impl` carries only `C: FsRead`.
+  operation is implemented. That is what keeps Section 10.8's attenuation wrapper
+  writable. `ReadOnly<C>`'s `self.0.readFile(path)` cannot become
+  `fs.readText(self.0, at)`, because that wrapper is bounded `Alloc + FsRead`
+  where the `impl` carries only `C: FsRead`.
 
 The carve-out grants nothing new: an implementor can reach only an inner
 context somebody already handed it.
 
-There is exactly one construct in which more than one effect-carrying value may
-appear, and it is the `context` expression of Section 11.3 — the place where a
-context is assembled out of the implementations that make it up. Everywhere
-else, effects travel through a single `ctx` parameter or an
-effect-carrying `self`.
+Exactly one construct may hold more than one effect-carrying value: the `context`
+expression of Section 11.3, where you assemble a context out of the
+implementations that make it up. Everywhere else, effects travel through a single
+`ctx` parameter or an effect-carrying `self`.
 
 The rule costs a function the ability to take two independent contexts — bundle
 them into one type instead — and buys the property the chapter rests on:
@@ -264,8 +262,8 @@ The platform. `core/host` exports one value per effect the platform grants —
 `host.fs`, `host.net`, `host.clock`, `host.rand`, `host.env`, `host.proc`,
 `host.tasks`, on a native
 platform `host.listen` and `host.sockets`, and on a platform with a document
-`host.ui` and `host.watch` — and it is importable only from the module that
-exports `main`. `main` assembles them into the one context the program has:
+`host.ui` and `host.watch` — and only the module that exports `main` may import
+it. `main` assembles them into the one context the program has:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Stdout };
@@ -282,66 +280,66 @@ export fn main(): Result<(), Str> {
 }
 ```
 
-The form is Section 11.3. What matters here is what it makes true: a program
+Section 11.3 has the form. What matters here is what it makes true. A program
 that never names `host.net` cannot open a socket anywhere in its transitive call
-graph — not in a dependency, not in a build script, not by accident, because
+graph — not in a dependency, not in a build script, not by accident — because
 nothing anywhere can obtain a value bounded by `Net`. The effect budget is the
-set of `host` members reachable from `main`'s context, and a platform that does
-not grant an effect simply does not export it, so requesting one is a compile
-error at the one line that asked for it — `effect-not-on-platform`, on the name
-inside the braces where the name was imported and on the member reference where
-the host came in as a namespace. Both halves of a grant are refused together —
-the implementation struct as well as the value — so there is nothing left to
-construct by name.
+set of `host` members reachable from `main`'s context. A platform that does not
+grant an effect simply does not export it, so asking for one is a compile error
+at the one line that asked. The diagnostic is `effect-not-on-platform`, reported
+on the name inside the braces where the file imported it, and on the member
+reference where the host came in as a namespace. Both halves of a grant are
+refused together, the
+implementation struct as well as the value, so there is nothing left to construct
+by name.
 
-Which platforms the module is checked against is the build system's answer
-rather than the language's: `main.buri` is checked against every platform its
-rule's `outputs` name, and against every platform its suite names in
-`test.platforms`, because a test binary links `main` in. All of them have to
-compile. Nothing about an **effect type** is platform-bound — `from "core/fs"
-import { FsRead }` is legal everywhere, a page included, because a bound is a
-demand for an implementation rather than one.
+The build system decides which platforms the module is checked against, not the
+language. The compiler checks `main.buri` against every platform its rule's
+`outputs` name, and against every platform its suite names in `test.platforms`,
+because a test binary links `main` in. All of them have to compile. Nothing about
+an **effect type** is platform-bound: `from "core/fs" import { FsRead }` is legal
+everywhere, a page included, because a bound demands an implementation rather
+than being one.
 
-`Tasks` — "run this over every item at once" — is granted on `LINUX`, `MACOS`
-and `JS`, and withheld from `WEB`, which is the same three as `FsRead`, `FsWrite`,
-`Stdin`, `Env` and `Proc`, and is withheld for a reason of the same kind: `parallel`
-returns only when the last task has finished, and a page has an interface that a
-wait is visible in. A page's concurrency is its event loop.
+`Tasks` — "run this over every item at once" — is granted on `LINUX`, `MACOS` and
+`JS`, and withheld from `WEB`. That is the same three platforms as `FsRead`,
+`FsWrite`, `Stdin`, `Env` and `Proc`, withheld for a reason of the same kind.
+`parallel` returns only when the last task has finished, and a page has an
+interface a wait is visible in. A page's concurrency is its event loop.
 
 The context above reads files and cannot write one: `host.fs` is nowhere in
 it, so nothing it reaches can be bounded by `FsWrite`. Binding one half of the
 filesystem and not the other is the ordinary case rather than a precaution.
 
-**A row of that table may name no platform at all**, and an empty set of
-platforms is an ordinary value of the field rather than a second mechanism
-bolted on beside it. That is what lets a declaration land ahead of the runtime
-that will answer it: a signature is the expensive thing to change once programs
-are written against it, so `core/effect` declares the effect, `core/host`
-declares the implementation struct and the value, and the row grants it nowhere.
-Every binding of it is then refused on every target, with the reason rather than
-with "no such name", and granting it later is an edit to that one row. No row is
-empty today — every effect named above is reachable from somewhere — but the
-shape is worth knowing, because it is how the last two arrived.
+**A row of that table may name no platform at all.** An empty set of platforms is
+an ordinary value of the field rather than a second mechanism bolted on beside
+it. That is what lets a declaration land ahead of the runtime that will answer
+it. A signature is the expensive thing to change once programs are written
+against it, so `core/effect` declares the effect, `core/host` declares the
+implementation struct and the value, and the row grants it nowhere. Every binding
+of it is then refused on every target, with the reason rather than with "no such
+name", and granting it later is an edit to that one row. No row is empty today —
+every effect named above is reachable from somewhere — but the shape is worth
+knowing, because it is how the last two arrived.
 
-`Tasks` is the worked example, and it is what the grant table is *for*. `Tasks`
-was declared first and granted by nobody — a row with an empty platform list —
-so its signature could be written, reviewed and documented before there was a
-scheduler to argue with, and every `Tasks: host.tasks` was refused everywhere
-with that reason rather than with "no such name". Granting it was an edit to that
-one row. Nothing about a program that had been written against the signature
-changed, and no second mechanism — no "not implemented" flag, no feature gate —
-was ever involved.
+`Tasks` is the worked example, and it is what the grant table is *for*. It was
+declared first and granted by nobody, a row with an empty platform list. So its
+signature could be written, reviewed and documented before there was a scheduler
+to argue with, and every `Tasks: host.tasks` was refused everywhere with that
+reason rather than with "no such name". Granting it was an edit to that one row.
+Nothing changed for a program already written against the signature, and no
+second mechanism — no "not implemented" flag, no feature gate — was ever
+involved.
 
 `Listen` and `Sockets` — "I accept connections" and "I can write to open
-sockets" — came the same way, and they are also the case that shows a platform
-list which is neither everything nor the three non-page platforms. They are
-granted on `LINUX` and `MACOS`, and nowhere else. Holding a port open is a
-native program's authority; a page is served rather than serving, and its host
-has no way to accept a connection at all — so `Listen: host.listen` under
-`platform: JS` or `platform: WEB` is refused with that reason, and it is a
-refusal nothing later is going to lift. The two move together, because being a
-server is one authority in two halves: accepting a connection, and writing to
-one somebody already accepted.
+sockets" — came the same way. They also show a platform list that is neither
+everything nor the three non-page platforms: `LINUX` and `MACOS`, and nowhere
+else. Holding a port open is a native program's authority. A page is served
+rather than serving, and its host has no way to accept a connection at all. So
+`Listen: host.listen` under `platform: JS` or `platform: WEB` is refused with
+that reason, and nothing later is going to lift it. The two move together,
+because being a server is one authority in two halves: accepting a connection,
+and writing to one somebody already accepted.
 
 That pair is also what an empty row was never promising. An empty list says
 "nobody grants this today" and never "everybody will": `Listen`'s row gained the
@@ -349,18 +347,18 @@ two platforms that can serve and will never gain the other two. The row says who
 grants the effect now, and the reason says why — nothing in it was ever a
 schedule.
 
-Note what is *not* claimed: an effect is an ordinary interface, so anyone may
-write a type that satisfies it (Section 10.9 does). That is not a forgery hole —
-a fake `Stdout` still cannot write anything, and what is unforgeable is the
-*platform's* implementation. The open interface is what makes testing free.
+Note what this does *not* claim. An effect is an ordinary interface, so anyone
+may write a type that satisfies it, and Section 10.9 does. That is not a forgery
+hole: a fake `Stdout` still cannot write anything, and what nobody can forge is
+the *platform's* implementation. The open interface is what makes testing free.
 
 `Alloc` is the case where that openness is useful outside a test, because it is
 the one effect whose implementation grants nothing: `allocate` answers a
 `Region`, which is a number nothing reads. So `core/alloc` ships three
-implementations — `generalPurpose()`, `arena()`, `fixedBuffer(n)` — and is
-importable anywhere rather than only from `main`. Binding one is how a program
-asks what it is spending, or refuses to spend more than a budget; it is not how
-a program acquires an authority it was not given.
+implementations — `generalPurpose()`, `arena()`, `fixedBuffer(n)` — and any
+module may import it, not only `main`. Binding one is how a program asks what it
+is spending, or refuses to spend more than a budget. It is not how a program
+acquires an authority nobody gave it.
 
 ### 10.4 What "pure" means
 
@@ -394,11 +392,11 @@ themselves effect-free, so for a top-level `fn` the theorem reduces to: *is
 there a `ctx` parameter?*
 
 The last clause exists because `main` has no parameters and is plainly not pure:
-it builds a context and uses it. It is not a hole. A context may be constructed
-only in `main`'s body, in a test source, or in a test-only module (Section
-11.3), and none of those is a function anybody calls from library code — `main`
-is the entry point, and a test source may not be imported. So in all ordinary
-code the clause is vacuous, and the useful form of the theorem is unchanged.
+it builds a context and uses it. It is not a hole. Only `main`'s body, a test
+source, or a test-only module may construct a context (Section 11.3), and library
+code calls none of those — `main` is the entry point, and nobody may import a
+test source. So the clause is vacuous in all ordinary code, and the useful form
+of the theorem is unchanged.
 
 Two consequences:
 
@@ -459,11 +457,11 @@ the same rule at a type parameter, where "carries an effect" cannot be read off
 the type — so `fn wrap<T>(x: T, f: fn(T) => ()): fn() => () { fn() => f(x) }` is
 rejected, on the capture of `x`.
 
-Nothing in `wrap` mentions an effect, and its body is checked once for every
-instantiation at once (`guides/compile-speed.md`), so where the rule runs `T` is
-opaque. Yet `wrap(ctx, fn(c) => io.println(c, "hi").ignore())` instantiates it
-at a context type and returns a `fn() => ()` holding an effect — the same
-smuggling, arriving by the generic route. So a type parameter is treated as
+Nothing in `wrap` mentions an effect, and the compiler checks its body once for
+every instantiation at once (`guides/compile-speed.md`), so `T` is opaque where
+the rule runs. Yet `wrap(ctx, fn(c) => io.println(c, "hi").ignore())` instantiates
+it at a context type and returns a `fn() => ()` holding an effect — the same
+smuggling, arriving by the generic route. So the rule treats a type parameter as
 though it *were* a context, unless one of two things says otherwise:
 
 - **An ordinary trait bound.** An effect-carrying type satisfies no ordinary
@@ -483,12 +481,12 @@ The standard library provides `*Ctx` variants (`list.mapCtx`, `list.filterCtx`,
 combinator does not fit. This is the sharpest trade-off in the language, and
 `design/non-goals.md` lists it as the first open question.
 
-**A callback declared by an effect is handed a context only if the declaration
-names one, and `Self` never names one.** This is the capture rule read from the
-other end. An effect method may take a callback — `Tasks.parallel` takes the
-step that runs on every item — and that callback cannot close over a context, so
-whatever authority it is to have must arrive as its first parameter. Two
-different values could arrive there, and the declaration says which:
+**A callback an effect declares gets a context only if the declaration names one,
+and `Self` never names one.** This is the capture rule read from the other end.
+An effect method may take a callback — `Tasks.parallel` takes the step that runs
+on every item — and that callback cannot close over a context, so whatever
+authority it is to have arrives as its first parameter. Two different values
+could arrive there, and the declaration says which:
 
 ```buri ignore why="not yet converted to a compiled example: it declares an effect, which only a platform module may do"
 export effect Tasks {
@@ -509,48 +507,46 @@ export effect Listen {
 }
 ```
 
-`Self` is the **implementing type** everywhere it is written: in an `impl`
-head, in an effect's declaration, and inside a callback's parameter list. It is
-not the receiver. Through a `context { … }` value the two differ — a context
-*names* a value that implements the effect rather than being one — and the
-implementation is what `Self` means at every one of those points (Section 10.1).
+`Self` is the **implementing type** everywhere you write it: in an `impl` head,
+in an effect's declaration, and inside a callback's parameter list. It is not the
+receiver. Through a `context { … }` value the two differ, because a context
+*names* a value that implements the effect rather than being one. `Self` means
+the implementation at every one of those points (Section 10.1).
 
 So an effect that wants to hand a callback the **caller's** authority takes the
 caller's context as an ordinary `ctx` parameter and spells the callback
-`fn(C, …)`. The caller passes the same value twice, once as the receiver and
-once as `ctx`, and the two parameters mean different things: the receiver
-chooses the implementation, and `ctx` is what the work is done with.
+`fn(C, …)`. The caller passes the same value twice, once as the receiver and once
+as `ctx`, and the two parameters mean different things: the receiver chooses the
+implementation, and `ctx` is the authority the work runs with.
 
-Naming it rather than overloading `Self` is what keeps an effect an ordinary
-interface (Section 10.9). A callback parameter that meant "the caller's context"
-would have a type no implementation could name and no implementation could
-produce a value of, so no `impl` written in Buri could ever call its own
-callback — the effect would be implementable only by the compiler. With `C` in
-the signature, a hand-written implementation has both a name for the type and a
-value of it, and a fake in a test runs its steps exactly as the shipping
-implementation does.
+Naming it rather than overloading `Self` keeps an effect an ordinary interface
+(Section 10.9). A callback parameter meaning "the caller's context" would have a
+type no implementation could name and none could produce a value of, so no `impl`
+written in Buri could ever call its own callback — only the compiler could
+implement the effect. With `C` in the signature, a hand-written implementation
+has both a name for the type and a value of it, and a fake in a test runs its
+steps exactly as the shipping implementation does.
 
-A callback whose first parameter is `Self` receives strictly less than its
-caller had: an acceptor grants `Listen` and nothing else, so a handler handed
-one cannot allocate, print, or start a task. That is the right answer where the
-callback is meant to inspect the implementation, and the wrong one for a request
-handler, which is why the choice is written down per method rather than
-inferred — and why `Listen` carries no callback at all today. It is seven
-operations now — bind a listener, accept a connection, read the request on it,
-respond to it, close the listener, upgrade a connection into a WebSocket and
-read what arrives on that — and the loop that calls a handler between
-the third and the fourth lives in `core/net/server`, written in Buri against the
-caller's own `C`. A handler there may allocate, print, read a clock and start a
-task, because the authority it runs with never crossed the effect boundary to be
-narrowed. There is more than one of that loop, in fact: `run` fans it out over
-the carrier pool, one worker per handler the acceptor said it would host, so
-"the handler runs under the caller's context" is now also "on a task of the
-caller's own".
+A callback whose first parameter is `Self` receives strictly less than its caller
+had. An acceptor grants `Listen` and nothing else, so a handler handed one cannot
+allocate, print, or start a task. That is the right answer where the callback is
+meant to inspect the implementation, and the wrong one for a request handler. So
+the declaration writes the choice down per method rather than inferring it — and
+`Listen` carries no callback at all today. It is seven operations now: bind a
+listener, accept a connection, read the request on it, respond to it, close the
+listener, upgrade a connection into a WebSocket, and read what arrives on that.
+The loop that calls a handler between the third and the fourth lives in
+`core/net/server`, written in Buri against the caller's own `C`. A handler there
+may allocate, print, read a clock and start a task, because the authority it runs
+with never crossed the effect boundary to be narrowed. There is more than one of
+that loop, in fact: `run` fans it out over the carrier pool, one worker per
+handler the acceptor said it would host, so "the handler runs under the caller's
+context" is now also "on a task of the caller's own".
 
 ### 10.7 Calling convention
 
-**receiver first, context second, everything else after** — which is now enforced
-rather than merely conventional (Section 10.2). A free function that has no
+**Receiver first, context second, everything else after.** Section 10.2 now
+enforces this rather than leaving it a convention. A free function with no
 receiver therefore takes the context first:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
@@ -565,10 +561,10 @@ xs.map(ctx, double)
 lines.filter(ctx, isLong).sortBy(ctx, order.str)
 ```
 
-An effect's own operations are the second shape and only the second shape: they
+An effect's own operations take the second shape and only the second shape. They
 have no receiver a program may name, so they are free functions taking the
-context first (`io.println(ctx, text)`, `fs.readText(ctx, path)`). The method
-form is not an alternative spelling of them — it is refused
+context first: `io.println(ctx, text)`, `fs.readText(ctx, path)`. The method form
+is not an alternative spelling of them; the compiler refuses it
 (`effect-method-call`).
 
 ### 10.8 Restricting what propagates
@@ -652,10 +648,10 @@ implementor can reach only an inner context somebody already handed it.
 
 ### 10.9 Testing
 
-A pure function needs no harness. An effectful one is tested by building a
-context out of different implementations — and because effects are ordinary
-interfaces, writing one is writing a struct with methods. The call site does not
-change, because there was never a global to stub.
+A pure function needs no harness. You test an effectful one by building a context
+out of different implementations, and since effects are ordinary interfaces,
+writing one is writing a struct with methods. The call site does not change,
+because there was never a global to stub.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, IoError };
@@ -693,5 +689,5 @@ impl FsRead for FakeFs {
 // loadConfig<C: Alloc + FsRead> accepts it with no changes anywhere.
 ```
 
-The harness around that — where tests live, how they are declared, and how they
-build a context — is Sections 11.2 and 11.3.
+Sections 11.2 and 11.3 cover the harness around that: where tests live, how you
+declare them, and how they build a context.
