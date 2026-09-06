@@ -1,13 +1,13 @@
 ## What it does
 
-`buri add` is what the toolchain writes into a repository that already exists.
-`buri init` creates one, once, and refuses to touch it again; everything a
-release adds to a checkout that is already there arrives under this name
-instead, one subcommand each. There is one today.
+`buri add` writes into a repository that already exists. `buri init` creates
+one, once, and refuses to touch it again. Everything a release adds to a
+checkout that is already there arrives under `add` instead, one subcommand each.
+There is one today.
 
-Named with no subcommand it prints what it can be asked for and exits 2, the
-way `buri` alone prints the command table: an incomplete invocation is the
-thing you asked *with* being wrong.
+With no subcommand it prints what you can ask it for and exits 2, the way bare
+`buri` prints the command table: an incomplete invocation is the thing you asked
+*with* being wrong.
 
 ## `buri add skills`
 
@@ -22,10 +22,9 @@ buri add skills
 buri add skills ~/src/some-other-repository
 ```
 
-Five skills are installed today: the language, the type system, the build
-system, testing, and this CLI. Each is the same prose `buri docs` serves,
-compressed to what an agent meeting Buri for the first time needs in front of
-it.
+It installs five skills today: the language, the type system, the build system,
+testing, and this CLI. Each one is the prose `buri docs` serves, compressed to
+what an agent meeting Buri for the first time needs in front of it.
 
 ### Re-running is the upgrade
 
@@ -35,12 +34,12 @@ overwrote .agent/skills/buri-types/SKILL.md
 removed .agent/skills/buri-retired
 ```
 
-A skill directory whose name begins `buri-` is **this toolchain's**. Every run
-rewrites all of them from the binary, and removes any that a release has
-stopped shipping — so upgrading the compiler and running this command again is
-how the skills stop being out of date, and there is nothing to merge.
+A skill directory whose name begins `buri-` belongs to **this toolchain**.
+Every run rewrites all of them from the binary and removes any that a release
+has stopped shipping. So upgrade the compiler, run this command again, and the
+skills are current. There is nothing to merge.
 
-A directory named anything else is somebody's own. It is never read, never
-written, and never removed, which is why the marker is a prefix on the name
-rather than a manifest file: the directory is the only thing both sides can
+A directory named anything else is somebody's own. The command never reads it,
+never writes it, and never removes it. That is why the marker is a prefix on the
+name rather than a manifest file: the directory is the only thing both sides can
 see.

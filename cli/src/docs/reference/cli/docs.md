@@ -1,8 +1,8 @@
 ## What it does
 
 Serves the language reference, the build system documentation, and this CLI
-reference — from the binary, so what you read is what this toolchain does.
-There is no website to fall out of date and no second copy to forget.
+reference, all from the binary. What you read is what this toolchain does. There
+is no website to fall out of date and no second copy to forget.
 
 ```text
 buri docs                          every page, grouped
@@ -20,8 +20,8 @@ It works outside a repository: the prose ships inside the executable.
 
 ## Searching
 
-`buri docs search <words>` takes words, not a name, and answers with the
-pages — several of them — that those words are about:
+`buri docs search <words>` takes words rather than a name, and answers with
+every page those words are about:
 
 ```text
 $ buri docs search compare ints
@@ -32,34 +32,34 @@ buri docs core/str.compare  method compare
 …
 ```
 
-Every line is the command that reads that page, so a result is something to
-run rather than an id to transcribe. Three things are searched: the names, the
+Every line is the command that reads that page, so a result is something to run
+rather than an id to transcribe. Search covers three things: the names, the
 prose inside every page — a `///` comment's body and a module's `//!` text
-included — and a small table of concepts, which is what puts `core/order` under
-"compare" and `core/str` under "pad" when the page itself never uses the word.
-`--format=json` gives the same hits with a `command` on each.
+included — and a small table of concepts. That table is what puts `core/order`
+under "compare" and `core/str` under "pad" when the page itself never uses the
+word. `--format=json` gives the same hits with a `command` on each.
 
 ## For agents
 
 `--format=json` prints one object on one line. `--dense` drops prose but keeps
-every heading and **every example** — code is what a caller needs most, so it
-is never abridged. `buri docs manifest` lists every id that can be fetched, and
-a test asserts that each one really can be.
+every heading and **every example**. Code is what a caller needs most, so it is
+never abridged. `buri docs manifest` lists every id you can fetch, and a test
+asserts that each one really works.
 
 ## Why this cannot go stale
 
-Every fenced example in every page is compiled by the test suite against the
-real standard library; the ones that print something are executed and their
-output compared. **That includes examples written in `///` and `//!` comments
-in `.buri` sources**, not only the ones in prose pages — a documentation
-comment is documentation, and an example in one has the same claim on being
-true. `buri docs test` reads a source file through its comments, and a failure
-names the `.buri` line the example is written on.
+The test suite compiles every fenced example in every page against the real
+standard library, and runs the ones that print something to compare their
+output. **That includes examples written in `///` and `//!` comments in `.buri`
+sources**, not only the ones in prose pages. A documentation comment is
+documentation, and an example in one has the same claim on being true. `buri
+docs test` reads a source file through its comments, and a failure names the
+`.buri` line the example is written on.
 
-Every fenced example is also held to the **layout** `buri format` writes, in
-the same run and by the same printer: what a reader copies out of a page is the
-house style, so it is the house style that is printed there. `buri format` over
-the documentation is what fixes one.
+The same run holds every fenced example to the **layout** `buri format` writes,
+through the same printer. What you copy out of a page is the house style, so the
+house style is what the page prints. Run `buri format` over the documentation to
+fix one.
 
-`cli/src/docs/SPEC.md` is generated from these same topics, and a test fails if
-the checked-in file drifts from what the topics produce.
+`cli/src/docs/SPEC.md` comes from these same topics, and a test fails if the
+checked-in file drifts from what the topics produce.
