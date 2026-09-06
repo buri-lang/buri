@@ -1,0 +1,20 @@
+error: `Actor` has no field `mailbox` [no-such-field]
+  --> cmd/actor_literal_sets_a_mailbox/main.buri:24:9
+   |
+24 |         mailbox: .Some(8),
+   |         ^^^^^^^
+   |
+   = fix: check the spelling, or name a field the type declares
+
+     What to do
+     ──────────
+
+     Correct the spelling, or name a field the type declares.
+
+     Why
+     ───
+
+     There is no structural typing and no inheritance, so a value's fields are
+     exactly the ones its declaration lists — which is also what lets the
+     diagnostic offer the nearest name it does have.
+

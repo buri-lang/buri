@@ -776,7 +776,7 @@ mod tests {
         );
     }
 
-    /// The default mailbox is one number, written twice, and the two spellings
+    /// The mailbox bound is one number, written twice, and the two spellings
     /// must agree.
     ///
     /// `core/actor` enforces the bound — `send` runs the mailbox down when a
@@ -804,7 +804,7 @@ mod tests {
                 .take_while(char::is_ascii_digit)
                 .collect::<String>()
         };
-        let module = named(buri, "export let MAILBOX: Int = ");
+        let module = named(buri, "let MAILBOX: Int = ");
         let runtime = named(RUNTIME, "pub const MAILBOX: i64 = ");
         assert!(!module.is_empty(), "`core/actor` names no default mailbox");
         assert_eq!(
