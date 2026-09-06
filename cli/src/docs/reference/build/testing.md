@@ -1,17 +1,17 @@
 # Test targets and the testing host
 
-Tests live inside the target they test, are declared in its build rule, and can
-reach only what a dependent could reach. There is no separate test target, no
-test-only source directory outside the package, and no way to test a private
+Tests live inside the target they test. You declare them in its build rule, and
+they reach only what a dependent could reach. There is no separate test target,
+no test-only source directory outside the package, and no way to test a private
 function directly.
 
 This page is the exact rules: the `test` block, what a test source may import,
 every member of `core/host/testing`, and what a run does with a suite. To learn
-to write one from scratch: [testing your code](../../guides/testing.md).
+to write one from scratch, read [testing your code](../../guides/testing.md).
 
-The language side — the `test` declaration, `core/testing/assert`, and the
-`context` form — is [`language/programs.md` §11.2 and
-§11.3](../../language/programs.md).
+For the language side, read [`language/programs.md` §11.2 and
+§11.3](../../language/programs.md). It covers the `test` declaration,
+`core/testing/assert`, and the `context` form.
 
 ## The `test` block
 
@@ -25,26 +25,26 @@ library {
 }
 ```
 
-A module listed in a `test.sources` is a **test source**. That is the only thing
-that makes one: `test` declarations and imports of test-only modules are legal
-there and nowhere else, and the file is compiled into a test binary rather than
-into the library.
+A module listed in `test.sources` is a **test source**. Nothing else makes one.
+Only a test source may hold `test` declarations and import test-only modules,
+and the compiler puts it in a test binary rather than in the library.
 
 - A `test` declaration takes no parameters and returns nothing. It passes unless
   an assertion in it fails, and a failing assertion ends that test and no other.
-- **A title is used once per file.** Two tests in one module sharing one are a
-  compile error (`duplicate-test-name`), because a title is how a failure is
-  reported and how `--filter` picks one out, and two that share it in one file
-  cannot be told apart. Two files of one suite may share a title: they are
-  separate modules, and each failure names its own file and its own line.
-- A test source and `main`'s body are the only places in the language where a
-  context is **created** rather than received, which is why `core/host/testing`
-  is importable only from a test source.
+- **Use a title once per file.** Two tests in one module that share one are a
+  compile error (`duplicate-test-name`). The title is how the runner reports a
+  failure and how `--filter` picks a test out, so two of them in one file are
+  indistinguishable. Two files of one suite may share a title: they are separate
+  modules, and each failure names its own file and its own line.
+- A test source and `main`'s body are the only places in the language that
+  **create** a context rather than receive one. That is why only a test source
+  may import `core/host/testing`.
 
-A test source is code, so [`buri lint`](../cli/lint.md#what-it-reads) holds it to
-every rule a library source is held to, and `--fix` rewrites it the same way.
+A test source is code, so [`buri lint`](../cli/lint.md#what-it-reads) holds it
+to every rule it holds a library source to, and `--fix` rewrites it the same
+way.
 
-`core/testing/assert` is an ordinary module — the name `assert` comes from
+`core/testing/assert` is an ordinary module. The name `assert` comes from
 `import * as assert`, and nothing stops a file calling it something else.
 
 | Function | Answers |
@@ -52,15 +52,14 @@ every rule a library source is held to, and `--fix` rewrites it the same way.
 | `assert.eq`, `assert.notEq`, `assert.isTrue`, `assert.isFalse`, `assert.contains`, `assert.isEmpty`, `assert.notEmpty`, `assert.len`, `assert.gt`, `assert.ge`, `assert.lt`, `assert.le`, `assert.approxEq` | `()`, so the call stands alone as a statement |
 | `assert.ok`, `assert.err`, `assert.some` | The unwrapped value |
 
-The statement rule asks for the type and not the shape: any expression of type
-`()` may stand alone — a `match` whose arms all assert, an `if`, a block — and
-each is terminated by `;`, the same as a call. Leave the `;` off a `match` and it
-reads as the test body's result, which is what the block would have returned had
-anything followed it.
+The statement rule asks for the type, not the shape. Any expression of type `()`
+may stand alone: a `match` whose arms all assert, an `if`, a block. Each ends
+with `;`, the same as a call. Leave the `;` off a `match` and it reads as the
+test body's result, which is what the block would have returned had anything
+followed it.
 
-`Result` is must-use here as everywhere, so an assertion a test forgets to check
-is not something a test source can contain: there is no statement form that
-drops one.
+`Result` is must-use here as everywhere. No statement form drops one, so a test
+source cannot hold an assertion it forgot to check.
 
 ## What a test can reach
 
@@ -68,23 +67,23 @@ A test source may import:
 
 | | |
 |---|---|
-| The target under test | `//lib/money` for a library — its surface, the same name a dependent uses — and `//cmd/server/main.buri` for a binary, whose entry point is a file and not a surface |
+| The target under test | `//lib/money` for a library: its surface, the same name a dependent uses. `//cmd/server/main.buri` for a binary, whose entry point is a file and not a surface |
 | The target's `dependencies` | The same libraries the target itself depends on |
 | The suite's `test.dependencies` | Fakes, fixtures, matchers |
 | `core/*` | Including the test platform: `core/testing/assert` and `core/host/testing` |
-| Any test-only path | `//lib/ledger/testing`, `//lib/testing/fakes` — the package is declared in `test.dependencies` like any other library |
+| Any test-only path | `//lib/ledger/testing`, `//lib/testing/fakes`. You declare the package in `test.dependencies` like any other library |
 
 and may not:
 
-- import a library-internal module — `from "//lib/money/cents.buri" import
-  { toCents };` is an error, and this is the rule that confines a test to the
-  public surface;
-- import another test source — test sources are compiled independently and are
-  not modules anybody can name. Shared helpers belong in a library listed in
-  `test.dependencies`;
+- import a library-internal module. `from "//lib/money/cents.buri" import
+  { toCents };` is an error, and this rule is what confines a test to the public
+  surface;
+- import another test source. The compiler compiles test sources independently,
+  and nobody can name one as a module. Shared helpers belong in a library listed
+  in `test.dependencies`;
 - be imported by anything;
-- `export` anything. A test source's items are its `test` declarations and its
-  private helpers.
+- `export` anything. A test source holds its `test` declarations and its private
+  helpers, and nothing else.
 
 ```
 error: lib/money/test/cents.buri imports a library-internal module
@@ -98,54 +97,54 @@ error: lib/money/test/cents.buri imports a library-internal module
      is part of the surface you meant to test
 ```
 
-That error is the whole design in one message. If a test needs an internal
-function, either the function belongs on the surface — in which case say so in
-`lib.buri` and everyone gets it — or the test is asserting on an implementation
-detail and will break the next time the detail changes.
+That error is the whole design in one message. A test that needs an internal
+function has two cases. Either the function belongs on the surface, so say so in
+`lib.buri` and everyone gets it. Or the test asserts on an implementation
+detail, and it will break the next time that detail changes.
 
 ## Test-only libraries
 
-A helper more than one suite needs is not a test source: it is ordinary library
+A helper more than one suite needs is not a test source. It is ordinary library
 code that happens to be test-only, and it lives behind a path with a `testing`
 segment. A `testing { sources: [...] }` block in the owning package's rule puts
-it in the build, and a consuming suite names `//lib/ledger/testing` in its own
+it in the build. A consuming suite then names `//lib/ledger/testing` in its own
 `test.dependencies`, the same label mechanism as any other dependency.
 
-- `testing/lib.buri` decides that surface exactly as `lib.buri` decides the
-  library's one level up — including for `buri lint`, which reports an `export`
-  that file does not carry as `dead-code` and leaves alone the shapes it does.
-- A `context` declaration may be **exported** only from a path with a `testing`
-  segment ([`language/programs.md` §11.3](../../language/programs.md)).
-- What those modules may import, and why the restriction is carried by the path
-  rather than by a `testonly` field, is
-  [`libraries.md`](./libraries.md#the-testing-surface).
+- `testing/lib.buri` decides that surface exactly as `lib.buri` one level up
+  decides the library's. That includes `buri lint`, which reports an `export`
+  the file does not carry as `dead-code` and leaves alone the shapes it does.
+- Only a path with a `testing` segment may **export** a `context` declaration
+  ([`language/programs.md` §11.3](../../language/programs.md)).
+- [`libraries.md`](./libraries.md#the-testing-surface) says what those modules
+  may import, and why the path carries the restriction instead of a `testonly`
+  field.
 
 ## Testing a binary
 
-A binary's entry point is a **file** and not a surface, so its test sources
-import `//cmd/server/main.buri` — and only that package's own test sources may,
-which is the rule that keeps `//lib/money/cents.buri` internal, one directory
-over. Everything else is identical to testing a library: the suite sees what
-`main.buri` exports and nothing more, so pushing logic behind the entry point is
-what makes it testable.
+A binary's entry point is a **file**, not a surface, so its test sources import
+`//cmd/server/main.buri`. Only that package's own test sources may, and that is
+the same rule keeping `//lib/money/cents.buri` internal one directory over.
+Everything else matches testing a library. The suite sees what `main.buri`
+exports and nothing more, so pushing logic behind the entry point is what makes
+it testable.
 
-**`main` itself is not testable**, and that is deliberate. It takes no
-parameters and builds its own context out of `core/host`, so there is no fake to
-hand it ([`language/programs.md` §11](../../language/programs.md)). A binary
-whose failure modes are to be asserted on puts them in a function taking an
-ordinary bounded `ctx`, which a test then calls with doubles of its own — and
-`main`'s context has to bind every effect that function reaches for, so the list
-is the same in both directions.
+**`main` itself is not testable**, deliberately. It takes no parameters and
+builds its own context out of `core/host`, so you have no fake to hand it
+([`language/programs.md` §11](../../language/programs.md)). To assert on a
+binary's failure modes, put them in a function taking an ordinary bounded `ctx`.
+A test then calls that function with doubles of its own. `main`'s context has to
+bind every effect that function reaches for, so the list matches in both
+directions.
 
 ## The runner's context
 
-`core/host/testing` is the platform a test source binds, and it exports one
-double per effect rather than one pre-assembled world — each real where it can
-be and hermetic everywhere else. It is `core/host`'s surface written out for a
-test: the same names — `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`,
-`clock`, `rand`, `entropy`, `env`, `proc` — **called** rather than referred to.
-`core/host`'s `clock` is one clock because a process has one; `clock()` is a
-fresh clock every call, so a test never inherits another test's.
+`core/host/testing` is the platform a test source binds. It exports one double
+per effect rather than one pre-assembled world, each real where it can be and
+hermetic everywhere else. It is `core/host`'s surface written out for a test,
+with the same names: `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`,
+`rand`, `entropy`, `env`, `proc`. Here you **call** them rather than refer to
+them. `core/host`'s `clock` is one clock because a process has one. `clock()`
+answers a fresh clock every call, so a test never inherits another test's.
 
 | Member | Effect | In a test |
 |---|---|---|
@@ -156,21 +155,21 @@ fresh clock every call, so a test never inherits another test's.
 | `net()` | `Net` | **Refuses** every request with `.Refused`, until `respond` says what to answer. |
 | `clock()` | `Clock` | At zero. `sleepMillis` advances it without sleeping. |
 | `rand()` | `Rand` | Seeded at zero, so a failure reproduces. |
-| `entropy()` | `Entropy` | Seeded at zero, on `rand()`'s own generator — the one double that is the *opposite* of what its effect promises a program, so a token minted in a test is a value an assertion can hold. |
+| `entropy()` | `Entropy` | Seeded at zero, on `rand()`'s own generator. It is the one double that does the *opposite* of what its effect promises a program, so an assertion can hold a token minted in a test. |
 | `env()` | `Env` | No variables and no arguments. |
 | `proc()` | `Proc` | **Absorbs** the exit instead of taking it, so the test carries on. |
 | `tasks()` | `Tasks` | Runs the tasks one at a time, in **program order**, until a builder says otherwise. |
 | `sockets()` | `Sockets` | Sockets with **no network** behind them: `open()` mints one, and what is pushed on it is recorded. |
 
-Configuration is a **method on the value that answers a new handle**, so a
-chain reads in the order it is applied and the value it was called on is
+You configure a double with a **method that answers a new handle**. A chain
+reads in the order you apply it, and it leaves the value you called it on
 unchanged:
 
 | Builder | Answers |
 |---|---|
 | `clock().at(1000)` | A clock at that instant |
 | `rand().seed(7)` | A generator at that seed, from the start of its sequence |
-| `entropy().seed(7)` | The same, for `Entropy` — and literally the same sequence, so `crypto.randomBytes` and `random.bytes` at one seed are one answer |
+| `entropy().seed(7)` | The same, for `Entropy`. Literally the same sequence, so `crypto.randomBytes` and `random.bytes` at one seed answer alike |
 | `env().variables([(Str, Str)])` | An environment with those variables and this one's arguments |
 | `env().arguments([Str])` | An environment with those arguments and this one's variables |
 | `stdin().lines([Str])` | A stream of those lines, then end of input |
@@ -182,78 +181,78 @@ unchanged:
 | `tasks().anyOrder()`, `.everyOrder()`, `.seed(n)` | A scheduler running its tasks in one order, in every order, or in the one that seed names |
 
 `fs()` is the one member answering **two** effects, because the filesystem is
-two: a context that reads and writes binds the one double under both names —
-`let disk = fs(); ... FsRead: disk, FsWrite: disk` — and two calls to `fs()`
-would be two filesystems with nothing in common. A named `context` declaration
-therefore binds only one half, since its bindings are separate expressions with
-no `let` between them to share a value.
+two. A context that reads and writes binds the one double under both names:
+`let disk = fs(); ... FsRead: disk, FsWrite: disk`. Two calls to `fs()` would be
+two filesystems with nothing in common. A named `context` declaration therefore
+binds only one half, since its bindings are separate expressions with no `let`
+between them to share a value.
 
-`sockets()` has no builder, because there is nothing to configure: a socket is
-minted rather than declared, and `sockets().open()` is the method that does it.
+`sockets()` has no builder, because it has nothing to configure. You mint a
+socket rather than declare one, and `sockets().open()` is the method that does
+it.
 
-Every builder here is spelled as the design note writes it, and `arguments` is
-the one that cost something to get. A type's methods are one map keyed by name,
-and a method written in `impl Env for TestEnv` goes into it beside the ones
-written in `impl TestEnv`, so neither the extra argument nor the different
-return type tells the two apart: `Env`'s reader and this builder could not both
-be `arguments`. The **reader** is what moved. `core/effect`'s `Env` declares
-`args(self): [Str]` now — the name a program already used, since `core/env` has
-always exported `args(ctx)` and was the method's only caller — and the builder
-on the double is `arguments`.
+Every builder here is spelled as the design note writes it. `arguments` is the
+one that cost something to get. A type's methods are one map keyed by name. A
+method written in `impl Env for TestEnv` lands in it beside the ones written in
+`impl TestEnv`, and neither the extra argument nor the different return type
+tells the two apart. So `Env`'s reader and this builder could not both be
+`arguments`. The **reader** moved. `core/effect`'s `Env` now declares
+`args(self): [Str]`, the name a program already used, since `core/env` has
+always exported `args(ctx)` and was the method's only caller. The builder on the
+double is `arguments`.
 
 `lines` and `bytes` are the one pair that **replace** each other rather than
-composing: a stream is either the lines a test wrote or the octets it wrote, a
+compose. A stream holds either the lines a test wrote or the octets it wrote. A
 stdin built from octets answers `.None` to `readLine`, and the last builder in
-the chain is the stream. `files` and `filesBytes` do compose, in either order,
-because both write into the one map a file lives in.
+the chain wins. `files` and `filesBytes` do compose, in either order, because
+both write into the one map a file lives in.
 
-`readOnly()` is the `ReadOnly<C>` attenuation wrapper folded into a method, and
-the fold keeps what made it a wrapper: it attenuates the *same* filesystem
-rather than a copy, so a read through the attenuated handle answers whatever the
-filesystem holds now. Writing the wrapper by hand still works, and still has a
-use the method does not cover — it attenuates any `FsWrite`, including one a
-test wrote, and the method attenuates only this one.
+`readOnly()` folds the `ReadOnly<C>` attenuation wrapper into a method, and it
+keeps what made it a wrapper. It attenuates the *same* filesystem rather than a
+copy, so a read through the attenuated handle answers whatever the filesystem
+holds now. Writing the wrapper by hand still works, and it still covers a case
+the method does not: the wrapper attenuates any `FsWrite`, including one a test
+wrote, and the method attenuates only this one.
 
 ### Reading the environment back
 
-The outcome of a test is the return value **plus the environment read back**.
+A test's outcome is the return value **plus the environment read back**.
 `captured()` does that for a stream, and `TestFs` has two of its own:
 
 | Read-back | Answers |
 |---|---|
-| `read(path)` | `Result<Str, IoError>` — what the filesystem holds there, the same answer `readFile` gives |
-| `snapshot()` | `[(Str, Str)]` — every file, as text, **sorted by path** |
-| `calls()` | `[FsCall]` — every call made through this handle, **in the order they completed** |
+| `read(path)` | `Result<Str, IoError>`, what the filesystem holds there. The same answer `readFile` gives |
+| `snapshot()` | `[(Str, Str)]`, every file, as text, **sorted by path** |
+| `calls()` | `[FsCall]`, every call made through this handle, **in the order they completed** |
 
-`faults([...])` is the other half of a fixture and has its own section below:
-what a call finds comes from `files`, and what a call fails with comes from
-there.
+`faults([...])` is the other half of a fixture, and it has its own section
+below. `files` decides what a call finds, and `faults` decides what a call fails
+with.
 
-None of the three needs either half of the filesystem bound: asserting on what a
-function wrote is
-reading an environment back rather than performing an effect. `snapshot()` is
-sorted rather than in write order so that a function which reorders two writes
-that do not interact does not fail the test, and it lists files only — a
+None of the three needs either half of the filesystem bound. Asserting on what a
+function wrote reads an environment back rather than performing an effect.
+`snapshot()` sorts rather than reporting write order, so a function that
+reorders two writes that do not interact still passes. It lists files only: a
 directory `makeDir` created holds no octets, and `readDir` is the question it
 answers.
 
-`proc()` is the one double with nothing to read back, and deliberately: what a
-test asserts about a function that exits is that the *test* carried on, which
-the assertions written after the call already say. An exit code recorded where
-no method could read it would be state kept for its own sake, so `exitWith`
-absorbs the call and answers `()`.
+`proc()` is the one double with nothing to read back, deliberately. What a test
+asserts about a function that exits is that the *test* carried on, and the
+assertions after the call already say that. An exit code recorded where no
+method could read it would be state kept for its own sake, so `exitWith` absorbs
+the call and answers `()`.
 
-Each call to a named context builds a fresh one, so what one test writes to its
+Each call to a named context builds a fresh one. What one test writes to its
 filesystem or prints to its captured stdout is invisible to the next. That is
-why a named context is called rather than referred to.
+why you call a named context rather than refer to it.
 
 ### A network that answers
 
-`net()` refuses everything, and that is the default worth having: a test that
+`net()` refuses everything, which is the default worth having. A test that
 reaches the network by accident says so at its assertion rather than passing on
 an answer nobody wrote. `respond` hands it a function, and that function is the
-fake server — it is given every `Request` the code under test makes, and either
-answers it or fails it.
+fake server. It sees every `Request` the code under test makes, and it either
+answers one or fails it.
 
 ```buri role=test
 from "core/effect" import { Alloc, Net, NetError, Request };
@@ -300,72 +299,72 @@ test "the responder decides on the method and on a header" {
 }
 ```
 
-Three things about that responder are worth knowing before writing one.
+Three things about that responder matter before you write one.
 
 **It cannot take a context.** A lambda may not capture an effect-carrying value
 ([`language/effects.md` §10.6](../../language/effects.md)), so a responder
-cannot call `http.text(ctx, ...)` inside itself — which is precisely what makes
-a `fn(Request) => Result<Response, NetError>` a pure function of the request and
+cannot call `http.text(ctx, ...)` inside itself. That is exactly what makes a
+`fn(Request) => Result<Response, NetError>` a pure function of the request, and
 safe to hold in a value. Build such a response *before* the responder and
-capture it, the way `page` is captured above: a `Response` is plain data.
-Anything that needs no allocation — `http.status(404)`, or a `Response` literal,
-since a list literal needs no context — can be built inside.
+capture it, the way `page` is captured above. A `Response` is plain data.
+Anything that needs no allocation you can build inside, such as
+`http.status(404)` or a `Response` literal, since a list literal needs no
+context.
 
 **It answers a `Result`, so a test can fail the transport rather than the
 server.** `.Err(.Timeout)`, `.Err(.Transport("socket closed"))` and the rest
 reach the caller exactly as written, payload and all.
 
-**`respond` replaces rather than composing.** It is one responder and not a
-routing table: a responder that answers two URLs differently matches on
-`request.path()`, and two responders for one request would have no answer to
-which of them wins. Like every other builder here it answers a **new** network
-and leaves the one it was called on refusing.
+**`respond` replaces rather than composes.** It is one responder, not a routing
+table. A responder that answers two URLs differently matches on
+`request.path()`. Two responders for one request would have no answer to which
+one wins. Like every other builder here, it answers a **new** network and leaves
+the one you called it on refusing.
 
 `net()` is also the one double whose configuration is the value itself rather
-than a handle into the runner's table. Every other one holds *state* — a
-transcript that grows, a clock that advances — and state is what a runner can
-keep on a program's behalf. A responder is *behaviour*, and behaviour is what it
-cannot keep: a function value is a code pointer and an environment, and for the
-runtime to invoke one it would have to call back into compiled Buri. So `fetch`
-is written in Buri and calls the responder directly, and `Net` has no row in
-either runtime table.
+than a handle into the runner's table. Every other one holds *state*: a
+transcript that grows, a clock that advances. A runner can keep state on a
+program's behalf. A responder is *behaviour*, and behaviour is what it cannot
+keep. A function value is a code pointer and an environment, and invoking one
+would mean the runtime calling back into compiled Buri. So `fetch` is written in
+Buri and calls the responder directly, and `Net` has no row in either runtime
+table.
 
 Anything the runner does not provide is an ordinary struct with methods, since
 effects are ordinary interfaces ([`language/effects.md`
-§10.9](../../language/effects.md)), and it is bound in a context exactly the way
-the runner's own implementations are — the guide has [a worked
+§10.9](../../language/effects.md)). You bind it in a context exactly the way you
+bind the runner's own implementations, and the guide has [a worked
 one](../../guides/testing.md#writing-your-own). For `Net` in a test source,
-`net().respond` is that same thing already written: a `fetch` method and a
+`net().respond` is that same thing already written. A `fetch` method and a
 responder are the same function of the same request.
 
 A fake written this way answers from its fields rather than from a counter,
-because there is no mutation to hold one in. `clock()`'s advancing clock and
-`stdout()`'s accumulating buffer do change between calls, and that is a
-privilege of the runner's own implementations rather than a mechanism a fake can
-borrow: each of those constructors is an intrinsic that installs a slot in a
-table the runtime owns, and `core/host/testing` hands out no way to open one.
+because it has no mutation to hold one in. `clock()`'s advancing clock and
+`stdout()`'s accumulating buffer do change between calls. That is a privilege of
+the runner's own implementations, not a mechanism a fake can borrow. Each of
+those constructors is an intrinsic that installs a slot in a table the runtime
+owns, and `core/host/testing` hands out no way to open one.
 
 ### What the code under test asked for
 
-`snapshot()` says what the world *is*; `calls()` says what it was **asked**.
-`TestFs`, `TestNet` and `TestStdin` each keep every call made through the handle
-and answer them in the order they completed:
+`snapshot()` says what the world *is*. `calls()` says what the code **asked**
+it. `TestFs`, `TestNet` and `TestStdin` each keep every call made through the
+handle and answer them in the order they completed:
 
 | Log | Answers |
 |---|---|
-| `fs().calls()` | `[FsCall]` — one per call to any of the twelve methods of `FsRead` and `FsWrite` |
-| `net().calls()` | `[NetCall]` — one per request, whole: method, URL, headers and body |
-| `stdin().calls()` | `[StdinCall]` — one per `readLine` or `readBytes`, with what it asked for |
-| `sockets().sent()` | `[(Socket, Message)]` — one per message pushed, oldest first |
+| `fs().calls()` | `[FsCall]`, one per call to any of the twelve methods of `FsRead` and `FsWrite` |
+| `net().calls()` | `[NetCall]`, one per request, whole: method, URL, headers and body |
+| `stdin().calls()` | `[StdinCall]`, one per `readLine` or `readBytes`, with what it asked for |
+| `sockets().sent()` | `[(Socket, Message)]`, one per message pushed, oldest first |
 
-A test writes the call it expects with the constructor of the same name, and
-these are ordinary functions of `core/host/testing`: `readFile(path)`,
+A test writes the call it expects with the constructor of the same name. These
+are ordinary functions of `core/host/testing`: `readFile(path)`,
 `writeFile(path, body)`, `renameFile(source, destination)`, `fetch(request)`,
-`readBytes(n)` — one per method, taking the call's own arguments. A path in one
-of them is the `Str` a `Path` spells, which is what `text()` answers and what a
-`FsCall` records. They derive
-`Eq`, which is what an assertion compares, and `Show`, which is what a failing
-one prints.
+`readBytes(n)`. There is one per method, and each takes the call's own
+arguments. A path in one of them is the `Str` a `Path` spells, which is what
+`text()` answers and what a `FsCall` records. They derive `Eq`, which an
+assertion compares, and `Show`, which a failing one prints.
 
 ```buri role=test
 from "core/effect" import { Alloc, Net, NetError, Response };
@@ -411,37 +410,36 @@ test "a hit never reaches the network at all" {
 }
 ```
 
-Four things are worth knowing about the log.
+Four things about the log.
 
 **A call that failed is a call.** A read that found nothing and a write refused
-through `readOnly()` are both in it: the log is what was asked, and the answer
-is the return value the test already has.
+through `readOnly()` are both in the log. The log holds what the code asked, and
+the test already has the answer in the return value.
 
 **Reading the environment back is not a call.** `read`, `snapshot`, `captured`
 and `calls` itself ask the *fixture* a question rather than asking the double
 for anything, so none of them appears.
 
 **The log is per handle.** Every builder answers a new double with a log of its
-own, `readOnly()` and `respond` included — so the calls a test reads back are
-the ones made through the value it put in the context.
+own, `readOnly()` and `respond` included. The calls a test reads back are the
+ones made through the value it put in the context.
 
-**Octets are recorded as the text they spell**, which is `snapshot()`'s rule and
-is there for `snapshot()`'s reason: `writeFileBytes("b", [104, 105])` reads back
-as a call whose body is `"hi"`, and `writeFileBytes(path, body)` is the
+**The log records octets as the text they spell**, which is `snapshot()`'s rule
+and is there for `snapshot()`'s reason. `writeFileBytes("b", [104, 105])` reads
+back as a call whose body is `"hi"`, and `writeFileBytes(path, body)` is the
 constructor that writes it down.
 
 ### What breaks: the fault plan
 
-`files` and `respond` say what a call *finds*. `faults` says what a call
-**fails with** — and those are the only two sources: success comes from the
-environment and failure comes from the plan, so a reader of a test knows which
-half of it to look in.
+`files` and `respond` say what a call *finds*. `faults` says what a call **fails
+with**. Those are the only two sources. Success comes from the environment and
+failure comes from the plan, so a reader knows which half of a test to look in.
 
 A fault is one of the `Call` constructors above and an error. `fails(e)` fails
-every matching call; `failsOnCall(n, e)` fails the `n`th of them, counted from
+every matching call. `failsOnCall(n, e)` fails the `n`th of them, counted from
 one over the *matching* calls, so a read between two writes does not move the
-number. Matching is the `Eq` those records derive, which is what makes a fault
-readable: it is spelled exactly as `calls()` reports the call it names.
+number. Matching uses the `Eq` those records derive, and that is what makes a
+fault readable: you spell it exactly as `calls()` reports the call it names.
 
 ```buri role=test
 from "core/effect" import { Alloc, IoError };
@@ -486,64 +484,64 @@ test "the third append fails and nothing after it is written" {
 
 Three things follow from a fault being a value rather than a moment.
 
-**A call the plan fails is not performed, and is still a call.** Nothing is
-written and nothing is removed, and `calls()` has it — because the code under
-test asked the filesystem for something and was answered.
+**A call the plan fails never happens, and is still a call.** Nothing is written
+and nothing is removed, and `calls()` still has it. The code under test asked
+the filesystem for something and got an answer.
 
-**The error is the value the test wrote.** `.Other("disk full")` arrives with its
-text, and so do `NetError`'s `.BadUrl` and `.Transport`. The plan travels in the
-program rather than in the runner for exactly that reason.
+**The error is the value the test wrote.** `.Other("disk full")` arrives with
+its text, and so do `NetError`'s `.BadUrl` and `.Transport`. The plan travels in
+the program rather than in the runner for exactly that reason.
 
-**A fault whose call never happens fails the test.** A plan is a claim about what
-the code under test does, and a claim nothing exercised is one the next change to
-that code will quietly stop being true. The runner checks it at the end of every
-block, so an unused fault is a failure naming itself:
+**A fault whose call never happens fails the test.** A plan claims something
+about what the code under test does. Nothing exercises an unused claim, and the
+next change to that code quietly stops it being true. The runner checks the plan
+at the end of every block, so an unused fault is a failure naming itself:
 
 ```text
 FAIL //lib/journal  test/journal.buri  "a fault whose call never happens fails the test"
   a fault was planned and never happened: readFile("log") fails .NotFound
 ```
 
-`faults` is a builder like every other one here: it answers a **new** double,
+`faults` is a builder like every other one here. It answers a **new** double,
 with a log of its own, over the same files. It **replaces** rather than
-composing, as `respond` does — two plans for one call have no answer to which of
-them wins — and the plan it replaced is retired, promise and all.
+composes, as `respond` does, because two plans for one call have no answer to
+which one wins. The plan it replaced retires, promise and all.
 
 ### The step boundary, which the plan does not replace
 
-A fault fails a *call*. It says nothing about the state a program is left in
-between two of them, and reaching that boundary from a test is a matter of how
-the code is split rather than of anything the plan can express
-([the guide](../../guides/testing.md#what-breaks-fault-plans) has the shape).
-Keeping an effectful step to a single call is what makes a fault plan say
-exactly what it looks like it says: a step that writes once is a step whose
-failure has one meaning, and one fault names it.
+A fault fails a *call*. It says nothing about the state a program sits in
+between two of them. How you split the code decides whether a test can reach
+that boundary, and no part of the plan can express it ([the
+guide](../../guides/testing.md#what-breaks-fault-plans) has the shape). Keep an
+effectful step to a single call and a fault plan says exactly what it looks like
+it says. A step that writes once is a step whose failure has one meaning, and
+one fault names it.
 
 This is defence in depth rather than the primary mechanism. The primary
 mechanism is that a test whose call never passed a `Net`-bounded context cannot
-open a socket in anything it transitively calls — that is [`language/effects.md`
+open a socket in anything it transitively calls. That is [`language/effects.md`
 §10](../../language/effects.md), not a build system feature. There is no third
-layer: the toolchain applies no operating-system confinement, because a suite
+layer. The toolchain applies no operating-system confinement, because a suite
 has no name for a real capability to begin with
 ([`hermeticity.md`](./hermeticity.md)).
 
 ### The order the work happens in
 
-`Tasks.parallel` promises its **results** in the items' order and promises
+`Tasks.parallel` promises its **results** in the items' order. It promises
 nothing about the order the work runs in. That second order is the one thing
 about a concurrent program a test cannot otherwise pin down, so `tasks()` makes
 it a value the test writes:
 
 | Builder | Answers |
 |---|---|
-| `tasks()` | A scheduler running its tasks in **program order** — the items' own |
+| `tasks()` | A scheduler running its tasks in **program order**, the items' own |
 | `tasks().anyOrder()` | One seeded order per program: the one this suite's **content** names, unless a seed says otherwise |
 | `tasks().seed(n)` | The order numbered `n`, counted from zero, wrapping past the last |
-| `tasks().everyOrder()` | Every order — the whole `test` body runs once per completion order |
+| `tasks().everyOrder()` | Every order: the whole `test` body runs once per completion order |
 | `tasks().faults([TaskFault])` | The tasks the plan names end the block, with the reason the test gave |
 
-Nothing here is concurrent. A double that raced would be the thing it exists to
-remove, so a task runs to completion before the next one starts and `calls()`
+Nothing here is concurrent. A double that raced would reintroduce what it exists
+to remove. A task runs to completion before the next one starts, and `calls()`
 reports them in the order they finished:
 
 ```buri repo=cli/tests/example role=test
@@ -572,59 +570,57 @@ test "the answer does not depend on the order the work finished in" {
 }
 ```
 
-**A seed is the order's own number.** There are `n!` orders of `n` tasks and a
-seed is which of them, counted from zero in the order the orders themselves
-sort in — so `seed(0)` is program order, the last seed is the reverse, and a
-seed *replays* rather than merely re-randomising. `everyOrder`'s fourth run and
-`seed(3)` are the same order, which is what lets a failure name one line to
-paste back.
+**A seed is the order's own number.** `n` tasks have `n!` orders, and a seed
+says which of them, counted from zero in the order the orders themselves sort
+in. So `seed(0)` is program order and the last seed is the reverse. A seed
+*replays* rather than merely re-randomising: `everyOrder`'s fourth run and
+`seed(3)` are the same order, which lets a failure name one line to paste back.
 
 **`anyOrder()` with no seed is the order this suite's own content names**, and
-it is deliberately not random. The seed is derived from the suite's action key
-— the hash of every source in its closure that `buri` already keys the result
-cache on — so the order a suite schedules in changes exactly when the verdict
-that order produced stops being reusable, and never on a run that changed
-nothing. A random seed would be the shape that poisons the cache: a suite that
-passed under one order and was remembered as passing, re-running under another.
-And a failure nobody can reproduce is a failure nobody fixes, which is why the
-report names the order it ran in and the seed that replays it.
+it is deliberately not random. The seed comes from the suite's action key, the
+hash of every source in its closure that `buri` already keys the result cache
+on. So the order a suite schedules in changes exactly when the verdict that
+order produced stops being reusable, and never on a run that changed nothing. A
+random seed would poison the cache: a suite passes under one order, gets
+remembered as passing, then re-runs under another. Nobody fixes a failure nobody
+can reproduce, so the report names the order it ran in and the seed that replays
+it.
 
-A block asserting on the order it ran in should name one that way too:
-`anyOrder()` is for *finding* an order that breaks a program, and `seed(n)` is
-for keeping it.
+A block that asserts on the order it ran in should name one the same way. Use
+`anyOrder()` to *find* an order that breaks a program, and `seed(n)` to keep it.
 
 **`everyOrder()` re-runs the body, not the fan-out.** A task's effects are the
-point, and re-running only the loop would re-run them against a filesystem the
-last order had already written to — so every run builds its own doubles from the
-same lines, and the assertion at the end of the body is an assertion about
-*every* order. `runs()` says which run this is, counted from one, and `orders()`
-how many there will be. Six tasks are 720 runs of the block; above six it
-refuses and says so, because a fan-out that wide is `anyOrder`'s question.
+point. Re-running only the loop would re-run them against a filesystem the last
+order had already written to. So every run builds its own doubles from the same
+lines, and the assertion at the end of the body asserts about *every* order.
+`runs()` says which run this is, counted from one, and `orders()` says how many
+there will be. Six tasks make 720 runs of the block. Above six it refuses and
+says so, because a fan-out that wide is `anyOrder`'s question.
 
-The first failing order ends the block — a failed assertion is an abort and
-there is nothing to catch — so the orders after it do not run.
+The first failing order ends the block, so the orders after it never run. A
+failed assertion aborts, and there is nothing to catch.
 
-**A fault ends the block.** A task has no error channel: `parallel` answers
-`[B]` and every `B` comes from the closure, so a task the plan fails is a task
-that ends the program, which is what a task that died would do to the run for
-real. The tasks scheduled before it have run and had their effects; the ones
-after it have not started. `task(k).fails(why)` fails that task every time it is
-reached and `task(k).failsOnCall(n, why)` the `n`th, counted over the fan-outs
-that reach it — and, as everywhere else here, **a fault whose task is never
-reached fails the test**.
+**A fault ends the block.** A task has no error channel. `parallel` answers
+`[B]` and every `B` comes from the closure, so a task the plan fails ends the
+program. A task that died for real would do the same to the run. The tasks
+scheduled before it have run and had their effects, and the ones after it never
+start. `task(k).fails(why)` fails that task every time something reaches it, and
+`task(k).failsOnCall(n, why)` fails the `n`th, counted over the fan-outs that
+reach it. As everywhere else here, **a fault whose task is never reached fails
+the test**.
 
 ### A socket with no server
 
-A `Socket` is inert — one number a program may hold, put in a list and send to
-an actor — and its two methods need `Sockets` and nothing else. So the half of a
-WebSocket program that *pushes* is a half a test can run on its own, and
-`sockets()` is what it runs against: `open()` mints a socket with no network
-behind it, and `sent()` reads back every message that was pushed on one.
+A `Socket` is inert. It is one number a program may hold, put in a list and send
+to an actor, and its two methods need `Sockets` and nothing else. So a test can
+run the half of a WebSocket program that *pushes* on its own, against
+`sockets()`. `open()` mints a socket with no network behind it, and `sent()`
+reads back every message pushed on one.
 
 | Member | Answers |
 |---|---|
 | `sockets().open()` | A `Socket` of that double's, open, with nothing behind it |
-| `sockets().sent()` | `[(Socket, Message)]` — every push, oldest first, both framings in one list |
+| `sockets().sent()` | `[(Socket, Message)]`, every push, oldest first, both framings in one list |
 | `sockets().isOpen(socket)` | Whether that socket is still one this double will take a message for |
 
 ```buri role=test
@@ -654,63 +650,61 @@ test "everybody in the room hears it" {
 }
 ```
 
-**A message to a socket that has gone is dropped**, which is the real platform's
-rule rather than the double's: `send` never waits, so "did this arrive" was
-never a question this side could answer. Three things are dropped alike — a
-socket this double closed, a handle a program invented, and a socket another
-`sockets()` minted, because two doubles are two worlds the way two `fs()` calls
-are two filesystems. `isOpen` is the question asked directly, and it is a
-question about *one* socket rather than a count of the open ones: the blocks of
-a suite share a runner, so a count would answer differently depending on what
-ran beside it.
+**A message to a socket that has gone is dropped.** That is the real platform's
+rule rather than the double's. `send` never waits, so this side could never
+answer "did this arrive". Three things drop alike: a socket this double closed,
+a handle a program invented, and a socket another `sockets()` minted. Two
+doubles are two worlds, the way two `fs()` calls are two filesystems. `isOpen`
+asks the question directly, and it asks about *one* socket rather than counting
+the open ones. The blocks of a suite share a runner, so a count would answer
+differently depending on what ran beside it.
 
-The close's code and phrase are not kept, for `proc()`'s reason: they are what
-the far side would be told, there is no far side, and a number held where
-nothing can read it is state kept for its own sake.
+The double keeps neither the close's code nor its phrase, for `proc()`'s reason.
+They are what the far side would be told, there is no far side, and a number
+held where nothing can read it is state kept for its own sake.
 
-**Reading a socket is not here, and deliberately.** That authority is `Listen`'s
-— it belongs to whoever holds the listener — and what a fake acceptor answers is
-the test's own decision, so a test writes one for itself as it writes any other
-fake. What a test *cannot* write for itself is a double that records: an effect
-method takes only `self`, `self` is immutable, and so a hand-written `Sockets`
-has nowhere to put what it was told. That is the whole of why this one is here.
+**Reading a socket is not here, and deliberately.** That authority belongs to
+`Listen`, which means whoever holds the listener. What a fake acceptor answers
+is the test's own decision, so a test writes one for itself as it writes any
+other fake. What a test *cannot* write for itself is a double that records. An
+effect method takes only `self`, `self` is immutable, and so a hand-written
+`Sockets` has nowhere to put what it was told. That is the whole reason this one
+is here.
 
 ## Test data and golden files
 
-A suite's filesystem is written in the suite, with `fs().files([...])`, and a
-golden value is written in the suite's own source, where an editor rather than
-the runner is what rewrites one.
+You write a suite's filesystem in the suite, with `fs().files([...])`. You write
+a golden value in the suite's own source, where an editor rewrites it rather
+than the runner.
 
-**There was a `test { data: [...] }` field, and there was a `buri test --accept`
-that rewrote what it named.** The field listed files on disk; the *runner* read
-them and handed the suite their contents. That made a suite's filesystem a fact
-about the build rather than about the program, and it could only be told to a
-suite the toolchain ran under a runner — a linked test binary has none, so
-`data()` was empty there and a declared file read `.Err(.NotFound)` where
-`buri test` read its contents. The toolchain hid that by sending every suite
-that declared `data` back to JavaScript: one build-file field deciding which
-backend a program was allowed to run on. Both are retired
-([`buri docs error retired-test-data`](../errors/retired-test-data.md)), and no
-suite is refused a backend for holding a golden.
+**There was a `test { data: [...] }` field, and a `buri test --accept` that
+rewrote what it named.** The field listed files on disk. The *runner* read them
+and handed the suite their contents. That made a suite's filesystem a fact about
+the build rather than about the program. Only a suite the toolchain ran under a
+runner could hear it, and a linked test binary has no runner. So `data()` came
+back empty there, and a declared file read `.Err(.NotFound)` where `buri test`
+read its contents. The toolchain hid that by sending every suite that declared
+`data` back to JavaScript: one build-file field deciding which backend a program
+could run on. Both are retired ([`buri docs error
+retired-test-data`](../errors/retired-test-data.md)), and holding a golden no
+longer costs a suite a backend.
 
 ## Running
 
 A suite runs as a native binary for the host unless something sends it to
 JavaScript: its own `test { platforms }`, `--output=js`, or the fallback for a
-toolchain that cannot build one (`buri docs cli test`). The
-fallback prints one line on standard error per suite; it never changes what the
-suite means, because the two backends are held to the same answers
-([`tags.md`](./tags.md#tags-and-tests)). A *program* the native backend has no
-body for is refused rather than rerouted, because rerouting it would be
-answering with the backend that was not asked.
+toolchain that cannot build one (`buri docs cli test`). The fallback prints one
+line on standard error per suite. It never changes what the suite means, because
+both backends owe the same answers ([`tags.md`](./tags.md#tags-and-tests)). A
+*program* the native backend has no body for is refused rather than rerouted.
+Rerouting it would answer with the backend nobody asked for.
 
-The suites that run natively are compiled into one binary per tag-compatible
-batch and linked once, because a small suite's cost is the link and the first
-execution rather than the compile
-([`tags.md`](./tags.md#one-binary-for-several-suites) has the
-policy). It changes nothing a reader sees: verdicts are still cached one suite at
-a time, reported one suite at a time, and a suite that cannot batch runs on its
-own.
+The toolchain compiles the suites that run natively into one binary per
+tag-compatible batch, and links it once. A small suite's cost is the link and
+the first execution rather than the compile
+([`tags.md`](./tags.md#one-binary-for-several-suites) has the policy). It
+changes nothing you see. The runner still caches verdicts one suite at a time,
+reports one suite at a time, and runs a suite that cannot batch on its own.
 
 Output names the target, the file, and the test:
 
@@ -724,22 +718,21 @@ FAIL //lib/money  test/cents.buri  "pads the cents place"
 12 passed, 1 failed, 0 skipped (0.4s, 11 cached)
 ```
 
-A suite that never *compiled* is in that line as well. It has no cases to pass
-or fail, so it gets a clause of its own — present only when the count is not
-zero, the way the cached note is:
+That line also counts a suite that never *compiled*. It has no cases to pass or
+fail, so it gets a clause of its own. The clause appears only when the count is
+not zero, the way the cached note does:
 
 ```
 0 passed, 0 failed, 0 skipped, 1 failed to compile (0.0s)
 ```
 
-The diagnostic saying why goes to stderr and the summary to stdout, and stderr
-is flushed before the summary is written: a log with a broken suite in it never
-opens with a line that looks like a clean run.
+The diagnostic saying why goes to stderr and the summary to stdout. The runner
+flushes stderr before writing the summary, so a log with a broken suite in it
+never opens with a line that looks like a clean run.
 
-Tests are ordinary build actions: a suite whose sources, target, dependencies,
-and toolchain are unchanged is not re-run, and reports as cached. Because there
-is no mutable global state, no ambient I/O, and no observable ordering, the
-runner is free to shard across processes and to run a suite's tests in any
-order. Nothing about a suite's result may depend on that freedom, so there is
-no flag to turn it off — a suite that needs one is a suite with a dependency it
-has not admitted to.
+Tests are ordinary build actions. A suite whose sources, target, dependencies
+and toolchain are unchanged does not re-run, and reports as cached. Buri has no
+mutable global state, no ambient I/O and no observable ordering, so the runner
+is free to shard across processes and to run a suite's tests in any order. No
+part of a suite's result may depend on that freedom, so there is no flag to turn
+it off. A suite that needs one has a dependency it has not admitted to.
