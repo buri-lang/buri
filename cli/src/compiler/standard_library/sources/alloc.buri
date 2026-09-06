@@ -417,7 +417,7 @@ export fn copyOut<T>(value: T): T;
 ///
 /// **It is the copy a value takes on its way *into the runtime*.** `core/actor`
 /// hands the runtime a mailbox message, an initial state, a stepped state and
-/// an `ask`'s answer, and the runtime keeps each of them past the frame of the
+/// a step's answer, and the runtime keeps each of them past the frame of the
 /// call that supplied it (`cli/runtime/rt.rs` §2, `cli/runtime/lib.rs` §3) —
 /// so a value posted from inside an `alloc.scoped` body outlives that body by
 /// construction, and `copyOut` alone would have copied it into the very pages
