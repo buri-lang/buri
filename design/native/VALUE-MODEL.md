@@ -1,16 +1,15 @@
 # The native value model
 
-`runtime.js` documents the JavaScript one: every integer is a double, a
-struct is an array, an enum is a number or `[tag, ...payload]`, `None` is
-`undefined`. This document is the other one — sized integers, a struct layout, a
-tagged union — and the language-visible consequences of the change, which
-the roadmap correctly said need a SPEC amendment rather than a quiet
-divergence.
+`runtime.js` documents the JavaScript one: every integer is a double, a struct is
+an array, an enum is a number or `[tag, ...payload]`, `None` is `undefined`. This
+document is the other one — sized integers, a struct layout, a tagged union — and
+the language-visible consequences of the change, which the roadmap correctly said
+need a SPEC amendment rather than a quiet divergence.
 
-The model is computed by `middle::layout` (ARCHITECTURE.md §2.2) and both native
+`middle::layout` computes the model (ARCHITECTURE.md §2.2) and both native
 backends read the same table. A layout the debug and release backends disagreed
-about would be a miscompile visible only when comparing profiles, so there is
-one implementation and both consume it.
+about would be a miscompile visible only when comparing profiles, so there is one
+implementation and both consume it.
 
 ## 1. Scalars
 
@@ -28,31 +27,30 @@ one implementation and both consume it.
 `Int = I64` for real. The consequence is the whole of §7.
 
 `Char` as `u32` rather than as a small string is not a choice — `Char` is one
-Unicode scalar (`str.buri` returns `[Char]` from `chars`, and `char.toU32()`
-is exact per SPEC 6.2.1). The JS backend spells it as a one-scalar string because
-JavaScript has no character type, and `Char` comparison there is string
+Unicode scalar (`str.buri` returns `[Char]` from `chars`, and `char.toU32()` is
+exact per SPEC 6.2.1). The JS backend spells it as a one-scalar string because
+JavaScript has no character type, so `Char` comparison there is string
 comparison. Natively it is an integer comparison on the scalar.
 
-Those are the same answer, and for a while they were not: string comparison in
+Those are the same answer, and for a while they were not. String comparison in
 JavaScript means `<`, `<` orders UTF-16 code units, and an astral scalar is a
 surrogate pair beginning at U+D800 — so `<` put every astral character *below*
 every character in U+E000..U+FFFF while the integer comparison put it above.
-Unicode scalar order and UTF-8 byte order agree, `Str.compare` is defined as
-that order (`str.buri`), and the JavaScript side is what moved: `$str_compare`
-spells the scalar order out rather than deferring to `<`, and `$cmp` — the
-derived path, and the one a `Char` takes — routes text through it. §12 row 17.
+Unicode scalar order and UTF-8 byte order agree, `Str.compare` is defined as that
+order (`str.buri`), and the JavaScript side is what moved: `$str_compare` spells
+the scalar order out rather than deferring to `<`, and `$cmp` — the derived path,
+and the one a `Char` takes — routes text through it. §12 row 17.
 
 `I128`/`U128` are the one place a backend can fall short of the type system, and
-the fallback is stated in CODEGEN-STENCIL.md §5.3 rather than here, because it
+CODEGEN-STENCIL.md §5.3 states the fallback rather than this document, because it
 is a backend limitation and not a model decision. The model says 128-bit
 arithmetic is exact; a backend that cannot do it in registers calls the runtime.
 
 Every scalar is aligned to its own width, including the 128-bit pair: `i128` is
-**16-aligned**, not 8-aligned. That is what LLVM, clang and the SysV ABI all
-mean by `i128`, and §10's boundary is the reason it is not a free choice —
-`cli/runtime` is Rust with `#[repr(C)]` types, so a layout pass that aligned
-`i128` to 8 would disagree with the runtime at the one place disagreement is not
-caught by a test of either side alone.
+**16-aligned**, not 8-aligned. That is what LLVM, clang and the SysV ABI all mean
+by `i128`, and §10's boundary is why it is not a free choice — `cli/runtime` is
+Rust with `#[repr(C)]` types, so a layout pass that aligned `i128` to 8 would
+disagree with the runtime at the one place no test of either side alone catches.
 
 ## 2. Heap values, and the one header
 
@@ -70,10 +68,10 @@ Every heap allocation has a **16-byte header immediately before the payload**:
   ptr        ...  payload
 ```
 
-Sixteen bytes and not eight, for three reasons that each independently decide it:
-the payload stays 16-byte aligned, which every SIMD type and every `F64x2` in
-`core/simd` wants for free; `cap` is what the free path needs to return a block
-to the right size class; and `cap` is what MEMORY.md §5's in-place reuse tests
+Sixteen bytes and not eight, for three reasons that each independently decide it.
+The payload stays 16-byte aligned, which every SIMD type and every `F64x2` in
+`core/simd` wants for free. `cap` is what the free path needs to return a block
+to the right size class. And `cap` is what MEMORY.md §5's in-place reuse tests
 against. One header shape for every heap value, so `incref` and `decref` are two
 instruction sequences in the whole program rather than one per kind.
 
@@ -86,56 +84,54 @@ sequences.
 ### 2.1 Bit 63 of `cap` is the multi-threaded mark
 
 `cap` holds the usable payload bytes in its **low 63 bits**. **Bit 63 is the
-mark**: set means *this block may be reached from more than one thread*, and it
-is the bit `incref` and `decref` branch on to choose an atomic count and the
-bit `buri_rt_unique_cap` refuses an in-place write on.
+mark**: set means *this block may be reached from more than one thread*. It is
+the bit `incref` and `decref` branch on to choose an atomic count, and the bit
+`buri_rt_unique_cap` refuses an in-place write on.
 
 Every reader masks, which is what let the bit be reserved and the branch grown
-before anything set it. `middle::layout::CAP_SHARED_FLAG` and `CAP_MASK` are
-the compiler's copy of the number; `cli/runtime/memory.rs`'s
-`BURI_RT_CAP_SHARED` and `BURI_RT_CAP_MASK` are the runtime's, spelled twice for
-the reason `BURI_OK` is.
+before anything set it. `middle::layout::CAP_SHARED_FLAG` and `CAP_MASK` are the
+compiler's copy of the number; `cli/runtime/memory.rs`'s `BURI_RT_CAP_SHARED` and
+`BURI_RT_CAP_MASK` are the runtime's, spelled twice for the reason `BURI_OK` is.
 
-**Which blocks carry it: all of a program's, or none.** `middle::rc::crosses_tasks`
-asks the whole post-monomorphization program whether it can reach a task
-boundary; both native backends turn a `true` into one call in `main`,
-`buri_rt_values_may_cross_tasks()`, before anything allocates; and
-`memory.rs::finish` then ORs the bit into every `cap` it writes. A program with
-no `core/tasks` in it is bit for bit the program it was before track G. MEMORY.md
-§5.1, "Who sets the bit", is the argument for answering per program rather than
-per value — the short form is that a per-value mark would have to be transitive
-to be sound, and a shallow one is the silent aliasing §5.5 forbids.
+**Which blocks carry it: all of a program's, or none.**
+`middle::rc::crosses_tasks` asks the whole post-monomorphization program whether
+it can reach a task boundary. Both native backends turn a `true` into one call in
+`main`, `buri_rt_values_may_cross_tasks()`, before anything allocates, and
+`memory.rs::finish` then ORs the bit into every `cap` it writes. A program with no
+`core/tasks` in it is bit for bit the program it was before track G. MEMORY.md
+§5.1, "Who sets the bit", argues for answering per program rather than per value.
+The short form: a per-value mark would have to be transitive to be sound, and a
+shallow one is the silent aliasing §5.5 forbids.
 
-**What the fork costs a program that takes the unshared arm** is **two
-instructions** per reference operation — a load of the word beside the count, on
-a cache line the operation was going to touch, and a bit test. What it costs the
-*compiler* is a different number and a larger one: a median **+21 %** of native
-release lowering, which is an amended budget on that row rather than a met one.
-Both numbers, and the amendment, are in `design/PERFORMANCE.md` §6.6.
+**A program that takes the unshared arm pays two instructions** per reference
+operation — a load of the word beside the count, on a cache line the operation
+was going to touch, and a bit test. The *compiler* pays a different and larger
+number: a median **+21 %** of native release lowering, which is an amended budget
+on that row rather than a met one. Both numbers, and the amendment, are in
+`design/PERFORMANCE.md` §6.6.
 
-**Why `cap` and not `rc`.** A bit of the count would cost both of the two
-properties §2 just gave the count. `IMMORTAL` is `u64::MAX` and `incref` is a
-*saturating* add exactly so the sentinel is a fixed point with no branch on the
-side where the traffic is; a tag bit in the same word makes that add wrong. And
-MEMORY.md §5.3's entire licence for in-place reuse is the literal test
-`rc == 1`, which a tagged count fails for a block that is genuinely unique — the
-uniqueness test would go quietly false and every append would copy. `cap` has
-neither problem: it is a byte count that nothing does arithmetic on without
-knowing it is one, it is read on cold paths, and a capacity runs out of address
-space long before bit 63.
+**Why `cap` and not `rc`.** A bit of the count would cost both properties §2 just
+gave the count. `IMMORTAL` is `u64::MAX` and `incref` is a *saturating* add
+exactly so the sentinel is a fixed point with no branch where the traffic is; a
+tag bit in the same word makes that add wrong. And MEMORY.md §5.3's entire licence
+for in-place reuse is the literal test `rc == 1`, which a tagged count fails for a
+block that is genuinely unique — the uniqueness test would go quietly false and
+every append would copy. `cap` has neither problem: it is a byte count that
+nothing does arithmetic on without knowing it is one, it is read on cold paths,
+and a capacity runs out of address space long before bit 63.
 
 This is the same trick §3.1 already plays with bit 63 of `Str::len`, one word
 along — the precedent, not a collision.
 
-**The readers.** `cli/runtime/memory.rs` masks in one place, `cap_of`,
-which `buri_rt_free`, `buri_rt_realloc`, `buri_rt_cap`, `buri_rt_unique_cap` and
-the `make_immortal` accounting all read through; `buri_rt_grown_capacity` masks
-its `old_cap` argument, because doubling the flag would ask for the address
-space. Both backends open-code a read and both mask it: the `[T]` element count
+**The readers.** `cli/runtime/memory.rs` masks in one place, `cap_of`, which
+`buri_rt_free`, `buri_rt_realloc`, `buri_rt_cap`, `buri_rt_unique_cap` and the
+`make_immortal` accounting all read through; `buri_rt_grown_capacity` masks its
+`old_cap` argument, because doubling the flag would ask for the address space.
+Both backends open-code a read and both mask it: the `[T]` element count
 `cap / stride` in a release glue (`llvm/emit.rs::glue`,
 `stencil/glue.rs::elems_glue`) and the LLVM `str.concat` in-place probe, whose
-`fits` test is a *room for the result* question and would otherwise report the
-whole address space as headroom. `buri_rt_realloc` also *preserves* the bit
+`fits` test asks whether there is *room for the result* and would otherwise report
+the whole address space as headroom. `buri_rt_realloc` also *preserves* the bit
 across a move rather than clearing it, so growing a block cannot silently
 un-share it, and the LLVM `str.concat` probe reads it a **second** time for a
 different question — a marked block is never unique, so the in-place arm is not
@@ -145,21 +141,21 @@ taken on one (MEMORY.md §5.1).
 
 Set means *this block was served out of a `core/alloc::scoped` arena* (MEMORY.md
 §7.2.1). It is the **runtime's alone**: nothing a backend emits tests it, and
-exactly two functions read it — `buri_rt_free`, which does the accounting and
-then returns rather than calling `dealloc` because the pages go back in one
-`munmap` when the scope ends, and `buri_rt_realloc`, which grows such a block by
-allocating a new one because a bump allocator cannot grow what it handed out.
+exactly two functions read it. `buri_rt_free` does the accounting and then
+returns rather than calling `dealloc`, because the pages go back in one `munmap`
+when the scope ends. `buri_rt_realloc` grows such a block by allocating a new one,
+because a bump allocator cannot grow what it handed out.
 
-It is declared in `middle::layout` anyway, as `CAP_ARENA_FLAG`, for one reason:
+`middle::layout` declares it anyway, as `CAP_ARENA_FLAG`, for one reason:
 `CAP_MASK` is declared there and every reader of a `cap` word in emitted code
 masks with it. Putting the bit where the mask is means an element count cannot
 pick it up and the bit cannot be spent twice.
 
 **Why a header bit and not a side table.** "Whose is this block" has to be
 answered on the free path, which is the hottest cold path there is, and a word
-that is already loaded answers it for nothing. A side table would put a lookup
-in front of every free in the process to serve the scopes. A capacity that
-reached 2^62 bytes would collide with it, which is four exabytes in one value.
+that is already loaded answers it for nothing. A side table would put a lookup in
+front of every free in the process to serve the scopes. A capacity that reached
+2^62 bytes would collide with it, which is four exabytes in one value.
 
 ## 3. `Str`
 
@@ -173,13 +169,13 @@ pointer to the header itself, notwithstanding the `*Header` above. That is what
 makes `incref(base)` and `decref(base)` the same two instruction sequences every
 other heap value uses, which is §2's whole reason for having one header shape.
 
-UTF-8, immutable, and **sliceable** — which is the requirement that decides the
-shape. `core/str`'s own header says it: "`trim`, `slice`, and `splitOnce` are
-pure because it is immutable and sliceable: they return views, not copies"
-(`str.buri`), and `splitOnce` is documented as pure "because neither half is
-a copy" (`str.buri`). A view's `ptr` is in the middle of somebody else's
-allocation, so the reference count cannot be found by subtracting 16 from it.
-`base` is what the count is on.
+UTF-8, immutable, and **sliceable** — the requirement that decides the shape.
+`core/str`'s own header says it: "`trim`, `slice`, and `splitOnce` are pure
+because it is immutable and sliceable: they return views, not copies"
+(`str.buri`), and `splitOnce` is documented as pure "because neither half is a
+copy" (`str.buri`). A view's `ptr` is in the middle of somebody else's
+allocation, so subtracting 16 from it does not find the reference count. `base` is
+what the count is on.
 
 `base` is null for a literal or a static, which are `IMMORTAL` anyway, so a
 literal string is three immediate constants and touches no allocator.
@@ -187,30 +183,30 @@ literal string is three immediate constants and touches no allocator.
 ### 3.1 `len` is scalars, and the top bit of `len` says how much that costs
 
 `str.len()` is "the number of Unicode scalar values, not the number of UTF-8
-bytes" (`str.buri`). So the byte length in the value and the number the
-language reports are different numbers, and one of them has to be computed.
+bytes" (`str.buri`). So the byte length in the value and the number the language
+reports are different numbers, and one of them has to be computed.
 
-The field holds the **byte** length in its low 63 bits — a view has to know
-where it ends, and that is a byte offset — and bit 63 answers what the *scalar*
-count costs.
+The field holds the **byte** length in its low 63 bits — a view has to know where
+it ends, and that is a byte offset — and bit 63 says what the *scalar* count
+costs.
 
 Bit 63 of `len` is the **ASCII flag**. Set means every byte in the view is below
 0x80, so the scalar count equals the byte count and `len()` is a mask. Clear
-means the scalar count is computed by counting bytes with `(b & 0xC0) != 0x80` —
-a loop that vectorizes to one compare and one popcount per 16 or 32 bytes.
+means counting bytes with `(b & 0xC0) != 0x80` — a loop that vectorizes to one
+compare and one popcount per 16 or 32 bytes.
 
 This mirrors the JavaScript backend exactly. `$str_len` is `$wide(s) ? $chars(s).length : s.length`
-(`runtime.js`): O(1) when the string is in the basic plane, O(n)
-otherwise. Native is O(1) for ASCII and O(n) otherwise. The boundary is drawn in
-a different place — JavaScript's fast path is "no astral characters", ours is
-"no non-ASCII" — but the shape is the same, and no program's asymptotics change
-between backends on the input that matters, which is ASCII.
+(`runtime.js`): O(1) when the string is in the basic plane, O(n) otherwise.
+Native is O(1) for ASCII and O(n) otherwise. The boundary is drawn in a different
+place — JavaScript's fast path is "no astral characters", ours is "no non-ASCII"
+— but the shape is the same, and no program's asymptotics change between backends
+on the input that matters, which is ASCII.
 
-The flag is computed once, by whichever runtime function built the string; the
-builders already scan the bytes. Slicing an ASCII string yields an ASCII string,
-so the flag survives `trim` and `slice` and `splitOnce` for free. Slicing a
-non-ASCII string leaves the flag clear even where the slice happens to be ASCII:
-rescanning on every slice would cost the thing slicing exists to avoid.
+Whichever runtime function built the string computes the flag once; the builders
+already scan the bytes. Slicing an ASCII string yields an ASCII string, so the
+flag survives `trim` and `slice` and `splitOnce` for free. Slicing a non-ASCII
+string leaves the flag clear even where the slice happens to be ASCII: rescanning
+on every slice would cost the thing slicing exists to avoid.
 
 Strings are capped at 2^63 - 1 bytes, which is not a cap.
 
@@ -229,7 +225,7 @@ UTF-8), which nothing here forecloses.
 
 `Template` is `Str`. The backend renders every hole from its static type and
 joins the parts (`runtime.js`), which is a middle-end rewrite of
-`ExprKind::Template` into a `str.concat` chain and is already what happens; there
+`ExprKind::Template` into a `str.concat` chain and is already what happens. There
 is no `Template` value at run time on either backend.
 
 ## 4. `[T]`
@@ -241,8 +237,8 @@ struct List { ptr: *const T, len: u64 }                    // 16 bytes
 Elements are contiguous, at `layout(T).stride`. The header is at `ptr - 16`,
 because unlike `Str` a list is **never a view**: every one of `slice`, `take`,
 `drop`, `concat`, `push`, `reverse` and `filter` in `core/list` is bounded by
-`Alloc` (`list.buri`), which is the language saying they allocate. So
-`ptr` is always a payload start and 16 bytes suffice.
+`Alloc` (`list.buri`), which is the language saying they allocate. So `ptr` is
+always a payload start and 16 bytes suffice.
 
 `len` is the element count, exactly. There is no ASCII-flag equivalent because
 `list.len()` is the element count and always O(1) (`list.buri`).
@@ -254,14 +250,14 @@ on append.
 
 The stdlib's list surface is bulk producers — `map`, `filter`, `fold`, `range`,
 `repeat`, `zip`, `flatten` — which build a whole array at once and read it
-linearly. There is a `push` (`list.buri`) and it is `Alloc`-bounded, which
-is the language stating that it copies. Making `push` cheap by making every other
+linearly. There is a `push` (`list.buri`) and it is `Alloc`-bounded, which is the
+language stating that it copies. Making `push` cheap by making every other
 operation indirect is the wrong trade for this library.
 
-More decisively: `sum` (`list.buri`) and `core/simd` want a contiguous
-`i64*`. A flat array is the only representation where a fold over `[Int]`
-compiles to a vectorizable loop, and vectorizing folds is most of what a native
-backend is for here.
+More decisively: `sum` (`list.buri`) and `core/simd` want a contiguous `i64*`. A
+flat array is the only representation where a fold over `[Int]` compiles to a
+vectorizable loop, and vectorizing folds is most of what a native backend is for
+here.
 
 What recovers append performance is not a different data structure, it is
 uniqueness: `xs.push(ctx, x)` where `xs` has a reference count of 1 and spare
@@ -272,23 +268,22 @@ amortized O(1) without changing what `[T]` is.
 That is not a plan: it is `cli/runtime/list.rs`'s `append_dest`, behind
 `list.push` and `list.concat` on both backends, with the capacity coming from
 doubling on the reallocating path. The native suite's
-`a_unique_push_loop_allocates_logarithmically` is the amortization stated as an
+`a_unique_push_loop_allocates_logarithmically` states the amortization as an
 allocation count. The one restriction is that an element type holding counted
 references — `[Str]` — still copies; MEMORY.md §5.3 says why, and it is a
 property of the drop glue rather than of `[T]`.
 
 ### 4.2 `..rest` allocates, and the arm owns what it binds
 
-**Ruling.** `[head, ..rest]` binds a **fresh block**, not an interior view of
-the scrutinee. It is the same ruling as §4's "never a view", read at the one
-place a slice is produced by pattern matching rather than by a `core/list`
-function, and every backend that has ever emitted it emitted it that way: the
-native slice calls `buri_rt_list_new`, `memcpy`s the tail and retains every
-counted element, which is `llvm/emit.rs`'s `array_slice` calling `heap`,
-`build_memcpy` and the retains, and the same three steps through the runtime
-boundary in the debug backend. The header at `ptr - 16` is what
-forces it — an interior pointer would make the next release read a header that
-is not one.
+**Ruling.** `[head, ..rest]` binds a **fresh block**, not an interior view of the
+scrutinee. It is the same ruling as §4's "never a view", read at the one place
+pattern matching rather than a `core/list` function produces a slice, and every
+backend that has ever emitted it emitted it that way: the native slice calls
+`buri_rt_list_new`, `memcpy`s the tail and retains every counted element, which is
+`llvm/emit.rs`'s `array_slice` calling `heap`, `build_memcpy` and the retains, and
+the same three steps through the runtime boundary in the debug backend. The
+header at `ptr - 16` is what forces it — an interior pointer would make the next
+release read a header that is not one.
 
 The consequence is a rule for `middle/rc.rs`, which had the other answer by
 default. Every *other* binding a pattern makes is a projection: it points into
@@ -301,34 +296,33 @@ locals and `Scan::match_` puts the drop on them unconditionally.
 Getting this backwards in the other direction would be worse than the leak it
 replaces: marking the binding owned where the slice *aliased* would free the
 scrutinee's block at the arm's last use, which is a double free rather than a
-missed one. The evidence above is what rules it out, and
-`scratchpad/frcheck/cmd/r1` — `..rest` over `[Str]` and `[Int]`, with
-`cmd/r2`'s `list.drop` over the same forty elements as the control — is the
-measurement: 44 leaks on the debug backend of the day and 46 on LLVM before, 0
-on both after, with the program's answers unchanged and still equal to
-JavaScript's.
+missed one. The evidence above is what rules it out, and `scratchpad/frcheck/cmd/r1`
+— `..rest` over `[Str]` and `[Int]`, with `cmd/r2`'s `list.drop` over the same
+forty elements as the control — is the measurement: 44 leaks on the debug backend
+of the day and 46 on LLVM before, 0 on both after, with the program's answers
+unchanged and still equal to JavaScript's.
 
 ## 5. Tuples and structs
 
 Fields in **declaration order**, at natural alignment, C layout. Size rounded up
 to alignment. Nothing is reordered.
 
-Because a size is already rounded up to its own alignment, `stride` — what a
-`[T]` indexes by — equals `size` for every type in this model. Both are in the
-layout table anyway: they are different questions, one about the distance
-between two elements and one about how many bytes a value is, and a model that
-spelled them with one number would have to be re-read the day a packed
-representation makes them differ.
+Because a size is already rounded up to its own alignment, `stride` — what a `[T]`
+indexes by — equals `size` for every type in this model. Both are in the layout
+table anyway: they are different questions, one about the distance between two
+elements and one about how many bytes a value is, and a model that spelled them
+with one number would have to be re-read the day a packed representation makes
+them differ.
 
 Reordering to close padding is the obvious optimization and it is not taken in
-v1, because `Desc::Struct` (`monomorphize.rs`) carries `fields` in
-declaration order and every derived operation is a fold over that order —
-`derive Show` prints them in it, `derive ToJson` writes a positional struct as an
-array in it (and that array's element order is *wire
-format*). A layout pass that reorders and a descriptor that does not is two
-orderings that must be kept in step by hand, and the failure is a JSON document
-with its fields transposed. The growth path is one field on `DescField` — the
-byte offset — after which reordering is safe and mechanical.
+v1, because `Desc::Struct` (`monomorphize.rs`) carries `fields` in declaration
+order and every derived operation is a fold over that order — `derive Show`
+prints them in it, `derive ToJson` writes a positional struct as an array in it
+(and that array's element order is *wire format*). A layout pass that reorders
+and a descriptor that does not is two orderings somebody has to keep in step by
+hand, and the failure is a JSON document with its fields transposed. The growth
+path is one field on `DescField` — the byte offset — after which reordering is
+safe and mechanical.
 
 The padding cost is small in practice: this language has no `u24`s and no
 bitfields, and the common shapes (all-pointer, all-i64) have none.
@@ -346,10 +340,10 @@ eight; beyond eight leaves the aggregate is passed by pointer to caller-owned,
 immutable memory.
 
 This is what makes a 24-byte `Str` cost three registers rather than a stack slot:
-SysV would classify a 24-byte struct as MEMORY and spill it. Since both sides of
-every Buri call are generated by this compiler, there is no ABI to be compatible
-with, and the one place there is — `cli/runtime`'s C entry points — takes the
-platform ABI and is written in Rust with `#[repr(C)]` types to match (§9).
+SysV would classify a 24-byte struct as MEMORY and spill it. Since this compiler
+generates both sides of every Buri call, there is no ABI to be compatible with.
+The one place there is — `cli/runtime`'s C entry points — takes the platform ABI
+and is written in Rust with `#[repr(C)]` types to match (§9).
 
 Both native backends are told this as a signature with N scalar parameters.
 Neither needs `byval`, `sret`, or a struct type in a signature anywhere.
@@ -364,8 +358,8 @@ recursion stops for free.
 
 They are not all of it. `enum Tree<T> { Leaf, Node(Tree<T>, T, Tree<T>) }` is
 legal, is in SPEC 5.4's own example list, and is annotated there as "boxed by the
-runtime" — which is a promise the layout pass has to keep, because a `Tree`
-stored inline in a `Tree` has no finite size. So:
+runtime" — a promise the layout pass has to keep, because a `Tree` stored inline
+in a `Tree` has no finite size. So:
 
 > A field is stored **behind a pointer** exactly when its owner's type
 > constructor is in a recursion group that is a genuine cycle, and the field's
@@ -373,8 +367,8 @@ stored inline in a `Tree` has no finite size. So:
 > inline. Recursion groups are the strongly connected components of "mentions
 > inline", where a generic argument counts and `[T]` and `fn(..) => T` do not.
 
-Three things follow, and each of them is the reason the rule is stated over
-groups rather than over back edges found while walking:
+Three things follow, and each of them is why the rule is stated over groups
+rather than over back edges found while walking:
 
 - **The answer does not depend on the order layouts were asked for.** In a cycle
   `A -> B -> A`, *both* edges are boxed. A rule that boxed the edge it happened
@@ -389,11 +383,11 @@ groups rather than over back edges found while walking:
 - **A pointer introduced this way is never null**, so it is a niche candidate
   (§6), which is what makes `Option<a box-shaped struct>` free.
 
-The cost of boxing both edges of a two-cycle rather than one is an indirection
-per level in a shape nothing in the standard library has — `core/json`'s `Json`
-recurses through `[Json]` and is not boxed at all. The growth path, if a profile
-ever wants it, is to pick a canonical edge per group by declaration order, which
-is a change to one predicate.
+Boxing both edges of a two-cycle rather than one costs an indirection per level
+in a shape nothing in the standard library has — `core/json`'s `Json` recurses
+through `[Json]` and is not boxed at all. The growth path, if a profile ever wants
+it, is to pick a canonical edge per group by declaration order, which is a change
+to one predicate.
 
 ## 6. Enums
 
@@ -403,30 +397,29 @@ at the maximum alignment among them, and the whole is a struct at that alignment
 A variant's fields are laid out inside the payload area in declaration order,
 independently per variant.
 
-The tag is at **offset 0** and its value is the variant's **index in
-declaration order**, which is the number `derive Ord` already compares and the
-number a decision tree already switches on. An enum with no variants at all is
+The tag is at **offset 0** and its value is the variant's **index in declaration
+order**, which is the number `derive Ord` already compares and the number a
+decision tree already switches on. An enum with no variants at all is
 uninhabited, has no value, and occupies nothing.
 
 Two niches, both on day one, both because the IR already assumes them:
 
 - **An enum whose payload area is empty is a bare integer.** `Desc::payloadless`
-  already exists and already means exactly this (`monomorphize.rs`), and
-  the JS backend already compiles equality on one to `a === b`
-  (`generate.rs`). Stated in bytes rather than in fields, so that
-  `Option<()>` — one variant with a zero-sized field — is a byte too, rather than
-  a byte of tag and a payload area of nothing after it.
+  already exists and already means exactly this (`monomorphize.rs`), and the JS
+  backend already compiles equality on one to `a === b` (`generate.rs`). Stated
+  in bytes rather than in fields, so that `Option<()>` — one variant with a
+  zero-sized field — is a byte too, rather than a byte of tag and a payload area
+  of nothing after it.
 - **`Option<T>` where `T`'s layout has a pointer field with a known-nonnull
   invariant is the pointer, with null for `.None`.** `Option` already has no tag
   in the IR: `Desc::Option(inner)` says only what the payload is, because "`None`
-  is `undefined` and `Some(x)` is `x`" (`monomorphize.rs`,
-  `runtime.js`). The niche keeps that true natively for the case that
-  matters — `Option<Str>`, `Option<Box-shaped struct>` — at zero cost.
+  is `undefined` and `Some(x)` is `x`" (`monomorphize.rs`, `runtime.js`). The
+  niche keeps that true natively for the case that matters — `Option<Str>`,
+  `Option<Box-shaped struct>` — at zero cost.
 
-"A pointer field with a known-nonnull invariant" is a short list, and it is
-worth writing out because half of the pointers in this model *are* nullable and
-picking one of those would be a silent miscompile rather than a missed
-optimization:
+"A pointer field with a known-nonnull invariant" is a short list, and it is worth
+writing out because half of the pointers in this model *are* nullable and picking
+one of those would be a silent miscompile rather than a missed optimization:
 
 | Shape | The niche | Why not the other one |
 |---|---|---|
@@ -435,23 +428,23 @@ optimization:
 | a struct or tuple | the first such pointer inside it, by offset | — |
 
 `[T]` used to be on that list, on the reasoning that a list is never a view so
-its `ptr` is always a payload start — and the empty list refuted it: both
-backends make an empty list's `ptr` null, so `.Some(list.empty())` *was*
-`.None`, which is the silent-miscompile half of the warning above happening in
-this very table. `Ty::Array` is not a niche candidate (`middle/layout.rs`), and
-`Option<[T]>` carries a tag.
+its `ptr` is always a payload start — and the empty list refuted it: both backends
+make an empty list's `ptr` null, so `.Some(list.empty())` *was* `.None`, which is
+the silent-miscompile half of the warning above happening in this very table.
+`Ty::Array` is not a niche candidate (`middle/layout.rs`), and `Option<[T]>`
+carries a tag.
 | a field boxed by §5.2 | that pointer | — |
 | an enum | none | which pointers exist depends on the tag |
 
-`.None` is that one word set to null; the rest of the value is not written and
-not read. So `Option<Str>` is 24 bytes, exactly a `Str`, and testing it is one
+`.None` is that one word set to null; nothing writes or reads the rest of the
+value. So `Option<Str>` is 24 bytes, exactly a `Str`, and testing it is one
 compare against zero.
 
 Everything else gets a tag. In particular **`Option<Option<T>>` gets a tag**, and
 that is a semantic improvement over JavaScript rather than a cost: `runtime.js`
 records that `Some(None)` and `None` collide there, and that the collision is why
-`Option<T>` in JSON does not round-trip. Natively it does
-not collide. §8 lists the test.
+`Option<T>` in JSON does not round-trip. Natively it does not collide. §8 lists
+the test.
 
 General niche discovery — scanning a type for any unused bit pattern, Rust-style
 — is deferred. It is a large amount of machinery for a language whose enums are
@@ -483,12 +476,12 @@ argument go through.
 
 Two additions the section above does not follow from, both forced by §5.1 and
 both landed identically in every native backend that has emitted a closure. A
-closure built by one and a closure built by another have the same shape, which
-is what lets this section stay one description rather than two.
+closure built by one and a closure built by another have the same shape, which is
+what lets this section stay one description rather than two.
 
 **`code` is always a generated thunk, never the lifted lambda.** The lifted
-lambda takes its environment as an *aggregate* first parameter, and §5.1 passes
-an aggregate parameter as its scalar leaves — so calling one requires knowing the
+lambda takes its environment as an *aggregate* first parameter, and §5.1 passes an
+aggregate parameter as its scalar leaves — so calling one requires knowing the
 capture layout, which is precisely what `Ty::Fn` does not record and what a call
 site holding `{ code, env }` therefore cannot know. `code` instead points at a
 two-line function
@@ -497,11 +490,11 @@ two-line function
 thunk(env: *const Env, args...) -> R = f(load-leaves(env), args...)
 ```
 
-whose first parameter is the environment *pointer*. A capture-free lambda gets
-one too, ignoring the pointer: which of the two shapes a closure value holds is a
-run-time fact, so both must be call-compatible. The rejected alternative —
-`code` is the lambda and the caller spreads the environment — needs the caller to
-know the capture layout, and there is no type through which to tell it.
+whose first parameter is the environment *pointer*. A capture-free lambda gets one
+too, ignoring the pointer: which of the two shapes a closure value holds is a
+run-time fact, so both must be call-compatible. The rejected alternative — `code`
+is the lambda and the caller spreads the environment — needs the caller to know
+the capture layout, and there is no type through which to tell it.
 
 **The environment block leads with its own drop glue.**
 
@@ -517,17 +510,17 @@ captured, so **neither** of the two operations a generic path performs on an
 environment can be derived from the type at the site that performs it. `decref`
 of a closure has no type from which to derive the release; `core/alloc::copyOut`
 has none from which to derive the copy (MEMORY.md §7.2.1). One universal glue
-reads word 0 and calls it on `env + 16`, a second reads word 1 and does the
-same, and both per-type functions are generated the way every other glue is,
-from `middle::layout`. Sixteen bytes per closure, against a closure whose
-captures could not be freed and could not leave a scope.
+reads word 0 and calls it on `env + 16`, a second reads word 1 and does the same,
+and both per-type functions are generated the way every other glue is, from
+`middle::layout`. Sixteen bytes per closure, against a closure whose captures
+could not be freed and could not leave a scope.
 
-The rejected alternative for the first word — a glue pointer beside `code` in
-the closure *value* — costs the same eight bytes in a value that is copied far
-more often than the block is allocated. The rejected alternative for the second
-— one word pointing at a static `{ release, copy }` pair — costs eight bytes per
-*type* rather than per closure, and puts a second load in front of every drop of
-every closure in the language.
+The rejected alternative for the first word — a glue pointer beside `code` in the
+closure *value* — costs the same eight bytes in a value that is copied far more
+often than the block is allocated. The rejected alternative for the second — one
+word pointing at a static `{ release, copy }` pair — costs eight bytes per *type*
+rather than per closure, and puts a second load in front of every drop of every
+closure in the language.
 
 ## 8. Contexts cost nothing
 
@@ -536,17 +529,17 @@ A context is "an array of implementations, in binding order" on JavaScript
 
 Monomorphization resolves every effect call to a direct call: `resolve_trait_call`
 reads the implementation type out of the context type's layout and dispatches on
-it statically (`monomorphize.rs`), and `Program::ctx_layouts` records the
-exact `Vec<TraitId>` per context type (`monomorphize.rs`). So by the time
-anything is laid out, a `CtxGet` has a statically known answer and the only
-question is whether the *implementation value* carries data.
+it statically (`monomorphize.rs`), and `Program::ctx_layouts` records the exact
+`Vec<TraitId>` per context type (`monomorphize.rs`). So by the time anything is
+laid out, a `CtxGet` has a statically known answer and the only question is
+whether the *implementation value* carries data.
 
 Every implementation `core/host` exports is a zero-sized struct — `struct HostFs {}`,
 `struct HostStdout {}`, fifteen of them (`host.buri`), of which any one platform
-grants at most thirteen. A context of zero-sized
-values is zero-sized. So in a program built on `core/host`, **`ctx` is not a
-parameter**: it is dropped from every signature in the program by the layout pass,
-which drops zero-sized parameters everywhere.
+grants at most thirteen. A context of zero-sized values is zero-sized. So in a
+program built on `core/host`, **`ctx` is not a parameter**: the layout pass drops
+it from every signature in the program, the way it drops zero-sized parameters
+everywhere.
 
 That is the effect system paying for itself at the machine level, and it is worth
 stating plainly: the single largest ergonomic tax in the language — threading
@@ -561,30 +554,30 @@ is zero for the platform's own.
 
 **At the archive boundary the rule is not about size at all**, and the two read
 the same only by accident. A `buri_rt_*` call drops its context argument
-*whatever it weighs*, because `cli/runtime` allocates through `buri_rt_alloc`
-and reads no capability — so the C signature has no parameter for one, and a
-context that carries state has nothing to put there either. Which argument that
-is is a fact about the **declaration**: `list.push(self, ctx, item)` names its
-second, `list.repeat(ctx, item, times)` its first. Both native backends read it
-off their runtime tables (`backend/runtime_table.rs`'s `Entry::ctx`,
+*whatever it weighs*, because `cli/runtime` allocates through `buri_rt_alloc` and
+reads no capability — so the C signature has no parameter for one, and a context
+that carries state has nothing to put there either. Which argument that is is a
+fact about the **declaration**: `list.push(self, ctx, item)` names its second,
+`list.repeat(ctx, item, times)` its first. Both native backends read it off their
+runtime tables (`backend/runtime_table.rs`'s `Entry::ctx`,
 `backend/llvm/runtime.rs`'s `Arg::Dropped`).
 
-Asking the *argument's type* instead — "is it a `Ty::Ctx`?" — is the same
-question only while every `C: Alloc` is instantiated at a `context { … }`
-record, and it is not. `<C: Alloc>` and `<T: Ord>` are one feature (SPEC 10.1):
-anything that **implements** `Alloc` satisfies the bound, and SPEC 10.8's
-attenuation exists so that programs do exactly that. Such a value spread to a
-leaf the C signature had no parameter for and shifted every argument after it
-one register down — a link, a run, and a fault in `memmove`.
+Asking the *argument's type* instead — "is it a `Ty::Ctx`?" — is the same question
+only while every `C: Alloc` is instantiated at a `context { … }` record, and it is
+not. `<C: Alloc>` and `<T: Ord>` are one feature (SPEC 10.1): anything that
+**implements** `Alloc` satisfies the bound, and SPEC 10.8's attenuation exists so
+that programs do exactly that. Such a value spread to a leaf the C signature had
+no parameter for and shifted every argument after it one register down — a link,
+a run, and a fault in `memmove`.
 
 A mixed context keeps **one offset per binding**, in binding order, including the
-ones that occupy nothing: a zero-sized binding gets the offset of whatever
-follows it, which costs no bytes and means a `CtxGet` indexes by the binding
-number it already has rather than by a number that has had the empty
-implementations subtracted from it. `Layout::is_zero_sized` on the whole context
-is then the one predicate that drops it from a signature, and it is the same
-predicate that drops a `()` parameter — dropping zero-sized parameters is one
-rule, not a special case for contexts.
+ones that occupy nothing: a zero-sized binding gets the offset of whatever follows
+it, which costs no bytes and means a `CtxGet` indexes by the binding number it
+already has rather than by a number that has had the empty implementations
+subtracted from it. `Layout::is_zero_sized` on the whole context is then the one
+predicate that drops it from a signature, and it is the same predicate that drops
+a `()` parameter — dropping zero-sized parameters is one rule, not a special case
+for contexts.
 
 ## 9. Descriptors and derives: generated, not walked
 
@@ -592,34 +585,32 @@ The JS backend has it both ways. `derive Eq` is compiled per type into its own
 function (`generate.rs`: "compiled at the type, a two-field struct is
 `a[0]===b[0]&&a[1]===b[1]` — no dispatch left at all"), while `Show`, `Hash`,
 `ToJson` and `FromJson` go through a runtime walker over a `Desc` value
-(`monomorphize.rs`). The walker is the right call
-there: it keeps one `$show` in the artifact instead of one per type, and artifact
-size is what a JavaScript build is judged on.
+(`monomorphize.rs`). The walker is the right call there: it keeps one `$show` in
+the artifact instead of one per type, and artifact size is what a JavaScript build
+is judged on.
 
 **Natively, all of them are generated and no descriptor reaches the artifact.**
 
 The reasons are the ones CODEGEN-LLVM.md §0 lists. A descriptor walk is an
 interpreter: an indirect dispatch on `Desc`'s tag per field per element, which is
-the single megamorphic call site `generate.rs` already identifies as the
-problem in the JavaScript version. It defeats `readnone`/`readonly` attribution
+the single megamorphic call site `generate.rs` already identifies as the problem
+in the JavaScript version. It defeats `readnone`/`readonly` attribution
 (CODEGEN-LLVM.md §3) because the walker reads a global table. It defeats DCE,
 because everything reachable from any descriptor is reachable. And it costs code
 size in the one place code size does not matter — a native binary that is 40 KB
 larger and does not interpret its own type table is the better artifact.
 
 So `Desc` stays in the middle end as the **fold input** it already is — the
-recursion-terminating `Desc::Reserved` slot (`monomorphize.rs`) is
-exactly what a code generator needs to emit a recursive type's `show` without
-looping — and `middle::derives` emits one function per (trait, type) pair. Two
-consequences:
+recursion-terminating `Desc::Reserved` slot (`monomorphize.rs`) is exactly what a
+code generator needs to emit a recursive type's `show` without looping — and
+`middle::derives` emits one function per (trait, type) pair. Two consequences:
 
-- `Func::desc` (`monomorphize.rs`) is consumed at codegen time and never
-  becomes data. The test runner's `report`, which is the one thing that needs a
-  descriptor at run time (`monomorphize.rs`), gets a generated `show` for
-  the type instead.
-- `json.decode` (`monomorphize.rs`), which takes its type from an
-  annotation and is handed a descriptor rather than a value, becomes a generated
-  `decode_T` selected the same way.
+- Codegen consumes `Func::desc` (`monomorphize.rs`) and it never becomes data.
+  The test runner's `report`, which is the one thing that needs a descriptor at
+  run time (`monomorphize.rs`), gets a generated `show` for the type instead.
+- `json.decode` (`monomorphize.rs`), which takes its type from an annotation and
+  is handed a descriptor rather than a value, becomes a generated `decode_T`
+  selected the same way.
 
 The generated functions are `internal` in release, so a `derive Show` on a type
 nothing prints is deleted.
@@ -643,8 +634,8 @@ makes "is this symbol the runtime's" a table lookup instead of a string
 comparison, in a compiler that has to answer that question at every call site it
 emits. `libburi_rt.a` was already named for the prefix.
 
-The ABI itself — how an aggregate parameter is flattened, how an aggregate
-result leaves, how a `Result` reports which arm it took — is stated once in
+The ABI itself — how an aggregate parameter is flattened, how an aggregate result
+leaves, how a `Result` reports which arm it took — is stated once in
 `cli/runtime/lib.rs`'s module comment, which is the contract both backends cite.
 It is written there rather than here because it is the file that has to be right,
 and a contract two files away from its implementation is a contract that drifts.
@@ -652,12 +643,12 @@ and a contract two files away from its implementation is a contract that drifts.
 The alternatives and why not:
 
 - **Open-code everything in both backends.** 203 operations times two backends.
-  The two would drift, and the drift would be found by users.
+  The two would drift, and users would find the drift.
 - **Write the runtime in Buri.** Circular: `str.concat` needs an allocator, the
   allocator needs `mmap`, and the language has no way to say `mmap`.
 - **Call libc directly from generated code.** Works for `write` and `mmap` and
-  nothing else. UTF-8 scalar counting, `sortBy`, JSON parsing, and SHA-256 are
-  not in libc.
+  nothing else. UTF-8 scalar counting, `sortBy`, JSON parsing, and SHA-256 are not
+  in libc.
 - **Ship the runtime as C.** Then the toolchain needs a C compiler at *build*
   time, which is a heavier dependency than the Rust one it already has.
 
@@ -667,61 +658,61 @@ generated Buri, and `check_intrinsics` (`generate.rs`) becomes
 `str.splitAny` is a build error naming it, per backend, exactly as the roadmap
 asks.
 
-The hot three — `incref`, `decref`, `alloc` fast path — are **not** calls. They
-are open-coded by both backends, because a call per reference-count operation is
-the thing that makes reference counting slow. MEMORY.md §5 gives the sequences.
+The hot three — `incref`, `decref`, `alloc` fast path — are **not** calls. Both
+backends open-code them, because a call per reference-count operation is the thing
+that makes reference counting slow. MEMORY.md §5 gives the sequences.
 
 ## 11. The SPEC amendment
 
-SPEC §6.2 and §6.2.2 were written as though JavaScript were the only backend.
-The amendment that fixed them **shipped in wave 3c**, so the text is not
-reproduced here: `buri docs language/expressions` serves it, and SPEC §6.2, §6.2.1
-and §6.2.2 are where it landed. It was written to the sources rather than to the
-assembled `SPEC.md`, which `buri docs assemble` would have edited back out on
-the next run. This section had four numbered drafts of that text; a citation to
+SPEC §6.2 and §6.2.2 were written as though JavaScript were the only backend. The
+amendment that fixed them **shipped in wave 3c**, so this document does not
+reproduce the text: `buri docs language/expressions` serves it, and SPEC §6.2,
+§6.2.1 and §6.2.2 are where it landed. It was written to the sources rather than
+to the assembled `SPEC.md`, which `buri docs assemble` would have edited back out
+on the next run. This section had four numbered drafts of that text; a citation to
 one of them lands here.
 
 What is worth keeping is the reasoning, which is not in the specification and
 should not be:
 
-- The amendment **does not make the backends agree**, and it is not a plan to.
-  It says what each does and declines to promise either, which is what makes
-  §12's divergence list a list rather than a bug queue. The 2^53 ceiling it
-  described is gone: `I64`, `U64`, `I128` and `U128` are `BigInt`s on the
-  JavaScript backend — the fix open question 8 had refused, and which
-  buri-lang/buri#8 and #4 answered it with. What that costs is measured rather
-  than guessed: see the note under the table.
-- Two documents outside §6.2 said the same thing unconditionally and were
-  amended with it: `docs/build/proto.md`'s 64-bit caveat, which is now the
-  JavaScript backend's rather than the language's, and `core/num`'s own module
-  comment, which the roadmap named as the file that would have to change.
-- **The alternative was implemented, shipped for a wave, and reversed.** A
-  native backend that also stopped at 2^53 makes `Checked` useless on `I64`
-  natively, which is exactly where a program reaches for it, and it buys
-  portability of a result nobody should be branching on. The ruling is that a
-  `Checked` method is bounded by the numbers the *backend* has, so `.None`
-  natively means "outside the type's range" and nothing else. Its cost is one
-  row on the divergence list, and that row is pinned in both directions.
+- The amendment **does not make the backends agree**, and it is not a plan to. It
+  says what each does and declines to promise either, which is what makes §12's
+  divergence list a list rather than a bug queue. The 2^53 ceiling it described is
+  gone: `I64`, `U64`, `I128` and `U128` are `BigInt`s on the JavaScript backend —
+  the fix open question 8 had refused, and which buri-lang/buri#8 and #4 answered
+  it with. What that costs is measured rather than guessed: see the note under
+  the table.
+- Two documents outside §6.2 said the same thing unconditionally and were amended
+  with it: `docs/build/proto.md`'s 64-bit caveat, which is now the JavaScript
+  backend's rather than the language's, and `core/num`'s own module comment, which
+  the roadmap named as the file that would have to change.
+- **The alternative was implemented, shipped for a wave, and reversed.** A native
+  backend that also stopped at 2^53 makes `Checked` useless on `I64` natively,
+  which is exactly where a program reaches for it, and it buys portability of a
+  result nobody should be branching on. The ruling is that a `Checked` method is
+  bounded by the numbers the *backend* has, so `.None` natively means "outside the
+  type's range" and nothing else. Its cost is one row on the divergence list, and
+  that row is pinned in both directions.
 - The float-rendering promise — that the rendering of a float is the shortest
   decimal that round-trips, so `1.0 / 3.0` prints the same characters on every
-  backend — is in the SPEC and is a promise about digits rather than about
-  values. §12 is what holds it.
+  backend — is in the SPEC and is a promise about digits rather than about values.
+  §12 is what holds it.
 
 ## 12. JavaScript ↔ native deltas, and what pins them
 
-One test file, `cli/tests/native/agreement.rs`, runs a corpus under both
-backends and compares. Every row below is either "must agree" or is on that
-file's explicit divergence list — a divergence with no entry is a bug.
+One test file, `cli/tests/native/agreement.rs`, runs a corpus under both backends
+and compares. Every row below is either "must agree" or is on that file's explicit
+divergence list — a divergence with no entry is a bug.
 
 **Written in wave 4b, and it did not agree.** The table had been a claim: nothing
 compiled one program through both pipelines and compared the bytes. Four of the
 fourteen rows were wrong, and the last column is now a test name rather than an
-intention — `every_row_of_the_table_names_a_test_that_exists` reads this table
-and fails if a row names a test that is not there, so the column cannot rot.
+intention — `every_row_of_the_table_names_a_test_that_exists` reads this table and
+fails if a row names a test that is not there, so the column cannot rot.
 
 | # | Behaviour | JavaScript | Native | Verdict | Pinned by |
 |---|---|---|---|---|---|
-| 1 | `Int` overflow | the exact sum, unbounded | two's-complement wrap | Undefined on both (SPEC §6.2). **Divergence, listed — and a different one than it was.** `I64` and `U64` are `BigInt`s on JavaScript as of buri-lang/buri#8, so the row is no longer about precision: every `I64` a program writes down is that `I64`, `show` prints its digits, and the ceiling that used to sit at 2^53 is gone. What is left is that a `BigInt` has no width to overflow *at*: `maxValue<I64>() + 1` is 9223372036854775808 here and −9223372036854775808 natively. Both are undefined, and a program that wants the defined answer says `wrappingAdd` — which does agree, at every width (row 3). Wrapping every arithmetic result back with `asIntN` would close this row too, and was not done: it is a call on every add in every program to make one undefined answer match another. | `row_01_int_overflow`, `row_01_integer_show_at_the_64_bit_extremes` |
+| 1 | `Int` overflow | the exact sum, unbounded | two's-complement wrap | Undefined on both (SPEC §6.2). **Divergence, listed — and a different one than it was.** `I64` and `U64` are `BigInt`s on JavaScript as of buri-lang/buri#8, so the row is no longer about precision: every `I64` a program writes down is that `I64`, `show` prints its digits, and the ceiling that used to sit at 2^53 is gone. What is left is that a `BigInt` has no width to overflow *at*: `maxValue<I64>() + 1` is 9223372036854775808 here and −9223372036854775808 natively. Both are undefined, and a program that wants the defined answer says `wrappingAdd`, which does agree at every width (row 3). Wrapping every arithmetic result back with `asIntN` would close this row too, and was not done: it is a call on every add in every program to make one undefined answer match another. | `row_01_int_overflow`, `row_01_integer_show_at_the_64_bit_extremes` |
 | 2 | `checkedAdd` above 2^53, within `I64` | `.Some` | `.Some` | ~~Divergence~~ — **must agree, and does.** The row was a band: `Checked` is bounded by the numbers the *backend* has (SPEC §6.2.2), and JavaScript stopped at 2^53 because past it a `number` could not say which integer the answer was. A `BigInt` says it, so `exact_int_range` and `int_range` are the same range at every width and the band is empty. `Saturating` was never bounded this way and is unaffected. | `row_02_checked_above_the_exact_range`, `row_02_saturating_is_bounded_by_the_type_on_both_backends` |
 | 3 | `wrappingMul` at 64 bits | exact | exact, native | Must agree, at every width — and **the row as written was false twice**. `$wrapTo` used to wrap a product that had already been rounded, so `U32.wrappingMul(0xffffffff, 0xffffffff)` answered 0 rather than 1: a wrong answer at 32 bits, where both operands and the answer are exact doubles. `$wrapOp` computes in `BigInt` wherever the operands are `number`s and the intermediate can leave 2^53, which is a product at 32 bits and nothing else. At 64 and 128 the operands are `BigInt`s themselves, so the operation is exact and the wrap is one `asIntN` — `(2^62 + 1024).wrappingMul(4)` is 4096 on both backends now, where it used to be 0 here and that case belonged to row 1. Row 2's ruling does not touch this row: natively `wrapping*` **is** the machine's own add, subtract and multiply (in `llvm/emit.rs` `wrappingAdd` and `add` are the same instruction, because §3.4 emits no `nsw`/`nuw`), so it was exact at the type's width before the ruling and after it. | `row_03_wrapping_arithmetic_agrees`, `row_03_wrapping_at_narrow_widths_agrees`, `row_03_wrapping_at_the_type_boundaries_agrees` |
 | 4 | `I128`/`U128` arithmetic | exact | exact | ~~Divergence~~ — **must agree, and does.** JavaScript had no 128-bit integer to compute in and used a double, so `1000000007` cubed answered `1.0000000210000002e+27` and `maxValue<I128>()` printed in exponential notation. Both are `BigInt`s now (buri-lang/buri#4), and a `BigInt` is exactly what a 128-bit integer needs: `I128` is the escape hatch the language offers when 64 bits are not enough, and an escape hatch that rounds is not one. | `row_04_wide_integer_arithmetic`, `row_04_integer_show_at_the_128_bit_extremes` |
@@ -754,42 +745,41 @@ toolchains, best of nine alternating passes:
 
 Real code — the corpus is a thousand assertions over strings, lists, maps and
 JSON — pays about a third of its own runtime, and about a tenth of what a person
-waits for, because a JavaScript process spends more time starting than the
-corpus spends running. A tight counted loop pays sevenfold: the `Int` half of
-the third row went from about 90 ms to about 700 ms. That is the number to quote
-at anyone who says the change is free.
+waits for, because a JavaScript process spends more time starting than the corpus
+spends running. A tight counted loop pays sevenfold: the `Int` half of the third
+row went from about 90 ms to about 700 ms. That is the number to quote at anyone
+who says the change is free.
 
 The fourth row is the mitigation and the reason the line is drawn at 32 bits
 rather than at 8: a `number` holds every value of every width up to `I32`, so a
 loop counter that does not need 64 bits can say `I32` and pay nothing at all.
 
-Rows 8, 9 and 10 are the ones that actually cost work, and they are the ones
-worth the cost: a `Show` that differs between backends means every golden test in
-every repository is backend-specific, and the toolchain would have two sets of
-expected output forever.
+Rows 8, 9 and 10 are the ones that actually cost work, and they are the ones worth
+the cost: a `Show` that differs between backends means every golden test in every
+repository is backend-specific, and the toolchain would have two sets of expected
+output forever.
 
 Two things wave 4b found that are not rows, recorded because the next reader will
 otherwise find them again. `middle/lower.rs` interned `Str` and `Template` as two
 types, so a `match` whose arms are a string literal and an interpolation — the
 shape of every function that returns a message — did not verify natively at all,
-on a program the JavaScript backend compiles and runs; §3.3 says the two *are*
-one type and the interner now says so too. And `cli/tests/crash/` cannot be run
+on a program the JavaScript backend compiles and runs; §3.3 says the two *are* one
+type and the interner now says so too. And `cli/tests/crash/` cannot be run
 through this file as it stands, because every case there makes its divisor opaque
-with `env.args(ctx).len()` and `host.HostEnv.args` has no native body; the
-rows here use `"".len()` instead, which is opaque to the folder and reaches no
+with `env.args(ctx).len()` and `host.HostEnv.args` has no native body; the rows
+here use `"".len()` instead, which is opaque to the folder and reaches no
 capability.
 
 **A third, found later, fixed by a ruling rather than by a fifteenth row.** A
-struct holding `NaN` compared with **itself** used to answer `true` on
-JavaScript and `false` on both native backends. It never got a numbered row,
-because a row is either "must agree" or a divergence the table endorses and this
-was neither — SPEC 7.2 had already ruled, and at the time it ruled for the
-native answer. The user re-ruled it on 2026-08-20, the other way: **`NaN == NaN`
-is true**, everywhere and at every depth, so `==` is an equivalence relation and
-the case is now "must agree" with `true` as the answer. The ordering operators
-were left on IEEE-754 — `NaN < NaN` is still false — so `<` and `compare` no
-longer agree with `==` at `NaN`, and that is the price the ruling knowingly paid
-for reflexivity.
+struct holding `NaN` compared with **itself** used to answer `true` on JavaScript
+and `false` on both native backends. It never got a numbered row, because a row is
+either "must agree" or a divergence the table endorses and this was neither —
+SPEC 7.2 had already ruled, and at the time it ruled for the native answer. The
+user re-ruled it on 2026-08-20, the other way: **`NaN == NaN` is true**,
+everywhere and at every depth, so `==` is an equivalence relation and the case is
+now "must agree" with `true` as the answer. The ordering operators were left on
+IEEE-754 — `NaN < NaN` is still false — so `<` and `compare` no longer agree with
+`==` at `NaN`, and that is the price the ruling knowingly paid for reflexivity.
 
 What changed, and where:
 
@@ -797,14 +787,14 @@ What changed, and where:
   isnan(b))` on all three backends: `fcmp Equal` / `bor` / two `fcmp Unordered`
   through the runtime boundary in the debug backend, `fcmp oeq` / `or` / two
   `fcmp uno` in `llvm/emit.rs`'s `float_equality`, and
-  `a === b || (a !== a && b !== b)` in
-  `js/generate.rs`'s `float_eq` (with `$feq` in `runtime.js` for the operands
-  that cannot be written twice). Not a bitwise compare, which would separate
-  `-0.0` from `0.0` and two `NaN`s with different payloads.
-- **Derived equality needed no third change natively.** `middle/derives.rs`
-  emits `PrimOp::Eq` at a float field, which lowers to `BinOp::Eq`, which is the
-  leaf above. On JavaScript it did: `eq_kind` answered `Identity` — bare `===` —
-  for every primitive, so the float field is now its own `EqKind::Float`, and
+  `a === b || (a !== a && b !== b)` in `js/generate.rs`'s `float_eq` (with `$feq`
+  in `runtime.js` for the operands that cannot be written twice). Not a bitwise
+  compare, which would separate `-0.0` from `0.0` and two `NaN`s with different
+  payloads.
+- **Derived equality needed no third change natively.** `middle/derives.rs` emits
+  `PrimOp::Eq` at a float field, which lowers to `BinOp::Eq`, which is the leaf
+  above. On JavaScript it did: `eq_kind` answered `Identity` — bare `===` — for
+  every primitive, so the float field is now its own `EqKind::Float`, and
   `runtime.js`'s `$eq` gained one line for the same reason.
 - **`Hash` was already right and is now load-bearing.** `buri_rt_hash_f64` and
   `$hashInto` both mix `ToUint32(Math.trunc(x) || 0)`, and `|| 0` catches every
@@ -813,19 +803,19 @@ What changed, and where:
   `conformance/lib/collections/test/map.buri`'s "NaN is an ordinary key" now
   asserts.
 
-Row 9's reason for grouping `Eq` with `Show` — "they are the same generator" —
-is still false and is still worth knowing: `derives.rs`'s header records that
-the pass "runs from `middle::native` and nowhere else", so derived equality has
-**two** implementations, not one, and the only thing comparing them is
-`agreement.rs`. The test that pinned both old answers,
+Row 9's reason for grouping `Eq` with `Show` — "they are the same generator" — is
+still false and is still worth knowing: `derives.rs`'s header records that the
+pass "runs from `middle::native` and nowhere else", so derived equality has **two**
+implementations, not one, and the only thing comparing them is `agreement.rs`. The
+test that pinned both old answers,
 `a_struct_holding_nan_compared_with_itself_does_not_agree`, was built with
 `diverge` so that it would fail the day either side moved; it did, and it is now
 `a_struct_holding_nan_compared_with_itself_agrees` with a single expected text.
 
-The referential fast path in `eq_decl` and in `$eq` — `if (a === b) return
-true;` — **stays, and is now sound.** An equivalence relation is reflexive, so
-two references to one value are equal and the walk could only reach the same
-answer more slowly. SPEC 7.2's rejection of referential equality was a rejection
-of it as the *definition*, which is untouched; what made the old fast path a bug
-was that it decided a case the definition decided differently, and there is no
-longer such a case.
+The referential fast path in `eq_decl` and in `$eq` — `if (a === b) return true;`
+— **stays, and is now sound.** An equivalence relation is reflexive, so two
+references to one value are equal and the walk could only reach the same answer
+more slowly. SPEC 7.2's rejection of referential equality was a rejection of it as
+the *definition*, which is untouched; what made the old fast path a bug was that
+it decided a case the definition decided differently, and there is no longer such
+a case.
