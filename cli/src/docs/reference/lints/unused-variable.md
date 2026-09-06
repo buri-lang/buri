@@ -6,6 +6,15 @@ note: a binding nothing reads is either a computation whose result is dead or a 
 fix: use it, delete the `let`, or write `_` in its place
 adapted-from: habit-hooks (https://github.com/habit-hooks/habit-hooks) guides/unused-variable.md, © 2026 Ivett Ördög, used under the MIT license
 ---
-An unused local variable is dead weight: the reader has to prove to themselves it does not matter. It usually signals one of three things — a computation whose result is never consumed (delete the computation, not just the assignment), a leftover from a refactor that moved logic elsewhere, or a value you meant to use and forgot to wire in (the real bug).
+An unused local is dead weight: every reader has to prove to themselves that it
+does not matter. It usually means one of three things.
 
-Decide which it is before deleting. If the right-hand side has side effects you still need, keep the call but drop the binding. If it was meant to be returned or passed on, finish that thread rather than silencing the warning. Suppressing it with a throwaway name hides the question instead of answering it.
+- A computation whose result nobody consumes. Delete the computation, not just
+  the binding.
+- A leftover from a refactor that moved the logic elsewhere.
+- A value you meant to use and forgot to wire in. That is the real bug.
+
+Decide which it is before deleting. If the right-hand side has side effects you
+still need, keep the call but drop the binding. If the value was meant to be
+returned or passed on, finish that thread rather than silencing the warning.
+Suppressing it with a throwaway name hides the question instead of answering it.

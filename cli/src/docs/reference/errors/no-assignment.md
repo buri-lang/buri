@@ -11,16 +11,16 @@ error: there is no assignment; a binding is given its value once, where it is de
 
 ## What to do
 
-Write a new binding rather than overwriting the old one. Where the value is
-built up in steps, each step is a `let` of its own, and where it is built up in
-a loop, it is the value the recursion or the fold returns.
+Write a new binding rather than overwriting the old one. Where you build the
+value up in steps, make each step its own `let`. Where you build it up in a
+loop, it is the value the recursion or the fold returns.
 
 ## Why
 
-Every binding is final: there is no assignment operator, no `mut`, and no
-interior mutability. A name therefore means one value everywhere it is in
-scope, which is what lets a reader answer "what is this?" by finding the one
-line that says so, and what lets the compiler move a value rather than copy it.
+Every binding is final. There is no assignment operator, no `mut`, and no
+interior mutability. So a name means one value everywhere it is in scope. That
+is what lets you answer "what is this?" by finding the one line that says so,
+and what lets the compiler move a value rather than copy it.
 
 ## A program that provokes it
 

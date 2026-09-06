@@ -5,11 +5,18 @@ message: this discards a `Result`
 note: "`ignore` is the one way to drop a `Result`, so every place a failure is deliberately unhandled is one of these"
 fix: handle the error with `match`, propagate it with `?`, or keep `ignore` if dropping it is deliberate
 ---
-A dropped `Result` is a failure nobody has read. Sometimes that is the right call, and this rule does not say otherwise — it says that every place the call was made should be in one report, rather than scattered where only a reader who thought to look would find it.
+A dropped `Result` is a failure nobody has read. Sometimes that is the right
+call, and this rule does not say otherwise. It says every place you made that
+call belongs in one report, rather than scattered where only a reader who
+thought to look would find it.
 
-**The real solution is to handle the error.** Before reaching for anything else: `match` on the `Result` and answer the `.Err` arm — count it, report it, fall back — or `?` to hand it to a caller who can. That is what this finding is asking for first, and it is what makes the report shorter for the right reason.
+**The real solution is to handle the error.** Before reaching for anything else:
+`match` on the `Result` and answer the `.Err` arm — count it, report it, fall
+back — or `?` to hand it to a caller who can. That is what this finding asks for
+first, and it is what makes the report shorter for the right reason.
 
-**Writing the drop out by hand is the anti-pattern, not the way around this rule.** The four-line form
+**Writing the drop out by hand is the anti-pattern, not the way around this
+rule.** The four-line form
 
 ```
 match (io.println(ctx, line)) {
@@ -18,10 +25,31 @@ match (io.println(ctx, line)) {
 }
 ```
 
-handles nothing. Both arms answer `()`; it is `ignore()` spelled out — that is `core/result.ignore`'s own body — with the one advantage `ignore()` had, that a reviewer can grep for it, thrown away. It is reported too, under `discarded-result-by-hand`, so it is not a route to a quiet report. If a repository's gate is "lint clean" and the honest answer is that this failure does not matter, the answer is `ignore()` and a warning that stands, not four lines that hide the same decision.
+handles nothing. Both arms answer `()`. It is `ignore()` spelled out — those
+four lines are `core/result.ignore`'s own body — and it throws away the one
+advantage `ignore()` had, that a reviewer can grep for it.
+`discarded-result-by-hand` reports it too, so it is no route to a quiet report.
+If a repository's gate is "lint clean" and the honest answer is that this
+failure does not matter, say `ignore()` and let the warning stand, rather than
+writing four lines that hide the same decision.
 
-This rule cannot be about `let _ = someResult()`, and the reason is worth stating: that is already a hard type error, `result-discarded`, so no program that compiles contains one. Leaving the `Result` standing as a statement is the same error. What is left is `ignore` — the deliberate, greppable drop — and `ignore` is therefore what this reports. The rule is the grep, run for you.
+This rule cannot be about `let _ = someResult()`. That is already a hard type
+error, `result-discarded`, so no program that compiles contains one, and leaving
+the `Result` standing as a statement is the same error. What is left is
+`ignore`, the deliberate, greppable drop, so `ignore` is what this reports. The
+rule is the grep, run for you.
 
-**A dropped print is no exception**, and that is the whole of what a total must-use costs. `Stdout` and `Stderr` answer `Result<(), IoError>` because a closed pipe is a thing that happens, so nearly every line a program writes is a `Result` and `io.println(ctx, x).ignore()` is a deliberate drop like any other. Reporting it is the rule doing its job rather than the rule going wrong: a program whose report is all prints is a program that decided that many times, and the one that cares says so — `match` on the print and answer, which is what `buri init`'s template and the example monorepo do.
+**A dropped print is no exception**, and that is the whole of what a total
+must-use costs. `Stdout` and `Stderr` answer `Result<(), IoError>` because a
+closed pipe is a thing that happens. So nearly every line a program writes is a
+`Result`, and `io.println(ctx, x).ignore()` is a deliberate drop like any other.
+Reporting it is the rule doing its job rather than the rule going wrong. A
+program whose report is all prints is a program that decided that many times,
+and the one that cares says so: `match` on the print and answer, which is what
+`buri init`'s template and the example monorepo do.
 
-If the failure does matter, the edit is `match` to handle it or `?` to propagate it. If it genuinely does not — a cache write whose failure changes nothing a caller could act on — then leaving the `ignore` where it is and letting this warning stand is a legitimate outcome. The point of the rule is that somebody decided, not that the count reaches zero.
+If the failure does matter, the edit is `match` to handle it or `?` to propagate
+it. If it genuinely does not — a cache write whose failure changes nothing a
+caller could act on — then leaving the `ignore` where it is and letting this
+warning stand is a legitimate outcome. The point of the rule is that somebody
+decided, not that the count reaches zero.

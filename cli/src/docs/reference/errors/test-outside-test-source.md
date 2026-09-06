@@ -16,9 +16,9 @@ Move it into a file listed in the target's `test.sources`.
 
 ## Why
 
-A module is a test source because a rule lists it there; that is the only thing
-that makes one. So a `test` in production code is not a test the runner has
-missed — it is a declaration in a file the runner will never look at.
+A module is a test source because a rule lists it there. Nothing else makes one.
+So a `test` in production code is not a test the runner has missed. It is a
+declaration in a file the runner will never open.
 
 ## A program that provokes it
 

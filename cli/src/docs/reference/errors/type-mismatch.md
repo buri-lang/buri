@@ -10,9 +10,9 @@ error: expected `I64`, found `I32` [type-mismatch]
 
 ## What to do
 
-Convert explicitly. The diagnostic names the conversion: `.toI64()` is exact
-for every `I32`, while a narrowing one returns a `Result` because not every
-value fits.
+Convert explicitly. The diagnostic names the conversion: `.toI64()` is exact for
+every `I32`, while a narrowing one returns a `Result` because not every value
+fits.
 
 A bare numeric literal is reported as `Int` or `Float`, the type it takes when
 nothing pins it. It is not held to that: annotate it — `let x: F64 = 1.0`, or
@@ -20,10 +20,10 @@ nothing pins it. It is not held to that: annotate it — `let x: F64 = 1.0`, or
 
 ## Why
 
-No promotion of any kind, in either direction. A language that widened silently
-would make the width of an arithmetic result a property of the expression's
-shape rather than of what was written, and the one place it matters is the one
-place nobody looks.
+There is no promotion of any kind, in either direction. A language that widened
+silently would make the width of an arithmetic result depend on the shape of the
+expression rather than on what you wrote, and the one place that matters is the
+one place nobody looks.
 
 ## A program that provokes it
 

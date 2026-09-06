@@ -19,9 +19,9 @@ here, and `buri docs <module>` lists the methods it has.
 ## Why
 
 A method is looked up in exactly one place: the module that declares the
-receiver's type. There is no extension mechanism, so a method cannot be added
-to a type from outside — which is also what makes resolution a single lookup
-rather than a search.
+receiver's type. There is no extension mechanism, so nobody can add a method to
+a type from outside. That is also what makes resolution a single lookup rather
+than a search.
 
 ## A program that provokes it
 

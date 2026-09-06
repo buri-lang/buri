@@ -17,9 +17,9 @@ this repository.
 
 ## Why
 
-Every module path means the same module wherever it is written, so a file can
-be moved between directories without its own imports changing — which is what
-lets `buri gen` rewrite a build file without touching source.
+Every module path means the same module wherever you write it. So you can move
+a file between directories without touching its imports, and `buri gen` can
+rewrite a build file without touching source.
 
 ## A program that provokes it
 
