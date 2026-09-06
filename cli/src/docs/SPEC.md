@@ -9,31 +9,31 @@
 
 ## 1. Introduction
 
-Buri is a strict, purely functional, statically typed language with TypeScript-shaped
-syntax, Rust-shaped data declarations, and Roc-shaped ideas about platforms and
-effects.
+Buri is a strict, purely functional, statically typed language. The syntax looks
+like TypeScript, the data declarations look like Rust, and the ideas about
+platforms and effects come from Roc.
 
 Three ideas define it:
 
 - **There is no mutation.** Every binding is final. There are no references, no
   borrowing, and no lifetimes. Values are values.
 - **Effects travel through arguments.** The ability to allocate, read a file, or
-  open a socket is a *value* of an unforgeable type. A function that was not
-  handed one cannot perform that effect. Purity is therefore a property you can
-  read off a signature, not a property the compiler asks you to trust.
+  open a socket is a *value* of an unforgeable type. A function nobody handed one
+  to cannot perform that effect. So you read purity off a signature instead of
+  taking the compiler's word for it.
 - **The grammar is context-free and unambiguous.** Parsing never consults name
-  resolution or types. `design/grammar-rationale.md` documents each design decision that pays for
-  this, and what was given up to get it.
+  resolution or types. `design/grammar-rationale.md` records each design decision
+  that pays for this, and what it gave up.
 
 Version 0.3 is deliberately small: primitives, arrays, tuples, structs, enums,
-functions, methods, and traits. Data and behaviour are declared
-separately; there is no mutable state, no inheritance, and no dynamic dispatch. A
-method is an ordinary function whose first parameter is `self`, and a trait is an
-interface satisfied nominally — neither introduces a runtime mechanism.
+functions, methods, and traits. You declare data and behaviour separately. There
+is no mutable state, no inheritance, and no dynamic dispatch. A method is an
+ordinary function whose first parameter is `self`. A trait is an interface a type
+satisfies nominally. Neither adds a runtime mechanism.
 
-There are also no loops. Iteration is recursion — guaranteed tail-call
-eliminated — or a fold. A `for`/`while` sugar was drafted for this version and
-cut; `design/non-goals.md` records why.
+There are also no loops. You iterate with recursion — guaranteed tail-call
+eliminated — or with a fold. A `for`/`while` sugar was drafted for this version
+and cut; `design/non-goals.md` records why.
 
 ### 1.1 A taste
 
@@ -92,9 +92,8 @@ total area: 9.14159
 
 The normative grammar lives in [`grammar.ebnf`](./cli/src/docs/grammar.ebnf). Where this
 document and that file disagree about syntax, the grammar file wins. Where this
-document states a rule that the grammar cannot express, that rule is normative
-and is checked after parsing; `design/static-rules.md` indexes every one of
-them.
+document states a rule the grammar cannot express, that rule is normative and the
+compiler checks it after parsing; `design/static-rules.md` indexes every one.
 
 Terminology: *must* is a requirement on conforming programs and implementations;
 *should* is a recommendation; *may* grants latitude.
@@ -110,8 +109,8 @@ literals may contain any Unicode scalar value.
 
 ### 3.2 Whitespace and comments
 
-Buri is not newline-sensitive; there is no automatic semicolon insertion and no
-offside rule. Whitespace separates tokens and is otherwise meaningless.
+Buri is not newline-sensitive. There is no automatic semicolon insertion and no
+offside rule. Whitespace separates tokens and means nothing else.
 
 ```buri wrap=body
 // line comment
@@ -120,24 +119,23 @@ offside rule. Whitespace separates tokens and is otherwise meaningless.
 ```
 
 A fourth form documents the *file*: a `//!` line, legal above the first item of
-a module and nowhere else. `///` attaches downward to the declaration under it
-and `//!` attaches upward to the module around it, which is the whole of the
-difference — one lower down the file is `module-doc-not-first`, because at that
-point it is a mistyped `///` far more often than it is a note about the module.
+a module and nowhere else. That is the whole difference between the two. `///`
+attaches down to the declaration under it, and `//!` attaches up to the module
+around it. A `//!` further down the file is `module-doc-not-first`: down there it
+is a mistyped `///` far more often than a note about the module.
 
-The third slash is what decides whether prose is **published**. `buri docs
-<module>` renders a module's `//!` text and every exported declaration's `///`,
-the language server shows the same text on hover, and `buri docs search` reads
-it; a `//` reaches none of them, however carefully it is written. A run longer
-than three — `////` — is deliberately an ordinary comment again, so a banner
-rule publishes nothing.
+The third slash decides whether prose is **published**. `buri docs <module>`
+renders a module's `//!` text and every exported declaration's `///`, the
+language server shows that same text on hover, and `buri docs search` reads it. A
+`//` reaches none of them, however carefully you write it. Four slashes —
+`////` — is an ordinary comment again, so a banner rule publishes nothing.
 
 ### 3.3 Identifiers and naming
 
 `IDENT` is `[A-Za-z_][A-Za-z0-9_]*` minus keywords and reserved words.
 
-Naming conventions — **not enforced by the grammar, by design**, since a parser
-that depends on capitalization is a parser that depends on convention:
+The conventions below are **not enforced by the grammar, by design**: a parser
+that depends on capitalization is a parser that depends on convention.
 
 | Kind | Convention | Example |
 |---|---|---|
@@ -156,18 +154,18 @@ that depends on capitalization is a parser that depends on convention:
 legal only as the first parameter of a function inside an `impl` block; `Self`
 only inside a trait or `impl`.
 `test` is reserved everywhere, so no function may be named `test`, but a `test`
-declaration is legal only in a test source (Section 11.2). `context` is likewise
-reserved everywhere, but a `context` declaration or expression is legal only
-where Section 11.3 says.
+declaration is legal only in a test source (Section 11.2). `context` is reserved
+everywhere too, and a `context` declaration or expression is legal only where
+Section 11.3 says.
 
-`ctx` is legal as the parameter after `self` (Section 10.2), and — because that
-is where contexts are built — as a `let` binding name inside `main`'s body, a
-test source, or a test-only module. Nowhere else.
+`ctx` is legal as the parameter after `self` (Section 10.2). It is also legal as
+a `let` binding name inside `main`'s body, a test source, or a test-only module,
+because that is where you build contexts. Nowhere else.
 
-`const` is a keyword no production uses. It was how a module-level binding was
-spelled before `let` was the only binding keyword, and it stays reserved so that
-source which still has it is answered with `const-declaration` — which names
-`let` and carries the edit — rather than read as a name and failing later.
+`const` is a keyword no production uses. It used to spell a module-level binding,
+back before `let` was the only binding keyword. It stays reserved so that source
+still carrying one gets `const-declaration`, which names `let` and carries the
+edit, rather than reading as a name and failing later.
 
 `assert` is **not** a keyword; assertions are the ordinary module
 `core/testing/assert` (Section 11.2.1).
@@ -216,25 +214,25 @@ as `derive Show` renders it, so `"${p}"` and `"${p.show(ctx)}"` produce the same
 text.
 
 A derived hole costs the call site nothing. A derived `Show` is a fold over the
-type's shape that the run time performs — it is why a derived `x.show(ctx)`
-drops its context — so `io.println(ctx, "${point}")` still needs only the
-`stdout` effect, and the paragraph above still holds.
+type's shape, and the run time performs it, which is why a derived `x.show(ctx)`
+drops its context. So `io.println(ctx, "${point}")` still needs only the `stdout`
+effect.
 
-A **hand-written** `impl Show` is not admitted in a hole. Its
-`show<C: Alloc>(self, ctx: C)` has to be called, and a `Template` names no
-context to call it with, so the conversion stays the author's:
+A hole will not take a **hand-written** `impl Show`. Something has to call its
+`show<C: Alloc>(self, ctx: C)`, and a `Template` names no context to call it
+with, so you write the conversion yourself:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let line: Str = str.format(ctx, "the suit is ${suit.show(ctx)}");
 ```
 
-The same is true of a bounded type parameter: a `T: Show` may be instantiated at
-a type whose `Show` is written by hand, so `"${x}"` in a generic body is
-rejected and `"${x.show(ctx)}"` is what is written instead.
+A bounded type parameter works the same way. A `T: Show` may be instantiated at a
+type whose `Show` is hand-written, so the compiler rejects `"${x}"` in a generic
+body. Write `"${x.show(ctx)}"` instead.
 
-`Str` is implicitly widened to `Template` in argument position. This is the only
-implicit conversion in the language, and it exists so that `io.println(ctx, "hi")`
-and `io.println(ctx, "hi ${name}")` are both well-typed.
+In argument position, a `Str` widens to a `Template`. This is the only implicit
+conversion in the language, and it exists so that `io.println(ctx, "hi")` and
+`io.println(ctx, "hi ${name}")` are both well-typed.
 
 Escape `\$` to write a literal dollar sign before a brace.
 
@@ -242,11 +240,10 @@ Escape `\$` to write a literal dollar sign before a brace.
 
 ## 4. Modules
 
-A source file is a module, named by its path from the repository root. Modules
-are grouped into **libraries** and **binaries** by the build system; the rules
-for which module may import which are in
-[`cli/src/docs/reference/build/overview.md`](./cli/src/docs/reference/build/overview.md), and only
-the syntax is here.
+A source file is a module, named by its path from the repository root. The build
+system groups modules into **libraries** and **binaries**. Only the syntax is
+here; which module may import which is in
+[`cli/src/docs/reference/build/overview.md`](./cli/src/docs/reference/build/overview.md).
 
 ### 4.1 Imports
 
@@ -260,39 +257,36 @@ from "core/list" import { filter, map };
 from "core/list" import { map as listMap };
 ```
 
-The ordering is chosen for tooling rather than for prose: by the time you open
-the brace, the compiler already knows which module you mean, so an editor can
-offer the module's exports as completions. With the path last, the specifier
-list has to be typed blind and then retro-checked.
+That ordering serves tooling rather than prose. By the time you open the brace,
+the compiler already knows which module you mean, so an editor can offer the
+module's exports as completions. With the path last, you type the specifier list
+blind and the editor checks it afterwards.
 
-A namespace import **must** be named. `from "core/list" import *;` is not
-derivable from the grammar — the only wildcard form is `* as <name>`. There is
-consequently no way for an identifier to enter a module's scope without that
-identifier, or the namespace holding it, being written in the importing file.
-Every unqualified name in a module can be resolved by reading that module alone,
-and adding an export to a library can never shadow or collide with a name in
-code that imports it.
+A namespace import **must** be named. The grammar cannot derive
+`from "core/list" import *;` — the only wildcard form is `* as <name>`. So no
+identifier enters a module's scope unless the importing file writes that
+identifier, or the namespace holding it. You can resolve every unqualified name
+in a module by reading that module alone, and adding an export to a library can
+never shadow or collide with a name in code that imports it.
 
 Import declarations are terminated with `;`. Circular imports are an error.
 
 #### 4.1.1 Module paths
 
-**A module path names a surface, or a file inside your own package.** There are
-two kinds of thing to name and they are spelled differently because they are
-different things:
+**A module path names a surface, or a file inside your own package.** Those are
+two different kinds of thing, so they are spelled differently:
 
 | What | Written | Who may write it |
 |---|---|---|
 | a **surface** — a library's `lib.buri`, or its `testing/lib.buri` | `"//lib/money"`, `"//lib/money/testing"`, `"core/list"` | anyone the visibility rules allow, including the package's own suite |
 | a **file** inside a package | `"//lib/money/cents.buri"`, `"//cmd/app/main.buri"` | only another file of that same package |
 
-A surface is the one thing a package publishes, so naming it is naming the
-package. `"//lib/money"` is both the label its dependents declare in a
-`dependencies` and the path they write in an import — one string, in the two
-namespaces that meet there — and it is what the library's own test source
-writes as well, because a suite reaches its library the way a dependent does.
-Everything else is one file among many, so the path has to say *which*, and the
-only honest answer is the name of the file.
+A surface is the one thing a package publishes, so naming it names the package.
+`"//lib/money"` is the label dependents declare in a `dependencies`, and it is
+the path they write in an import — one string in the two namespaces that meet
+there. The library's own test source writes it too, because a suite reaches its
+library the way a dependent does. Everything else is one file among many, so the
+path has to say *which*, and the only honest answer is the file's name.
 
 | Form | Example | Names |
 |---|---|---|
@@ -300,67 +294,67 @@ only honest answer is the name of the file.
 | A package's surface | `"//lib/money"`, `"//lib/money/testing"` | That package's `lib.buri`, or its `testing/lib.buri`. |
 | A file of your own package | `"//lib/money/cents.buri"`, `"//cmd/app/main.buri"` | A file of this package, by its path from the repository root. |
 
-**The two cannot be told apart by their shape.** `"//lib/money/testing"` and
-`"//lib/money/cents"` are the same string with one segment changed; the first
-is a surface and the second is a file with its name left off. What decides it
-is what is on disk. So a path with a file name missing is
-`import-path-without-a-file` and the diagnostic works out which file it meant —
-no textual rule could — and a path that leaves the package and names a file
-inside it is `internal-import`, because what it reaches for is not on the
-surface.
+**You cannot tell the two apart by their shape.** `"//lib/money/testing"` and
+`"//lib/money/cents"` are the same string with one segment changed, yet the first
+is a surface and the second is a file with its name left off. What is on disk
+decides. A path missing a file name is `import-path-without-a-file`, and the
+diagnostic works out which file it meant, since no textual rule could. A path
+that leaves the package and names a file inside it is `internal-import`, because
+what it reaches for is not on the surface.
 
 A binary's entry point is a file for the same reason a surface is not:
-`"//cmd/app"` would be that package's `lib.buri`, and a package with only a
-binary has not got one. So it is `"//cmd/app/main.buri"`, and only that
-binary's own test sources may write it.
+`"//cmd/app"` would name that package's `lib.buri`, and a package with only a
+binary has not got one. So write `"//cmd/app/main.buri"`, and only that binary's
+own test sources may write it.
 
-The one spelling that is accepted and is not the one to write:
-`"//lib/money/lib.buri"` names the surface by the file it is, and resolves to
-the same module — a module has one identity however it is reached. It is the
+One spelling is accepted and is still not the one to write.
+`"//lib/money/lib.buri"` names the surface by the file it is, and resolves to the
+same module, because a module has one identity however you reach it. It is the
 long way round rather than a second module. Nothing in the toolchain writes it,
 and nothing in this repository contains one.
 
 The standard library owns two reserved roots. `core/` is the deliberately small
-set of essentials — the types every program uses and the effects every platform
-might grant. `ui/` is the reactivity and styling vocabulary, which is a
-different kind of thing and a much larger surface, so it has its own root
-rather than diluting what `core/` means. Both are reserved: a repository path
-always begins `//`, so nothing a repository declares can collide with either.
+set of essentials: the types every program uses and the effects every platform
+might grant. `ui/` is the reactivity and styling vocabulary — a different kind of
+thing and a much larger surface, so it gets its own root rather than diluting
+what `core/` means. Nothing a repository declares can collide with either, since
+a repository path always begins `//`.
 
 **There are no relative module paths.** `"./cents"` and `"../money"` are not
-module paths, and a leading `.` in an import is an error. A path therefore
-means the same module wherever it is written, a file can be moved between
-directories without rewriting the imports inside it, and a reader never has to
-know where a file sits to know what it imports.
+module paths, and a leading `.` in an import is an error. So a path means the
+same module wherever you write it. You can move a file between directories
+without rewriting the imports inside it, and a reader never has to know where a
+file sits to know what it imports.
 
 `"//lib/money"` names the *library* rooted at `lib/money` — its `lib.buri`, and
 transitively only what that file exports. `"//lib/money/cents.buri"` names an
-individual module inside it, which the build system permits only from within
-the same library. Both are ordinary module paths to the compiler; the
-distinction is enforced with the visibility rules in
-[`cli/src/docs/reference/build/libraries.md`](./cli/src/docs/reference/build/libraries.md).
+individual module inside it, which the build system permits only from within the
+same library. Both are ordinary module paths to the compiler. The visibility
+rules in
+[`cli/src/docs/reference/build/libraries.md`](./cli/src/docs/reference/build/libraries.md)
+enforce the distinction.
 
 One path segment is reserved: **`testing`**. A module path containing it is
-test-only, and may be imported only from a test source (Section 11.2). That
-covers `"core/testing/assert"`, `"core/host/testing"`, a library's own
+test-only, and only a test source may import it (Section 11.2). That covers
+`"core/testing/assert"`, `"core/host/testing"`, a library's own
 utilities-for-testing-it at `"//lib/money/testing"`, and a whole package of
 shared fixtures at `"//lib/testing/fakes"` — one rule, visible in the import
-line, with nothing to declare. The segment is a *directory* name:
+line, with nothing to declare. The segment is a *directory* name.
 `"//lib/money/testing.buri"` is a file called `testing` and is not test-only,
 because the segment that would have made it so is a file name.
 
-One module is reserved the other way: **`"core/host"`**, the platform's
-implementations of the effects it grants, is importable only from the module
-that exports `main` (Section 10.3). The two restrictions are the same shape, and
+One module is reserved the other way. **`"core/host"`** holds the platform's
+implementations of the effects it grants, and only the module that exports `main`
+may import it (Section 10.3). The two restrictions have the same shape, and
 between them they name every place in a program where authority can enter. They
-are also separate: `"core/host/testing"` is the same surface for a test
-source, and it is governed by the `testing` segment alone — the module that
-exports `main` may not import it, and a test source may.
+stay separate, though: `"core/host/testing"` is that same surface for a test
+source, and the `testing` segment alone governs it — the module that exports
+`main` may not import it, and a test source may.
 
 None of this applies to method calls. `sq.area()` resolves through the receiver's
-type rather than through scope (Section 6.7.3), so a type's own operations are
-available wherever a value of that type is, with no import and no possibility of
-collision. Importing a type brings its methods with it.
+type rather than through scope (Section 6.7.3), so a type's own operations reach
+wherever a value of that type reaches, with no import and no chance of collision.
+Import a type and its methods come with it.
 
 ### 4.2 Exports
 
@@ -392,16 +386,16 @@ An enum is the unit of its own visibility: its variants and their payload
 fields are exported exactly when it is, and a variant writes no `export` of its
 own (Section 5.7).
 
-A type alias is a name like any other: `export type TenantId = Str;` puts it on
-the module's surface, where it can be imported and re-exported. The alias stays
-transparent across the boundary — it expands in the module that declared it,
-so what an importer gets is the type the declaration names (Section 5.9).
+A type alias is a name like any other. `export type TenantId = Str;` puts it on
+the module's surface, where anyone may import and re-export it. The alias stays
+transparent across the boundary: it expands in the module that declared it, so an
+importer gets the type the declaration names (Section 5.9).
 
 `impl` and `derive` declarations are never exported (Section 6.7.1).
 
 ### 4.2.1 Re-exports
 
-A module may export a name it imported, in one declaration that mirrors
+A module may export a name it imported, with one declaration that mirrors
 `import`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
@@ -410,13 +404,13 @@ from "//lib/money/cents.buri" export { Cents, fromCents };
 from "//lib/money/cents.buri" export { add as addMoney };
 ```
 
-There is no `export *`, for the same reason there is no bare `import *`: every
-name a module publishes is written in that module's own source. Re-exporting a
-name does not import it — write both declarations if the module also uses it.
+There is no `export *`, for the same reason there is no bare `import *`: a module
+writes every name it publishes in its own source. Re-exporting a name does not
+import it, so write both declarations if the module also uses it.
 
-Re-export is what makes a library's `lib.buri` a complete public surface: it
-lists the library's API in one file, and a name absent from it is unreachable
-from outside the library, as a function and as a method
+Re-export is what makes a library's `lib.buri` a complete public surface. It
+lists the library's API in one file, and a name missing from it is unreachable
+from outside the library, both as a function and as a method
 ([`cli/src/docs/reference/build/libraries.md`](./cli/src/docs/reference/build/libraries.md)).
 
 ### 4.3 Order
@@ -470,19 +464,18 @@ category and no numeric tower.
 **Every integer type holds its whole range on every backend.** An `I64` is an
 `I64` whether the program runs natively or on JavaScript, so a nanosecond
 timestamp keeps its last three digits either way. That costs something on
-JavaScript, where a double holds every integer only up to 2^53: the widths up to
-32 bits compile to a `number` and the widths at 64 bits and above compile to a
-`BigInt`, which is a heap value rather than an immediate. Code on a hot path
-that does not need the range can say `I32` and get the faster representation;
-code that needs the range gets the right answer without asking.
+JavaScript, where a double holds every integer only up to 2^53. The widths up to
+32 bits compile to a `number`; the widths at 64 bits and above compile to a
+`BigInt`, which is a heap value rather than an immediate. Code on a hot path that
+does not need the range says `I32` and gets the faster representation. Code that
+needs the range gets the right answer without asking.
 
 #### Literals are polymorphic until they are pinned
 
-A numeric literal does not have a type on sight. It gets a fresh type variable
-constrained to the integer types (for an integer literal) or the float types (for
-a float literal); ordinary unification then decides. Only if nothing constrains
-it does the default apply — `Int` for integer literals, `Float` for float
-literals.
+A numeric literal has no type on sight. It gets a fresh type variable constrained
+to the integer types, or to the float types for a float literal, and ordinary
+unification decides from there. The default applies only when nothing constrains
+it: `Int` for an integer literal, `Float` for a float literal.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let a = 5;               // nothing constrains it -> Int
@@ -496,8 +489,8 @@ let e: [U8] = [1, 2, 3]; // every element is a U8
 This is defaulting on *literals only*. It is not overloading and not a numeric
 tower: `a + b` still requires `a` and `b` to already have the same type.
 
-Because a literal's type is known before it is checked, **a literal that does not
-fit its type is a compile error**, not a runtime surprise:
+The compiler knows a literal's type before it checks it, so **a literal that does
+not fit its type is a compile error**, not a runtime surprise:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let x: U8 = 300; // ERROR: 300 is not representable in U8
@@ -524,12 +517,12 @@ fn total<N: Add>(zero: N, xs: [N]): N { ... }
 fn clamp<N: Ord>(lo: N, hi: N, x: N): N { ... }
 ```
 
-Earlier drafts had three compiler-privileged bounds named `Num`, `Integral`, and
-`Floating`. They are gone. A blob bound named after what a type *is* was standing
-in for a trait system that did not exist yet; now that traits do exist, bounds
-name what a type *can do*, which is both more precise and one fewer mechanism.
+Earlier drafts had three compiler-privileged bounds: `Num`, `Integral`, and
+`Floating`. They are gone. A blob bound named after what a type *is* stood in for
+a trait system that did not exist yet. Traits exist now, so bounds name what a
+type *can do*, which is more precise and one mechanism fewer.
 
-The integer-specific operations follow the same rule — they are interfaces named
+The integer-specific operations follow the same rule. They are interfaces named
 for what they provide, not for the representation behind them: `Bounded`,
 `Checked`, `Wrapping`, and `Saturating`, declared in Section 6.2.2. Every
 built-in integer type satisfies all four; the float types satisfy `Bounded`
@@ -576,13 +569,13 @@ let maybe = xs[0];             // Option<Int>, not Int
 ```
 
 **Indexing yields `Option<T>`.** There is no way to index out of bounds and no
-way to panic by indexing. This is the single largest ergonomic tax the language
-charges, and it is charged on purpose.
+way to panic by indexing. This is the largest ergonomic tax the language charges,
+and it charges it on purpose.
 
-An array literal has a statically known length and is not, by itself, an
-allocation the programmer must account for. Any operation whose result length
-depends on runtime data (`map`, `filter`, `concat`, `sort`, `range`) requires an
-`Alloc` effect.
+An array literal has a statically known length, so it is not by itself an
+allocation you must account for. Any operation whose result length depends on
+runtime data — `map`, `filter`, `concat`, `sort`, `range` — needs an `Alloc`
+effect.
 
 ### 5.5 No records
 
@@ -590,9 +583,9 @@ There are no anonymous record types and no record literals. Every product type
 is a `struct` with a declared name (Section 5.6), and every type in the language
 is nominal — including trait conformance (Section 5.12).
 
-Earlier drafts had structural records, mainly so that a context could be a bag of
+Earlier drafts had structural records, mainly so a context could be a bag of
 effects. Effects are trait bounds now (Section 10), and deleting records took row
-polymorphism, row unification, and the `{` ambiguity of `design/grammar-rationale.md` 12.3 with them.
+polymorphism, row unification, and the `{` ambiguity of `design/grammar-rationale.md` 12.3 with it.
 
 ### 5.6 Structs
 
@@ -648,19 +641,19 @@ fn given(): World {
 }
 ```
 
-Which fields may be left out is a property of the declaration rather than of one
-instantiation of it, so a reader answers the question from the `struct` alone.
-Two consequences follow. Aliases are transparent (Section 5.9), so a field
-declared `Maybe` where `type Maybe = Option<Str>` may be left out. But a field
-declared `T` in a `struct S<T>` may not, at any instantiation — `S<Option<Int>>`
-still writes its `T`. A left-out `Option<Option<T>>` is the *outer* `.None`.
+The declaration decides which fields you may leave out, not one instantiation of
+it, so a reader answers the question from the `struct` alone. Two consequences.
+Aliases are transparent (Section 5.9), so you may leave out a field declared
+`Maybe` where `type Maybe = Option<Str>`. But you may never leave out a field
+declared `T` in a `struct S<T>`, at any instantiation — `S<Option<Int>>` still
+writes its `T`. A left-out `Option<Option<T>>` is the *outer* `.None`.
 
 Elision fills only what neither an initializer nor a spread provides, and a
 spread provides every field the literal does not write — so `World { ..base }`
 takes `hello` from `base` rather than resetting it to `.None`.
 
-The type name may itself be left out where the surroundings already give it.
-The braces then build whatever the expression is checked against:
+You may leave the type name out where the surroundings already give it. The
+braces then build whatever the compiler checks the expression against:
 
 ```buri
 struct World {
@@ -686,25 +679,25 @@ fn result(): World {
 }
 ```
 
-The type is **read** from above and never solved for. It reaches a literal in a
-`let` with an annotation, an argument of a call, the value of a field, a match
-arm and a function's result — the places a type is already written down. A
-literal with nothing above it to name its type is `struct-literal-type`, and so
-is one whose expected type is an enum, a primitive, or a generic struct with a
-type argument nothing has settled: `Holder<Int>` is a type a reader can see,
-`Holder<?>` is one the fields would have to decide, and deciding it here would
-be inference rather than a lookup.
+The compiler **reads** the type from above and never solves for it. It reaches a
+literal in a `let` with an annotation, an argument of a call, the value of a
+field, a match arm, and a function's result — the places a type is already
+written down. A literal with nothing above it to name its type is
+`struct-literal-type`. So is one whose expected type is an enum, a primitive, or
+a generic struct with a type argument nothing has settled. A reader can see
+`Holder<Int>`; `Holder<?>` is one the fields would have to decide, and deciding
+it here would be inference rather than a lookup.
 
-The braces are read as a literal when what follows the `{` is a `..` or a
-`name :`, and as a block otherwise (`design/grammar-rationale.md` 12.3). So a literal whose *first*
+The parser reads the braces as a literal when a `..` or a `name :` follows the
+`{`, and as a block otherwise (`design/grammar-rationale.md` 12.3). So a literal whose *first*
 field is shorthand keeps its type name — `World { hi }`, `World { hi, hello }` —
 while shorthand after a first keyed field does not: `{ hi: hi, hello }` is a
 literal. `{}` keeps its type name too.
 
-Outside the declaring module, a private field cannot be read, written in a
-literal, or matched. A struct with any private field therefore cannot be
-constructed from scratch elsewhere — but functional update still works, because
-it never names the hidden fields:
+Outside the declaring module, you cannot read a private field, write it in a
+literal, or match it. So you cannot build a struct with any private field from
+scratch elsewhere. Functional update still works, because it never names the
+hidden fields:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let renamed = User { ..u, name: "new" };     // fine anywhere
@@ -713,8 +706,8 @@ let forged = User { id: ..., name: ..., passwordHash: ... };   // only in the
 ```
 
 This is the only visibility mechanism a struct has. Earlier drafts also had an
-`opaque` modifier that hid a type's whole representation; a struct with no
-exported fields does exactly that, so `opaque` was removed as redundant.
+`opaque` modifier that hid a type's whole representation. A struct with no
+exported fields does exactly that, so `opaque` went as redundant.
 
 ### 5.7 Enums
 
@@ -738,8 +731,8 @@ A variant writes no `export`. The enum is the unit of visibility: an exported
 enum exports every one of its variants and every field of their payloads, and a
 private one exports none. Writing `export` before a variant is the
 `variant-export` error, which carries the edit that deletes it. A type whose
-representation is meant to stay hidden is a struct with a private field, which
-is the shape the standard library uses for `Scope` and `Event`.
+representation should stay hidden is a struct with a private field, the shape the
+standard library uses for `Scope` and `Event`.
 
 Constructing a variant uses a qualified path or the inferred-type dot form:
 
@@ -749,9 +742,9 @@ let b: Shape = .Rect { width: 2.0, height: 1.0 };
 let c: Shape = .Empty;
 ```
 
-The dot form requires that the expected type is known from context (a
-`let` annotation, a parameter type, the enclosing function's return type, or a
-`match` scrutinee's type). When it is not, use the qualified form.
+The dot form needs the expected type from context: a `let` annotation, a
+parameter type, the enclosing function's return type, or a `match` scrutinee's
+type. Without one, use the qualified form.
 
 The prelude defines:
 
@@ -784,12 +777,12 @@ let (n, _) = (1, fs.writeText(ctx, path, body));      // ERROR: the same one, hi
 fs.writeText(ctx, path, body);                        // ERROR: and so is this
 ```
 
-There are two ways to throw a value away and no third — a `_` in a `let`'s
+There are two ways to throw a value away and no third: a `_` in a `let`'s
 pattern, and an expression statement, which `design/grammar-rationale.md` 12.2 admits only in a test
-source — and this rule refuses a `Result` in both. That is what makes must-use
-total rather than a convention. The `_` is looked for anywhere in the pattern
-rather than only at its head, or the second line above would be the
-one-character way around the first.
+source. This rule refuses a `Result` in both, which is what makes must-use total
+rather than a convention. The compiler looks for the `_` anywhere in the pattern,
+not only at its head — otherwise the second line above would be the one-character
+way around the first.
 
 The legal ways to consume a `Result` are:
 
@@ -801,26 +794,26 @@ fs.writeText(ctx, path, body).ignore()                // explicitly, greppably, 
 ```
 
 `ignore(self): ()` is a method on `Result` and has no free-function spelling. It
-exists so that "I considered this and do not care" is a thing you *write*,
-rather than a thing that happens by not writing anything. A reviewer can grep
-for it; `_` is unsearchable, and `buri lint` reports every `ignore` as
-`discarded-result` so that the whole set is one report.
+exists so that "I considered this and do not care" is something you *write*
+rather than something that happens when you write nothing. A reviewer can grep
+for it, where `_` is unsearchable, and `buri lint` reports every `ignore` as
+`discarded-result` so the whole set arrives as one report.
 
-The rule is on the type, not on the call: a `Result` returned from a pure
-function is just as must-use as one returned from an I/O call.
+The rule is on the type, not on the call: a `Result` from a pure function is
+every bit as must-use as one from an I/O call.
 
 `Option` is **not** must-use. Ignoring an absent value is usually harmless, and
 making it an error would put `option.ignore` in front of half the standard
 library for no safety gain. `design/non-goals.md` records this as a judgment
 call rather than a principle.
 
-`io.print` / `io.println` are no exception: they answer `Result<(), IoError>`,
-because a closed pipe, a full disk and a revoked permission are things that
-happen to a print and a signature saying `()` was claiming they do not. A
-program that does not care writes `.ignore()` there like anywhere else, and one
-that does can answer instead — which is what the old `()` shape could not give,
-since a stream error reported by the platform at flush time surfaces only as
-`main`'s exit status, the one place a program can no longer act on it.
+`io.print` and `io.println` are no exception: they answer `Result<(), IoError>`.
+A closed pipe, a full disk and a revoked permission all happen to prints, and a
+signature saying `()` claimed they do not. A program that does not care writes
+`.ignore()` there like anywhere else, and one that does can handle the failure.
+The old `()` shape could not offer that. The platform reports a stream error at
+flush time, so it surfaced only as `main`'s exit status — the one place a program
+can no longer act on it.
 
 ### 5.8 Function types
 
@@ -830,9 +823,9 @@ fn() => ()
 fn(Str) => Result<Config, ParseError>
 ```
 
-Function types are written with the `fn` keyword for the same reason lambdas are:
-it makes `(A, B)` unambiguously a tuple everywhere. Function types are rank-1;
-there are no polymorphic function *values* in v0.3.
+Function types use the `fn` keyword for the same reason lambdas do: it makes
+`(A, B)` unambiguously a tuple everywhere. Function types are rank-1; there are
+no polymorphic function *values* in v0.3.
 
 ### 5.9 Type aliases
 
@@ -849,17 +842,17 @@ An alias may be exported, imported and re-exported like any other declaration
 (Section 4.2). It expands in the module that declared it, so `type Handle =
 LocalStruct` means the same thing wherever the name is read.
 
-Expansion has to end. An alias whose body reaches itself — directly, or through
-other aliases, in this module or across a boundary an export carried it over —
-is `circular-type-alias`, and the alias resolves to the error type. Two aliases
-that reach the same type by different routes are not a cycle: only a walk that
-returns to where it started is. A recursive *type* is written with a struct or
-an enum, whose fields are the boundary an alias does not have.
+Expansion has to end. An alias whose body reaches itself is `circular-type-alias`,
+and the alias resolves to the error type. That covers reaching itself directly,
+through other aliases, in this module, or across a boundary an export carried it
+over. Two aliases that reach the same type by different routes are not a cycle;
+only a walk that returns to where it started is. Write a recursive *type* with a
+struct or an enum, whose fields are the boundary an alias does not have.
 
 ### 5.10 Generics
 
-Type parameters are declared in angle brackets. There are no row parameters:
-row polymorphism went away with the structural records of Section 5.5.
+You declare type parameters in angle brackets. There are no row parameters: row
+polymorphism went away with the structural records of Section 5.5.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Stdout };
@@ -877,16 +870,15 @@ fn largest<T: Ord>(xs: [T]): Option<T> { ... }
 fn report<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str { ... }
 ```
 
-Inside such a function, the bound's methods are callable on the parameter —
-`x.compare(y)`, `x.show(ctx)` — and nothing else is. What traits deliberately
-lack (Section 5.12.5) is what keeps bound checking a lookup rather than a
-search.
+Inside such a function you may call the bound's methods on the parameter —
+`x.compare(y)`, `x.show(ctx)` — and nothing else. What traits deliberately lack
+(Section 5.12.5) keeps bound checking a lookup rather than a search.
 
 Generic code that needs an operation no trait provides takes it as a function
 argument, as it always has: `sortBy(xs, cmp)` rather than inventing a trait.
 
-In *expression* position, explicit type arguments are written on the
-expression itself:
+In *expression* position, write explicit type arguments on the expression
+itself:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let f = identity<Int>;
@@ -900,21 +892,21 @@ in declaration order for a struct, the variant plus its payload for an enum,
 element-wise for arrays and tuples, recursively all the way down. Two separately
 constructed values with equal contents are equal.
 
-Referential equality is not merely unchosen — it is **not expressible**. Buri has
-no references, so there is no identity to compare, and Section 8.1 rules it out
-besides: the runtime may share a representation between two equal values or copy
-one, whenever that is faster, so `a === b` would have an answer that depended on
-the optimization level and on the backend. Code that needs identity carries it as
-data (`struct NodeId(U64)`), which is a value the compiler cannot invent or
-coalesce. What a backend may do — and the JavaScript one does — is answer `true`
-early when the two operands are already known to be one value, because
-reflexivity says the walk would reach `true` anyway. That is a shortcut to a
-fixed answer rather than a second definition of equality, and it is sound only
-because `==` is reflexive; it was not, before the rule below, and the two
-backends disagreed at exactly `NaN` as a result.
+Referential equality is not merely unchosen. It is **not expressible**. Buri has
+no references, so there is no identity to compare. Section 8.1 rules it out
+besides: the runtime may share a representation between two equal values, or copy
+one, whenever that is faster, so `a === b` would answer differently by
+optimization level and by backend. Code that needs identity carries it as data —
+`struct NodeId(U64)` — which is a value the compiler cannot invent or coalesce.
 
-`==` and `!=` are `Eq.eq`; `<` `<=` `>` `>=` are `Ord.compare` — the operator
-table is Section 5.12.4. Neither is compiler magic: a type has them because it
+A backend may answer `true` early when it already knows the two operands are one
+value, and the JavaScript one does, because reflexivity says the walk would reach
+`true` anyway. That is a shortcut to a fixed answer rather than a second
+definition of equality, and it is sound only because `==` is reflexive. Before
+the rule below it was not, and the two backends disagreed at exactly `NaN`.
+
+`==` and `!=` are `Eq.eq`; `<` `<=` `>` `>=` are `Ord.compare`. Section 5.12.4
+has the operator table. Neither is compiler magic: a type has them because it
 derives or implements the trait. Every primitive, and `[T]` and tuples built from
 types that have them, satisfy `Eq` and `Ord` already. Your own structs and enums
 opt in:
@@ -937,25 +929,25 @@ Two consequences:
   therefore reflexive, symmetric and transitive at every value there is, which is
   what the rest of the language assumes of it. `Ord` on floats is unchanged and
   still IEEE-754's: it orders `-0.0` equal to `0.0` and reports `NaN` as
-  unordered, so `<` and `compare` do not agree with `==` at `NaN` — `==` is the
-  one that was made total.
+  unordered, so `<` and `compare` disagree with `==` at `NaN`. `==` is the one
+  made total.
 
 - **A hand-written `impl Eq` need not be structural.** Nothing checks that it is
   reflexive, symmetric, or transitive, so a case-insensitive `Str` wrapper is
   expressible — and so is a broken one. `derive` cannot be wrong in that way;
   hand-written implementations are a place to be deliberate.
 
-- **`Ord` on a `Str` is by Unicode scalar value**, which is the unit `len`
-  counts and `charAt` hands back, and which for a valid string is byte-for-byte
-  UTF-8 order. It is not UTF-16 code-unit order — what a JavaScript `<` on a
-  string gives, which puts every astral character below every character in
-  U+E000..U+FFFF — and both backends answer the scalar order. It is the order
-  `sort`, an `OrdMap<Str, _>` and `core/order`'s `str` all carry, since each of
-  them is this one comparison. `Ord` on a `Char` is the scalar's integer order,
-  which is the same rule one scalar at a time. `buri docs core/str` states it
-  beside `compare`, with the case that tells the two apart. There is no
-  locale-aware comparison in the language: collation is a table and a set of
-  options rather than a total order an operator can carry.
+- **`Ord` on a `Str` is by Unicode scalar value.** That is the unit `len` counts
+  and `charAt` hands back, and for a valid string it is byte-for-byte UTF-8
+  order. It is not UTF-16 code-unit order, which is what a JavaScript `<` on a
+  string gives — that puts every astral character below every character in
+  U+E000..U+FFFF. Both backends answer the scalar order. `sort`, an
+  `OrdMap<Str, _>` and `core/order`'s `str` all carry it, since each of them is
+  this one comparison. `Ord` on a `Char` is the scalar's integer order, the same
+  rule one scalar at a time. `buri docs core/str` states it beside `compare`,
+  with the case that tells the two apart. The language has no locale-aware
+  comparison: collation is a table and a set of options rather than a total order
+  an operator can carry.
 
 ### 5.12 Traits
 
@@ -976,18 +968,18 @@ trait Show {
 
 `Self` stands for the implementing type and is legal only inside a trait or an
 `impl`. A trait's methods declare `self` first and without a type, exactly like
-any other method (Section 6.7.1); it is the implementing type that `self` is,
-which is what `Self` names in the rest of the signature.
+any other method (Section 6.7.1). `self` is a value of the implementing type, and
+`Self` names that type through the rest of the signature.
 
-A trait declared `effect` additionally marks its implementors as
-effect-carrying, which subjects them to the `ctx` rule of Section 10.2. That
-modifier is the only difference between an effect and an ordinary interface.
+A trait declared `effect` also marks its implementors effect-carrying, which puts
+them under the `ctx` rule of Section 10.2. That modifier is the only difference
+between an effect and an ordinary interface.
 
 #### 5.12.1 Conformance is nominal
 
 A type satisfies a trait only where an `impl` or a `derive` says so. Declaring a
-method that happens to match a trait's signature does not make the type conform;
-nothing is inferred from shape.
+method that happens to match a trait's signature does not make the type conform.
+The compiler infers nothing from shape.
 
 Checking `T: Ord` is therefore a lookup in one table keyed by `(trait, type)`,
 populated by the declarations in the type's own module. There is exactly one
@@ -997,12 +989,12 @@ candidate, so there is no coherence pass, no orphan rule, and no instance search
 The whole type system is nominal, and this is the same rule applied to
 conformance: an `impl` is a declaration, like a `struct`.
 
-An earlier draft made conformance structural, Go-style. It was cheap to check but
-it made a module's public API implicitly include *which traits its types happen
-to satisfy* — so adding an unrelated exported function could make a type conform
-at a distance, and removing one could break a caller three modules away. That is
-a correctness hazard and, worse for the compile-time goal, it coarsens
-incremental invalidation exactly where it needs to be fine.
+An earlier draft made conformance structural, Go-style. It was cheap to check,
+but it put *which traits its types happen to satisfy* into a module's public API.
+Adding an unrelated exported function could make a type conform at a distance,
+and removing one could break a caller three modules away. That is a correctness
+hazard, and — worse for the compile-time goal — it coarsens incremental
+invalidation exactly where it needs to be fine.
 
 #### 5.12.2 `impl`
 
@@ -1020,18 +1012,18 @@ a `for` clause added. The methods land in the same namespace, so
 introduces no second namespace and no second resolution path, whichever form it
 takes.
 
-The two forms differ in one respect, and it is Section 6.7.1's: a method of the
-type's own may be `export`ed, and a method supplied to a trait may not. An `impl`
-in either form may appear only in the defining module of its type, so there is no
-way to implement a trait for someone else's type.
+The two forms differ in one respect, Section 6.7.1's: you may `export` a method
+of the type's own, and you may not `export` a method supplied to a trait. An
+`impl` in either form may appear only in its type's defining module, so nobody
+can implement a trait for someone else's type.
 
 A supplied method's signature is the trait's. Its parameters, its return type,
 and its own type parameters — how many, and what each is bound by — are what the
-declaration wrote, reading `Self` as the implementing type: `compare` above may
-write `Version` or `Self` for its second parameter, because inside the block
-those are one type. A call reaching the method through a bound is checked
-against the *trait's* declaration and dispatched to the `impl`'s, so the two are
-one signature rather than two that happen to share a name.
+trait declared, reading `Self` as the implementing type. So `compare` above may
+write `Version` or `Self` for its second parameter, since inside the block those
+are one type. A call reaching the method through a bound checks against the
+*trait's* declaration and dispatches to the `impl`'s, so the two are one
+signature rather than two that share a name.
 
 #### 5.12.3 `derive` generates the implementation
 
@@ -1048,10 +1040,10 @@ and the operator traits. A `derive` fails to compile if any field's type does no
 itself satisfy the trait.
 
 `ToJson` and `FromJson` — `core/json`'s typed encoding — are *only* ever derived.
-What a derived implementation stands for is the type's shape, so a hand-written
-one would be obeyed where the type is encoded on its own and ignored where a type
-holding it is; an `impl` of either is rejected rather than half-obeyed. The
-mapping from Buri shapes onto JSON ones is stated in `core/json`.
+A derived implementation stands for the type's shape, so a hand-written one would
+be obeyed where the type is encoded on its own and ignored where a type holding
+it is. The compiler rejects an `impl` of either rather than half-obeying it.
+`core/json` states the mapping from Buri shapes onto JSON ones.
 
 #### 5.12.4 Operators are trait methods
 
@@ -1080,22 +1072,22 @@ let far = total > Meters(3.0);             // Bool
 `derive Add for Meters` provides `Meters + Meters` and nothing else, so the unit
 safety the newtype exists for survives contact with arithmetic.
 
-**An operator implementation cannot allocate or perform an effect.** There is no
-argument position in `a + b` through which a context could be passed, so every
-operator is structurally confined to bounded, pure computation over values that
-already exist. You cannot write an expensive `+` in this language. That is why
-operator traits are safe here in a way they are not in languages where `+` can be
-an arbitrary method call — and it is also why `Matrix + Matrix` is not
-expressible: matrix addition allocates, so it is `a.add(ctx, b)`, which says so.
+**An operator implementation cannot allocate or perform an effect.** `a + b` has
+no argument position to pass a context through, so every operator is confined to
+bounded, pure computation over values that already exist. You cannot write an
+expensive `+` in this language. That is why operator traits are safe here and are
+not in languages where `+` can be an arbitrary method call. It is also why
+`Matrix + Matrix` is not expressible: matrix addition allocates, so you write
+`a.add(ctx, b)`, which says so.
 
 #### 5.12.5 What traits deliberately lack
 
 No blanket implementations, no associated types, no `where` clauses, no
 supertraits, no trait objects, and no dynamic dispatch. Each of those is a step
 from "resolution is a lookup" toward "resolution is a search," and the search is
-the entire compile-time cost of a trait system. Generic code is monomorphized;
-a generic body is typechecked once, polymorphically, with bounds verified at the
-call site.
+the entire compile-time cost of a trait system. The compiler monomorphizes
+generic code, and typechecks a generic body once, polymorphically, verifying
+bounds at the call site.
 
 ---
 
@@ -1134,10 +1126,10 @@ There is no `<<` or `>>`. Use `bits.shl(x, n)` and `bits.shr(x, n)`. See
 ### 6.2 Arithmetic
 
 `+ - * / %` desugar to the operator traits of Section 5.12.4. On the built-in
-numeric types they are defined on two operands of the *same* type and produce
-that type. **There is no implicit promotion of any kind** — not integer
-promotion, not int-to-float, not narrow-to-wide. `a: I32 + b: I64` is an error,
-and so is `1.0 + 1`.
+numeric types they take two operands of the *same* type and produce that type.
+**There is no implicit promotion of any kind** — not integer promotion, not
+int-to-float, not narrow-to-wide. `a: I32 + b: I64` is an error, and so is
+`1.0 + 1`.
 
 Integer `/` truncates toward zero; `%` takes the sign of the dividend, so
 `a == (a / b) * b + (a % b)` holds for every non-zero `b`.
@@ -1153,18 +1145,17 @@ does not pay to find out. Overflow is not wrapping by default either: silent
 wrapping is a correctness bug in almost all code and a deliberate technique in a
 little of it, so the little of it says so out loud (below).
 
-Undefined does not mean unbounded in practice, and what it means in practice
-depends on the backend.
+Undefined does not mean unbounded in practice, and what it does mean depends on
+the backend.
 
 On a **native** backend every integer type is its own width and integer
-arithmetic is two's complement, so the observable consequence of overflow is a
-wrapped value. On the **JavaScript** backend a width up to 32 bits compiles to a
-`number` and one at 64 bits or above compiles to a `BigInt`, so every integer
-type holds its own range exactly — and a `BigInt` has no width to overflow at,
-so the observable consequence of overflow there is an answer larger than the
-type. Neither is promised and neither is a definition — a program that overflows
-is wrong, and these are descriptions of two implementations rather than a
-specification of one.
+arithmetic is two's complement, so overflow shows up as a wrapped value. On the
+**JavaScript** backend a width up to 32 bits compiles to a `number` and one at 64
+bits or above compiles to a `BigInt`, so every integer type holds its own range
+exactly. A `BigInt` has no width to overflow at, so overflow shows up there as an
+answer larger than the type. Neither is promised and neither is a definition. A
+program that overflows is wrong, and these describe two implementations rather
+than specify one.
 
 That the two differ is the reason overflow is undefined rather than
 implementation-defined: a language that pinned one of them would be pinning a
@@ -1190,15 +1181,15 @@ so is `NaN < NaN`. So `a <= b && b <= a` does not imply `a == b`, and `!(a < b)
 && !(a > b)` does not imply it either. `math.isNan(x)` is how a program asks the
 question `x != x` used to answer.
 
-Because a payload is not part of a `NaN`'s value, it is not preserved anywhere
-either: `bytes.f64FromBytes` answers the canonical quiet NaN for every NaN
-pattern, on every backend, and the bytes it round-trips back to are the same
-eight. There is no other way to construct a payload, so the distinction the
-paragraph above declines to make is one no program can observe.
+A payload is not part of a `NaN`'s value, so nothing preserves one either.
+`bytes.f64FromBytes` answers the canonical quiet NaN for every NaN pattern, on
+every backend, and round-trips back to the same eight bytes. There is no other
+way to construct a payload, so no program can observe the distinction the
+paragraph above declines to make.
 
-Rendering a float is the shortest decimal that
-round-trips, and that is a promise about digits rather than only about values:
-`1.0 / 3.0` prints the same characters on every backend.
+Rendering a float gives the shortest decimal that round-trips. That is a promise
+about digits and not only about values: `1.0 / 3.0` prints the same characters on
+every backend.
 
 #### 6.2.1 Conversions
 
@@ -1221,17 +1212,16 @@ Three families, distinguished by what happens when the value does not fit:
 | `x.toT()` where it might not | `Result<T, RangeError>` | `.Err` |
 | `x.wrapToT()` | `T` | wraps (integers) or rounds (floats) |
 
-The return type is decided per source-and-target pair, so `i32.toI64()` yields
-`I64` while `i64.toI32()` yields `Result<I32, RangeError>`. Whether a conversion
-can fail is visible in the type rather than in the choice of operator.
+Each source-and-target pair decides its own return type, so `i32.toI64()` yields
+`I64` while `i64.toI32()` yields `Result<I32, RangeError>`. The type says whether
+a conversion can fail, rather than the choice of operator.
 
-`I64 → F64` is lossy above 2^53, so strictly it belongs in the second family —
-but converting a count to a float is too common to route through a `Result`, so
-`toF64` is defined on every integer type as an exact-to-53-bits conversion that
-rounds beyond that, documented as such. This is the one place the language
-prefers ergonomics to ceremony, and it is called out rather than hidden. That
-bound is the float's rather than the backend's, so `toF64` rounds identically
-everywhere.
+`I64 → F64` is lossy above 2^53, so strictly it belongs in the second family. But
+converting a count to a float is too common to route through a `Result`, so every
+integer type defines `toF64` as an exact-to-53-bits conversion that rounds beyond
+that, documented as such. This is the one place the language prefers ergonomics
+to ceremony, and it says so rather than hiding it. That bound is the float's
+rather than the backend's, so `toF64` rounds identically everywhere.
 
 Earlier drafts used three cast operators (`as`, `as?`, `as%`). They are gone,
 because a method resolved by its receiver's type is the same lookup for none of
@@ -1246,9 +1236,8 @@ can do.
 
 #### 6.2.2 Checked and wrapping arithmetic
 
-The default `+` leaves overflow undefined. The alternatives are trait methods,
-so they are spelled out where they are used and are available on any type that
-derives them:
+The default `+` leaves overflow undefined. The alternatives are trait methods, so
+you spell them out where you use them, and any type that derives them has them:
 
 ```buri
 trait Checked {
@@ -1296,9 +1285,9 @@ bounds coincide and `.None` means two's-complement overflow and nothing else.
 ### 6.3 Blocks
 
 A block is zero or more `let` bindings followed by a result expression — the
-`Block` production of [`grammar.ebnf`](./cli/src/docs/grammar.ebnf). The result
-expression is optional syntactically, but a block without one has no value, which
-the checker reports as an error everywhere a block may stand.
+`Block` production of [`grammar.ebnf`](./cli/src/docs/grammar.ebnf). The grammar
+makes the result expression optional, but a block without one has no value, and
+the checker reports that as an error everywhere a block may stand.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let hypotenuse = {
@@ -1308,9 +1297,9 @@ let hypotenuse = {
 };
 ```
 
-`let` bindings are evaluated **strictly, in source order** (Section 8.2). Each
-binding is in scope for the remainder of the block. Shadowing is permitted, both
-in nested scopes and within a single block:
+Buri evaluates `let` bindings **strictly, in source order** (Section 8.2). Each
+binding is in scope for the rest of the block. You may shadow, both in nested
+scopes and within a single block:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let name = str.trim(raw);
@@ -1334,7 +1323,7 @@ let label = if (n < 0) { "negative" } else if (n == 0) { "zero" } else { "positi
 
 ### 6.5 `match`
 
-The pattern forms an arm may use are Section 7.
+Section 7 has the pattern forms an arm may use.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let describe = match (shape) {
@@ -1365,14 +1354,14 @@ let sum = xs.fold(fn(acc, x) => acc + x, 0);
 ```
 
 Lambdas begin with `fn` so that `(x)` is never ambiguous with a parameter list.
-Parameter types and the return type may be omitted when inferable.
+You may omit parameter types and the return type where they are inferable.
 
 A lambda body extends as far right as possible, so a lambda cannot appear as a
 bare operand of a binary operator (`design/grammar-rationale.md` 12.11). `2 * fn(x) => x` is a parse
 error; write `2 * (fn(x) => x)`.
 
-Arguments are evaluated left to right before the call (Section 8.2). Partial
-application is not built in; write a lambda.
+Buri evaluates arguments left to right before the call (Section 8.2). There is no
+built-in partial application; write a lambda.
 
 ### 6.7 Method calls
 
@@ -1384,13 +1373,13 @@ list.map           // module member
 sq.area()          // method call
 ```
 
-All five are the same production — `PostfixExpr "." IDENT` — and they are told
-apart during name resolution, never during parsing.
+All five are the same production — `PostfixExpr "." IDENT` — and name resolution
+tells them apart, never parsing.
 
 #### 6.7.1 Declaring a method
 
-A method is declared **inside an `impl` block for its type**, and takes `self`
-as its first parameter. Both halves are required, and each without the other is
+You declare a method **inside an `impl` block for its type**, and it takes `self`
+as its first parameter. Both halves are required, and either without the other is
 an error:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
@@ -1421,11 +1410,11 @@ already written it, and a trait's signature means the implementing type, so an
 annotation could only repeat what is above it or contradict it. Writing one is
 the `self-with-a-type` error, which carries the edit that deletes it.
 
-An `impl` block may appear only in the module that declares its type, which is
-what keeps method resolution a single lookup (Section 6.7.3), and the block
-itself — like a `derive` — is never `export`ed. A method inside one is `export`ed
-on its own terms; a method supplied to a trait is not, because conformance
-belongs to the type and travels wherever the type does.
+An `impl` block may appear only in the module that declares its type, which keeps
+method resolution a single lookup (Section 6.7.3). The block itself is never
+`export`ed, and neither is a `derive`. A method inside one carries its own
+`export`; a method supplied to a trait does not, because conformance belongs to
+the type and travels wherever the type does.
 
 The generic parameters split between the two: those the self type mentions
 belong to the `impl`, the rest to the method.
@@ -1436,12 +1425,12 @@ impl<T> Option<T> {
 }
 ```
 
-An earlier draft made a function a method purely by taking `self`, with no
-`impl` block. It read well in isolation and badly in a file: a type's operations
-were scattered wherever someone happened to write them, and `area(sq)` and
-`sq.area()` were two spellings of one call, so every method was also a free
-function competing for a name in module scope. Requiring the block puts a type's
-operations in one place and makes the method form the only one.
+An earlier draft made a function a method purely by taking `self`, with no `impl`
+block. It read well in isolation and badly in a file. A type's operations
+scattered wherever someone happened to write them, and `area(sq)` and `sq.area()`
+were two spellings of one call, so every method was also a free function
+competing for a name in module scope. Requiring the block puts a type's
+operations in one place and leaves the method form as the only one.
 
 #### 6.7.2 Calling a method
 
@@ -1492,24 +1481,24 @@ and you never name its type, you need no import at all.
 3. If `x`'s type is a type parameter, `f` must be declared by one of its
    **bounds** (Section 5.10). A bare parameter with no bounds has no methods.
 
-**An effect's methods are excluded from steps 2 and 3.** An effect is performed
-by handing the context to a function — `ctx.println(t)` is `io.println(ctx, t)`
-— so a method a *bound effect* declares is not callable on the value that
-carries it, and neither is one an `impl` supplied for an effect. Two layers are
-below that line and keep the method form: the standard library, which is where
-those wrapper functions are, and the body of an `impl` that supplies an effect,
-which is where the operation is implemented. Section 10.2 is the rule in full,
-and `effect-method-call` names the function to call instead.
+**Steps 2 and 3 exclude an effect's methods.** You perform an effect by handing
+the context to a function: `ctx.println(t)` is `io.println(ctx, t)`. So you cannot
+call a method a *bound effect* declares on the value that carries it, and you
+cannot call one an `impl` supplied for an effect either. Two layers sit below
+that line and keep the method form: the standard library, which holds those
+wrapper functions, and the body of an `impl` that supplies an effect, which is
+where the operation is implemented. Section 10.2 has the rule in full, and
+`effect-method-call` names the function to call instead.
 
 Each step is a single table lookup keyed by name and by one type. There is no
 candidate set, no autoref and no autoderef — Buri has no references — and no
 coherence check, because conformance is nominal and a type has exactly one
 defining module. Resolution does need the receiver's type, so name resolution
-consults inference; a lookup rather than a search is the version of that cost
+consults inference. A lookup rather than a search is the version of that cost
 worth paying.
 
-Where two bounds declare the same method name, the call is ambiguous and must be
-disambiguated by calling the trait method as a function (`Ord.compare(x, y)`).
+Where two bounds declare the same method name, the call is ambiguous.
+Disambiguate it by calling the trait method as a function: `Ord.compare(x, y)`.
 
 Defining modules:
 
@@ -1559,27 +1548,25 @@ fn loadPort<C: Alloc + FsRead>(ctx: C, at: Path): Result<Int, ConfigError> {
 
 `?` is the only early exit in the language. There is no `return`.
 
-A value the function is not propagating is given a default with `withDefault`,
-which `Option<T>` and `Result<T, E>` both have — `cfg.port.withDefault(8080)`.
-There is no operator for it: it is an ordinary method, so it sits in a chain
-beside `map` and `filter` rather than interrupting one, and its argument is
-evaluated like any other. A default that must not run unless it is needed is
-written as a `match`.
+Give a value the function is not propagating a default with `withDefault`, which
+`Option<T>` and `Result<T, E>` both have: `cfg.port.withDefault(8080)`. There is
+no operator for it. It is an ordinary method, so it sits in a chain beside `map`
+and `filter` rather than interrupting one, and it evaluates its argument like any
+other call. Write a `match` when the default must not run unless it is needed.
 
 ### 6.9 Aborting
 
 There is no way to write that a branch cannot happen. `panic` and `unreachable`
-are reserved (Section 3.4), so reaching for either is named rather than silently
-allowed as an identifier; `crash` is an ordinary identifier, because the concept
+are reserved (Section 3.4), so reaching for either gets named rather than quietly
+accepted as an identifier. `crash` is an ordinary identifier, because the concept
 is gone rather than deferred. There is no bottom type either, so nothing unifies
 with everything.
 
-The reason is that such a claim is almost always wrong: a match arm the
-programmer asserts is impossible is an arm the compiler was about to make them
-handle, and "validated upstream" is a claim about code somewhere else that
-nothing checks. Without an escape hatch, every case is handled — an `Option` is
-unwrapped with `withDefault` or matched, and an impossible state is a type that
-cannot represent it.
+Such a claim is almost always wrong. A match arm you assert is impossible is an
+arm the compiler was about to make you handle, and "validated upstream" is a
+claim about code somewhere else that nothing checks. With no escape hatch you
+handle every case: unwrap an `Option` with `withDefault` or match it, and make an
+impossible state a type that cannot represent it.
 
 A program can still stop. Division by zero, a shift at or beyond the width of its
 type, and stack exhaustion **abort**: the program ends with a message on stderr
@@ -1625,14 +1612,14 @@ A bare identifier pattern is **always** a binding. `None` as a pattern binds a
 variable named `None`; it does not match the `None` variant. Write `.None` or
 `Option.None`.
 
-This is a real ergonomic cost, and it is what removes name resolution from the
-parser: `Foo` versus `Foo(x)` versus `Foo { .. }` is decided by the token after
-`Foo`, never by what `Foo` means. `design/grammar-rationale.md` 12.7.
+This is a real ergonomic cost, and it is what takes name resolution out of the
+parser. The token after `Foo` decides between `Foo`, `Foo(x)` and `Foo { .. }`,
+never what `Foo` means. `design/grammar-rationale.md` 12.7.
 
 ### 7.3 Exhaustiveness
 
 Every `match` must cover its scrutinee's type. The checker reasons about enum
-variants, `Bool`, tuples, structs, and array lengths. It does not attempt
+variants, `Bool`, tuples, structs, and array lengths. It does not try
 exhaustiveness over integer or string ranges; those need a `_` arm.
 
 An alternation counts toward coverage wherever it appears, not only at the top
@@ -1640,11 +1627,11 @@ of a pattern: `.Some(true | false)` covers `.Some` completely, exactly as
 `.Some(true) | .Some(false)` does.
 
 Unreachable arms are a compile error, not a warning. So is an unreachable
-*alternative*: reachability is asked of each `|` alternative of an arm against
-the arms above it and the alternatives to its left, so `.Now(_) | .World`
-below an arm that already handles `.Now` reports the `.Now(_)` half rather than
-passing because its other half is live. An arm with no live alternative at all
-is the arm-level error.
+*alternative*. The checker asks about each `|` alternative on its own, against
+the arms above it and the alternatives to its left. So `.Now(_) | .World` below
+an arm that already handles `.Now` reports the `.Now(_)` half rather than passing
+because its other half is live. An arm with no live alternative at all gets the
+arm-level error.
 
 ---
 
@@ -1660,28 +1647,28 @@ mutability, no aliasing hazard, and therefore no borrow checker and no lifetimes
 let u2 = User { ..u, name: "new" };
 ```
 
-An implementation is expected to make this cheap through structural sharing and
-opportunistic in-place update when a value is provably not shared. That is an
-implementation strategy, not a language rule, and it is never observable.
+An implementation should make this cheap: share structure, and update in place
+where it can prove a value is not shared. That is an implementation strategy
+rather than a language rule, and nothing can observe it.
 
 ### 8.2 Strictness and order
 
 Buri is strict. Evaluation order is fully specified:
 
-1. `let` bindings in a block are evaluated top to bottom, before the block's
-   result expression.
-2. Call arguments are evaluated left to right, then the function is applied.
-3. Operands of binary operators are evaluated left to right, except for `&&`
-   and `||`, which short-circuit.
-4. `if` evaluates its condition, then exactly one branch.
-5. `match` evaluates its scrutinee, then tests arms in order, evaluating each
-   guard only when its pattern matched.
+- A block evaluates its `let` bindings top to bottom, before its result
+  expression.
+- A call evaluates its arguments left to right, then applies the function.
+- A binary operator evaluates its operands left to right, except for `&&` and
+  `||`, which short-circuit.
+- `if` evaluates its condition, then exactly one branch.
+- `match` evaluates its scrutinee, then tests arms in order, evaluating each
+  guard only when its pattern matched.
 
-This matters more than it usually would: because effects are performed by
-ordinary function calls rather than by a monad, **specified evaluation order is
-what makes effect sequencing meaningful.** An implementation may reorder or
-eliminate work only where the result is indistinguishable, and calls that consume
-an effect are never indistinguishable.
+This matters more here than it usually would. Effects happen through ordinary
+function calls rather than through a monad, so **a specified evaluation order is
+what makes effect sequencing mean anything.** An implementation may reorder or
+eliminate work only where the result is indistinguishable, and a call that
+consumes an effect is never indistinguishable.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let _ = io.println(ctx, "first").ignore();
@@ -1710,26 +1697,26 @@ cost:
 | A statically known group of functions tail-call each other | merge the group into one function with a dispatch switch | one branch per bounce |
 | A tail call through a value of function type | trampoline: return a thunk, drive it from a loop | one allocation per bounce |
 
-The first two cover essentially all Buri code, and both are exact — the emitted
+The first two cover essentially all Buri code, and both are exact: the emitted
 loop is what a hand-written loop would have been. They apply because Buri has no
-dynamic dispatch: there are no trait objects and no virtual calls, so the call
-graph of direct calls is fully known, and generic calls become direct after
-monomorphization.
+dynamic dispatch. There are no trait objects and no virtual calls, so the
+compiler knows the whole graph of direct calls, and generic calls become direct
+after monomorphization.
 
-Only the third case costs anything, and it arises solely when a function *value*
-is invoked in tail position. An implementation should apply the cheaper
-transformation wherever the callee is statically known, and may specialize a
-call site whose function value is known to avoid the trampoline entirely.
+Only the third case costs anything, and it arises only when a tail call invokes a
+function *value*. An implementation should apply the cheaper transformation
+wherever it knows the callee statically, and may specialize a call site whose
+function value it knows, dropping the trampoline entirely.
 
-One consequence is observable: an abort inside a transformed group reports fewer
+One consequence is observable. An abort inside a transformed group reports fewer
 stack frames than the source suggests, because those frames no longer exist.
-Implementations should preserve source positions through the transformation so
-that the reported location is still correct.
+Implementations should carry source positions through the transformation, so the
+reported location is still correct.
 
 ### 8.4 Closures
 
-Lambdas capture by value. Since values are immutable, capture is unobservable —
-with one exception, the capture rule of Section 10.6.
+Lambdas capture by value. Values are immutable, so nothing can observe the
+capture — with one exception, the capture rule of Section 10.6.
 
 ---
 
@@ -1755,11 +1742,11 @@ fn retry<T, C: Clock>(
 - Functions are first-class values and may be passed, returned, and stored.
 - There is no overloading and no default arguments.
 
-Type inference is Hindley–Milner. There is no row polymorphism: it went away
-with the structural records of Section 5.5, and effects are trait bounds rather
-than rows. Because top-level signatures are mandatory, inference is local to a function body, and
-type errors are reported against the signature you wrote rather than one the
-compiler guessed.
+Type inference is Hindley–Milner. There is no row polymorphism: it went away with
+the structural records of Section 5.5, and effects are trait bounds rather than
+rows. Top-level signatures are mandatory, so inference stays local to a function
+body and the compiler reports type errors against the signature you wrote rather
+than one it guessed.
 
 ---
 
@@ -1846,42 +1833,40 @@ export effect FsWrite {
 `core/effect` declares `Alloc`, `Net`, `Clock`, `Rand`, `Entropy`, `Env`,
 `Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`, and `Sockets`, and
 `core/fs` declares `FsRead` and `FsWrite`. **Only platform modules may declare
-effects**; `effect` in ordinary code is a compile error, so the set of things a
-Buri program can do to the world is fixed by its platform rather than
-open-ended.
+effects**; `effect` in ordinary code is a compile error. So a program's platform
+fixes what that program can do to the world, rather than leaving it open-ended.
 
 Two things about that second module are deliberate.
 
 **The filesystem is two effects because it is two grants.** A program that reads
-its configuration has not thereby earned the right to delete it, and the
-difference is one a reader of a context should be able to see: a
-`<C: Alloc + FsRead>` is a promise the compiler keeps, because nothing that
-function hands `ctx` to can ask for `FsWrite` from a context that does not bind
-it. The cost is that a program doing both binds both, which is the price of
-saying which one a caller has.
+its configuration has not thereby earned the right to delete it, and a reader of
+a context should be able to see the difference. A `<C: Alloc + FsRead>` is a
+promise the compiler keeps: nothing that function hands `ctx` to can ask for
+`FsWrite` from a context that does not bind it. The cost is that a program doing
+both binds both, which is the price of saying which one a caller has.
 
 **They are declared in `core/fs` rather than in `core/effect` because their
-methods name `Path`.** `core/path` names `Alloc`, and `core/effect` cannot
-import a module that imports it — the same constraint that puts `IoError` and
-`Request` beside the effects that name them. So the declarations live on the
-side of that dependency where they can say what they mean, and `core/fs` is a
-platform module for exactly that reason. It re-exports `Path`, so
+methods name `Path`.** `core/path` names `Alloc`, and `core/effect` cannot import
+a module that imports it — the same constraint that puts `IoError` and `Request`
+beside the effects that name them. So the declarations live on the side of that
+dependency where they can say what they mean, and `core/fs` is a platform module
+for exactly that reason. It re-exports `Path`, so
 `from "core/fs" import { FsRead, Path }` is one import rather than two.
 
-`Rand` and `Entropy` are two effects over what looks like one capability, and
-the split is the clearest example on this page of what an effect is *for*.
-`Rand` promises a distribution and nothing more — the test platform's is seeded,
-so a failing test reproduces — while `Entropy` promises that somebody who has
-watched the output cannot predict the rest. A program says which it meant by
-which it binds, and a program that needed the second and was handed the first
-would have no symptom at all. `core/random` is the door onto one and
-`core/crypto` onto the other. It is the same shape as the filesystem's split one
-paragraph up: two grants, because they are two promises.
+`Rand` and `Entropy` are two effects over what looks like one capability, and the
+split is the clearest example on this page of what an effect is *for*. `Rand`
+promises a distribution and nothing more — the test platform's is seeded, so a
+failing test reproduces. `Entropy` promises that somebody who has watched the
+output cannot predict the rest. A program says which it meant by which it binds,
+and a program that needed the second and got the first would show no symptom at
+all. `core/random` is the door onto one, `core/crypto` onto the other. Same shape
+as the filesystem's split one paragraph up: two grants, because they are two
+promises.
 
 `Net.fetch` takes one value and answers one value, and those two types are the
 whole of what an HTTP message is in this language — the same `Request` a server
 hands a handler, not a second shape for the other direction. Three things follow
-from the declarations above and are worth saying out loud:
+from the declarations above:
 
 - **A wire spelling never appears in Buri code.** `GET` is written `.Get`, and
   the three letters live in the platform's implementation. A method the enum
@@ -1892,16 +1877,16 @@ from the declarations above and are worth saying out loud:
   `core/bytes`' job and answers a `Result`, so a body that is not text says so
   where it is read.
 
-`https://` is checked, not merely accepted. The server's certificate is verified
-against your machine's own trust anchors — the PEM bundle the platform keeps,
-which on macOS is `/etc/ssl/cert.pem` and on Linux one of the four usual paths —
-and a certificate that does not check out is a `NetError::Transport` naming what
-was wrong and which trust set it was checked against. Setting `SSL_CERT_FILE` to
-a PEM bundle **replaces** those anchors, the same way it does for OpenSSL,
-`curl` and `git`; it is what a private or corporate authority is for, and on
-macOS it is also how a root that lives only in the keychain is reached. There is
-no way to turn verification off, and none is planned: a `Net` a program could
-ask to trust anybody is not a capability, it is a hole.
+`https://` is checked, not merely accepted. The platform verifies the server's
+certificate against your machine's own trust anchors: the PEM bundle it keeps,
+which on macOS is `/etc/ssl/cert.pem` and on Linux one of the four usual paths. A
+certificate that does not check out is a `NetError::Transport` naming what was
+wrong and which trust set it was checked against. Setting `SSL_CERT_FILE` to a
+PEM bundle **replaces** those anchors, the same way it does for OpenSSL, `curl`
+and `git`. That is what a private or corporate authority is for, and on macOS it
+is also how you reach a root that lives only in the keychain. There is no way to
+turn verification off, and none is planned: a `Net` a program could ask to trust
+anybody is not a capability, it is a hole.
 
 An effect is a trait in every other respect — same declaration shape, same
 nominal conformance, same `impl`, same bounds. Two rules separate them:
@@ -1909,11 +1894,11 @@ nominal conformance, same `impl`, same bounds. Two rules separate them:
 - an effect's implementors are **effect-carrying**, and so may be passed only as
   `self` or `ctx` (Section 10.2);
 - **no type may implement both an effect and a trait.** A type is either part of
-  the world or part of your data, and the boundary is checked rather than
-  assumed. It holds for composites too: an effect-carrying type — one that
-  merely *mentions* an effect, such as a `Holder<C>` storing a context —
+  the world or part of your data, and the compiler checks that boundary rather
+  than assuming it. It holds for composites too. An effect-carrying type — one
+  that merely *mentions* an effect, such as a `Holder<C>` storing a context —
   satisfies no ordinary bound either, whatever `impl`s its head constructor
-  carries. That is what lets Section 10.6 conclude that a `T: Ord` is never a
+  carries. That is what lets Section 10.6 conclude a `T: Ord` is never a
   context.
 
 A function names the effects it needs as **bounds** on its context parameter:
@@ -1976,43 +1961,43 @@ through `ctx`.
 
 ### An effect is performed by a function, not by a method
 
-**An effect's methods are called through the module that wraps the effect,
-never on the value that carries it.** `ctx.println(text)` is
-`io.println(ctx, text)`; `ctx.readFile(path)` is `fs.readText(ctx, path)`;
-`ctx.allocate(n)` is `alloc.allocate(ctx, n)`. Every method of every declared
-effect has exactly one such function, and calling one on a value is
-`effect-method-call`, which names the function and the module it comes from.
+**You call an effect's methods through the module that wraps the effect, never on
+the value that carries it.** `ctx.println(text)` is `io.println(ctx, text)`;
+`ctx.readFile(path)` is `fs.readText(ctx, path)`; `ctx.allocate(n)` is
+`alloc.allocate(ctx, n)`. Every method of every declared effect has exactly one
+such function. Calling one on a value is `effect-method-call`, which names the
+function and the module it comes from.
 
-A context is the set of things a program may do, and the point of writing it
-down is that a reader can see what a function reaches for. `x.f(y)` hides that:
-the receiver is the smallest, quietest part of a call, and an effect performed
-through one reads like a method on an ordinary value. Passing the context as an
-argument puts the authority where the reader is already looking, and it makes
-the two halves — *which* effect, and *what* it does — two names instead of one.
-It also settles a question the method form left open: method lookup through a
-bound searches every effect the bound declares, so two effects claiming one
-verb make that verb ambiguous for everybody who binds both (`Ui.read` and
-`Watch.read` are the shipped case), while a module-qualified call cannot be
-ambiguous at all.
+A context is the set of things a program may do, and you write it down so a
+reader can see what a function reaches for. `x.f(y)` hides that. The receiver is
+the smallest, quietest part of a call, and an effect performed through one reads
+like a method on an ordinary value. Passing the context as an argument puts the
+authority where the reader is already looking, and it splits the two halves —
+*which* effect, and *what* it does — into two names instead of one.
+
+It also settles a question the method form left open. Method lookup through a
+bound searches every effect the bound declares, so two effects claiming one verb
+make that verb ambiguous for everybody who binds both — `Ui.read` and
+`Watch.read` are the shipped case. A module-qualified call cannot be ambiguous at
+all.
 
 Two layers are below that line and keep the method form:
 
 - **the standard library**, which is where those wrapper functions are, so its
   bodies are the only thing that reaches an effect at all; and
 - **the body of an `impl` that supplies an effect**, which is where the
-  operation is implemented — this is what keeps Section 10.8's attenuation
-  wrapper writable, and `ReadOnly<C>`'s `self.0.readFile(path)` cannot become
-  `fs.readText(self.0, at)`, because that wrapper is bounded
-  `Alloc + FsRead` where the `impl` carries only `C: FsRead`.
+  operation is implemented. That is what keeps Section 10.8's attenuation wrapper
+  writable. `ReadOnly<C>`'s `self.0.readFile(path)` cannot become
+  `fs.readText(self.0, at)`, because that wrapper is bounded `Alloc + FsRead`
+  where the `impl` carries only `C: FsRead`.
 
 The carve-out grants nothing new: an implementor can reach only an inner
 context somebody already handed it.
 
-There is exactly one construct in which more than one effect-carrying value may
-appear, and it is the `context` expression of Section 11.3 — the place where a
-context is assembled out of the implementations that make it up. Everywhere
-else, effects travel through a single `ctx` parameter or an
-effect-carrying `self`.
+Exactly one construct may hold more than one effect-carrying value: the `context`
+expression of Section 11.3, where you assemble a context out of the
+implementations that make it up. Everywhere else, effects travel through a single
+`ctx` parameter or an effect-carrying `self`.
 
 The rule costs a function the ability to take two independent contexts — bundle
 them into one type instead — and buys the property the chapter rests on:
@@ -2029,8 +2014,8 @@ The platform. `core/host` exports one value per effect the platform grants —
 `host.fs`, `host.net`, `host.clock`, `host.rand`, `host.env`, `host.proc`,
 `host.tasks`, on a native
 platform `host.listen` and `host.sockets`, and on a platform with a document
-`host.ui` and `host.watch` — and it is importable only from the module that
-exports `main`. `main` assembles them into the one context the program has:
+`host.ui` and `host.watch` — and only the module that exports `main` may import
+it. `main` assembles them into the one context the program has:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Stdout };
@@ -2047,66 +2032,66 @@ export fn main(): Result<(), Str> {
 }
 ```
 
-The form is Section 11.3. What matters here is what it makes true: a program
+Section 11.3 has the form. What matters here is what it makes true. A program
 that never names `host.net` cannot open a socket anywhere in its transitive call
-graph — not in a dependency, not in a build script, not by accident, because
+graph — not in a dependency, not in a build script, not by accident — because
 nothing anywhere can obtain a value bounded by `Net`. The effect budget is the
-set of `host` members reachable from `main`'s context, and a platform that does
-not grant an effect simply does not export it, so requesting one is a compile
-error at the one line that asked for it — `effect-not-on-platform`, on the name
-inside the braces where the name was imported and on the member reference where
-the host came in as a namespace. Both halves of a grant are refused together —
-the implementation struct as well as the value — so there is nothing left to
-construct by name.
+set of `host` members reachable from `main`'s context. A platform that does not
+grant an effect simply does not export it, so asking for one is a compile error
+at the one line that asked. The diagnostic is `effect-not-on-platform`, reported
+on the name inside the braces where the file imported it, and on the member
+reference where the host came in as a namespace. Both halves of a grant are
+refused together, the
+implementation struct as well as the value, so there is nothing left to construct
+by name.
 
-Which platforms the module is checked against is the build system's answer
-rather than the language's: `main.buri` is checked against every platform its
-rule's `outputs` name, and against every platform its suite names in
-`test.platforms`, because a test binary links `main` in. All of them have to
-compile. Nothing about an **effect type** is platform-bound — `from "core/fs"
-import { FsRead }` is legal everywhere, a page included, because a bound is a
-demand for an implementation rather than one.
+The build system decides which platforms the module is checked against, not the
+language. The compiler checks `main.buri` against every platform its rule's
+`outputs` name, and against every platform its suite names in `test.platforms`,
+because a test binary links `main` in. All of them have to compile. Nothing about
+an **effect type** is platform-bound: `from "core/fs" import { FsRead }` is legal
+everywhere, a page included, because a bound demands an implementation rather
+than being one.
 
-`Tasks` — "run this over every item at once" — is granted on `LINUX`, `MACOS`
-and `JS`, and withheld from `WEB`, which is the same three as `FsRead`, `FsWrite`,
-`Stdin`, `Env` and `Proc`, and is withheld for a reason of the same kind: `parallel`
-returns only when the last task has finished, and a page has an interface that a
-wait is visible in. A page's concurrency is its event loop.
+`Tasks` — "run this over every item at once" — is granted on `LINUX`, `MACOS` and
+`JS`, and withheld from `WEB`. That is the same three platforms as `FsRead`,
+`FsWrite`, `Stdin`, `Env` and `Proc`, withheld for a reason of the same kind.
+`parallel` returns only when the last task has finished, and a page has an
+interface a wait is visible in. A page's concurrency is its event loop.
 
 The context above reads files and cannot write one: `host.fs` is nowhere in
 it, so nothing it reaches can be bounded by `FsWrite`. Binding one half of the
 filesystem and not the other is the ordinary case rather than a precaution.
 
-**A row of that table may name no platform at all**, and an empty set of
-platforms is an ordinary value of the field rather than a second mechanism
-bolted on beside it. That is what lets a declaration land ahead of the runtime
-that will answer it: a signature is the expensive thing to change once programs
-are written against it, so `core/effect` declares the effect, `core/host`
-declares the implementation struct and the value, and the row grants it nowhere.
-Every binding of it is then refused on every target, with the reason rather than
-with "no such name", and granting it later is an edit to that one row. No row is
-empty today — every effect named above is reachable from somewhere — but the
-shape is worth knowing, because it is how the last two arrived.
+**A row of that table may name no platform at all.** An empty set of platforms is
+an ordinary value of the field rather than a second mechanism bolted on beside
+it. That is what lets a declaration land ahead of the runtime that will answer
+it. A signature is the expensive thing to change once programs are written
+against it, so `core/effect` declares the effect, `core/host` declares the
+implementation struct and the value, and the row grants it nowhere. Every binding
+of it is then refused on every target, with the reason rather than with "no such
+name", and granting it later is an edit to that one row. No row is empty today —
+every effect named above is reachable from somewhere — but the shape is worth
+knowing, because it is how the last two arrived.
 
-`Tasks` is the worked example, and it is what the grant table is *for*. `Tasks`
-was declared first and granted by nobody — a row with an empty platform list —
-so its signature could be written, reviewed and documented before there was a
-scheduler to argue with, and every `Tasks: host.tasks` was refused everywhere
-with that reason rather than with "no such name". Granting it was an edit to that
-one row. Nothing about a program that had been written against the signature
-changed, and no second mechanism — no "not implemented" flag, no feature gate —
-was ever involved.
+`Tasks` is the worked example, and it is what the grant table is *for*. It was
+declared first and granted by nobody, a row with an empty platform list. So its
+signature could be written, reviewed and documented before there was a scheduler
+to argue with, and every `Tasks: host.tasks` was refused everywhere with that
+reason rather than with "no such name". Granting it was an edit to that one row.
+Nothing changed for a program already written against the signature, and no
+second mechanism — no "not implemented" flag, no feature gate — was ever
+involved.
 
 `Listen` and `Sockets` — "I accept connections" and "I can write to open
-sockets" — came the same way, and they are also the case that shows a platform
-list which is neither everything nor the three non-page platforms. They are
-granted on `LINUX` and `MACOS`, and nowhere else. Holding a port open is a
-native program's authority; a page is served rather than serving, and its host
-has no way to accept a connection at all — so `Listen: host.listen` under
-`platform: JS` or `platform: WEB` is refused with that reason, and it is a
-refusal nothing later is going to lift. The two move together, because being a
-server is one authority in two halves: accepting a connection, and writing to
-one somebody already accepted.
+sockets" — came the same way. They also show a platform list that is neither
+everything nor the three non-page platforms: `LINUX` and `MACOS`, and nowhere
+else. Holding a port open is a native program's authority. A page is served
+rather than serving, and its host has no way to accept a connection at all. So
+`Listen: host.listen` under `platform: JS` or `platform: WEB` is refused with
+that reason, and nothing later is going to lift it. The two move together,
+because being a server is one authority in two halves: accepting a connection,
+and writing to one somebody already accepted.
 
 That pair is also what an empty row was never promising. An empty list says
 "nobody grants this today" and never "everybody will": `Listen`'s row gained the
@@ -2114,18 +2099,18 @@ two platforms that can serve and will never gain the other two. The row says who
 grants the effect now, and the reason says why — nothing in it was ever a
 schedule.
 
-Note what is *not* claimed: an effect is an ordinary interface, so anyone may
-write a type that satisfies it (Section 10.9 does). That is not a forgery hole —
-a fake `Stdout` still cannot write anything, and what is unforgeable is the
-*platform's* implementation. The open interface is what makes testing free.
+Note what this does *not* claim. An effect is an ordinary interface, so anyone
+may write a type that satisfies it, and Section 10.9 does. That is not a forgery
+hole: a fake `Stdout` still cannot write anything, and what nobody can forge is
+the *platform's* implementation. The open interface is what makes testing free.
 
 `Alloc` is the case where that openness is useful outside a test, because it is
 the one effect whose implementation grants nothing: `allocate` answers a
 `Region`, which is a number nothing reads. So `core/alloc` ships three
-implementations — `generalPurpose()`, `arena()`, `fixedBuffer(n)` — and is
-importable anywhere rather than only from `main`. Binding one is how a program
-asks what it is spending, or refuses to spend more than a budget; it is not how
-a program acquires an authority it was not given.
+implementations — `generalPurpose()`, `arena()`, `fixedBuffer(n)` — and any
+module may import it, not only `main`. Binding one is how a program asks what it
+is spending, or refuses to spend more than a budget. It is not how a program
+acquires an authority nobody gave it.
 
 ### 10.4 What "pure" means
 
@@ -2159,11 +2144,11 @@ themselves effect-free, so for a top-level `fn` the theorem reduces to: *is
 there a `ctx` parameter?*
 
 The last clause exists because `main` has no parameters and is plainly not pure:
-it builds a context and uses it. It is not a hole. A context may be constructed
-only in `main`'s body, in a test source, or in a test-only module (Section
-11.3), and none of those is a function anybody calls from library code — `main`
-is the entry point, and a test source may not be imported. So in all ordinary
-code the clause is vacuous, and the useful form of the theorem is unchanged.
+it builds a context and uses it. It is not a hole. Only `main`'s body, a test
+source, or a test-only module may construct a context (Section 11.3), and library
+code calls none of those — `main` is the entry point, and nobody may import a
+test source. So the clause is vacuous in all ordinary code, and the useful form
+of the theorem is unchanged.
 
 Two consequences:
 
@@ -2224,11 +2209,11 @@ the same rule at a type parameter, where "carries an effect" cannot be read off
 the type — so `fn wrap<T>(x: T, f: fn(T) => ()): fn() => () { fn() => f(x) }` is
 rejected, on the capture of `x`.
 
-Nothing in `wrap` mentions an effect, and its body is checked once for every
-instantiation at once (`guides/compile-speed.md`), so where the rule runs `T` is
-opaque. Yet `wrap(ctx, fn(c) => io.println(c, "hi").ignore())` instantiates it
-at a context type and returns a `fn() => ()` holding an effect — the same
-smuggling, arriving by the generic route. So a type parameter is treated as
+Nothing in `wrap` mentions an effect, and the compiler checks its body once for
+every instantiation at once (`guides/compile-speed.md`), so `T` is opaque where
+the rule runs. Yet `wrap(ctx, fn(c) => io.println(c, "hi").ignore())` instantiates
+it at a context type and returns a `fn() => ()` holding an effect — the same
+smuggling, arriving by the generic route. So the rule treats a type parameter as
 though it *were* a context, unless one of two things says otherwise:
 
 - **An ordinary trait bound.** An effect-carrying type satisfies no ordinary
@@ -2248,12 +2233,12 @@ The standard library provides `*Ctx` variants (`list.mapCtx`, `list.filterCtx`,
 combinator does not fit. This is the sharpest trade-off in the language, and
 `design/non-goals.md` lists it as the first open question.
 
-**A callback declared by an effect is handed a context only if the declaration
-names one, and `Self` never names one.** This is the capture rule read from the
-other end. An effect method may take a callback — `Tasks.parallel` takes the
-step that runs on every item — and that callback cannot close over a context, so
-whatever authority it is to have must arrive as its first parameter. Two
-different values could arrive there, and the declaration says which:
+**A callback an effect declares gets a context only if the declaration names one,
+and `Self` never names one.** This is the capture rule read from the other end.
+An effect method may take a callback — `Tasks.parallel` takes the step that runs
+on every item — and that callback cannot close over a context, so whatever
+authority it is to have arrives as its first parameter. Two different values
+could arrive there, and the declaration says which:
 
 ```buri ignore why="not yet converted to a compiled example: it declares an effect, which only a platform module may do"
 export effect Tasks {
@@ -2274,48 +2259,46 @@ export effect Listen {
 }
 ```
 
-`Self` is the **implementing type** everywhere it is written: in an `impl`
-head, in an effect's declaration, and inside a callback's parameter list. It is
-not the receiver. Through a `context { … }` value the two differ — a context
-*names* a value that implements the effect rather than being one — and the
-implementation is what `Self` means at every one of those points (Section 10.1).
+`Self` is the **implementing type** everywhere you write it: in an `impl` head,
+in an effect's declaration, and inside a callback's parameter list. It is not the
+receiver. Through a `context { … }` value the two differ, because a context
+*names* a value that implements the effect rather than being one. `Self` means
+the implementation at every one of those points (Section 10.1).
 
 So an effect that wants to hand a callback the **caller's** authority takes the
 caller's context as an ordinary `ctx` parameter and spells the callback
-`fn(C, …)`. The caller passes the same value twice, once as the receiver and
-once as `ctx`, and the two parameters mean different things: the receiver
-chooses the implementation, and `ctx` is what the work is done with.
+`fn(C, …)`. The caller passes the same value twice, once as the receiver and once
+as `ctx`, and the two parameters mean different things: the receiver chooses the
+implementation, and `ctx` is the authority the work runs with.
 
-Naming it rather than overloading `Self` is what keeps an effect an ordinary
-interface (Section 10.9). A callback parameter that meant "the caller's context"
-would have a type no implementation could name and no implementation could
-produce a value of, so no `impl` written in Buri could ever call its own
-callback — the effect would be implementable only by the compiler. With `C` in
-the signature, a hand-written implementation has both a name for the type and a
-value of it, and a fake in a test runs its steps exactly as the shipping
-implementation does.
+Naming it rather than overloading `Self` keeps an effect an ordinary interface
+(Section 10.9). A callback parameter meaning "the caller's context" would have a
+type no implementation could name and none could produce a value of, so no `impl`
+written in Buri could ever call its own callback — only the compiler could
+implement the effect. With `C` in the signature, a hand-written implementation
+has both a name for the type and a value of it, and a fake in a test runs its
+steps exactly as the shipping implementation does.
 
-A callback whose first parameter is `Self` receives strictly less than its
-caller had: an acceptor grants `Listen` and nothing else, so a handler handed
-one cannot allocate, print, or start a task. That is the right answer where the
-callback is meant to inspect the implementation, and the wrong one for a request
-handler, which is why the choice is written down per method rather than
-inferred — and why `Listen` carries no callback at all today. It is seven
-operations now — bind a listener, accept a connection, read the request on it,
-respond to it, close the listener, upgrade a connection into a WebSocket and
-read what arrives on that — and the loop that calls a handler between
-the third and the fourth lives in `core/net/server`, written in Buri against the
-caller's own `C`. A handler there may allocate, print, read a clock and start a
-task, because the authority it runs with never crossed the effect boundary to be
-narrowed. There is more than one of that loop, in fact: `run` fans it out over
-the carrier pool, one worker per handler the acceptor said it would host, so
-"the handler runs under the caller's context" is now also "on a task of the
-caller's own".
+A callback whose first parameter is `Self` receives strictly less than its caller
+had. An acceptor grants `Listen` and nothing else, so a handler handed one cannot
+allocate, print, or start a task. That is the right answer where the callback is
+meant to inspect the implementation, and the wrong one for a request handler. So
+the declaration writes the choice down per method rather than inferring it — and
+`Listen` carries no callback at all today. It is seven operations now: bind a
+listener, accept a connection, read the request on it, respond to it, close the
+listener, upgrade a connection into a WebSocket, and read what arrives on that.
+The loop that calls a handler between the third and the fourth lives in
+`core/net/server`, written in Buri against the caller's own `C`. A handler there
+may allocate, print, read a clock and start a task, because the authority it runs
+with never crossed the effect boundary to be narrowed. There is more than one of
+that loop, in fact: `run` fans it out over the carrier pool, one worker per
+handler the acceptor said it would host, so "the handler runs under the caller's
+context" is now also "on a task of the caller's own".
 
 ### 10.7 Calling convention
 
-**receiver first, context second, everything else after** — which is now enforced
-rather than merely conventional (Section 10.2). A free function that has no
+**Receiver first, context second, everything else after.** Section 10.2 now
+enforces this rather than leaving it a convention. A free function with no
 receiver therefore takes the context first:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
@@ -2330,10 +2313,10 @@ xs.map(ctx, double)
 lines.filter(ctx, isLong).sortBy(ctx, order.str)
 ```
 
-An effect's own operations are the second shape and only the second shape: they
+An effect's own operations take the second shape and only the second shape. They
 have no receiver a program may name, so they are free functions taking the
-context first (`io.println(ctx, text)`, `fs.readText(ctx, path)`). The method
-form is not an alternative spelling of them — it is refused
+context first: `io.println(ctx, text)`, `fs.readText(ctx, path)`. The method form
+is not an alternative spelling of them; the compiler refuses it
 (`effect-method-call`).
 
 ### 10.8 Restricting what propagates
@@ -2417,10 +2400,10 @@ implementor can reach only an inner context somebody already handed it.
 
 ### 10.9 Testing
 
-A pure function needs no harness. An effectful one is tested by building a
-context out of different implementations — and because effects are ordinary
-interfaces, writing one is writing a struct with methods. The call site does not
-change, because there was never a global to stub.
+A pure function needs no harness. You test an effectful one by building a context
+out of different implementations, and since effects are ordinary interfaces,
+writing one is writing a struct with methods. The call site does not change,
+because there was never a global to stub.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, IoError };
@@ -2458,8 +2441,8 @@ impl FsRead for FakeFs {
 // loadConfig<C: Alloc + FsRead> accepts it with no changes anywhere.
 ```
 
-The harness around that — where tests live, how they are declared, and how they
-build a context — is Sections 11.2 and 11.3.
+Sections 11.2 and 11.3 cover the harness around that: where tests live, how you
+declare them, and how they build a context.
 
 ## 11. Programs
 
@@ -2482,51 +2465,52 @@ export fn main(): Result<(), Str> {
 - `main` must take no parameters and declare no generic parameters.
 - `main` must return `Result<(), Str>`.
 - `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
-- `main`'s body is the only place in a program where a context may be
-  constructed (Section 11.3), and `core/host` is importable only by the module
-  that exports `main` (Section 10.3). The context `main` builds is the program's
-  complete effect budget.
+- `main`'s body is the only place in a program that may construct a context
+  (Section 11.3), and only the module exporting `main` may import `core/host`
+  (Section 10.3). The context `main` builds is the program's complete effect
+  budget.
 
 `main` receives nothing and mints what it needs, so there is no fake to pass it
-and nothing in it worth testing. Logic that wants a test goes in a function
-`main` calls, which takes an ordinary bounded `ctx` and does not care where it
-came from — the same pressure the build system applies to a binary's surface
+and nothing in it worth testing. Put logic you want to test in a function `main`
+calls. That function takes an ordinary bounded `ctx` and does not care where the
+context came from — the same pressure the build system applies to a binary's
+surface
 ([`cli/src/docs/reference/build/testing.md`](./cli/src/docs/reference/build/testing.md)).
 
 ### 11.1 Standard library conventions
 
 Every function in the library sits in one of the three purity tiers of Section
-10.5, and the tier is visible in the signature rather than in a comment: **pure**
-takes no context parameter, **deterministic** takes one bounded by `Alloc` alone,
-and **effectful** takes one bounded by anything else. What decides the tier is
-Section 10.5's rule about size — an operation whose result size is fixed is pure,
-and one whose result size depends on runtime data names `Alloc`. So `xs.len()`
-and `s.trim()` are pure, `xs.map(ctx, f)` is deterministic, and
-`fs.readText(ctx, p)` is effectful.
+10.5, and the signature shows which rather than a comment. **Pure** takes no
+context parameter, **deterministic** takes one bounded by `Alloc` alone, and
+**effectful** takes one bounded by anything else. Section 10.5's rule about size
+decides the tier: an operation whose result size is fixed is pure, and one whose
+result size depends on runtime data names `Alloc`. So `xs.len()` and `s.trim()`
+are pure, `xs.map(ctx, f)` is deterministic, and `fs.readText(ctx, p)` is
+effectful.
 
 Two conventions run through the whole library. **Receiver first, context second**
-(Section 10.7): everything that operates on a value is declared in an `impl`
-block for that value's type and takes it as `self`, so it is callable as a
-method — `xs.map(ctx, f)`, `s.trim()`, `opt.withDefault(0)` — with no import.
-And **a name has one meaning**: there is no overloading, so a pure variant and an
-allocating variant of the same idea get different names (`splitOnce` returns two
-slices and is pure; `split` returns `[Str]` and allocates).
+(Section 10.7): everything that operates on a value lives in an `impl` block for
+that value's type and takes it as `self`, so you call it as a method —
+`xs.map(ctx, f)`, `s.trim()`, `opt.withDefault(0)` — with no import. And **a name
+has one meaning**: there is no overloading, so a pure variant and an allocating
+variant of the same idea get different names. `splitOnce` returns two slices and
+is pure; `split` returns `[Str]` and allocates.
 
-The catalogue itself is not normative in v0.3, and it is not here. Which modules
-there are, what each one costs, and what is deliberately absent is
-[`cli/src/docs/reference/standard-library.md`](./cli/src/docs/reference/standard-library.md),
-and `buri docs core/list` renders a module from the source the compiler checked,
-so a signature on that page is the signature that exists.
+The catalogue itself is not normative in v0.3, and it is not here.
+[`cli/src/docs/reference/standard-library.md`](./cli/src/docs/reference/standard-library.md)
+lists which modules there are, what each one costs, and what is deliberately
+absent. `buri docs core/list` renders a module from the source the compiler
+checked, so a signature on that page is the signature that exists.
 
 ### 11.2 Tests
 
 A **test source** is a module the build system compiles into a test binary rather
-than into a library or a program; which modules are test sources is declared in a
-build file ([`cli/src/docs/reference/build/testing.md`](./cli/src/docs/reference/build/testing.md)).
+than into a library or a program. A build file declares which modules are test
+sources ([`cli/src/docs/reference/build/testing.md`](./cli/src/docs/reference/build/testing.md)).
 `test` declarations are legal there and nowhere else, and so are imports of
 **test-only modules** — any module path containing a `testing` segment (Section
-4.1.1). A test source may not `export`, and no module may import one: shared test
-helpers are ordinary library code.
+4.1.1). A test source may not `export`, and no module may import one, so shared
+test helpers are ordinary library code.
 
 ```buri repo=cli/tests/example role=test
 from "core/effect" import { Alloc };
@@ -2549,16 +2533,16 @@ takes no parameters and returns nothing: it passes unless an assertion in it
 fails.
 
 **A name is used once per file.** Two `test` declarations in one module with the
-same name are a compile error (`duplicate-test-name`): a name is how a failing
-test is reported and how `--filter` selects one, so two that share it in one
-file cannot be told apart. Two *different* files may use the same name — they
-are separate modules, and a report names the file each failure came from.
+same name are a compile error (`duplicate-test-name`). The name is how a report
+identifies a failing test and how `--filter` selects one, so two sharing it in
+one file are indistinguishable. Two *different* files may use the same name —
+they are separate modules, and a report names the file each failure came from.
 
 A test that needs a context builds one, with the same form `main` uses (Section
-11.3). `core/host/testing` is a **platform module** — the test runner's
-platform — and it is `core/host`'s surface written out for a test: the same
-names, **called** rather than referred to, so each call answers a fresh double
-rather than the one value a process has.
+11.3). `core/host/testing` is a **platform module**, the test runner's platform.
+It is `core/host`'s surface written out for a test: the same names, **called**
+rather than referred to, so each call answers a fresh double rather than the one
+value a process has.
 
 | Member | Effect | What it does |
 |---|---|---|
@@ -2573,27 +2557,27 @@ rather than the one value a process has.
 | `proc()` | `Proc` | Absorbs the exit instead of taking it, so the test carries on. |
 | `tasks()` | `Tasks` | Runs the tasks one at a time, in program order. |
 
-Configuration is a **method that answers a new handle** rather than an argument
-to the constructor — `clock().at(1000)`, `rand().seed(7)`,
+You configure a double with a **method that answers a new handle**, rather than
+with an argument to the constructor — `clock().at(1000)`, `rand().seed(7)`,
 `env().variables([...]).arguments([...])`, `stdin().lines([...])`,
 `fs().files([...])`, `fs().readOnly()`, `net().respond(...)` — so a chain reads
-in the order it is applied and the value it was called on is unchanged.
+in the order it applies, and the value it was called on does not change.
 
 `fs()` is one double answering **two** effects, so a context that reads and
 writes binds the one value under both names — `let disk = fs(); ... FsRead:
 disk, FsWrite: disk` — and two calls to `fs()` are two filesystems that share
 nothing.
 
-Because a `testing` path may be imported only by a test source, nothing in a
-shipped program can obtain any of them. And because effects are ordinary
-interfaces (Section 10.9), a test needing behavior the runner does not provide
-writes a struct with methods and binds that instead — there is no distinction
-between the runner's implementations and yours.
+Only a test source may import a `testing` path, so nothing in a shipped program
+can obtain any of them. And effects are ordinary interfaces (Section 10.9), so a
+test needing behavior the runner does not provide writes a struct with methods
+and binds that instead. Nothing distinguishes the runner's implementations from
+yours.
 
 #### 11.2.1 `core/testing/assert`
 
 Assertions are an ordinary module, imported like any other. `assert` is not a
-keyword: the name comes from `import * as assert`, and a file is free to call it
+keyword: the name comes from `import * as assert`, and a file may call it
 something else.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
@@ -2614,16 +2598,15 @@ from "core/testing/assert" import * as assert;
 | `assert.err(r)` | Fails unless `r` is `.Err`; returns the error. |
 | `assert.some(o)` | Fails unless `o` is `.Some`; returns the wrapped value. |
 
-The reason there are so many of them is the message: each names the two values
-it compared, where `assert.isTrue(xs.contains(x))` says only "expected true,
-got false". There is **no `assert.fail`** — it returned `()` rather than a
-bottom type, so a match arm that used it could not produce a value and a test
-had to fabricate one to type-check. A test that has to fail asserts on the
-value it has instead.
+There are so many of them because of the message. Each one names the two values
+it compared, where `assert.isTrue(xs.contains(x))` says only "expected true, got
+false". There is **no `assert.fail`**: it returned `()` rather than a bottom
+type, so a match arm using it could not produce a value and a test had to
+fabricate one to type-check. A test that has to fail asserts on the value it has
+instead.
 
-Everything above the last three returns `()`; those three return a value, and
-are how a `Result` is consumed in a test, since `Result` is still must-use
-here:
+Everything above the last three returns `()`. Those three return a value, and
+they are how a test consumes a `Result`, which is still must-use here:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 test "reads the config it wrote" {
@@ -2640,12 +2623,12 @@ test "reads the config it wrote" {
 }
 ```
 
-Two things about `core/testing/assert` are not ordinary, and both follow from
-its being a platform module rather than a library:
+Two things about `core/testing/assert` are not ordinary, and both follow from it
+being a platform module rather than a library:
 
-- **Its functions take no `ctx`** and still render a failure message. Rendering
-  is the runner's, not the program's — which is why this signature would be a
-  lie anywhere else, and why the module is importable only from a test source.
+- **Its functions take no `ctx`** and still render a failure message. The runner
+  does that rendering, not the program. That is why this signature would be a lie
+  anywhere else, and why only a test source may import the module.
 - **A failure ends that test** and no other, the way an abort (Section 6.9)
   ends a program. The runner reports the file, the line, and both values.
 
@@ -2664,19 +2647,19 @@ match (parsed) {                   // statement: every arm is ()
                                    // it explicitly with `let _ =`
 ```
 
-This is the narrowest relaxation that makes assertions read as assertions, and
-it does not weaken Section 5.7.1: `Result` is not `()`, so nothing must-use can
-be dropped by it.
+This is the narrowest relaxation that makes assertions read as assertions, and it
+does not weaken Section 5.7.1: `Result` is not `()`, so it can drop nothing
+must-use.
 
 The `;` is not decoration, and a `{`-initial expression carries it like any
-other. A block is statements followed by a result expression, and the `;` is
-the only thing that says which one this is; without it a `match` in the middle
-of a test body reads as the block's result, and what follows has nowhere to go
+other. A block is statements followed by a result expression, and only the `;`
+says which one this is. Without it, a `match` in the middle of a test body reads
+as the block's result, and what follows has nowhere to go
 (`design/grammar-rationale.md` 12.2).
 
 ### 11.3 Contexts
 
-A context is built by naming each effect it provides and the value that
+You build a context by naming each effect it provides and the value that
 implements it. There is one form, and `main` and a test use the same one.
 
 **As an expression**, anonymous:
@@ -2710,15 +2693,16 @@ context Sandbox {
 }
 ```
 
-A named context is **constructed by calling it** — `Sandbox()` — and each call
-builds a fresh one. The parentheses are not decoration: a test's filesystem and
-its captured `Stdout` accumulate what the test does to them, so two tests
-sharing one value would share its state. That is also why `Sandbox` binds
-`FsRead` and not `FsWrite`: each binding is its own expression, so a declaration
-naming both halves would call `fs()` twice and hand the test two unrelated
-filesystems. A test that writes and reads back binds one `fs()` to both names in
-a `context` **expression**, where a `let` can hold it. A context declaration takes no parameters; what
-varies between call sites is expressed by overriding, not by arguments.
+You **construct a named context by calling it** — `Sandbox()` — and each call
+builds a fresh one. The parentheses are not decoration. A test's filesystem and
+its captured `Stdout` accumulate what the test does to them, so two tests sharing
+one value would share its state. That is also why `Sandbox` binds `FsRead` and
+not `FsWrite`: each binding is its own expression, so a declaration naming both
+halves would call `fs()` twice and hand the test two unrelated filesystems. A
+test that writes and reads back binds one `fs()` to both names in a `context`
+**expression**, where a `let` can hold it. A context declaration takes no
+parameters. Override a binding to vary what a call site gets, rather than passing
+arguments.
 
 **Either form may begin with a spread**, which takes every binding from another
 context and lets the ones that follow replace them:
@@ -2753,14 +2737,13 @@ own, and either may start from another and change one line.
 | A test-only module (a `testing` path segment) | yes, and may be exported | anywhere in the file |
 | Anywhere else | no | no |
 
-That table is the whole restriction, and between it and `core/host`'s import
-rule (Section 4.1.1) it is the reason the purity theorem's last clause is
-vacuous in ordinary code. Neither a `context` expression nor a call to a named
-context may appear inside a lambda, even where both are otherwise legal; without
-that, a closure could mint authority and Section 10.6 would not mean what it
-says.
+That table is the whole restriction. Together with `core/host`'s import rule
+(Section 4.1.1), it is why the purity theorem's last clause is vacuous in
+ordinary code. Neither a `context` expression nor a call to a named context may
+appear inside a lambda, even where both are otherwise legal. Without that, a
+closure could mint authority and Section 10.6 would not mean what it says.
 
-**What is checked:**
+**What the compiler checks:**
 
 - Every binding's left side names a declared effect, and no effect is bound
   twice — counting a spread, whose bindings an explicit one replaces rather than
@@ -2768,13 +2751,13 @@ says.
 - Every binding's right side is a value whose type implements that effect
   (ordinary nominal conformance, Section 5.12.1).
 - The constructed value satisfies exactly the effects bound and nothing else, so
-  it is accepted by any `<C: ...>` naming a subset of them and rejected by any
-  naming more.
+  any `<C: ...>` naming a subset of them accepts it and any naming more rejects
+  it.
 
-A context's type is generated, has no name, and is never written down. Contexts
-flow only into `ctx` parameters, which are bounded by effects rather than typed
-by a context, so there is nothing to spell — which is why this does not
-reintroduce the structural records of Section 5.5.
+The compiler generates a context's type. It has no name, and nobody writes it
+down. Contexts flow only into `ctx` parameters, and effects bound those
+parameters rather than a context typing them, so there is nothing to spell. That
+is why this does not reintroduce the structural records of Section 5.5.
 
 The bindings use `:` rather than `=` for the same reason struct literals do: a
 brace-delimited list of `Name: value` pairs is a shape the language already has.

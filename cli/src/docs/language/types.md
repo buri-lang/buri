@@ -42,19 +42,18 @@ category and no numeric tower.
 **Every integer type holds its whole range on every backend.** An `I64` is an
 `I64` whether the program runs natively or on JavaScript, so a nanosecond
 timestamp keeps its last three digits either way. That costs something on
-JavaScript, where a double holds every integer only up to 2^53: the widths up to
-32 bits compile to a `number` and the widths at 64 bits and above compile to a
-`BigInt`, which is a heap value rather than an immediate. Code on a hot path
-that does not need the range can say `I32` and get the faster representation;
-code that needs the range gets the right answer without asking.
+JavaScript, where a double holds every integer only up to 2^53. The widths up to
+32 bits compile to a `number`; the widths at 64 bits and above compile to a
+`BigInt`, which is a heap value rather than an immediate. Code on a hot path that
+does not need the range says `I32` and gets the faster representation. Code that
+needs the range gets the right answer without asking.
 
 #### Literals are polymorphic until they are pinned
 
-A numeric literal does not have a type on sight. It gets a fresh type variable
-constrained to the integer types (for an integer literal) or the float types (for
-a float literal); ordinary unification then decides. Only if nothing constrains
-it does the default apply — `Int` for integer literals, `Float` for float
-literals.
+A numeric literal has no type on sight. It gets a fresh type variable constrained
+to the integer types, or to the float types for a float literal, and ordinary
+unification decides from there. The default applies only when nothing constrains
+it: `Int` for an integer literal, `Float` for a float literal.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let a = 5;               // nothing constrains it -> Int
@@ -68,8 +67,8 @@ let e: [U8] = [1, 2, 3]; // every element is a U8
 This is defaulting on *literals only*. It is not overloading and not a numeric
 tower: `a + b` still requires `a` and `b` to already have the same type.
 
-Because a literal's type is known before it is checked, **a literal that does not
-fit its type is a compile error**, not a runtime surprise:
+The compiler knows a literal's type before it checks it, so **a literal that does
+not fit its type is a compile error**, not a runtime surprise:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let x: U8 = 300; // ERROR: 300 is not representable in U8
@@ -96,12 +95,12 @@ fn total<N: Add>(zero: N, xs: [N]): N { ... }
 fn clamp<N: Ord>(lo: N, hi: N, x: N): N { ... }
 ```
 
-Earlier drafts had three compiler-privileged bounds named `Num`, `Integral`, and
-`Floating`. They are gone. A blob bound named after what a type *is* was standing
-in for a trait system that did not exist yet; now that traits do exist, bounds
-name what a type *can do*, which is both more precise and one fewer mechanism.
+Earlier drafts had three compiler-privileged bounds: `Num`, `Integral`, and
+`Floating`. They are gone. A blob bound named after what a type *is* stood in for
+a trait system that did not exist yet. Traits exist now, so bounds name what a
+type *can do*, which is more precise and one mechanism fewer.
 
-The integer-specific operations follow the same rule — they are interfaces named
+The integer-specific operations follow the same rule. They are interfaces named
 for what they provide, not for the representation behind them: `Bounded`,
 `Checked`, `Wrapping`, and `Saturating`, declared in Section 6.2.2. Every
 built-in integer type satisfies all four; the float types satisfy `Bounded`
@@ -148,13 +147,13 @@ let maybe = xs[0];             // Option<Int>, not Int
 ```
 
 **Indexing yields `Option<T>`.** There is no way to index out of bounds and no
-way to panic by indexing. This is the single largest ergonomic tax the language
-charges, and it is charged on purpose.
+way to panic by indexing. This is the largest ergonomic tax the language charges,
+and it charges it on purpose.
 
-An array literal has a statically known length and is not, by itself, an
-allocation the programmer must account for. Any operation whose result length
-depends on runtime data (`map`, `filter`, `concat`, `sort`, `range`) requires an
-`Alloc` effect.
+An array literal has a statically known length, so it is not by itself an
+allocation you must account for. Any operation whose result length depends on
+runtime data — `map`, `filter`, `concat`, `sort`, `range` — needs an `Alloc`
+effect.
 
 ### 5.5 No records
 
@@ -162,9 +161,9 @@ There are no anonymous record types and no record literals. Every product type
 is a `struct` with a declared name (Section 5.6), and every type in the language
 is nominal — including trait conformance (Section 5.12).
 
-Earlier drafts had structural records, mainly so that a context could be a bag of
+Earlier drafts had structural records, mainly so a context could be a bag of
 effects. Effects are trait bounds now (Section 10), and deleting records took row
-polymorphism, row unification, and the `{` ambiguity of `design/grammar-rationale.md` 12.3 with them.
+polymorphism, row unification, and the `{` ambiguity of `design/grammar-rationale.md` 12.3 with it.
 
 ### 5.6 Structs
 
@@ -220,19 +219,19 @@ fn given(): World {
 }
 ```
 
-Which fields may be left out is a property of the declaration rather than of one
-instantiation of it, so a reader answers the question from the `struct` alone.
-Two consequences follow. Aliases are transparent (Section 5.9), so a field
-declared `Maybe` where `type Maybe = Option<Str>` may be left out. But a field
-declared `T` in a `struct S<T>` may not, at any instantiation — `S<Option<Int>>`
-still writes its `T`. A left-out `Option<Option<T>>` is the *outer* `.None`.
+The declaration decides which fields you may leave out, not one instantiation of
+it, so a reader answers the question from the `struct` alone. Two consequences.
+Aliases are transparent (Section 5.9), so you may leave out a field declared
+`Maybe` where `type Maybe = Option<Str>`. But you may never leave out a field
+declared `T` in a `struct S<T>`, at any instantiation — `S<Option<Int>>` still
+writes its `T`. A left-out `Option<Option<T>>` is the *outer* `.None`.
 
 Elision fills only what neither an initializer nor a spread provides, and a
 spread provides every field the literal does not write — so `World { ..base }`
 takes `hello` from `base` rather than resetting it to `.None`.
 
-The type name may itself be left out where the surroundings already give it.
-The braces then build whatever the expression is checked against:
+You may leave the type name out where the surroundings already give it. The
+braces then build whatever the compiler checks the expression against:
 
 ```buri
 struct World {
@@ -258,25 +257,25 @@ fn result(): World {
 }
 ```
 
-The type is **read** from above and never solved for. It reaches a literal in a
-`let` with an annotation, an argument of a call, the value of a field, a match
-arm and a function's result — the places a type is already written down. A
-literal with nothing above it to name its type is `struct-literal-type`, and so
-is one whose expected type is an enum, a primitive, or a generic struct with a
-type argument nothing has settled: `Holder<Int>` is a type a reader can see,
-`Holder<?>` is one the fields would have to decide, and deciding it here would
-be inference rather than a lookup.
+The compiler **reads** the type from above and never solves for it. It reaches a
+literal in a `let` with an annotation, an argument of a call, the value of a
+field, a match arm, and a function's result — the places a type is already
+written down. A literal with nothing above it to name its type is
+`struct-literal-type`. So is one whose expected type is an enum, a primitive, or
+a generic struct with a type argument nothing has settled. A reader can see
+`Holder<Int>`; `Holder<?>` is one the fields would have to decide, and deciding
+it here would be inference rather than a lookup.
 
-The braces are read as a literal when what follows the `{` is a `..` or a
-`name :`, and as a block otherwise (`design/grammar-rationale.md` 12.3). So a literal whose *first*
+The parser reads the braces as a literal when a `..` or a `name :` follows the
+`{`, and as a block otherwise (`design/grammar-rationale.md` 12.3). So a literal whose *first*
 field is shorthand keeps its type name — `World { hi }`, `World { hi, hello }` —
 while shorthand after a first keyed field does not: `{ hi: hi, hello }` is a
 literal. `{}` keeps its type name too.
 
-Outside the declaring module, a private field cannot be read, written in a
-literal, or matched. A struct with any private field therefore cannot be
-constructed from scratch elsewhere — but functional update still works, because
-it never names the hidden fields:
+Outside the declaring module, you cannot read a private field, write it in a
+literal, or match it. So you cannot build a struct with any private field from
+scratch elsewhere. Functional update still works, because it never names the
+hidden fields:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let renamed = User { ..u, name: "new" };     // fine anywhere
@@ -285,8 +284,8 @@ let forged = User { id: ..., name: ..., passwordHash: ... };   // only in the
 ```
 
 This is the only visibility mechanism a struct has. Earlier drafts also had an
-`opaque` modifier that hid a type's whole representation; a struct with no
-exported fields does exactly that, so `opaque` was removed as redundant.
+`opaque` modifier that hid a type's whole representation. A struct with no
+exported fields does exactly that, so `opaque` went as redundant.
 
 ### 5.7 Enums
 
@@ -310,8 +309,8 @@ A variant writes no `export`. The enum is the unit of visibility: an exported
 enum exports every one of its variants and every field of their payloads, and a
 private one exports none. Writing `export` before a variant is the
 `variant-export` error, which carries the edit that deletes it. A type whose
-representation is meant to stay hidden is a struct with a private field, which
-is the shape the standard library uses for `Scope` and `Event`.
+representation should stay hidden is a struct with a private field, the shape the
+standard library uses for `Scope` and `Event`.
 
 Constructing a variant uses a qualified path or the inferred-type dot form:
 
@@ -321,9 +320,9 @@ let b: Shape = .Rect { width: 2.0, height: 1.0 };
 let c: Shape = .Empty;
 ```
 
-The dot form requires that the expected type is known from context (a
-`let` annotation, a parameter type, the enclosing function's return type, or a
-`match` scrutinee's type). When it is not, use the qualified form.
+The dot form needs the expected type from context: a `let` annotation, a
+parameter type, the enclosing function's return type, or a `match` scrutinee's
+type. Without one, use the qualified form.
 
 The prelude defines:
 
@@ -356,12 +355,12 @@ let (n, _) = (1, fs.writeText(ctx, path, body));      // ERROR: the same one, hi
 fs.writeText(ctx, path, body);                        // ERROR: and so is this
 ```
 
-There are two ways to throw a value away and no third — a `_` in a `let`'s
+There are two ways to throw a value away and no third: a `_` in a `let`'s
 pattern, and an expression statement, which `design/grammar-rationale.md` 12.2 admits only in a test
-source — and this rule refuses a `Result` in both. That is what makes must-use
-total rather than a convention. The `_` is looked for anywhere in the pattern
-rather than only at its head, or the second line above would be the
-one-character way around the first.
+source. This rule refuses a `Result` in both, which is what makes must-use total
+rather than a convention. The compiler looks for the `_` anywhere in the pattern,
+not only at its head — otherwise the second line above would be the one-character
+way around the first.
 
 The legal ways to consume a `Result` are:
 
@@ -373,26 +372,26 @@ fs.writeText(ctx, path, body).ignore()                // explicitly, greppably, 
 ```
 
 `ignore(self): ()` is a method on `Result` and has no free-function spelling. It
-exists so that "I considered this and do not care" is a thing you *write*,
-rather than a thing that happens by not writing anything. A reviewer can grep
-for it; `_` is unsearchable, and `buri lint` reports every `ignore` as
-`discarded-result` so that the whole set is one report.
+exists so that "I considered this and do not care" is something you *write*
+rather than something that happens when you write nothing. A reviewer can grep
+for it, where `_` is unsearchable, and `buri lint` reports every `ignore` as
+`discarded-result` so the whole set arrives as one report.
 
-The rule is on the type, not on the call: a `Result` returned from a pure
-function is just as must-use as one returned from an I/O call.
+The rule is on the type, not on the call: a `Result` from a pure function is
+every bit as must-use as one from an I/O call.
 
 `Option` is **not** must-use. Ignoring an absent value is usually harmless, and
 making it an error would put `option.ignore` in front of half the standard
 library for no safety gain. `design/non-goals.md` records this as a judgment
 call rather than a principle.
 
-`io.print` / `io.println` are no exception: they answer `Result<(), IoError>`,
-because a closed pipe, a full disk and a revoked permission are things that
-happen to a print and a signature saying `()` was claiming they do not. A
-program that does not care writes `.ignore()` there like anywhere else, and one
-that does can answer instead — which is what the old `()` shape could not give,
-since a stream error reported by the platform at flush time surfaces only as
-`main`'s exit status, the one place a program can no longer act on it.
+`io.print` and `io.println` are no exception: they answer `Result<(), IoError>`.
+A closed pipe, a full disk and a revoked permission all happen to prints, and a
+signature saying `()` claimed they do not. A program that does not care writes
+`.ignore()` there like anywhere else, and one that does can handle the failure.
+The old `()` shape could not offer that. The platform reports a stream error at
+flush time, so it surfaced only as `main`'s exit status — the one place a program
+can no longer act on it.
 
 ### 5.8 Function types
 
@@ -402,9 +401,9 @@ fn() => ()
 fn(Str) => Result<Config, ParseError>
 ```
 
-Function types are written with the `fn` keyword for the same reason lambdas are:
-it makes `(A, B)` unambiguously a tuple everywhere. Function types are rank-1;
-there are no polymorphic function *values* in v0.3.
+Function types use the `fn` keyword for the same reason lambdas do: it makes
+`(A, B)` unambiguously a tuple everywhere. Function types are rank-1; there are
+no polymorphic function *values* in v0.3.
 
 ### 5.9 Type aliases
 
@@ -421,17 +420,17 @@ An alias may be exported, imported and re-exported like any other declaration
 (Section 4.2). It expands in the module that declared it, so `type Handle =
 LocalStruct` means the same thing wherever the name is read.
 
-Expansion has to end. An alias whose body reaches itself — directly, or through
-other aliases, in this module or across a boundary an export carried it over —
-is `circular-type-alias`, and the alias resolves to the error type. Two aliases
-that reach the same type by different routes are not a cycle: only a walk that
-returns to where it started is. A recursive *type* is written with a struct or
-an enum, whose fields are the boundary an alias does not have.
+Expansion has to end. An alias whose body reaches itself is `circular-type-alias`,
+and the alias resolves to the error type. That covers reaching itself directly,
+through other aliases, in this module, or across a boundary an export carried it
+over. Two aliases that reach the same type by different routes are not a cycle;
+only a walk that returns to where it started is. Write a recursive *type* with a
+struct or an enum, whose fields are the boundary an alias does not have.
 
 ### 5.10 Generics
 
-Type parameters are declared in angle brackets. There are no row parameters:
-row polymorphism went away with the structural records of Section 5.5.
+You declare type parameters in angle brackets. There are no row parameters: row
+polymorphism went away with the structural records of Section 5.5.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 # from "core/effect" import { Alloc, Stdout };
@@ -449,16 +448,15 @@ fn largest<T: Ord>(xs: [T]): Option<T> { ... }
 fn report<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str { ... }
 ```
 
-Inside such a function, the bound's methods are callable on the parameter —
-`x.compare(y)`, `x.show(ctx)` — and nothing else is. What traits deliberately
-lack (Section 5.12.5) is what keeps bound checking a lookup rather than a
-search.
+Inside such a function you may call the bound's methods on the parameter —
+`x.compare(y)`, `x.show(ctx)` — and nothing else. What traits deliberately lack
+(Section 5.12.5) keeps bound checking a lookup rather than a search.
 
 Generic code that needs an operation no trait provides takes it as a function
 argument, as it always has: `sortBy(xs, cmp)` rather than inventing a trait.
 
-In *expression* position, explicit type arguments are written on the
-expression itself:
+In *expression* position, write explicit type arguments on the expression
+itself:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let f = identity<Int>;
@@ -472,21 +470,21 @@ in declaration order for a struct, the variant plus its payload for an enum,
 element-wise for arrays and tuples, recursively all the way down. Two separately
 constructed values with equal contents are equal.
 
-Referential equality is not merely unchosen — it is **not expressible**. Buri has
-no references, so there is no identity to compare, and Section 8.1 rules it out
-besides: the runtime may share a representation between two equal values or copy
-one, whenever that is faster, so `a === b` would have an answer that depended on
-the optimization level and on the backend. Code that needs identity carries it as
-data (`struct NodeId(U64)`), which is a value the compiler cannot invent or
-coalesce. What a backend may do — and the JavaScript one does — is answer `true`
-early when the two operands are already known to be one value, because
-reflexivity says the walk would reach `true` anyway. That is a shortcut to a
-fixed answer rather than a second definition of equality, and it is sound only
-because `==` is reflexive; it was not, before the rule below, and the two
-backends disagreed at exactly `NaN` as a result.
+Referential equality is not merely unchosen. It is **not expressible**. Buri has
+no references, so there is no identity to compare. Section 8.1 rules it out
+besides: the runtime may share a representation between two equal values, or copy
+one, whenever that is faster, so `a === b` would answer differently by
+optimization level and by backend. Code that needs identity carries it as data —
+`struct NodeId(U64)` — which is a value the compiler cannot invent or coalesce.
 
-`==` and `!=` are `Eq.eq`; `<` `<=` `>` `>=` are `Ord.compare` — the operator
-table is Section 5.12.4. Neither is compiler magic: a type has them because it
+A backend may answer `true` early when it already knows the two operands are one
+value, and the JavaScript one does, because reflexivity says the walk would reach
+`true` anyway. That is a shortcut to a fixed answer rather than a second
+definition of equality, and it is sound only because `==` is reflexive. Before
+the rule below it was not, and the two backends disagreed at exactly `NaN`.
+
+`==` and `!=` are `Eq.eq`; `<` `<=` `>` `>=` are `Ord.compare`. Section 5.12.4
+has the operator table. Neither is compiler magic: a type has them because it
 derives or implements the trait. Every primitive, and `[T]` and tuples built from
 types that have them, satisfy `Eq` and `Ord` already. Your own structs and enums
 opt in:
@@ -509,25 +507,25 @@ Two consequences:
   therefore reflexive, symmetric and transitive at every value there is, which is
   what the rest of the language assumes of it. `Ord` on floats is unchanged and
   still IEEE-754's: it orders `-0.0` equal to `0.0` and reports `NaN` as
-  unordered, so `<` and `compare` do not agree with `==` at `NaN` — `==` is the
-  one that was made total.
+  unordered, so `<` and `compare` disagree with `==` at `NaN`. `==` is the one
+  made total.
 
 - **A hand-written `impl Eq` need not be structural.** Nothing checks that it is
   reflexive, symmetric, or transitive, so a case-insensitive `Str` wrapper is
   expressible — and so is a broken one. `derive` cannot be wrong in that way;
   hand-written implementations are a place to be deliberate.
 
-- **`Ord` on a `Str` is by Unicode scalar value**, which is the unit `len`
-  counts and `charAt` hands back, and which for a valid string is byte-for-byte
-  UTF-8 order. It is not UTF-16 code-unit order — what a JavaScript `<` on a
-  string gives, which puts every astral character below every character in
-  U+E000..U+FFFF — and both backends answer the scalar order. It is the order
-  `sort`, an `OrdMap<Str, _>` and `core/order`'s `str` all carry, since each of
-  them is this one comparison. `Ord` on a `Char` is the scalar's integer order,
-  which is the same rule one scalar at a time. `buri docs core/str` states it
-  beside `compare`, with the case that tells the two apart. There is no
-  locale-aware comparison in the language: collation is a table and a set of
-  options rather than a total order an operator can carry.
+- **`Ord` on a `Str` is by Unicode scalar value.** That is the unit `len` counts
+  and `charAt` hands back, and for a valid string it is byte-for-byte UTF-8
+  order. It is not UTF-16 code-unit order, which is what a JavaScript `<` on a
+  string gives — that puts every astral character below every character in
+  U+E000..U+FFFF. Both backends answer the scalar order. `sort`, an
+  `OrdMap<Str, _>` and `core/order`'s `str` all carry it, since each of them is
+  this one comparison. `Ord` on a `Char` is the scalar's integer order, the same
+  rule one scalar at a time. `buri docs core/str` states it beside `compare`,
+  with the case that tells the two apart. The language has no locale-aware
+  comparison: collation is a table and a set of options rather than a total order
+  an operator can carry.
 
 ### 5.12 Traits
 
@@ -548,18 +546,18 @@ trait Show {
 
 `Self` stands for the implementing type and is legal only inside a trait or an
 `impl`. A trait's methods declare `self` first and without a type, exactly like
-any other method (Section 6.7.1); it is the implementing type that `self` is,
-which is what `Self` names in the rest of the signature.
+any other method (Section 6.7.1). `self` is a value of the implementing type, and
+`Self` names that type through the rest of the signature.
 
-A trait declared `effect` additionally marks its implementors as
-effect-carrying, which subjects them to the `ctx` rule of Section 10.2. That
-modifier is the only difference between an effect and an ordinary interface.
+A trait declared `effect` also marks its implementors effect-carrying, which puts
+them under the `ctx` rule of Section 10.2. That modifier is the only difference
+between an effect and an ordinary interface.
 
 #### 5.12.1 Conformance is nominal
 
 A type satisfies a trait only where an `impl` or a `derive` says so. Declaring a
-method that happens to match a trait's signature does not make the type conform;
-nothing is inferred from shape.
+method that happens to match a trait's signature does not make the type conform.
+The compiler infers nothing from shape.
 
 Checking `T: Ord` is therefore a lookup in one table keyed by `(trait, type)`,
 populated by the declarations in the type's own module. There is exactly one
@@ -569,12 +567,12 @@ candidate, so there is no coherence pass, no orphan rule, and no instance search
 The whole type system is nominal, and this is the same rule applied to
 conformance: an `impl` is a declaration, like a `struct`.
 
-An earlier draft made conformance structural, Go-style. It was cheap to check but
-it made a module's public API implicitly include *which traits its types happen
-to satisfy* — so adding an unrelated exported function could make a type conform
-at a distance, and removing one could break a caller three modules away. That is
-a correctness hazard and, worse for the compile-time goal, it coarsens
-incremental invalidation exactly where it needs to be fine.
+An earlier draft made conformance structural, Go-style. It was cheap to check,
+but it put *which traits its types happen to satisfy* into a module's public API.
+Adding an unrelated exported function could make a type conform at a distance,
+and removing one could break a caller three modules away. That is a correctness
+hazard, and — worse for the compile-time goal — it coarsens incremental
+invalidation exactly where it needs to be fine.
 
 #### 5.12.2 `impl`
 
@@ -592,18 +590,18 @@ a `for` clause added. The methods land in the same namespace, so
 introduces no second namespace and no second resolution path, whichever form it
 takes.
 
-The two forms differ in one respect, and it is Section 6.7.1's: a method of the
-type's own may be `export`ed, and a method supplied to a trait may not. An `impl`
-in either form may appear only in the defining module of its type, so there is no
-way to implement a trait for someone else's type.
+The two forms differ in one respect, Section 6.7.1's: you may `export` a method
+of the type's own, and you may not `export` a method supplied to a trait. An
+`impl` in either form may appear only in its type's defining module, so nobody
+can implement a trait for someone else's type.
 
 A supplied method's signature is the trait's. Its parameters, its return type,
 and its own type parameters — how many, and what each is bound by — are what the
-declaration wrote, reading `Self` as the implementing type: `compare` above may
-write `Version` or `Self` for its second parameter, because inside the block
-those are one type. A call reaching the method through a bound is checked
-against the *trait's* declaration and dispatched to the `impl`'s, so the two are
-one signature rather than two that happen to share a name.
+trait declared, reading `Self` as the implementing type. So `compare` above may
+write `Version` or `Self` for its second parameter, since inside the block those
+are one type. A call reaching the method through a bound checks against the
+*trait's* declaration and dispatches to the `impl`'s, so the two are one
+signature rather than two that share a name.
 
 #### 5.12.3 `derive` generates the implementation
 
@@ -620,10 +618,10 @@ and the operator traits. A `derive` fails to compile if any field's type does no
 itself satisfy the trait.
 
 `ToJson` and `FromJson` — `core/json`'s typed encoding — are *only* ever derived.
-What a derived implementation stands for is the type's shape, so a hand-written
-one would be obeyed where the type is encoded on its own and ignored where a type
-holding it is; an `impl` of either is rejected rather than half-obeyed. The
-mapping from Buri shapes onto JSON ones is stated in `core/json`.
+A derived implementation stands for the type's shape, so a hand-written one would
+be obeyed where the type is encoded on its own and ignored where a type holding
+it is. The compiler rejects an `impl` of either rather than half-obeying it.
+`core/json` states the mapping from Buri shapes onto JSON ones.
 
 #### 5.12.4 Operators are trait methods
 
@@ -652,21 +650,21 @@ let far = total > Meters(3.0);             // Bool
 `derive Add for Meters` provides `Meters + Meters` and nothing else, so the unit
 safety the newtype exists for survives contact with arithmetic.
 
-**An operator implementation cannot allocate or perform an effect.** There is no
-argument position in `a + b` through which a context could be passed, so every
-operator is structurally confined to bounded, pure computation over values that
-already exist. You cannot write an expensive `+` in this language. That is why
-operator traits are safe here in a way they are not in languages where `+` can be
-an arbitrary method call — and it is also why `Matrix + Matrix` is not
-expressible: matrix addition allocates, so it is `a.add(ctx, b)`, which says so.
+**An operator implementation cannot allocate or perform an effect.** `a + b` has
+no argument position to pass a context through, so every operator is confined to
+bounded, pure computation over values that already exist. You cannot write an
+expensive `+` in this language. That is why operator traits are safe here and are
+not in languages where `+` can be an arbitrary method call. It is also why
+`Matrix + Matrix` is not expressible: matrix addition allocates, so you write
+`a.add(ctx, b)`, which says so.
 
 #### 5.12.5 What traits deliberately lack
 
 No blanket implementations, no associated types, no `where` clauses, no
 supertraits, no trait objects, and no dynamic dispatch. Each of those is a step
 from "resolution is a lookup" toward "resolution is a search," and the search is
-the entire compile-time cost of a trait system. Generic code is monomorphized;
-a generic body is typechecked once, polymorphically, with bounds verified at the
-call site.
+the entire compile-time cost of a trait system. The compiler monomorphizes
+generic code, and typechecks a generic body once, polymorphically, verifying
+bounds at the call site.
 
 ---

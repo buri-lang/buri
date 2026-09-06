@@ -33,10 +33,10 @@ There is no `<<` or `>>`. Use `bits.shl(x, n)` and `bits.shr(x, n)`. See
 ### 6.2 Arithmetic
 
 `+ - * / %` desugar to the operator traits of Section 5.12.4. On the built-in
-numeric types they are defined on two operands of the *same* type and produce
-that type. **There is no implicit promotion of any kind** — not integer
-promotion, not int-to-float, not narrow-to-wide. `a: I32 + b: I64` is an error,
-and so is `1.0 + 1`.
+numeric types they take two operands of the *same* type and produce that type.
+**There is no implicit promotion of any kind** — not integer promotion, not
+int-to-float, not narrow-to-wide. `a: I32 + b: I64` is an error, and so is
+`1.0 + 1`.
 
 Integer `/` truncates toward zero; `%` takes the sign of the dividend, so
 `a == (a / b) * b + (a % b)` holds for every non-zero `b`.
@@ -52,18 +52,17 @@ does not pay to find out. Overflow is not wrapping by default either: silent
 wrapping is a correctness bug in almost all code and a deliberate technique in a
 little of it, so the little of it says so out loud (below).
 
-Undefined does not mean unbounded in practice, and what it means in practice
-depends on the backend.
+Undefined does not mean unbounded in practice, and what it does mean depends on
+the backend.
 
 On a **native** backend every integer type is its own width and integer
-arithmetic is two's complement, so the observable consequence of overflow is a
-wrapped value. On the **JavaScript** backend a width up to 32 bits compiles to a
-`number` and one at 64 bits or above compiles to a `BigInt`, so every integer
-type holds its own range exactly — and a `BigInt` has no width to overflow at,
-so the observable consequence of overflow there is an answer larger than the
-type. Neither is promised and neither is a definition — a program that overflows
-is wrong, and these are descriptions of two implementations rather than a
-specification of one.
+arithmetic is two's complement, so overflow shows up as a wrapped value. On the
+**JavaScript** backend a width up to 32 bits compiles to a `number` and one at 64
+bits or above compiles to a `BigInt`, so every integer type holds its own range
+exactly. A `BigInt` has no width to overflow at, so overflow shows up there as an
+answer larger than the type. Neither is promised and neither is a definition. A
+program that overflows is wrong, and these describe two implementations rather
+than specify one.
 
 That the two differ is the reason overflow is undefined rather than
 implementation-defined: a language that pinned one of them would be pinning a
@@ -89,15 +88,15 @@ so is `NaN < NaN`. So `a <= b && b <= a` does not imply `a == b`, and `!(a < b)
 && !(a > b)` does not imply it either. `math.isNan(x)` is how a program asks the
 question `x != x` used to answer.
 
-Because a payload is not part of a `NaN`'s value, it is not preserved anywhere
-either: `bytes.f64FromBytes` answers the canonical quiet NaN for every NaN
-pattern, on every backend, and the bytes it round-trips back to are the same
-eight. There is no other way to construct a payload, so the distinction the
-paragraph above declines to make is one no program can observe.
+A payload is not part of a `NaN`'s value, so nothing preserves one either.
+`bytes.f64FromBytes` answers the canonical quiet NaN for every NaN pattern, on
+every backend, and round-trips back to the same eight bytes. There is no other
+way to construct a payload, so no program can observe the distinction the
+paragraph above declines to make.
 
-Rendering a float is the shortest decimal that
-round-trips, and that is a promise about digits rather than only about values:
-`1.0 / 3.0` prints the same characters on every backend.
+Rendering a float gives the shortest decimal that round-trips. That is a promise
+about digits and not only about values: `1.0 / 3.0` prints the same characters on
+every backend.
 
 #### 6.2.1 Conversions
 
@@ -120,17 +119,16 @@ Three families, distinguished by what happens when the value does not fit:
 | `x.toT()` where it might not | `Result<T, RangeError>` | `.Err` |
 | `x.wrapToT()` | `T` | wraps (integers) or rounds (floats) |
 
-The return type is decided per source-and-target pair, so `i32.toI64()` yields
-`I64` while `i64.toI32()` yields `Result<I32, RangeError>`. Whether a conversion
-can fail is visible in the type rather than in the choice of operator.
+Each source-and-target pair decides its own return type, so `i32.toI64()` yields
+`I64` while `i64.toI32()` yields `Result<I32, RangeError>`. The type says whether
+a conversion can fail, rather than the choice of operator.
 
-`I64 → F64` is lossy above 2^53, so strictly it belongs in the second family —
-but converting a count to a float is too common to route through a `Result`, so
-`toF64` is defined on every integer type as an exact-to-53-bits conversion that
-rounds beyond that, documented as such. This is the one place the language
-prefers ergonomics to ceremony, and it is called out rather than hidden. That
-bound is the float's rather than the backend's, so `toF64` rounds identically
-everywhere.
+`I64 → F64` is lossy above 2^53, so strictly it belongs in the second family. But
+converting a count to a float is too common to route through a `Result`, so every
+integer type defines `toF64` as an exact-to-53-bits conversion that rounds beyond
+that, documented as such. This is the one place the language prefers ergonomics
+to ceremony, and it says so rather than hiding it. That bound is the float's
+rather than the backend's, so `toF64` rounds identically everywhere.
 
 Earlier drafts used three cast operators (`as`, `as?`, `as%`). They are gone,
 because a method resolved by its receiver's type is the same lookup for none of
@@ -145,9 +143,8 @@ can do.
 
 #### 6.2.2 Checked and wrapping arithmetic
 
-The default `+` leaves overflow undefined. The alternatives are trait methods,
-so they are spelled out where they are used and are available on any type that
-derives them:
+The default `+` leaves overflow undefined. The alternatives are trait methods, so
+you spell them out where you use them, and any type that derives them has them:
 
 ```buri
 trait Checked {
@@ -195,9 +192,9 @@ bounds coincide and `.None` means two's-complement overflow and nothing else.
 ### 6.3 Blocks
 
 A block is zero or more `let` bindings followed by a result expression — the
-`Block` production of [`grammar.ebnf`](./cli/src/docs/grammar.ebnf). The result
-expression is optional syntactically, but a block without one has no value, which
-the checker reports as an error everywhere a block may stand.
+`Block` production of [`grammar.ebnf`](./cli/src/docs/grammar.ebnf). The grammar
+makes the result expression optional, but a block without one has no value, and
+the checker reports that as an error everywhere a block may stand.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let hypotenuse = {
@@ -207,9 +204,9 @@ let hypotenuse = {
 };
 ```
 
-`let` bindings are evaluated **strictly, in source order** (Section 8.2). Each
-binding is in scope for the remainder of the block. Shadowing is permitted, both
-in nested scopes and within a single block:
+Buri evaluates `let` bindings **strictly, in source order** (Section 8.2). Each
+binding is in scope for the rest of the block. You may shadow, both in nested
+scopes and within a single block:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let name = str.trim(raw);
@@ -233,7 +230,7 @@ let label = if (n < 0) { "negative" } else if (n == 0) { "zero" } else { "positi
 
 ### 6.5 `match`
 
-The pattern forms an arm may use are Section 7.
+Section 7 has the pattern forms an arm may use.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let describe = match (shape) {
@@ -264,14 +261,14 @@ let sum = xs.fold(fn(acc, x) => acc + x, 0);
 ```
 
 Lambdas begin with `fn` so that `(x)` is never ambiguous with a parameter list.
-Parameter types and the return type may be omitted when inferable.
+You may omit parameter types and the return type where they are inferable.
 
 A lambda body extends as far right as possible, so a lambda cannot appear as a
 bare operand of a binary operator (`design/grammar-rationale.md` 12.11). `2 * fn(x) => x` is a parse
 error; write `2 * (fn(x) => x)`.
 
-Arguments are evaluated left to right before the call (Section 8.2). Partial
-application is not built in; write a lambda.
+Buri evaluates arguments left to right before the call (Section 8.2). There is no
+built-in partial application; write a lambda.
 
 ### 6.7 Method calls
 
@@ -283,13 +280,13 @@ list.map           // module member
 sq.area()          // method call
 ```
 
-All five are the same production — `PostfixExpr "." IDENT` — and they are told
-apart during name resolution, never during parsing.
+All five are the same production — `PostfixExpr "." IDENT` — and name resolution
+tells them apart, never parsing.
 
 #### 6.7.1 Declaring a method
 
-A method is declared **inside an `impl` block for its type**, and takes `self`
-as its first parameter. Both halves are required, and each without the other is
+You declare a method **inside an `impl` block for its type**, and it takes `self`
+as its first parameter. Both halves are required, and either without the other is
 an error:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
@@ -320,11 +317,11 @@ already written it, and a trait's signature means the implementing type, so an
 annotation could only repeat what is above it or contradict it. Writing one is
 the `self-with-a-type` error, which carries the edit that deletes it.
 
-An `impl` block may appear only in the module that declares its type, which is
-what keeps method resolution a single lookup (Section 6.7.3), and the block
-itself — like a `derive` — is never `export`ed. A method inside one is `export`ed
-on its own terms; a method supplied to a trait is not, because conformance
-belongs to the type and travels wherever the type does.
+An `impl` block may appear only in the module that declares its type, which keeps
+method resolution a single lookup (Section 6.7.3). The block itself is never
+`export`ed, and neither is a `derive`. A method inside one carries its own
+`export`; a method supplied to a trait does not, because conformance belongs to
+the type and travels wherever the type does.
 
 The generic parameters split between the two: those the self type mentions
 belong to the `impl`, the rest to the method.
@@ -335,12 +332,12 @@ impl<T> Option<T> {
 }
 ```
 
-An earlier draft made a function a method purely by taking `self`, with no
-`impl` block. It read well in isolation and badly in a file: a type's operations
-were scattered wherever someone happened to write them, and `area(sq)` and
-`sq.area()` were two spellings of one call, so every method was also a free
-function competing for a name in module scope. Requiring the block puts a type's
-operations in one place and makes the method form the only one.
+An earlier draft made a function a method purely by taking `self`, with no `impl`
+block. It read well in isolation and badly in a file. A type's operations
+scattered wherever someone happened to write them, and `area(sq)` and `sq.area()`
+were two spellings of one call, so every method was also a free function
+competing for a name in module scope. Requiring the block puts a type's
+operations in one place and leaves the method form as the only one.
 
 #### 6.7.2 Calling a method
 
@@ -391,24 +388,24 @@ and you never name its type, you need no import at all.
 3. If `x`'s type is a type parameter, `f` must be declared by one of its
    **bounds** (Section 5.10). A bare parameter with no bounds has no methods.
 
-**An effect's methods are excluded from steps 2 and 3.** An effect is performed
-by handing the context to a function — `ctx.println(t)` is `io.println(ctx, t)`
-— so a method a *bound effect* declares is not callable on the value that
-carries it, and neither is one an `impl` supplied for an effect. Two layers are
-below that line and keep the method form: the standard library, which is where
-those wrapper functions are, and the body of an `impl` that supplies an effect,
-which is where the operation is implemented. Section 10.2 is the rule in full,
-and `effect-method-call` names the function to call instead.
+**Steps 2 and 3 exclude an effect's methods.** You perform an effect by handing
+the context to a function: `ctx.println(t)` is `io.println(ctx, t)`. So you cannot
+call a method a *bound effect* declares on the value that carries it, and you
+cannot call one an `impl` supplied for an effect either. Two layers sit below
+that line and keep the method form: the standard library, which holds those
+wrapper functions, and the body of an `impl` that supplies an effect, which is
+where the operation is implemented. Section 10.2 has the rule in full, and
+`effect-method-call` names the function to call instead.
 
 Each step is a single table lookup keyed by name and by one type. There is no
 candidate set, no autoref and no autoderef — Buri has no references — and no
 coherence check, because conformance is nominal and a type has exactly one
 defining module. Resolution does need the receiver's type, so name resolution
-consults inference; a lookup rather than a search is the version of that cost
+consults inference. A lookup rather than a search is the version of that cost
 worth paying.
 
-Where two bounds declare the same method name, the call is ambiguous and must be
-disambiguated by calling the trait method as a function (`Ord.compare(x, y)`).
+Where two bounds declare the same method name, the call is ambiguous.
+Disambiguate it by calling the trait method as a function: `Ord.compare(x, y)`.
 
 Defining modules:
 
@@ -458,27 +455,25 @@ fn loadPort<C: Alloc + FsRead>(ctx: C, at: Path): Result<Int, ConfigError> {
 
 `?` is the only early exit in the language. There is no `return`.
 
-A value the function is not propagating is given a default with `withDefault`,
-which `Option<T>` and `Result<T, E>` both have — `cfg.port.withDefault(8080)`.
-There is no operator for it: it is an ordinary method, so it sits in a chain
-beside `map` and `filter` rather than interrupting one, and its argument is
-evaluated like any other. A default that must not run unless it is needed is
-written as a `match`.
+Give a value the function is not propagating a default with `withDefault`, which
+`Option<T>` and `Result<T, E>` both have: `cfg.port.withDefault(8080)`. There is
+no operator for it. It is an ordinary method, so it sits in a chain beside `map`
+and `filter` rather than interrupting one, and it evaluates its argument like any
+other call. Write a `match` when the default must not run unless it is needed.
 
 ### 6.9 Aborting
 
 There is no way to write that a branch cannot happen. `panic` and `unreachable`
-are reserved (Section 3.4), so reaching for either is named rather than silently
-allowed as an identifier; `crash` is an ordinary identifier, because the concept
+are reserved (Section 3.4), so reaching for either gets named rather than quietly
+accepted as an identifier. `crash` is an ordinary identifier, because the concept
 is gone rather than deferred. There is no bottom type either, so nothing unifies
 with everything.
 
-The reason is that such a claim is almost always wrong: a match arm the
-programmer asserts is impossible is an arm the compiler was about to make them
-handle, and "validated upstream" is a claim about code somewhere else that
-nothing checks. Without an escape hatch, every case is handled — an `Option` is
-unwrapped with `withDefault` or matched, and an impossible state is a type that
-cannot represent it.
+Such a claim is almost always wrong. A match arm you assert is impossible is an
+arm the compiler was about to make you handle, and "validated upstream" is a
+claim about code somewhere else that nothing checks. With no escape hatch you
+handle every case: unwrap an `Option` with `withDefault` or match it, and make an
+impossible state a type that cannot represent it.
 
 A program can still stop. Division by zero, a shift at or beyond the width of its
 type, and stack exhaustion **abort**: the program ends with a message on stderr
