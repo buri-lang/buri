@@ -1,26 +1,25 @@
 # Digest-pinned benchmark corpora
 
 Manifests, and no source. Each file here names a profile, a parameter set and a
-seed, and records the SHA-256 of the bytes that combination produced on the day
-it was written. The harness regenerates the corpus on every run and checks the
+seed, then records the SHA-256 of the bytes that combination produced on the day
+somebody wrote it. The harness regenerates the corpus on every run and checks the
 digest **before it measures anything**. `design/PERFORMANCE.md` §3.1 states the
 rule they exist under; this file is the operational half of it.
 
 **A formatter change is a generator change.** Since `GENERATOR_REVISION` 7 the
 last thing `generate.rs` does to a module is hand it to `formatting::source`, so
-what these forty digests are over is what `buri format` writes. A printer that
-starts breaking a line somewhere else moves all forty, and the ceremony is the
-one below: bump `GENERATOR_REVISION`, re-pin, and say so in
-`design/PERFORMANCE.md` §6. That is the price of a benchmark measured over
-source somebody would actually check in, and it is paid at the same desk as any
-other generator change.
+these forty digests cover what `buri format` writes. A printer that starts
+breaking a line somewhere else moves all forty, and the ceremony is the one
+below: bump `GENERATOR_REVISION`, re-pin, and say so in `design/PERFORMANCE.md`
+§6. That is the price of benchmarking over source somebody would actually check
+in, and you pay it at the same desk as any other generator change.
 
 ## Why a third kind
 
-`cli/benches/corpora/` buys byte-stability by checking the bytes in, and it is
-capped at 512 KiB per corpus for a reason: a million-line corpus is 35 MB, and
-the whole repository's history is 15 MB. So the scale tier gets the same promise
-by a different route — check in the *digest* rather than the bytes.
+`cli/benches/corpora/` buys byte-stability by checking the bytes in, and it caps
+a corpus at 512 KiB for a reason: a million-line corpus is 35 MB, and the whole
+repository's history is 15 MB. So the scale tier gets the same promise by a
+different route — check in the *digest* rather than the bytes.
 
 | Kind | Where | Buys | Costs |
 |---|---|---|---|
@@ -28,12 +27,12 @@ by a different route — check in the *digest* rather than the bytes.
 | Checked in | `corpora/` | The bytes themselves, reviewable in a diff | Megabytes in git; 512 KiB cap; 15k lines is the ceiling |
 | **Digest-pinned** | **here** | **The bytes, at any scale, for 400 bytes of git** | **A mismatch is a failure, never a diff you can read** |
 
-The last column is the honest cost. When a saved corpus moves, the diff shows
-you *what* moved, in Buri. When a pinned corpus moves, all you get is two
-hashes and the counts beside them — the manifest records `lines`, `bytes` and
-`modules` precisely so that the failure says whether the shape changed or only
-its contents. Recovering the rest means `--shape=<profile> --scale=<n> --record`
-and reading the source by hand.
+The last column is the honest cost. When a saved corpus moves, the diff shows you
+*what* moved, in Buri. When a pinned corpus moves, you get two hashes and the
+counts beside them. The manifest records `lines`, `bytes` and `modules` precisely
+so the failure can say whether the shape changed or only its contents. Recovering
+the rest means `--shape=<profile> --scale=<n> --record` and reading the source by
+hand.
 
 ## Layout, and what a name means
 
@@ -47,17 +46,17 @@ cli/benches/pinned/
   ...
 ```
 
-One file per corpus, `name = <basename>`, and nothing else in the directory that
-ends in `.txt`. The fields are the ones a saved corpus's `manifest.txt` carries,
-and they mean the same things — `params` is the full delta from
-`Params::default()`, which is what the corpus is regenerated from.
+One file per corpus, `name = <basename>`, and nothing else in the directory ends
+in `.txt`. The fields are a saved corpus's `manifest.txt` fields and mean the same
+things. `params` is the full delta from `Params::default()`, and the corpus is
+regenerated from it.
 
-**A name is `<point>-<scale>`**, and the convention is load-bearing in three
+**A name is `<point>-<scale>`**, and that convention is load-bearing in three
 places: `--pin=mixed-1M` reads the scale off the suffix, `--set=scale` reads the
 anchor off the prefix, and the forty corpora here are twenty *points* at two
-scales rather than forty unrelated corpora. The point — not the profile — is
-what identifies a corpus across scales; four of the twenty are the `mixed`
-profile with a parameter delta, and their manifests say exactly that.
+scales rather than forty unrelated corpora. The point identifies a corpus across
+scales, not the profile. Four of the twenty are the `mixed` profile with a
+parameter delta, and their manifests say exactly that.
 
 One optional field the saved kind does not use:
 
@@ -66,17 +65,18 @@ native = false
 ```
 
 Absent means `true`. A native lowering row costs about thirty times a JavaScript
-one, so it is spent where the backend is the question and not everywhere; §4 of
-`design/PERFORMANCE.md` lists which seven points carry it and why. `--pin` reads
-it off `--targets`: a pin taken with `--targets=js` records `native = false`.
+one, so we spend it where the backend is the question rather than everywhere. §4
+of `design/PERFORMANCE.md` lists which seven points carry it and why. `--pin`
+reads the field off `--targets`, so a pin taken with `--targets=js` records
+`native = false`.
 
 ## The twenty points
 
-Every point has its own seed, and its two scales share it — so a point's 1M
-corpus contains its 100k corpus's modules and then some, and the only thing that
-differs between the two rows is the size. Sixteen of the twenty are named
-profiles (`--list`); four are the `mixed` profile with one weight moved, because
-they were worth a scale row and not yet worth a profile.
+Every point has its own seed, and its two scales share it. So a point's 1M corpus
+contains its 100k corpus's modules and then some, and size is the only thing
+separating the two rows. Sixteen of the twenty are named profiles (`--list`). The
+other four are the `mixed` profile with one weight moved, worth a scale row and
+not yet worth a profile.
 
 | Point | Profile / delta | The axis it moves |
 |---|---|---|
@@ -88,7 +88,7 @@ they were worth a scale row and not yet worth a profile.
 | `mixed-wide-graph` | `mixed-wide-graph` | Import fan-out at a fixed line count. |
 | `struct-heavy` | `struct-heavy` | Layout, field resolution, wide records. |
 | `struct-light` | `struct-light` | The control for the row above. |
-| `enum-heavy` | `enum-heavy` | Wide enums matched exhaustively — the fewest functions per line of any point. |
+| `enum-heavy` | `enum-heavy` | Wide enums matched exhaustively; the fewest functions per line of any point. |
 | `generic-blowup` | `generic-blowup` | Monomorphization: 235k functions at 1M against the anchor's 128k. |
 | `derive-heavy` | `derive-heavy` | `middle::derives`, which only the native branch runs. |
 | `impl-heavy` | `impl-heavy` | Method resolution and per-impl setup. |
@@ -110,19 +110,19 @@ cargo bench -p buri --bench compiler -- --set=scale --rss  # and peak memory
 cargo bench -p buri --bench compiler -- --only=enum-heavy --set=scale-full
 ```
 
-Neither set is in `core` and neither is in `full`: a million-line row costs
-minutes and the default run has to stay something a contributor takes before a
+Neither set is in `core` and neither is in `full`. A million-line row costs
+minutes, and the default run has to stay something a contributor takes before a
 commit.
 
-**`--set=scale` is the sample and `--set=scale-full` is the sweep.** The sample
-is every pinned corpus the standard protocol applies to — the whole 100k tier —
-plus `mixed-1M`, the one 1M corpus every other 1M corpus is a delta from. The
-threshold is the same 500,000 lines the repetition deviation already uses, so
-there is one number rather than two. `--only=` cuts either of them to a point or
-a scale, which is how a suspected outlier is re-run.
+**`--set=scale` is the sample and `--set=scale-full` is the sweep.** The sample is
+every pinned corpus the standard protocol applies to — the whole 100k tier — plus
+`mixed-1M`, the one 1M corpus every other 1M corpus is a delta from. The threshold
+is the same 500,000 lines the repetition deviation already uses, so there is one
+number rather than two. `--only=` cuts either set to a point or a scale, which is
+how you re-run a suspected outlier.
 
 The same split governs `--validate`, because regenerating and digesting forty
-corpora is minutes:
+corpora takes minutes:
 
 | Command | Pinned corpora covered | Wall time |
 |---|---|---|
@@ -133,7 +133,7 @@ corpora is minutes:
 
 Each of those grew by about a fifth at `GENERATOR_REVISION` 7, which is what the
 layout pass costs: generating a corpus now parses and prints it once more before
-anything else reads it. It is spent outside every timer, at work-list
+anything else reads it. That work happens outside every timer, at work-list
 construction, so no measured rate carries it.
 
 ## Pinning a new one
@@ -146,37 +146,37 @@ BURI_BLESS=1 cargo bench -p buri --bench compiler -- --pin=mixed-1M   # re-pin
 ```
 
 The profile and the scale come from the name, exactly as `--record`'s do
-(`mixed-1M` is the `mixed` profile at 1,000,000 lines); `--shape`, `--scale`,
+(`mixed-1M` is the `mixed` profile at 1,000,000 lines). `--shape`, `--scale`,
 `--seed`, `--targets` and `--param` override any of it. A point that is not a
 profile needs `--shape` to say which profile it is a delta from. It validates
 before it writes.
 
-**A new scale point is a new manifest and nothing else.** The tier is every
-`.txt` in this directory, so a 10M row would arrive as `mixed-10M.txt` and no
-code change. It is deliberately absent: at the rates §6 records, a 10M native
-row is minutes per repetition, and the question it would answer — is anything
-superlinear — is one the 100k/1M pair already answers.
+**A new scale point is a new manifest and nothing else.** The tier is every `.txt`
+in this directory, so a 10M row would arrive as `mixed-10M.txt` with no code
+change. We leave it out on purpose: at the rates §6 records, a 10M native row
+costs minutes per repetition, and the 100k/1M pair already answers the question it
+would ask — is anything superlinear.
 
 ## Staleness
 
 Same policy as `corpora/`, with one difference in the failure mode.
 
-1. **A digest mismatch stops the run**, loudly, naming both digests and both
-   sets of counts. It is not a warning: every number in the series the manifest
-   anchors was taken over different bytes.
-2. **The fix is a re-pin with a bumped `revision`**, in the same commit as the
+1. **A digest mismatch stops the run**, loudly, naming both digests and both sets
+   of counts. It is not a warning: every number in the series that manifest
+   anchors came from different bytes.
+2. **Fix it by re-pinning with a bumped `revision`**, in the same commit as the
    generator change that caused it. `--json` carries `corpus_revision`. Forty
    re-pins is a script over `--list`, and it is still forty deliberate acts.
 3. `GENERATOR_REVISION` is a note and never an error. A manifest pinned at an
-   older revision whose digest still matches is the scheme working: the
-   generator changed and these bytes did not.
-4. A corpus that cannot be regenerated is deleted, not repaired.
+   older revision whose digest still matches is the scheme working: the generator
+   changed and these bytes did not.
+4. Delete a corpus you cannot regenerate. Do not repair it.
 
 ## The digest
 
-`corpus::digest` — `buri::build::cache::hash_bytes`, the same SHA-256 every
-cache key uses — over the module path, a NUL, the module's bytes and a NUL, for
-every module in sorted path order. Identical to what a saved corpus is checked
-against, so the two kinds are comparable by construction: pinning a corpus that
-is also checked in produces the same hash, which is how the generator's
-byte-identity across a change is checked.
+`corpus::digest` — `buri::build::cache::hash_bytes`, the same SHA-256 every cache
+key uses — over the module path, a NUL, the module's bytes and a NUL, for every
+module in sorted path order. It is identical to what a saved corpus is checked
+against, so the two kinds compare by construction: pinning a corpus that is also
+checked in produces the same hash, and that is how we check the generator stayed
+byte-identical across a change.
