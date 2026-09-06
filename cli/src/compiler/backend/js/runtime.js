@@ -2359,15 +2359,20 @@ function $actor_replyPut(c, handle, value) {
   return $some(0n);
 }
 
+// A take spends the slot even when there was nothing in it: one `sendMessage`
+// opens one slot and takes it once, so an empty take is a sender giving up and
+// the slot goes back either way. The generation moves with it, so a `replyPut`
+// that arrives afterwards writes nothing.
 function $actor_replyTake(c, handle) {
   const slot = $replyAt(handle);
-  if (slot === undefined || slot.state !== 1) return undefined;
+  if (slot === undefined) return undefined;
+  const answered = slot.state === 1;
   const value = slot.value;
   slot.state = 2;
   slot.value = undefined;
   slot.generation = slot.generation + 1n;
   $replies.free.push(Number(handle & $REPLY_INDEX_MASK));
-  return $some(value);
+  return answered ? $some(value) : undefined;
 }
 
 // --- The reactive graph -----------------------------------------------------
