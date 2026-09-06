@@ -4,51 +4,50 @@
 //! hands back the bytes it was asked for, nothing counts, and no request is
 //! ever refused. The three below count, and one of them refuses.
 //!
-//! They are budgets and accounting policies over the one real allocator rather
-//! than three allocators (`design/native/MEMORY.md` §7.2). None of the three
+//! They are budgets and accounting policies over the one real allocator, not
+//! three allocators (`design/native/MEMORY.md` §7.2). None of the three
 //! reserves memory, and swapping one for another changes what a program is
 //! *told*, never where a value lives.
 //!
 //! `scoped` and `Scoped<C>` at the end of this file are the fourth thing, and
-//! the one that is not only accounting: a scope's arena reserves the bytes it
-//! is charged, serves the blocks the body allocates out of the same mappings,
-//! and gives every page back when the scope returns. The one value that leaves
-//! is `body`'s answer, and it is deep-copied out first — which is what makes
-//! the bulk free sound. `scoped` itself is where that is stated in full.
+//! the only one that is more than accounting. A scope's arena reserves the
+//! bytes it charges, serves the body's blocks out of the same mappings, and
+//! gives every page back when the scope returns. One value leaves: `body`'s
+//! answer, deep-copied out first — which is what makes the bulk free sound.
+//! `scoped` itself states that in full.
 //!
 //! ## The charge is defined, not measured
 //!
-//! The table beside `Alloc` in `core/effect` is the whole cost model: the charge
-//! for an operation is a function of the *types*, so the same program charges
-//! the same number on every backend and every platform. A count from
-//! `GeneralPurpose` on JavaScript — where there is a garbage collector under
-//! it and nothing to measure — is not a synthetic number, because it is not a
-//! measurement on the native backend either. It is the same *definition*,
-//! evaluated twice.
+//! The table beside `Alloc` in `core/effect` is the whole cost model. The
+//! charge for an operation is a function of the *types*, so the same program
+//! charges the same number on every backend and every platform. A count from
+//! `GeneralPurpose` on JavaScript — where a garbage collector sits underneath
+//! and there is nothing to measure — is not a synthetic number, because it is
+//! not a measurement on the native backend either. It is the same
+//! *definition*, evaluated twice.
 //!
 //! ## What is counted
 //!
 //! **Every `allocate(ctx, n)`, at `n` bytes, on both backends. Nothing else.**
 //!
 //! That is smaller than the cost model, and the gap is worth stating exactly
-//! rather than leaving to be discovered. The list, string and closure rows of
-//! the model are charged *by definition* and reported to *no* allocator:
-//! `xs.map(ctx, f)` and `s.split(ctx, ",")` are already handed the context and
-//! already drop it, on both backends and for a different reason each.
+//! rather than leaving you to discover it. The model charges the list, string
+//! and closure rows *by definition* and reports them to *no* allocator.
+//! `xs.map(ctx, f)` and `s.split(ctx, ",")` already take the context and
+//! already drop it, on both backends, for a different reason each.
 //!
 //!   * On JavaScript the runtime is untyped, and `16 + n * stride(T)` needs
-//!     `stride(T)`, which is a compile-time fact it does not have.
-//!   * Natively a context argument is dropped from every `buri_rt_*` call by
-//!     the ABI itself (`backend/runtime_table.rs`), so the runtime function that
-//!     builds the list never learns which allocator asked for it.
+//!     `stride(T)` — a compile-time fact it does not have.
+//!   * Natively the ABI itself drops a context argument from every `buri_rt_*`
+//!     call (`backend/runtime_table.rs`), so the runtime function that builds
+//!     the list never learns which allocator asked for it.
 //!
 //! Closing that gap is a piece of work in its own right, and it has to close on
-//! both backends at once or the numbers stop agreeing — which is the one
-//! property this module exists to have. Until then a program that wants the
-//! other rows counted charges them itself, which is what `strBytes` and its
-//! neighbours below are for: `ctx.allocate(alloc.listBytes(xs.len(), 8))` is
-//! exactly the model's `16 + n * stride(T)`, and it is the same number
-//! natively.
+//! both backends at once or the numbers stop agreeing — the one property this
+//! module exists to have. Until then a program that wants the other rows
+//! counted charges them itself, which is what `strBytes` and its neighbours
+//! below are for: `ctx.allocate(alloc.listBytes(xs.len(), 8))` is exactly the
+//! model's `16 + n * stride(T)`, and it is the same number natively.
 //!
 //! ## The counters live outside the values
 //!
@@ -57,16 +56,16 @@
 //! it, exactly as `core/host/testing`'s captured stdout does. Two
 //! consequences, both deliberate:
 //!
-//!   * **A copy shares its counter.** Passing a `FixedBuffer` into a context
-//!     and keeping the original does not fork the budget; there is one budget
+//!   * **A copy shares its counter.** Pass a `FixedBuffer` into a context and
+//!     keep the original, and the budget does not fork. There is one budget
 //!     and both names reach it.
-//!   * **A constructor is *called*.** `alloc.arena()` twice is two arenas with
-//!     two totals, which is what makes an arena per phase expressible.
+//!   * **A constructor is *called*.** `alloc.arena()` twice gives two arenas
+//!     with two totals, which is what makes an arena per phase expressible.
 //!
 //! None of the three implements a trait, and none of them can: SPEC 10.1 says
 //! no type may implement both an effect and a trait. So `stats` is an inherent
 //! method on each rather than one `trait Accounting` over all three, and `Show`
-//! is on `Stats` rather than on the allocators.
+//! sits on `Stats` rather than on the allocators.
 //!
 //! ```buri run
 //! from "core/alloc" import * as alloc;
@@ -116,25 +115,25 @@ from "core/path" import { Path };
 
 /// `bytes` bytes, charged to whichever allocator the context binds.
 ///
-/// This is `Alloc`'s only operation and this is the only way to reach it: an
-/// effect is performed by handing the context to a function, never by calling a
+/// This is `Alloc`'s only operation and this is the only way to reach it. You
+/// perform an effect by handing the context to a function, never by calling a
 /// method on it (SPEC 10.2). Everything else in this module is either an
-/// allocator to bind or arithmetic over the cost model, and the two meet here —
+/// allocator to bind or arithmetic over the cost model, and the two meet here:
 /// `alloc.allocate(ctx, alloc.listBytes(xs.len(), 8))` is the model's
 /// `16 + n * stride(T)`, charged.
 ///
 /// `allocate` and not `bytes`, which would collide in the reader's head with
-/// `strBytes`, `listBytes` and `closureBytes` above — those are pure arithmetic
-/// and take no context, and this is the one that does something.
+/// `strBytes`, `listBytes` and `closureBytes` above. Those are pure arithmetic
+/// and take no context; this is the one that does something.
 export fn allocate<C: Alloc>(ctx: C, bytes: Int): Region {
     ctx.allocate(bytes)
 }
 
 // --- The cost model, as arithmetic --------------------------------------------
 //
-// `core/effect`'s table states the model; these evaluate it. They are ordinary
-// pure functions, so both backends compute them from one body and the
-// agreement is by construction rather than by test.
+// `core/effect`'s table states the model; these evaluate it. Ordinary pure
+// functions, so both backends compute them from one body and agree by
+// construction rather than by test.
 
 /// The block header every heap value carries, in bytes (MEMORY.md §5.1).
 export let HEADER_BYTES: Int = 16;
@@ -153,11 +152,11 @@ export fn strBytes(n: Int): Int {
 
 /// The charge for a `[T]` of `n` elements: `16 + n * stride`.
 ///
-/// The stride is a parameter because the language cannot yet name one: there
-/// is no `sizeOf<T>()`, and the model's `stride(T)` is VALUE-MODEL.md §5's
-/// layout, which the compiler knows and a program cannot ask for. A
-/// `sizeOf<T>()` would make this `listBytes<T>(n)` and is the obvious next
-/// step; until then this is the model with its one input supplied.
+/// The stride is a parameter because the language cannot name one yet. There is
+/// no `sizeOf<T>()`, and the model's `stride(T)` is VALUE-MODEL.md §5's layout,
+/// which the compiler knows and a program cannot ask for. A `sizeOf<T>()` would
+/// make this `listBytes<T>(n)` and is the obvious next step. Until then this is
+/// the model with its one input supplied.
 export fn listBytes(n: Int, stride: Int): Int {
     HEADER_BYTES + n * stride
 }
@@ -173,7 +172,7 @@ derive Eq, Show for Stats;
 /// What `GeneralPurpose.stats`, `Arena.stats` and `FixedBuffer.stats`
 /// answer: every charge since the allocator was made.
 ///
-/// `allocations` counts *requests*, including a request for zero bytes, so a
+/// `allocations` counts *requests*, a request for zero bytes included, so a
 /// program can tell "asked once for nothing" from "never asked".
 export struct Stats {
     export allocations: Int,
@@ -184,7 +183,7 @@ export struct Stats {
 //
 // One counter behind three types. The alternative — a set of operations per
 // type — is three copies of the same four runtime functions on two backends,
-// and nothing distinguishes the three policies except which counter they open
+// and nothing tells the three policies apart except which counter they open
 // and whether it has a budget.
 
 /// A fresh counter. A negative budget is unbounded.
@@ -192,7 +191,7 @@ fn newCounter(budget: Int): I64;
 
 /// Adds `bytes` to the counter and answers them.
 ///
-/// Aborts when the counter has a budget and this request would pass it — see
+/// Aborts when the counter has a budget and this request would pass it. See
 /// `FixedBuffer` for why that is an abort rather than an error value.
 fn charge(handle: I64, bytes: Int): Int;
 
@@ -236,26 +235,26 @@ impl GeneralPurpose {
 
 /// A separate counter, and **nothing more than a counter** in this version.
 ///
-/// An arena in the usual sense frees in bulk at the end of a scope, and this
-/// one does not: there is no scope for it to end at. Every allocator here
-/// hands its blocks to the same reference-counted heap, which frees each one
-/// when the last reference to it goes (MEMORY.md §5), so an `Arena` reclaims
-/// nothing that a `GeneralPurpose` would not have reclaimed anyway.
+/// An arena in the usual sense frees in bulk at the end of a scope. This one
+/// does not, because it has no scope to end at. Every allocator here hands its
+/// blocks to the same reference-counted heap, which frees each one when the
+/// last reference to it goes (MEMORY.md §5), so an `Arena` reclaims nothing a
+/// `GeneralPurpose` would not have reclaimed anyway.
 ///
 /// What it is for meanwhile is *attribution*: an arena per phase answers
 /// "how much did parsing charge?" without the caller subtracting two totals.
 ///
 /// **`scoped` at the end of this file is the other half**, and it is the one
-/// that has a scope to end at. This type is an attribution *policy* a program
-/// carries around; that one is a *bounded region of the program's execution*,
+/// with a scope to end at. This type is an attribution *policy* a program
+/// carries around. That one is a *bounded region of the program's execution*,
 /// and it reserves and releases pages because it knows when it is over. Reach
-/// for this one to answer "how much did parsing charge?" and for `scoped` to
+/// for this one to answer "how much did parsing charge?", and for `scoped` to
 /// put a bound on a request.
 ///
-/// What separates them now is only that: `scoped` serves the body's blocks out
-/// of its own mappings and deep-copies the answer on the way out, which is what
-/// lets it free in bulk (MEMORY.md §7.2.1). This type has no boundary to copy
-/// at, so it stays a counter.
+/// That is the only thing separating them now: `scoped` serves the body's
+/// blocks out of its own mappings and deep-copies the answer on the way out,
+/// which is what lets it free in bulk (MEMORY.md §7.2.1). This type has no
+/// boundary to copy at, so it stays a counter.
 export struct Arena {
     handle: I64,
 }
@@ -273,7 +272,7 @@ export fn arena(): Arena {
 
 impl Arena {
     /// Everything charged to this arena since it was made. Nothing subtracts
-    /// from it, because nothing is reclaimed early — see the type.
+    /// from it, because nothing gets reclaimed early — see the type.
     export fn stats(self): Stats {
         Stats { allocations: count(self.handle), bytes: total(self.handle) }
     }
@@ -283,18 +282,17 @@ impl Arena {
 
 /// A byte budget. Charging past it **aborts**.
 ///
-/// The abort is forced rather than chosen, and the reasoning is worth having
-/// where a reader meets the type: `allocate` answers `Region`, not
-/// `Result<Region, _>` (`core/effect`), so there is no value to report a failure
-/// with; SPEC 10.5 says `Alloc` can fail; and SPEC 6.9 says a failure with no
-/// value to return is an abort. The message names both numbers —
+/// The abort is forced rather than chosen, and the reasoning belongs where a
+/// reader meets the type. `allocate` answers `Region`, not
+/// `Result<Region, _>` (`core/effect`), so there is no value to report a
+/// failure with. SPEC 10.5 says `Alloc` can fail. SPEC 6.9 says a failure with
+/// no value to return is an abort. The message names both numbers —
 /// `allocation budget exhausted: 40 bytes requested against a budget of 64` —
 /// because the budget alone does not tell a reader what to change.
 ///
 /// The check is against the *defined* charge, so it is byte-exact and it fires
-/// on the same request on both backends. A budget is therefore a test a
-/// program can write: give a function 64 bytes and it either fits or the
-/// process ends.
+/// on the same request on both backends. That makes a budget a test a program
+/// can write: give a function 64 bytes and it either fits or the process ends.
 export struct FixedBuffer {
     handle: I64,
     /// What this buffer was made with, in bytes.
@@ -309,11 +307,11 @@ impl Alloc for FixedBuffer {
 
 /// A buffer of exactly `budget` bytes.
 ///
-/// A negative budget is **clamped to zero** rather than refused, and rather
-/// than meaning "unbounded": there is no value to refuse a construction with,
-/// and a `FixedBuffer` that silently had no limit would be the one mistake
-/// this type exists to prevent. So `fixedBuffer(-1).budget` is `0`, and the
-/// first request for a byte or more ends the process.
+/// A negative budget is **clamped to zero** rather than refused, and it does
+/// not mean "unbounded". There is no value to refuse a construction with, and a
+/// `FixedBuffer` that silently had no limit would be the one mistake this type
+/// exists to prevent. So `fixedBuffer(-1).budget` is `0`, and the first request
+/// for a byte or more ends the process.
 export fn fixedBuffer(budget: Int): FixedBuffer {
     let limit = if (budget < 0) { 0 } else { budget };
     FixedBuffer { handle: newCounter(limit), budget: limit }
@@ -324,8 +322,8 @@ impl FixedBuffer {
         Stats { allocations: count(self.handle), bytes: total(self.handle) }
     }
 
-    /// `budget` less what has been charged. Never negative: a request that would
-    /// make it negative aborts instead.
+    /// `budget` less what it has charged so far. Never negative: a request that
+    /// would make it negative aborts instead.
     export fn remaining(self): Int {
         self.budget - total(self.handle)
     }
@@ -349,28 +347,28 @@ fn arenaCount(handle: I64): Int;
 /// How many bytes this arena has taken.
 fn arenaTotal(handle: I64): Int;
 
-/// The handle no arena has. `arenaEnter(NO_SCOPE)` therefore *leaves* whichever
-/// arena the carrier is in without entering another, and still answers what it
-/// left — which is the whole of what `copyAcross` needs.
+/// The handle no arena has. So `arenaEnter(NO_SCOPE)` *leaves* whichever arena
+/// the carrier is in without entering another, and still answers what it left
+/// — the whole of what `copyAcross` needs.
 ///
-/// It is a number rather than a second entry because `arenaEnter` already takes
-/// a handle and already answers the previous one: the runtime encodes "no arena
-/// at all" in the same `I64` the pair carries (`cli/runtime/memory.rs`'s
-/// `ArenaSlot::NONE`), and `NO_SCOPE` is the handle that names it. A handle a
-/// scope was actually given is never negative, so nothing else can collide with
-/// it. `test/scoped.buri` in the actor conformance package is what holds the
-/// two halves together: were this to stop meaning "no arena", every case in it
-/// would read memory the kernel had taken back.
+/// A number rather than a second entry point, because `arenaEnter` already
+/// takes a handle and already answers the previous one: the runtime encodes "no
+/// arena at all" in the same `I64` the pair carries (`cli/runtime/memory.rs`'s
+/// `ArenaSlot::NONE`), and `NO_SCOPE` names that handle. A handle a scope was
+/// actually given is never negative, so nothing else collides with it.
+/// `test/scoped.buri` in the actor conformance package holds the two halves
+/// together: if this stopped meaning "no arena", every case in it would read
+/// memory the kernel had taken back.
 let NO_SCOPE: I64 = -1;
 
 /// Makes this arena the one the platform allocator serves blocks from, for the
-/// carrier this runs on, and answers whichever arena was active before —
+/// carrier this runs on, and answers whichever arena was active before.
 /// `arenaLeave` takes that number back.
 ///
-/// This is the answer to the gap this module's header names: a context
-/// argument is dropped from every runtime call, so the function that builds a
-/// list cannot be *told* which allocator asked. Making the answer a property of
-/// the carrier for the dynamic extent of the scope is what tells it anyway.
+/// This answers the gap this module's header names. Every runtime call drops
+/// its context argument, so nothing can *tell* the function that builds a list
+/// which allocator asked. Making the answer a property of the carrier for the
+/// dynamic extent of the scope tells it anyway.
 ///
 /// `NO_SCOPE` above is the handle that means "none of them".
 fn arenaEnter(handle: I64): I64;
@@ -380,52 +378,52 @@ fn arenaLeave(previous: I64): I64;
 
 /// **A deep copy of `value`, on whichever allocator is active.**
 ///
-/// Every counted block reachable from `value` is duplicated — a nested
+/// It duplicates every counted block reachable from `value` — a nested
 /// `[[Str]]`, an enum's payload, a closure's captured environment — so the
-/// answer shares nothing with the argument at any depth. It is a *copy* and
-/// not a second reference: the counts of the original's blocks do not move.
+/// answer shares nothing with the argument at any depth. A *copy*, not a second
+/// reference: the counts of the original's blocks do not move.
 ///
-/// It is compiled rather than called: each backend generates the walk for the
-/// concrete `T` at the call site, which is what repairs the erasure a generic
+/// Compiled rather than called: each backend generates the walk for the
+/// concrete `T` at the call site, which repairs the erasure a generic
 /// intrinsic's key suffers (`middle/monomorphize.rs`).
 ///
-/// **"Whichever allocator is active" is load-bearing and used to be written
-/// here as "the platform allocator".** The copy goes through the same
-/// `buri_rt_alloc` every other allocation does, so inside an `alloc.scoped`
-/// body it lands in *that body's arena* — which is right for a scope inside a
-/// scope, where the answer must live as long as the enclosing one and be
-/// charged to it, and wrong for anything that has to outlive every scope.
-/// `scoped` gets the property it wants by leaving the arena **before** it calls
-/// this; a caller that cannot leave calls [`copyAcross`] instead, which is that
-/// same dance with nothing to get wrong.
+/// **"Whichever allocator is active" is load-bearing, and used to read "the
+/// platform allocator" here.** The copy goes through the same `buri_rt_alloc`
+/// every other allocation does, so inside an `alloc.scoped` body it lands in
+/// *that body's arena*. That is right for a scope inside a scope, where the
+/// answer must live as long as the enclosing one and be charged to it, and
+/// wrong for anything that has to outlive every scope. `scoped` gets the
+/// property it wants by leaving the arena **before** it calls this. A caller
+/// that cannot leave calls [`copyAcross`] instead, which is that same dance
+/// with nothing to get wrong.
 ///
-/// **Exported, and no longer the one to reach for.** It became public when
+/// **Exported, and no longer the one to reach for.** It went public when
 /// `core/actor` needed the walk at a second site, and a second `copyOut`
 /// declared there would have been a second key for one generated walk. That
-/// caller is [`copyAcross`] now, and it lives here — so what is left is the
+/// caller is [`copyAcross`] now, and it lives here. What is left is the
 /// primitive: the copy without the leave, for a caller that has decided which
-/// allocator it wants the answer on. If that is not a decision being made, the
-/// answer is `copyAcross`.
+/// allocator it wants the answer on. If you are not making that decision, reach
+/// for `copyAcross`.
 export fn copyOut<T>(value: T): T;
 
 /// **A deep copy of `value` that is in no arena at all**, whichever one the
 /// carrier is standing in.
 ///
-/// This is [`copyOut`] with the leave-first dance [`scoped`] does written into
-/// it: leave every arena, copy, go back. The answer is therefore a block the
-/// platform allocator owns and no scope will `munmap`, at every depth.
+/// This is [`copyOut`] with [`scoped`]'s leave-first dance written into it:
+/// leave every arena, copy, go back. So the answer is a block the platform
+/// allocator owns and no scope will `munmap`, at every depth.
 ///
 /// **It is the copy a value takes on its way *into the runtime*.** `core/actor`
 /// hands the runtime a mailbox message, an initial state, a stepped state and
 /// an `ask`'s answer, and the runtime keeps each of them past the frame of the
-/// call that supplied it (`cli/runtime/rt.rs` §2, `cli/runtime/lib.rs` §3) —
-/// so a value posted from inside an `alloc.scoped` body outlives that body by
+/// call that supplied it (`cli/runtime/rt.rs` §2, `cli/runtime/lib.rs` §3). So
+/// a value posted from inside an `alloc.scoped` body outlives that body by
 /// construction, and `copyOut` alone would have copied it into the very pages
 /// the scope is about to give back. `cli/runtime/memory.rs`'s `SAFETY` comment
 /// on the arena `munmap` is the property this keeps true.
 ///
 /// A caller that is *not* inside a scope pays two runtime calls that read and
-/// write one thread-local word, and the copy it would have made anyway.
+/// write one thread-local word, plus the copy it would have made anyway.
 export fn copyAcross<T>(value: T): T {
     let previous = arenaEnter(NO_SCOPE);
     let out = copyOut(value);
@@ -436,8 +434,8 @@ export fn copyAcross<T>(value: T): T {
 /// **An attenuating wrapper whose `Alloc` is a scope's own arena and whose
 /// every other effect is the wrapped context's.**
 ///
-/// `ReadOnly<C>` in `core/testing/context` is the shape, and the two rules that
-/// make it expressible are the same ones:
+/// `ReadOnly<C>` in `core/testing/context` is the shape, and the same two rules
+/// make it expressible:
 ///
 ///   * **the type parameter carries no bound**, so a `Scoped<C>` is not
 ///     effect-carrying *by mention* of its field (SPEC 10.2) and the struct
@@ -445,14 +443,14 @@ export fn copyAcross<T>(value: T): T {
 ///   * **the arena is an opaque `I64`**, so the second field is a handle rather
 ///     than a second capability.
 ///
-/// What it satisfies it satisfies **conditionally**: `Scoped<C>` is an `FsRead`
-/// only where `C` is one, a `Clock` only where `C` is one, and so on for every
-/// effect the platform declares. There are no blanket implementations in this
-/// language and no delegation, so each of those is written out below, once. A
-/// new effect in `core/effect` is a new block here, and a `Scoped` that quietly
-/// dropped it would be a context that lost an ability on the way into a scope
-/// — which the compiler would report at the call, but only after somebody
-/// wrote it.
+/// What it satisfies, it satisfies **conditionally**. `Scoped<C>` is an
+/// `FsRead` only where `C` is one, a `Clock` only where `C` is one, and so on
+/// for every effect the platform declares. This language has no blanket
+/// implementations and no delegation, so each of those is written out below,
+/// once. A new effect in `core/effect` means a new block here, and a `Scoped`
+/// that quietly dropped one would be a context that lost an ability on the way
+/// into a scope — which the compiler reports at the call, but only after
+/// somebody writes it.
 ///
 /// **`Alloc` is the one that does not forward**, and it is the whole point of
 /// the type. See `scoped` below.
@@ -465,9 +463,9 @@ export struct Scoped<C>(C, I64);
 /// alloc.scoped(ctx, fn(c) => handle(c, request))
 /// ```
 ///
-/// `ctx` must already grant `Alloc`: a scope **narrows** what an allocation is
-/// charged to and never widens what the callee may do, so entering one cannot
-/// be a way to obtain the effect. Everything else `ctx` grants passes through
+/// `ctx` must already grant `Alloc`. A scope **narrows** what an allocation is
+/// charged to and never widens what the callee may do, so entering one is no
+/// way to obtain the effect. Everything else `ctx` grants passes through
 /// unchanged — the body prints on the same stdout, reads the same filesystem
 /// and fans out onto the same tasks.
 ///
@@ -485,9 +483,9 @@ export struct Scoped<C>(C, I64);
 /// dynamic rather than passed: `arenaEnter` makes the arena the one the
 /// platform allocator serves from, for this carrier and for the dynamic extent
 /// of `body`, and `arenaLeave` puts back whatever was there before. The native
-/// ABI drops the context argument from every runtime call, so the operation
-/// that builds a list cannot be *told* which allocator asked for it — but it
-/// can be arranged for there to be only one answer while the scope is running.
+/// ABI drops the context argument from every runtime call, so nothing can
+/// *tell* the operation that builds a list which allocator asked for it — but
+/// you can arrange for there to be only one answer while the scope runs.
 ///
 /// A task started inside a scope runs on another carrier and allocates on the
 /// platform heap, not in this arena. That is the safe direction: a block on the
@@ -496,36 +494,36 @@ export struct Scoped<C>(C, I64);
 ///
 /// ## The answer is copied out, and that is what makes the release sound
 ///
-/// The single value that leaves a scope *this way* is `body`'s answer, and it
-/// is **deep-copied** onto the caller's allocator before the pages go back:
-/// `copyOut` duplicates every counted block reachable from it, at every depth,
-/// so what the caller receives points at nothing this arena mapped. A copy is
-/// not a share — the original's counts do not move, and the copy's are fresh —
-/// which is exactly the property a bulk `munmap` needs.
+/// The single value that leaves a scope *this way* is `body`'s answer, and
+/// `copyOut` **deep-copies** it onto the caller's allocator before the pages go
+/// back. It duplicates every counted block reachable from the answer, at every
+/// depth, so what the caller receives points at nothing this arena mapped. A
+/// copy is not a share — the original's counts do not move, and the copy's are
+/// fresh — which is exactly the property a bulk `munmap` needs.
 ///
-/// Everything else the body allocated is released the way it always was, by
-/// the reference count, before this function returns; the arena's bulk free is
-/// what reclaims the *address space* those blocks sat in. The invariant the
-/// whole arrangement rests on is one sentence: **a value's lifetime never
-/// exceeds the dynamic extent it was created in, except by being the answer —
-/// and the answer is copied.** Buri has no mutable global state, which is what
-/// makes that checkable rather than hopeful.
+/// The reference count releases everything else the body allocated, the way it
+/// always did, before this function returns. The arena's bulk free reclaims the
+/// *address space* those blocks sat in. The invariant the whole arrangement
+/// rests on is one sentence: **a value's lifetime never exceeds the dynamic
+/// extent it was created in, except by being the answer — and the answer is
+/// copied.** Buri has no mutable global state, which makes that checkable
+/// rather than hopeful.
 ///
-/// There is one other place a value's lifetime is extended, and it is not a
-/// place a *scope* can see: the **runtime** keeps blocks between two calls of
-/// its own, which is `cli/runtime/lib.rs` §3's amendment and today is
-/// `core/actor`'s mailboxes, states and reply slots. Such a value is not the
-/// answer and does not pass through the copy above, so it takes the same copy
-/// at its own site — [`copyAcross`], which leaves every arena first. The
-/// invariant is unchanged; what is copied is the union of the two.
+/// One other place extends a value's lifetime, and a *scope* cannot see it. The
+/// **runtime** keeps blocks between two calls of its own, which is
+/// `cli/runtime/lib.rs` §3's amendment and today is `core/actor`'s mailboxes,
+/// states and reply slots. Such a value is not the answer and does not pass
+/// through the copy above, so it takes the same copy at its own site:
+/// [`copyAcross`], which leaves every arena first. The invariant is unchanged;
+/// what gets copied is the union of the two.
 ///
 /// ## The handle dies with the scope
 ///
 /// `body`'s return type is an unbounded `T`, so a body may hand its
 /// `Scoped<C>` back out. Allocating through one afterwards charges nothing and
-/// reserves nothing: the arena's handle is retired when this returns, and a
-/// retired handle matches no arena. It is a number that stops moving, never a
-/// use of memory that has been given back.
+/// reserves nothing: this function retires the arena's handle when it returns,
+/// and a retired handle matches no arena. It is a number that stops moving,
+/// never a use of memory that has been given back.
 export fn scoped<C: Alloc, T>(ctx: C, body: fn(Scoped<C>) => T): T {
     let handle = arenaCreate();
     let outer = arenaEnter(handle);
@@ -547,8 +545,8 @@ impl<C> Scoped<C> {
 // The one implementation that does not forward.
 //
 // No bound on `C`: the arena is this wrapper's own, so a `Scoped<C>` allocates
-// whether or not the `C` it holds can. `scoped` is where the authority is
-// checked, once, and it requires `C: Alloc` there.
+// whether or not the `C` it holds can. `scoped` checks the authority once, and
+// requires `C: Alloc` there.
 impl<C> Alloc for Scoped<C> {
     fn allocate(self, bytes: Int): Region {
         Region(arenaAllocate(self.1, bytes))
@@ -685,34 +683,34 @@ impl<C: Proc> Proc for Scoped<C> {
     }
 }
 
-// The step is handed `ctx` — the caller's whole context — and not `self`, so
-// what a task receives here is whatever the caller passed and **not** this
-// wrapper. A scope inside a task is the task's own `alloc.scoped` call.
+// The step is handed `ctx` — the caller's whole context — and not `self`, so a
+// task receives whatever the caller passed and **not** this wrapper. A scope
+// inside a task is the task's own `alloc.scoped` call.
 impl<C: Tasks> Tasks for Scoped<C> {
     fn parallel<X, A, B>(self, ctx: X, items: [A], f: fn(X, Int, A) => B): [B] {
         self.0.parallel(ctx, items, f)
     }
 }
 
-// Seven ordinary forwards, and the reason they are ordinary is worth a note.
+// Seven ordinary forwards, and why they are ordinary is worth a note.
 //
 // `Listen` used to hand its handler `Self` — the acceptor — which made this the
-// one forward that was not a call with the same arguments: it rebuilt the
-// handler so that a `Scoped<C>` came back out of a `C`, and both native
-// backends used to fault entering it, because the retyping that preceded
+// one forward that was not a call with the same arguments. It rebuilt the
+// handler so a `Scoped<C>` came back out of a `C`, and both native backends
+// used to fault entering it, because the retyping that preceded
 // `middle/monomorphize.rs`'s call adapter rewrote `Scoped<C>` into a
-// `Scoped<`acceptor`>` on its way past.
+// `Scoped<`acceptor`>` on the way past.
 //
 // The effect no longer carries a handler at all. `core/net/server`'s `run`
-// calls `onRequest` itself, under the caller's own context, so a handler
-// written against `Scoped<C>` is entered by ordinary Buri code with the value
-// it was written for and nothing crosses this boundary but a listener, a
-// request and a response. The rule the adapter enforces is unchanged and is
-// still `middle/monomorphize.rs`'s; this wrapper simply no longer needs it.
+// calls `onRequest` itself, under the caller's own context, so ordinary Buri
+// code enters a handler written against `Scoped<C>` with the value it was
+// written for, and nothing crosses this boundary but a listener, a request and
+// a response. The rule the adapter enforces is unchanged and is still
+// `middle/monomorphize.rs`'s; this wrapper just no longer needs it.
 //
 // Every allocation a handler makes still lands in the scope's arena, because
-// the handler is handed the `Scoped<C>` `alloc.scoped` built and charges
-// through it — which is the property `lib/memory`'s conformance asserts.
+// the handler gets the `Scoped<C>` `alloc.scoped` built and charges through it
+// — the property `lib/memory`'s conformance asserts.
 impl<C: Listen> Listen for Scoped<C> {
     fn listenBind(
         self,
@@ -751,10 +749,10 @@ impl<C: Listen> Listen for Scoped<C> {
         self.0.listenUpgrade(connection)
     }
 
-    // A socket's messages are allocated by whichever `Alloc` the acceptor
-    // itself holds and not by this one, exactly as a `Request`'s body is: what
-    // a scope charges for is the work its own handlers do with the value, and
-    // the value arrives already built.
+    // Whichever `Alloc` the acceptor itself holds allocates a socket's
+    // messages, not this one — exactly as with a `Request`'s body. A scope
+    // charges for the work its own handlers do with the value; the value
+    // arrives already built.
     fn listenReceive(self, socket: Int): Result<Received, ServeError> {
         self.0.listenReceive(socket)
     }
