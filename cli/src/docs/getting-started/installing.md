@@ -1,7 +1,7 @@
 # Installing
 
-There is no release yet, so every path below builds from source. They produce
-the same binary and differ only in what supplies the Rust toolchain.
+There is no release yet, so every path below builds from source. They all
+produce the same binary, and differ only in what supplies the Rust toolchain.
 
 **Nix.** This repository is a flake, and its default package is `buri`:
 
@@ -17,8 +17,8 @@ brew tap buri-lang/buri https://github.com/buri-lang/buri.git
 brew install --HEAD buri-lang/buri/buri
 ```
 
-`--HEAD` builds the `main` branch and is required until a release is tagged;
-after that, drop it.
+`--HEAD` builds the `main` branch. You need it until a release is tagged, then
+drop it.
 
 **Cargo**, with a Rust toolchain already in hand:
 
@@ -26,9 +26,9 @@ after that, drop it.
 cargo install --locked --path cli
 ```
 
-The binary carries no runtime dependencies. Linking a native binary uses the
-system C toolchain (`cc`, or whatever `CC` names); the JavaScript path resolves
-a runtime — `bun` or `node` — from `PATH`, or from `BURI_JS` naming one.
+The binary has no runtime dependencies. Linking a native binary uses the system
+C toolchain: `cc`, or whatever `CC` names. The JavaScript path looks for `bun`
+or `node` on your `PATH`, or the one `BURI_JS` names.
 
 ## Setting up a repository
 
@@ -51,19 +51,19 @@ moment it lands:
 | `.gitignore` | What the build writes |
 | `.agent/skills/` | The agent skills, one directory per skill |
 
-That last row is the reason to run `init` rather than copy files out of a page:
-a coding agent working in the repository gets the toolchain's own account of the
+That last row is why you run `init` rather than copy files out of a page. A
+coding agent working in the repository gets the toolchain's own account of the
 language, the type system, the build system, testing, and the CLI, written by
-the release that is installed. Each is also a page here,
-starting with [the language skill](../reference/skills/buri-language.md).
+the release you installed. Each skill is also a page here, starting with
+[the language skill](../reference/skills/buri-language.md).
 
 `buri init` never writes over your work. A `REPO.buri` at the target means the
-directory is already a repository and the command stops; a `REPO.buri` *above*
-the target stops it too, because a repository inside another one is not a root,
-it is a stray build file in somebody else's tree. A `.gitignore` already at
-the target is the one exception — `git init` first is the ordinary way to
-start — and there the build's entries are appended below your lines rather
-than the run refused.
+directory is already a repository, so the command stops. A `REPO.buri` *above*
+the target stops it too: a repository inside another one is not a root, it is a
+stray build file in somebody else's tree. A `.gitignore` already at the target
+is the one exception, since running `git init` first is the ordinary way to
+start. There `buri init` appends its entries below your lines instead of
+refusing to run.
 
 ## Skills in a repository you already have
 
@@ -72,15 +72,15 @@ buri add skills                            # here
 buri add skills ~/src/some-other-repository
 ```
 
-`buri add skills` writes the same skills into `.agent/skills/` without
-touching anything else, so it works in a repository that predates them — and in
-a directory that is not a Buri repository at all, since the skills are compiled
-into the binary the way the rest of `buri docs` is.
+`buri add skills` writes the same skills into `.agent/skills/` and touches
+nothing else. It works in a repository that predates them, and in a directory
+that is not a Buri repository at all, because the skills are compiled into the
+binary the way the rest of `buri docs` is.
 
-Re-running is the upgrade path. A skill directory whose name begins `buri-`
-belongs to the toolchain and is rewritten from the binary every run, and one
-that a release has stopped shipping is removed. A directory named anything else
-is yours and is never read, written, or removed.
+Run it again to upgrade. A skill directory whose name begins `buri-` belongs to
+the toolchain, so every run rewrites it from the binary and removes any the
+release has stopped shipping. A directory named anything else is yours, and
+`buri add skills` never reads, writes, or removes it.
 
 ## Next
 
