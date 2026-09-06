@@ -468,9 +468,9 @@ and the flags that select what runs:
 ```
 
 `--alloc` needs the toolchain built with its counting global allocator, which is
-off by default and not referenced by the library at all: the counter is two
-atomic increments on every allocation in the process, so a timed row taken with
-it on is not comparable with one taken without it.
+off by default and which the library never references. The counter adds two
+atomic increments to every allocation in the process, so a timed row taken with
+it on does not compare with one taken without it.
 
 ### The scale tier
 
@@ -480,8 +480,8 @@ cargo bench -p buri --bench compiler -- --set=scale-full    # all forty
 cargo bench -p buri --bench compiler -- --set=scale --rss   # and peak memory
 ```
 
-Four orders of magnitude is what says whether a rate is a property of the code
-or of the cache, and the fourth one costs minutes. So it is opt-in, and it is
+Four orders of magnitude are what tell you whether a rate is a property of the
+code or of the cache, and the fourth one costs minutes. So it is opt-in, and
 **not** in `core` and not in `full`: a default run has to stay something a
 contributor takes before a commit. Six things about it are deliberate.
 
@@ -491,10 +491,10 @@ SHA-256 before any timer starts. A mismatch stops the run.
 
 **Forty is twenty points at two scales, and the points span the generator's
 axes rather than repeating `mixed`.** A single profile measured at 1M answers
-"does the rate hold as the program grows"; it does not answer "which parameter
-the rate is a function of", and that second question is the one a scale tier is
-uniquely placed to ask, because every axis that could be superlinear is only
-visibly superlinear at the top. So the twenty are chosen to move one axis each:
+"does the rate hold as the program grows". It does not answer "which parameter
+is the rate a function of", and only a scale tier can ask that second question,
+because an axis that could be superlinear shows it only at the top. So each of
+the twenty moves one axis:
 
 | Points | The axis |
 |---|---|
@@ -506,21 +506,21 @@ visibly superlinear at the top. So the twenty are chosen to move one axis each:
 | `derive-heavy` | Derive load, which only the native branch pays for. |
 | `comment-heavy`/`comment-free`, `long-idents` | Surface: 46 bytes a line against 29, and bytes per token at a fixed token count. |
 
-Sixteen of the twenty are named profiles from the table below; four —
+Sixteen of the twenty are named profiles from the table below. Four —
 `string-heavy`, `list-heavy`, `long-bodies`, `generic-free` — are the `mixed`
-profile with one weight moved, recorded in the manifest's `params` as such. They
-are points and not profiles because a profile earns a row in every `--set=stress`
-run, and these had earned a scale row and no more. Each point has its own seed,
-and its two scales *share* it, so a point's 1M corpus is its 100k corpus's
-modules and then some: the only thing that differs between the two rows is the
-size, which is the whole comparison.
+profile with one weight moved, and the manifest's `params` records them that
+way. They are points rather than profiles because a profile earns a row in every
+`--set=stress` run, and these had earned a scale row and no more. Each point has
+its own seed, and its two scales *share* it, so a point's 1M corpus is its 100k
+corpus's modules and then some. Only the size differs between the two rows,
+which is the whole comparison.
 
 **A new scale point is a new manifest and nothing else.** The tier is every
 `.txt` in that directory, filtered on the manifest's own fields, so a 10M row is
-a `--pin=mixed-10M` away and no code change. It is deliberately absent: at the
-rates §6 records, one repetition of a 10M native row is about three minutes,
-and the question it would answer — whether anything is superlinear — the 100k/1M
-pair already answers, twenty times over.
+one `--pin=mixed-10M` away with no code change. It is deliberately absent: at
+the rates §6 records, one repetition of a 10M native row runs about three
+minutes, and the 100k/1M pair already answers the question it would ask —
+whether anything is superlinear — twenty times over.
 
 **The protocol deviation is §2's, printed beside the rows it applies to.** Above
 500,000 lines: at least 3 repetitions rather than 10, one warmup call rather
@@ -531,26 +531,26 @@ thirty-to-one cost ratio between a native row and a JavaScript one.
 
 The cross triples go to the anchor only. They earn their seat where they cost
 two seconds a repetition and settle whether a gap is codegen or
-cross-compilation; across forty corpora they are three quarters of the wall
-time, and the question has already been answered on `mixed-100k` over the same
-generator. Above 500,000 lines nothing takes them, anchor included.
+cross-compilation. Across forty corpora they eat three quarters of the wall
+time, and `mixed-100k` has already answered the question over the same
+generator. Above 500,000 lines nothing takes them, the anchor included.
 
-And a native row at all goes to **seven of the twenty points**, recorded as
-`native = false` in the other thirteen manifests. The backend is a function of
-two things this suite can move — the codegen unit count and the size of the IR
-handed to it — so the seven are chosen to span both: `mixed-many-files` (15,437
+A native row at all goes to **seven of the twenty points**, and the other
+thirteen manifests record `native = false`. The backend is a function of two
+things this suite can move — the codegen unit count and the size of the IR
+handed to it — so the seven span both: `mixed-many-files` (15,437
 units at 1M) and `mixed-few-files` (186) at the ends of the first,
 `generic-blowup` (235k monomorphized functions) and `enum-heavy` (55k) at the
 ends of the second, `derive-heavy` because `middle::derives` runs only on the
 native branch and is invisible in every JS row, `struct-heavy` because layout and
 the ABI are native-only questions, and `mixed` because it is the anchor. The
 other thirteen move the lexer, the parser or the checker, and `lower+js` is the
-lowering row that tracks them. This is a *sampling* decision and it is
-reversible: `--only=<point> --set=scale-full --targets=macos-arm64` takes the
-native row of any of them by hand.
+lowering row that tracks them. This is a *sampling* decision, and it reverses
+easily: `--only=<point> --set=scale-full --targets=macos-arm64` takes the native
+row of any of them by hand.
 
-**The wall time is a property of the flag, not of the directory.** Forty pinned
-corpora are a parameter sweep, and a sweep at a million lines is twenty-five
+**The wall time belongs to the flag, not to the directory.** Forty pinned
+corpora are a parameter sweep, and a sweep at a million lines takes twenty-five
 minutes — past the point where anybody runs it before a commit, which would make
 it a suite nobody runs. So:
 
@@ -561,39 +561,38 @@ it a suite nobody runs. So:
 | `--only=<text>` | either of the above, cut to a point or a scale | seconds to minutes |
 
 The sample is "every pinned corpus the standard protocol applies to, plus the
-anchor above it", and the threshold it is stated over is the same 500,000 lines
-the repetition deviation already uses, so the tier boundary is one number rather
-than two. What the sample buys is the parameter sweep at the scale where a
-sweep is affordable and the size comparison on the one point the size comparison
-is anchored on; what `scale-full` buys is the other nineteen size comparisons,
-and those are a thing somebody does deliberately, on a quiet machine, when a
-number is about to be written down.
+anchor above it", and it uses the same 500,000-line threshold as the repetition
+deviation, so the tier boundary is one number rather than two. The sample buys
+the parameter sweep at the scale where a sweep is affordable, plus the size
+comparison on the one point that comparison is anchored on. `scale-full` buys
+the other nineteen size comparisons, and somebody takes those deliberately, on a
+quiet machine, when a number is about to be written down.
 
 ### Peak memory
 
-`--rss` reports the peak resident set size of each phase, and it is the first
-data behind §1's note that peak memory is the obvious fourth column. It is an
-**untimed pass**, taken before the timers and never beside them.
+`--rss` reports the peak resident set size of each phase, the first data behind
+§1's note that peak memory is the obvious fourth column. It is an **untimed
+pass**, taken before the timers and never beside them.
 
 The figure comes from a subprocess: `--rss` re-runs this same binary once per
 phase under `/usr/bin/time -l` and reads the maximum resident set size back.
-There is no dependency-free way to ask in-process — Linux has `/proc/self/status`
-and macOS has no `/proc`, `getrusage` is behind `libc`, which is not in this
-tree and is not worth buying for a column, and `ps -o rss` requires an
-entitlement on current macOS. One phase per process is not a workaround but the
-measurement: a peak is monotonic, so the peak of a process that stopped after
+Nothing asks in-process without a dependency. Linux has `/proc/self/status` and
+macOS has no `/proc`; `getrusage` sits behind `libc`, which is not in this tree
+and is not worth buying for a column; and `ps -o rss` needs an entitlement on
+current macOS. One phase per process is the measurement rather than a
+workaround: a peak is monotonic, so the peak of a process that stopped after
 `sema` *is* the cost of everything up to and including `sema`, and the
 difference between two of them is what a phase added. Sampling the current
 figure instead would miss whatever a phase allocates and frees inside itself,
 which at these scales is most of the question.
 
-`--validate` is the one to run in a hurry: it is what proves the corpus is still
-valid Buri after a language change, and it is fast because it compiles each
-program once instead of ten times. A generator that has drifted out of the
-language shows up there as a list of diagnostics rather than as a benchmark
-quietly measuring the error paths — and so does a *saved* corpus that has
-stopped compiling, because `--validate` always covers the checked-in half
-whatever `--set` was asked for. It also prints which backends this binary has,
+`--validate` is the one to run in a hurry. It proves the corpus is still valid
+Buri after a language change, and it is fast because it compiles each program
+once instead of ten times. A generator that has drifted out of the language
+shows up there as a list of diagnostics rather than as a benchmark quietly
+measuring the error paths — and so does a *saved* corpus that has stopped
+compiling, because `--validate` always covers the checked-in half whatever
+`--set` you asked for. It also prints which backends this binary has,
 which of the requested targets each can emit for, and how much of the 2 MiB
 corpus budget is spent.
 
@@ -601,45 +600,44 @@ How much of the *pinned* half it covers follows `--set`, for the wall-time
 reason §3.1 gives: **0.4 s** under `--quick` and no digests, **12.8 s** plain
 and the anchor's two, **27.3 s** under `--set=scale`, and **4 min 20 s** under
 `--set=scale-full` for all forty. Each is the fastest of three runs taken on
-2026-09-01 at `0c66339d`, and the machine was never fully idle while they were.
+2026-09-01 at `0c66339d`, and the machine was never fully idle while they ran.
 The three readings each: 0.4/0.8/1.0 s, 12.8/13.3/26.0 s, 27.3/36.7/69.1 s, and
 4 min 20 s/4 min 42 s/5 min 17 s, taken at one-minute load averages between 9
-and 208 on ten cores. So all four are upper bounds, and against the figures
+and 208 on ten cores. So all four are upper bounds. Against the figures
 generator revision 7 recorded on 2026-08-31 — 0.4 s, 12 s, 26 s, 3 min 24 s —
-the first three hold and **`--set=scale-full` is at least 27% longer**, which is
-the one row here somebody should re-take on a quiet machine before quoting it.
-`--set=scale-full` is also the command that answers "is every pinned digest
-still good", and it is the one to run after touching `generate.rs` — or after
-touching `formatting`, which since `GENERATOR_REVISION` 7 is the same thing:
-`laid_out` is the last hand every generated module passes through.
+the first three hold and **`--set=scale-full` is at least 27% longer**, the one
+row here somebody should re-take on a quiet machine before quoting it.
+`--set=scale-full` also answers "is every pinned digest still good", so run it
+after touching `generate.rs` — or after touching `formatting`, which since
+`GENERATOR_REVISION` 7 is the same thing: `laid_out` is the last hand every
+generated module passes through.
 
 ### The parameter space, and the profiles
 
 A profile is a point in the generator's parameter space: `Params::default()`
-with two or three fields moved. `Params` is about twenty dimensions — size and
+with two or three fields moved. `Params` has about twenty dimensions — size and
 distribution, a weight per construct kind, a size per construct, three surface
 dials, and the reachability invariant — and `Params::default()` is
-**byte-identical to the `mixed` corpus §6's numbers were taken over**, which is
-a promise held by regenerating and diffing rather than by intention.
+**byte-identical to the `mixed` corpus §6's numbers were taken over**, a promise
+kept by regenerating and diffing rather than by intention.
 `--list` prints the profiles with their parameters, and
 `--shape=<profile> --param k=v` runs a point that is not in the table. The table
-is what the suite measures by default and what §6 reports; everything else is an
-investigation, and an investigation that turns out to be worth watching becomes
-a profile.
+is what the suite measures by default and what §6 reports. Everything else is an
+investigation, and an investigation worth watching becomes a profile.
 
-There is a step between the two, and the scale tier is where it lives: a
+A step sits between the two, and the scale tier is where it lives. A
 **parameter point** is a `--param` delta with a name, a seed and a pinned
 digest, measured at 100k and 1M and nowhere else. Four of the twenty points
 above are that — `string-heavy`, `list-heavy`, `long-bodies`, `generic-free` —
-and the reason they are not profiles is that a profile costs a row in every
+and they are not profiles because a profile costs a row in every
 `--set=stress` run and every `--quick` run, forever, while a point costs four
 hundred bytes and a line in one table.
 
 Two axes are deliberately *absent*. **Package structure**: the in-memory loader
-is built with `Loader::new(None, ..)` and never consults a workspace, so
-"many libraries" means "many clusters in the import graph" and the `clusters`
-dimension says exactly that rather than implying more. **Parallelism**: the
-front end is single-threaded, and §2 already covers it.
+uses `Loader::new(None, ..)` and never consults a workspace, so "many libraries"
+means "many clusters in the import graph", and the `clusters` dimension says
+exactly that rather than implying more. **Parallelism**: the front end is
+single-threaded, and §2 already covers it.
 
 #### Realistic family
 
@@ -693,86 +691,84 @@ lower+<triple>   monomorphize::run + actions::prepare
 `actions::emit` is the same call `buri build --output=js` makes, `prepare` — and
 therefore `middle::run` — included.
 
-The native rows go through the same two calls `actions::objects_of` makes below
-the front end — `prepare`, which is the one place the middle-end pipeline is
-chosen, and `Backend::emit` — and stop there. **Nothing is linked and nothing is
-run**: the link is the only host-only step, because the runtime archive
-`cli/build.rs` embeds is built for the host and for nothing else, and goal 3 is
-stated over lowering rather than over producing an executable. The second
-`lower::run` that `objects_of` performs for the cache keys is excluded too: that
-is the build system paying for content-addressing, not the compiler lowering the
-program.
+The native rows make the same two calls `actions::objects_of` makes below the
+front end — `prepare`, the one place that picks the middle-end pipeline, and
+`Backend::emit` — and stop there. **Nothing is linked and nothing is run.** The
+link is the only host-only step, because `cli/build.rs` embeds a runtime archive
+built for the host and nothing else, and goal 3 covers lowering rather than
+producing an executable. The rows leave out the second `lower::run` that
+`objects_of` performs for the cache keys, too: that is the build system paying
+for content-addressing, not the compiler lowering the program.
 
 Each repetition rebuilds the monomorphized program, because `prepare` mutates in
-place and is not idempotent. Monomorphization is therefore inside every lowering
-row, JavaScript and native alike, which is what keeps the three comparable;
+place and is not idempotent. So monomorphization sits inside every lowering row,
+JavaScript and native alike, which is what keeps the three comparable.
 `--split` subtracts it and reports
 `mono | middle-A | middle-native | lower(IR) | emit`, to stderr, so
 `--json --split` still emits one parseable document.
 
 Three native triples by default — `aarch64-apple-darwin`,
-`x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` — whichever machine
-the suite is run on. A cross triple is *more* reproducible than the host one:
-the host ISA is inferred from the running CPU's features and a cross ISA is the
-baseline for its triple. The refusal to cross-*link* stays where it belongs, at
+`x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` — whatever machine
+the suite runs on. A cross triple is *more* reproducible than the host one: the
+host ISA comes from the running CPU's features, while a cross ISA is the
+baseline for its triple. The refusal to cross-*link* stays where it belongs, in
 `link::can_link` and `actions::native_ready`, which is what
-`buri build --output=linux/x86_64` on a mac still answers to; no backend states
+`buri build --output=linux/x86_64` on a mac still answers to. No backend states
 the same policy a second time.
 
-**A debug row is only takeable where the debug backend has a stencil library for
-the triple** (`design/native/CODEGEN-STENCIL.md` §3.2), which is a narrower
-condition than the one these rows were written under: the removed backend was
-compiled with `all-arch` and answered for every triple by construction. A triple
-with no library is a `skipped` row with the backend's own sentence in it, which
-is the mechanism the paragraph below already describes. Of the five triples the
-suite can be asked for, that is `macos-x86_64` alone: `linux-x86_64` emits and
-is timed like the other two natives (§6.1).
+**You can take a debug row only where the debug backend has a stencil library
+for the triple** (`design/native/CODEGEN-STENCIL.md` §3.2), a narrower condition
+than the one these rows were written under: the removed backend was compiled
+with `all-arch` and answered for every triple by construction. A triple with no
+library gives a `skipped` row carrying the backend's own sentence, the mechanism
+the paragraph below describes. Of the five triples you can ask the suite for,
+that is `macos-x86_64` alone: `linux-x86_64` emits and gets timed like the other
+two natives (§6.1).
 
 `Profile::Debug` selects the copy-and-patch backend and `Profile::Release`
-selects LLVM, so a release row is an LLVM row and it is taken only on a
-toolchain built with `backend-llvm`. **There is no `#[cfg]` anywhere in the harness**: it asks
-`backend::select` and prints `skipped: <diagnostic>` rather than testing a
+selects LLVM, so a release row is an LLVM row, and only a toolchain built with
+`backend-llvm` can take one. **There is no `#[cfg]` anywhere in the harness.** It
+asks `backend::select` and prints `skipped: <diagnostic>` rather than testing a
 feature, so the report always says which rows *this* binary could not take
-rather than changing shape depending on how it was compiled. Skipped rows go in
-their own `skipped` array in `--json` rather than into `rows`, so a consumer of
-the row schema is unaffected.
+instead of changing shape with how it was compiled. Skipped rows go in their own
+`skipped` array in `--json` rather than into `rows`, so nothing that consumes the
+row schema notices.
 
-`Backend::missing_intrinsics` is asked before any timer, for the same reason the
-corpus is compiled before any timer: a backend that would have failed must not
-be measured failing. The two reasons a native row skipped when these rows were
-first taken are both closed, and both are worth recording because the closing is
-what made the realistic rows measurable:
+The harness asks `Backend::missing_intrinsics` before any timer, for the same
+reason it compiles the corpus before any timer: a backend that would have failed
+must not be measured failing. Both reasons a native row skipped when these rows
+were first taken are now closed, and both are worth recording, because closing
+them is what made the realistic rows measurable:
 
 - **`list.filter`, `list.fold`, `list.mapCtx`.** The debug backend of the day —
-  Cranelift, removed 2026-08-29 — had no body for them and the realistic mix
-  calls all three, so every realistic native row skipped. Ten of the closure
-  surface were emitted by the time it went, and the copy-and-patch backend that
-  replaced it emits the surface the conformance corpus needs;
-  `Backend::missing_intrinsics` is the question, asked per backend, and
-  `design/native/CODEGEN-STENCIL.md` §9 is what the current one does not do.
+  Cranelift, removed 2026-08-29 — had no body for them, and the realistic mix
+  calls all three, so every realistic native row skipped. It emitted ten of the
+  closure surface by the time it went, and the copy-and-patch backend that
+  replaced it emits the surface the conformance corpus needs.
+  `Backend::missing_intrinsics` asks the question per backend, and
+  `design/native/CODEGEN-STENCIL.md` §9 lists what the current one does not do.
 - **`Too many return values to fit in registers`** on either x86_64 triple, for
-  `main`: `Result<(), Str>` is three scalars and the SysV return convention has
+  `main`. `Result<(), Str>` is three scalars, the SysV return convention has
   two, and AArch64's eight had hidden it. The fix is a convention rather than a
-  special case — beyond `MAX_RET_LEAVES` a result travels through an
-  out-pointer the caller passes and the callee writes, which is the rule the
-  runtime's C entries already followed. The threshold is a constant rather than
-  a question asked of the ISA, so the memory path is the path every test on
-  every host walks.
+  special case: beyond `MAX_RET_LEAVES` a result travels through an out-pointer
+  the caller passes and the callee writes, the rule the runtime's C entries
+  already followed. The threshold is a constant rather than a question put to
+  the ISA, so every test on every host walks the memory path.
 
 ---
 
 ## 5. How large the compiler is
 
-The size census, so that "the compiler got smaller" is a claim somebody can
-check. Rust under `cli/src`, counted by a script rather than by a line counter
-this repository would have to depend on. A line is a comment when it begins with
-`//`.
+The size census, so "the compiler got smaller" is a claim somebody can check.
+Rust under `cli/src`, counted by a script rather than by a line counter this
+repository would have to depend on. A line counts as a comment when it begins
+with `//`.
 
 **Re-taken whole on 2026-09-01, at `0c66339d`**, which is the promise the
-previous census left: that one still counted `compiler/backend/cranelift`, five
-files and 8,634 lines the tree lost on 2026-08-29, and every total in it was
-stale by a backend. The `before` column below is that census; nothing in it was
-subtracted by hand.
+previous census left. That one still counted `compiler/backend/cranelift`, five
+files and 8,634 lines the tree lost on 2026-08-29, so every total in it was
+stale by a backend. The `before` column below is that census, and nobody
+subtracted anything from it by hand.
 
 | Area | Files | Code | Comment | Blank | Total | Comment share | before, total |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -824,8 +820,8 @@ native backends are another 34.8k on top of it, down from three and 38k, and
 they are not what the goals measure — goal 3 is a lowering rate, and a backend
 that is twice the code for the same rate has spent it on something else.
 
-**The compiler is also something that has to be built and shipped, and the
-2026-08-29 removal moved both.** Measured on the machine and toolchain of §6,
+**The compiler also has to be built and shipped, and the 2026-08-29 removal
+moved both.** Measured on the machine and toolchain of §6,
 from a clean `cargo build --release -p buri` with default features, at the
 commit before the removal and the commit after it:
 
@@ -836,27 +832,27 @@ commit before the removal and the commit after it:
 | `buri`, as linked | 17.57 MB | 22.63 MB |
 | `__TEXT.__text` — the machine code in it | 8.37 MB | **3.03 MB** |
 
-The first two rows are the whole of the case for the removal. **The default
-toolchain now resolves nothing at all** — the dependency bar in the workspace
-manifest is back to zero admitted crates, which is what its own comment claims —
-and a clean release build is 68.7 s faster, a little over half what it was. The
+The first two rows are the whole case for the removal. **The default toolchain
+now resolves nothing at all**: the dependency bar in the workspace manifest is
+back to zero admitted crates, which is what its own comment claims. And a clean
+release build is 68.7 s faster, a little over half what it was. The
 38 that went were Cranelift and its transitive closure: eleven `cranelift-*`
 crates, `regalloc2`, `pulley-interpreter`, `object`, `gimli`, `indexmap`,
 `hashbrown` twice, `syn`/`quote`/`proc-macro2`, and seventeen more. Building the
 bench binary halved with them, 2 m 02 s to 1 m 01 s.
 
-**The last two rows have to be quoted together or they mislead.** Machine code
-fell by 5.35 MB, to 0.36× what it was, and dependency-derived constant and
-linkedit data by 1.1 MB more — and the shipped binary nonetheless grew by
-5.06 MB. Both are true and they have one cause: the three baked stencil
-libraries are 11.93 MB of `include_bytes!` data, byte-identical in the two
-builds, and before the removal nothing in the `buri` *binary* selected the
-copy-and-patch backend, so the linker dead-stripped them. That was verified
-rather than assumed — three 48-byte probes from the head, middle and tail of
-`stencils-macos-arm64.bin` are found in the newer image and are absent from the
-older one. After the removal that data *is* the code generator. Quoting the
-total alone reads as a regression the removal did not cause; quoting `__text`
-alone claims a saving the disk does not see.
+**Quote the last two rows together or they mislead.** Machine code fell by
+5.35 MB, to 0.36× what it was, and dependency-derived constant and linkedit data
+by 1.1 MB more — and the shipped binary still grew by 5.06 MB. Both are true,
+and one cause explains them: the three baked stencil libraries are 11.93 MB of
+`include_bytes!` data, byte-identical in the two builds, and before the removal
+nothing in the `buri` *binary* selected the copy-and-patch backend, so the
+linker dead-stripped them. Somebody checked that rather than assuming it — three
+48-byte probes from the head, middle and tail of `stencils-macos-arm64.bin` turn
+up in the newer image and are missing from the older one. After the removal that
+data *is* the code generator. Quoting the total alone reads as a regression the
+removal did not cause; quoting `__text` alone claims a saving the disk never
+sees.
 
 **Both sides of that were re-measured on 2026-09-01**, `cargo build --release
 -p buri` with default features at `f9fffe1c` and at `0c66339d`, on this machine,
@@ -885,26 +881,26 @@ grows by four megabytes.
 ## 6. Where the toolchain stands
 
 Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
-`0x0b001a575eed0001`, protocol as §2. A gap of 1.0 means the goal is met; below
-1.0 means it is beaten.
+`0x0b001a575eed0001`, protocol as §2. A gap of 1.0 means the row meets its goal;
+below 1.0 means it beats it.
 
 > **The native figures here were re-taken on 2026-08-29, after Cranelift was
 > removed.** Every native row below is the copy-and-patch backend's
 > (`design/native/CODEGEN-STENCIL.md`), measured against the same rows taken at
 > the commit immediately before the removal, on this machine, over the same
 > corpora, both binaries built `--release`. The front-end and JavaScript rows
-> moved by less than their dispersion and were not expected to move at all: the
-> removal touches the native branch and nothing else. Anything not re-taken says
-> so where it stands and keeps its own date — `buri test`'s native default is
-> 2026-08-21, generator revision 4 is 2026-08-27.
+> moved by less than their dispersion, and nobody expected them to move at all:
+> the removal touches the native branch and nothing else. Anything not re-taken
+> says so where it stands and keeps its own date — `buri test`'s native default
+> is 2026-08-21, generator revision 4 is 2026-08-27.
 >
 > **One command takes this table again.** The previous revision of this
-> paragraph said `cargo bench -p buri --bench compiler` could not complete a
+> paragraph said `cargo bench -p buri --bench compiler` could not finish a
 > default run at all: it overflowed the main thread's stack on `wide-match/10k`,
 > after every `mixed` scale and every realistic profile had finished and before
 > that corpus's first timer, so the rows had to be assembled out of `--only=`
-> selections. **That is closed**, and it was checked rather than assumed — both
-> binaries were rebuilt and run on 2026-09-01 on this machine, each from its own
+> selections. **That is closed**, and somebody checked rather than assuming it:
+> both binaries rebuilt and run on 2026-09-01 on this machine, each from its own
 > tree, each from the bare command:
 >
 > | | `--validate` | a default run |
@@ -915,15 +911,14 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > So the table is one invocation again, and the dispersion column is what says
 > whether the invocation was worth quoting: every `mixed/100k` row below is the
 > better reading of three processes whose every MAD is ≤ 2.8%, inside §2's ±5%.
-> Anything not re-taken says so where it stands and keeps its own date.
 
 > **Generator revision 7, 2026-08-31 — a break in the series, announced, and
 > the first one that moves a corpus's *shape* rather than only its bytes.**
 > Every module now leaves `generate.rs` through `formatting::source`, so a
 > generated corpus is what `buri format` writes: four spaces, a sorted import
 > run, a `derive` above the declaration it is about, and a body the emitter put
-> on one line broken where the printer breaks it. §3.1's rule applies and was
-> followed — **all eight** saved corpora were re-recorded and **all forty**
+> on one line broken where the printer breaks it. §3.1's rule applies, and this
+> revision followed it: **all eight** saved corpora re-recorded, **all forty**
 > pinned manifests re-pinned. Every one of the forty is a **six**-line change,
 > and the two extra lines are the point: `lines` and `modules` moved this time,
 > where revisions 2, 4, 5 and 6 moved only `bytes` and the digest.
@@ -935,7 +930,7 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > by at most **+1.54%** on any of them (`mixed-many-files-100k`). So every
 > lines/s reading below is comparable with one taken at revision 6 to inside
 > half a percent — well inside the dispersion the protocol already reports —
-> and the table was not re-taken for this revision.
+> and nobody re-took the table for this revision.
 >
 > **The byte count moved where the layout is what the point is about**, and
 > `modules` fell on nineteen of the twenty points — 360 → 348 on the anchor,
