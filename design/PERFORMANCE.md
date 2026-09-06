@@ -1,8 +1,8 @@
 # Compiler performance
 
-**What the toolchain is expected to be fast at, how fast, and how that is
-measured.** The audience is somebody about to optimize a phase — or about to
-argue that a change is worth its complexity.
+**What the toolchain should be fast at, how fast, and how the suite measures
+it.** Written for somebody about to optimize a phase, or about to argue that a
+change is worth its complexity.
 
 Three numbers, and everything else on this page exists to make them mean
 something:
@@ -14,42 +14,41 @@ something:
 | Lowering to a binary or to JavaScript | **100,000 lines/second** | 10 µs |
 
 They are **goals, not claims**. Semantic analysis and both lowering paths meet
-theirs — the native one since 2026-08-29, its first time; lex+parse does not,
-and §6 records by how much. `cli/benches/compiler.rs` is what keeps saying so.
+theirs, the native one since 2026-08-29, its first time. Lex+parse does not, and
+§6 records by how much. `cli/benches/compiler.rs` is what keeps saying so.
 
 ---
 
 ## 1. Why these three, and why these numbers
 
 The three come from Chandler Carruth's *Modernizing Compiler Design for
-Carbon's Toolchain* (CppNow 2023), which states the same ladder for the same
-reason: a compiler's phases have wildly different costs per line, so one
-aggregate figure hides which phase is the problem. Carbon's slides give the
-budgets as 100 ns, 1 µs and 10 µs per line, and derive from the first of them
-the constraints that shaped their whole front end — *200–300 cycles per line
-lexed and parsed*, *about one main-memory access per line*, *no allocation per
-token*.
+Carbon's Toolchain* (CppNow 2023), which gives the same ladder for the same
+reason: a compiler's phases cost wildly different amounts per line, so one
+aggregate figure hides which phase is the problem. Carbon's slides put the
+budgets at 100 ns, 1 µs and 10 µs per line, and the first of them gave them the
+constraints that shaped their whole front end — *200–300 cycles per line lexed
+and parsed*, *about one main-memory access per line*, *no allocation per token*.
 
-Adopting the ladder rather than inventing one is deliberate. A goal nobody else
-has tried to hit is a goal nobody can tell you is unreasonable, and this one has
-public evidence on both sides: Carbon measured 6.7 M lines/s lexing and 1.9 M
-lines/s through lex+parse on a server CPU, and Ben Titzer's public objection is
-that 10 M lines/s is roughly 400 MB/s and that V8's JavaScript parser — the
-fastest he knows of — runs at 60–80 MB/s. So the first goal is either at the
-edge of what is possible or slightly past it, and that is the useful kind of
-target: missing it by 3× is information, and missing it by 300× is a bug.
+Borrowing the ladder rather than inventing one is deliberate. Nobody can tell
+you a goal is unreasonable if nobody else has tried to hit it, and this one has
+public evidence on both sides. Carbon measured 6.7 M lines/s lexing and 1.9 M
+lines/s through lex+parse on a server CPU. Ben Titzer objects in public that
+10 M lines/s is roughly 400 MB/s, and that V8's JavaScript parser — the fastest
+he knows of — runs at 60–80 MB/s. So the first goal sits at the edge of what is
+possible, or slightly past it, and that is the useful kind of target: missing it
+by 3× is information, missing it by 300× is a bug.
 
 **Three separate budgets rather than one, and the first of them shared.**
-Lexing and parsing are one budget because they are one decision: a front end
-that fuses them, or that lexes lazily from the parser, or that parses straight
-out of a token buffer, should be free to move work across that line without the
-scorecard changing. They are still reported separately, because the split is
-free — `parser::parse` calls `lex` as its first act — and because a regression
-in one of them should not have to be inferred.
+Lexing and parsing share a budget because they are one decision: a front end
+that fuses them, or lexes lazily from the parser, or parses straight out of a
+token buffer, should be free to move work across that line without the scorecard
+changing. The suite still reports them separately, because the split is free —
+`parser::parse` calls `lex` as its first act — and because you should not have
+to infer a regression in one of them.
 
 **Why the goals are per-phase throughput rather than end-to-end wall time.**
 Wall time is what a user feels, and it is the wrong thing to hold a compiler to
-in a design document: it moves with the build cache, with parallelism, with how
+in a design document. It moves with the build cache, with parallelism, with how
 much of the standard library a program touches, and with the linker. Throughput
 per phase is a property of the code in that phase, and it is the only figure
 that says *which* phase to work on.
@@ -72,8 +71,7 @@ that says *which* phase to work on.
 
 ## 2. What counts as a line
 
-A benchmark whose denominator is undefined is a benchmark that can be argued
-into any answer. So:
+A benchmark with an undefined denominator can be argued into any answer. So:
 
 > **A line is a non-blank line of the input program's own source, comments
 > included.**
@@ -82,13 +80,13 @@ Four decisions, each of which could have gone the other way:
 
 1. **Non-blank.** A blank line is free in every phase, so counting them would
    make the toolchain look faster on prettier code. Carbon's generator emits 15%
-   blank lines precisely because their absence would be unrepresentative; here
-   they are generated *and* excluded from the denominator, which is the
+   blank lines precisely because leaving them out would be unrepresentative.
+   This generator emits them *and* drops them from the denominator, which is the
    conservative combination.
 
 2. **Comments count.** They are 22% of lines in the codebases Carbon measured
    and about the same here, the lexer reads every byte of them, and the parser
-   attaches the doc comments among them to declarations. Excluding them would
+   attaches the doc comments among them to declarations. Dropping them would
    flatter the toolchain in exact proportion to how well the source is
    documented, which is the wrong incentive to build into a scorecard.
 
@@ -96,22 +94,22 @@ Four decisions, each of which could have gone the other way:
    also checks whatever of `core/*` it reaches, and at a thousand lines that
    fixed cost is most of the measurement. Counting those lines would make small
    programs look fast for a reason that has nothing to do with them. Instead the
-   fixed cost is measured on its own and reported beside the rate — see §3, "The
-   prelude floor".
+   suite measures that fixed cost on its own and reports it beside the rate —
+   see §3, "The prelude floor".
 
-4. **Lines, with bytes and tokens beside them.** The goal is stated in lines
-   because that is the unit a person writes in. It is a *bad* unit for comparing
-   two compilers or two languages — it moves with line density, and Buri's lines
+4. **Lines, with bytes and tokens beside them.** The goals use lines because
+   that is the unit a person writes in. Lines are a *bad* unit for comparing two
+   compilers or two languages — they move with line density, and Buri's lines
    are shorter than C++'s — so the suite reports bytes/second and
    tokens/second in the same rows. Carbon reports all three for this reason, and
-   the divergence between them is the signal: a line rate is hostage to source
+   where the three diverge is the signal: a line rate is hostage to source
    density, a byte rate to identifier length, and only the token rate tracks
    what the lexer's inner loop actually does.
 
 ### The rest of the protocol
 
-- **In memory.** Sources are strings the benchmark already holds. No file is
-  read inside a timer. `SourceMap` is populated before measurement.
+- **In memory.** Sources are strings the benchmark already holds. No timer ever
+  spans a file read, and the benchmark fills the `SourceMap` before it measures.
 - **Single-threaded.** The toolchain is single-threaded through the front end
   today. When that changes, the goals stay per-thread and a parallel figure is a
   new row, not a redefinition of these.
@@ -124,28 +122,27 @@ Four decisions, each of which could have gone the other way:
   least three quarters of a second of sampling per row.
 - **One documented deviation, above 500,000 lines.** The scale tier (§4) takes
   at least **3** repetitions rather than at least 10, and one warmup call rather
-  than two. Everything else is unchanged, including the three-quarter-second
-  sampling floor — which is never the binding rule at that size, so the cheap
-  phases still take nine or ten repetitions and only the expensive ones fall to
-  three. The reason is arithmetic: native lowering at a million lines is thirty
-  seconds a repetition, so the ten-repetition rule would cost six minutes for
-  one row and about forty for the tier. Rows taken under the deviation say so,
-  in the table and in `--json`'s `protocol` field, because a deviation nobody
-  can see in the output is a deviation nobody can account for. What it costs is
-  the dispersion column: a MAD over three samples is a much weaker statement
-  than a MAD over ten, and the scale rows should be read for their order of
-  magnitude rather than their last digit.
+  than two. Nothing else changes, including the three-quarter-second sampling
+  floor — never the binding rule at that size, so the cheap phases still take
+  nine or ten repetitions and only the expensive ones fall to three. The reason
+  is arithmetic: native lowering at a million lines is thirty seconds a
+  repetition, so the ten-repetition rule would cost six minutes for one row and
+  about forty for the tier. Rows taken under the deviation say so, in the table
+  and in `--json`'s `protocol` field, because nobody can account for a deviation
+  they cannot see in the output. It costs the dispersion column: a MAD over
+  three samples is a much weaker statement than a MAD over ten, so read the
+  scale rows for their order of magnitude rather than their last digit.
 - **Median, with dispersion as MAD/median.** Not a mean, and not a standard
   deviation. A benchmark's distribution is one-sided — the machine can only make
   a run slower — so a symmetric summary is the wrong one and an
   outlier-sensitive one is worse. Carbon's own harness rejects normality
-  outright and uses a non-parametric test for the same reason. The fastest
-  sample is also reported, as the least-noise reading of the same quantity.
-- **Frequency scaling and thermal drift are not controlled**, and this is a
-  known weakness. The mitigations are the warmup, the median, and reporting
-  dispersion so that a run taken on a throttled laptop is visibly noisier rather
-  than quietly wrong. A ±MAD above about 5% should be treated as a run to
-  discard rather than a number to record.
+  outright and uses a non-parametric test for the same reason. The suite also
+  reports the fastest sample, as the least-noise reading of the same quantity.
+- **Nothing controls frequency scaling or thermal drift**, and that is a known
+  weakness. The warmup, the median, and the reported dispersion are the
+  mitigations: a run taken on a throttled laptop comes out visibly noisier
+  rather than quietly wrong. Treat a ±MAD above about 5% as a run to discard
+  rather than a number to record.
 
 ---
 
@@ -158,122 +155,119 @@ says why.
 ### 3.1 The rules adopted
 
 **Generate most of the corpus; check a little of it in.** The rule used to be
-"generate it, and check nothing in", and the argument was that a checked-in
-megafile fixes one scale forever, drifts from the language as the language
-moves, and cannot be reviewed. All three of those are still true, and none of
-them is an argument against a *small* checked-in corpus with a manifest — they
-are arguments against a large one with no provenance. What the old rule could
-not do is compare a number taken today with one taken in March, because the
-generator is a program under active development and a change to it moves the
-bytes it emits without moving any code the benchmark measures.
+"generate it, and check nothing in". The argument: a checked-in megafile fixes
+one scale forever, drifts from the language as the language moves, and cannot be
+reviewed. All three are still true, and none of them argues against a *small*
+checked-in corpus with a manifest — they argue against a large one with no
+provenance. What the old rule could not do is compare a number taken today with
+one taken in March, because the generator is under active development, and a
+change to it moves the bytes it emits without moving any code the benchmark
+measures.
 
 So the suite runs three kinds of corpus, and each is answerable for something
 the others cannot promise:
 
 **Generated per run** — `cli/benches/generate.rs`, from a profile, a parameter
-set and a fixed seed. This is what buys *scale flexibility* (1k to 100k on one
-flag, and the 100k rows are 3.5 MB of source that has no business in a git
-history), what buys *coverage of the parameter space* (twenty named profiles
-cost nothing to keep), and what buys *no drift blindspot*: a generator that has
-fallen out of the language shows up as a failed validation on the next run,
-whereas a checked-in corpus can only fall out of the language silently and would
-keep compiling long after the constructs in it stopped being idiomatic.
+set and a fixed seed. This buys *scale flexibility* (1k to 100k on one flag, and
+the 100k rows are 3.5 MB of source that has no business in a git history),
+*coverage of the parameter space* (twenty named profiles cost nothing to keep),
+and *no drift blindspot*: a generator that has fallen out of the language fails
+validation on the next run, while a checked-in corpus falls out of the language
+silently and keeps compiling long after its constructs stop being idiomatic.
 
 **Checked in** — `cli/benches/corpora/<name>/`, eight small corpora with a
 `manifest.txt` recording the profile, the parameters, the seed, the generator
-revision, the counts, and a digest. This is what buys *byte-stability over
-time*, and that is the only thing it buys: two runs a year apart compile the
-same bytes, so a difference between them is a difference in the compiler. It is
-also what makes a change to the generator reviewable, because the diff of a
-re-recorded corpus is the change's effect on the input, stated in the language
-rather than in Rust.
+revision, the counts, and a digest. This buys *byte-stability over time*, and nothing else:
+two runs a year apart compile the same bytes, so a difference between them is a
+difference in the compiler. It also makes a change to the generator reviewable,
+because the diff of a re-recorded corpus shows the change's effect on the input,
+in Buri rather than in Rust.
 
 **Digest-pinned** — `cli/benches/pinned/<name>.txt`, a manifest with no source
-beside it. It records what a saved corpus's does — profile, parameters, seed,
-generator revision, counts — and the SHA-256 of the bytes that combination
-produced; the harness regenerates the corpus on every run and checks the digest
-**before it measures anything**. This is what buys byte-stability *at a scale a
-git history cannot hold*: the 100,000-line corpus is 3.5 MB and the
+beside it. It records what a saved corpus's manifest records — profile,
+parameters, seed, generator revision, counts — plus the SHA-256 of the bytes
+that combination produced. The harness regenerates the corpus on every run and
+checks the digest **before it measures anything**. This buys byte-stability *at
+a scale a git history cannot hold*: the 100,000-line corpus is 3.5 MB and the
 million-line one is 35 MB, against a repository whose whole history is 15 MB,
 and the manifest for either is four hundred bytes.
 
-There are forty of them, and forty is not forty arbitrary corpora: it is
-**twenty parameter points at two scales**, a point being a name and a seed and a
-delta from `Params::default()`, and its two corpora sharing that seed so that the
-only thing differing between a point's 100k row and its 1M row is the size. The
-whole set costs 15,546 bytes of git — `cat cli/benches/pinned/*.txt | wc -c`,
-2026-09-01 — which is the argument for the kind stated as a number. §4 lists
-the points and what each moves.
+There are forty of them, and they are not forty arbitrary corpora. They are
+**twenty parameter points at two scales**. A point is a name, a seed and a delta
+from `Params::default()`, and its two corpora share that seed, so the only
+difference between a point's 100k row and its 1M row is the size. The whole set
+costs 15,546 bytes of git — `cat cli/benches/pinned/*.txt | wc -c`, 2026-09-01 —
+which is the argument for this kind stated as a number. §4 lists the points and
+what each moves.
 
-The reasoning is that the two properties a saved corpus bundles together are
-separable. "These are the bytes" is worth checking in; "here they are" is what
-costs the megabytes. A digest gives the first without the second, and the check
-it enables is strictly the same one — `corpus::digest` is one function and both
-kinds go through it, so pinning a corpus that is *also* checked in produces the
-same hash, which is how the generator's byte-identity across a change is
-verified in practice.
+The reasoning: a saved corpus bundles two separable properties. "These are the
+bytes" is worth checking in; "here they are" is what costs the megabytes. A
+digest gives the first without the second, and the check it enables is strictly
+the same one — `corpus::digest` is one function and both kinds go through it, so
+pinning a corpus that is *also* checked in produces the same hash, which is how
+you verify the generator's byte-identity across a change in practice.
 
-What it gives up is the reviewable diff, and that is the whole of the cost.
-When a saved corpus moves, the diff says *what* moved, in Buri. When a pinned
-one moves, the failure has two hashes in it and the counts beside them — which
-is why the manifest records `lines`, `bytes` and `modules` as well, so that a
-mismatch can at least say whether the shape changed or only its contents.
-Recovering the rest means regenerating both revisions by hand. That trade is
-right for the scale tier and wrong for a 1,000-line corpus, which is why both
-kinds exist rather than one replacing the other.
+It gives up the reviewable diff, and that is the whole cost. When a saved corpus
+moves, the diff says *what* moved, in Buri. When a pinned one moves, the failure
+carries two hashes and the counts beside them — which is why the manifest
+records `lines`, `bytes` and `modules` as well, so a mismatch can at least say
+whether the shape changed or only its contents. Recovering the rest means
+regenerating both revisions by hand. That trade is right for the scale tier and
+wrong for a 1,000-line corpus, which is why both kinds exist rather than one
+replacing the other.
 
 All three kinds obey the same validity rules, without exception:
 
-- **All are compiled before any is measured.** A saved corpus that has stopped
-  being valid Buri is a build failure, exactly as a drifted generator is.
-  `--validate` covers the saved half whatever `--set` was asked for, and CI runs
-  it. How much of the *pinned* half it covers is `--set`'s business, because
-  regenerating and digesting forty corpora, half of them a million lines, is
-  three minutes and a plain `--validate` has to stay the check somebody takes
-  before a commit. So: none under `--quick`, which is the CI gate and has to stay
-  under a second and is 0.4 s; the anchor — `mixed` at both scales — under a
-  plain `--validate`, which is what it covered when there were only two
-  manifests and is thirteen seconds; the sample under `--validate --set=scale`,
-  twenty-seven seconds; all forty under `--validate --set=scale-full`, four
-  minutes and twenty. Those four were re-measured on 2026-09-01 and §4 says
-  under what conditions. The rule that does not bend is the last row: **the
-  whole pinned half is checkable by one documented command**, and a re-pin is
-  what happens when it fails.
-- **All are in memory before any timer starts.** A saved corpus is loaded, and a
-  pinned one regenerated *and* digest-checked, into the same `Program` a
-  generator returns; the harness has one measurement path, and no file is read
-  inside a timer.
+- **The suite compiles all of them before it measures any.** A saved corpus that
+  has stopped being valid Buri is a build failure, exactly as a drifted
+  generator is. `--validate` covers the saved half whatever `--set` you asked
+  for, and CI runs it. How much of the *pinned* half it covers is `--set`'s
+  business, because regenerating and digesting forty corpora, half of them a
+  million lines, takes three minutes, and a plain `--validate` has to stay the
+  check somebody runs before a commit. So: none under `--quick`, which is the CI
+  gate, has to stay under a second, and is 0.4 s; the anchor — `mixed` at both
+  scales — under a plain `--validate`, which is what it covered when there were
+  only two manifests and is thirteen seconds; the sample under
+  `--validate --set=scale`, twenty-seven seconds; all forty under
+  `--validate --set=scale-full`, four minutes and twenty. Those four were
+  re-measured on 2026-09-01 and §4 says under what conditions. The rule that
+  does not bend is the last row: **one documented command checks the whole
+  pinned half**, and a re-pin is what happens when it fails.
+- **All are in memory before any timer starts.** The harness loads a saved
+  corpus, and regenerates *and* digest-checks a pinned one, into the same
+  `Program` a generator returns. There is one measurement path, and no timer
+  spans a file read.
 - **All must be reachable from `main`.** `--validate` reports the monomorphized
   function count for each, for the reason the next-but-one rule gives.
-- **All are stress-or-realistic, never both.** The family is a property of the
-  profile and a saved or pinned corpus inherits it; the goal column is printed
-  only for the realistic family, and `Family` is a type in `generate.rs` rather
-  than a convention, so the rule is unrepresentable-to-violate rather than
-  merely written down. With one derivation on top, for the parameter points the
+- **Every corpus is stress or realistic, never both.** The family belongs to the
+  profile, and a saved or pinned corpus inherits it. The harness prints the goal
+  column only for the realistic family, and `Family` is a type in `generate.rs`
+  rather than a convention, so violating the rule is unrepresentable rather than
+  merely discouraged. One derivation sits on top, for the parameter points the
   scale tier introduced: a corpus whose `params` move anything its profile does
-  not **is** a stress shape, whatever family the profile it is a delta from
-  belongs to. A point is one dial pushed until it is most of the corpus, which
-  is this section's own definition of the stress family, so `mixed` with
-  `w_string_fn=8` is quoted against no goal — and that is derived from the
-  manifest rather than remembered by whoever pinned it.
-- **None is allowed to become the only one.** The headline scale — 100k lines —
-  is generated *and* pinned, and the saved anchor is 10k. So §6 records **both**
-  the generated and the saved reading of `mixed`, and the two deltas are
-  compared: when the compiler changes, both move together; when the *generator*
-  changes, only the generated one moves. That pairing is what replaces the
-  guarantee the old rule was reaching for, and it is stronger than either corpus
-  alone. The pinned 100k row is the third leg of it: it is the same bytes as the
-  generated 100k row, checked, so the two agreeing is the pinning scheme
-  reporting that it works.
+  not **is** a stress shape, whatever family its base profile belongs to. A
+  point is one dial pushed until it is most of the corpus, which is this
+  section's own definition of the stress family, so `mixed` with
+  `w_string_fn=8` is quoted against no goal. The manifest says so; nobody has to
+  remember it.
+- **No corpus is allowed to become the only one.** The headline scale — 100k
+  lines — is generated *and* pinned, and the saved anchor is 10k. So §6 records
+  **both** the generated and the saved reading of `mixed`, and compares the two
+  deltas: when the compiler changes, both move together; when the *generator*
+  changes, only the generated one moves. That pairing replaces the guarantee the
+  old rule was reaching for, and it is stronger than either corpus alone. The
+  pinned 100k row is the third leg: it is the same bytes as the generated 100k
+  row, checked, so the two agreeing is the pinning scheme reporting that it
+  works.
 
 And one rule that applies only to the two kinds with a manifest, because it is
 the failure mode a recorded corpus has and a generated one does not:
 
-- **Re-recording is a break in the series, and it is announced.** A saved corpus
-  is re-recorded, and a pinned one re-pinned, only when it stops compiling or
-  when the generator revision it names is retired; it bumps `revision` in the
+- **Re-recording breaks the series, so it gets announced.** A saved corpus gets
+  re-recorded, and a pinned one re-pinned, only when it stops compiling or when
+  the generator revision it names is retired. That bumps `revision` in the
   manifest, `--json` carries `corpus_revision`, and §6 says which revision its
-  numbers were taken at. A corpus that cannot be regenerated is deleted, not
+  numbers came from. A corpus that cannot be regenerated gets deleted, not
   repaired. `cli/benches/corpora/README.md` and `cli/benches/pinned/README.md`
   are the operational form of this, with the caps — 512 KiB per corpus, 2 MiB in
   total — that keep the saved half small. The pinned half has no cap because it
@@ -285,24 +279,24 @@ the failure mode a recorded corpus has and a generated one does not:
   digests and both sets of counts, and the fix is either to find what moved in
   the generator or to re-pin deliberately.
 
-**Validate before measuring.** Every generated program is compiled through the
-real front end — loader, checker, and all — and the suite exits non-zero if it
+**Validate before measuring.** The suite compiles every generated program
+through the real front end — loader, checker, and all — and exits non-zero if it
 does not compile. *A benchmark over source that does not compile is a benchmark
 of the error paths.* Carbon asserts `!buffer.has_errors()` inside each lexer
-benchmark for exactly this; here the check is one level up, over the whole
+benchmark for exactly this; here the check sits one level up, over the whole
 corpus, before any timer starts.
 
 **A cell that drives the binary starts from a cache no other binary wrote.**
-This one is not about the bench target — which compiles in process and keeps no
-cache — but about the end-to-end cells §6 quotes, and about any harness that asks
-whether an incremental build is byte-identical to a `--force` one. A cache key
-carries `arguments::VERSION`, which is `CARGO_PKG_VERSION`: a *version*, not a
-hash of the running executable. So rebuilding `buri` at the same version moves
+This rule is not about the bench target, which compiles in process and keeps no
+cache. It is about the end-to-end cells §6 quotes, and about any harness that
+asks whether an incremental build is byte-identical to a `--force` one. A cache
+key carries `arguments::VERSION`, which is `CARGO_PKG_VERSION`: a *version*, not
+a hash of the running executable. So rebuilding `buri` at the same version moves
 no key, and the first build in a workspace whose `.buri` a previous binary wrote
-is a mix of the two compilers' objects — every unit whose IR did not move is
-served from the old one. It is a single build: the second agrees with itself,
-which is what makes the reading look like noise. Fresh tree, or `--force`, or
-`buri clean`, before a cell that spans a compiler rebuild. `buri docs
+mixes the two compilers' objects — every unit whose IR did not move comes from
+the old one. Only that first build is affected: the second agrees with itself,
+which is what makes the reading look like noise. Use a fresh tree, or `--force`,
+or `buri clean`, before a cell that spans a compiler rebuild. `buri docs
 build/hermeticity`, "The toolchain in the key", is the same warning where a user
 of the toolchain will find it.
 
@@ -329,11 +323,10 @@ modules with a real import graph — `--validate`'s own count at generator
 revision 7, down from the 389 this line used to quote because a laid-out module
 reaches its line target with fewer declarations (§6) — each module calling into
 one to three others' functions *and* naming one of their types. Three reasons,
-all Carbon's: it stops
-branch prediction from memorizing one file's shape, it gets closer to the
-cache-cold behaviour that matters in practice, and it avoids anchoring on a
-single file that may be unrepresentative. A fourth is specific to this
-toolchain: cross-module resolution is where semantic analysis would be
+all Carbon's: it stops branch prediction from memorizing one file's shape, it
+gets closer to the cache-cold behaviour that matters in practice, and it avoids
+anchoring on a single file that may be unrepresentative. A fourth is specific to
+this toolchain: cross-module resolution is where semantic analysis would be
 superlinear if it were superlinear anywhere, and one big file would never
 exercise it.
 
@@ -341,27 +334,27 @@ exercise it.
 lines by default; the scale tier adds 1M behind `--set=scale` (§4). A single
 scale point cannot show a cache cliff, and Carbon's numbers fall 6.70 → 5.02 M
 lines/s between 1k and 256k — the fall-off *is* the finding. The default run
-stops at 100k for wall time and not for principle, which is why the fourth
-order of magnitude is a flag rather than an absence, and §6.4's first finding
-is what it found the first time it was taken.
+stops at 100k for wall time rather than for principle, which is why the fourth
+order of magnitude is a flag rather than an absence, and §6.4's first finding is
+what the flag turned up the first time somebody used it.
 
-**Phase isolation at the compiler's own seams.** Not a reimplementation of the
-phases in the harness: each timer wraps the same function the driver calls. The
+**Phase isolation at the compiler's own seams.** The harness does not
+reimplement the phases: each timer wraps the same function the driver calls. The
 isolation falls out of the signatures — `Checker::run` takes `&Loaded` and
 returns a fresh `Checked`, `monomorphize::run` takes `&Checked` and returns a
 fresh `Program` — so a repetition cannot see the previous one's work, and
-nothing has to be cloned to make that true. The parse cache
-(`parser::Cache`) is filled before the semantic-analysis timer starts, which is
-what keeps parsing out of that measurement.
+nothing has to be cloned to make that true. The harness fills the parse cache
+(`parser::Cache`) before the semantic-analysis timer starts, which is what keeps
+parsing out of that measurement.
 
 **Block the optimizer, but not the code under test.** Each result goes through
-`std::hint::black_box`. Carbon's sharper version of this — putting the barrier
-on the loop's induction variable rather than the result, so the clobber does not
-perturb codegen inside the region being measured, and making the loop index
+`std::hint::black_box`. Carbon has a sharper version: put the barrier on the
+loop's induction variable rather than the result, so the clobber does not
+perturb codegen inside the measured region, and make the loop index
 data-dependent on the phase's return value to stop the CPU speculating into the
-next iteration — is worth adopting if these rows ever get tight enough for it to
-matter. It is not adopted yet; at the current gap factors it would be noise
-about noise.
+next iteration. Worth adopting if these rows ever get tight enough for it to
+matter. Not adopted yet; at the current gap factors it would be noise about
+noise.
 
 **Report the fixed cost separately.** See below.
 
@@ -373,53 +366,50 @@ measures that cost on its own — a module with the corpus's three imports and a
 trivial `main` — prints it in the header, and reports both a gross rate and a
 rate net of it. At 1,000 lines the floor is most of the measurement; at 100,000
 it is a rounding error, and the two figures converging is itself a check that
-the floor was measured correctly. Carbon has a whole second benchmark binary for
-this (`prelude_benchmark.cpp`), and it is what explains their otherwise puzzling
-result that checking is *faster* at 16k lines than at 256.
+the floor came out right. Carbon has a whole second benchmark binary for this
+(`prelude_benchmark.cpp`), and it explains their otherwise puzzling result that
+checking is *faster* at 16k lines than at 256.
 
 ### 3.2 What was deliberately not adopted
 
 - **`criterion`, or any benchmark framework.** The dependency bar in the
   workspace manifest admits code generators and platform interfaces; a
-  statistics library is neither. What a harness has to do here is warm up,
-  repeat, and report a median with its spread, and that is a hundred and fifty
-  lines. The cost of this decision is real and worth naming: no bootstrapped
-  confidence intervals, no automatic outlier classification, no HTML report.
-  What replaces them is a `--json` mode and the discipline of reading the
-  dispersion column.
+  statistics library is neither. A harness here has to warm up, repeat, and
+  report a median with its spread, and that is a hundred and fifty lines. The
+  cost of this decision is real and worth naming: no bootstrapped confidence
+  intervals, no automatic outlier classification, no HTML report. A `--json`
+  mode and the discipline of reading the dispersion column replace them.
 
 - **Deterministic totals with randomized order.** Carbon's generator works
   hard to shuffle structure while holding the *total* count of every construct
-  fixed, so that two runs do identical total work; a review found that not doing
-  so cost 3% of run-to-run noise. This suite instead uses a *fixed seed*, so two
+  fixed, so two runs do identical total work; a review found that skipping this
+  cost 3% of run-to-run noise. This suite uses a *fixed seed* instead, so two
   runs compile byte-identical source and the totals are trivially equal. That is
   strictly stronger for run-to-run comparison and strictly weaker for one thing
   Carbon cared about: a fixed corpus can sit in a silent local minimum of the
-  hash functions or the branch predictor. The trade is taken knowingly, and the
-  escape hatch is that the seed is a constant one line from the top of
-  `generate.rs`, reachable as `--seed=<hex>`, or a field in a saved corpus's
-  manifest.
+  hash functions or the branch predictor. The trade is knowing, and the escape
+  hatch is the seed itself — a constant one line from the top of `generate.rs`,
+  reachable as `--seed=<hex>`, or a field in a saved corpus's manifest.
 
 - **Re-randomizing per benchmark run so that ASLR noise shows up.** Same
-  reason, same trade. What this suite reports is the spread of one binary's
-  repetitions, not the spread across processes.
+  reason, same trade. This suite reports the spread of one binary's repetitions,
+  not the spread across processes.
 
 - **Hardware performance counters.** Carbon wires `libpfm` into google-benchmark
   and reports cycles and instructions, which is how a claim like "200–300 cycles
-  per line" becomes checkable. There is no dependency-free way to do that here,
-  and macOS has no `perf`. The substitute is §7's sampling profiler runs, which
-  name the hot functions without quantifying them per byte.
+  per line" becomes checkable. Nothing here can do that without a dependency,
+  and macOS has no `perf`. §7's sampling profiler runs stand in: they name the
+  hot functions without quantifying them per byte.
 
 - **~~Speed-of-light calibration benchmarks.~~ Adopted since.** Carbon
   benchmarks `strcpy` and a tail-call byte-dispatch loop in the same binary, to
-  bound what the hardware can do at all; without them "232 MB/s" is
-  uninterpretable. This suite had no equivalent and this list said it should get
-  one before anybody worked on the lexer. It has: `cli/benches/calibrate.rs`,
-  five loops over the same corpus text the timed rows use — `memcpy`,
-  byte-scan, token-write, node-write, alloc-pair — behind `--calibrate`. Its
-  interpretation rule was written down before the numbers arrived and the
-  binary applies the rule itself, so the reading is not chosen after seeing the
-  result.
+  bound what the hardware can do at all; without them "232 MB/s" means nothing.
+  This suite had no equivalent, and this list said it should get one before
+  anybody worked on the lexer. It has: `cli/benches/calibrate.rs`, five loops
+  over the same corpus text the timed rows use — `memcpy`, byte-scan,
+  token-write, node-write, alloc-pair — behind `--calibrate`. The interpretation
+  rule went down before the numbers arrived, and the binary applies the rule
+  itself, so nobody picks the reading after seeing the result.
 
 - **A subprocess mode measuring end-to-end CLI time.** Carbon has both an
   in-process and a subprocess harness. Here that would measure the action cache,
@@ -443,11 +433,10 @@ Three files and a directory, no dependencies, one bench target:
 | `cli/benches/corpora/` | Eight checked-in corpora, 0.55 MB, capped at 2 MiB. |
 | `cli/benches/pinned/` | Forty digest-pinned manifests — twenty parameter points at 100k and 1M — and no source. 15,546 bytes. |
 
-`autobenches = false` in `cli/Cargo.toml` is what keeps the first three
-*modules* of the `compiler` target rather than bench targets of their own: Cargo
-infers a target from every `.rs` file directly under `benches/`, and three extra
-binaries with no `main` is what a plain `cargo bench -p buri` would otherwise
-try to build.
+`autobenches = false` in `cli/Cargo.toml` keeps the first three files *modules*
+of the `compiler` target rather than bench targets of their own. Cargo infers a
+target from every `.rs` file directly under `benches/`, so without it a plain
+`cargo bench -p buri` would try to build three extra binaries with no `main`.
 
 ### Running it
 
@@ -479,9 +468,9 @@ and the flags that select what runs:
 ```
 
 `--alloc` needs the toolchain built with its counting global allocator, which is
-off by default and not referenced by the library at all: the counter is two
-atomic increments on every allocation in the process, so a timed row taken with
-it on is not comparable with one taken without it.
+off by default and which the library never references. The counter adds two
+atomic increments to every allocation in the process, so a timed row taken with
+it on does not compare with one taken without it.
 
 ### The scale tier
 
@@ -491,8 +480,8 @@ cargo bench -p buri --bench compiler -- --set=scale-full    # all forty
 cargo bench -p buri --bench compiler -- --set=scale --rss   # and peak memory
 ```
 
-Four orders of magnitude is what says whether a rate is a property of the code
-or of the cache, and the fourth one costs minutes. So it is opt-in, and it is
+Four orders of magnitude are what tell you whether a rate is a property of the
+code or of the cache, and the fourth one costs minutes. So it is opt-in, and
 **not** in `core` and not in `full`: a default run has to stay something a
 contributor takes before a commit. Six things about it are deliberate.
 
@@ -502,10 +491,10 @@ SHA-256 before any timer starts. A mismatch stops the run.
 
 **Forty is twenty points at two scales, and the points span the generator's
 axes rather than repeating `mixed`.** A single profile measured at 1M answers
-"does the rate hold as the program grows"; it does not answer "which parameter
-the rate is a function of", and that second question is the one a scale tier is
-uniquely placed to ask, because every axis that could be superlinear is only
-visibly superlinear at the top. So the twenty are chosen to move one axis each:
+"does the rate hold as the program grows". It does not answer "which parameter
+is the rate a function of", and only a scale tier can ask that second question,
+because an axis that could be superlinear shows it only at the top. So each of
+the twenty moves one axis:
 
 | Points | The axis |
 |---|---|
@@ -517,21 +506,21 @@ visibly superlinear at the top. So the twenty are chosen to move one axis each:
 | `derive-heavy` | Derive load, which only the native branch pays for. |
 | `comment-heavy`/`comment-free`, `long-idents` | Surface: 46 bytes a line against 29, and bytes per token at a fixed token count. |
 
-Sixteen of the twenty are named profiles from the table below; four —
+Sixteen of the twenty are named profiles from the table below. Four —
 `string-heavy`, `list-heavy`, `long-bodies`, `generic-free` — are the `mixed`
-profile with one weight moved, recorded in the manifest's `params` as such. They
-are points and not profiles because a profile earns a row in every `--set=stress`
-run, and these had earned a scale row and no more. Each point has its own seed,
-and its two scales *share* it, so a point's 1M corpus is its 100k corpus's
-modules and then some: the only thing that differs between the two rows is the
-size, which is the whole comparison.
+profile with one weight moved, and the manifest's `params` records them that
+way. They are points rather than profiles because a profile earns a row in every
+`--set=stress` run, and these had earned a scale row and no more. Each point has
+its own seed, and its two scales *share* it, so a point's 1M corpus is its 100k
+corpus's modules and then some. Only the size differs between the two rows,
+which is the whole comparison.
 
 **A new scale point is a new manifest and nothing else.** The tier is every
 `.txt` in that directory, filtered on the manifest's own fields, so a 10M row is
-a `--pin=mixed-10M` away and no code change. It is deliberately absent: at the
-rates §6 records, one repetition of a 10M native row is about three minutes,
-and the question it would answer — whether anything is superlinear — the 100k/1M
-pair already answers, twenty times over.
+one `--pin=mixed-10M` away with no code change. It is deliberately absent: at
+the rates §6 records, one repetition of a 10M native row runs about three
+minutes, and the 100k/1M pair already answers the question it would ask —
+whether anything is superlinear — twenty times over.
 
 **The protocol deviation is §2's, printed beside the rows it applies to.** Above
 500,000 lines: at least 3 repetitions rather than 10, one warmup call rather
@@ -542,26 +531,26 @@ thirty-to-one cost ratio between a native row and a JavaScript one.
 
 The cross triples go to the anchor only. They earn their seat where they cost
 two seconds a repetition and settle whether a gap is codegen or
-cross-compilation; across forty corpora they are three quarters of the wall
-time, and the question has already been answered on `mixed-100k` over the same
-generator. Above 500,000 lines nothing takes them, anchor included.
+cross-compilation. Across forty corpora they eat three quarters of the wall
+time, and `mixed-100k` has already answered the question over the same
+generator. Above 500,000 lines nothing takes them, the anchor included.
 
-And a native row at all goes to **seven of the twenty points**, recorded as
-`native = false` in the other thirteen manifests. The backend is a function of
-two things this suite can move — the codegen unit count and the size of the IR
-handed to it — so the seven are chosen to span both: `mixed-many-files` (15,437
+A native row at all goes to **seven of the twenty points**, and the other
+thirteen manifests record `native = false`. The backend is a function of two
+things this suite can move — the codegen unit count and the size of the IR
+handed to it — so the seven span both: `mixed-many-files` (15,437
 units at 1M) and `mixed-few-files` (186) at the ends of the first,
 `generic-blowup` (235k monomorphized functions) and `enum-heavy` (55k) at the
 ends of the second, `derive-heavy` because `middle::derives` runs only on the
 native branch and is invisible in every JS row, `struct-heavy` because layout and
 the ABI are native-only questions, and `mixed` because it is the anchor. The
 other thirteen move the lexer, the parser or the checker, and `lower+js` is the
-lowering row that tracks them. This is a *sampling* decision and it is
-reversible: `--only=<point> --set=scale-full --targets=macos-arm64` takes the
-native row of any of them by hand.
+lowering row that tracks them. This is a *sampling* decision, and it reverses
+easily: `--only=<point> --set=scale-full --targets=macos-arm64` takes the native
+row of any of them by hand.
 
-**The wall time is a property of the flag, not of the directory.** Forty pinned
-corpora are a parameter sweep, and a sweep at a million lines is twenty-five
+**The wall time belongs to the flag, not to the directory.** Forty pinned
+corpora are a parameter sweep, and a sweep at a million lines takes twenty-five
 minutes — past the point where anybody runs it before a commit, which would make
 it a suite nobody runs. So:
 
@@ -572,39 +561,38 @@ it a suite nobody runs. So:
 | `--only=<text>` | either of the above, cut to a point or a scale | seconds to minutes |
 
 The sample is "every pinned corpus the standard protocol applies to, plus the
-anchor above it", and the threshold it is stated over is the same 500,000 lines
-the repetition deviation already uses, so the tier boundary is one number rather
-than two. What the sample buys is the parameter sweep at the scale where a
-sweep is affordable and the size comparison on the one point the size comparison
-is anchored on; what `scale-full` buys is the other nineteen size comparisons,
-and those are a thing somebody does deliberately, on a quiet machine, when a
-number is about to be written down.
+anchor above it", and it uses the same 500,000-line threshold as the repetition
+deviation, so the tier boundary is one number rather than two. The sample buys
+the parameter sweep at the scale where a sweep is affordable, plus the size
+comparison on the one point that comparison is anchored on. `scale-full` buys
+the other nineteen size comparisons, and somebody takes those deliberately, on a
+quiet machine, when a number is about to be written down.
 
 ### Peak memory
 
-`--rss` reports the peak resident set size of each phase, and it is the first
-data behind §1's note that peak memory is the obvious fourth column. It is an
-**untimed pass**, taken before the timers and never beside them.
+`--rss` reports the peak resident set size of each phase, the first data behind
+§1's note that peak memory is the obvious fourth column. It is an **untimed
+pass**, taken before the timers and never beside them.
 
 The figure comes from a subprocess: `--rss` re-runs this same binary once per
 phase under `/usr/bin/time -l` and reads the maximum resident set size back.
-There is no dependency-free way to ask in-process — Linux has `/proc/self/status`
-and macOS has no `/proc`, `getrusage` is behind `libc`, which is not in this
-tree and is not worth buying for a column, and `ps -o rss` requires an
-entitlement on current macOS. One phase per process is not a workaround but the
-measurement: a peak is monotonic, so the peak of a process that stopped after
+Nothing asks in-process without a dependency. Linux has `/proc/self/status` and
+macOS has no `/proc`; `getrusage` sits behind `libc`, which is not in this tree
+and is not worth buying for a column; and `ps -o rss` needs an entitlement on
+current macOS. One phase per process is the measurement rather than a
+workaround: a peak is monotonic, so the peak of a process that stopped after
 `sema` *is* the cost of everything up to and including `sema`, and the
 difference between two of them is what a phase added. Sampling the current
 figure instead would miss whatever a phase allocates and frees inside itself,
 which at these scales is most of the question.
 
-`--validate` is the one to run in a hurry: it is what proves the corpus is still
-valid Buri after a language change, and it is fast because it compiles each
-program once instead of ten times. A generator that has drifted out of the
-language shows up there as a list of diagnostics rather than as a benchmark
-quietly measuring the error paths — and so does a *saved* corpus that has
-stopped compiling, because `--validate` always covers the checked-in half
-whatever `--set` was asked for. It also prints which backends this binary has,
+`--validate` is the one to run in a hurry. It proves the corpus is still valid
+Buri after a language change, and it is fast because it compiles each program
+once instead of ten times. A generator that has drifted out of the language
+shows up there as a list of diagnostics rather than as a benchmark quietly
+measuring the error paths — and so does a *saved* corpus that has stopped
+compiling, because `--validate` always covers the checked-in half whatever
+`--set` you asked for. It also prints which backends this binary has,
 which of the requested targets each can emit for, and how much of the 2 MiB
 corpus budget is spent.
 
@@ -612,45 +600,44 @@ How much of the *pinned* half it covers follows `--set`, for the wall-time
 reason §3.1 gives: **0.4 s** under `--quick` and no digests, **12.8 s** plain
 and the anchor's two, **27.3 s** under `--set=scale`, and **4 min 20 s** under
 `--set=scale-full` for all forty. Each is the fastest of three runs taken on
-2026-09-01 at `0c66339d`, and the machine was never fully idle while they were.
+2026-09-01 at `0c66339d`, and the machine was never fully idle while they ran.
 The three readings each: 0.4/0.8/1.0 s, 12.8/13.3/26.0 s, 27.3/36.7/69.1 s, and
 4 min 20 s/4 min 42 s/5 min 17 s, taken at one-minute load averages between 9
-and 208 on ten cores. So all four are upper bounds, and against the figures
+and 208 on ten cores. So all four are upper bounds. Against the figures
 generator revision 7 recorded on 2026-08-31 — 0.4 s, 12 s, 26 s, 3 min 24 s —
-the first three hold and **`--set=scale-full` is at least 27% longer**, which is
-the one row here somebody should re-take on a quiet machine before quoting it.
-`--set=scale-full` is also the command that answers "is every pinned digest
-still good", and it is the one to run after touching `generate.rs` — or after
-touching `formatting`, which since `GENERATOR_REVISION` 7 is the same thing:
-`laid_out` is the last hand every generated module passes through.
+the first three hold and **`--set=scale-full` is at least 27% longer**, the one
+row here somebody should re-take on a quiet machine before quoting it.
+`--set=scale-full` also answers "is every pinned digest still good", so run it
+after touching `generate.rs` — or after touching `formatting`, which since
+`GENERATOR_REVISION` 7 is the same thing: `laid_out` is the last hand every
+generated module passes through.
 
 ### The parameter space, and the profiles
 
 A profile is a point in the generator's parameter space: `Params::default()`
-with two or three fields moved. `Params` is about twenty dimensions — size and
+with two or three fields moved. `Params` has about twenty dimensions — size and
 distribution, a weight per construct kind, a size per construct, three surface
 dials, and the reachability invariant — and `Params::default()` is
-**byte-identical to the `mixed` corpus §6's numbers were taken over**, which is
-a promise held by regenerating and diffing rather than by intention.
+**byte-identical to the `mixed` corpus §6's numbers were taken over**, a promise
+kept by regenerating and diffing rather than by intention.
 `--list` prints the profiles with their parameters, and
 `--shape=<profile> --param k=v` runs a point that is not in the table. The table
-is what the suite measures by default and what §6 reports; everything else is an
-investigation, and an investigation that turns out to be worth watching becomes
-a profile.
+is what the suite measures by default and what §6 reports. Everything else is an
+investigation, and an investigation worth watching becomes a profile.
 
-There is a step between the two, and the scale tier is where it lives: a
+A step sits between the two, and the scale tier is where it lives. A
 **parameter point** is a `--param` delta with a name, a seed and a pinned
 digest, measured at 100k and 1M and nowhere else. Four of the twenty points
 above are that — `string-heavy`, `list-heavy`, `long-bodies`, `generic-free` —
-and the reason they are not profiles is that a profile costs a row in every
+and they are not profiles because a profile costs a row in every
 `--set=stress` run and every `--quick` run, forever, while a point costs four
 hundred bytes and a line in one table.
 
 Two axes are deliberately *absent*. **Package structure**: the in-memory loader
-is built with `Loader::new(None, ..)` and never consults a workspace, so
-"many libraries" means "many clusters in the import graph" and the `clusters`
-dimension says exactly that rather than implying more. **Parallelism**: the
-front end is single-threaded, and §2 already covers it.
+uses `Loader::new(None, ..)` and never consults a workspace, so "many libraries"
+means "many clusters in the import graph", and the `clusters` dimension says
+exactly that rather than implying more. **Parallelism**: the front end is
+single-threaded, and §2 already covers it.
 
 #### Realistic family
 
@@ -704,86 +691,84 @@ lower+<triple>   monomorphize::run + actions::prepare
 `actions::emit` is the same call `buri build --output=js` makes, `prepare` — and
 therefore `middle::run` — included.
 
-The native rows go through the same two calls `actions::objects_of` makes below
-the front end — `prepare`, which is the one place the middle-end pipeline is
-chosen, and `Backend::emit` — and stop there. **Nothing is linked and nothing is
-run**: the link is the only host-only step, because the runtime archive
-`cli/build.rs` embeds is built for the host and for nothing else, and goal 3 is
-stated over lowering rather than over producing an executable. The second
-`lower::run` that `objects_of` performs for the cache keys is excluded too: that
-is the build system paying for content-addressing, not the compiler lowering the
-program.
+The native rows make the same two calls `actions::objects_of` makes below the
+front end — `prepare`, the one place that picks the middle-end pipeline, and
+`Backend::emit` — and stop there. **Nothing is linked and nothing is run.** The
+link is the only host-only step, because `cli/build.rs` embeds a runtime archive
+built for the host and nothing else, and goal 3 covers lowering rather than
+producing an executable. The rows leave out the second `lower::run` that
+`objects_of` performs for the cache keys, too: that is the build system paying
+for content-addressing, not the compiler lowering the program.
 
 Each repetition rebuilds the monomorphized program, because `prepare` mutates in
-place and is not idempotent. Monomorphization is therefore inside every lowering
-row, JavaScript and native alike, which is what keeps the three comparable;
+place and is not idempotent. So monomorphization sits inside every lowering row,
+JavaScript and native alike, which is what keeps the three comparable.
 `--split` subtracts it and reports
 `mono | middle-A | middle-native | lower(IR) | emit`, to stderr, so
 `--json --split` still emits one parseable document.
 
 Three native triples by default — `aarch64-apple-darwin`,
-`x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` — whichever machine
-the suite is run on. A cross triple is *more* reproducible than the host one:
-the host ISA is inferred from the running CPU's features and a cross ISA is the
-baseline for its triple. The refusal to cross-*link* stays where it belongs, at
+`x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` — whatever machine
+the suite runs on. A cross triple is *more* reproducible than the host one: the
+host ISA comes from the running CPU's features, while a cross ISA is the
+baseline for its triple. The refusal to cross-*link* stays where it belongs, in
 `link::can_link` and `actions::native_ready`, which is what
-`buri build --output=linux/x86_64` on a mac still answers to; no backend states
+`buri build --output=linux/x86_64` on a mac still answers to. No backend states
 the same policy a second time.
 
-**A debug row is only takeable where the debug backend has a stencil library for
-the triple** (`design/native/CODEGEN-STENCIL.md` §3.2), which is a narrower
-condition than the one these rows were written under: the removed backend was
-compiled with `all-arch` and answered for every triple by construction. A triple
-with no library is a `skipped` row with the backend's own sentence in it, which
-is the mechanism the paragraph below already describes. Of the five triples the
-suite can be asked for, that is `macos-x86_64` alone: `linux-x86_64` emits and
-is timed like the other two natives (§6.1).
+**You can take a debug row only where the debug backend has a stencil library
+for the triple** (`design/native/CODEGEN-STENCIL.md` §3.2), a narrower condition
+than the one these rows were written under: the removed backend was compiled
+with `all-arch` and answered for every triple by construction. A triple with no
+library gives a `skipped` row carrying the backend's own sentence, the mechanism
+the paragraph below describes. Of the five triples you can ask the suite for,
+that is `macos-x86_64` alone: `linux-x86_64` emits and gets timed like the other
+two natives (§6.1).
 
 `Profile::Debug` selects the copy-and-patch backend and `Profile::Release`
-selects LLVM, so a release row is an LLVM row and it is taken only on a
-toolchain built with `backend-llvm`. **There is no `#[cfg]` anywhere in the harness**: it asks
-`backend::select` and prints `skipped: <diagnostic>` rather than testing a
+selects LLVM, so a release row is an LLVM row, and only a toolchain built with
+`backend-llvm` can take one. **There is no `#[cfg]` anywhere in the harness.** It
+asks `backend::select` and prints `skipped: <diagnostic>` rather than testing a
 feature, so the report always says which rows *this* binary could not take
-rather than changing shape depending on how it was compiled. Skipped rows go in
-their own `skipped` array in `--json` rather than into `rows`, so a consumer of
-the row schema is unaffected.
+instead of changing shape with how it was compiled. Skipped rows go in their own
+`skipped` array in `--json` rather than into `rows`, so nothing that consumes the
+row schema notices.
 
-`Backend::missing_intrinsics` is asked before any timer, for the same reason the
-corpus is compiled before any timer: a backend that would have failed must not
-be measured failing. The two reasons a native row skipped when these rows were
-first taken are both closed, and both are worth recording because the closing is
-what made the realistic rows measurable:
+The harness asks `Backend::missing_intrinsics` before any timer, for the same
+reason it compiles the corpus before any timer: a backend that would have failed
+must not be measured failing. Both reasons a native row skipped when these rows
+were first taken are now closed, and both are worth recording, because closing
+them is what made the realistic rows measurable:
 
 - **`list.filter`, `list.fold`, `list.mapCtx`.** The debug backend of the day —
-  Cranelift, removed 2026-08-29 — had no body for them and the realistic mix
-  calls all three, so every realistic native row skipped. Ten of the closure
-  surface were emitted by the time it went, and the copy-and-patch backend that
-  replaced it emits the surface the conformance corpus needs;
-  `Backend::missing_intrinsics` is the question, asked per backend, and
-  `design/native/CODEGEN-STENCIL.md` §9 is what the current one does not do.
+  Cranelift, removed 2026-08-29 — had no body for them, and the realistic mix
+  calls all three, so every realistic native row skipped. It emitted ten of the
+  closure surface by the time it went, and the copy-and-patch backend that
+  replaced it emits the surface the conformance corpus needs.
+  `Backend::missing_intrinsics` asks the question per backend, and
+  `design/native/CODEGEN-STENCIL.md` §9 lists what the current one does not do.
 - **`Too many return values to fit in registers`** on either x86_64 triple, for
-  `main`: `Result<(), Str>` is three scalars and the SysV return convention has
+  `main`. `Result<(), Str>` is three scalars, the SysV return convention has
   two, and AArch64's eight had hidden it. The fix is a convention rather than a
-  special case — beyond `MAX_RET_LEAVES` a result travels through an
-  out-pointer the caller passes and the callee writes, which is the rule the
-  runtime's C entries already followed. The threshold is a constant rather than
-  a question asked of the ISA, so the memory path is the path every test on
-  every host walks.
+  special case: beyond `MAX_RET_LEAVES` a result travels through an out-pointer
+  the caller passes and the callee writes, the rule the runtime's C entries
+  already followed. The threshold is a constant rather than a question put to
+  the ISA, so every test on every host walks the memory path.
 
 ---
 
 ## 5. How large the compiler is
 
-The size census, so that "the compiler got smaller" is a claim somebody can
-check. Rust under `cli/src`, counted by a script rather than by a line counter
-this repository would have to depend on. A line is a comment when it begins with
-`//`.
+The size census, so "the compiler got smaller" is a claim somebody can check.
+Rust under `cli/src`, counted by a script rather than by a line counter this
+repository would have to depend on. A line counts as a comment when it begins
+with `//`.
 
 **Re-taken whole on 2026-09-01, at `0c66339d`**, which is the promise the
-previous census left: that one still counted `compiler/backend/cranelift`, five
-files and 8,634 lines the tree lost on 2026-08-29, and every total in it was
-stale by a backend. The `before` column below is that census; nothing in it was
-subtracted by hand.
+previous census left. That one still counted `compiler/backend/cranelift`, five
+files and 8,634 lines the tree lost on 2026-08-29, so every total in it was
+stale by a backend. The `before` column below is that census, and nobody
+subtracted anything from it by hand.
 
 | Area | Files | Code | Comment | Blank | Total | Comment share | before, total |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -835,8 +820,8 @@ native backends are another 34.8k on top of it, down from three and 38k, and
 they are not what the goals measure — goal 3 is a lowering rate, and a backend
 that is twice the code for the same rate has spent it on something else.
 
-**The compiler is also something that has to be built and shipped, and the
-2026-08-29 removal moved both.** Measured on the machine and toolchain of §6,
+**The compiler also has to be built and shipped, and the 2026-08-29 removal
+moved both.** Measured on the machine and toolchain of §6,
 from a clean `cargo build --release -p buri` with default features, at the
 commit before the removal and the commit after it:
 
@@ -847,27 +832,27 @@ commit before the removal and the commit after it:
 | `buri`, as linked | 17.57 MB | 22.63 MB |
 | `__TEXT.__text` — the machine code in it | 8.37 MB | **3.03 MB** |
 
-The first two rows are the whole of the case for the removal. **The default
-toolchain now resolves nothing at all** — the dependency bar in the workspace
-manifest is back to zero admitted crates, which is what its own comment claims —
-and a clean release build is 68.7 s faster, a little over half what it was. The
+The first two rows are the whole case for the removal. **The default toolchain
+now resolves nothing at all**: the dependency bar in the workspace manifest is
+back to zero admitted crates, which is what its own comment claims. And a clean
+release build is 68.7 s faster, a little over half what it was. The
 38 that went were Cranelift and its transitive closure: eleven `cranelift-*`
 crates, `regalloc2`, `pulley-interpreter`, `object`, `gimli`, `indexmap`,
 `hashbrown` twice, `syn`/`quote`/`proc-macro2`, and seventeen more. Building the
 bench binary halved with them, 2 m 02 s to 1 m 01 s.
 
-**The last two rows have to be quoted together or they mislead.** Machine code
-fell by 5.35 MB, to 0.36× what it was, and dependency-derived constant and
-linkedit data by 1.1 MB more — and the shipped binary nonetheless grew by
-5.06 MB. Both are true and they have one cause: the three baked stencil
-libraries are 11.93 MB of `include_bytes!` data, byte-identical in the two
-builds, and before the removal nothing in the `buri` *binary* selected the
-copy-and-patch backend, so the linker dead-stripped them. That was verified
-rather than assumed — three 48-byte probes from the head, middle and tail of
-`stencils-macos-arm64.bin` are found in the newer image and are absent from the
-older one. After the removal that data *is* the code generator. Quoting the
-total alone reads as a regression the removal did not cause; quoting `__text`
-alone claims a saving the disk does not see.
+**Quote the last two rows together or they mislead.** Machine code fell by
+5.35 MB, to 0.36× what it was, and dependency-derived constant and linkedit data
+by 1.1 MB more — and the shipped binary still grew by 5.06 MB. Both are true,
+and one cause explains them: the three baked stencil libraries are 11.93 MB of
+`include_bytes!` data, byte-identical in the two builds, and before the removal
+nothing in the `buri` *binary* selected the copy-and-patch backend, so the
+linker dead-stripped them. Somebody checked that rather than assuming it — three
+48-byte probes from the head, middle and tail of `stencils-macos-arm64.bin` turn
+up in the newer image and are missing from the older one. After the removal that
+data *is* the code generator. Quoting the total alone reads as a regression the
+removal did not cause; quoting `__text` alone claims a saving the disk never
+sees.
 
 **Both sides of that were re-measured on 2026-09-01**, `cargo build --release
 -p buri` with default features at `f9fffe1c` and at `0c66339d`, on this machine,
@@ -896,26 +881,26 @@ grows by four megabytes.
 ## 6. Where the toolchain stands
 
 Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
-`0x0b001a575eed0001`, protocol as §2. A gap of 1.0 means the goal is met; below
-1.0 means it is beaten.
+`0x0b001a575eed0001`, protocol as §2. A gap of 1.0 means the row meets its goal;
+below 1.0 means it beats it.
 
 > **The native figures here were re-taken on 2026-08-29, after Cranelift was
 > removed.** Every native row below is the copy-and-patch backend's
 > (`design/native/CODEGEN-STENCIL.md`), measured against the same rows taken at
 > the commit immediately before the removal, on this machine, over the same
 > corpora, both binaries built `--release`. The front-end and JavaScript rows
-> moved by less than their dispersion and were not expected to move at all: the
-> removal touches the native branch and nothing else. Anything not re-taken says
-> so where it stands and keeps its own date — `buri test`'s native default is
-> 2026-08-21, generator revision 4 is 2026-08-27.
+> moved by less than their dispersion, and nobody expected them to move at all:
+> the removal touches the native branch and nothing else. Anything not re-taken
+> says so where it stands and keeps its own date — `buri test`'s native default
+> is 2026-08-21, generator revision 4 is 2026-08-27.
 >
 > **One command takes this table again.** The previous revision of this
-> paragraph said `cargo bench -p buri --bench compiler` could not complete a
+> paragraph said `cargo bench -p buri --bench compiler` could not finish a
 > default run at all: it overflowed the main thread's stack on `wide-match/10k`,
 > after every `mixed` scale and every realistic profile had finished and before
 > that corpus's first timer, so the rows had to be assembled out of `--only=`
-> selections. **That is closed**, and it was checked rather than assumed — both
-> binaries were rebuilt and run on 2026-09-01 on this machine, each from its own
+> selections. **That is closed**, and somebody checked rather than assuming it:
+> both binaries rebuilt and run on 2026-09-01 on this machine, each from its own
 > tree, each from the bare command:
 >
 > | | `--validate` | a default run |
@@ -926,15 +911,14 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > So the table is one invocation again, and the dispersion column is what says
 > whether the invocation was worth quoting: every `mixed/100k` row below is the
 > better reading of three processes whose every MAD is ≤ 2.8%, inside §2's ±5%.
-> Anything not re-taken says so where it stands and keeps its own date.
 
 > **Generator revision 7, 2026-08-31 — a break in the series, announced, and
 > the first one that moves a corpus's *shape* rather than only its bytes.**
 > Every module now leaves `generate.rs` through `formatting::source`, so a
 > generated corpus is what `buri format` writes: four spaces, a sorted import
 > run, a `derive` above the declaration it is about, and a body the emitter put
-> on one line broken where the printer breaks it. §3.1's rule applies and was
-> followed — **all eight** saved corpora were re-recorded and **all forty**
+> on one line broken where the printer breaks it. §3.1's rule applies, and this
+> revision followed it: **all eight** saved corpora re-recorded, **all forty**
 > pinned manifests re-pinned. Every one of the forty is a **six**-line change,
 > and the two extra lines are the point: `lines` and `modules` moved this time,
 > where revisions 2, 4, 5 and 6 moved only `bytes` and the digest.
@@ -946,7 +930,7 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > by at most **+1.54%** on any of them (`mixed-many-files-100k`). So every
 > lines/s reading below is comparable with one taken at revision 6 to inside
 > half a percent — well inside the dispersion the protocol already reports —
-> and the table was not re-taken for this revision.
+> and nobody re-took the table for this revision.
 >
 > **The byte count moved where the layout is what the point is about**, and
 > `modules` fell on nineteen of the twenty points — 360 → 348 on the anchor,
@@ -975,19 +959,18 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > **What it buys.** A line rate is only worth quoting over source somebody would
 > check in, and until this revision the corpora were the one Buri in the
 > repository nobody had laid out — exempt, by a written row, from the gate that
-> holds every other `.buri` file to one layout. The row is gone:
-> `cli/benches/corpora` is inside
-> `cli/tests/language/corpus.rs::every_source_in_the_repository_is_formatted`
-> now, and passes. What it is still outside is `BURI_BLESS`, because the fix for
-> a drift in generated output is `--record` and not laying the file out where it
-> sits.
+> holds every other `.buri` file to one layout. That row is gone:
+> `cli/benches/corpora` now sits inside
+> `cli/tests/language/corpus.rs::every_source_in_the_repository_is_formatted`,
+> and passes. It stays outside `BURI_BLESS`, because the fix for a drift in
+> generated output is `--record`, not laying the file out where it sits.
 >
-> **What it costs**, and where. Generating a corpus parses and prints it once
-> more before anything else reads it, which is about a fifth on top of every
+> **What it costs**, and where. Generating a corpus now parses and prints it
+> once more before anything else reads it, about a fifth on top of every
 > validation: `--validate` 10 s → 12 s, `--set=scale` 21 s → 26 s,
-> `--set=scale-full` 2 min 47 s → 3 min 24 s. All of it is at work-list
+> `--set=scale-full` 2 min 47 s → 3 min 24 s. All of it happens at work-list
 > construction, outside every timer, so no measured rate carries it. The other
-> cost is a coupling stated rather than hidden: **a change to `formatting` is
+> cost is a coupling, stated rather than hidden: **a change to `formatting` is
 > now a change to the generator**, and takes this same ceremony.
 
 > **Generator revision 6, 2026-08-31 — a break in the series, announced, and
@@ -996,9 +979,9 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > `core/list/lib.buri` is `core/list`. Every generated module imports four or
 > five standard library modules and nothing else across a boundary, so every
 > import line is nine bytes shorter; the `//bench/mNNNN.buri` imports name files
-> inside `//bench` and did not move at all. §3.1's rule applies and was followed
-> — **all eight** saved corpora were re-recorded and **all forty** pinned
-> manifests re-pinned.
+> inside `//bench` and did not move at all. §3.1's rule applies, and this
+> revision followed it: **all eight** saved corpora re-recorded, **all forty**
+> pinned manifests re-pinned.
 >
 > **Three corpora came back byte-identical**, and they are the exact ones
 > revision 5's note is about. `few-large-fns-1k` (23,867) and `wide-match-1k`
@@ -1021,8 +1004,8 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > the first one that moves a corpus holding no import.**
 > Every import named a file, so `core/list` became `core/list/lib.buri` and
 > `//bench/m0007` became `//bench/m0007.buri`: every generated import line was
-> longer by a suffix. §3.1's rule applies and was followed — **all eight** saved
-> corpora were re-recorded and **all forty** pinned manifests re-pinned.
+> longer by a suffix. §3.1's rule applies, and this revision followed it: **all
+> eight** saved corpora re-recorded, **all forty** pinned manifests re-pinned.
 >
 > All eight, and that is the part the revision-2 note did not anticipate. Six of
 > the corpora have imports and their source bytes grew: `mixed-10k` 346,270 →
@@ -1048,13 +1031,13 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > **Generator revision 4, 2026-08-27 — a break in the series, announced.**
 > An enum variant stopped carrying `export`, so every generated variant line
 > lost the keyword and a space and every recorded digest of a corpus containing
-> an enum moved. §3.1's rule applies and was followed: the six saved corpora
-> that carry an enum were re-recorded — five at **corpus revision 4** and
-> `wide-match-1k` at **revision 2**, which is its first move since it was
+> an enum moved. §3.1's rule applies, and this revision followed it: the six
+> saved corpora that carry an enum were re-recorded — five at **corpus revision
+> 4** and `wide-match-1k` at **revision 2**, its first move since it was
 > written — thirty-eight of the forty pinned manifests were re-pinned, and the
 > ones whose bytes never moved — `many-small-fns-1k`, `few-large-fns-1k`, and
-> the `struct-heavy` pins at both scales, which set `w_enum=0` — were **left
-> where they were**, for the reason the revision-2 note gives.
+> the `struct-heavy` pins at both scales, which set `w_enum=0` — stayed **where
+> they were**, for the reason the revision-2 note gives.
 >
 > **Nothing measurable moved with it.** The change deletes bytes from a
 > declaration and nothing else: `lines` and `modules` are identical for all
@@ -1065,12 +1048,12 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 > **Generator revision 3, 2026-08-27 — a break in the series, announced.**
 > `self` stopped writing its type, so every generated method signature lost the
 > receiver's name and a colon and every recorded digest of a corpus containing
-> a method moved. §3.1's rule applies and was followed: the five saved corpora
-> that carry a method were re-recorded at **corpus revision 3**, thirty-six of
-> the forty pinned manifests were re-pinned at it, and the ones whose bytes
-> never moved — `wide-match-1k`, `many-small-fns-1k`, `few-large-fns-1k`, and
-> the `enum-heavy` and `struct-light` pins at both scales — were **left where
-> they were**, for the reason the revision-2 note gives.
+> a method moved. §3.1's rule applies, and this revision followed it: the five
+> saved corpora that carry a method were re-recorded at **corpus revision 3**,
+> thirty-six of the forty pinned manifests were re-pinned at it, and the ones
+> whose bytes never moved — `wide-match-1k`, `many-small-fns-1k`,
+> `few-large-fns-1k`, and the `enum-heavy` and `struct-light` pins at both
+> scales — stayed **where they were**, for the reason the revision-2 note gives.
 >
 > **Nothing measurable moved with it.** The change deletes bytes from a
 > signature and nothing else: `lines` and `modules` are identical for all forty
@@ -1080,11 +1063,12 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 
 > **Generator revision 2, 2026-08-23 — a break in the series, announced.**
 > `core/cap` was renamed `core/effect`, so every generated module's import block
-> is three bytes longer and every recorded digest moved. §3.1's rule applies and
-> was followed: the five saved corpora that carry the import were re-recorded
-> at **corpus revision 2**, all forty pinned manifests were re-pinned at it, and
-> the three saved corpora whose bytes never moved — `wide-match-1k`,
-> `many-small-fns-1k`, `few-large-fns-1k` — were **left at revision 1**, because
+> is three bytes longer and every recorded digest moved. §3.1's rule applies,
+> and this revision followed it: the five saved corpora that carry the import
+> were re-recorded at **corpus revision 2**, all forty pinned manifests were
+> re-pinned at it, and the three saved corpora whose bytes never moved —
+> `wide-match-1k`, `many-small-fns-1k`, `few-large-fns-1k` — stayed **at
+> revision 1**, because
 > byte-stability across a generator change is the whole point of saving one and
 > re-recording an unchanged corpus would break its series for nothing.
 >
@@ -1099,10 +1083,10 @@ Measured on an M-series MacBook (macOS, aarch64, 10 cores), release build, seed
 ### 6.1 Where every goal stands
 
 mixed/100k, the authoritative corpus, on the machine and protocol above.
-**Re-taken 2026-09-01 at `0c66339d`**, from the default run described in §6's
-note; the `2026-08-29` column is what this table said at `f9fffe1c`, and the
-column after it is that same commit's binary re-run today, which is what
-separates a machine from a compiler.
+**Re-taken 2026-09-01 at `0c66339d`**, from the default run §6's note describes.
+The `2026-08-29` column is what this table said at `f9fffe1c`, and the column
+after it is that same commit's binary re-run today, which is what separates a
+machine from a compiler.
 
 | Phase | Goal | 2026-08-29, `f9fffe1c` | `f9fffe1c` re-run today | **2026-09-01, `0c66339d`** | Gap |
 |---|---:|---:|---:|---:|---:|
@@ -1117,17 +1101,17 @@ lowering backends rather than on the JavaScript one alone. Lex+parse started at
 1.45 M lines/s and is 4.4× that now; native lowering started at nothing
 measurable, because the realistic corpora could not be compiled natively at all.
 
-**One row fell, and it is `lower+js`.** 311 k to 255 k is −18.0%, and it is two
-things rather than one: this machine on a different morning, and the compiler.
-Separating them is what the middle column is for — `f9fffe1c`'s own binary,
-rebuilt and re-run today, reads **284.1 k** where this table recorded 311 k on
-the day, so roughly half the fall is the machine and the rest is the toolchain.
-The toolchain's half was then priced on its own by running the two binaries
-**A/B/A/B** in one sitting, `--only=mixed/100k`, four processes, 2026-09-01 —
-the protocol §6.6 uses — taking each compiler's better median and discarding
-every leg whose MAD exceeded §2's ±5%. Both columns below are from that sitting,
-which is why its `0c66339d` figure is 248.9 k where the table above, whose
-better reading came from the default run, says 255.0 k:
+**One row fell, and it is `lower+js`.** 311 k to 255 k is −18.0%, and two things
+caused it rather than one: this machine on a different morning, and the
+compiler. The middle column separates them — `f9fffe1c`'s own binary, rebuilt
+and re-run today, reads **284.1 k** where this table recorded 311 k on the day,
+so roughly half the fall is the machine and the rest is the toolchain. Pricing
+the toolchain's half on its own meant running the two binaries **A/B/A/B** in
+one sitting, `--only=mixed/100k`, four processes, 2026-09-01 — the protocol §6.6
+uses — taking each compiler's better median and discarding every leg whose MAD
+exceeded §2's ±5%. Both columns below come from that sitting, which is why its
+`0c66339d` figure is 248.9 k where the table above, whose better reading came
+from the default run, says 255.0 k:
 
 | Phase | `f9fffe1c` | `0c66339d` | Δ in rate |
 |---|---:|---:|---:|
@@ -1142,26 +1126,26 @@ better reading came from the default run, says 255.0 k:
 **The JavaScript emitter is 12.4% slower per line and every other row is flat
 or better**, which is what makes the one that fell believable rather than a bad
 afternoon. **No budget on this page is stated over `lower+js`** — goal 3 is, and
-it is met by 2.5×, so this is a row to report and not a gate that failed. What
-it is not is a volume effect, and three denominators say so at once. Between
-the two commits the anchor's monomorphized function count *fell* 13,162 →
-12,735 and its emitted JavaScript grew only 1,317,286 →
+the row meets it by 2.5×, so this is something to report and not a gate that
+failed. It is not a volume effect, and three denominators say so at once.
+Between the two commits the anchor's monomorphized function count *fell* 13,162
+→ 12,735 and its emitted JavaScript grew only 1,317,286 →
 1,347,614 bytes, so the same row is **+18.3% per monomorphized function** and
 **−10.7% per emitted byte**: the emitter is doing more work per function, not
 being handed more program. The `ctx` parameter every module function now
 threads, `println`'s `Result`, and the actor and carrier lowerings are what
 arrived in `backend/js` over those 413 commits, and the census above prices the
 file at 7,214 → 8,108 lines. Which of them owns the 12.4% is a profile away
-(§7) and is not answered here.
+(§7), and this page does not answer it.
 
-**`lower+macos-arm64` is the row that moved, and it moved because its emitter
-was replaced.** Cranelift read 62.2 k lines/s on this machine on the day of the
-comparison — 58.1 k when this row was last written down — and the copy-and-patch
-backend reads **133.3 k**, which is 0.47× the time and 2.14× the rate. That is
-within noise of `design/native/CODEGEN-STENCIL.md` §1's "about 0.43×
-Cranelift's", and it is the first time goal 3 has been met natively here. The
-series breaks at the change of emitter and is marked rather than continued
-through, the same rule §3.1 applies to a generator revision.
+**`lower+macos-arm64` is the row that moved, and it moved because a new emitter
+replaced the old one.** Cranelift read 62.2 k lines/s on this machine on the day
+of the comparison — 58.1 k when this row was last written down — and the
+copy-and-patch backend reads **133.3 k**, which is 0.47× the time and 2.14× the
+rate. That sits within noise of `design/native/CODEGEN-STENCIL.md` §1's "about
+0.43× Cranelift's", and it is the first time goal 3 has been met natively here.
+The series breaks at the change of emitter, and this page marks the break rather
+than reading through it — the same rule §3.1 applies to a generator revision.
 
 | Corpus | Target | Cranelift | copy-and-patch | ratio | after, lines/s |
 |---|---|---:|---:|---:|---:|
@@ -1180,10 +1164,10 @@ a skip; `macos-x86_64` is absent because it has no stencil library and says so
 in its own words (§4). `enum-heavy` is the one row here still under the goal,
 and it halved like the rest.
 
-**The tuned corpus is not what produced this.** A copy-and-patch result is
-re-taken on freshly seeded 100k repositories before it is written down, because
-a pinned seed can sit in a local minimum. Five seeds minted for the comparison
-and never used before, three shapes between them:
+**The tuned corpus is not what produced this.** A copy-and-patch result gets
+re-taken on freshly seeded 100k repositories before anybody writes it down,
+because a pinned seed can sit in a local minimum. Five seeds minted for the
+comparison and never used before, three shapes between them:
 
 | Shape | Seed | ratio | after, lines/s |
 |---|---|---:|---:|
@@ -1206,31 +1190,31 @@ worst, which is the opposite of what overfitting to `mixed` would look like.
   allocator and no mid-end to skip (`design/native/CODEGEN-STENCIL.md` §1), so
   the two rows below that argue about one are history rather than a setting.
   **Three readings in this bullet are Cranelift's**, from before the flip, and
-  none has been re-taken because the emitter under all three has changed: LLVM
+  nobody re-took them, because the emitter under all three has changed: LLVM
   at `-O0` was 2.1–4.9× slower to lower on the shapes that decide it, and
   slowest exactly where the dev backend already missed; `opt_level = "speed"`
   cost 16–95% of native lowering and *lost* 2.6% of runtime (§6.4); and the path
-  ran the four kernels at 0.91× of bun. What *was* re-taken across the change is
-  the pair of comparisons the change was made for: emission at **0.47×**
-  Cranelift's time (§6.1) and the run side at **1.26×** Cranelift's, over the
-  four comparable kernels of the six-program series below. Erasing generics in
-  the dev profile
-  (2–10× measured runtime cost, and a second value model through both backends)
-  and moving instantiation placement (worth exactly one unit of blast radius,
-  and weak symbols would cost the direct branches) were both refuted by
-  measurement, and neither refutation depended on which emitter was under it.
+  ran the four kernels at 0.91× of bun. What did get re-taken across the change
+  is the pair of comparisons the change was made for: emission at **0.47×**
+  Cranelift's time (§6.1), and the run side at **1.26×** Cranelift's over the
+  four comparable kernels of the six-program series below. Measurement refuted
+  both erasing generics in the dev profile (2–10× measured runtime cost, and a
+  second value model through both backends) and moving instantiation placement
+  (worth exactly one unit of blast radius, and weak symbols would cost the
+  direct branches), and neither refutation depended on which emitter sat
+  underneath.
 - **Release: LLVM at `-O2`.** **10.55×** a cold dev build and **1.07× a no-op
   one**, for 1.84× the runtime over the four kernels below and 0.35× the
   artifact size — that last from before the flip and not re-taken. It lowers at
   5.5 k lines/s on the headline corpus, inside the 3.9–6.8 k band this row has
   always quoted, which is 18× under goal 3 and is the price of LLVM's optimizer
-  rather than of this repository's lowering; the goal is met by the path a
-  developer iterates on. The distance between the two profiles widened with the
-  removal without the release column moving at all: dev emission is 22.3× release
-  emission now, against 11.2× before.
+  rather than of this repository's lowering. The path a developer iterates on
+  meets the goal. The distance between the two profiles widened with the removal
+  while the release column never moved: dev emission is 22.3× release emission
+  now, against 11.2× before.
 
 **The end-to-end numbers behind those two ratios.** No 100,000-line repository
-ships in the tree and the generator's `--record` refuses one, so it was
+ships in the tree and the generator's `--record` refuses one, so this one was
 assembled out of the checked-in `mixed-10k` corpus: ten copies, one package
 each, module paths rewritten — **101,190 non-blank lines, 10 packages, 370
 modules**, every package a `MACOS`/`ARM64` binary. Cold is `buri clean` plus
@@ -1254,11 +1238,11 @@ cold and 0.087 s no-op.
 **The run side, on six kernels written for the comparison.** The four programs
 behind the 1.38× that `design/native/CODEGEN-STENCIL.md` §13 records **have no
 harness in this repository** — nothing in the tree reproduces them — so the six
-below are a fresh series and their geomean is not that number re-taken. What
-they are is the same six sources through three code generators, on one machine
-on one afternoon: whole-process wall clock, median of five, macOS arm64. The
-LLVM column is `-O2`, because `--release` is the only optimized native path here
-and there is no `-O0` one to hold it against; it is a harder bar than the
+below are a fresh series, and their geomean is not that number re-taken. They
+are the same six sources through three code generators, on one machine on one
+afternoon: whole-process wall clock, median of five, macOS arm64. The LLVM
+column is `-O2`, because `--release` is the only optimized native path here and
+there is no `-O0` one to hold it against. That is a harder bar than the
 literature's, not the same one.
 
 | Kernel | Cranelift dev | copy-and-patch dev | LLVM `-O2` | ÷ Cranelift | ÷ LLVM |
@@ -1272,9 +1256,10 @@ literature's, not the same one.
 | `str.concat` + `str.fromInt` × 1,000,000 | 59.6 ms | 53.5 ms | 47.1 ms | **0.90×** | 1.14× |
 
 The shape `design/native/CODEGEN-STENCIL.md` §13 describes holds, and has
-tightened. Three of the four are within 1.08–1.15× of Cranelift, and **the whole of the remaining gap is
-the `core/list` closure pipeline** — the surface `rtcall.rs` deliberately does
-not inline, which is a stated exclusion rather than a surprise. Cranelift itself
+tightened. Three of the four are within 1.08–1.15× of Cranelift, and **the whole
+of the remaining gap is the `core/list` closure pipeline** — the surface
+`rtcall.rs` deliberately does not inline, a stated exclusion rather than a
+surprise. Cranelift itself
 is 1.46× LLVM `-O2` on the same four, against the copy-and-patch backend's
 1.84×, so most of the distance to release is the optimizer rather than the
 emitter. The two concat rows are the in-place append port measured: both are at
@@ -1284,14 +1269,13 @@ left operand stays unique comes out *ahead*. Per append the cost went from
 rather than quadratically with appends.
 
 **`buri test` defaults to the native dev backend**, since 2026-08-21. A suite
-that names no platform is compiled with the dev backend and run as a binary, and
+that names no platform compiles with the dev backend and runs as a binary, and
 since 2026-09-03 there is no fallback: a toolchain that cannot build for its own
-host, or a program the backend has no body for, is a refusal naming what is
+host, or a program the backend has no body for, gets a refusal naming what is
 missing rather than a JavaScript run with a note (`commands/test.rs`;
-`design/native/ARCHITECTURE.md` §4). The set of hosts that refusal covers got
-one member wider on 2026-08-29: the dev backend answers for the triples it has a
-stencil library for and no others
-(`design/native/CODEGEN-STENCIL.md` §3.2). The
+`design/native/ARCHITECTURE.md` §4). That refusal covers one more host since
+2026-08-29: the dev backend answers for the triples it has a stencil library for
+and no others (`design/native/CODEGEN-STENCIL.md` §3.2). The
 number that paid for the change is the incremental one: a one-line edit at 104k
 lines is 502 ms to verdict native against bun's 622 on the fast suite and 1,484
 against 1,742 on the compute suite, the first measurement here where the native
@@ -1309,10 +1293,10 @@ compile column is itself the faster one.
   2026-09-01 (§6.1). It is not a volume effect — the same corpus is 3.2% *fewer*
   monomorphized functions and 2.3% more emitted JavaScript, so the cost is per
   function rather than per program — and goal 3 is still met by 2.5×, which is
-  why it is here and not above the fold. What it needs first is a profile (§7)
-  over the JavaScript lowering call, to say whether it is the threaded `ctx`
-  parameter, `println`'s `Result`, or the actor and carrier lowerings; nothing
-  in this slice tried to answer that.
+  why it is here and not above the fold. It needs a profile first (§7) over the
+  JavaScript lowering call, to say whether the threaded `ctx` parameter,
+  `println`'s `Result`, or the actor and carrier lowerings own it. Nothing in
+  this slice tried to answer that.
 - **The producer half of fusion.** `range` is still materialized.
 - **Derived `Show`**, which needs the design decision in §6.4 rather than more
   tuning.
@@ -1328,24 +1312,24 @@ compile column is itself the faster one.
   **0.519×**, a *larger* win than the tuned pair's 0.542×. The release backend
   followed (`3b262681`): **0.255×** over the six kernels that index a list, the
   held-out four at **0.250×**, again ahead of the tuned pair's 0.266×. Neither
-  half was tuned against a kernel, and the held-out column saying so twice is
-  the reason the numbers are here rather than in a footnote. Landing the dev
+  half was tuned against a kernel, and the held-out column says so twice, which
+  is why these numbers are here rather than in a footnote. Landing the dev
   half alone put the dev backend *ahead* of `--release` on exactly those six,
   dev÷release falling to 0.65×, and the release half restores the ordering with
   room to spare, at **2.59×**. A counted element still takes the call on both
   backends: the runtime entry retains through the glue it is handed and the
   open-coded sequence does not, so that half is a reference-counting question
   rather than a codegen one. §6.2's three-generator table predates all three
-  commits and is not re-taken here.
+  commits, and nobody re-took it here.
 - **~~Realistic native lowering's last 1.72×.~~ Closed 2026-08-29.** The
-  measurement said 88% of the row was inside Cranelift's own `define_function`
-  and 42% regalloc2 alone, so the lowering this repository owned was not the
-  cost, and the next step was a value-model change or a different codegen
-  strategy rather than a faster loop. **The second one was taken**: the emitter
+  measurement said 88% of the row sat inside Cranelift's own `define_function`
+  and 42% inside regalloc2 alone, so the lowering this repository owned was not
+  the cost, and the next step was a value-model change or a different codegen
+  strategy rather than a faster loop. **Somebody took the second**: the emitter
   under this row is a copy-and-patch one with no register allocator in it at
   all, the row reads 133.3 k lines/s, and goal 3 is met natively for the first
-  time (§6.1). It is left here rather than deleted because the reason it closed
-  is the finding — the gap was in a dependency's design, and no amount of
+  time (§6.1). It stays here rather than being deleted because the reason it
+  closed is the finding — the gap was in a dependency's design, and no amount of
   tuning on this side of the seam was going to reach it.
 - **Lex+parse's last 1.57×.** The plateau without a design change is
   ~5.5–6 M lines/s; reaching 10 M additionally needs the C3 rewrite. 11.2% of
@@ -1354,13 +1338,12 @@ compile column is itself the faster one.
 
 ### 6.4 Three findings that transfer
 
-The rounds that produced the numbers above are not kept as a chronology: a log
-whose every row is superseded by a later row in the same document is a worse
-version of the last row. An earlier revision numbered those rounds §6.1 through
-§6.9, so a citation to one of them lands here. Three of the findings are worth
-more than the numbers
-they produced, because each is a shape rather than a measurement, and they are
-the three below.
+This page does not keep the rounds that produced the numbers above as a
+chronology: a log whose every row is superseded by a later row in the same
+document is a worse version of the last row. An earlier revision numbered those
+rounds §6.1 through §6.9, so a citation to one of them lands here. Three
+findings are worth more than the numbers they produced, because each is a shape
+rather than a measurement:
 
 **Per-unit work over a whole-program array is Θ(units × functions), and it hides
 until it does not.** Two scans in the then-current native backend walked all of
@@ -1397,8 +1380,8 @@ renderer emitted once, which is what the JavaScript backend already does. That
 is a decision about `middle::derives`'s premise rather than an optimization, and
 it is recorded here because the measurement rules out the two cheaper answers.
 
-**`opt_level = "speed"` on the dev backend was refuted on both halves of the
-trade.** It cost 16–95% of native lowering. What it returned, over the four
+**Measurement refuted `opt_level = "speed"` on the dev backend, on both halves
+of the trade.** It cost 16–95% of native lowering. What it returned, over the four
 kernels: primes −3.6%, n-queens −4.3%, matmul ±0%, and the fused pipeline
 **+34%** — the one shape the fusion pass had just made fast, regressed by a
 third because the egraph mid-end rewrote the fused loop into something its
@@ -1414,7 +1397,7 @@ by.
 - **Branchless reference counting**: +15%.
 - **`opt_level = "speed"`** on the dev backend: +20% lowering, and §6.4's
   runtime regression. This and the row below were dials on the Cranelift backend,
-  removed 2026-08-29; they are kept because a dead end that is deleted gets
+  removed 2026-08-29. They stay here because a deleted dead end gets
   rediscovered.
 - **`regalloc_algorithm = "single_pass"`**: silently inert since Cranelift
   0.123, which withdrew the value — the line was set and had no effect. It went
@@ -1435,10 +1418,10 @@ it still takes the unshared arm and every corpus measured here is one.
 
 **The stated budget was 3% on every row of `--set=native`, and it is 3% on four
 of them.** The fifth, `lower+macos-arm64-release`, carries a budget of its own —
-**amended 2026-08-30** to the range measured below, +16.6% … +26.3%. The
-amendment is argued at the end of this section rather than here, because a
-budget widened to fit a number is only defensible once the number, and what was
-bought with it, are both on the page.
+**amended 2026-08-30** to the range measured below, +16.6% … +26.3%. The end of
+this section argues that amendment rather than this paragraph, because a budget
+widened to fit a number is only defensible once the number and what it bought
+are both on the page.
 
 Protocol: `--only=mixed --set=native --targets=macos-arm64 --json`, the same
 machine and §2's rules, run **A/B/A/B** — the baseline toolchain, this one, the
@@ -1458,7 +1441,7 @@ compilers. Each cell is the better of that compiler's two run medians, which is
 The first four rows have no direction — the change touches native lowering and
 nothing else, and the front-end rows moving by ±4% in both directions is what
 this machine's drift looks like over a twenty-five-minute run. They are the
-control, and they are why the fifth row is believed.
+control, and they are why the fifth row is credible.
 
 **Goal 3 is unmoved.** §6.1's goal-bearing lowering row is
 `lower+macos-arm64`, the development backend, and it is one of the four. The
@@ -1474,11 +1457,10 @@ doubles the IR of the single most common operation the emitter produces. The
 `default<O2>` pipeline's cost is superlinear in block count, and 21% is what
 that comes to.
 
-**Half of it was bought back by making the shared arm a call.** The atomic
-sequence can be open-coded in the IR beside the fork, or the fork can call
+**Making the shared arm a call bought half of it back.** The atomic sequence can
+be open-coded in the IR beside the fork, or the fork can call
 `buri_rt_incref`/`buri_rt_decref`, which fork again on the same bit and take
-the same arm. Both were measured against the same baseline under the same
-protocol:
+the same arm. Both went against the same baseline under the same protocol:
 
 | Shared arm | `lower+macos-arm64-release` | median |
 |---|---:|---:|
@@ -1505,16 +1487,17 @@ x86-64 (stencil `st_incref`)
     js    <shared>
 ```
 
-The load is of the word next to the count, in the same sixteen-byte header, so
-it is on a cache line the operation was going to touch; the branch is perfectly
-predicted because its answer never changes; and both emitters mark the unshared
-arm hot, so it is the fallthrough and the shared arm is laid out after the tail.
+The load takes the word next to the count, in the same sixteen-byte header, so
+it sits on a cache line the operation was going to touch. The branch is
+perfectly predicted, because its answer never changes. And both emitters mark
+the unshared arm hot, so it falls through and the shared arm goes after the
+tail.
 
-**And what the emitted program does with it: it gets faster.** Two Buri programs
-were built by both toolchains and run five times each, alternating — `allocs`,
-whose loop is three inlined `decref`s and an allocation per iteration, and
-`rcloop`, whose counts `middle::rc` elides entirely, as the control. Best of
-five, seconds:
+**And what the emitted program does with it: it gets faster.** Both toolchains
+built two Buri programs and ran each five times, alternating — `allocs`, whose
+loop is three inlined `decref`s and an allocation per iteration, and `rcloop`,
+whose counts `middle::rc` elides entirely, as the control. Best of five,
+seconds:
 
 | program | backend | before | after | Δ |
 |---|---|---:|---:|---:|
@@ -1522,7 +1505,7 @@ five, seconds:
 | `allocs` (50 M iterations) | LLVM release | 1.711 | 0.605 | **−64.6%** |
 | `rcloop` (control, no counts) | dev / stencil | 0.423 | 0.431 | +1.9% |
 
-That is a **combined** figure and should be read as one: the fork's two
+Read that as one **combined** figure: the fork's two
 instructions against the per-thread caches of MEMORY.md §5.4, which turn an
 allocation-and-free pair into a list pop and a list push. The caches pay for the
 fork many times over on any program that allocates, and the control — which has
@@ -1531,24 +1514,23 @@ separate is the fork's own runtime cost, because this language has no
 allocation-free reference traffic to isolate it in: `middle::rc` elides exactly
 that.
 
-**Two of these runs were taken and discarded first.** The machine's load average
-reached 136 while other work shared it, and the same binary timed 2.5 s and
-20.7 s inside one alternating sequence. §2's ±5% dispersion rule says a run like
-that is one to discard rather than to quote, and it was; the table above is from
-a later run whose five readings per cell agree to ±8%. The two-instruction count
-is the claim that does not depend on either, because it is a claim about the
-object rather than about the machine.
+**Two earlier runs went in the bin.** The machine's load average reached 136
+while other work shared it, and the same binary timed 2.5 s and 20.7 s inside
+one alternating sequence. §2's ±5% dispersion rule says discard a run like that
+rather than quote it, so it went. The table above comes from a later run whose
+five readings per cell agree to ±8%. The two-instruction count depends on
+neither, because it is a claim about the object rather than about the machine.
 
 #### 6.6.1 The amendment, and what it is answerable to
 
 The 3% rule stands, unchanged, on the other four rows and on every row a later
-change to `--set=native` is measured against. What is amended is one row's
+change to `--set=native` gets measured against. The amendment covers one row's
 budget: `lower+macos-arm64-release` is held to **+16.6% … +26.3%**, median
 +21.3% — the range this run measured — **accepted by Nick, 2026-08-30**. Three
-things are what it was accepted on, and all three are measured above rather than
-argued:
+things carried that acceptance, and the section above measures all three rather
+than arguing them:
 
-- **What is spent is compile time, and only in one backend.** The release row is
+- **The spending is compile time, and only in one backend.** The release row is
   `opt`'s cost on the IR the emitter hands it, and the shared-RC branch adds
   **two basic blocks per reference operation** to that IR — roughly doubling the
   most common operation the emitter produces — against a `default<O2>` pipeline
@@ -1566,13 +1548,12 @@ argued:
   move. A one-off compile-time cost buys a per-execution runtime win, which is
   the trade this page exists to make visible.
 
-What the amendment is **not** is a widening of the rule. A row with a budget of
-its own is a row whose next regression is measured against *this range* rather
-than against 3%, so a second change of this size here is a second decision and
-not a rounding error. The alternative that lost was to hold 3% and leave the row
-permanently red: a budget nothing can meet is a budget nobody reads, and it
-would have gone on hiding a compile-time cost the runtime table in this section
-pays back.
+The amendment is **not** a widening of the rule. A row with a budget of its own
+has its next regression measured against *this range* rather than against 3%, so
+a second change of this size here is a second decision and not a rounding error.
+The alternative that lost was to hold 3% and leave the row permanently red:
+nobody reads a budget nothing can meet, and it would have gone on hiding a
+compile-time cost the runtime table in this section pays back.
 
 ### 6.7 What a scope costs, 2026-08-31
 
@@ -1591,14 +1572,14 @@ pessimisation.** Both met, at **+3.7%** and **+8.7%** respectively.
 The first row is A/B/A/B against a toolchain built from `HEAD`, medians of five
 alternating readings, dev/stencil, macOS arm64. The second is two binaries from
 the **same** toolchain — `cmd/plain` and `cmd/scoped`, identical but for the
-`alloc.scoped` around each batch — so it is not a before-and-after at all but
+`alloc.scoped` around each batch — so it is not a before-and-after at all. It is
 what a scope costs the program that opens one: 500,000 scopes, **183 ns each**,
-which is `create`, `enter`, `leave`, `release` and two uncontended mutexes.
+covering `create`, `enter`, `leave`, `release` and two uncontended mutexes.
 
 #### 6.7.1 Three shapes were measured and two were thrown away
 
 Every number below is the first row of the table above, on the same machine in
-the same sitting. They are recorded because each rejection is a fact about this
+the same sitting. They are here because each rejection is a fact about this
 platform rather than a preference.
 
 | where the "which scope am I in" question lives | `allocs` |
@@ -1614,12 +1595,12 @@ was already making one for the block cache. Folding the arena into
 `Cache` makes it one access and a branch on a word already in a register, and it
 is the whole of the difference between the first two rows.
 
-The third row is **within the noise of the second, and is kept anyway.**
+The third row sits **within the noise of the second, and stays anyway.**
 `scopes_exist()` is a relaxed load of a word written at most once in a process's
-life — G3's marking-latch shape — and what it buys is not the 0.3% but the
-claim: a program that never calls `scoped` takes the two lines it took before
-this slice, and that is readable off `buri_rt_alloc` rather than reasoned about
-from a profile.
+life — G3's marking-latch shape — and it buys the claim rather than the 0.3%: a
+program that never calls `scoped` takes the two lines it took before this slice,
+and you can read that off `buri_rt_alloc` rather than reasoning about it from a
+profile.
 
 #### 6.7.2 The pool is why the second row is 8.7% and not 116%
 
@@ -1678,13 +1659,13 @@ execution, at one-minute load averages of 6, 14, 41 and 45.
 retry.** `buri::recovery a_syntax_error_does_not_become_a_type_error` read
 68.8 s of the fastest run's 123.0 s, 88.2 s and 150.0 s on the next two, and on
 the busiest run it ran past `nextest`'s 300-second slow timeout, was terminated,
-and passed on the retry. It is the long pole and the only test here that needed
-a second attempt in any of the four. A retry is not a fix and this page is not
+and passed on the retry. It is the long pole, and the only test here that needed
+a second attempt in any of the four. A retry is not a fix, and this page is not
 where that gets fixed, but the suite's wall time is a number this section
-quotes, so the test that owns it is named.
+quotes, so this names the test that owns it.
 
-**It is fixed, and the two rows above are the last ones taken before it was.**
-The test was one serial loop of five thousand seven hundred `analyze_snippet`
+**It is fixed now, and the two rows above are the last ones taken before the
+fix.** The test was one serial loop of five thousand seven hundred `analyze_snippet`
 calls, and `analyze_snippet` builds a `SourceMap` and a parse cache from
 nothing — so each two-hundred-byte mutated snippet re-parsed the whole standard
 library. Neither half of that was the corpus's fault: the cases are independent
@@ -1697,8 +1678,8 @@ folded into the report on one thread. **Nothing about the population, the
 ceilings or the table changed**: the tables print byte for byte what they
 printed before. On the machine of §6 the whole `recovery` suite went from
 **77.9 s to 9.0 s**, and this test from 65.1 s to 8.9 s. CI's four-core runner
-read 162.9 s for the suite and is not re-measured here; what it now has to do is
-15% less work, divided four ways rather than run down one.
+read 162.9 s for the suite, and nobody re-measured it here. It now has 15% less
+work to do, divided four ways rather than run down one.
 
 The row worth pausing on is the digests. Forty pinned manifests were re-pinned
 at generator revision 7 and **all forty regenerate to their recorded SHA-256 at
@@ -1717,19 +1698,19 @@ Its numbers, and the one this tree reproduced on 2026-09-01:
 | `aarch64-apple-darwin` | 6,329,104 | **9,097,192** | 9,097,432 | 9,437,184 | 3.6% |
 | `aarch64-unknown-linux-musl` | — | **13,938,046** | — | 14,680,064 | 5.05% |
 
-The Darwin figure is not quoted from the script: a `cargo build --release -p
+The Darwin figure does not come from the script: a `cargo build --release -p
 buri` in this worktree produced an archive of exactly 9,097,192 bytes, and the
 script passed over it. The Linux figure is the script's own, measured in the
-Linux container BUILD-AND-WATCH.md §3.3.1 describes, and it is now the **musl** triple's:
-the Linux link is static-musl, and the archive it builds is 13,938,046 bytes
-against 13,799,068 for the `gnu` triple it replaced — 139 KB and 1.0% larger,
-which is musl's standard library rather than anything this repository did. It
-is 1.53× Darwin's for the same code — ELF's price per byte, near enough the
-ratio F4 and F7 each measured on `gnu`. Both budgets are ratchets and **neither
-is hit**; Darwin's 3.6% is still the thinner of the two, the musl switch cost
-Linux the difference between 6.0% and 5.05% and needed no raise, and the script
-says in capitals that the next slice to add anything at all is the one that
-re-measures it.
+Linux container BUILD-AND-WATCH.md §3.3.1 describes, and it now belongs to the
+**musl** triple. The Linux link is static-musl, and the archive it builds is
+13,938,046 bytes against 13,799,068 for the `gnu` triple it replaced — 139 KB
+and 1.0% larger, which is musl's standard library rather than anything this
+repository did. It is 1.53× Darwin's for the same code, ELF's price per byte,
+near enough the ratio F4 and F7 each measured on `gnu`. Both budgets are
+ratchets and **neither is hit**. Darwin's 3.6% is still the thinner of the two,
+the musl switch cost Linux the difference between 6.0% and 5.05% and needed no
+raise, and the script says in capitals that the next slice to add anything at
+all is the one that re-measures it.
 
 **What a phase allocates, which is the one figure with no noise in it.**
 `--alloc` needs the counting global allocator (`--features alloc-counter`), so a
@@ -1772,33 +1753,32 @@ triples that, and lowering triples it again. The three *native* triples agree to
 within 2.4% of each other at 100k — 315.9 MB for `linux-x86_64`, 318.7 for
 `macos-arm64`, 323.5 for `linux-arm64` — and the JavaScript row is 9% under
 them, so the bulk of this is the compiler's own working set rather than any one
-backend's. There is still no
-*goal* here — §1 says so and this section does not change it — but the column is
-no longer empty, and a future budget has a number to be stated against.
+backend's. There is still no *goal* here — §1 says so, and this section does not
+change it — but the column is no longer empty, and a future budget has a number
+to be stated against.
 
-**What the runtime costs is measured beside it rather than here.** §6.6 prices
+**The runtime's cost is measured beside this rather than in it.** §6.6 prices
 the shared-reference-counting fork the multi-threaded program needed — two
 instructions per reference operation, +21.3% on `lower+macos-arm64-release`
 against an amended budget, and a 39.8–64.6% *fall* in an allocating program's
 run time — and §6.7 prices a scope at 183 ns, +3.7% on a program that opens none
-and +8.7% on one that opens 500,000. Both were taken against the same `allocs`
-program, and neither is re-taken here: nothing in this slice touched the
-runtime.
+and +8.7% on one that opens 500,000. Both came from the same `allocs` program,
+and neither gets re-taken here: nothing in this slice touched the runtime.
 
 ### 6.9 Where a real repository's `buri test` goes, 2026-09-03
 
 A maintainer's own monorepo — 18 packages, 177 `.buri` files, 173 codegen
 units, 488 test cases — ran `buri test //...` cold in **8.2 s**. The question
-asked of it was which stencils the run side was missing. **The run side is
-0.15 s of it.** The batched test binary the suite builds executes every block
-in 154 ms on this machine; the other eight seconds are the compile, and this
-section is what was in them.
+was which stencils the run side was missing. **The run side is 0.15 s of it.**
+The batched test binary the suite builds executes every block in 154 ms on this
+machine. The other eight seconds are the compile, and this section is what was
+in them.
 
-The phase column is a timer compiled into a throwaway toolchain build, with
-`buri clean` before every run and the minimum of several runs taken per phase —
+The phase column comes from a timer compiled into a throwaway toolchain build,
+with `buri clean` before every run and the minimum of several runs per phase —
 §2's "fastest sample" rule applied per phase rather than per corpus, because the
 machine had other work on it. The wall row is the two *shipping* toolchains,
-alternating, and is the number to read as the result.
+alternating, and it is the number to read as the result.
 
 | Phase | before | after |
 |---|---:|---:|
@@ -1814,19 +1794,19 @@ alternating, and is the number to read as the result.
 | running the suite | 1.16 s | 1.24 s |
 | **wall, cold, best of seven A/B pairs** | **7.99 s** | **5.13 s** |
 
-`design/native/CODEGEN-STENCIL.md` §4.2 is what each line changed, and the four
-findings are worth separating because only one of them is about threads:
+`design/native/CODEGEN-STENCIL.md` §4.2 says what changed on each line. The four
+findings are worth separating, because only one of them is about threads:
 
-1. **The program was lowered twice.** `objects_named` lowers for the unit keys
-   and `emit_units` lowered again for the bytes; each lowering carries a
-   whole-program `middle::rc::analyze`. 1.01 s, deleted by handing the first
-   lowering over.
-2. **`Cycles` was rebuilt per unit** — a walk of every constructor plus a
-   Tarjan pass, 173 times. §6.4's first finding is exactly this shape and
-   `Layouts::with_cycles` exists for exactly this reason; the LLVM backend used
-   it and the stencil backend did not.
-3. **A `Layout` was copied per instruction and a `Ty` cloned per reference
-   operation.** `Layouts::shared` says in its own doc comment that a caller in
+1. **The compiler lowered the program twice.** `objects_named` lowers for the
+   unit keys and `emit_units` lowered again for the bytes; each lowering carries
+   a whole-program `middle::rc::analyze`. Handing the first lowering over
+   deleted 1.01 s.
+2. **`Cycles` got rebuilt per unit** — a walk of every constructor plus a
+   Tarjan pass, 173 times. §6.4's first finding is exactly this shape, and
+   `Layouts::with_cycles` exists for exactly this reason. The LLVM backend used
+   it; the stencil backend did not.
+3. **The emitter copied a `Layout` per instruction and cloned a `Ty` per
+   reference operation.** `Layouts::shared` says in its own doc comment that a caller in
    a loop over instructions must use it. `walk_rc` is that loop and used the
    copying form; so did `MakeStruct`, `GetField`, `GetPayload`, `MakeEnum` and
    `GetTag`. On the emission's critical-path unit this was worth 30%.
@@ -1854,24 +1834,24 @@ outlier: `mixed-few-files` is the corpus with the fewest codegen units, so it
 is the one with the least to spread over cores, and −30.3% is what the three
 serial findings are worth on their own.
 
-**§6.1's goal-3 rate is deliberately not restated from these numbers.** The
-table above is a *ratio* between two toolchains measured against each other in
-one window, which is what A/B/A/B is for; a goal row is an absolute rate, it is
-stated over a wider corpus set than `--only=mixed`, and this machine was not
-idle for the whole afternoon. The row moves when somebody takes it the way §2
-says to.
+**This section deliberately does not restate §6.1's goal-3 rate from these
+numbers.** The table above is a *ratio* between two toolchains measured against
+each other in one window, which is what A/B/A/B is for. A goal row is an
+absolute rate, stated over a wider corpus set than `--only=mixed`, and this
+machine was not idle for the whole afternoon. The row moves when somebody takes
+it the way §2 says to.
 
 **What the ceiling is now.** The per-unit emission is parallel, so it is bounded
 by the **largest single unit** — on this repository `core/ordmap`, 11,267
 monomorphized functions, which is 1.10 s of the 1.10 s. Splitting a unit is a
 build-system question (a unit is a cache key and an object file,
 `design/native/ARCHITECTURE.md` §5), so the next win on that line is either
-making a function cheaper to emit again or making a unit smaller. **§6.10 is
-that ceiling taken down**, by a third route neither of those names: the unit is
-not split, its *emission* is. Above it,
-`actions::prepare` is now the largest single-threaded phase at 1.40 s, of which
-0.79 s is `middle::rc::analyze` — and it is *still* the whole-program analysis
-the emitter no longer duplicates, so halving it would be worth as much again.
+making a function cheaper to emit again or making a unit smaller. **§6.10 takes
+that ceiling down**, by a third route neither of those names: it splits a unit's
+*emission* rather than the unit. Above it, `actions::prepare` is now the largest
+single-threaded phase at 1.40 s, of which 0.79 s is `middle::rc::analyze` —
+still the whole-program analysis the emitter no longer duplicates, so halving it
+would be worth as much again.
 
 **Two things this did not touch, and both are worth naming.** The suite's
 `link` is 0.40 s for a **102 MB** batched debug binary, written to the artifact
@@ -1888,15 +1868,15 @@ of a unit without dividing the unit**. `design/native/CODEGEN-STENCIL.md` §4.3
 is the mechanism; this is the measurement.
 
 **The measurement is on a synthetic, and that is a caveat rather than a
-footnote.** §6.9's repository no longer compiles against this toolchain: the
-filesystem effect was split into `FsRead` and `FsWrite` in the meantime
-(`core/fs`), and nine of its eighteen packages are written against the
-un-split one, so the half that still compiles emits about 20 ms in total and
-can say nothing about a 1.10 s unit. What replaces it is a program *shaped*
-like the finding — one module instantiating `core/ordmap` at two hundred key
-and value types, which puts **14,200 monomorphized functions in `core_ordmap`**
-against the real repository's 11,267 — and the numbers below should be read as
-that shape rather than as that repository.
+footnote.** §6.9's repository no longer compiles against this toolchain: a later
+change split the filesystem effect into `FsRead` and `FsWrite` (`core/fs`), and
+nine of its eighteen packages are written against the un-split one, so the half
+that still compiles emits about 20 ms in total and can say nothing about a
+1.10 s unit. A program *shaped* like the finding replaces it — one module
+instantiating `core/ordmap` at two hundred key and value types, which puts
+**14,200 monomorphized functions in `core_ordmap`** against the real
+repository's 11,267 — so read the numbers below as that shape rather than as
+that repository.
 
 **Where the 0.61 s in the biggest unit went**, from a timer compiled into a
 throwaway toolchain, minimum of several runs:
@@ -1913,10 +1893,10 @@ throwaway toolchain, minimum of several runs:
 | **total** | **614** | |
 
 Two thirds of it is the per-function loop, which is the ideal shape: many small
-functions, no shared mutable state that is not a memo. So the members are cut
-into contiguous parts of 512 and the parts of *every* unit are one flat work
-list, with the per-unit assembly — symbols, relocations, writer, digest — left
-where it was.
+functions, no shared mutable state that is not a memo. So the emitter cuts the
+members into contiguous parts of 512 and puts the parts of *every* unit on one
+flat work list, leaving the per-unit assembly — symbols, relocations, writer,
+digest — where it was.
 
 | | before | after |
 |---|---:|---:|
@@ -1930,12 +1910,12 @@ where it was.
 numbers is the point: the emission was 29% of this build and is now 13% of it,
 so the next thing in the way is somewhere else.
 
-**The 1.1% of object bytes is what the division costs and is not free.** Three
-things are per-`Jit` and become per-part — the constant pool's deduplication,
-the map of a stencil's spilled constants, and the generated glue — and the glue
-is the one that shows: two parts that both drop a `[Str]` get a copy each under
-different local names. Measured across part sizes from 256 to 2048 the emission
-wall is the same to within the noise and the object bytes move about 0.2% per
+**The division costs 1.1% of object bytes, and that is not free.** Three things
+are per-`Jit` and become per-part — the constant pool's deduplication, the map
+of a stencil's spilled constants, and the generated glue — and the glue is the
+one that shows: two parts that both drop a `[Str]` get a copy each under
+different local names. Across part sizes from 256 to 2048 the emission wall
+stays the same to within the noise while the object bytes move about 0.2% per
 halving, so 512 is the smallest part that costs about one per cent.
 
 **On the bench, the corpus §6.9 could not help is the one that moves.** §6.6's
@@ -1959,18 +1939,17 @@ gained least there — −30.3% where the other five halved. Dividing the inside
 a unit is precisely the thing that reaches it, and it gains six times what any
 other corpus here does. The controls agree that this is the change and not the
 afternoon: `lex` moved a median −0.4% over the same six corpora, `lex+parse`
-−0.2%, `sema` −0.1%, none of which this touches. One `sema` cell read +9.4% and
-is what this machine's drift looks like; the medians are what the rows are read
-from.
+−0.2%, `sema` −0.1%, none of which this touches. One `sema` cell read +9.4%,
+which is what this machine's drift looks like; read the rows from the medians.
 
 **What the floor is now, and it is a different shape.** 67 ms of the biggest
 unit is its assembly: 27 ms in the object writer, 22 ms building a symbol table
 and 402,000 relocations, 13 ms concatenating the parts, 5 ms hashing. Every one
 of those is one unit's own and serial by construction.
 
-**One finding is recorded and deliberately not acted on.** The `codegen` key
-the stencil backend computes — 164 ms of the 614, a quarter of the biggest
-unit — is **thrown away**. `build::actions::codegen_units_for` matches the
+**One finding is recorded and deliberately left alone.** The stencil backend
+computes a `codegen` key — 164 ms of the 614, a quarter of the biggest unit —
+and then **throws it away**. `build::actions::codegen_units_for` matches the
 emitted object by *name* and keeps the key it was already handed, which
 `unit_hashes` computed in parallel above the emission from the same
 `render_func` text; the backend's own answer is never read. The larger half of
@@ -1995,21 +1974,21 @@ samply record <bench-binary> --quick              # if samply is installed
 xcrun xctrace record --template 'Time Profiler' --launch <bench-binary> -- --quick
 ```
 
-`--quick` keeps the run short enough to profile; the phase timers dominate the
-samples, so the hot functions under `lex`, `parse`, `Checker::run` and the
-lowering calls are directly attributable to their rows.
+`--quick` keeps the run short enough to profile. The phase timers dominate the
+samples, so you can attribute the hot functions under `lex`, `parse`,
+`Checker::run` and the lowering calls straight to their rows.
 
-**A controlled sweep is the other instrument, and it is not the lesser one.**
-The suite's whole parameter space is a command-line flag, so a suspected
-superlinear term can be tested by holding everything constant and moving the one
-axis it is suspected in. `--param lines_per_module=2500` at a fixed `--scale`
-changes the codegen unit count and nothing else that matters, and a row moving
-back to its old rate under it is a stronger statement than a flame graph: a
-profile says where the time is, and an experiment like that says what the time
-is a *function of*. That is how §6.4's Θ(units × functions) finding was made.
-What a profile cannot give here is cycles-per-line; the substitute discipline is
-to re-run the suite after every change and let §6's table, not the profile, say
-whether the change was real.
+**A controlled sweep is the other instrument, and not the lesser one.** The
+suite's whole parameter space is a command-line flag, so you can test a
+suspected superlinear term by holding everything constant and moving the one
+axis you suspect. `--param lines_per_module=2500` at a fixed `--scale` changes
+the codegen unit count and nothing else that matters, and a row moving back to
+its old rate under it says more than a flame graph: a profile says where the
+time is, and an experiment like that says what the time is a *function of*. That
+is how §6.4's Θ(units × functions) finding came out. A profile cannot give you
+cycles-per-line here; the discipline that stands in is to re-run the suite after
+every change and let §6's table, not the profile, say whether the change was
+real.
 
 **Two sweeps beat one.** A sweep over enum width once produced a curve that fell
 and then flattened — suggestive, and not an answer. A second sweep held the

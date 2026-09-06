@@ -1,21 +1,21 @@
 # Static rules not expressed by the grammar
 
-**A maintainer reference. Every rule below is enforced by the checker and carried
-to a reader by the error catalogue, so nothing here is something a person writing
-Buri has to look up.**
+**A maintainer reference. The checker enforces every rule below and the error
+catalogue carries it to a reader, so nobody writing Buri has to look any of this
+up.**
 
-The grammar accepts a superset of well-formed programs. These are checked
-afterward. Each is one line here and is argued where it is cited; this page is
-the index, not the explanation. It was section 13 of the specification, and the
-rule numbers below are the ones the compiler's comments cite. A bare
-"Section N.M" is a section of the language reference, under
+The grammar accepts a superset of well-formed programs, and the checker sorts out
+the rest afterward. Each rule gets one line here and is argued where it is cited:
+this page is the index, not the explanation. It was section 13 of the
+specification, and the compiler's comments cite the rule numbers below. A bare
+"Section N.M" points at a section of the language reference, under
 [`cli/src/docs/language/`](../cli/src/docs/language/).
 
 1. The head of a struct literal (`Expr { ... }`) must be a type path — optionally
    with type arguments, or the inferred-type dot form `.Variant` — not an
    arbitrary expression. It may also be absent, where the grammar reads the
-   braces as an anonymous literal (`grammar-rationale.md` 12.3); the expected
-   type is then read from above, and must be a struct with no unsettled type
+   braces as an anonymous literal (`grammar-rationale.md` 12.3). The expected
+   type then comes from above, and must be a struct with no unsettled type
    argument (Section 5.6).
 2. `let` patterns must be irrefutable (Section 6.3).
 3. `match` must be exhaustive, and no arm may be unreachable (Section 7.3).
@@ -42,7 +42,7 @@ rule numbers below are the ones the compiler's comments cite. A bare
     least one variant that does not recurse.
 15. The head of a struct literal may not be a block-like expression; neither may
     the head of any postfix chain (`grammar-rationale.md` 12.13).
-16. A value of type `Result<T, E>` may not be discarded by a `_` pattern
+16. A `_` pattern may not discard a value of type `Result<T, E>`
     (Section 5.7.1).
 
 Methods and traits:
@@ -78,8 +78,8 @@ Effects and contexts:
     immediately after `self`, or a `let` binding name where a context may be
     constructed (Section 11.3).
 26. An effect-carrying parameter must be `self` or `ctx`, at most one of each,
-    and a `context` expression is the only construct in which more than one
-    effect-carrying value may appear (Section 10.2).
+    and only a `context` expression may hold more than one effect-carrying value
+    (Section 10.2).
 27. `effect` declarations may appear only in platform modules, and no type may
     implement both an effect and a trait — so an effect-carrying type satisfies
     no ordinary trait bound, however it is composed (Section 10.1).
@@ -102,21 +102,20 @@ Contexts (Section 11.3):
 33. Each binding's left side names a declared effect, bound at most once across
     the spread and the explicit bindings; each right side's type must implement
     that effect. The result satisfies exactly the effects bound.
-34. `"core/host"` is importable only from the module that exports `main`, and
-    what it may name is **what the platforms that module is compiled for
-    grant**: every platform its rule's `outputs` name, plus every platform its
-    suite names in `test.platforms`. Naming one they do not all grant is a
-    compile error — on the name inside the braces for a named import, on the
-    member reference for a namespace one (`effect-not-on-platform`, Section
-    10.3). A rule that declares no platforms commits to none and is not
-    checked.
+34. Only the module that exports `main` may import `"core/host"`, and it may name
+    **what the platforms that module is compiled for grant**: every platform its
+    rule's `outputs` name, plus every platform its suite names in
+    `test.platforms`. Naming one they do not all grant is a compile error — on
+    the name inside the braces for a named import, on the member reference for a
+    namespace one (`effect-not-on-platform`, Section 10.3). A rule that declares
+    no platforms commits to none, and the checker leaves it alone.
 
 Modules and tests:
 
 35. A module path names the standard library — `"core/..."` or `"ui/..."` — or
     this repository, `"//..."`; there are no relative paths, and a `//` path the
-    build system does not make visible to the importing target is an error. A
-    path containing a `testing` segment is importable only from a test source
+    build system does not make visible to the importing target is an error. Only
+    a test source may import a path containing a `testing` segment
     (Section 4.1.1).
 36. A re-export may name only what its module path exports, and `export *` is
     not derivable (Section 4.2.1).
@@ -124,4 +123,4 @@ Modules and tests:
     test source may not `export`, and may not be imported (Section 11.2).
 38. An expression statement is legal only in a test source, and only when its
     type is `()`. Any expression qualifies — a call, a `match`, an `if`, a
-    block — and every one of them is terminated by `;` (Section 11.2.1).
+    block — and every one of them ends in `;` (Section 11.2.1).
