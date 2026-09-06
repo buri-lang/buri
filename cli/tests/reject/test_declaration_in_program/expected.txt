@@ -15,7 +15,7 @@ error: a `test` declaration is legal only in a test source [test-outside-test-so
     Why
     ───
 
-    A module is a test source because a rule lists it there; that is the only
-    thing that makes one. So a test in production code is not a test the runner
-    has missed — it is a declaration in a file the runner will never look at.
+    A module is a test source because a rule lists it there. Nothing else makes
+    one. So a test in production code is not a test the runner has missed. It is
+    a declaration in a file the runner will never open.
 

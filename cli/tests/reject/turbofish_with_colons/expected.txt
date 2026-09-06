@@ -15,12 +15,12 @@ error: type arguments in an expression are written without `::` [turbofish]
      Why
      ───
 
-     The turbofish exists in other languages because a bare < in expression
-     position is always a comparison there, so f<A>(x) cannot be told from (f <
-     A) > (x). Buri's comparison operators are non-associative, so the second
-     reading is not a program either — there is no source the two readings both
-     accept and disagree about, and the :: was the price of an ambiguity that
-     turned out not to be one.
+     Other languages need the turbofish because a bare < in expression position
+     is always a comparison there, so they cannot tell f<A>(x) from (f < A) >
+     (x). Buri's comparison operators are non-associative, so the second reading
+     is not a program either. No source accepts both readings and disagrees
+     about them, and the :: was the price of an ambiguity that turned out not to
+     be one.
 
      Two spellings of one thing would be worse than either, so the old one is an
      error rather than a second way to write it. The error carries the edit as

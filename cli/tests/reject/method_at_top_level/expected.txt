@@ -15,9 +15,9 @@ error: `area` takes `self`, so it is a method [method-declared-free]
      Why
      ───
 
-     A method is found through its receiver's type, so it is declared with that
-     type — in an impl block, in the module that declares the type. Taking self
-     at the top level names the shape of a method in a place that has no
+     Method lookup goes through the receiver's type, so you declare a method
+     with that type: in an impl block, in the module that declares the type.
+     Taking self at the top level writes the shape of a method somewhere with no
      receiver type to attach it to.
 
 error: `Square` has no method `area` [no-such-method]
@@ -40,7 +40,7 @@ error: `Square` has no method `area` [no-such-method]
      ───
 
      A method is looked up in exactly one place: the module that declares the
-     receiver's type. There is no extension mechanism, so a method cannot be
-     added to a type from outside — which is also what makes resolution a single
+     receiver's type. There is no extension mechanism, so nobody can add a
+     method to a type from outside. That is also what makes resolution a single
      lookup rather than a search.
 

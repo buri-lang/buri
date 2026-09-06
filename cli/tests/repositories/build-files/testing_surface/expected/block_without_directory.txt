@@ -15,9 +15,8 @@ error: "//lib/plain/testing/lib.buri" names no file (lib/plain/testing/lib.buri)
     A program that provokes it
     ──────────────────────────
 
-    A module path resolves against the repository, so this one is compiled
-    against the worked monorepo in cli/tests/example, which has no lib/nope in
-    it.
+    A module path resolves against the repository, so this snippet compiles
+    against the worked monorepo in cli/tests/example, which has no lib/nope.
 
 error: testing/helpers.buri does not exist [no-such-source]
  --> lib/plain/BUILD.buri:6:15

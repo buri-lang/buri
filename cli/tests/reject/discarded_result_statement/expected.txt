@@ -15,19 +15,19 @@ error: an expression statement is legal only in a test source [expression-statem
      Why
      ───
 
-     A block is lets followed by a result expression, and there is no third
+     A block is lets followed by a result expression. There is no third
      statement form. A test source is the one exception, which is what lets
-     assert.eq(...) stand alone — and there, any expression of type () may, a
-     match or an if whose branches all assert included, each terminated by ;.
+     assert.eq(...) stand alone. There, any expression of type () may stand
+     alone, terminated by ; — a match or an if whose branches all assert
+     included.
 
-     Between this rule and result-discarded there are exactly two places a value
-     can be thrown away — bound to a _, or left standing — and a Result is
-     refused in both, which is what makes must-use total rather than a
-     convention. So a statement whose type is Result is *both* errors at once,
-     and the fix has to answer both: .ignore() alone settles the type and leaves
-     the statement standing, let _ = ...; alone binds a Result that may not be
-     dropped. The edit is the two together, and it is what a program printing a
-     line writes:
+     Between this rule and result-discarded, a value can be thrown away in
+     exactly two places: bound to a _, or left standing. Both refuse a Result,
+     which is what makes must-use total rather than a convention. A statement
+     whose type is Result is therefore *both* errors at once, and the fix has to
+     answer both. .ignore() alone settles the type and leaves the statement
+     standing. let _ = ...; alone binds a Result that may not be dropped. The
+     edit is the two together, which is what a program printing a line writes:
 
        # from "core/effect" import { Alloc, Stdout };
        # from "core/host" import * as host;

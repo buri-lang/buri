@@ -16,18 +16,19 @@ warning: nothing reads `Stamp.note` [unused-field]
      sites that were computing a value for nobody. Work through them rather than
      leaving the field in place to avoid the churn.
 
-     If the field is there because a caller outside this library reads it, then
-     it belongs to public API and the answer is the library's surface: the
-     exported fields of a type lib.buri re-exports are not reported, because the
-     reader this analysis can see is not the only one there is. Under testing/,
-     that surface is testing/lib.buri — a fixture's field is read by another
-     package's suite, which this analysis never loads.
+     If the field is there because a caller outside this library reads it, it is
+     public API, and the answer is the library's surface. The rule never reports
+     the exported fields of a type lib.buri re-exports, because the readers this
+     analysis can see are not the only readers there are. Under testing/, that
+     surface is testing/lib.buri: a fixture's field is read by another package's
+     suite, which this analysis never loads.
 
      Two things read every field of a type at once, and neither leaves a
      projection behind to find. A derive is a fold over the whole type
-     definition, so a derived Eq, Ord, Hash or Show reads every field — a type
-     with one is never reported. So is a value handed to the runtime, or
-     compared structurally. What is left is the field nothing at all looks at.
+     definition, so a derived Eq, Ord, Hash or Show reads every field, and a
+     type with one is never reported. A value handed to the runtime, or compared
+     structurally, is the other. What is left is the field nothing at all looks
+     at.
 
 warning: nothing uses `Ghost` [unused-type]
   --> lib/money/stamps.buri:18:8
@@ -49,17 +50,17 @@ warning: nothing uses `Ghost` [unused-type]
 
      A shape that was meant to be published. It models something a caller
      outside this library needs. Then the answer is not to use it here but to
-     re-export it from lib.buri: a name on the library's surface is public API
-     and this rule does not ask about it, because the consumer this analysis can
-     see is not the only one there is. A type declared under testing/ is
-     measured against testing/lib.buri the same way, and for the same reason — a
+     re-export it from lib.buri. A name on the library's surface is public API,
+     and this rule does not ask about it, because the consumers this analysis
+     can see are not the only ones there are. A type declared under testing/ is
+     measured against testing/lib.buri the same way, and for the same reason: a
      fixture is written for another package's suite.
 
-     A shape that was meant to be wired in. It was written before the code that
-     would build it, and that code was never written. That is the real bug, and
-     finishing it is the fix.
+     A shape that was meant to be wired in. Somebody wrote it before the code
+     that would build it, and that code was never written. That is the real bug,
+     and finishing it is the fix.
 
-     A type's own impl and derive blocks are not uses of it: they describe the
-     shape rather than reach for it. That is what keeps a dead type with ten
+     A type's own impl and derive blocks are not uses of it. They describe the
+     shape rather than reach for it, which is what keeps a dead type with ten
      methods on it a dead type.
 
