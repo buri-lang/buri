@@ -20,9 +20,8 @@ error: "//lib/money/nope.buri" names no file (lib/money/nope.buri) [module-not-f
     A program that provokes it
     ──────────────────────────
 
-    A module path resolves against the repository, so this one is compiled
-    against the worked monorepo in cli/tests/example, which has no lib/nope in
-    it.
+    A module path resolves against the repository, so this snippet compiles
+    against the worked monorepo in cli/tests/example, which has no lib/nope.
 
 error: there is no type `Cents` [unresolved-type]
  --> cmd/app/routes.buri:6:12
@@ -61,8 +60,7 @@ error: there is nothing named `fromCents` in scope [unresolved-name]
     Why
     ───
 
-    There is no prelude and no ambient scope: the names available in a module
-    are the ones it declares plus the ones its own imports name. That is what
-    makes the suggestion trustworthy — the set it is drawn from is exactly the
-    set the file put there.
+    There is no prelude and no ambient scope. A module's available names are the
+    ones it declares plus the ones its own imports name. That is what makes the
+    suggestion trustworthy: it is drawn from exactly the set the file put there.
 

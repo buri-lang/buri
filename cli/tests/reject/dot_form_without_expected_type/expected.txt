@@ -16,8 +16,8 @@ error: `.Some` needs a known expected type [unannotated-variant]
     ───
 
     .Some is shorthand for "the Some of whatever type is expected here", and a
-    let with no annotation expects nothing. Inference flows into the shorthand
-    rather than out of it, which is what keeps two enums free to share a variant
+    let with no annotation expects nothing. Inference flows into the shorthand,
+    never out of it, which is what leaves two enums free to share a variant
     name.
 
 error: there is nothing named `n` in scope [unresolved-name]
@@ -38,8 +38,7 @@ error: there is nothing named `n` in scope [unresolved-name]
     Why
     ───
 
-    There is no prelude and no ambient scope: the names available in a module
-    are the ones it declares plus the ones its own imports name. That is what
-    makes the suggestion trustworthy — the set it is drawn from is exactly the
-    set the file put there.
+    There is no prelude and no ambient scope. A module's available names are the
+    ones it declares plus the ones its own imports name. That is what makes the
+    suggestion trustworthy: it is drawn from exactly the set the file put there.
 
