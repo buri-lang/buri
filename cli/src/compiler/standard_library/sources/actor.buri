@@ -186,8 +186,11 @@ export struct Actor<C, S, M> {
 /// one (SPEC 10.6), which is what makes an address usable as another actor's
 /// state.
 export struct Address<C, S, M> {
-    /// The mailbox, as the runtime knows it.
-    export handle: Int,
+    /// The mailbox, as the runtime knows it — this module's own, because an
+    /// address is the authority to send and not the number that authority is
+    /// spelled with, and nothing outside here can do anything with an `Int`
+    /// the runtime issued.
+    handle: Int,
     /// `Actor::step`, carried.
     step: fn(C, S, M) => S,
     /// `Actor::onStop`, carried.

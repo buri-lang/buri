@@ -1,0 +1,30 @@
+// EXPECT: field `handle` of `Address` is private to its module
+//
+// An `Address` is the authority to send, not the number that authority is
+// spelled with. The mailbox's handle is how `core/actor` reaches the runtime —
+// `send`, `ask` and `stop` all pass it back — and it is private to that module,
+// so a program cannot read it out and cannot mint an `Address` around one of
+// its own. What crosses is the address, and every use of it goes through the
+// functions the module exports.
+from "core/actor" import { Actor };
+from "core/actor" import * as actor;
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+enum Ping {
+    Ping,
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+    let address = actor.start(ctx, Actor {
+        state: 0,
+        mailbox: .None,
+        onStop: .None,
+        step: fn(_c, count, _message: Ping) => count + 1,
+    });
+    let _ = io.println(ctx, "mailbox ${address.handle}").ignore();
+    let _stopped = address.stop(ctx).ignore();
+    .Ok(())
+}
