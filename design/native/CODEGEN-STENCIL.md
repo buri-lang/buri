@@ -692,78 +692,78 @@ way.
 
 ## 5. The runtime boundary
 
-Every operation `middle::lower` leaves as a `Body::Runtime` or an
-`Inst::CallIntrinsic` with a `buri_rt_*` symbol is **a call into
-`libburi_rt.a`** — the same archive, the same contract
-(`cli/runtime/lib.rs`) and the same table shape as the other two backends.
-`stencil/runtime.rs` is one transcription of that contract and `llvm/runtime.rs`
-is the other, key for key and shape for shape, and
-`cli/tests/native/conformance.rs`'s companion test is what keeps the two from
-disagreeing about which keys exist.
+Every operation `middle::lower` leaves as a `Body::Runtime`, or as an
+`Inst::CallIntrinsic` with a `buri_rt_*` symbol, is **a call into
+`libburi_rt.a`** — the same archive, the same contract (`cli/runtime/lib.rs`)
+and the same table shape as the other two backends. `stencil/runtime.rs`
+transcribes that contract and `llvm/runtime.rs` transcribes it again, key for
+key and shape for shape, and `cli/tests/native/conformance.rs`'s companion
+test keeps the two from disagreeing about which keys exist.
 
 This is the wave's largest single deletion. The prototype had its own
 `intrin.rs`: a descriptor-driven helper per operation, written in Rust, living
-in the compiler's process. That could not survive object emission — a symbol in
-the compiler is not a symbol in the artifact — and it was, in the honest naming,
-`libburi_rt.a` written a second time, with every `num.U64.checkedMul` the
-language ever adds having to be written twice.
+in the compiler's process. That could not survive object emission, because a
+symbol in the compiler is not a symbol in the artifact. In the honest naming
+it was `libburi_rt.a` written a second time, with every `num.U64.checkedMul`
+the language ever adds having to be written twice.
 
 ### 5.0 A runtime call is emitted into its caller, not called
 
-The same key reaches this backend two ways — spelled inline it is an
-`Inst::CallIntrinsic`, spelled as a method it is an `Inst::Call` to a
-`Body::Runtime` function — and **both are emitted at the call site**, which was
-the first act of the removed backend's `call` for the same reason.
+The same key reaches this backend two ways. Spelled inline it is an
+`Inst::CallIntrinsic`; spelled as a method it is an `Inst::Call` to a
+`Body::Runtime` function. This backend **emits both at the call site**, which
+was the first act of the removed backend's `call`, for the same reason.
 
-Making the second a real call cost a whole frame for nothing. The caller copied
-the operands into the callee's parameter slots and branched; the generated body
-then copied the same words again into its C argument area and branched into the
-archive. The second copy is the *same* marshalling from a different address, so
-the frame bought nothing: on a matrix multiply whose inner loop is two
-`a.get(i)` per element, the two frames were about forty instructions where
-Cranelift reaches the entry in ten, thirty-two million times, and emitting at
-the call site took the four-kernel total down 11% and that kernel down 17%.
+Making the second a real call cost a whole frame for nothing. The caller
+copied the operands into the callee's parameter slots and branched; the
+generated body then copied the same words again into its C argument area and
+branched into the archive. The second copy is the *same* marshalling from a
+different address, so the frame bought nothing. On a matrix multiply whose
+inner loop is two `a.get(i)` per element, the two frames were about forty
+instructions where Cranelift reaches the entry in ten, thirty-two million
+times. Emitting at the call site took the four-kernel total down 11% and that
+kernel down 17%.
 
-It is sound because the *shape* of a marshalled call is a function of the key
-and of the operand and result IR types alone, and those are the same at the two
-sites: a `Body::Runtime` function's signature **is** its caller's argument and
+It is sound because the *shape* of a marshalled call depends on the key and on
+the operand and result IR types alone, and those are the same at both sites: a
+`Body::Runtime` function's signature **is** its caller's argument and
 destination types. `rtcall.rs` is one implementation of `cli/runtime/lib.rs`
 §2's rule and both sites hand it the same list, so a shape refused at one is
 refused at the other, with the same sentence.
 
 Two keys are deliberately still called: `core/list`'s closure surface and the
-two `deriveArray*` derives, which `lists.rs` open-codes as a **loop** whose step
-this function has to be able to see as a `MakeClosure`. Where it cannot, calling
-the `Body::Runtime` function is the designed fallback — its body reaches the
-same loop through the closure's thunk — so inlining those would replace a
-working answer with a refusal.
+two `deriveArray*` derives, which `lists.rs` open-codes as a **loop** whose
+step this function has to be able to see as a `MakeClosure`. Where it cannot,
+calling the `Body::Runtime` function is the designed fallback — its body
+reaches the same loop through the closure's thunk — so inlining those would
+replace a working answer with a refusal.
 
 **That exclusion is now the largest single gap this backend has on the run
 side.** With §5.1's slots family landed, three of the four kernels are within
-1.1×–1.2× of Cranelift and the fourth — the `core/list` closure pipeline — is
+1.1×–1.2× of Cranelift, and the fourth — the `core/list` closure pipeline — is
 **2.9×**, unmoved by everything this boundary has been given because it never
 went through it. Whatever is next for run time is in `lists.rs` and the thunk,
 not in `rtcall.rs`.
 
 ### 5.0.1 `str.concat`, the one call with no table row
 
-The other two backends open-code MEMORY.md §5.3's three concatenation paths —
+The other two backends open-code MEMORY.md §5.3's three concatenation paths:
 in place when the left operand's block is uniquely owned and has room, grown
-when it is unique and out of room, exact otherwise. This backend cannot: a
+when it is unique and out of room, exact otherwise. This backend cannot. A
 header load, two compares, three arms and a `memmove` are a dozen stencils and
-a block layout against one `crt` stencil for a call. It therefore emitted the
+a block layout, against one `crt` stencil for a call. So it emitted the
 *exact* path alone and always allocated, and that was a divergence rather than
 a missing optimisation, because `core/alloc`'s `count` and `total` are numbers
 a Buri program can read.
 
-So the three paths are `cli/runtime/text.rs`'s `buri_rt_str_concat` and this
-backend calls them, which is the shape MEMORY.md §5.3 already gives `[T]`
-append. A thousand concatenations onto a uniquely-owned string now allocate the
-same thirteen blocks a release build allocates, against a thousand and one
+The three paths now live in `cli/runtime/text.rs`'s `buri_rt_str_concat` and
+this backend calls them, which is the shape MEMORY.md §5.3 already gives `[T]`
+append. A thousand concatenations onto a uniquely-owned string now allocate
+the same thirteen blocks a release build allocates, against a thousand and one
 before.
 
-The row is deliberately not in `runtime_table.rs`: the two length words go
-**unmasked**, because VALUE-MODEL.md §3.1's ASCII flag is an input to a
+The row is deliberately not in `runtime_table.rs`, because the two length
+words go **unmasked**: VALUE-MODEL.md §3.1's ASCII flag is an input to a
 concatenation rather than a tag to be stripped, and the flattening a table row
 drives masks every `Str` length. `rtcall.rs`'s `str_concat` is the one caller
 and is where that fact lives.
@@ -772,15 +772,15 @@ and is where that fact lives.
 
 `cli/runtime/lib.rs` §2's rule is: the flattened Buri arguments, then the
 element pair, then the out-pointer. What differs here is only *where* an
-argument is. Cranelift builds a value list and lets its register allocator place
-it; this backend has no register allocator at the call boundary, so where an
-argument is has to be spelled in the stencil, and the shape is
-`(integers, floats, result)` — 132 shapes per family, ten integers rather than eight
-because the ninth and tenth go on the **machine** stack and that is entirely
-clang's business (the stencil is the zero-register prototype, so nothing of this
-backend's is live across the call). `buri_rt_str_replace` is the entry that
-needs them, being three `Str`s flattened and an out-pointer. Integers and floats
-are counted separately, because AAPCS64 assigns the two register banks
+argument is. Cranelift builds a value list and lets its register allocator
+place it; this backend has no register allocator at the call boundary, so the
+stencil has to spell out where each argument is, and the shape is `(integers,
+floats, result)` — 132 shapes per family, ten integers rather than eight
+because the ninth and tenth go on the **machine** stack, which is entirely
+clang's business (the stencil is the zero-register prototype, so nothing of
+this backend's is live across the call). `buri_rt_str_replace` is the entry
+that needs them, being three `Str`s flattened and an out-pointer. Integers and
+floats are counted separately, because AAPCS64 assigns the two register banks
 independently: a double in argument position three still goes in `d0` if it is
 the first float.
 
@@ -788,22 +788,22 @@ There are **two families of that shape**, and `rtcall.rs::c_call_to` picks per
 call site:
 
 * **`crts`, the slots family.** One frame-offset hole per argument, which
-  `extract.rs::fold_addressing` puts in the `imm12` field of the load that uses
-  it. An argument that is already a whole frame word therefore costs **one
-  instruction and no store at all**.
-* **`crt`, the array family.** The arguments copied into a contiguous scratch
-  area with the ordinary `mov` and `imm` stencils, and one stencil reading them
-  off consecutively with `ldp`s. A folded `imm12` reaches 32 KiB into a frame,
-  and a frame wider than that is what this is still for.
+  `extract.rs::fold_addressing` puts in the `imm12` field of the load that
+  uses it. An argument that is already a whole frame word therefore costs
+  **one instruction and no store at all**. * **`crt`, the array family.** The
+  arguments copied into a contiguous scratch area with the ordinary `mov` and
+  `imm` stencils, and one stencil reading them off consecutively with `ldp`s.
+  A folded `imm12` reaches 32 KiB into a frame, and a frame wider than that is
+  what this is still for.
 
-**The cross product this design rejects is over operand *kinds*** — the paper's
-§5.1 axis, register / slot / immediate — and neither family is that one. Every
-argument of both is a slot, so both are the same 132 shapes; what the slots
-family has more of is *holes per stencil*, not stencils. An operand that is not
-already a frame word — a literal, a narrow field, an address, a glue symbol — is
-materialised into the scratch area first in either family and read from there,
-so the two differ only in what they do with the operands that were already in
-the frame.
+**The cross product this design rejects is over operand *kinds*** — the
+paper's §5.1 axis, register / slot / immediate — and neither family is that
+one. Every argument of both is a slot, so both are the same 132 shapes; what
+the slots family has more of is *holes per stencil*, not stencils. Either
+family materialises an operand that is not already a frame word — a literal, a
+narrow field, an address, a glue symbol — into the scratch area first and
+reads it from there, so the two differ only in what they do with the operands
+that were already in the frame.
 
 **What it bought, measured.** On `dot`'s inner loop, one `a.get(i)` — six
 integer arguments, three of them frame words:
@@ -818,27 +818,28 @@ integer arguments, three of them frame words:
 
 Four instructions — and **the four instructions are not where the time went**.
 The same kernel went **701.3 ms to 302.0 ms, a 57% cut**, which four
-instructions in a twenty-six-instruction sequence cannot explain. What the array
-family really cost was a *store-to-load round trip*: six `str`s into the scratch
-area immediately followed by three `ldp`s reading the same addresses back, a
-dependent chain through memory in the middle of the hottest loop in the program.
-The slots family reads each argument from where it already was, so the chain is
-gone. **An instruction count is the wrong unit for this boundary, and this table
-is here to say so rather than to be believed.**
+instructions in a twenty-six-instruction sequence cannot explain. What the
+array family really cost was a *store-to-load round trip*: six `str`s into the
+scratch area immediately followed by three `ldp`s reading the same addresses
+back, a dependent chain through memory in the middle of the hottest loop in
+the program. The slots family reads each argument from where it already was,
+so the chain is gone. **An instruction count is the wrong unit for this
+boundary, and this table is here to say so rather than to be believed.**
 
 Against the incumbent the four kernels went **1.86× → 1.38×** of Cranelift
-`opt_level=none` — past the 1.49× the pre-parity prototype reached — and the
-geomean against LLVM `-O0`, the bar the paper claims, went **1.190 → 0.927**,
-which is the first time any measurement in this repository has cleared it. The
+`opt_level=none`, past the 1.49× the pre-parity prototype reached, and the
+geomean against LLVM `-O0` — the bar the paper claims — went **1.190 →
+0.927**, the first time any measurement in this repository has cleared it. The
 cell a developer actually waits on moves with it: `buri test //suite/heavy`
 incremental at a hundred thousand lines is **1.56× → 1.26×**, and the same
 1.26× on three corpora nothing was tuned on.
 
-**What is left is a C function's own frame.** Of the twenty-one, six stage the
-operands that were not already frame words — a literal, a null, an out-pointer —
-six are the argument loads that are the point, and nine are the `crt` stencil's
-C-ABI prologue, `bl` and epilogue. An emitter can remove none of them: a stencil
-is a C function, and a C function that calls has a frame.
+**What is left is a C function's own frame.** Of the twenty-one instructions,
+six stage the operands that were not already frame words — a literal, a null,
+an out-pointer — six are the argument loads that are the point, and nine are
+the `crt` stencil's C-ABI prologue, `bl` and epilogue. An emitter can remove
+none of them: a stencil is a C function, and a C function that calls has a
+frame.
 
 #### 5.1.1 The clears clang leaves after a call
 
@@ -851,68 +852,68 @@ call, and `extract.rs::strip_dead_clears` now drops them.
 They are droppable for a reason this backend *states* rather than inherits:
 `jit.rs::is_barrier` already treats every zero-register stencil as clobbering
 the whole CPS register file, so nothing downstream may read `x1`–`x7` across
-one. The rule is therefore keyed on the tail hole's name — `_JIT_CONT0` and not
+one. The rule is keyed on the tail hole's name — `_JIT_CONT0` and not
 `_JIT_CONT` — because at the register-passing prototype `x1`–`x3` *are* the
-continuation's `r0`–`r2` and a `movz x1, #0` there can be a value the next
+continuation's `r0`–`r2`, and a `movz x1, #0` there can be a value the next
 stencil reads.
 
-**What it bought was code and not time.** `dot`'s body went 130 instructions to
-120; the four kernels moved by 0.7%, which is inside this machine's spread. It
-is kept because five dead instructions inside every call stencil are five the
-artifact should not carry, and the artifact being 52% larger than Cranelift's is
-a cell of its own — not because it made anything faster.
+**What it bought was code and not time.** `dot`'s body went 130 instructions
+to 120; the four kernels moved by 0.7%, which is inside this machine's spread.
+It is kept because five dead instructions inside every call stencil are five
+the artifact should not carry, and the artifact being 52% larger than
+Cranelift's is a cell of its own — not because it made anything faster.
 
-The callee is a hole that is **called** rather than materialised, so it becomes
-one `bl` and one `ARM64_RELOC_BRANCH26` instead of a pooled pointer and an
-indirect call. There is one `_JIT_RT_*` symbol declared per shape rather than
-one for all of them, because C has one type per name and the declared type is
-what decides which registers clang reads the arguments out of.
+The callee is a hole that is **called** rather than materialised, so it
+becomes one `bl` and one `ARM64_RELOC_BRANCH26` instead of a pooled pointer
+and an indirect call. There is one `_JIT_RT_*` symbol declared per shape
+rather than one for all of them, because C has one type per name, and the
+declared type decides which registers clang reads the arguments out of.
 
 ### 5.2 Two traps worth writing down
 
-**Going out.** A frame slot holds every integer **zero-extended**, whatever its
-type (`sources.rs::write`'s convention: "a frame slot is never partially
-defined"), and the typed stencils reinterpret the low bytes. So an `I8` of `-3`
-is `0xfd` in its slot — and handing that word to a C parameter declared
-`int64_t` renders `253`. Every narrow *signed* value crossing to the runtime is
-widened first (`rtcall::int_bits`). This is a class of bug, not an instance: it
-is invisible in the emitted stencil, invisible in the IR, and shows up as an
-unsigned number in a rendered string.
+**Going out.** A frame slot holds every integer **zero-extended**, whatever
+its type (`sources.rs::write`'s convention: "a frame slot is never partially
+defined"), and the typed stencils reinterpret the low bytes. So an `I8` of
+`-3` is `0xfd` in its slot, and handing that word to a C parameter declared
+`int64_t` renders `253`. Every narrow *signed* value crossing to the runtime
+is widened first (`rtcall::int_bits`). This is a class of bug, not an
+instance: it is invisible in the emitted stencil, invisible in the IR, and
+shows up as an unsigned number in a rendered string.
 
-**Coming back**, and this one was found by the x86-64 port rather than by
-reading. A `crt` stencil **declares** the entry it calls, and the declared
-return type has to be the one the entry actually returns: both psABIs leave the
-upper bits of an integer return narrower than a register **unspecified**.
-`buri_rt_str_eq` answers a `u8`, `buri_rt_char_to_upper` a `u32`, and a fallible
-entry's discriminant a C `int` — three widths, and a stencil declaring
-`uint64_t` for the first two reads whatever was in the register above the byte
-that mattered.
+**Coming back**, and the x86-64 port found this one rather than a reading. A
+`crt` stencil **declares** the entry it calls, and the declared return type
+has to be the one the entry actually returns: both psABIs leave the upper bits
+of an integer return narrower than a register **unspecified**.
+`buri_rt_str_eq` answers a `u8`, `buri_rt_char_to_upper` a `u32`, and a
+fallible entry's discriminant a C `int` — three widths, and a stencil
+declaring `uint64_t` for the first two reads whatever was in the register
+above the byte that mattered.
 
 AAPCS64 hid it completely: Rust's arm64 codegen zeroes the register on the way
-out, so every arm64 run agreed with every other backend. SysV does not, and the
-symptom was `assert.isFalse` failing on five conformance files and `p == q`
-answering `true` for two strings that differ — a `Bool` read out of the garbage
-above `al`. `sources.rs::RETURN_SHAPES` now has a shape per C return width and
-`rtcall::scalar_kind` picks it from the destination's own IR type, which is the
-same fact Cranelift builds its call signature from. The cast is inside the
-stencil, so it costs the `movzx` the psABI already required of the caller and
-nothing more.
+out, so every arm64 run agreed with every other backend. SysV does not, and
+the symptom was `assert.isFalse` failing on five conformance files and `p ==
+q` answering `true` for two strings that differ — a `Bool` read out of the
+garbage above `al`. `sources.rs::RETURN_SHAPES` now has a shape per C return
+width, and `rtcall::scalar_kind` picks it from the destination's own IR type,
+which is the same fact Cranelift builds its call signature from. The cast is
+inside the stencil, so it costs the `movzx` the psABI already required of the
+caller and nothing more.
 
 ### 5.3 `I128`, which is where a backend can fall short of the type system
 
-The model says 128-bit arithmetic is exact (VALUE-MODEL.md §1) and a backend
+The model says 128-bit arithmetic is exact (VALUE-MODEL.md §1), and a backend
 that cannot do it in registers calls the runtime. Where an operation on `I128`
 is not natively lowered on the target, the middle end legalizes it into a pair
-of `I64`s with explicit carry — a legalization pass in `middle`, so the LLVM
-backend gets the same rewrite if it ever needs it and both backends produce the
-same answers. Division and remainder always go to the runtime
-(`buri_rt_i128_divmod`), on both, because that is a hundred instructions nobody
-should inline. Its operands cross as **pairs of `I64`s, low half first**, rather
-than as `I128`: the contract says a parameter is a scalar leaf, and passing a
-pair means neither backend has to agree with the platform ABI about how a
-128-bit integer is classified.
+of `I64`s with explicit carry. That pass lives in `middle`, so the LLVM
+backend gets the same rewrite if it ever needs it and both backends produce
+the same answers. Division and remainder always go to the runtime
+(`buri_rt_i128_divmod`), on both, because that is a hundred instructions
+nobody should inline. Their operands cross as **pairs of `I64`s, low half
+first**, rather than as `I128`: the contract says a parameter is a scalar
+leaf, and passing a pair means neither backend has to agree with the platform
+ABI about how a 128-bit integer is classified.
 
-This subsection is not this backend's either — it is VALUE-MODEL.md §1's
+This subsection is not this backend's either. It is VALUE-MODEL.md §1's
 fallback, stated in a code generator's document rather than in the model's
 because it is a backend limitation and not a model decision, and it moved here
 when the document it was written in was removed (§13).
@@ -920,39 +921,40 @@ when the document it was written in was removed (§13).
 ### 5.4 Aborts
 
 `buri_rt_abort(msg_ptr, msg_len)` never returns, and neither does any of the
-fixed messages beside it — `buri_rt_abort_div_zero`, `buri_rt_abort_shift`,
+fixed messages beside it: `buri_rt_abort_div_zero`, `buri_rt_abort_shift`,
 `buri_rt_abort_bounds`, `buri_rt_abort_unreachable`. They exist so that a
 message pinned by `cli/tests/crash/` lives in the runtime rather than in a
 backend's string table, which is why they outlived the backend they were first
-written for, and they are reached through §5's boundary like every other runtime
-call.
+written for, and they are reached through §5's boundary like every other
+runtime call.
 
 ## 6. Reference counting, and the functions a unit generates for itself
 
 MEMORY.md §5.1's saturating increment and its decrement, open-coded as two
 stencils, with the dying arm calling the type's drop glue and then
-`buri_rt_free` — instruction for instruction what MEMORY.md §5.1 spells and
-what `llvm/emit.rs::decref_pointer` emits, because two backends deciding
+`buri_rt_free`. That is instruction for instruction what MEMORY.md §5.1 spells
+and what `llvm/emit.rs::decref_pointer` emits, because two backends deciding
 separately when a block dies is the one divergence MEMORY.md §5 cannot
 tolerate. `buri_rt_free` is the sole owner of the free and of the live-block
 counters on both.
 
-`emit::Lower::walk_rc` covers all five site kinds: a
-`Str`/`[T]` block, a nested aggregate, a tagged enum's per-variant payloads, a
-**boxed** field, and a **niche** whose payload is walked behind its null test.
+`emit::Lower::walk_rc` covers all five site kinds: a `Str`/`[T]` block, a
+nested aggregate, a tagged enum's per-variant payloads, a **boxed** field, and
+a **niche** whose payload is walked behind its null test.
 
-The last of those is not belt-and-braces. `.None` is written by storing null at
-the one pointer the discriminant is and nothing else, so every other byte of the
-payload area is whatever the frame last held; walking it unguarded decrements a
-count at an address that was never a pointer. The guarded site is a shape both
-native backends have, for the same reason.
+The last of those is not belt-and-braces. Writing `.None` stores null at the
+one pointer the discriminant is and touches nothing else, so every other byte
+of the payload area is whatever the frame last held. Walking it unguarded
+decrements a count at an address that was never a pointer. Both native
+backends guard that site, for the same reason.
 
 ### 6.1 `glue.rs`
 
-Four things a unit generates for itself — the set the removed backend's
-`helpers.rs` generated, under its argument, which outlived it because the set is
-a property of the value model rather than of an emitter — and every one a
-**local** symbol so that two units needing the same one do not collide:
+Four things a unit generates for itself, every one a **local** symbol so that
+two units needing the same one do not collide. It is the set the removed
+backend's `helpers.rs` generated, under its argument, and it outlived that
+backend because the set is a property of the value model rather than of an
+emitter:
 
 | Helper | Why it is generated rather than called |
 |---|---|
@@ -961,48 +963,51 @@ a property of the value model rather than of an emitter — and every one a
 | `Elems` | The same over a whole `[T]` block, whose element count is `cap / stride`. |
 | `EnvGlue` | The one indirection that lets a closure environment carry its own release function: `Ty::Fn` does not record what was captured. |
 
-A thunk is entered by the `calli` stencil and is an ordinary frame-threaded
-body. A glue function is entered by the **runtime**, so it is `extern "C"` and
-each one is a hand-written eight-instruction stub in front of a frame-threaded
-body. The stub's whole job is to make a frame, and it takes the *machine* stack
-for it: drop glue recurses — a `[[Str]]` releases a `[Str]` releases a `Str` —
-and a fixed scratch frame would be re-entered by its own callee.
+The `calli` stencil enters a thunk, which is an ordinary frame-threaded body.
+The **runtime** enters a glue function, so glue is `extern "C"`, and each one
+is a hand-written eight-instruction stub in front of a frame-threaded body.
+The stub's whole job is to make a frame, and it takes the *machine* stack for
+it: drop glue recurses — a `[[Str]]` releases a `[Str]` releases a `Str` — and
+a fixed scratch frame would be re-entered by its own callee.
 
-The walk reads the value out of a **copy** in that frame rather than through the
-pointer, which is what lets one implementation of `walk_rc` — addressing
-everything as a frame offset — serve both an `Inst::DecRef` and a glue function.
+The walk reads the value out of a **copy** in that frame rather than through
+the pointer, which is what lets one implementation of `walk_rc` — addressing
+everything as a frame offset — serve both an `Inst::DecRef` and a glue
+function.
 
 ### 6.2 The threshold, which has to apply at every level
 
 A type graph is a DAG whose nodes are revisited along every path, so an inline
-walk of a record of records of records expands once per *path* rather than once
-per type. Past `RC_INLINE` levels a compound field's walk goes through that
-type's own `Walk` glue instead, so an emitted body holds a bounded number of
-levels plus one call per deeper field and the code is linear in the distinct
-types a program holds. `RC_INLINE` is the threshold both native backends apply,
-and `conformance/lib/semantics/test/generics.buri` is the file that needs it.
+walk of a record of records of records expands once per *path* rather than
+once per type. Past `RC_INLINE` levels, a compound field's walk goes through
+that type's own `Walk` glue instead. An emitted body then holds a bounded
+number of levels plus one call per deeper field, and the code is linear in the
+distinct types a program holds. `RC_INLINE` is the threshold both native
+backends apply, and `conformance/lib/semantics/test/generics.buri` is the file
+that needs it.
 
 ### 6.3 The closure environment is a block
 
 `MakeClosure` allocates `[release fn][record]` and puts the pointer in the
 closure's `env` word, which is the shape VALUE-MODEL.md §7.1 pins for both
-native backends, and `walk_rc` counts that word. Carrying the environment by value in one word — what
-wave 1 did — cannot hold a `Str` and cannot be released, and both show up as
-refusals rather than as a smaller closure.
+native backends, and `walk_rc` counts that word. Carrying the environment by
+value in one word — what wave 1 did — cannot hold a `Str` and cannot be
+released, and both show up as refusals rather than as a smaller closure.
 
 ## 7. What a refusal is
 
 **A diagnostic naming the shape, never an artifact that aborts when it reaches
-it.** The prototype emitted an `unsupported` stencil and skipped the tests that
-reached one, because it was measuring throughput on the part it could compile. A
-backend cannot: every part of the unit finishes its emission, and
-`assemble_unit` collects the parts' refusals in part order — so that one build
-reports *every* refusal rather than the first — and then produces no object at
-all, with one error per distinct shape.
+it.** The prototype emitted an `unsupported` stencil and skipped the tests
+that reached one, because it was measuring throughput on the part it could
+compile. A backend cannot do that. Every part of the unit finishes its
+emission, `assemble_unit` collects the parts' refusals in part order — so that
+one build reports *every* refusal rather than the first — and then it produces
+no object at all, with one error per distinct shape.
 
 `Backend::missing_intrinsics` is the cheaper, earlier form of the same answer,
-and the two are different questions: the hook says "this backend has no body for
-that key", and a refusal says "this backend has a body but not for that shape".
+and the two ask different questions: the hook says "this backend has no body
+for that key", and a refusal says "this backend has a body but not for that
+shape".
 
 ## 8. The Buri stack, and its guard
 
