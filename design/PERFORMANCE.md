@@ -1457,11 +1457,10 @@ doubles the IR of the single most common operation the emitter produces. The
 `default<O2>` pipeline's cost is superlinear in block count, and 21% is what
 that comes to.
 
-**Half of it was bought back by making the shared arm a call.** The atomic
-sequence can be open-coded in the IR beside the fork, or the fork can call
+**Making the shared arm a call bought half of it back.** The atomic sequence can
+be open-coded in the IR beside the fork, or the fork can call
 `buri_rt_incref`/`buri_rt_decref`, which fork again on the same bit and take
-the same arm. Both were measured against the same baseline under the same
-protocol:
+the same arm. Both went against the same baseline under the same protocol:
 
 | Shared arm | `lower+macos-arm64-release` | median |
 |---|---:|---:|
@@ -1488,16 +1487,17 @@ x86-64 (stencil `st_incref`)
     js    <shared>
 ```
 
-The load is of the word next to the count, in the same sixteen-byte header, so
-it is on a cache line the operation was going to touch; the branch is perfectly
-predicted because its answer never changes; and both emitters mark the unshared
-arm hot, so it is the fallthrough and the shared arm is laid out after the tail.
+The load takes the word next to the count, in the same sixteen-byte header, so
+it sits on a cache line the operation was going to touch. The branch is
+perfectly predicted, because its answer never changes. And both emitters mark
+the unshared arm hot, so it falls through and the shared arm goes after the
+tail.
 
-**And what the emitted program does with it: it gets faster.** Two Buri programs
-were built by both toolchains and run five times each, alternating — `allocs`,
-whose loop is three inlined `decref`s and an allocation per iteration, and
-`rcloop`, whose counts `middle::rc` elides entirely, as the control. Best of
-five, seconds:
+**And what the emitted program does with it: it gets faster.** Both toolchains
+built two Buri programs and ran each five times, alternating — `allocs`, whose
+loop is three inlined `decref`s and an allocation per iteration, and `rcloop`,
+whose counts `middle::rc` elides entirely, as the control. Best of five,
+seconds:
 
 | program | backend | before | after | Δ |
 |---|---|---:|---:|---:|
@@ -1505,7 +1505,7 @@ five, seconds:
 | `allocs` (50 M iterations) | LLVM release | 1.711 | 0.605 | **−64.6%** |
 | `rcloop` (control, no counts) | dev / stencil | 0.423 | 0.431 | +1.9% |
 
-That is a **combined** figure and should be read as one: the fork's two
+Read that as one **combined** figure: the fork's two
 instructions against the per-thread caches of MEMORY.md §5.4, which turn an
 allocation-and-free pair into a list pop and a list push. The caches pay for the
 fork many times over on any program that allocates, and the control — which has
@@ -1514,24 +1514,23 @@ separate is the fork's own runtime cost, because this language has no
 allocation-free reference traffic to isolate it in: `middle::rc` elides exactly
 that.
 
-**Two of these runs were taken and discarded first.** The machine's load average
-reached 136 while other work shared it, and the same binary timed 2.5 s and
-20.7 s inside one alternating sequence. §2's ±5% dispersion rule says a run like
-that is one to discard rather than to quote, and it was; the table above is from
-a later run whose five readings per cell agree to ±8%. The two-instruction count
-is the claim that does not depend on either, because it is a claim about the
-object rather than about the machine.
+**Two earlier runs went in the bin.** The machine's load average reached 136
+while other work shared it, and the same binary timed 2.5 s and 20.7 s inside
+one alternating sequence. §2's ±5% dispersion rule says discard a run like that
+rather than quote it, so it went. The table above comes from a later run whose
+five readings per cell agree to ±8%. The two-instruction count depends on
+neither, because it is a claim about the object rather than about the machine.
 
 #### 6.6.1 The amendment, and what it is answerable to
 
 The 3% rule stands, unchanged, on the other four rows and on every row a later
-change to `--set=native` is measured against. What is amended is one row's
+change to `--set=native` gets measured against. The amendment covers one row's
 budget: `lower+macos-arm64-release` is held to **+16.6% … +26.3%**, median
 +21.3% — the range this run measured — **accepted by Nick, 2026-08-30**. Three
-things are what it was accepted on, and all three are measured above rather than
-argued:
+things carried that acceptance, and the section above measures all three rather
+than arguing them:
 
-- **What is spent is compile time, and only in one backend.** The release row is
+- **The spending is compile time, and only in one backend.** The release row is
   `opt`'s cost on the IR the emitter hands it, and the shared-RC branch adds
   **two basic blocks per reference operation** to that IR — roughly doubling the
   most common operation the emitter produces — against a `default<O2>` pipeline
@@ -1549,13 +1548,12 @@ argued:
   move. A one-off compile-time cost buys a per-execution runtime win, which is
   the trade this page exists to make visible.
 
-What the amendment is **not** is a widening of the rule. A row with a budget of
-its own is a row whose next regression is measured against *this range* rather
-than against 3%, so a second change of this size here is a second decision and
-not a rounding error. The alternative that lost was to hold 3% and leave the row
-permanently red: a budget nothing can meet is a budget nobody reads, and it
-would have gone on hiding a compile-time cost the runtime table in this section
-pays back.
+The amendment is **not** a widening of the rule. A row with a budget of its own
+has its next regression measured against *this range* rather than against 3%, so
+a second change of this size here is a second decision and not a rounding error.
+The alternative that lost was to hold 3% and leave the row permanently red:
+nobody reads a budget nothing can meet, and it would have gone on hiding a
+compile-time cost the runtime table in this section pays back.
 
 ### 6.7 What a scope costs, 2026-08-31
 
@@ -1574,14 +1572,14 @@ pessimisation.** Both met, at **+3.7%** and **+8.7%** respectively.
 The first row is A/B/A/B against a toolchain built from `HEAD`, medians of five
 alternating readings, dev/stencil, macOS arm64. The second is two binaries from
 the **same** toolchain — `cmd/plain` and `cmd/scoped`, identical but for the
-`alloc.scoped` around each batch — so it is not a before-and-after at all but
+`alloc.scoped` around each batch — so it is not a before-and-after at all. It is
 what a scope costs the program that opens one: 500,000 scopes, **183 ns each**,
-which is `create`, `enter`, `leave`, `release` and two uncontended mutexes.
+covering `create`, `enter`, `leave`, `release` and two uncontended mutexes.
 
 #### 6.7.1 Three shapes were measured and two were thrown away
 
 Every number below is the first row of the table above, on the same machine in
-the same sitting. They are recorded because each rejection is a fact about this
+the same sitting. They are here because each rejection is a fact about this
 platform rather than a preference.
 
 | where the "which scope am I in" question lives | `allocs` |
@@ -1597,12 +1595,12 @@ was already making one for the block cache. Folding the arena into
 `Cache` makes it one access and a branch on a word already in a register, and it
 is the whole of the difference between the first two rows.
 
-The third row is **within the noise of the second, and is kept anyway.**
+The third row sits **within the noise of the second, and stays anyway.**
 `scopes_exist()` is a relaxed load of a word written at most once in a process's
-life — G3's marking-latch shape — and what it buys is not the 0.3% but the
-claim: a program that never calls `scoped` takes the two lines it took before
-this slice, and that is readable off `buri_rt_alloc` rather than reasoned about
-from a profile.
+life — G3's marking-latch shape — and it buys the claim rather than the 0.3%: a
+program that never calls `scoped` takes the two lines it took before this slice,
+and you can read that off `buri_rt_alloc` rather than reasoning about it from a
+profile.
 
 #### 6.7.2 The pool is why the second row is 8.7% and not 116%
 
@@ -1661,13 +1659,13 @@ execution, at one-minute load averages of 6, 14, 41 and 45.
 retry.** `buri::recovery a_syntax_error_does_not_become_a_type_error` read
 68.8 s of the fastest run's 123.0 s, 88.2 s and 150.0 s on the next two, and on
 the busiest run it ran past `nextest`'s 300-second slow timeout, was terminated,
-and passed on the retry. It is the long pole and the only test here that needed
-a second attempt in any of the four. A retry is not a fix and this page is not
+and passed on the retry. It is the long pole, and the only test here that needed
+a second attempt in any of the four. A retry is not a fix, and this page is not
 where that gets fixed, but the suite's wall time is a number this section
-quotes, so the test that owns it is named.
+quotes, so this names the test that owns it.
 
-**It is fixed, and the two rows above are the last ones taken before it was.**
-The test was one serial loop of five thousand seven hundred `analyze_snippet`
+**It is fixed now, and the two rows above are the last ones taken before the
+fix.** The test was one serial loop of five thousand seven hundred `analyze_snippet`
 calls, and `analyze_snippet` builds a `SourceMap` and a parse cache from
 nothing — so each two-hundred-byte mutated snippet re-parsed the whole standard
 library. Neither half of that was the corpus's fault: the cases are independent
@@ -1680,8 +1678,8 @@ folded into the report on one thread. **Nothing about the population, the
 ceilings or the table changed**: the tables print byte for byte what they
 printed before. On the machine of §6 the whole `recovery` suite went from
 **77.9 s to 9.0 s**, and this test from 65.1 s to 8.9 s. CI's four-core runner
-read 162.9 s for the suite and is not re-measured here; what it now has to do is
-15% less work, divided four ways rather than run down one.
+read 162.9 s for the suite, and nobody re-measured it here. It now has 15% less
+work to do, divided four ways rather than run down one.
 
 The row worth pausing on is the digests. Forty pinned manifests were re-pinned
 at generator revision 7 and **all forty regenerate to their recorded SHA-256 at
@@ -1700,19 +1698,19 @@ Its numbers, and the one this tree reproduced on 2026-09-01:
 | `aarch64-apple-darwin` | 6,329,104 | **9,097,192** | 9,097,432 | 9,437,184 | 3.6% |
 | `aarch64-unknown-linux-musl` | — | **13,938,046** | — | 14,680,064 | 5.05% |
 
-The Darwin figure is not quoted from the script: a `cargo build --release -p
+The Darwin figure does not come from the script: a `cargo build --release -p
 buri` in this worktree produced an archive of exactly 9,097,192 bytes, and the
 script passed over it. The Linux figure is the script's own, measured in the
-Linux container BUILD-AND-WATCH.md §3.3.1 describes, and it is now the **musl** triple's:
-the Linux link is static-musl, and the archive it builds is 13,938,046 bytes
-against 13,799,068 for the `gnu` triple it replaced — 139 KB and 1.0% larger,
-which is musl's standard library rather than anything this repository did. It
-is 1.53× Darwin's for the same code — ELF's price per byte, near enough the
-ratio F4 and F7 each measured on `gnu`. Both budgets are ratchets and **neither
-is hit**; Darwin's 3.6% is still the thinner of the two, the musl switch cost
-Linux the difference between 6.0% and 5.05% and needed no raise, and the script
-says in capitals that the next slice to add anything at all is the one that
-re-measures it.
+Linux container BUILD-AND-WATCH.md §3.3.1 describes, and it now belongs to the
+**musl** triple. The Linux link is static-musl, and the archive it builds is
+13,938,046 bytes against 13,799,068 for the `gnu` triple it replaced — 139 KB
+and 1.0% larger, which is musl's standard library rather than anything this
+repository did. It is 1.53× Darwin's for the same code, ELF's price per byte,
+near enough the ratio F4 and F7 each measured on `gnu`. Both budgets are
+ratchets and **neither is hit**. Darwin's 3.6% is still the thinner of the two,
+the musl switch cost Linux the difference between 6.0% and 5.05% and needed no
+raise, and the script says in capitals that the next slice to add anything at
+all is the one that re-measures it.
 
 **What a phase allocates, which is the one figure with no noise in it.**
 `--alloc` needs the counting global allocator (`--features alloc-counter`), so a
@@ -1755,33 +1753,32 @@ triples that, and lowering triples it again. The three *native* triples agree to
 within 2.4% of each other at 100k — 315.9 MB for `linux-x86_64`, 318.7 for
 `macos-arm64`, 323.5 for `linux-arm64` — and the JavaScript row is 9% under
 them, so the bulk of this is the compiler's own working set rather than any one
-backend's. There is still no
-*goal* here — §1 says so and this section does not change it — but the column is
-no longer empty, and a future budget has a number to be stated against.
+backend's. There is still no *goal* here — §1 says so, and this section does not
+change it — but the column is no longer empty, and a future budget has a number
+to be stated against.
 
-**What the runtime costs is measured beside it rather than here.** §6.6 prices
+**The runtime's cost is measured beside this rather than in it.** §6.6 prices
 the shared-reference-counting fork the multi-threaded program needed — two
 instructions per reference operation, +21.3% on `lower+macos-arm64-release`
 against an amended budget, and a 39.8–64.6% *fall* in an allocating program's
 run time — and §6.7 prices a scope at 183 ns, +3.7% on a program that opens none
-and +8.7% on one that opens 500,000. Both were taken against the same `allocs`
-program, and neither is re-taken here: nothing in this slice touched the
-runtime.
+and +8.7% on one that opens 500,000. Both came from the same `allocs` program,
+and neither gets re-taken here: nothing in this slice touched the runtime.
 
 ### 6.9 Where a real repository's `buri test` goes, 2026-09-03
 
 A maintainer's own monorepo — 18 packages, 177 `.buri` files, 173 codegen
 units, 488 test cases — ran `buri test //...` cold in **8.2 s**. The question
-asked of it was which stencils the run side was missing. **The run side is
-0.15 s of it.** The batched test binary the suite builds executes every block
-in 154 ms on this machine; the other eight seconds are the compile, and this
-section is what was in them.
+was which stencils the run side was missing. **The run side is 0.15 s of it.**
+The batched test binary the suite builds executes every block in 154 ms on this
+machine. The other eight seconds are the compile, and this section is what was
+in them.
 
-The phase column is a timer compiled into a throwaway toolchain build, with
-`buri clean` before every run and the minimum of several runs taken per phase —
+The phase column comes from a timer compiled into a throwaway toolchain build,
+with `buri clean` before every run and the minimum of several runs per phase —
 §2's "fastest sample" rule applied per phase rather than per corpus, because the
 machine had other work on it. The wall row is the two *shipping* toolchains,
-alternating, and is the number to read as the result.
+alternating, and it is the number to read as the result.
 
 | Phase | before | after |
 |---|---:|---:|
@@ -1797,19 +1794,19 @@ alternating, and is the number to read as the result.
 | running the suite | 1.16 s | 1.24 s |
 | **wall, cold, best of seven A/B pairs** | **7.99 s** | **5.13 s** |
 
-`design/native/CODEGEN-STENCIL.md` §4.2 is what each line changed, and the four
-findings are worth separating because only one of them is about threads:
+`design/native/CODEGEN-STENCIL.md` §4.2 says what changed on each line. The four
+findings are worth separating, because only one of them is about threads:
 
-1. **The program was lowered twice.** `objects_named` lowers for the unit keys
-   and `emit_units` lowered again for the bytes; each lowering carries a
-   whole-program `middle::rc::analyze`. 1.01 s, deleted by handing the first
-   lowering over.
-2. **`Cycles` was rebuilt per unit** — a walk of every constructor plus a
-   Tarjan pass, 173 times. §6.4's first finding is exactly this shape and
-   `Layouts::with_cycles` exists for exactly this reason; the LLVM backend used
-   it and the stencil backend did not.
-3. **A `Layout` was copied per instruction and a `Ty` cloned per reference
-   operation.** `Layouts::shared` says in its own doc comment that a caller in
+1. **The compiler lowered the program twice.** `objects_named` lowers for the
+   unit keys and `emit_units` lowered again for the bytes; each lowering carries
+   a whole-program `middle::rc::analyze`. Handing the first lowering over
+   deleted 1.01 s.
+2. **`Cycles` got rebuilt per unit** — a walk of every constructor plus a
+   Tarjan pass, 173 times. §6.4's first finding is exactly this shape, and
+   `Layouts::with_cycles` exists for exactly this reason. The LLVM backend used
+   it; the stencil backend did not.
+3. **The emitter copied a `Layout` per instruction and cloned a `Ty` per
+   reference operation.** `Layouts::shared` says in its own doc comment that a caller in
    a loop over instructions must use it. `walk_rc` is that loop and used the
    copying form; so did `MakeStruct`, `GetField`, `GetPayload`, `MakeEnum` and
    `GetTag`. On the emission's critical-path unit this was worth 30%.
@@ -1837,24 +1834,24 @@ outlier: `mixed-few-files` is the corpus with the fewest codegen units, so it
 is the one with the least to spread over cores, and −30.3% is what the three
 serial findings are worth on their own.
 
-**§6.1's goal-3 rate is deliberately not restated from these numbers.** The
-table above is a *ratio* between two toolchains measured against each other in
-one window, which is what A/B/A/B is for; a goal row is an absolute rate, it is
-stated over a wider corpus set than `--only=mixed`, and this machine was not
-idle for the whole afternoon. The row moves when somebody takes it the way §2
-says to.
+**This section deliberately does not restate §6.1's goal-3 rate from these
+numbers.** The table above is a *ratio* between two toolchains measured against
+each other in one window, which is what A/B/A/B is for. A goal row is an
+absolute rate, stated over a wider corpus set than `--only=mixed`, and this
+machine was not idle for the whole afternoon. The row moves when somebody takes
+it the way §2 says to.
 
 **What the ceiling is now.** The per-unit emission is parallel, so it is bounded
 by the **largest single unit** — on this repository `core/ordmap`, 11,267
 monomorphized functions, which is 1.10 s of the 1.10 s. Splitting a unit is a
 build-system question (a unit is a cache key and an object file,
 `design/native/ARCHITECTURE.md` §5), so the next win on that line is either
-making a function cheaper to emit again or making a unit smaller. **§6.10 is
-that ceiling taken down**, by a third route neither of those names: the unit is
-not split, its *emission* is. Above it,
-`actions::prepare` is now the largest single-threaded phase at 1.40 s, of which
-0.79 s is `middle::rc::analyze` — and it is *still* the whole-program analysis
-the emitter no longer duplicates, so halving it would be worth as much again.
+making a function cheaper to emit again or making a unit smaller. **§6.10 takes
+that ceiling down**, by a third route neither of those names: it splits a unit's
+*emission* rather than the unit. Above it, `actions::prepare` is now the largest
+single-threaded phase at 1.40 s, of which 0.79 s is `middle::rc::analyze` —
+still the whole-program analysis the emitter no longer duplicates, so halving it
+would be worth as much again.
 
 **Two things this did not touch, and both are worth naming.** The suite's
 `link` is 0.40 s for a **102 MB** batched debug binary, written to the artifact
@@ -1871,15 +1868,15 @@ of a unit without dividing the unit**. `design/native/CODEGEN-STENCIL.md` §4.3
 is the mechanism; this is the measurement.
 
 **The measurement is on a synthetic, and that is a caveat rather than a
-footnote.** §6.9's repository no longer compiles against this toolchain: the
-filesystem effect was split into `FsRead` and `FsWrite` in the meantime
-(`core/fs`), and nine of its eighteen packages are written against the
-un-split one, so the half that still compiles emits about 20 ms in total and
-can say nothing about a 1.10 s unit. What replaces it is a program *shaped*
-like the finding — one module instantiating `core/ordmap` at two hundred key
-and value types, which puts **14,200 monomorphized functions in `core_ordmap`**
-against the real repository's 11,267 — and the numbers below should be read as
-that shape rather than as that repository.
+footnote.** §6.9's repository no longer compiles against this toolchain: a later
+change split the filesystem effect into `FsRead` and `FsWrite` (`core/fs`), and
+nine of its eighteen packages are written against the un-split one, so the half
+that still compiles emits about 20 ms in total and can say nothing about a
+1.10 s unit. A program *shaped* like the finding replaces it — one module
+instantiating `core/ordmap` at two hundred key and value types, which puts
+**14,200 monomorphized functions in `core_ordmap`** against the real
+repository's 11,267 — so read the numbers below as that shape rather than as
+that repository.
 
 **Where the 0.61 s in the biggest unit went**, from a timer compiled into a
 throwaway toolchain, minimum of several runs:
@@ -1896,10 +1893,10 @@ throwaway toolchain, minimum of several runs:
 | **total** | **614** | |
 
 Two thirds of it is the per-function loop, which is the ideal shape: many small
-functions, no shared mutable state that is not a memo. So the members are cut
-into contiguous parts of 512 and the parts of *every* unit are one flat work
-list, with the per-unit assembly — symbols, relocations, writer, digest — left
-where it was.
+functions, no shared mutable state that is not a memo. So the emitter cuts the
+members into contiguous parts of 512 and puts the parts of *every* unit on one
+flat work list, leaving the per-unit assembly — symbols, relocations, writer,
+digest — where it was.
 
 | | before | after |
 |---|---:|---:|
@@ -1913,12 +1910,12 @@ where it was.
 numbers is the point: the emission was 29% of this build and is now 13% of it,
 so the next thing in the way is somewhere else.
 
-**The 1.1% of object bytes is what the division costs and is not free.** Three
-things are per-`Jit` and become per-part — the constant pool's deduplication,
-the map of a stencil's spilled constants, and the generated glue — and the glue
-is the one that shows: two parts that both drop a `[Str]` get a copy each under
-different local names. Measured across part sizes from 256 to 2048 the emission
-wall is the same to within the noise and the object bytes move about 0.2% per
+**The division costs 1.1% of object bytes, and that is not free.** Three things
+are per-`Jit` and become per-part — the constant pool's deduplication, the map
+of a stencil's spilled constants, and the generated glue — and the glue is the
+one that shows: two parts that both drop a `[Str]` get a copy each under
+different local names. Across part sizes from 256 to 2048 the emission wall
+stays the same to within the noise while the object bytes move about 0.2% per
 halving, so 512 is the smallest part that costs about one per cent.
 
 **On the bench, the corpus §6.9 could not help is the one that moves.** §6.6's
@@ -1942,18 +1939,17 @@ gained least there — −30.3% where the other five halved. Dividing the inside
 a unit is precisely the thing that reaches it, and it gains six times what any
 other corpus here does. The controls agree that this is the change and not the
 afternoon: `lex` moved a median −0.4% over the same six corpora, `lex+parse`
-−0.2%, `sema` −0.1%, none of which this touches. One `sema` cell read +9.4% and
-is what this machine's drift looks like; the medians are what the rows are read
-from.
+−0.2%, `sema` −0.1%, none of which this touches. One `sema` cell read +9.4%,
+which is what this machine's drift looks like; read the rows from the medians.
 
 **What the floor is now, and it is a different shape.** 67 ms of the biggest
 unit is its assembly: 27 ms in the object writer, 22 ms building a symbol table
 and 402,000 relocations, 13 ms concatenating the parts, 5 ms hashing. Every one
 of those is one unit's own and serial by construction.
 
-**One finding is recorded and deliberately not acted on.** The `codegen` key
-the stencil backend computes — 164 ms of the 614, a quarter of the biggest
-unit — is **thrown away**. `build::actions::codegen_units_for` matches the
+**One finding is recorded and deliberately left alone.** The stencil backend
+computes a `codegen` key — 164 ms of the 614, a quarter of the biggest unit —
+and then **throws it away**. `build::actions::codegen_units_for` matches the
 emitted object by *name* and keeps the key it was already handed, which
 `unit_hashes` computed in parallel above the emission from the same
 `render_func` text; the backend's own answer is never read. The larger half of
