@@ -23,28 +23,29 @@ document in `design/native/`, and the compiler cites them where it obeys them.
    out to supply most of them for free.
 4. **Structure for cache locality and basic-block size.** Answered in §6.
 
-They are stated as instructions rather than as goals because each is a thing a
-frontend either did or did not do before LLVM was handed a module, and each has
-a section below that says which.
+They are instructions rather than goals because each is a thing a frontend either
+did or did not do before LLVM was handed a module, and each has a section below
+that says which.
 
 ## 1. Dead code elimination happens before this file runs
 
 §0's first instruction. `middle::dce` (ARCHITECTURE.md §2.2) runs after inlining
-and before lowering, so the module handed to LLVM contains no unreachable function
-and no unused local. Three things make that stronger here than in most compilers:
+and before lowering, so the module handed to LLVM contains no unreachable
+function and no unused local. Three things make that stronger here than in most
+compilers:
 
 - Monomorphization is reachability-driven, so an instance nothing calls is never
-  created (`monomorphize.rs`) — the standard library costs nothing in a
-  program that touches two functions of it.
+  created (`monomorphize.rs`) — the standard library costs nothing in a program
+  that touches two functions of it.
 - The call graph is exact: no dynamic dispatch anywhere in the language
   (`monomorphize.rs`), so "unreachable" is a fact, not an approximation.
 - Descriptors do not reach the artifact (VALUE-MODEL.md §9), which is what stops
   every type in the program from being transitively reachable from a runtime
   walker.
 
-The consequence for LLVM is measurable rather than aesthetic: a module with no
-dead code is a module `globaldce` and the inliner walk over quickly, and the
-per-unit compile time in `--release` is what dominates a release build.
+The consequence for LLVM is measurable rather than aesthetic: `globaldce` and the
+inliner walk quickly over a module with no dead code, and the per-unit compile
+time in `--release` is what dominates a release build.
 
 ## 2. Direct SSA, and no `alloca`
 
@@ -82,9 +83,9 @@ entry block's allocas, finds none, and returns.
 
 The counter-design — emit an `alloca` per local, `store` on definition, `load` on
 use, and let mem2reg sort it out — is what most hand-written LLVM frontends do
-and it is what §0's second instruction names. Its cost is not just the pass: it is that
-every intermediate value passes through memory in the IR the *inliner* and the
-early simplification passes see, so the decisions those passes take are taken on
+and it is what §0's second instruction names. Its cost is not just the pass: it
+is that every intermediate value passes through memory in the IR the *inliner*
+and the early simplification passes see, so those passes take their decisions on
 a worse program.
 
 ### 2.3 The one place `alloca` is emitted, and why it is not a violation
@@ -93,9 +94,9 @@ Escape analysis (MEMORY.md §5.2) promotes a struct that is constructed and
 consumed within one function, never stored into a heap value and never returned,
 into stack memory. That is an `alloca` in the entry block.
 
-It is not the case §0's second instruction is about. The instruction is about using
-memory as a stand-in for SSA values — an `alloca` whose whole purpose is to be
-promoted back. This one is a genuine aggregate in memory whose fields are
+It is not the case §0's second instruction is about. The instruction is about
+using memory as a stand-in for SSA values — an `alloca` whose whole purpose is to
+be promoted back. This one is a genuine aggregate in memory whose fields are
 accessed by `getelementptr`, exactly as a C local struct would be, and SROA
 splitting it into scalars afterwards is the optimization doing its job rather
 than cleaning up after the frontend. It is emitted in the entry block, which is
@@ -112,21 +113,21 @@ In block-argument SSA it is not assignment. The loop header block takes the
 parameters as block parameters, and "rebind and continue" is a `Jump` back to the
 header with the new values as arguments — which is a phi, in the right place,
 with no slot involved. The same holds for the merged dispatch function of a
-mutually-recursive group (`tail_calls.rs`), whose dispatch variable is one
-more block parameter carrying the member index.
+mutually-recursive group (`tail_calls.rs`), whose dispatch variable is one more
+block parameter carrying the member index.
 
 So the construct that would have forced mutable-slot emulation is the construct
-that most naturally produces phis, and there is nothing to emulate. That
-falls out of `middle::tail_calls` doing the rewrite rather than the backend doing
-the emission (ARCHITECTURE.md §2.2), which was the reason to move it.
+that most naturally produces phis, and there is nothing to emulate. That falls
+out of `middle::tail_calls` doing the rewrite rather than the backend doing the
+emission (ARCHITECTURE.md §2.2), which was the reason to move it.
 
 ## 3. Attributes
 
-§0's third instruction. The effect system supplies most of this for free, and it is
-worth saying so plainly: **a language where "does this function touch the world?"
-is a syntactic property of its signature is a language that can answer LLVM's
-memory-effect questions without an analysis.** SPEC 10.4's purity theorem is an
-attribute-emission rule.
+§0's third instruction. The effect system supplies most of this for free, and it
+is worth saying so plainly: **a language where "does this function touch the
+world?" is a syntactic property of its signature is a language that can answer
+LLVM's memory-effect questions without an analysis.** SPEC 10.4's purity theorem
+is an attribute-emission rule.
 
 ### 3.1 What comes from the effect system
 
@@ -145,9 +146,9 @@ load-bearing rather than decorative:
   abort. `middle` computes this: a function aborts if it divides by a value not
   proved non-zero, or calls one that can. Where it can, the attribute is
   `memory(argmem: read, inaccessiblemem: write)` — it reads its arguments and may
-  write to a place the caller cannot observe except by not returning.
-  The **"terminate"** half of that qualifier is a *second* condition and not the
-  same one. It governs `willreturn` rather than `memory(...)`, `middle` does not
+  write to a place the caller cannot observe except by not returning. The
+  **"terminate"** half of that qualifier is a *second* condition and not the same
+  one. It governs `willreturn` rather than `memory(...)`, `middle` does not
   compute it, and reading it as though it were the abort condition is the
   miscompile §3.6 records.
 - **"in the absence of undefined behaviour"**: overflow is undefined (SPEC 6.2),
@@ -170,18 +171,17 @@ The table:
 | Every function that cannot abort | `nofree` is *not* set: `decref` frees |
 
 The purity theorem is still an attribute-emission rule and this is still where
-most of the discipline comes from for free. What the fourth and fifth rows add
-is the one thing the theorem does not talk about: SPEC 10.4 is a statement
-about *observable effects*, and LLVM's `memory(...)` is a statement about
-*bytes*. Reference counting writes bytes that no Buri program can observe, and
-that difference is §3.2.1.
+most of the discipline comes from for free. What the fourth and fifth rows add is
+the one thing the theorem does not talk about: SPEC 10.4 is a statement about
+*observable effects*, and LLVM's `memory(...)` is a statement about *bytes*.
+Reference counting writes bytes that no Buri program can observe, and that
+difference is §3.2.1.
 
 `nounwind` on every function is the single most valuable one and it costs no
-analysis: the language has no `throw`, no `panic` that unwinds, and no
-`catch`. An abort is `write` then `_exit` (`generate.rs` is the
-JavaScript spelling of the same contract). LLVM without `nounwind` has to assume
-every call is a potential unwind edge, which pessimizes everything downstream of
-it.
+analysis: the language has no `throw`, no `panic` that unwinds, and no `catch`.
+An abort is `write` then `_exit` (`generate.rs` is the JavaScript spelling of the
+same contract). Without `nounwind`, LLVM has to assume every call is a potential
+unwind edge, which pessimizes everything downstream of it.
 
 ### 3.2 What comes from the value model
 
@@ -196,19 +196,18 @@ it.
 | A parameter the layout says is `Bool` | `range(i8 0, 2)` |
 | A `Char` parameter | `range(i32 0, 0x110000)` |
 
-Note that `readnone`/`readonly` remain valid **parameter** attributes in current
-LLVM; it is the *function*-level spellings that were replaced by `memory(...)`.
-§3.5 has the encoding hazard.
+`readnone`/`readonly` remain valid **parameter** attributes in current LLVM;
+`memory(...)` replaced only the *function*-level spellings. §3.5 has the encoding
+hazard.
 
 #### 3.2.1 The reference count is memory
 
-This section used to say that `readonly` on a parameter is "true
-unconditionally and would be a lie in almost any other language", on the
-argument that values are immutable, that `middle::rc`'s in-place growth
-(MEMORY.md §5.3) writes only past the end of a block whose count it has just
-seen to be 1, and that the count itself is not part of the value. **Every one of
-those statements is true about Buri and none of them is what `readonly`
-means.** LangRef:
+This section used to say that `readonly` on a parameter is "true unconditionally
+and would be a lie in almost any other language", on the argument that values are
+immutable, that `middle::rc`'s in-place growth (MEMORY.md §5.3) writes only past
+the end of a block whose count it has just seen to be 1, and that the count
+itself is not part of the value. **Every one of those statements is true about
+Buri and none of them is what `readonly` means.** LangRef:
 
 > `readonly` — This attribute indicates that the function does not write
 > through this pointer argument [...] If a function writes to a readonly
@@ -218,8 +217,8 @@ means.** LangRef:
 > location is immediate undefined behavior. **This includes the case where the
 > location is read from and then the same value is written back.**
 
-That last sentence removes the "unobservable write" defence entirely: `read` is
-a promise about bytes, and a store of the identical value is still a store. And
+That last sentence removes the "unobservable write" defence entirely: `read` is a
+promise about bytes, and a store of the identical value is still a store. And
 LangRef's *Pointer Aliasing Rules* settle where the count lives — a pointer
 formed by `getelementptr` **is** *based on* its operand, `argmem` is "accesses
 that are based on pointer arguments", so `incref`'s store at `p - 16` for a
@@ -236,8 +235,8 @@ own, a caller of a function that increfs is a function that increfs, so the
 condition is a whole-call-graph one. `backend/llvm/emit.rs`'s `observe` computes
 it beside the allocation and abort bits it already propagated, and
 `argument_based` is the provenance analysis that decides *which* memory a count
-sits in: a register projection of a parameter keeps the parameter's provenance,
-a `load` — a `[T]`'s element — does not, and a block parameter takes the
+sits in: a register projection of a parameter keeps the parameter's provenance, a
+`load` — a `[T]`'s element — does not, and a block parameter takes the
 conjunction of its incoming values, which matters for every counted function
 because `middle::tail_calls` turns self-recursion into a loop.
 
@@ -267,11 +266,11 @@ The same reading corrects two neighbours:
   body, because the block escapes through the return and so gets no
   function-local carve-out. `errnomem` comes with it: `malloc` sets `errno`.
 - **A tagged enum's payload parameter.** `repr.rs` gives it `SlotTy::Blob`, an
-  *integer*, so a signature of one used to narrow to `memory(none)` for having
-  no pointer parameter. A `Result<Str, E>` keeps its `Str`'s three words inside
-  that integer and gets them back with an `inttoptr`, which LangRef's aliasing
-  rules make based on the parameter. A blob parameter is a pointer parameter
-  wearing an integer's type, and only a genuinely all-scalar signature narrows.
+  *integer*, so a signature of one used to narrow to `memory(none)` for having no
+  pointer parameter. A `Result<Str, E>` keeps its `Str`'s three words inside that
+  integer and gets them back with an `inttoptr`, which LangRef's aliasing rules
+  make based on the parameter. A blob parameter is a pointer parameter wearing an
+  integer's type, and only a genuinely all-scalar signature narrows.
 
 What survives is the whole of the discipline for functions that touch no count,
 which on a representative program is most of them: of twenty pointer parameters
@@ -281,12 +280,12 @@ reference-counting plan — and no function lost its `memory(...)` attribute
 outright.
 
 `cli/tests/native/llvm.rs` holds the two tests that keep this true. One scans
-*every* emitted function for the pattern rather than asserting on one of them:
-a store to `p - 16` for a `p` the define line marks `readonly`, or under a
-`memory(...)` whose `argmem` is not writable. The other runs one program
-through `default<O0>` and `default<O2>` and requires the two to agree about
-stdout, the exit code and `buri_rt_live_blocks` — which is what a memory
-attribute being exploited would break.
+*every* emitted function for the pattern rather than asserting on one of them: a
+store to `p - 16` for a `p` the define line marks `readonly`, or under a
+`memory(...)` whose `argmem` is not writable. The other runs one program through
+`default<O0>` and `default<O2>` and requires the two to agree about stdout, the
+exit code and `buri_rt_live_blocks` — which is what a memory attribute being
+exploited would break.
 
 ### 3.3 `noalias`, and where it stops
 
@@ -299,8 +298,8 @@ It is true in the cases that matter, and `middle` proves them:
 
 - **A freshly allocated return value.** Every allocating runtime entry returns a
   block nothing else has a reference to. `noalias` on the return of
-  `buri_rt_list_map`, `buri_rt_str_concat` and every constructor is
-  unconditional (the prefix is `buri_rt_`, always — VALUE-MODEL.md §10) and is the single most
+  `buri_rt_list_map`, `buri_rt_str_concat` and every constructor is unconditional
+  (the prefix is `buri_rt_`, always — VALUE-MODEL.md §10) and is the single most
   valuable use of the attribute, because it is what lets LLVM keep a just-built
   aggregate's fields in registers across a call.
 - **A parameter of a function that has exactly one pointer parameter.** Vacuous
@@ -314,18 +313,19 @@ whose whole pitch is that wrong answers are caught early.
 
 ### 3.4 What is deliberately *not* emitted
 
-**`nsw` and `nuw` are never set on integer arithmetic.** SPEC 6.2 says overflow is
-undefined behaviour, and `nsw` is exactly how LLVM spells that, so setting it
+**`nsw` and `nuw` are never set on integer arithmetic.** SPEC 6.2 says overflow
+is undefined behaviour, and `nsw` is exactly how LLVM spells that, so setting it
 would be *correct*. It is still not set, for a reason that is about the language
 rather than about LLVM:
 
-VALUE-MODEL.md §11 records the SPEC 6.2 amendment describing two backends whose overflow
-behaviour differs — precision loss on JavaScript, two's-complement wrap natively.
-"Two's-complement wrap" is a description a program can be debugged against.
-`nsw` makes it "whatever the optimizer inferred from the assumption that it never
-happened", which is a description nothing can be debugged against, and which
-changes between LLVM releases. A program that overflows is wrong either way; one
-of the two answers can be reported in a bug and reproduced, and the other cannot.
+VALUE-MODEL.md §11 records the SPEC 6.2 amendment describing two backends whose
+overflow behaviour differs — precision loss on JavaScript, two's-complement wrap
+natively. "Two's-complement wrap" is a description a program can be debugged
+against. `nsw` makes it "whatever the optimizer inferred from the assumption that
+it never happened", which is a description nothing can be debugged against, and
+which changes between LLVM releases. A program that overflows is wrong either
+way; one of the two answers can be reported in a bug and reproduced, and the
+other cannot.
 
 The cost is real and is accepted: LLVM loses some induction-variable widening and
 some loop-bound reasoning on `i32` loops. It is small in a language whose default
@@ -334,9 +334,9 @@ needs no widening at all.
 
 **`inbounds` on `getelementptr`** *is* set, everywhere, without exception. Every
 projection in the language is either a field of a struct whose layout is known or
-an index that `list.get` bounds-checked into an `Option` (`list.buri`:
-there is no way to index out of bounds). Unlike `nsw`, the premise is enforced by
-the type system rather than assumed away.
+an index that `list.get` bounds-checked into an `Option` (`list.buri`: there is
+no way to index out of bounds). Unlike `nsw`, the type system enforces the
+premise rather than assuming it away.
 
 ### 3.5 The `memory(...)` encoding hazard
 
@@ -369,8 +369,8 @@ on an LLVM bump, which is the worst kind: the IR still verifies.
 
 §3.1's table used to read *"a function `middle` proved terminates"*. `middle`
 proves nothing of the kind: `rc::infer_effects`'s columns are purity,
-abortability and parkability, and none of them is about coming back. The
-backend read the row as `Purity::Pure` with no abort — and
+abortability and parkability, and none of them is about coming back. The backend
+read the row as `Purity::Pure` with no abort — and
 
 ```buri
 fn f(i: Int): Int { if (i <= 0) { 0 } else { 1 + f(i - 1) } }
@@ -381,33 +381,33 @@ is pure, cannot abort, and recurses. It was given `memory(none)` and
 recursive call **above the branch that guards it**. `default<O2>` took it: the
 emitted body became an unconditional call to itself with the base-case test
 folded in afterwards, and the program recursed until the machine stack ran out.
-`default<O0>` printed the right answer all along, which is what a false
-attribute looks like from outside.
+`default<O0>` printed the right answer all along, which is what a false attribute
+looks like from outside.
 
-`mustprogress` is the same promise from the other side, and no better. It
-permits deleting a loop LLVM cannot prove terminates, and SPEC 10.4 says the
-opposite — *"an implementation may drop a pure call only where it can also show
-the call returns"*. Divergence is observable in this language, so neither
-attribute may be emitted without a proof.
+`mustprogress` is the same promise from the other side, and no better. It permits
+deleting a loop LLVM cannot prove terminates, and SPEC 10.4 says the opposite —
+*"an implementation may drop a pure call only where it can also show the call
+returns"*. Divergence is observable in this language, so neither attribute may be
+emitted without a proof.
 
-**What the backend proves instead is "no cycle".** A function with no loop in
-its control-flow graph, which can reach no cycle in the call graph, executes a
+**What the backend proves instead is "no cycle".** A function with no loop in its
+control-flow graph, which can reach no cycle in the call graph, executes a
 bounded number of instructions and returns. `emit::observe` carries the negation
 as `Observed::may_diverge` — beside the allocation, abort and reference-count
-bits, and for the same soundness reason as those: a declaration in one unit and
-a definition in another must carry the same attributes. Its seed is
+bits, and for the same soundness reason as those: a declaration in one unit and a
+definition in another must carry the same attributes. Its seed is
 `emit::reaches_a_cycle`, a peel of the call graph, and it has to be a separate
 walk: `observe`'s propagation is a *least* fixpoint from an optimistic start, so
-a function whose only unproven callee is itself would converge on "proven",
-which is the miscompile.
+a function whose only unproven callee is itself would converge on "proven", which
+is the miscompile.
 
-This is weaker than the row it replaces, and the gap is named rather than
-hidden: a `for` over a list terminates, a recursion down a `[T]` terminates, and
-neither is proven here. Proving them wants a decreasing-measure analysis in
-`middle`; the day there is one, the bit belongs in `ir::Facts` beside
-`can_abort` and the backend reads it instead of counting cycles. Until then a
-loop costs `willreturn`, and the trade is not close — the attribute buys
-hoisting and dead-call elimination, and a wrong one buys an unbounded recursion.
+This is weaker than the row it replaces, and the gap is named rather than hidden:
+a `for` over a list terminates, a recursion down a `[T]` terminates, and neither
+is proven here. Proving them wants a decreasing-measure analysis in `middle`; the
+day there is one, the bit belongs in `ir::Facts` beside `can_abort` and the
+backend reads it instead of counting cycles. Until then a loop costs
+`willreturn`, and the trade is not close — the attribute buys hoisting and
+dead-call elimination, and a wrong one buys an unbounded recursion.
 
 ## 4. The pass pipeline
 
@@ -419,7 +419,7 @@ a gain that is workload-dependent and usually small, and O2 is what production
 toolchains ship by default for the same reason.
 
 **A pipeline string, not a hand-assembled pass list.** A custom pipeline is a
-list that has to be re-derived and re-tuned at every LLVM bump, against a pass
+list somebody has to re-derive and re-tune at every LLVM bump, against a pass
 manager whose pass names and orderings are internal. `default<O2>` is the
 pipeline LLVM's own developers regression-test. The only defensible reason to
 hand-assemble one would be that the middle end has made some pass redundant, and
@@ -467,8 +467,8 @@ never needed one either.
 
 **What `musttail` would cost.** It is guaranteed-or-fatal: a backend that cannot
 honour it calls `report_fatal_error`, so an LLVM version or a target that
-tightens a rule turns a working program into a compiler crash. On AArch64 —
-half the platforms here — `musttail` does *not* bypass
+tightens a rule turns a working program into a compiler crash. On AArch64 — half
+the platforms here — `musttail` does *not* bypass
 `isEligibleForTailCallOptimization` and hard-errors on `byval` parameters, on
 SME/streaming mode changes, and when outgoing stack arguments exceed the caller's
 incoming area. There is an open AArch64 miscompile in exactly this combination
@@ -476,28 +476,28 @@ incoming area. There is an open AArch64 miscompile in exactly this combination
 
 **What `tailcc` would cost.** It relaxes most of the AArch64 conditions, and it
 is **viral**: the calling convention must match numerically at every call site,
-so adopting it for one function adopts it for its entire call graph. `cli/runtime`
-is a C-ABI archive (VALUE-MODEL.md §10), so the whole 203-function intrinsic
-surface would need C-ABI shims. `tailcc` also forbids varargs entirely, and is
-not the platform C ABI, so a Buri artifact could no longer be linked against
-anything.
+so adopting it for one function adopts it for its entire call graph.
+`cli/runtime` is a C-ABI archive (VALUE-MODEL.md §10), so the whole 203-function
+intrinsic surface would need C-ABI shims. `tailcc` also forbids varargs entirely,
+and is not the platform C ABI, so a Buri artifact could no longer be linked
+against anything.
 
 **The decision.** `fastcc` for Buri-to-Buri calls, `ccc` for `buri_*` runtime
 entries, and the plain `tail` marker (`CallSiteValue::set_tail_call(true)`) on
 calls in tail position as a *hint* LLVM may honour or ignore. `fastcc` costs
-nothing — both sides of every Buri call are generated here, there is no ABI to be
-compatible with, and VALUE-MODEL.md §5.1 already flattens aggregates so no
+nothing — this compiler generates both sides of every Buri call, there is no ABI
+to be compatible with, and VALUE-MODEL.md §5.1 already flattens aggregates so no
 convention has to classify one.
 
 inkwell has no `CallConv` enum; the convention is a raw `u32` set on both the
-function (`set_call_conventions`) and every call site (`set_call_convention`), and
-a mismatch between the two is a miscompile LLVM will not diagnose. One helper
+function (`set_call_conventions`) and every call site (`set_call_convention`),
+and a mismatch between the two is a miscompile LLVM will not diagnose. One helper
 sets both, and nothing else in the backend names a convention number.
 
 **The one real gap**, named so it is not rediscovered: an *indirect* tail call —
 a closure tail-calling itself through a value — is not eliminated on any backend,
-because `tail_callees` collects only `ExprKind::CallFn` (`tail_calls.rs`). It
-is a middle-end gap that predates this design, and the fix is a middle-end one.
+because `tail_callees` collects only `ExprKind::CallFn` (`tail_calls.rs`). It is
+a middle-end gap that predates this design, and the fix is a middle-end one.
 
 ## 6. Cache locality and basic-block size
 
@@ -512,19 +512,18 @@ is a middle-end gap that predates this design, and the fix is a middle-end one.
 - **Blocks are not split more than the IR requires.** The decision tree
   (ARCHITECTURE.md §2.2) produces one block per distinct outcome, not one per
   test, so a six-variant match is one `switch` and six blocks rather than six
-  compare-and-branch blocks. This is a direct improvement on the current
-  arm chain (`generate.rs`), where a six-variant enum performs six
-  comparisons to reach its sixth arm — `generate.rs` says so.
+  compare-and-branch blocks. This is a direct improvement on the current arm
+  chain (`generate.rs`), where a six-variant enum performs six comparisons to
+  reach its sixth arm — `generate.rs` says so.
 - **The unit is a source module** (ARCHITECTURE.md §5.1), so functions that call
   each other land in one `.text` section next to each other. Within a unit,
   emission order is the middle end's function order, which is the
   monomorphization worklist's — deterministic, and derived from the reachability
   walk out of the entry point rather than from a hash order
-  (`monomorphize.rs`). That is a free first approximation of a
-  call-order layout: a callee is instantiated when its caller is reached, so
-  related functions are adjacent. A measured layout, from `--explain` counts or a
-  profile, is a later item and would replace only the ordering, not the
-  partition.
+  (`monomorphize.rs`). That is a free first approximation of a call-order layout:
+  a callee is instantiated when its caller is reached, so related functions are
+  adjacent. A measured layout, from `--explain` counts or a profile, is a later
+  item and would replace only the ordering, not the partition.
 - **`llvm.expect` is not emitted.** There is no branch-probability information in
   the source language and no profile, so any hint would be invention. `cold` is
   emitted only where the block is provably exceptional.
@@ -543,12 +542,11 @@ object paths. Both are set from `Options::unit_prefix` rather than from
 `std::env::current_dir`, because `--check-reproducible` builds into two different
 directories precisely to catch the version that does not.
 
-The prefix does not wait for that wave to reach an object. It is already the
-head of a unit's module name (`emit_selected`), and LLVM emits a module's
-source-file name as a `.file` directive on every target whose assembly syntax
-has one — every ELF target, no Mach-O one — so it lands in `.symtab` as an
-`STT_FILE` symbol today. That is why it is a term of the `codegen` key
-(ARCHITECTURE.md §6.2).
+The prefix does not wait for that wave to reach an object. It is already the head
+of a unit's module name (`emit_selected`), and LLVM emits a module's source-file
+name as a `.file` directive on every target whose assembly syntax has one — every
+ELF target, no Mach-O one — so it lands in `.symtab` as an `STT_FILE` symbol
+today. That is why it is a term of the `codegen` key (ARCHITECTURE.md §6.2).
 
 ## 8. Version pinning
 
@@ -585,15 +583,15 @@ Ruled on, and it settles the question this section was carrying:
   and a test matrix that has to build both, for a benefit — a contributor keeping
   an older LLVM — that `nix develop` already delivers.
 
-Neither of the two policies originally posed survives as written: "the
-flake leads" is right about the *default* and wrong as a rule, because it would
-forbid a bump the backend actually needs, and "the backend leads" prices a
-nixpkgs bump — which moves `cargo`, `bun` and `elan`, and therefore every
-artifact this toolchain produces — into a routine chore. The rule is that the pin
-tracks latest-available, so it moves when a nixpkgs bump that was happening
-anyway brings a newer LLVM along. A bump *for* an LLVM is possible and is a
-nixpkgs decision made on nixpkgs' terms, with the cache invalidation priced in,
-and no codegen improvement has yet been worth asking for one.
+Neither of the two policies originally posed survives as written. "The flake
+leads" is right about the *default* and wrong as a rule, because it would forbid
+a bump the backend actually needs. "The backend leads" prices a nixpkgs bump —
+which moves `cargo`, `bun` and `elan`, and therefore every artifact this
+toolchain produces — into a routine chore. The rule is that the pin tracks
+latest-available, so it moves when a nixpkgs bump that was happening anyway
+brings a newer LLVM along. A bump *for* an LLVM is possible and is a nixpkgs
+decision made on nixpkgs' terms, with the cache invalidation priced in, and no
+codegen improvement has yet been worth asking for one.
 
 ### 8.2 The bump checklist
 
@@ -607,9 +605,9 @@ Four edits and a test, in this order:
    makes the two agree.
 4. `backend/llvm/attrs.rs` — the `Location` list, per §3.5's table.
 
-Then `the_bitmask_matches_llvm_21s_location_list` in `attrs.rs` is the canary:
-it asserts `MemoryEffects::everything().bits()`, which changes at every LLVM
-whose location list changes, so a bump that forgot step 4 fails there rather than
+Then `the_bitmask_matches_llvm_21s_location_list` in `attrs.rs` is the canary: it
+asserts `MemoryEffects::everything().bits()`, which changes at every LLVM whose
+location list changes, so a bump that forgot step 4 fails there rather than
 miscompiling an attribute that still verifies. Rename it with the version. The
 `identity()` change falls out of the linked version and invalidates cached
 release objects, which is correct.
@@ -631,9 +629,9 @@ inkwell's side alone. 21 is what both sides carry:
   contributor on any of those gets it without naming a version.
 - Homebrew ships `llvm@21` (21.1.8) for macOS contributors who are not on nix.
 
-What 22 would buy is `musttail` on RISC-V, which §5 declines to use on any
-target — so there is nothing to want, and the pin moves when the flake does,
-through §8.2.
+What 22 would buy is `musttail` on RISC-V, which §5 declines to use on any target
+— so there is nothing to want, and the pin moves when the flake does, through
+§8.2.
 
 **`strict-versioning` is asked for and is not on.** `llvm-sys` will otherwise
 build against any LLVM at least as new as its target, so a machine with LLVM 22
@@ -643,11 +641,10 @@ output "at least as new" is not a version policy. What blocks it is the
 dependency bar rather than the argument: inkwell's `llvm21-1` expands to
 `llvm-sys-211` and nothing else, so reaching the flag would mean a second direct
 dependency on `llvm-sys` for one setting. Standing in for it until that is
-decided: `Backend::identity()` puts the LLVM version into every release
-`codegen` key, so two toolchains built against different LLVMs never share a
-cached object, and `llvm-config --version` is what a contributor checks.
-`cli/Cargo.toml` and BUILD-AND-WATCH.md §3.4 both say so where the decision is
-made.
+decided: `Backend::identity()` puts the LLVM version into every release `codegen`
+key, so two toolchains built against different LLVMs never share a cached object,
+and `llvm-config --version` is what a contributor checks. `cli/Cargo.toml` and
+BUILD-AND-WATCH.md §3.4 both say so where the decision is made.
 
 **Linking mode.** `llvm-sys` defaults to `prefer-static` since 191. On macOS
 there is an open bug (`llvm-sys` GitLab #80): `llvm-config --system-libs
@@ -669,11 +666,11 @@ LLVM_SYS_211_PREFIX = "${llvm.dev}";
 
 `llvm.dev` and not `llvm`: the `.dev` output is the one carrying
 `bin/llvm-config` and the headers, and pointing at the default output fails in a
-way whose error message does not say so. `zlib` is already in the shell;
-`zstd` and `ncurses` are added if `llvm-config --system-libs` asks for them on a
-given configuration, which varies. `mold` is Linux-only (2.39.1 on 25.05) and is
-listed conditionally; `lld` follows the default `llvmPackages`, so it is 19.1.7 on
-25.05 — which is fine, because the linker's version does not have to match the
+way whose error message does not say so. `zlib` is already in the shell; `zstd`
+and `ncurses` are added if `llvm-config --system-libs` asks for them on a given
+configuration, which varies. `mold` is Linux-only (2.39.1 on 25.05) and is listed
+conditionally; `lld` follows the default `llvmPackages`, so it is 19.1.7 on 25.05
+— which is fine, because the linker's version does not have to match the
 compiler's.
 
 **Not a build-time requirement for everyone.** `backend-llvm` is off by default
