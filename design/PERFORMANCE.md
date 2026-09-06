@@ -1,8 +1,8 @@
 # Compiler performance
 
-**What the toolchain is expected to be fast at, how fast, and how that is
-measured.** The audience is somebody about to optimize a phase — or about to
-argue that a change is worth its complexity.
+**What the toolchain should be fast at, how fast, and how the suite measures
+it.** Written for somebody about to optimize a phase, or about to argue that a
+change is worth its complexity.
 
 Three numbers, and everything else on this page exists to make them mean
 something:
@@ -14,42 +14,41 @@ something:
 | Lowering to a binary or to JavaScript | **100,000 lines/second** | 10 µs |
 
 They are **goals, not claims**. Semantic analysis and both lowering paths meet
-theirs — the native one since 2026-08-29, its first time; lex+parse does not,
-and §6 records by how much. `cli/benches/compiler.rs` is what keeps saying so.
+theirs, the native one since 2026-08-29, its first time. Lex+parse does not, and
+§6 records by how much. `cli/benches/compiler.rs` is what keeps saying so.
 
 ---
 
 ## 1. Why these three, and why these numbers
 
 The three come from Chandler Carruth's *Modernizing Compiler Design for
-Carbon's Toolchain* (CppNow 2023), which states the same ladder for the same
-reason: a compiler's phases have wildly different costs per line, so one
-aggregate figure hides which phase is the problem. Carbon's slides give the
-budgets as 100 ns, 1 µs and 10 µs per line, and derive from the first of them
-the constraints that shaped their whole front end — *200–300 cycles per line
-lexed and parsed*, *about one main-memory access per line*, *no allocation per
-token*.
+Carbon's Toolchain* (CppNow 2023), which gives the same ladder for the same
+reason: a compiler's phases cost wildly different amounts per line, so one
+aggregate figure hides which phase is the problem. Carbon's slides put the
+budgets at 100 ns, 1 µs and 10 µs per line, and the first of them gave them the
+constraints that shaped their whole front end — *200–300 cycles per line lexed
+and parsed*, *about one main-memory access per line*, *no allocation per token*.
 
-Adopting the ladder rather than inventing one is deliberate. A goal nobody else
-has tried to hit is a goal nobody can tell you is unreasonable, and this one has
-public evidence on both sides: Carbon measured 6.7 M lines/s lexing and 1.9 M
-lines/s through lex+parse on a server CPU, and Ben Titzer's public objection is
-that 10 M lines/s is roughly 400 MB/s and that V8's JavaScript parser — the
-fastest he knows of — runs at 60–80 MB/s. So the first goal is either at the
-edge of what is possible or slightly past it, and that is the useful kind of
-target: missing it by 3× is information, and missing it by 300× is a bug.
+Borrowing the ladder rather than inventing one is deliberate. Nobody can tell
+you a goal is unreasonable if nobody else has tried to hit it, and this one has
+public evidence on both sides. Carbon measured 6.7 M lines/s lexing and 1.9 M
+lines/s through lex+parse on a server CPU. Ben Titzer objects in public that
+10 M lines/s is roughly 400 MB/s, and that V8's JavaScript parser — the fastest
+he knows of — runs at 60–80 MB/s. So the first goal sits at the edge of what is
+possible, or slightly past it, and that is the useful kind of target: missing it
+by 3× is information, missing it by 300× is a bug.
 
 **Three separate budgets rather than one, and the first of them shared.**
-Lexing and parsing are one budget because they are one decision: a front end
-that fuses them, or that lexes lazily from the parser, or that parses straight
-out of a token buffer, should be free to move work across that line without the
-scorecard changing. They are still reported separately, because the split is
-free — `parser::parse` calls `lex` as its first act — and because a regression
-in one of them should not have to be inferred.
+Lexing and parsing share a budget because they are one decision: a front end
+that fuses them, or lexes lazily from the parser, or parses straight out of a
+token buffer, should be free to move work across that line without the scorecard
+changing. The suite still reports them separately, because the split is free —
+`parser::parse` calls `lex` as its first act — and because you should not have
+to infer a regression in one of them.
 
 **Why the goals are per-phase throughput rather than end-to-end wall time.**
 Wall time is what a user feels, and it is the wrong thing to hold a compiler to
-in a design document: it moves with the build cache, with parallelism, with how
+in a design document. It moves with the build cache, with parallelism, with how
 much of the standard library a program touches, and with the linker. Throughput
 per phase is a property of the code in that phase, and it is the only figure
 that says *which* phase to work on.
@@ -72,8 +71,7 @@ that says *which* phase to work on.
 
 ## 2. What counts as a line
 
-A benchmark whose denominator is undefined is a benchmark that can be argued
-into any answer. So:
+A benchmark with an undefined denominator can be argued into any answer. So:
 
 > **A line is a non-blank line of the input program's own source, comments
 > included.**
@@ -82,13 +80,13 @@ Four decisions, each of which could have gone the other way:
 
 1. **Non-blank.** A blank line is free in every phase, so counting them would
    make the toolchain look faster on prettier code. Carbon's generator emits 15%
-   blank lines precisely because their absence would be unrepresentative; here
-   they are generated *and* excluded from the denominator, which is the
+   blank lines precisely because leaving them out would be unrepresentative.
+   This generator emits them *and* drops them from the denominator, which is the
    conservative combination.
 
 2. **Comments count.** They are 22% of lines in the codebases Carbon measured
    and about the same here, the lexer reads every byte of them, and the parser
-   attaches the doc comments among them to declarations. Excluding them would
+   attaches the doc comments among them to declarations. Dropping them would
    flatter the toolchain in exact proportion to how well the source is
    documented, which is the wrong incentive to build into a scorecard.
 
@@ -96,22 +94,22 @@ Four decisions, each of which could have gone the other way:
    also checks whatever of `core/*` it reaches, and at a thousand lines that
    fixed cost is most of the measurement. Counting those lines would make small
    programs look fast for a reason that has nothing to do with them. Instead the
-   fixed cost is measured on its own and reported beside the rate — see §3, "The
-   prelude floor".
+   suite measures that fixed cost on its own and reports it beside the rate —
+   see §3, "The prelude floor".
 
-4. **Lines, with bytes and tokens beside them.** The goal is stated in lines
-   because that is the unit a person writes in. It is a *bad* unit for comparing
-   two compilers or two languages — it moves with line density, and Buri's lines
+4. **Lines, with bytes and tokens beside them.** The goals use lines because
+   that is the unit a person writes in. Lines are a *bad* unit for comparing two
+   compilers or two languages — they move with line density, and Buri's lines
    are shorter than C++'s — so the suite reports bytes/second and
    tokens/second in the same rows. Carbon reports all three for this reason, and
-   the divergence between them is the signal: a line rate is hostage to source
+   where the three diverge is the signal: a line rate is hostage to source
    density, a byte rate to identifier length, and only the token rate tracks
    what the lexer's inner loop actually does.
 
 ### The rest of the protocol
 
-- **In memory.** Sources are strings the benchmark already holds. No file is
-  read inside a timer. `SourceMap` is populated before measurement.
+- **In memory.** Sources are strings the benchmark already holds. No timer ever
+  spans a file read, and the benchmark fills the `SourceMap` before it measures.
 - **Single-threaded.** The toolchain is single-threaded through the front end
   today. When that changes, the goals stay per-thread and a parallel figure is a
   new row, not a redefinition of these.
@@ -124,28 +122,27 @@ Four decisions, each of which could have gone the other way:
   least three quarters of a second of sampling per row.
 - **One documented deviation, above 500,000 lines.** The scale tier (§4) takes
   at least **3** repetitions rather than at least 10, and one warmup call rather
-  than two. Everything else is unchanged, including the three-quarter-second
-  sampling floor — which is never the binding rule at that size, so the cheap
-  phases still take nine or ten repetitions and only the expensive ones fall to
-  three. The reason is arithmetic: native lowering at a million lines is thirty
-  seconds a repetition, so the ten-repetition rule would cost six minutes for
-  one row and about forty for the tier. Rows taken under the deviation say so,
-  in the table and in `--json`'s `protocol` field, because a deviation nobody
-  can see in the output is a deviation nobody can account for. What it costs is
-  the dispersion column: a MAD over three samples is a much weaker statement
-  than a MAD over ten, and the scale rows should be read for their order of
-  magnitude rather than their last digit.
+  than two. Nothing else changes, including the three-quarter-second sampling
+  floor — never the binding rule at that size, so the cheap phases still take
+  nine or ten repetitions and only the expensive ones fall to three. The reason
+  is arithmetic: native lowering at a million lines is thirty seconds a
+  repetition, so the ten-repetition rule would cost six minutes for one row and
+  about forty for the tier. Rows taken under the deviation say so, in the table
+  and in `--json`'s `protocol` field, because nobody can account for a deviation
+  they cannot see in the output. It costs the dispersion column: a MAD over
+  three samples is a much weaker statement than a MAD over ten, so read the
+  scale rows for their order of magnitude rather than their last digit.
 - **Median, with dispersion as MAD/median.** Not a mean, and not a standard
   deviation. A benchmark's distribution is one-sided — the machine can only make
   a run slower — so a symmetric summary is the wrong one and an
   outlier-sensitive one is worse. Carbon's own harness rejects normality
-  outright and uses a non-parametric test for the same reason. The fastest
-  sample is also reported, as the least-noise reading of the same quantity.
-- **Frequency scaling and thermal drift are not controlled**, and this is a
-  known weakness. The mitigations are the warmup, the median, and reporting
-  dispersion so that a run taken on a throttled laptop is visibly noisier rather
-  than quietly wrong. A ±MAD above about 5% should be treated as a run to
-  discard rather than a number to record.
+  outright and uses a non-parametric test for the same reason. The suite also
+  reports the fastest sample, as the least-noise reading of the same quantity.
+- **Nothing controls frequency scaling or thermal drift**, and that is a known
+  weakness. The warmup, the median, and the reported dispersion are the
+  mitigations: a run taken on a throttled laptop comes out visibly noisier
+  rather than quietly wrong. Treat a ±MAD above about 5% as a run to discard
+  rather than a number to record.
 
 ---
 
@@ -158,122 +155,119 @@ says why.
 ### 3.1 The rules adopted
 
 **Generate most of the corpus; check a little of it in.** The rule used to be
-"generate it, and check nothing in", and the argument was that a checked-in
-megafile fixes one scale forever, drifts from the language as the language
-moves, and cannot be reviewed. All three of those are still true, and none of
-them is an argument against a *small* checked-in corpus with a manifest — they
-are arguments against a large one with no provenance. What the old rule could
-not do is compare a number taken today with one taken in March, because the
-generator is a program under active development and a change to it moves the
-bytes it emits without moving any code the benchmark measures.
+"generate it, and check nothing in". The argument: a checked-in megafile fixes
+one scale forever, drifts from the language as the language moves, and cannot be
+reviewed. All three are still true, and none of them argues against a *small*
+checked-in corpus with a manifest — they argue against a large one with no
+provenance. What the old rule could not do is compare a number taken today with
+one taken in March, because the generator is under active development, and a
+change to it moves the bytes it emits without moving any code the benchmark
+measures.
 
 So the suite runs three kinds of corpus, and each is answerable for something
 the others cannot promise:
 
 **Generated per run** — `cli/benches/generate.rs`, from a profile, a parameter
-set and a fixed seed. This is what buys *scale flexibility* (1k to 100k on one
-flag, and the 100k rows are 3.5 MB of source that has no business in a git
-history), what buys *coverage of the parameter space* (twenty named profiles
-cost nothing to keep), and what buys *no drift blindspot*: a generator that has
-fallen out of the language shows up as a failed validation on the next run,
-whereas a checked-in corpus can only fall out of the language silently and would
-keep compiling long after the constructs in it stopped being idiomatic.
+set and a fixed seed. This buys *scale flexibility* (1k to 100k on one flag, and
+the 100k rows are 3.5 MB of source that has no business in a git history),
+*coverage of the parameter space* (twenty named profiles cost nothing to keep),
+and *no drift blindspot*: a generator that has fallen out of the language fails
+validation on the next run, while a checked-in corpus falls out of the language
+silently and keeps compiling long after its constructs stop being idiomatic.
 
 **Checked in** — `cli/benches/corpora/<name>/`, eight small corpora with a
 `manifest.txt` recording the profile, the parameters, the seed, the generator
-revision, the counts, and a digest. This is what buys *byte-stability over
-time*, and that is the only thing it buys: two runs a year apart compile the
-same bytes, so a difference between them is a difference in the compiler. It is
-also what makes a change to the generator reviewable, because the diff of a
-re-recorded corpus is the change's effect on the input, stated in the language
-rather than in Rust.
+revision, the counts, and a digest. This buys *byte-stability over time*, and nothing else:
+two runs a year apart compile the same bytes, so a difference between them is a
+difference in the compiler. It also makes a change to the generator reviewable,
+because the diff of a re-recorded corpus shows the change's effect on the input,
+in Buri rather than in Rust.
 
 **Digest-pinned** — `cli/benches/pinned/<name>.txt`, a manifest with no source
-beside it. It records what a saved corpus's does — profile, parameters, seed,
-generator revision, counts — and the SHA-256 of the bytes that combination
-produced; the harness regenerates the corpus on every run and checks the digest
-**before it measures anything**. This is what buys byte-stability *at a scale a
-git history cannot hold*: the 100,000-line corpus is 3.5 MB and the
+beside it. It records what a saved corpus's manifest records — profile,
+parameters, seed, generator revision, counts — plus the SHA-256 of the bytes
+that combination produced. The harness regenerates the corpus on every run and
+checks the digest **before it measures anything**. This buys byte-stability *at
+a scale a git history cannot hold*: the 100,000-line corpus is 3.5 MB and the
 million-line one is 35 MB, against a repository whose whole history is 15 MB,
 and the manifest for either is four hundred bytes.
 
-There are forty of them, and forty is not forty arbitrary corpora: it is
-**twenty parameter points at two scales**, a point being a name and a seed and a
-delta from `Params::default()`, and its two corpora sharing that seed so that the
-only thing differing between a point's 100k row and its 1M row is the size. The
-whole set costs 15,546 bytes of git — `cat cli/benches/pinned/*.txt | wc -c`,
-2026-09-01 — which is the argument for the kind stated as a number. §4 lists
-the points and what each moves.
+There are forty of them, and they are not forty arbitrary corpora. They are
+**twenty parameter points at two scales**. A point is a name, a seed and a delta
+from `Params::default()`, and its two corpora share that seed, so the only
+difference between a point's 100k row and its 1M row is the size. The whole set
+costs 15,546 bytes of git — `cat cli/benches/pinned/*.txt | wc -c`, 2026-09-01 —
+which is the argument for this kind stated as a number. §4 lists the points and
+what each moves.
 
-The reasoning is that the two properties a saved corpus bundles together are
-separable. "These are the bytes" is worth checking in; "here they are" is what
-costs the megabytes. A digest gives the first without the second, and the check
-it enables is strictly the same one — `corpus::digest` is one function and both
-kinds go through it, so pinning a corpus that is *also* checked in produces the
-same hash, which is how the generator's byte-identity across a change is
-verified in practice.
+The reasoning: a saved corpus bundles two separable properties. "These are the
+bytes" is worth checking in; "here they are" is what costs the megabytes. A
+digest gives the first without the second, and the check it enables is strictly
+the same one — `corpus::digest` is one function and both kinds go through it, so
+pinning a corpus that is *also* checked in produces the same hash, which is how
+you verify the generator's byte-identity across a change in practice.
 
-What it gives up is the reviewable diff, and that is the whole of the cost.
-When a saved corpus moves, the diff says *what* moved, in Buri. When a pinned
-one moves, the failure has two hashes in it and the counts beside them — which
-is why the manifest records `lines`, `bytes` and `modules` as well, so that a
-mismatch can at least say whether the shape changed or only its contents.
-Recovering the rest means regenerating both revisions by hand. That trade is
-right for the scale tier and wrong for a 1,000-line corpus, which is why both
-kinds exist rather than one replacing the other.
+It gives up the reviewable diff, and that is the whole cost. When a saved corpus
+moves, the diff says *what* moved, in Buri. When a pinned one moves, the failure
+carries two hashes and the counts beside them — which is why the manifest
+records `lines`, `bytes` and `modules` as well, so a mismatch can at least say
+whether the shape changed or only its contents. Recovering the rest means
+regenerating both revisions by hand. That trade is right for the scale tier and
+wrong for a 1,000-line corpus, which is why both kinds exist rather than one
+replacing the other.
 
 All three kinds obey the same validity rules, without exception:
 
-- **All are compiled before any is measured.** A saved corpus that has stopped
-  being valid Buri is a build failure, exactly as a drifted generator is.
-  `--validate` covers the saved half whatever `--set` was asked for, and CI runs
-  it. How much of the *pinned* half it covers is `--set`'s business, because
-  regenerating and digesting forty corpora, half of them a million lines, is
-  three minutes and a plain `--validate` has to stay the check somebody takes
-  before a commit. So: none under `--quick`, which is the CI gate and has to stay
-  under a second and is 0.4 s; the anchor — `mixed` at both scales — under a
-  plain `--validate`, which is what it covered when there were only two
-  manifests and is thirteen seconds; the sample under `--validate --set=scale`,
-  twenty-seven seconds; all forty under `--validate --set=scale-full`, four
-  minutes and twenty. Those four were re-measured on 2026-09-01 and §4 says
-  under what conditions. The rule that does not bend is the last row: **the
-  whole pinned half is checkable by one documented command**, and a re-pin is
-  what happens when it fails.
-- **All are in memory before any timer starts.** A saved corpus is loaded, and a
-  pinned one regenerated *and* digest-checked, into the same `Program` a
-  generator returns; the harness has one measurement path, and no file is read
-  inside a timer.
+- **The suite compiles all of them before it measures any.** A saved corpus that
+  has stopped being valid Buri is a build failure, exactly as a drifted
+  generator is. `--validate` covers the saved half whatever `--set` you asked
+  for, and CI runs it. How much of the *pinned* half it covers is `--set`'s
+  business, because regenerating and digesting forty corpora, half of them a
+  million lines, takes three minutes, and a plain `--validate` has to stay the
+  check somebody runs before a commit. So: none under `--quick`, which is the CI
+  gate, has to stay under a second, and is 0.4 s; the anchor — `mixed` at both
+  scales — under a plain `--validate`, which is what it covered when there were
+  only two manifests and is thirteen seconds; the sample under
+  `--validate --set=scale`, twenty-seven seconds; all forty under
+  `--validate --set=scale-full`, four minutes and twenty. Those four were
+  re-measured on 2026-09-01 and §4 says under what conditions. The rule that
+  does not bend is the last row: **one documented command checks the whole
+  pinned half**, and a re-pin is what happens when it fails.
+- **All are in memory before any timer starts.** The harness loads a saved
+  corpus, and regenerates *and* digest-checks a pinned one, into the same
+  `Program` a generator returns. There is one measurement path, and no timer
+  spans a file read.
 - **All must be reachable from `main`.** `--validate` reports the monomorphized
   function count for each, for the reason the next-but-one rule gives.
-- **All are stress-or-realistic, never both.** The family is a property of the
-  profile and a saved or pinned corpus inherits it; the goal column is printed
-  only for the realistic family, and `Family` is a type in `generate.rs` rather
-  than a convention, so the rule is unrepresentable-to-violate rather than
-  merely written down. With one derivation on top, for the parameter points the
+- **Every corpus is stress or realistic, never both.** The family belongs to the
+  profile, and a saved or pinned corpus inherits it. The harness prints the goal
+  column only for the realistic family, and `Family` is a type in `generate.rs`
+  rather than a convention, so violating the rule is unrepresentable rather than
+  merely discouraged. One derivation sits on top, for the parameter points the
   scale tier introduced: a corpus whose `params` move anything its profile does
-  not **is** a stress shape, whatever family the profile it is a delta from
-  belongs to. A point is one dial pushed until it is most of the corpus, which
-  is this section's own definition of the stress family, so `mixed` with
-  `w_string_fn=8` is quoted against no goal — and that is derived from the
-  manifest rather than remembered by whoever pinned it.
-- **None is allowed to become the only one.** The headline scale — 100k lines —
-  is generated *and* pinned, and the saved anchor is 10k. So §6 records **both**
-  the generated and the saved reading of `mixed`, and the two deltas are
-  compared: when the compiler changes, both move together; when the *generator*
-  changes, only the generated one moves. That pairing is what replaces the
-  guarantee the old rule was reaching for, and it is stronger than either corpus
-  alone. The pinned 100k row is the third leg of it: it is the same bytes as the
-  generated 100k row, checked, so the two agreeing is the pinning scheme
-  reporting that it works.
+  not **is** a stress shape, whatever family its base profile belongs to. A
+  point is one dial pushed until it is most of the corpus, which is this
+  section's own definition of the stress family, so `mixed` with
+  `w_string_fn=8` is quoted against no goal. The manifest says so; nobody has to
+  remember it.
+- **No corpus is allowed to become the only one.** The headline scale — 100k
+  lines — is generated *and* pinned, and the saved anchor is 10k. So §6 records
+  **both** the generated and the saved reading of `mixed`, and compares the two
+  deltas: when the compiler changes, both move together; when the *generator*
+  changes, only the generated one moves. That pairing replaces the guarantee the
+  old rule was reaching for, and it is stronger than either corpus alone. The
+  pinned 100k row is the third leg: it is the same bytes as the generated 100k
+  row, checked, so the two agreeing is the pinning scheme reporting that it
+  works.
 
 And one rule that applies only to the two kinds with a manifest, because it is
 the failure mode a recorded corpus has and a generated one does not:
 
-- **Re-recording is a break in the series, and it is announced.** A saved corpus
-  is re-recorded, and a pinned one re-pinned, only when it stops compiling or
-  when the generator revision it names is retired; it bumps `revision` in the
+- **Re-recording breaks the series, so it gets announced.** A saved corpus gets
+  re-recorded, and a pinned one re-pinned, only when it stops compiling or when
+  the generator revision it names is retired. That bumps `revision` in the
   manifest, `--json` carries `corpus_revision`, and §6 says which revision its
-  numbers were taken at. A corpus that cannot be regenerated is deleted, not
+  numbers came from. A corpus that cannot be regenerated gets deleted, not
   repaired. `cli/benches/corpora/README.md` and `cli/benches/pinned/README.md`
   are the operational form of this, with the caps — 512 KiB per corpus, 2 MiB in
   total — that keep the saved half small. The pinned half has no cap because it
@@ -285,24 +279,24 @@ the failure mode a recorded corpus has and a generated one does not:
   digests and both sets of counts, and the fix is either to find what moved in
   the generator or to re-pin deliberately.
 
-**Validate before measuring.** Every generated program is compiled through the
-real front end — loader, checker, and all — and the suite exits non-zero if it
+**Validate before measuring.** The suite compiles every generated program
+through the real front end — loader, checker, and all — and exits non-zero if it
 does not compile. *A benchmark over source that does not compile is a benchmark
 of the error paths.* Carbon asserts `!buffer.has_errors()` inside each lexer
-benchmark for exactly this; here the check is one level up, over the whole
+benchmark for exactly this; here the check sits one level up, over the whole
 corpus, before any timer starts.
 
 **A cell that drives the binary starts from a cache no other binary wrote.**
-This one is not about the bench target — which compiles in process and keeps no
-cache — but about the end-to-end cells §6 quotes, and about any harness that asks
-whether an incremental build is byte-identical to a `--force` one. A cache key
-carries `arguments::VERSION`, which is `CARGO_PKG_VERSION`: a *version*, not a
-hash of the running executable. So rebuilding `buri` at the same version moves
+This rule is not about the bench target, which compiles in process and keeps no
+cache. It is about the end-to-end cells §6 quotes, and about any harness that
+asks whether an incremental build is byte-identical to a `--force` one. A cache
+key carries `arguments::VERSION`, which is `CARGO_PKG_VERSION`: a *version*, not
+a hash of the running executable. So rebuilding `buri` at the same version moves
 no key, and the first build in a workspace whose `.buri` a previous binary wrote
-is a mix of the two compilers' objects — every unit whose IR did not move is
-served from the old one. It is a single build: the second agrees with itself,
-which is what makes the reading look like noise. Fresh tree, or `--force`, or
-`buri clean`, before a cell that spans a compiler rebuild. `buri docs
+mixes the two compilers' objects — every unit whose IR did not move comes from
+the old one. Only that first build is affected: the second agrees with itself,
+which is what makes the reading look like noise. Use a fresh tree, or `--force`,
+or `buri clean`, before a cell that spans a compiler rebuild. `buri docs
 build/hermeticity`, "The toolchain in the key", is the same warning where a user
 of the toolchain will find it.
 
@@ -329,11 +323,10 @@ modules with a real import graph — `--validate`'s own count at generator
 revision 7, down from the 389 this line used to quote because a laid-out module
 reaches its line target with fewer declarations (§6) — each module calling into
 one to three others' functions *and* naming one of their types. Three reasons,
-all Carbon's: it stops
-branch prediction from memorizing one file's shape, it gets closer to the
-cache-cold behaviour that matters in practice, and it avoids anchoring on a
-single file that may be unrepresentative. A fourth is specific to this
-toolchain: cross-module resolution is where semantic analysis would be
+all Carbon's: it stops branch prediction from memorizing one file's shape, it
+gets closer to the cache-cold behaviour that matters in practice, and it avoids
+anchoring on a single file that may be unrepresentative. A fourth is specific to
+this toolchain: cross-module resolution is where semantic analysis would be
 superlinear if it were superlinear anywhere, and one big file would never
 exercise it.
 
@@ -341,27 +334,27 @@ exercise it.
 lines by default; the scale tier adds 1M behind `--set=scale` (§4). A single
 scale point cannot show a cache cliff, and Carbon's numbers fall 6.70 → 5.02 M
 lines/s between 1k and 256k — the fall-off *is* the finding. The default run
-stops at 100k for wall time and not for principle, which is why the fourth
-order of magnitude is a flag rather than an absence, and §6.4's first finding
-is what it found the first time it was taken.
+stops at 100k for wall time rather than for principle, which is why the fourth
+order of magnitude is a flag rather than an absence, and §6.4's first finding is
+what the flag turned up the first time somebody used it.
 
-**Phase isolation at the compiler's own seams.** Not a reimplementation of the
-phases in the harness: each timer wraps the same function the driver calls. The
+**Phase isolation at the compiler's own seams.** The harness does not
+reimplement the phases: each timer wraps the same function the driver calls. The
 isolation falls out of the signatures — `Checker::run` takes `&Loaded` and
 returns a fresh `Checked`, `monomorphize::run` takes `&Checked` and returns a
 fresh `Program` — so a repetition cannot see the previous one's work, and
-nothing has to be cloned to make that true. The parse cache
-(`parser::Cache`) is filled before the semantic-analysis timer starts, which is
-what keeps parsing out of that measurement.
+nothing has to be cloned to make that true. The harness fills the parse cache
+(`parser::Cache`) before the semantic-analysis timer starts, which is what keeps
+parsing out of that measurement.
 
 **Block the optimizer, but not the code under test.** Each result goes through
-`std::hint::black_box`. Carbon's sharper version of this — putting the barrier
-on the loop's induction variable rather than the result, so the clobber does not
-perturb codegen inside the region being measured, and making the loop index
+`std::hint::black_box`. Carbon has a sharper version: put the barrier on the
+loop's induction variable rather than the result, so the clobber does not
+perturb codegen inside the measured region, and make the loop index
 data-dependent on the phase's return value to stop the CPU speculating into the
-next iteration — is worth adopting if these rows ever get tight enough for it to
-matter. It is not adopted yet; at the current gap factors it would be noise
-about noise.
+next iteration. Worth adopting if these rows ever get tight enough for it to
+matter. Not adopted yet; at the current gap factors it would be noise about
+noise.
 
 **Report the fixed cost separately.** See below.
 
@@ -373,53 +366,50 @@ measures that cost on its own — a module with the corpus's three imports and a
 trivial `main` — prints it in the header, and reports both a gross rate and a
 rate net of it. At 1,000 lines the floor is most of the measurement; at 100,000
 it is a rounding error, and the two figures converging is itself a check that
-the floor was measured correctly. Carbon has a whole second benchmark binary for
-this (`prelude_benchmark.cpp`), and it is what explains their otherwise puzzling
-result that checking is *faster* at 16k lines than at 256.
+the floor came out right. Carbon has a whole second benchmark binary for this
+(`prelude_benchmark.cpp`), and it explains their otherwise puzzling result that
+checking is *faster* at 16k lines than at 256.
 
 ### 3.2 What was deliberately not adopted
 
 - **`criterion`, or any benchmark framework.** The dependency bar in the
   workspace manifest admits code generators and platform interfaces; a
-  statistics library is neither. What a harness has to do here is warm up,
-  repeat, and report a median with its spread, and that is a hundred and fifty
-  lines. The cost of this decision is real and worth naming: no bootstrapped
-  confidence intervals, no automatic outlier classification, no HTML report.
-  What replaces them is a `--json` mode and the discipline of reading the
-  dispersion column.
+  statistics library is neither. A harness here has to warm up, repeat, and
+  report a median with its spread, and that is a hundred and fifty lines. The
+  cost of this decision is real and worth naming: no bootstrapped confidence
+  intervals, no automatic outlier classification, no HTML report. A `--json`
+  mode and the discipline of reading the dispersion column replace them.
 
 - **Deterministic totals with randomized order.** Carbon's generator works
   hard to shuffle structure while holding the *total* count of every construct
-  fixed, so that two runs do identical total work; a review found that not doing
-  so cost 3% of run-to-run noise. This suite instead uses a *fixed seed*, so two
+  fixed, so two runs do identical total work; a review found that skipping this
+  cost 3% of run-to-run noise. This suite uses a *fixed seed* instead, so two
   runs compile byte-identical source and the totals are trivially equal. That is
   strictly stronger for run-to-run comparison and strictly weaker for one thing
   Carbon cared about: a fixed corpus can sit in a silent local minimum of the
-  hash functions or the branch predictor. The trade is taken knowingly, and the
-  escape hatch is that the seed is a constant one line from the top of
-  `generate.rs`, reachable as `--seed=<hex>`, or a field in a saved corpus's
-  manifest.
+  hash functions or the branch predictor. The trade is knowing, and the escape
+  hatch is the seed itself — a constant one line from the top of `generate.rs`,
+  reachable as `--seed=<hex>`, or a field in a saved corpus's manifest.
 
 - **Re-randomizing per benchmark run so that ASLR noise shows up.** Same
-  reason, same trade. What this suite reports is the spread of one binary's
-  repetitions, not the spread across processes.
+  reason, same trade. This suite reports the spread of one binary's repetitions,
+  not the spread across processes.
 
 - **Hardware performance counters.** Carbon wires `libpfm` into google-benchmark
   and reports cycles and instructions, which is how a claim like "200–300 cycles
-  per line" becomes checkable. There is no dependency-free way to do that here,
-  and macOS has no `perf`. The substitute is §7's sampling profiler runs, which
-  name the hot functions without quantifying them per byte.
+  per line" becomes checkable. Nothing here can do that without a dependency,
+  and macOS has no `perf`. §7's sampling profiler runs stand in: they name the
+  hot functions without quantifying them per byte.
 
 - **~~Speed-of-light calibration benchmarks.~~ Adopted since.** Carbon
   benchmarks `strcpy` and a tail-call byte-dispatch loop in the same binary, to
-  bound what the hardware can do at all; without them "232 MB/s" is
-  uninterpretable. This suite had no equivalent and this list said it should get
-  one before anybody worked on the lexer. It has: `cli/benches/calibrate.rs`,
-  five loops over the same corpus text the timed rows use — `memcpy`,
-  byte-scan, token-write, node-write, alloc-pair — behind `--calibrate`. Its
-  interpretation rule was written down before the numbers arrived and the
-  binary applies the rule itself, so the reading is not chosen after seeing the
-  result.
+  bound what the hardware can do at all; without them "232 MB/s" means nothing.
+  This suite had no equivalent, and this list said it should get one before
+  anybody worked on the lexer. It has: `cli/benches/calibrate.rs`, five loops
+  over the same corpus text the timed rows use — `memcpy`, byte-scan,
+  token-write, node-write, alloc-pair — behind `--calibrate`. The interpretation
+  rule went down before the numbers arrived, and the binary applies the rule
+  itself, so nobody picks the reading after seeing the result.
 
 - **A subprocess mode measuring end-to-end CLI time.** Carbon has both an
   in-process and a subprocess harness. Here that would measure the action cache,
@@ -443,11 +433,10 @@ Three files and a directory, no dependencies, one bench target:
 | `cli/benches/corpora/` | Eight checked-in corpora, 0.55 MB, capped at 2 MiB. |
 | `cli/benches/pinned/` | Forty digest-pinned manifests — twenty parameter points at 100k and 1M — and no source. 15,546 bytes. |
 
-`autobenches = false` in `cli/Cargo.toml` is what keeps the first three
-*modules* of the `compiler` target rather than bench targets of their own: Cargo
-infers a target from every `.rs` file directly under `benches/`, and three extra
-binaries with no `main` is what a plain `cargo bench -p buri` would otherwise
-try to build.
+`autobenches = false` in `cli/Cargo.toml` keeps the first three files *modules*
+of the `compiler` target rather than bench targets of their own. Cargo infers a
+target from every `.rs` file directly under `benches/`, so without it a plain
+`cargo bench -p buri` would try to build three extra binaries with no `main`.
 
 ### Running it
 
