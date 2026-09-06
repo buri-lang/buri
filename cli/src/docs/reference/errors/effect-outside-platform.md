@@ -16,9 +16,9 @@ Declare it as a plain `trait`, or move it into a platform module.
 
 ## Why
 
-The set of things a program can do to the world is fixed by its platform rather
-than open-ended. An `effect` a library could declare would be authority a
-library could mint.
+A program's platform fixes what it can do to the world, and the set is not
+open-ended. An `effect` a library could declare would be authority a library
+could mint.
 
 ## A program that provokes it
 

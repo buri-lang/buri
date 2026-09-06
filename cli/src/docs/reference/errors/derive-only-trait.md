@@ -16,13 +16,15 @@ Write `derive ToJson for Point;` instead.
 
 ## Why
 
-A derived encoder stands for the type's *shape*, which one walker in the
-runtime reads — so a hand-written `impl ToJson for Date` would be called by
-`json.encode(ctx, date)` and walked straight past by
-`json.encode(ctx, appointment)`, where `Appointment` holds a `Date` and derives
-its own. One value, two encodings, depending on where it appeared. So there is
-one encoding and it is the derived one; a type that needs a different document
-is a type you convert to first, which is a function visible at the call site.
+A derived encoder stands for the type's *shape*, and one walker in the runtime
+reads it. So `json.encode(ctx, date)` would call a hand-written
+`impl ToJson for Date`, while `json.encode(ctx, appointment)` would walk straight
+past it, because `Appointment` holds a `Date` and derives its own. One value,
+two encodings, depending on where it turned up.
+
+So there is one encoding, and it is the derived one. A type that needs a
+different document is a type you convert to first, through a function you can
+see at the call site.
 
 `core/json`'s `ToJson` and `FromJson` are the only two traits this applies to.
 

@@ -18,9 +18,9 @@ source, where a context may be built per test.
 ## Why
 
 Three places may mint authority: `main`'s body, a test source, and a test-only
-module. A lambda is not one of them, and cannot be — a closure able to build a
+module. A lambda is not one of them, and cannot be. A closure able to build a
 context could hand one to a caller that never named an effect, which is exactly
-what the capture rule exists to prevent.
+what the capture rule prevents.
 
 ## A program that provokes it
 

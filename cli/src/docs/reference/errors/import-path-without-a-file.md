@@ -28,31 +28,31 @@ will make it for you.
 
 ## Why
 
-There are two kinds of thing an import path can name, and they are spelled
-differently because they are different:
+An import path names one of two things, and they are spelled differently
+because they are different:
 
 | what | written | who may write it |
 |---|---|---|
 | a **surface** — a library's `lib.buri`, or its `testing/lib.buri` | `"//lib/money"`, `"//lib/money/testing"`, `"core/list"` | anyone the dependency and visibility rules allow, including the package's own suite |
 | a **file** inside a package | `"//lib/money/cents.buri"`, `"//cmd/app/main.buri"` | only another file of that same package |
 
-A surface is the one thing a package publishes, so naming it is naming the
-package: `//lib/money` is both the label its dependents declare in a
-`dependencies` and the path they import, and it is what the library's own test
-source writes too. Everything else is one file among many, so the path has to
-say *which*, and the only honest answer is the name of the file.
+A surface is the one thing a package publishes, so naming it names the package.
+`//lib/money` is both the label its dependents declare in `dependencies` and the
+path they import, and the library's own test source writes it too. Everything
+else is one file among many, so the path has to say *which*, and the only honest
+answer is the file's name.
 
-**The two cannot be told apart by their shape**, which is why the fix is
-resolved and not spelled. `"//lib/money/testing"` and `"//lib/money/cents"` are
-the same string with one segment changed; the first is a surface and correct,
-the second is a file with its name left off. What decides it is
-`lib/money/testing/lib.buri` and `lib/money/cents.buri` being on disk, and
-only the resolver can look.
+**Their shape cannot tell them apart**, which is why the compiler resolves the
+fix rather than spelling it. `"//lib/money/testing"` and `"//lib/money/cents"`
+are the same string with one segment changed. The first is a surface and
+correct; the second is a file with its name left off. What decides it is whether
+`lib/money/testing/lib.buri` or `lib/money/cents.buri` is on disk, and only the
+resolver can look.
 
-A binary's entry point is a file for the same reason: `//cmd/app` would be that
-package's `lib.buri`, and a package with only a binary has not got one. So it
-is `"//cmd/app/main.buri"`, from that binary's own test sources and nowhere
-else.
+A binary's entry point is a file for the same reason. `//cmd/app` would be that
+package's `lib.buri`, and a package with only a binary has none. So you write
+`"//cmd/app/main.buri"`, from that binary's own test sources and nowhere else.
 
-A path that leaves the package and names a file inside it is a different error:
-`internal-import`, because what it reaches for is not on the surface.
+A path that leaves the package and names a file inside it is a different error.
+That one is `internal-import`, because what it reaches for is not on the
+surface.

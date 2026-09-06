@@ -15,27 +15,27 @@ error: this toolchain was built without cryptography, so `host.HostEntropy.bytes
 
 Install or build a toolchain whose runtime archive can reach the operating
 system's generator. The runtime's `crypto` feature is on by default, so an
-ordinary `cargo build -p buri` produces one; `BURI_RUNTIME_CRYPTO=0` is what
-turns it off, and a machine that could not reach the runtime's dependencies when
-the toolchain was built loses the whole archive with a warning in the build log.
+ordinary `cargo build -p buri` produces one. `BURI_RUNTIME_CRYPTO=0` turns it
+off. A machine that could not reach the runtime's dependencies when the
+toolchain was built loses the whole archive, with a warning in the build log.
 
 Nothing about the program is wrong, and nothing in it needs editing. A different
 toolchain compiles it unchanged.
 
 ## Why this is a refusal and not a fallback
 
-There is another generator in the same archive. `core/random` is backed by
-xoshiro256++ over a seed read once, it is a few hundred bytes of code, it is
-always compiled in, and it would answer this call without complaint.
+The same archive holds another generator. `core/random` runs xoshiro256++ over a
+seed read once. It is a few hundred bytes of code, it is always compiled in, and
+it would answer this call without complaint.
 
 It must not, and that is the whole reason this page exists. `Entropy` promises
-that somebody who has watched the output cannot predict the rest, and `Rand`
-promises only that the output is uniform. Octets from the two are
-indistinguishable by inspection, by test, and by every part of a program except
-the attacker it was defending against — so a substitution here would be a
-security failure with no symptom, discovered by the person it was made against.
+that somebody who has watched the output cannot predict the rest. `Rand`
+promises only that the output is uniform. Nothing tells the two apart by
+inspection or by test — nothing except the attacker the program was defending
+against. Substituting one for the other would be a security failure with no
+symptom, found by the person it was made against.
 
-A refusal names the operation, at compile time, to somebody who can still do
+A refusal names the operation at compile time, to somebody who can still do
 something about it. `core/random`'s `bytes` is the door for octets that are
 merely uniform, and it needs no feature at all.
 
@@ -43,5 +43,5 @@ merely uniform, and it needs no feature at all.
 
 The alternative is an unresolved `buri_rt_host_entropy_bytes` from the system
 linker: a mangled symbol, in a message about an archive, handed to somebody who
-wrote a program. The refusal is made before code generation, from the feature
-list the build script wrote beside the archive it built.
+wrote a program. The compiler refuses before code generation instead, reading
+the feature list the build script wrote beside the archive it built.
