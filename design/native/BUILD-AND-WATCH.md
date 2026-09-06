@@ -69,7 +69,6 @@ costs a *language capability*. So the degradation has to be a diagnostic
 naming the missing effect rather than a link error, which is why the toolchain
 learns the feature's state through `Backend::missing_intrinsics` instead of
 finding out at `cc` time.
-`cc` time.
 
 The crates were admitted a slice **ahead of any code that uses them**, so that
 what they cost could be measured before anything depended on the answer.
@@ -225,7 +224,6 @@ all needs, so a toolchain that could not would make `Net` a build-flag
 question for every user. `quinn` is what a program that has **asked for
 HTTP/3** needs, and asking is the difference: a user who never mentions
 `.Http3` should not resolve, compile or ship a QUIC stack.
-ship a QUIC stack.
 
 `BURI_RUNTIME_NET_H3=1` is the switch, and `cli/build.rs` turns it into
 `--features net-h3` on the nested `cargo` and a second line in
@@ -294,7 +292,6 @@ follow from that being a value:
   archive, the capability bit, the `buri_rt_net_h3_available` door and the
   sentence all landed in this slice so that the slice with a server in it
   spends them rather than designs them.
-  than designs them.
 
 `runtime_native::h3()` is the toolchain's half, read from the same feature
 file by the same whole-line rule `net()` uses — which is why the rule is whole
