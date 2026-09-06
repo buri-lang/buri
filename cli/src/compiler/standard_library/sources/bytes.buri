@@ -1,10 +1,10 @@
 //! core/bytes — sequences of octets.
 //!
-//! A byte string is a `[U8]`, which is an ordinary list: `len`, `get`, `slice`
-//! and the rest come from `core/list` and are not repeated here. What this
-//! module adds is the two things a list of numbers cannot do for itself —
-//! turning text into bytes and back, and the encodings that get bytes through
-//! something that only carries text.
+//! A byte string is a `[U8]`, an ordinary list: `len`, `get`, `slice` and the
+//! rest come from `core/list`, and this module does not repeat them. What it
+//! adds is the two things a list of numbers cannot do for itself — turning text
+//! into bytes and back, and the encodings that get bytes through something that
+//! only carries text.
 //!
 //! **These are free functions, not methods on `[U8]`.** A method may only be
 //! declared in its type's defining module (SPEC 6.7.3), and `[T]`'s is
@@ -12,8 +12,8 @@
 //! find.
 //!
 //! **Decoding is strict.** An overlong UTF-8 encoding, a truncated sequence, or
-//! a surrogate is an error rather than a replacement character: bytes that are
-//! not text should say so, not turn into `?` and be discovered three layers
+//! a surrogate is an error, not a replacement character. Bytes that are not
+//! text should say so, rather than turning into `?` and surfacing three layers
 //! later. Each decoder is a `foldResultCtx` — accumulate, and stop at the first
 //! byte that is not what it claims — so the index a failure reports is the one
 //! it stopped at rather than one recomputed afterwards.
@@ -63,9 +63,9 @@ export struct DecodeError(export Int);
 /// The UTF-8 encoding of a string.
 ///
 /// An intrinsic rather than Buri: how a string is stored is the platform's
-/// business — UTF-8 natively, UTF-16 code units on JavaScript — so the encoding
-/// is a transcode the platform already has rather than something to rebuild on
-/// top of `charAt`.
+/// business — UTF-8 natively, UTF-16 code units on JavaScript — so this is a
+/// transcode the platform already has rather than something to rebuild on top
+/// of `charAt`.
 export fn toUtf8<C: Alloc>(ctx: C, s: Str): [U8];
 
 /// The string those bytes encode, or where they stopped being one.
@@ -76,10 +76,10 @@ export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
 /// Lowercase, two characters per byte, no separator.
 ///
 /// One pass over the digits rather than one over the bytes: a two-character
-/// `Str` per byte and a `join` at the end is `n` allocations that are thrown
-/// away, and hex is what a program reaches for when it wants to print a
-/// megabyte of something. The digits come from `char.fromDigit`, so there is no
-/// table of them here — nor anywhere else.
+/// `Str` per byte and a `join` at the end is `n` allocations you throw away,
+/// and hex is what a program reaches for when it wants to print a megabyte of
+/// something. The digits come from `char.fromDigit`, so there is no table of
+/// them here — nor anywhere else.
 export fn toHex<C: Alloc>(ctx: C, b: [U8]): Str {
     str.fromChars(
         ctx,
@@ -240,15 +240,15 @@ fn inAlphabet(ch: Char, i: Int): Bool {
 // --- Varints -----------------------------------------------------------------------
 //
 // Base 128, little end first, the high bit of every byte but the last set. It
-// is here for the same reason hex and base64 are: it is an encoding of a number
-// as bytes, it has exactly one definition, and `core/proto` and anything else
-// that speaks a length-prefixed wire format needs the same one.
+// is here for the same reason hex and base64 are: it encodes a number as bytes,
+// it has exactly one definition, and `core/proto` and anything else that speaks
+// a length-prefixed wire format needs that same one.
 //
-// **Sixty-four bits, in two halves.** A varint carries 64 bits and the
-// arithmetic below is done on two 32-bit halves rather than on the value, so
+// **Sixty-four bits, in two halves.** A varint carries 64 bits, and the
+// arithmetic below works on two 32-bit halves rather than on the value. So
 // `toVarint` of a negative number writes the ten bytes of its two's complement
 // — what a protobuf `int64` field holds — and `readVarint` reads all ten back.
-// The halves were once also a way around a 2^53 ceiling; they are not any more
+// The halves were once also a way around a 2^53 ceiling. They are not any more
 // (`core/num`), and every digit round-trips on every backend.
 
 let TWO32: Int = 4294967296;
@@ -256,8 +256,8 @@ let TWO32: Int = 4294967296;
 /// The varint encoding of `value`.
 ///
 /// A negative value is ten bytes: its two's complement at 64 bits, exactly as
-/// protocol buffers writes a negative `int64`. Encoding a negative number as a
-/// zigzag instead — `toVarint(ctx, zigzag(x))` — is two bytes for -1 rather
+/// protocol buffers writes a negative `int64`. Encode a negative number as a
+/// zigzag instead — `toVarint(ctx, zigzag(x))` — and -1 costs two bytes rather
 /// than ten, which is the whole reason `sint64` exists.
 export fn toVarint<C: Alloc>(ctx: C, value: Int): [U8] {
     if (value < 0) {
@@ -290,8 +290,8 @@ fn varintBytes<C: Alloc>(ctx: C, hi: Int, lo: Int): [U8] {
 /// The varint beginning at `at`: its value, and the index just past it.
 ///
 /// An encoding that runs off the end of the input, or past ten bytes, is an
-/// error at the index it started from — a truncated varint has no partial
-/// reading, so there is nothing to return but where it began.
+/// error at the index it started from. A truncated varint has no partial
+/// reading, so there is nothing to answer but where it began.
 export fn readVarint(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
     match (varintEnd(b, at, 0)) {
         .None => .Err(DecodeError(at)),
@@ -301,10 +301,10 @@ export fn readVarint(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
 
 /// The same varint, read as its low 32 bits.
 ///
-/// Not `readVarint(...) % 2^32`: a varint carries 64 bits and an `Int` is
-/// exact to 53, so the whole number may already have rounded by the time it
-/// could be truncated. This keeps the low half from the start, which is exact
-/// for every input — and the low half is what a 32-bit field is.
+/// Not `readVarint(...) % 2^32`: a varint carries 64 bits and an `Int` is exact
+/// to 53, so the whole number may already have rounded before anything could
+/// truncate it. This keeps the low half from the start, which is exact for
+/// every input — and the low half is what a 32-bit field is.
 export fn readVarint32(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
     match (varintEnd(b, at, 0)) {
         .None => .Err(DecodeError(at)),
@@ -338,8 +338,9 @@ fn varintEnd(b: [U8], i: Int, taken: Int): Option<Int> {
     }
 }
 
-/// Folds the groups from the most significant end down, so no power of two is
-/// ever needed: each step is a multiply by 128 with a carry between the halves.
+/// Folds the groups from the most significant end down, so it never needs a
+/// power of two: each step is a multiply by 128 with a carry between the
+/// halves.
 fn varintValue(b: [U8], at: Int, i: Int, hi: Int, lo: Int): Int {
     if (i < at) {
         joinHalves(hi, lo)
@@ -384,28 +385,28 @@ export fn f64ToBytes<C: Alloc>(ctx: C, x: Float): [U8];
 /// eight. A NaN comes back as the canonical quiet NaN on every backend: the
 /// payload bits are not part of a `Float`'s value (SPEC 6.2 — every NaN is `==`
 /// every other), and a backend where a `Float` is a JavaScript `number` cannot
-/// carry them. The sign of a zero is preserved.
+/// carry them. A zero keeps its sign.
 export fn f64FromBytes(b: [U8], at: Int): Option<Float>;
 
-/// The four bytes of an IEEE 754 single. A `Float` that is not representable at
-/// single precision is rounded, exactly as storing one in a `float` field does.
+/// The four bytes of an IEEE 754 single. A `Float` that single precision cannot
+/// represent rounds, exactly as storing one in a `float` field does.
 export fn f32ToBytes<C: Alloc>(ctx: C, x: Float): [U8];
 
 /// The double the four bytes at `at` encode, or `.None` if there are not four.
-/// A NaN is canonicalized, as it is at eight bytes.
+/// A NaN canonicalizes, as it does at eight bytes.
 export fn f32FromBytes(b: [U8], at: Int): Option<Float>;
 
 // --- Fixed-width integers -------------------------------------------------------
 //
-// The float pair above is little-endian because protobuf is; these are both
-// ends, because a length prefix on a network wire is big-endian and a length
-// prefix in a file usually is not, and a caller who has to remember which one
-// `fromU64` meant will eventually remember wrong.
+// The float pair above is little-endian because protobuf is; these come in
+// both ends, because a length prefix on a network wire is big-endian and a
+// length prefix in a file usually is not, and a caller who has to remember
+// which one `fromU64` meant will eventually remember wrong.
 //
 // **Writing is pure.** An array literal of a fixed size allocates nothing a
 // context has to grant — the same reason `proto.le32` takes no `ctx` — so
-// `fromU64Be(x)` is a pure function and only the readers that produce a *slice*
-// name `Alloc`.
+// `fromU64Be(x)` is a pure function, and only the readers that produce a
+// *slice* name `Alloc`.
 
 /// Eight octets, most significant first.
 export fn fromU64Be(x: U64): [U8] {
@@ -522,8 +523,8 @@ export fn toU32Le(b: [U8], at: Int): Option<U32> {
     }
 }
 
-/// The octet at `i` widened, or zero. Every caller has checked the bounds
-/// first, so the default is unreachable rather than a decision.
+/// The octet at `i` widened, or zero. Every caller checks the bounds first, so
+/// the default is unreachable rather than a decision.
 fn octet64(b: [U8], i: Int): U64 {
     b.get(i).withDefault(0).toU64()
 }
@@ -537,13 +538,13 @@ fn octet32(b: [U8], i: Int): U32 {
 // `readVarint(b, at)` and every `readX` beside it answer a value and the index
 // just past it. That is the right shape and the wrong ergonomics: each caller
 // threads the index by hand, and each one can thread the wrong one — the index
-// a read *began* at is in scope right next to the one it ended at, and they
+// a read *began* at sits in scope right next to the one it ended at, and they
 // have the same type.
 //
 // A `Reader` is that index given a name. It is an ordinary value, so taking
 // does not advance it: a `take` answers the next reader, and a decoder that
 // wants to look ahead and change its mind keeps the one it started from. That
-// is also why there is no `Builder` here — a value cannot be appended to in
+// is also why there is no `Builder` here — you cannot append to a value in
 // place, and `[[U8]].flatten` is already the answer for building.
 //
 // **The methods that only move the cursor are pure; the two that answer a
@@ -619,7 +620,7 @@ impl Reader {
     /// The next `n` octets, copied.
     ///
     /// A negative `n`, or one that runs off the end, is an error at the index
-    /// the read began — a truncated slice has no partial reading, so there is
+    /// the read began. A truncated slice has no partial reading, so there is
     /// nothing to report but where it started.
     export fn takeSlice<C: Alloc>(
         self,
@@ -635,8 +636,8 @@ impl Reader {
     }
 
     /// A varint length, then that many octets — the framing `core/proto`'s
-    /// length-delimited wire type is, and the one a log record or a socket
-    /// message is written by hand over and over.
+    /// length-delimited wire type is, and the one people write by hand over and
+    /// over for a log record or a socket message.
     ///
     /// The error index is where the *frame* began rather than where its body
     /// did, so a caller that reports it points at the record rather than into
