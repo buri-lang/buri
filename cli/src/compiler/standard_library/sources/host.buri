@@ -21,9 +21,8 @@ from "core/effect" import {
 from "core/fs" import { FsRead, FsWrite };
 from "core/path" import { Path };
 
-// One `Request` now. `ui/effect` used to declare a second — the
-// callback-shaped client's, aliased here to `UiRequest` because this was the
-// one module that imported both — and it went when `Fetch` did.
+// One `Request` now. `ui/effect` used to declare a second — the callback-shaped
+// client's, aliased here to `UiRequest` — and it went when `Fetch` did.
 from "ui/effect" import { Scope, Ui, Watch };
 
 export struct HostAlloc {}
@@ -62,12 +61,11 @@ impl Stdin for HostStdin {
 ///
 /// **Granted on LINUX, MACOS and JS.** Not on WEB: a page has no filesystem.
 ///
-/// One value and two effects, which is the shape the split has: there is one
-/// filesystem under a program, and `FsRead` and `FsWrite` are two authorities
-/// over it rather than two devices. A context is where the choice is written
-/// down — a program that binds `FsRead: host.fs` and no `FsWrite` cannot write
-/// anywhere in its transitive call graph, and a reader of those two lines can
-/// see that without reading anything else.
+/// One value and two effects. A program has one filesystem under it, and
+/// `FsRead` and `FsWrite` are two authorities over it rather than two devices.
+/// The context is where the choice gets written down: a program that binds
+/// `FsRead: host.fs` and no `FsWrite` cannot write anywhere in its transitive
+/// call graph, and those two lines say so on their own.
 export struct HostFs {}
 
 impl FsRead for HostFs {
@@ -123,12 +121,12 @@ impl Rand for HostRand {
 /// The operating system's own generator, for the one thing `HostRand` does not
 /// promise.
 ///
-/// **Granted on every platform**, and that is the point of it: an effect whose
-/// availability varied by target would make "can this program mint a token"
-/// a build question rather than a program question. What varies instead is the
-/// *toolchain* — a runtime archive built without the `crypto` feature answers
-/// `cryptography-not-available` before code generation — which is the same
-/// arrangement `net` already has and for the same reason.
+/// **Granted on every platform**, and that is the point. An effect whose
+/// availability varied by target would turn "can this program mint a token" into
+/// a build question rather than a program question. The *toolchain* varies
+/// instead: a runtime archive built without the `crypto` feature answers
+/// `cryptography-not-available` before code generation. `net` already works this
+/// way, for the same reason.
 export struct HostEntropy {}
 
 impl Entropy for HostEntropy {
@@ -153,7 +151,7 @@ impl Proc for HostProc {
 ///
 /// **Granted on LINUX, MACOS and JS.** Not on WEB: `parallel` returns only when
 /// the last task has finished, which is the shape a page's host is built to
-/// avoid — the same reason `Net` is withheld there.
+/// avoid. That is the same reason WEB does not grant `Net`.
 ///
 /// `core/tasks` is the module a program calls; this is what a context binds.
 export struct HostTasks {}
@@ -165,7 +163,7 @@ impl Tasks for HostTasks {
 /// Being a server rather than talking to one.
 ///
 /// **Granted on LINUX and MACOS**, together with `HostSockets`, and never on
-/// `JS` or `WEB` — a page does not hold a port open, and that is a fact about
+/// `JS` or `WEB`. A page does not hold a port open, and that is a fact about
 /// pages rather than a slice nobody has written.
 ///
 /// The acceptor is `cli/runtime/net.rs`: an HTTP/1.1 server that reads one
@@ -205,15 +203,14 @@ impl Listen for HostListen {
 
 /// Pushing on a connection that is already open.
 ///
-/// **Granted on LINUX and MACOS**, with `HostListen`: the two are the halves
-/// of one authority to be a server, and a platform that can accept a
-/// connection is exactly a platform that can write back on it.
+/// **Granted on LINUX and MACOS**, with `HostListen`. The two are halves of one
+/// authority to be a server: a platform that can accept a connection is exactly
+/// a platform that can write back on it.
 ///
-/// `HostListen.listenUpgrade` is what mints the sockets these three name, and
-/// a handle that names no open socket is treated as one that has already gone
-/// away — which is what the effect promises for a socket somebody closed, so a
-/// handle a program made up and a handle it has spent are deliberately the same
-/// answer.
+/// `HostListen.listenUpgrade` mints the sockets these three name. A handle that
+/// names no open socket counts as one that has already gone away, which is what
+/// the effect promises for a socket somebody closed. So a handle a program made
+/// up and a handle it has spent give deliberately the same answer.
 export struct HostSockets {}
 
 impl Sockets for HostSockets {
@@ -224,8 +221,8 @@ impl Sockets for HostSockets {
     fn socketClose(self, socket: Int, code: Int, reason: Str): ();
 }
 
-/// The reactive graph. Bound by a program with a user interface; a platform
-/// that renders nothing simply never has one asked of it.
+/// The reactive graph. A program with a user interface binds it, and a platform
+/// that renders nothing is never asked for one.
 export struct HostUi {}
 
 impl Ui for HostUi {

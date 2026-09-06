@@ -2,7 +2,7 @@
 //!
 //! There is no `null` and no `undefined`. Absence is `Option<T>`.
 //!
-//! `Option` is deliberately NOT must-use: ignoring an absent value is usually
+//! `Option` is deliberately NOT must-use. Ignoring an absent value is usually
 //! harmless, and making it an error would put `option.ignore` in front of half
 //! the standard library for no safety gain (SPEC 5.7.1).
 
@@ -29,7 +29,7 @@ impl<T> Option<T> {
         }
     }
 
-    /// The fallback is produced eagerly, because it is an argument. Where that
+    /// Buri evaluates the fallback eagerly, because it is an argument. Where that
     /// matters, `or` and `andThen` take the work as a function instead.
     export fn withDefault(self, fallback: T): T {
         match (self) {
@@ -61,8 +61,8 @@ impl<T> Option<T> {
         }
     }
 
-    /// `andThen` for a continuation that needs an effect, as `result.andThenCtx`
-    /// is.
+    /// `andThen` for a continuation that needs an effect, like
+    /// `result.andThenCtx`.
     export fn andThenCtx<U, C>(self, ctx: C, f: fn(C, T) => Option<U>): Option<U> {
         match (self) {
             .Some(v) => f(ctx, v),

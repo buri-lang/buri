@@ -6,7 +6,8 @@
 //! `core/ordmap` exactly as `core/set` stands to `core/map`.
 //!
 //! It is a wrapper rather than an alias so that `insert` takes one argument
-//! instead of two and `union` can exist — a set has operations a map does not.
+//! instead of two and so that `union` can exist. A set has operations a map does
+//! not.
 //!
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };

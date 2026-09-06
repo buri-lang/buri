@@ -1,10 +1,10 @@
 //! core/result — the defining module of `Result<T, E>`.
 //!
-//! A value of type `Result<T, E>` may not be discarded (SPEC 5.7.1). There are
-//! two ways to throw a value away and no third — a `_` anywhere in a `let`'s
-//! pattern, and an expression statement — and both are refused for a `Result`,
-//! so the rule has no holes. The legal ways to consume one are `?`, `match`,
-//! `withDefault`, and `ignore`.
+//! A value of type `Result<T, E>` may not be discarded (SPEC 5.7.1). You can
+//! throw a value away in exactly two ways: a `_` anywhere in a `let`'s pattern,
+//! and an expression statement. Buri refuses both for a `Result`, so the rule
+//! has no holes. The legal ways to consume one are `?`, `match`, `withDefault`
+//! and `ignore`.
 
 derive Eq, Ord, Show, Hash for Result;
 export enum Result<T, E> {
@@ -42,7 +42,7 @@ impl<T, E> Result<T, E> {
     }
 
     /// `map` where the function needs an effect — building the new value with
-    /// `str.format`, say. The capture rule (SPEC 10.6) is why it takes `ctx`.
+    /// `str.format`, say. It takes `ctx` because of the capture rule (SPEC 10.6).
     export fn mapCtx<U, C>(self, ctx: C, f: fn(C, T) => U): Result<U, E> {
         match (self) {
             .Ok(v) => .Ok(f(ctx, v)),
@@ -59,7 +59,7 @@ impl<T, E> Result<T, E> {
         }
     }
 
-    /// `mapErr` where the new error is allocated — wrapping a message in
+    /// `mapErr` where building the new error allocates — wrapping a message in
     /// context, which is the most common reason to reach for `mapErr` at all.
     export fn mapErrCtx<F, C>(self, ctx: C, f: fn(C, E) => F): Result<T, F> {
         match (self) {
@@ -75,9 +75,9 @@ impl<T, E> Result<T, E> {
         }
     }
 
-    /// The `*Ctx` variant, for when the continuation needs an effect. The
-    /// capture rule (SPEC 10.6) is why this exists rather than a lambda closing
-    /// over `ctx`.
+    /// The `*Ctx` variant, for when the continuation needs an effect. It exists
+    /// instead of a lambda closing over `ctx` because of the capture rule
+    /// (SPEC 10.6).
     export fn andThenCtx<U, C>(
         self,
         ctx: C,

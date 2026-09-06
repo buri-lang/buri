@@ -52,17 +52,17 @@ impl Str {
     /// order, so the first byte the two differ at decides, and a string that is
     /// a prefix of another sorts before it.
     ///
-    /// This is the order `<`, `<=`, `>`, `>=`, `[Str].sort`, `core/order.str`
-    /// and an `OrdMap<Str, _>`'s key order all answer, since every one of them
-    /// is this method through `Ord`.
+    /// `<`, `<=`, `>`, `>=`, `[Str].sort`, `core/order.str` and an
+    /// `OrdMap<Str, _>`'s key order all answer this order, because every one of
+    /// them reaches this method through `Ord`.
     ///
-    /// Worth stating because a reader has two other orders to guess from and
-    /// they disagree above the basic multilingual plane. It is *not* UTF-16
-    /// code-unit order, which is what JavaScript's `<` on a string gives: an
+    /// Worth stating, because there are two other orders to guess at and they
+    /// disagree above the basic multilingual plane. This is *not* UTF-16
+    /// code-unit order, which is what JavaScript's `<` on a string gives. An
     /// astral scalar is written there as a surrogate pair beginning at U+D800,
     /// so JavaScript puts every astral character below every character in
-    /// U+E000..U+FFFF. Buri says the opposite, on both backends, and agrees
-    /// with Rust's `str::cmp`, Go's `<` and Python's `<`:
+    /// U+E000..U+FFFF. Buri says the opposite, on both backends, and agrees with
+    /// Rust's `str::cmp`, Go's `<` and Python's `<`:
     ///
     /// ```buri run
     /// from "core/effect" import { Stdout };
@@ -87,10 +87,10 @@ impl Str {
     /// true
     /// ```
     ///
-    /// There is no locale-aware or case-insensitive comparison here and there
-    /// is not meant to be: collation is a table and a set of options, not a
-    /// total order a `<` can carry. Fold with `toLower` first for a
-    /// case-insensitive ordering.
+    /// There is no locale-aware or case-insensitive comparison here, and there is
+    /// not meant to be: collation is a table and a set of options, not a total
+    /// order a `<` can carry. Fold with `toLower` first for a case-insensitive
+    /// ordering.
     export fn compare(self, other: Str): Order;
 
     export fn toInt(self): Option<Int>;
@@ -115,10 +115,10 @@ impl Str {
             if (self.len() <= first) {
                 .None
             } else {
-                // Accumulated downwards, so the magnitude never has to be
-                // representable: `Int`'s range is one wider below zero, and
-                // negating at the end is where the one value that does not fit
-                // answers `.None` instead of wrapping.
+                // Accumulates downwards, so the magnitude never has to fit:
+                // `Int` reaches one further below zero, and negating at the end
+                // is where the one value that does not fit answers `.None`
+                // rather than wrapping.
                 let magnitude = digitsOf(self, radix, first, 0);
                 let zero: Int = 0;
                 if (negative) {
