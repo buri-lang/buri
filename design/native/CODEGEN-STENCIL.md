@@ -1012,18 +1012,18 @@ shape".
 ## 8. The Buri stack, and its guard
 
 Generated code makes no use of the machine stack, so the Buri stack is a
-zero-filled block the unit owning `main` emits, and `main` passes its address as
-the first frame pointer. It costs nothing in the object or on disk — a zero-fill
-section has a size and no bytes — and nothing in the artifact until it is
-touched. The block is **65 MiB**: 64 MiB a program may use and a 1 MiB guard
-above it.
+zero-filled block the unit owning `main` emits, and `main` passes its address
+as the first frame pointer. It costs nothing in the object or on disk — a
+zero-fill section has a size and no bytes — and nothing in the artifact until
+it is touched. The block is **65 MiB**: 64 MiB a program may use, and a 1 MiB
+guard above it.
 
 ### 8.1 The guard, and which stack it is on
 
 `main` — both shims — turns the top megabyte into `PROT_NONE` with one
-`mprotect` before it calls anything of the program's, which is nine instructions
-once per process (`asm.rs::install_guard`). A runaway recursion then **faults**
-where it used to keep writing.
+`mprotect` before it calls anything of the program's, which is nine
+instructions once per process (`asm.rs::install_guard`). A runaway recursion
+then **faults** where it used to keep writing.
 
 Three decisions, each with a reason that is not "it seemed safer":
 
@@ -1032,45 +1032,45 @@ Three decisions, each with a reason that is not "it seemed safer":
   block. That is the opposite side from where the kernel puts a thread stack's
   guard, and getting it wrong would be a guard nothing ever touches.
 * **A megabyte, not a page.** A guard narrower than the widest frame can be
-  *stepped over* — a callee whose locals area exceeds it writes past it without
-  touching it. This is the hazard native code answers with stack probes, and
-  neither the removed backend nor LLVM at `-O0` enables them, so a machine frame
-  past the OS guard has the same exposure everywhere. Nothing here is less sound
-  than what it replaced; a megabyte is far past any frame `middle::layout`
-  produces, and zero-fill pages that are never faulted in cost address space and
-  nothing else.
-* **One block and one symbol.** `MH_SUBSECTIONS_VIA_SYMBOLS` makes every symbol
-  the start of an independently movable atom, so a second symbol at the guard's
-  address would let `ld64` place the guard somewhere other than immediately
-  above the stack — which is the one property the mechanism rests on. The guard
-  is therefore addressed as the stack's symbol plus a constant, and the block is
-  aligned to 16 KiB so that the constant lands on a page.
+  *stepped over*: a callee whose locals area exceeds it writes past it without
+  touching it. Native code answers that hazard with stack probes, and neither
+  the removed backend nor LLVM at `-O0` enables them, so a machine frame past
+  the OS guard has the same exposure everywhere. Nothing here is less sound
+  than what it replaced. A megabyte is far past any frame `middle::layout`
+  produces, and zero-fill pages that are never faulted in cost address space
+  and nothing else.
+* **One block and one symbol.** `MH_SUBSECTIONS_VIA_SYMBOLS` makes every
+  symbol the start of an independently movable atom, so a second symbol at the
+  guard's address would let `ld64` place the guard somewhere other than
+  immediately above the stack — the one property the mechanism rests on. The
+  guard is therefore addressed as the stack's symbol plus a constant, and the
+  block is aligned to 16 KiB so that the constant lands on a page.
 
 **Two stacks, and only one of them needed this.** A stencil artifact uses the
-machine stack in exactly two places, and both are already guarded by the
-kernel: a `crt` stencil's own prologue (§5.1), and `glue.rs`'s `extern "C"`
-stubs, which take a machine frame precisely because drop glue recurses (§6.1).
-There is no in-process JIT mode to guard separately — this backend writes
-objects and the linker makes the artifact (§4) — so `main` is the only place a
-stack is established at all, and `install_guard` is in both of `main`'s forms.
+machine stack in exactly two places, and the kernel already guards both: a
+`crt` stencil's own prologue (§5.1), and `glue.rs`'s `extern "C"` stubs, which
+take a machine frame precisely because drop glue recurses (§6.1). There is no
+in-process JIT mode to guard separately — this backend writes objects and the
+linker makes the artifact (§4) — so `main` is the only place a stack is
+established at all, and `install_guard` is in both of `main`'s forms.
 
 ### 8.1.1 A second carrier, and its own block
 
 Everything above is about *one* stack, because until slice B7 there was one:
-`main` establishes it and `main` is the only way into Buri code. A **carrier**
-— an OS thread from `cli/runtime/rt.rs`'s pool — is a second way in, and it
-cannot share the block. Two carriers on one upward-growing stack write their
-frames into each other, and the guard at the top belongs to whichever recursion
-reached it first.
+`main` establishes it, and `main` is the only way into Buri code. A
+**carrier** — an OS thread from `cli/runtime/rt.rs`'s pool — is a second way
+in, and it cannot share the block. Two carriers on one upward-growing stack
+write their frames into each other, and the guard at the top belongs to
+whichever recursion reached it first.
 
-So a carrier asks for its own. `buri_rt_stack_acquire` (`cli/runtime/memory.rs`)
-`mmap`s 65 MiB — **the same 64 + 1 as above**, in a constant each side names and
-each side's tests assert — and `mprotect`s the top megabyte to `PROT_NONE`, for
-all three of §8.1's reasons and by the same arithmetic. `buri_rt_stack_release`
-puts the block on that carrier's free list rather than unmapping it, because a
-carrier is reused and address space is what this whole mechanism spends.
-Nesting gets a *different* block, so an entry inside an entry does not write
-over the outer entry's live locals.
+So a carrier asks for its own. `buri_rt_stack_acquire`
+(`cli/runtime/memory.rs`) `mmap`s 65 MiB — **the same 64 + 1 as above**, in a
+constant each side names and each side's tests assert — and `mprotect`s the
+top megabyte to `PROT_NONE`, for all three of §8.1's reasons and by the same
+arithmetic. `buri_rt_stack_release` puts the block on that carrier's free list
+rather than unmapping it, because a carrier is reused and address space is
+what this whole mechanism spends. Nesting gets a *different* block, so an
+entry inside an entry does not write over the outer entry's live locals.
 
 The door itself is `asm::carrier_entry`: `void(void *state, void *out)` at the
 platform ABI, `backend/carrier.rs`'s signature, emitted in the unit that owns
@@ -1081,22 +1081,22 @@ frame pointer comes from the runtime instead of from `adrp buri$stencil$stack`
 references it, so a single-threaded artifact pays nothing: no door, no `mmap`,
 no page.
 
-`main` keeps the `__bss` block. That is deliberate and is what keeps every
+`main` keeps the `__bss` block. That is deliberate, and it is what keeps every
 number in §8.2 true of the program a user actually runs.
 
 ### 8.2 What a program does when it runs out
 
 The same thing a Cranelift-compiled one did, which is what parity meant while
-there was something to be at parity with: the process dies on the fault, with no
-message, and the shell reports the signal. Measured on the same non-tail
-recursion, both backends through `buri build` before the removal: Cranelift
+there was something to be at parity with: the process dies on the fault, with
+no message, and the shell reports the signal. Measured on the same non-tail
+recursion, both backends through `buri build` before the removal, Cranelift
 **exited 139** (`SIGSEGV`, the OS guard under the machine stack) and stencil
-**exits 138** (`SIGBUS`, the `PROT_NONE` guard above the Buri stack). SPEC §6.9
-asks for "a message on stderr and a non-zero exit status" and neither printed the
-message; that gap is the *runtime's* — it has no fault handler — and it is not
-this backend's to close alone. What this section closed is the difference that
-was stencil's own: **a deep recursion used to corrupt whatever the linker placed
-after the stack and keep running.**
+**exits 138** (`SIGBUS`, the `PROT_NONE` guard above the Buri stack). SPEC
+§6.9 asks for "a message on stderr and a non-zero exit status" and neither
+printed the message. That gap is the *runtime's* — it has no fault handler —
+and it is not this backend's to close alone. What this section closed is the
+difference that was stencil's own: **a deep recursion used to corrupt whatever
+the linker placed after the stack and keep running.**
 
 **Where the fault lands is the whole of the change, and it was measured rather
 than assumed.** A `SIGBUS` handler injected into the artifact prints `si_addr`
@@ -1108,17 +1108,17 @@ after:   addr=0x108f282c8  stack=0x104f28000  delta = 64.001 MiB
 ```
 
 Before, the program wrote **13,656 bytes past the end of its own block** and
-faulted only when it reached a page nothing had mapped — and `size -m` on that
-binary shows `__bss` is 64 MiB *plus forty bytes*, so there was other zero-fill
-data in the neighbourhood for a wider frame or a longer-lived program to land
-on. After, the first byte past the usable stack is unmapped.
+faulted only when it reached a page nothing had mapped. `size -m` on that
+binary shows `__bss` is 64 MiB *plus forty bytes*, so there was other
+zero-fill data in the neighbourhood for a wider frame or a longer-lived
+program to land on. After, the first byte past the usable stack is unmapped.
 
-Two tests in `cli/tests/native/stencil.rs` hold it, and they are the two halves:
+Two tests in `cli/tests/native/stencil.rs` hold the two halves.
 `a_runaway_recursion_faults_at_the_guard` links a non-tail recursion with the
-product's own flags and asserts the process is **killed by a signal**, and
-`a_deep_recursion_inside_the_stack_still_answers` asserts that a recursion that
-fits is unaffected, which is what says the guard is *above* the usable stack
-rather than carved out of it.
+product's own flags and asserts the process is **killed by a signal**.
+`a_deep_recursion_inside_the_stack_still_answers` asserts that a recursion
+that fits is unaffected, which is what says the guard is *above* the usable
+stack rather than carved out of it.
 
 ## 9. What is not here, and who else is not
 
@@ -1126,16 +1126,16 @@ Named rather than left to be discovered. Every one is a refusal, so a program
 that needs one is told; none is a wrong answer.
 
 **Refused by every backend**, and not a stencil gap. `native/conformance.rs`'s
-`PACKAGES` records the reason per package; the removed backend refused the same
-six conformance files for the same three reasons, which is one of the things
-parity meant. They are:
+`PACKAGES` records the reason per package. The removed backend refused the
+same six conformance files for the same three reasons, which is one of the
+things parity meant. They are:
 
 * an **inexact** numeric conversion. `x.toT()` where not every value fits
-  answers `Result<T, RangeError>` (SPEC 6.2.1), and `RangeError` is a struct of
-  two `Str`s the backend would have to build. This subsumes float→integer
+  answers `Result<T, RangeError>` (SPEC 6.2.1), and `RangeError` is a struct
+  of two `Str`s the backend would have to build. This subsumes float→integer
   entirely: no float-to-integer conversion is exact, so every one of them is
   this shape.
-* **`json.*`, and `ToJson::toJson` called directly on a primitive** —
+* **`json.*`, and `ToJson::toJson` called directly on a primitive.**
   `json.decode` is a descriptor-driven walker, and the five `bool.toJson` /
   `char.toJson` / `str.toJson` / `num.<T>.toJson` keys are the trait's own
   leaves. `derivePrimJson` was on this line and is not any more: both backends
@@ -1149,43 +1149,43 @@ parity meant. They are:
 
 * **macOS on x86-64.** No stencil library is built for it, and none is
   intended: a stencil is the bytes clang emitted for a C function, so that
-  combination needs x86-64 instructions in a Mach-O, and nothing this repository
-  runs on or ships to is that. It is the one native triple with no debug backend
-  at all. `mod.rs::supported` refuses it by name,
-  `an_unsupported_cross_target_is_refused_with_a_reason` holds the sentence, and
-  `RelKind::r_type` answers `None` for the two x86-64 kinds precisely so a
-  Mach-O object can never carry one. The other three targets all emit, link and
-  run (§3.2, §10.3).
+  combination needs x86-64 instructions in a Mach-O, and nothing this
+  repository runs on or ships to is that. It is the one native triple with no
+  debug backend at all. `mod.rs::supported` refuses it by name,
+  `an_unsupported_cross_target_is_refused_with_a_reason` holds the sentence,
+  and `RelKind::r_type` answers `None` for the two x86-64 kinds precisely so a
+  Mach-O object can never carry one. The other three targets all emit, link
+  and run (§3.2, §10.3).
 * **Linux execution from this host.** Both Linux targets emit objects that a
   real linker accepts and fully resolves, and that is as far as *this* machine
   can go — §10.1 says why. CI runs the programs on both (§10.2, §10.3).
-* **Debug information** — neither DWARF nor `.buri_symbols`. It was the gap the
-  removed backend recorded for itself too, so nothing regressed with the flip;
-  §11 is what closing it would start from.
-* **An element wider than the staging room a frame keeps** (`lists.rs::STAGE`).
-  A `zip`, a `flatten` and a `sortBy` move whole elements between two blocks
-  through the frame, and the frame's scratch is a constant; past it the shape is
-  refused with the two numbers in it.
+* **Debug information** — neither DWARF nor `.buri_symbols`. The removed
+  backend recorded the same gap for itself, so nothing regressed with the
+  flip; §11 is what closing it would start from.
+* **An element wider than the staging room a frame keeps**
+  (`lists.rs::STAGE`). A `zip`, a `flatten` and a `sortBy` move whole elements
+  between two blocks through the frame, and the frame's scratch is a constant;
+  past it the shape is refused with the two numbers in it.
 * **A `Float` hashed or shown at `F32`** through the runtime boundary: a `crt`
-  stencil declares every float parameter `double`, and an `F32` sits in its slot
-  as its own thirty-two bits, so the shape `buri_rt_show_f32` wants is one this
-  call boundary does not have.
+  stencil declares every float parameter `double`, and an `F32` sits in its
+  slot as its own thirty-two bits, so the shape `buri_rt_show_f32` wants is
+  one this call boundary does not have.
 
 **Not the backend's at all.** Whatever a conformance package leaves live at
 exit is `middle::rc`'s plan rather than an emitter's, and that was the last
-thing checked before the flip: **both backends left exactly the same blocks and
-the same bytes** — measured through the runtime's own `buri_rt_heap_stats`, on
-the objects `buri test` produced, re-linked with `build/link.rs`'s own flags.
-That reading was 0 live on all nine measurable packages, where earlier rounds
-recorded three files leaking (17, 5 and 20 blocks); the count moves with
-`middle::rc`, and the *parity* is what the flip rested on (§13). What emits a release
-is `middle::rc`'s plan, which both consume; a backend cannot release what it was
-not asked to.
+thing checked before the flip: **both backends left exactly the same blocks
+and the same bytes**, measured through the runtime's own `buri_rt_heap_stats`,
+on the objects `buri test` produced, re-linked with `build/link.rs`'s own
+flags. That reading was 0 live on all nine measurable packages, where earlier
+rounds recorded three files leaking (17, 5 and 20 blocks). The count moves
+with `middle::rc`, and the *parity* is what the flip rested on (§13). Both
+backends consume `middle::rc`'s plan; a backend cannot release what it was not
+asked to.
 
 ## 10. What is verified, what is not, and by whom
 
 This section exists because the two Linux targets were built on a machine that
-cannot run either of them, and the boundary between "checked" and "believed" has
+cannot run either of them. The boundary between "checked" and "believed" has
 to be written down rather than inferred from the absence of a failing test.
 
 ### 10.1 What this host could and could not do
