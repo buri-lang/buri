@@ -16,8 +16,8 @@ parameter is ordinary data.
 ## Why
 
 A function is effectful exactly when it has a `ctx` parameter or an
-effect-carrying `self`. That biconditional is what lets a reader stop after the
-first two parameters, and a third spelling would cost it.
+effect-carrying `self`. That rule is what lets you stop reading after the first
+two parameters, and a third spelling would cost it.
 
 ## A program that provokes it
 

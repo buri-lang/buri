@@ -16,9 +16,9 @@ Move it into an `impl` block for its type.
 
 ## Why
 
-A method is found through its receiver's type, so it is declared with that
-type — in an `impl` block, in the module that declares the type. Taking `self`
-at the top level names the shape of a method in a place that has no receiver
+Method lookup goes through the receiver's type, so you declare a method with
+that type: in an `impl` block, in the module that declares the type. Taking
+`self` at the top level writes the shape of a method somewhere with no receiver
 type to attach it to.
 
 ## A program that provokes it

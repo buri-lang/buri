@@ -20,8 +20,8 @@ there is never a question of which of two candidates a path meant.
 
 ## A program that provokes it
 
-A module path resolves against the repository, so this one is compiled against
-the worked monorepo in `cli/tests/example`, which has no `lib/nope` in it.
+A module path resolves against the repository, so this snippet compiles against
+the worked monorepo in `cli/tests/example`, which has no `lib/nope`.
 
 ```buri fail code=module-not-found repo=cli/tests/example
 from "//lib/nope" import { Nope };

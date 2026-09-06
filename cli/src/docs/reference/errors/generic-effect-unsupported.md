@@ -21,22 +21,22 @@ trait Store {
 }
 ```
 
-A method's own type parameters are supported everywhere a trait or an effect is
-— `Show.show<C: Alloc>` and `Ui.memo<T>` are both in the standard library — and
-they say the same thing in every case the trait-level version would have.
+A method may take its own type parameters anywhere a trait or an effect can go.
+`Show.show<C: Alloc>` and `Ui.memo<T>` are both in the standard library, and
+they say the same thing the trait-level version would have.
 
 ## Why
 
-A conformance is written `impl Store for Disk { ... }`. There is no place in
-that syntax for the trait's arguments, so `Store<Str>` and `Store<Int>` would be
-one implementation and there would be nothing to say which. Monomorphization
-rebuilds an implementation's type arguments by matching the `impl`'s head
-against the receiver; a parameter belonging to the *trait* appears in neither,
-and the answer would have to be guessed.
+You write a conformance as `impl Store for Disk { ... }`. That syntax has no
+place for the trait's arguments, so `Store<Str>` and `Store<Int>` would be one
+implementation with nothing to say which. Monomorphization rebuilds an
+implementation's type arguments by matching the `impl`'s head against the
+receiver, and a parameter belonging to the *trait* appears in neither, so the
+compiler would have to guess.
 
-Guessing it is exactly what the compiler used to do — the type arguments were
-padded to the declared count with `()` — so the refusal is here, at the
-declaration, rather than as a wrong program later.
+Guessing is exactly what the compiler used to do: it padded the type arguments
+to the declared count with `()`. So the refusal lands here, at the declaration,
+rather than as a wrong program later.
 
 ## A program that provokes it
 

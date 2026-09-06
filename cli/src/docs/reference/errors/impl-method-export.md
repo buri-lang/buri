@@ -17,9 +17,9 @@ Drop the `export`.
 ## Why
 
 Conformance belongs to the type. Once `Version` is visible, everything
-`impl Eq for Version` supplies is visible with it, so there is nothing left for
-`export` to decide — and a method the trait requires that was somehow withheld
-would be a conformance that does not hold.
+`impl Eq for Version` supplies is visible with it, so `export` has nothing left
+to decide. Withholding a method the trait requires would be a conformance that
+does not hold.
 
 ## A program that provokes it
 
