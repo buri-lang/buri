@@ -1,49 +1,50 @@
 # The copy-and-patch backend
 
 The dev backend: `buri build`, `buri run`, and every `buri test` on a native
-platform. It is chosen for `(Linux | Macos, Debug)` (ARCHITECTURE.md §4), and it
-is chosen because compile time is the only thing that matters in that quadrant.
-It is behind `backend-stencil`, which is on by default and off on a host with no
-C compiler.
+platform. `select` picks it for `(Linux | Macos, Debug)` (ARCHITECTURE.md §4),
+because compile time is the only thing that matters in that quadrant. It sits
+behind `backend-stencil`, which is on by default and off on a host with no C
+compiler.
 
 **It took that seat on 2026-08-29, and §13 is the record.** Until then it was
-compiled in and never selected, because selecting it was a decision about parity
-rather than about plumbing, and the backend it was written to replace —
-Cranelift — held the quadrant. The gate the seat was behind was correctness
-parity and a re-benchmark; both were answered, the decision was taken, and the
-Cranelift backend was removed from the tree with its design document. Every
-comparison against it below is a measurement taken while it was still there, and
-§13 says which numbers those are.
+compiled in and never selected: selecting it was a decision about parity
+rather than about plumbing, and Cranelift — the backend it was written to
+replace — held the quadrant. The gate was correctness parity plus a
+re-benchmark. Both were answered, the decision was taken, and Cranelift left
+the tree along with its design document. Every comparison against it below is
+a measurement taken while it was still there, and §13 says which numbers those
+are.
 
-**Parity was met.** Driven through `buri build` and `buri test` — the real build
-system, the real per-unit cache, the real batcher and above all the real link —
-stencil passes **997 of 997** native conformance tests, refused the same six
-packages for the same three reasons the incumbent refused them, and left the
-same blocks live at exit on every package. §9 is the list of what it does not
+**Parity was met.** Driven through `buri build` and `buri test` — the real
+build system, the real per-unit cache, the real batcher and above all the real
+link — stencil passes **997 of 997** native conformance tests. It refused the
+same six packages for the same three reasons the incumbent refused them, and
+left the same blocks live at exit on every package. §9 lists what it does not
 do.
 
 **The benchmark's answer was a trade, and the run side closed most of the way
-before the decision was taken.** stencil wins every cell whose time is compiling
-— emission of a 121k-line program in 367 units is about 0.43× Cranelift's, and
-it is the first backend in this repository to reach `design/PERFORMANCE.md`'s
-goal 3. On the run side the four kernels are **1.38×** Cranelift
-`opt_level=none`, from 1.86× before §5.1's slots-only `crt` family, and the
-geomean against LLVM `-O0` is **0.927** — the paper's own bar, met here for the
-first time, though Cranelift cleared it by more. What is left of the gap is one
-kernel (`core/list`'s closure surface, 2.9×) rather than the boundary. The two
-comparisons the trade turned on were re-taken after the removal — emission at
-**0.47×**, and the run side at **1.26×** on a fresh six-kernel series, because
-the four programs behind 1.38× and the `-O0` geomean have no harness in this
-tree to re-run. `design/PERFORMANCE.md` §6.1 and §6.2 carry both halves.
+before the decision was taken.** stencil wins every cell whose time is
+compiling: emitting a 121k-line program in 367 units takes about 0.43×
+Cranelift's time, and it is the first backend in this repository to reach
+`design/PERFORMANCE.md`'s goal 3. On the run side the four kernels are
+**1.38×** Cranelift `opt_level=none`, down from 1.86× before §5.1's slots-only
+`crt` family, and the geomean against LLVM `-O0` is **0.927** — the paper's
+own bar, met here for the first time, though Cranelift cleared it by more.
+What is left of the gap is one kernel (`core/list`'s closure surface, 2.9×)
+rather than the boundary. Both comparisons the trade turned on were re-taken
+after the removal: emission at **0.47×**, and the run side at **1.26×** on a
+fresh six-kernel series, because the four programs behind 1.38× and the `-O0`
+geomean have no harness in this tree to re-run. `design/PERFORMANCE.md` §6.1
+and §6.2 carry both halves.
 
-Target coverage was the largest remaining difference at the time of the trade
-and is no longer one: `macos-arm64`, `linux-arm64` and `linux-x86_64` all emit,
-link and run. The fourth native triple, `macos-x86_64`, is a combination this
-repository builds no library for and does not intend to — §3.2 and §10.3.
+Target coverage was the largest remaining difference at the time of the trade,
+and it is no longer one: `macos-arm64`, `linux-arm64` and `linux-x86_64` all
+emit, link and run. The fourth native triple, `macos-x86_64`, is a combination
+this repository builds no library for and does not intend to — §3.2 and §10.3.
 
 **A runaway recursion traps.** The Buri stack has a `PROT_NONE` guard above it
-(§8), so a program that recurses past it faults instead of writing into whatever
-the linker placed next.
+(§8), so a program that recurses past it faults instead of writing into
+whatever the linker placed next.
 
 ## 0. The IR it consumes
 
@@ -75,36 +76,35 @@ pub enum Term {
 ```
 
 Block-argument SSA, no phi instruction, every value defined once. The form was
-chosen because it was CLIF's, back when the debug backend was Cranelift and a
-transliteration was the cheapest thing to lower — and it outlived that reason
-rather than depending on it. A block parameter here is a frame slot the
-predecessor writes before it branches (§2), which is the same construct read a
-second way, and LLVM's phis are a mechanical lowering of it (CODEGEN-LLVM.md
-§2.1). Nothing in the middle IR is a compromise between two emitters, and
-nothing in it names a code generator.
+CLIF's, back when the debug backend was Cranelift and transliterating was the
+cheapest way to lower — and it outlived that reason rather than depending on
+it. A block parameter here is a frame slot the predecessor writes before it
+branches (§2), the same construct read a second way, and LLVM's phis lower
+from it mechanically (CODEGEN-LLVM.md §2.1). Nothing in the middle IR
+compromises between two emitters, and nothing in it names a code generator.
 
-Pattern *bindings* are projections, not tests: `middle::decision`
+Pattern *bindings* are projections, not tests. `middle::decision`
 (ARCHITECTURE.md §2.2) has already turned the arm list into a tree over
 discriminants, so this backend never sees an arm chain, and once a block is
 entered the payload fields are loads at known offsets from the enum's payload
 area (VALUE-MODEL.md §6). `Profile::defensive_aborts` (`generate.rs`) decides
 whether the unreachable default of a proved-total switch calls
-`buri_rt_abort_unreachable` anyway; on the debug path it is on, because the belt
-is cheap.
+`buri_rt_abort_unreachable` anyway. The debug path turns it on, because the
+belt is cheap.
 
 The technique is Haoran Xu and Fredrik Kjolstad's *Copy-and-Patch Compilation*
-(OOPSLA 2021). Section references of the form "§4.3 of the paper" are to it;
-everything else is to this repository.
+(OOPSLA 2021). Section references of the form "§4.3 of the paper" point there;
+everything else points into this repository.
 
-The backend was called **cpjit** — copy-and-patch JIT — until it was renamed to
-`stencil`, because it emits object files ahead of time and never was a JIT.
-`design/PERFORMANCE.md`'s historical sections are the record of that campaign
-and keep the old vocabulary; this document, the code, and CI use `stencil`.
+The backend was called **cpjit** — copy-and-patch JIT — until it was renamed
+to `stencil`, because it emits object files ahead of time and never was a JIT.
+`design/PERFORMANCE.md`'s historical sections record that campaign and keep
+the old vocabulary; this document, the code, and CI use `stencil`.
 
 ## 1. What copy-and-patch is
 
 A **stencil** is the machine code of one C function, compiled ahead of time,
-whose literals, frame offsets and jump targets were left as *undefined symbols*.
+with its literals, frame offsets and jump targets left as *undefined symbols*.
 Code generation is then two operations and no others:
 
 ```text
@@ -115,15 +115,16 @@ Code generation is then two operations and no others:
 There is no instruction selection beyond choosing the stencil key, no register
 allocation beyond a three-register expression file, no scheduling, and no
 peephole other than the fallthrough elision that continuation-passing makes
-free. That is the whole code generator: `stencil/jit.rs::emit`, about sixty lines.
+free. That is the whole code generator: `stencil/jit.rs::emit`, about sixty
+lines.
 
-The stencils are generated and compiled **once, when the toolchain is built**
-(§3). At `buri build` time the library is already bytes.
+The toolchain build generates and compiles the stencils **once** (§3). At
+`buri build` time the library is already bytes.
 
 ## 2. The frame-threaded calling convention
 
-A stencil is a C function, so it can only take what C can pass. Every stencil in
-this library has one of two prototypes:
+A stencil is a C function, so it can only take what C can pass. Every stencil
+in this library has one of two prototypes:
 
 ```c
     uint64_t *st_x(uint64_t *fp, uint64_t r0, uint64_t r1, uint64_t r2,
@@ -131,17 +132,17 @@ this library has one of two prototypes:
     uint64_t *st_y(uint64_t *fp);                                    // ARGS0
 ```
 
-`x0` is a pointer into the **Buri stack**, and `x1`–`x3`/`d0`–`d2` are the CPS
-register file — the paper's Figure 8 pass-through parameters, which cost nothing
-because AAPCS64 already has an argument at the same ordinal in the same
-register. A stencil ends in `__attribute__((musttail)) return _JIT_CONT(...)`,
-which compiles to a single `b`, and the copy elides even that when the
-continuation is the next stencil.
+`x0` points into the **Buri stack**, and `x1`–`x3`/`d0`–`d2` are the CPS
+register file — the paper's Figure 8 pass-through parameters, which cost
+nothing because AAPCS64 already has an argument at the same ordinal in the
+same register. A stencil ends in `__attribute__((musttail)) return
+_JIT_CONT(...)`, which compiles to a single `b`, and the copy elides even that
+when the continuation is the next stencil.
 
 Every SSA value gets a byte range in a frame. An aggregate lives **flat** in
 that range at its real `middle::layout` offsets, so `MakeStruct`, `GetField`,
-`GetPayload` and `GetTag` are frame-to-frame moves and nothing is boxed. A frame
-is
+`GetPayload` and `GetTag` are frame-to-frame moves and nothing is boxed. A
+frame is
 
 ```text
     fp + 0            return area   (the callee writes here, the caller reads)
@@ -150,98 +151,100 @@ is
     fp + frame_size   the callee's frame begins
 ```
 
-so a call is: write the arguments where the callee will look for them, `bl`, and
-read the return area. There is no push and no stack pointer; the callee's frame
-address is `fp + frame_size`, a constant the caller knows, and it is one of the
-holes in the `call` stencil.
+so a call is: write the arguments where the callee will look for them, `bl`,
+and read the return area. There is no push and no stack pointer. The callee's
+frame address is `fp + frame_size`, a constant the caller knows, and it is one
+of the holes in the `call` stencil.
 
-**The width of the register file is three, and that is a measured number.** It
-was swept from two to seven — seven is the ABI maximum, since `x0` is the frame
-pointer and an argument past `x7` goes on the machine stack and stops the tail
-call being a `b` — and the number of register assignments came out *identical at
-every width*: demand saturates at two, because a stencil is only ever live-in on
-an expression temporary or a loop variable. Seven registers cost 5.5× the
-library, 11× the install-time compile and 15× the load, for kernels within ±4 %
-of each other with no trend. `stencil/abi.rs::NREGS`.
+**The register file is three wide, and that is a measured number.** A sweep
+from two to seven — seven is the ABI maximum, since `x0` is the frame pointer
+and an argument past `x7` goes on the machine stack and stops the tail call
+being a `b` — gave *identical* register assignment counts at every width.
+Demand saturates at two, because a stencil is only ever live-in on an
+expression temporary or a loop variable. Seven registers cost 5.5× the
+library, 11× the install-time compile and 15× the load, for kernels
+within ±4 % of each other with no trend. `stencil/abi.rs::NREGS`.
 
 ### 2.1 The two places C has to be bridged
 
-The convention is not the C one, so two things cross the boundary and both are
-hand-written rather than emitted from stencils:
+The convention is not the C one, so two things cross the boundary, and both
+are hand-written rather than emitted from stencils:
 
-* **`main`** — `stencil/asm.rs`, two hand-encoded entry-point shims, and the
-  behaviour is the one the removed backend's shims had before it:
-  `buri_rt_argv_init`, the root or each `test` block behind
-  `buri_rt_test_enter`, `buri_rt_flush`, and the exit convention of
-  `cli/runtime/lib.rs` §6. It sets the first argument register to the Buri stack
-  and calls a frame-threaded body.
+* **`main`** — `stencil/asm.rs`, two hand-encoded entry-point shims that
+  behave the way the removed backend's shims did: `buri_rt_argv_init`, then
+  the root or each `test` block behind `buri_rt_test_enter`, then
+  `buri_rt_flush`, and the exit convention of `cli/runtime/lib.rs` §6. Each
+  shim sets the first argument register to the Buri stack and calls a
+  frame-threaded body.
 * **a runtime call** — `stencil/rtcall.rs`. §5.
 
 ## 3. Where the stencils come from
 
 `cli/build.rs` generates about twenty-three thousand C functions
 (`stencil/sources.rs`), compiles them with the host `cc` in twelve parallel
-shards, reads the objects back (`stencil/machobj.rs` for Mach-O, `stencil/elfobj.rs`
-for ELF), extracts one stencil per exported `st_*` symbol with its relocation
-records as holes (`stencil/extract.rs` for arm64, `stencil/x86.rs` for x86-64),
-applies four instruction-rewriting folds where the ISA needs them, and writes
-the serialized library into `OUT_DIR` for the backend to `include_bytes!`.
+shards, reads the objects back (`stencil/machobj.rs` for Mach-O,
+`stencil/elfobj.rs` for ELF), extracts one stencil per exported `st_*` symbol
+with its relocation records as holes (`stencil/extract.rs` for arm64,
+`stencil/x86.rs` for x86-64), applies four instruction-rewriting folds where
+the ISA needs them, and writes the serialized library into `OUT_DIR` for the
+backend to `include_bytes!`.
 
 It does that **three times**, once per target — §3.2.
 
-That is the paper's §5.3 "stencil library builder", and it is in the build
-script for the same reason `libburi_rt.a` is: it is an **install-time** cost paid
-once per toolchain build, not a cost inside the loop the rest of this design
-spends its effort shortening. A second of `cc` per `buri build` would be paying
-for a C compiler in order to avoid one.
+That is the paper's §5.3 "stencil library builder", and it lives in the build
+script for the same reason `libburi_rt.a` does: it is an **install-time** cost
+paid once per toolchain build, not a cost inside the loop the rest of this
+design works to shorten. A second of `cc` per `buri build` would be paying for
+a C compiler in order to avoid one.
 
 Three properties, each a decision:
 
 * **A host C compiler, not a crate.** `cc` is a platform interface in exactly
-  the sense the dependency bar means, and it is not a Cargo dependency: nothing
-  is added to the lockfile and nothing to `cargo install buri` beyond a tool
-  every machine that can *link* a native artifact already has —
+  the sense the dependency bar means, and it is not a Cargo dependency:
+  nothing is added to the lockfile, and nothing to `cargo install buri` beyond
+  a tool every machine that can *link* a native artifact already has —
   `build/link.rs` shells out to the same one.
 * **Degrades rather than breaks.** A host with no `cc` gets three **empty**
-  libraries; a host whose `cc` cannot be pointed at another triple gets an empty
-  one for each target it cannot reach and a full one for its own.
-  `stencil::available_for` reads the emptiness and the backend reports itself
-  unavailable *for that target*, exactly as `runtime_native::AVAILABLE` does for
-  the archive. The probe is a three-line compile of the real prelude with the
-  real flags (`sources::can_build`), not a `--version`: a Nix cross-wrapper
-  answers a version quite happily and then fails on the first `#include`.
+  libraries. A host whose `cc` cannot be pointed at another triple gets an
+  empty one for each target it cannot reach and a full one for its own.
+  `stencil::available_for` reads the emptiness, and the backend reports itself
+  unavailable *for that target*, exactly as `runtime_native::AVAILABLE` does
+  for the archive. The probe compiles three lines of the real prelude with the
+  real flags (`sources::can_build`) rather than asking for `--version`: a Nix
+  cross-wrapper answers a version quite happily and then fails on the first
+  `#include`.
 * **`Backend::identity` is the libraries' hashes, and they are baked.** Not a
   version string, because there is no version to name: the bytes depend on the
-  generators *and* on whichever `cc` was on the host. Hashing the library covers
-  both, so two toolchains built against different C compilers share no cached
-  object.
+  generators *and* on whichever `cc` was on the host. Hashing the library
+  covers both, so two toolchains built against different C compilers share no
+  cached object.
 
-  All three digests, not the one a given build will use: `Backend::identity`
-  takes no target, so the only honest answer is the whole toolchain's stencil
-  identity. It costs a conservative invalidation — rebuilding *any* target's
-  library invalidates every cached object — and that is the right way round. The
-  alternative, naming only the host's, would let a toolchain whose `linux-arm64`
-  stencils had changed serve a cached `linux-arm64` object built from the old
-  ones, which is a wrong artifact rather than a slow build.
+  It hashes all three digests, not just the one a given build will use.
+  `Backend::identity` takes no target, so the only honest answer is the whole
+  toolchain's stencil identity. That costs a conservative invalidation —
+  rebuilding *any* target's library invalidates every cached object — and that
+  is the right way round. Naming only the host's would let a toolchain whose
+  `linux-arm64` stencils had changed serve a cached `linux-arm64` object built
+  from the old ones, which is a wrong artifact rather than a slow build.
 
   It is **not computed at run time**. `cli/build.rs` writes
-  `stencils-<target>.bin.sha256` beside each blob and `mod.rs` `include_str!`s it.
-  Hashing four megabytes cost about **22 ms of every `buri` invocation** that
-  reached this backend, and memoising it — which the tree did for a while —
-  removes only the *repeats*, which is the wrong half: a `buri` invocation is a
-  process, so the first hash is not a repeat. It was 22 ms of a 25 ms no-op
+  `stencils-<target>.bin.sha256` beside each blob and `mod.rs` `include_str!`s
+  it. Hashing four megabytes cost about **22 ms of every `buri` invocation**
+  that reached this backend. Memoising it — which the tree did for a while —
+  removes only the *repeats*, which is the wrong half: a `buri` invocation is
+  a process, so the first hash is not a repeat. It was 22 ms of a 25 ms no-op
   build, and therefore the whole of the remaining compile-side gap against
   Cranelift.
 
-  The digest is the same string the run-time hash produced, and that is
-  structural rather than hopeful: the script and `build::cache::hash_bytes` are
-  one source file (`cli/src/build/sha256.rs`, which the script
+  The baked digest matches what the run-time hash produced, and that is
+  structural rather than hopeful: the script and `build::cache::hash_bytes`
+  are one source file (`cli/src/build/sha256.rs`, which the script
   `#[path]`-includes), so there is one implementation of SHA-256 and not two
-  that could drift. It was also checked directly — `buri test //... --explain`
-  prints byte-identical action keys with the baked digest and with the run-time
-  hash, in the same session, and every action stays *cached*. A digest that
-  differed would have invalidated every cached object in every repository with
-  nothing having changed.
+  that could drift. It was also checked directly. `buri test //... --explain`
+  prints byte-identical action keys with the baked digest and with the
+  run-time hash, in the same session, and every action stays *cached*. A
+  digest that differed would have invalidated every cached object in every
+  repository with nothing having changed.
 
 ### 3.1 The four folds, and why they are not in the paper
 
@@ -256,23 +259,23 @@ instructions and patching is an instruction rewrite:
 | `Imm64` | `adrp Xd, sym@GOTPAGE` + `ldr Xd, [Xd, sym@GOTPAGEOFF]` | aims it at the constant pool with a relocation pair (§4) |
 | `Branch` | `ARM64_RELOC_BRANCH26` on `b`/`bl` | a signed 26-bit word displacement, or a relocation |
 
-Because clang cannot be *asked* for the operand shapes the emitter wants, four
+Clang cannot be *asked* for the operand shapes the emitter wants, so four
 rewrites in `stencil/extract.rs` recover them: `fold_addressing` puts a frame
 offset in a load or store's own `imm12`; `fold_imm` puts a literal in an
-`add`/`sub`/`cmp`'s; `fold_cond` makes a conditional branch's `imm19` a hole, so
-a two-way branch is two instructions instead of three; and `swap_arms` builds
-the twin with the arms exchanged, so the emitter can pick whichever one falls
-through. Each stencil goes into the library with up to four twins, and
+`add`/`sub`/`cmp`'s; `fold_cond` makes a conditional branch's `imm19` a hole,
+so a two-way branch is two instructions instead of three; and `swap_arms`
+builds the twin with the arms exchanged, so the emitter can pick whichever one
+falls through. Each stencil goes into the library with up to four twins, and
 `Jit::emit` picks the most specific one whose fields the operands fit.
 
 ### 3.2 Three targets, one generator
 
 A stencil is the bytes clang emitted for a C function, so it belongs to an
 **instruction set** and to a **container**, and a toolchain bakes one library
-per pair. `abi::Tgt` is the three, and it is in `abi.rs` rather than anywhere
-else for the same reason `NREGS` is: the build script picks a target to compile
-*for* and the emitter picks a target to look a library *up* by, and a
-disagreement about the spelling would be arm64 bytes inside an x86-64 object.
+per pair. `abi::Tgt` names the three. It lives in `abi.rs` for the same reason
+`NREGS` does: the build script picks a target to compile *for* and the emitter
+picks a target to look a library up *by*, and a disagreement about the
+spelling would be arm64 bytes inside an x86-64 object.
 
 | target | container | reader | extractor | writer | keys | bytes |
 |---|---|---|---|---|---|---|
@@ -280,68 +283,68 @@ disagreement about the spelling would be arm64 bytes inside an x86-64 object.
 | `linux-arm64` | ELF | `elfobj.rs` | `extract.rs` | `elf.rs` | 24,384 | 4.22 MB |
 | `linux-x86_64` | ELF | `elfobj.rs` | `x86.rs` | `elf.rs` | 13,874 | 2.25 MB |
 
-`macos-x86_64` is deliberately absent: nothing this repository runs on or ships
-to is x86-64 Mach-O, and `mod.rs::supported` refuses it by name. It is now the
-**only** native target this toolchain has no debug backend for, which is a
+`macos-x86_64` is deliberately absent. Nothing this repository runs on or
+ships to is x86-64 Mach-O, and `mod.rs::supported` refuses it by name. It is
+now the **only** native target this toolchain has no debug backend for, a
 sentence that had no reason to exist while a retargetable code generator was
 compiled in beside this one. A macOS/x86-64 host therefore gets `Js` from
-`driver::host_platform` and a refusal naming the target from `buri build` — the
-same shape a host with no `cc` gets (§7, BUILD-AND-WATCH.md §2) — and no fourth
+`driver::host_platform` and a refusal naming the target from `buri build` —
+the same shape a host with no `cc` gets (§7, BUILD-AND-WATCH.md §2). No fourth
 library is planned; §9 says what building one would cost.
 
 **The two Linux libraries are cross-compiled**, on a macOS host with no Linux
 sysroot, and that works for one reason: the generated C includes `<stdint.h>`
-and nothing else. Clang ships its own `<stdint.h>` in its resource directory, so
-`-nostdinc -isystem $(cc -print-resource-dir)/include` is a complete include
-path for it. The single libc function the generators use is `memcpy`, and
-`sources::memcpy_decl` declares it for the cross targets instead of reaching for
-`<string.h>` — clang recognises it as a builtin from the declaration alone. The
-host build still includes `<string.h>`, so the `macos-arm64` library is
-unchanged by any of this.
+and nothing else. Clang ships its own `<stdint.h>` in its resource directory,
+so `-nostdinc -isystem $(cc -print-resource-dir)/include` is a complete
+include path for it. The single libc function the generators use is `memcpy`,
+and `sources::memcpy_decl` declares it for the cross targets instead of
+reaching for `<string.h>` — clang recognises it as a builtin from the
+declaration alone. The host build still includes `<string.h>`, so none of this
+changes the `macos-arm64` library.
 
 **The `macos-arm64` library did not move.** Adding two targets touched the
 generator (`prelude` takes a target now) and split the extractor (`extract.rs`
-grew a container-neutral hand-over so both readers feed one arm64 finisher), and
-either could have perturbed four megabytes of host stencils without anything
-failing. It did not: the encoded library before and after this change is
-**byte-identical apart from the `config` string**, which grew from `L12-tag r3`
-to `macos-arm64 L12-tag r3` because the target is now part of what a library's
-identity names. Every one of the 4,194,581 bytes after it is the same byte. The
-only consequence is a one-time cache reseed, which `Backend::identity` moving is
-supposed to cause.
+grew a container-neutral hand-over so both readers feed one arm64 finisher),
+and either could have perturbed four megabytes of host stencils without
+anything failing. Neither did: the encoded library before and after this
+change is **byte-identical apart from the `config` string**, which grew from
+`L12-tag r3` to `macos-arm64 L12-tag r3` because the target is now part of
+what a library's identity names. Every one of the 4,194,581 bytes after it is
+the same byte. The only consequence is a one-time cache reseed, which is what
+`Backend::identity` moving is supposed to cause.
 
-Two more cross flags, each load-bearing: `-fno-asynchronous-unwind-tables`,
-because the Linux drivers default it *on* where the Darwin one does not and the
-result is a `.eh_frame` the size of the code that nothing reads; and the
-`-aarch64-enable-collect-loh=false` flag is passed only to the arm64 builds,
-because clang rejects it as unused elsewhere.
+Two more cross flags, each load-bearing. `-fno-asynchronous-unwind-tables`,
+because the Linux drivers default it *on* where the Darwin one does not, and
+the result is a `.eh_frame` the size of the code that nothing reads. And
+`-aarch64-enable-collect-loh=false`, passed only to the arm64 builds, because
+clang rejects it as unused elsewhere.
 
 #### The two arm64 libraries are the same *stencils*, not the same *bytes*
 
 `the_two_arm64_libraries_cover_the_same_operations` asserts the part that
 matters: both libraries have **exactly the same 13,904 base keys**, so every
-operation the emitter can ask for exists on both and no program compiles for one
-and is refused for the other.
+operation the emitter can ask for exists on both, and no program compiles for
+one and is refused for the other.
 
-The bytes differ, in about half the stencils, and the difference is correct
+The bytes differ in about half the stencils, and the difference is correct
 rather than concerning:
 
-* Darwin's arm64 ABI **mandates a frame record**, so a stencil that makes a call
-  opens with `stp x29, x30, [sp, #-16]!` where the Linux one opens with `str
-  x30, [sp, #-16]!` — `-fomit-frame-pointer` does not override a platform ABI.
-* the two drivers pick different default CPUs (an Apple core against generic
-  `armv8-a`) and schedule accordingly.
+* Darwin's arm64 ABI **mandates a frame record**, so a stencil that makes a
+  call opens with `stp x29, x30, [sp, #-16]!` where the Linux one opens with
+  `str x30, [sp, #-16]!`. `-fomit-frame-pointer` does not override a platform
+  ABI. * The two drivers pick different default CPUs (an Apple core against
+  generic `armv8-a`) and schedule accordingly.
 
 Both are what a native compiler for that platform *should* emit, and the Linux
-ones are marginally the smaller. Fold twins differ by a few dozen keys in both
-directions for the same reason — whether `+ifold` applies is a property of the
-instructions clang chose — and `Jit::emit` already falls back to the unfolded key
-when a twin is absent.
+ones are marginally smaller. Fold twins differ by a few dozen keys in both
+directions for the same reason — whether `+ifold` applies depends on which
+instructions clang chose — and `Jit::emit` already falls back to the unfolded
+key when a twin is absent.
 
 #### x86-64 is the paper's home ISA, and it shows
 
-`x86.rs` is a fifth the length of `extract.rs`, because **three of the four folds
-have nothing to do**:
+`x86.rs` is a fifth the length of `extract.rs`, because **three of the four
+folds have nothing to do**:
 
 | AArch64 fold | what x86-64 does instead |
 |---|---|
@@ -354,9 +357,9 @@ So the x86-64 library has **one variant per key** where the arm64 ones have up
 to six, which is most of why it is half the size.
 `the_x86_64_library_has_no_folded_twins` pins that.
 
-What it costs, stated rather than left out: `swap_arms` is genuinely lost — the
-emitter cannot pick whichever arm falls through — and no measurement of that
-exists, because nothing on this host can run an x86-64 instruction. §10 is what
+What it costs, stated rather than left out: `swap_arms` is genuinely lost —
+the emitter cannot pick whichever arm falls through — and nothing measures
+that, because nothing on this host can run an x86-64 instruction. §10 is what
 would have to happen first.
 
 The hole shapes are otherwise cheaper on every count:
@@ -369,37 +372,36 @@ The hole shapes are otherwise cheaper on every count:
 
 Two details that are easy to get wrong and are not:
 
-* **the addend is the distance to the end of the instruction**, and it is not
-  always `-4`. `cmpl $0, sym@GOTPCREL(%rip)` is `83 3d <disp32> <imm8>` and
+* **The addend is the distance to the end of the instruction, and it is not
+  always `-4`.** `cmpl $0, sym@GOTPCREL(%rip)` is `83 3d <disp32> <imm8>` and
   carries `-5`; a patcher that assumed four would aim every such reference one
   byte past its target. `x86.rs` records `(instruction end, field)` per site
   rather than a constant anywhere.
-* **a relocation against a symbol the object itself defines is not a hole** — it
-  is a constant clang spilled into `.rodata`, and there is no value to bind to
-  it. Thirty keys of 13,904 do it, all in three families where AArch64 has an
-  instruction and x86-64 has a constant: `un/neg/f32` and `un/neg/f64` (`fneg`
-  against an `xorps` sign mask), `cvt/u2f` (`ucvtf` against the two-bias
-  `unsigned long long` → `double` sequence), and `chk/div/i128`.
+* **A relocation against a symbol the object itself defines is not a hole.**
+  It is a constant clang spilled into `.rodata`, and there is no value to bind
+  to it. Thirty keys of 13,904 do it, all in three families where AArch64 has
+  an instruction and x86-64 has a constant: `un/neg/f32` and `un/neg/f64`
+  (`fneg` against an `xorps` sign mask), `cvt/u2f` (`ucvtf` against the
+  two-bias `unsigned long long` → `double` sequence), and `chk/div/i128`.
 
   Those keys used to be **dropped**, which cost the corpus `cvt/u2f`. They are
   not any more: the referenced section's bytes travel with the stencil
-  (`library::ConstRef`) and `jit.rs` copies them into the emitted unit's own
+  (`library::ConstRef`), and `jit.rs` copies them into the emitted unit's own
   constant pool, once per unit, aiming the reference at the copy with an
   `R_X86_64_PC32`. That is what the linker would have done with clang's
-  `.rodata`, so nothing is rewritten and nothing is approximated — the
-  alternative, writing the negation as an integer XOR in the generated C, would
-  have changed all three libraries and been folded back into an `fneg` by
-  InstCombine on the one where it mattered.
+  `.rodata`, so nothing is rewritten and nothing is approximated. The
+  alternative — writing the negation as an integer XOR in the generated C —
+  would have changed all three libraries and been folded back into an `fneg`
+  by InstCombine on the one where it mattered.
 
-  Two things it has to get right, and both are asserted: the pool is
+  Two things it has to get right, and both are asserted. The pool is
   **sixteen-aligned** on this target (`region::POOL_ALIGN_X86_64`), because
   `unpcklps` and `subpd` fault on a misaligned operand rather than running
   slower; and a section asking for more than sixteen is refused rather than
   under-aligned. `the_x86_64_library_covers_what_the_arm64_ones_do` is now the
-  assertion — the three libraries cover the same 13,904 operations — and
-  `the_spilled_constant_families_carry_their_bytes` is what says the constants
-  are actually carried rather than the families having quietly stopped needing
-  them.
+  assertion that the three libraries cover the same 13,904 operations, and
+  `the_spilled_constant_families_carry_their_bytes` says the constants are
+  really carried rather than the families having quietly stopped needing them.
 
 ### 3.3 A stencil is a whole function, and all three targets now say so
 
@@ -407,14 +409,14 @@ A stencil is one contiguous run of bytes copied out of the code section and
 patched, and every hole in it names a symbol the generated C **declared**:
 `_JIT_A`, a `buri_rt_*` entry point, a compiler-rt helper like `__divti3`. A
 compiler that splits a stencil in two breaks both halves of that sentence at
-once — the body copied out is no longer the whole function, and the branch left
+once. The body copied out is no longer the whole function, and the branch left
 behind names a symbol the library will never carry.
 
 The G2 reference-counting arm was spelled `__builtin_expect(cap < 0, 0)`, a
 1-in-2000 hint. At that ratio **Apple's** clang runs `HotColdSplitting` at
-`-O2`, where upstream's does not, and it outlined the atomic arm as
-`st_decref_drop.cold.1`. What each target did with that was three different
-things, and only one of them was an error:
+`-O2` where upstream's does not, and it outlined the atomic arm as
+`st_decref_drop.cold.1`. The three targets did three different things with
+that, and only one of them was an error:
 
 | target | what the split looked like | before |
 |---|---|---|
@@ -426,36 +428,37 @@ Two guards close it, and they are deliberately not the same guard, because the
 two containers hide the split in different places:
 
 * **A hole's target must be a name the source could have written**
-  (`library::refuse_hole_name`, applied by `extract.rs`'s `finish_arm64` and by
-  `x86.rs`). The rule is structural rather than a list: a declared name is a C
-  identifier, and every name a compiler synthesises for a piece it carved out
-  contains a `.` for the precise reason that a C identifier cannot.
+  (`library::refuse_hole_name`, applied by `extract.rs`'s `finish_arm64` and
+  by `x86.rs`). The rule is structural rather than a list: a declared name is
+  a C identifier, and every name a compiler synthesises for a piece it carved
+  out contains a `.`, for the precise reason that a C identifier cannot.
   `library::ARTIFACT_SEGMENTS` names the families it recognises — `cold`,
-  `unlikely`, `part`, `isra`, `constprop`, `specialized`, the three `CoroSplit`
-  funclets, `llvm`, `lto_priv` — so the refusal can say *what* was carved out,
-  and an unrecognised one is refused all the same. `OUTLINED_FUNCTION_<n>`, the
-  MachineOutliner's, is the one artifact that *is* a valid identifier and is
-  named separately. The two ELF spellings the reader legitimately relocates
-  against — an empty section symbol, and a `.L` label on a spilled constant —
-  are explicitly not artifacts. The stencil's *own* name is checked the same
-  way, which catches a compiler that resolved the branch without leaving a
-  relocation behind at all.
-* **On x86-64, a second section of _code_ is a spill** (`elfobj::Other::exec`).
-  The row above is why the name check cannot do this job alone: the assembler
-  relocated against the section symbol, whose name is empty, so there was no
-  artifact name to see. This is `extract_elf_arm64`'s refusal narrowed to the
-  half of the sections that could be half of a function, and it leaves the
-  read-only ones — the sign masks and the conversion biases — alone.
+  `unlikely`, `part`, `isra`, `constprop`, `specialized`, the three
+  `CoroSplit` funclets, `llvm`, `lto_priv` — so the refusal can say *what* was
+  carved out, and it refuses an unrecognised one all the same.
+  `OUTLINED_FUNCTION_<n>`, the MachineOutliner's, is the one artifact that
+  *is* a valid identifier, and it is named separately. The two ELF spellings
+  the reader legitimately relocates against — an empty section symbol, and a
+  `.L` label on a spilled constant — are explicitly not artifacts. The check
+  covers the stencil's *own* name the same way, which catches a compiler that
+  resolved the branch without leaving a relocation behind at all.
+* **On x86-64, a second section of _code_ is a spill**
+  (`elfobj::Other::exec`). The row above is why the name check cannot do this
+  job alone: the assembler relocated against the section symbol, whose name is
+  empty, so there was no artifact name to see. This is `extract_elf_arm64`'s
+  refusal narrowed to the half of the sections that could be half of a
+  function, and it leaves the read-only ones — the sign masks and the
+  conversion biases — alone.
 
-Both were checked against the reproducer rather than argued for: with the G2
+Both were checked against the reproducer rather than argued for. With the G2
 source restored to `__builtin_expect(…, 0)` and `CC` pointed at Apple clang,
 `macos-arm64` fails with *"st_decref_drop: a stencil reaches
 st_decref_drop.cold.1, which is a hot/cold split of it; every hole must be a
-symbol the source declared"* and `linux-x86_64` with *"a stencil spilled 83
+symbol the source declared"*, and `linux-x86_64` with *"a stencil spilled 83
 bytes of code into .text.unlikely.; every hole must be a symbol the source
 declared"* — the same 72 and 83 bytes the ELF/arm64 check had been reporting
-alone. `stencil::no_shipped_hole_names_a_function_the_compiler_invented` is the
-standing assertion over the three baked libraries;
+alone. `stencil::no_shipped_hole_names_a_function_the_compiler_invented` is
+the standing assertion over the three baked libraries;
 `the_hot_cold_split_that_shipped_is_refused` and
 `every_outlining_family_is_named_rather_than_lumped_together` are the unit
 checks on the rule itself.
