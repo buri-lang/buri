@@ -1,52 +1,51 @@
 //! core/crypto — hashing in Buri, and randomness from the platform.
 //!
 //! SHA-256 and HMAC-SHA-256, written in the language rather than handed to the
-//! platform. That is a deliberate choice and it is the same one the toolchain
-//! makes about itself: `build/cache.rs` hand-writes SHA-256 in Rust because the
-//! toolchain is pinned by hash and a dependency tree is a second thing to pin.
-//! A second implementation, in the language, is also the strongest test the
-//! language has — U32 wrapping arithmetic, rotation, array indexing, and
-//! sixty-four rounds of tail recursion, checked against the same NIST vectors
-//! the Rust one uses.
+//! platform. That is deliberate, and it is the same choice the toolchain makes
+//! about itself: `build/cache.rs` hand-writes SHA-256 in Rust because a hash
+//! pins the toolchain, and a dependency tree is a second thing to pin. A second
+//! implementation, in the language, is also the strongest test the language
+//! has — U32 wrapping arithmetic, rotation, array indexing, and sixty-four
+//! rounds of tail recursion, checked against the same NIST vectors the Rust one
+//! uses.
 //!
 //! # Randomness that cannot be guessed
 //!
-//! `randomBytes` and `token` are the second half of this module and they are
-//! **not** written in the language: they perform the `Entropy` effect, and the
+//! `randomBytes` and `token` are the second half of this module, and they are
+//! **not** written in the language. They perform the `Entropy` effect, and the
 //! octets come from the operating system's generator through `core/host`'s
-//! `entropy`. That is the decision this header used to defer, taken and
-//! written down — a CSPRNG is a platform's to supply, not an algorithm to
-//! reimplement, and the thing that made it a decision rather than a function
-//! was that it needed a new effect for a program to ask for and be refused.
+//! `entropy`. A CSPRNG is a platform's to supply, not an algorithm to
+//! reimplement. What made it a decision rather than a function is that it
+//! needed a new effect for a program to ask for and be refused.
 //!
 //! They live here rather than in `core/random` for the reason this header gave
 //! before either existed: `core/random` is *seeded and reproducible on
 //! purpose*, and a `bytes` beside its `int` and `float` that quietly answered
 //! from a different generator would make the module's one promise untrue.
-//! `core/random.bytes` exists and is uniform; this is the one that is
+//! `core/random.bytes` exists and is uniform. This is the one that is
 //! unpredictable, and a program says which it meant by which it imports.
 //!
 //! **Neither takes a `Gen`, and this is the one place `core/random`'s
-//! seed-or-context rule deliberately does not reach.** `Gen` exists so that a
-//! run can be replayed from a seed; a token that can be replayed is a token
-//! that can be predicted, and the call site would look exactly like the safe
-//! one. The seeded path a test needs exists and is somewhere it can do no harm:
-//! `core/host/testing`'s `entropy()` is a seeded implementation of the same
-//! effect and is reachable only from a test source.
+//! seed-or-context rule deliberately does not reach.** `Gen` exists so you can
+//! replay a run from a seed. A token you can replay is a token somebody can
+//! predict, and the call site would look exactly like the safe one. The seeded
+//! path a test needs exists, somewhere it can do no harm: `core/host/testing`'s
+//! `entropy()` is a seeded implementation of the same effect, and only a test
+//! source can reach it.
 //!
 //! # What is not here, and will not be by accident
 //!
 //! - **No ciphers, yet, and none by accident.** No AES, no ChaCha. Encryption
 //!   needs a key schedule, a mode, a nonce discipline, and an authentication
-//!   tag; shipping the block function alone is how people end up with ECB. An
-//!   AEAD — one authenticated construction, with the nonce minted by
-//!   `Entropy` rather than by the caller — is the shape it would take, and it
-//!   is a slice of its own rather than a function to add here: it is a second
-//!   host effect on both backends, `crypto.subtle` is `undefined` on a page
-//!   that is not a secure context where `crypto.getRandomValues` is not, and
+//!   tag. Shipping the block function alone is how people end up with ECB. An
+//!   AEAD — one authenticated construction, with `Entropy` minting the nonce
+//!   rather than the caller — is the shape it would take, and it is a slice of
+//!   its own rather than a function to add here. It is a second host effect on
+//!   both backends; `crypto.subtle` is `undefined` on a page that is not a
+//!   secure context where `crypto.getRandomValues` is not; and
 //!   `crypto.subtle` is promise-shaped, so every Buri function that could
 //!   reach it becomes an `async` one in the emitted JavaScript. Each of those
-//!   is answerable; none of them is answerable *quietly*.
+//!   has an answer. None of them has a *quiet* one.
 //! - **No public-key anything.**
 //! - **No key derivation and no password hashing.** See the note on `sha256`
 //!   below: a fast hash is the wrong primitive for a password, and the right
@@ -76,8 +75,8 @@
 //! ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 //! ```
 //!
-//! A token cannot have its value written down here, because the whole of what
-//! it is worth is that nobody can write it down in advance. Its *shape* can:
+//! A token's value cannot go in this file, because the whole of what it is
+//! worth is that nobody can write it down in advance. Its *shape* can:
 //!
 //! ```buri run
 //! from "core/crypto" import * as crypto;
@@ -113,7 +112,7 @@ derive Eq, Show for Digest;
 export struct Digest(export [U8]);
 
 impl Digest {
-    /// The digest as lowercase hex, which is how one is written down.
+    /// The digest as lowercase hex, which is how you write one down.
     export fn toHex<C: Alloc>(self, ctx: C): Str {
         bytes.toHex(ctx, self.0)
     }
@@ -210,9 +209,9 @@ fn roundConstants<C: Alloc>(ctx: C): [U32] {
 /// Rotate right, within 32 bits.
 ///
 /// `bits` has rotation for `Int` and shifts for `U32`, and this needs rotation
-/// for `U32` — which is the two shifts, or-ed. It is correct only because the
-/// unsigned bitwise operators narrow to the type's width; before they did, the
-/// high half came back negative and every round after the first was wrong.
+/// for `U32` — the two shifts, or-ed. It is correct only because the unsigned
+/// bitwise operators narrow to the type's width. Before they did, the high half
+/// came back negative and every round after the first was wrong.
 fn rotr(x: U32, n: Int): U32 {
     bits.shrU32(x, n) | bits.shlU32(x, 32 - n)
 }
@@ -374,9 +373,9 @@ let BLOCK: Int = 64;
 
 /// HMAC-SHA-256, per RFC 2104.
 ///
-/// A key longer than the block is hashed first; a shorter one is padded with
-/// zeros. That is the specification, and the reason it matters is that two
-/// keys must not collide by accident of length.
+/// A key longer than the block gets hashed first; a shorter one gets padded
+/// with zeros. That is the specification, and it matters because two keys must
+/// not collide by accident of length.
 export fn hmacSha256<C: Alloc>(ctx: C, key: [U8], message: [U8]): Digest {
     let shortened = if (key.len() > BLOCK) { sha256(ctx, key).0 } else { key };
     let padded = shortened.concat(ctx, list.repeat(ctx, 0, BLOCK - shortened.len()));
@@ -391,31 +390,31 @@ export fn hmacSha256<C: Alloc>(ctx: C, key: [U8], message: [U8]): Digest {
 /// `count` octets from the platform's cryptographic generator.
 ///
 /// `getrandom(2)` or `getentropy(2)` under a native binary,
-/// `crypto.getRandomValues` under a JavaScript one. Not seeded here, not
-/// steppable from here, and not reproducible: a test that needs the same
-/// octets twice binds `core/host/testing`'s `entropy()`, which is a seeded
-/// implementation of the same effect and is the one place in this language
-/// where these bytes are predictable on purpose.
+/// `crypto.getRandomValues` under a JavaScript one. Nothing seeds it here,
+/// nothing steps it from here, and it does not reproduce. A test that needs the
+/// same octets twice binds `core/host/testing`'s `entropy()`, a seeded
+/// implementation of the same effect and the one place in this language where
+/// these bytes are predictable on purpose.
 ///
 /// A negative `count` aborts, and so does a platform that cannot answer.
 /// Neither is a `Result`, and `core/effect`'s `Entropy` says why: fewer octets
-/// than were asked for is the one answer that must never reach a caller.
+/// than the caller asked for is the one answer that must never reach them.
 export fn randomBytes<C: Entropy>(ctx: C, count: Int): [U8] {
     ctx.bytes(count)
 }
 
 /// A bearer token: `octets` octets of entropy, written as lowercase hex.
 ///
-/// **`octets`, not characters** — the parameter is how much unguessability the
-/// token carries, which is the only number worth choosing, and the string is
-/// twice as long. 16 is a reasonable floor and 32 is what a session's resume
-/// token should be.
+/// **`octets`, not characters** — the parameter says how much unguessability
+/// the token carries, which is the only number worth choosing, and the string
+/// comes out twice as long. 16 is a reasonable floor, and 32 is what a
+/// session's resume token should be.
 ///
-/// Hex rather than base64url, for a reason that is about the caller rather than
-/// about density. A hex token is URL-safe, filename-safe, header-safe and
-/// case-insensitive with no alphabet to argue about and no padding to strip,
-/// and `bytes.fromHex` reads it back. Base64url is a third shorter and every
-/// one of those has to be checked instead.
+/// Hex rather than base64url, for a reason about the caller rather than about
+/// density. A hex token is URL-safe, filename-safe, header-safe and
+/// case-insensitive, with no alphabet to argue about and no padding to strip,
+/// and `bytes.fromHex` reads it back. Base64url is a third shorter, and you
+/// have to check every one of those yourself.
 ///
 /// Compare two of these with `equalsConstantTime` over their bytes, not with
 /// `==` over their text.
@@ -427,10 +426,9 @@ export fn token<C: Alloc + Entropy>(ctx: C, octets: Int): Str {
 
 /// Compares two byte strings without stopping at the first difference.
 ///
-/// Whether this actually takes constant time under a JIT is not something a
-/// library can promise: the engine is free to do as it likes. What it does
-/// promise is that the *algorithm* has no early exit, which is the part that
-/// is a library's to get right.
+/// No library can promise this actually takes constant time under a JIT — the
+/// engine is free to do as it likes. What it does promise is that the
+/// *algorithm* has no early exit, which is the part a library owns.
 export fn equalsConstantTime(a: [U8], b: [U8]): Bool {
     if (a.len() != b.len()) { false } else { accumulate(a, b, 0, 0) == 0 }
 }

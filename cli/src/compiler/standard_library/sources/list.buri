@@ -1,11 +1,11 @@
 //! core/list — the defining module of `[T]`.
 //!
-//! The split that runs through this file is the one SPEC 10.5 draws: an
-//! operation whose result size is fixed is pure, and an operation whose result
-//! size depends on runtime data names `Alloc`. `len` and `fold` are pure;
-//! `map` and `filter` are not, and say so in their signatures.
+//! One split runs through this file, the one SPEC 10.5 draws: an operation
+//! whose result size is fixed is pure, and an operation whose result size
+//! depends on runtime data names `Alloc`. `len` and `fold` are pure. `map` and
+//! `filter` are not, and their signatures say so.
 //!
-//! Everything here takes its collection as `self`, so it is callable as a
+//! Everything here takes its collection as `self`, so you can call it as a
 //! method with no import: receiver first, context second, everything else
 //! after (SPEC 10.7).
 
@@ -21,8 +21,8 @@ impl<T> [T] {
         self.len() == 0
     }
 
-    /// Indexing yields `Option<T>`. There is no way to index out of bounds and no
-    /// way to panic by indexing — the single largest ergonomic tax in the
+    /// Indexing yields `Option<T>`. There is no way to index out of bounds and
+    /// no way to panic by indexing — the single largest ergonomic tax in the
     /// language, charged on purpose.
     export fn get(self, index: Int): Option<T>;
 
@@ -39,23 +39,23 @@ impl<T> [T] {
     export fn fold<B>(self, f: fn(B, T) => B, init: B): B;
 
     /// The `*Ctx` variant, for a step that needs an effect. A lambda may not
-    /// capture one (SPEC 10.6), so the context is threaded through instead.
+    /// capture one (SPEC 10.6), so you thread the context through instead.
     export fn foldCtx<B, C>(self, ctx: C, f: fn(C, B, T) => B, init: B): B;
 
-    /// Stops at the first `.Err`, which is how a fallible fold is written
-    /// without an early exit.
+    /// Stops at the first `.Err` — how you write a fallible fold without an
+    /// early exit.
     export fn foldResult<B, E>(
         self,
         f: fn(B, T) => Result<B, E>,
         init: B,
     ): Result<B, E>;
 
-    /// The same, with the context passed in rather than captured.
+    /// The same, but `f` takes the context instead of capturing it.
     ///
     /// `foldResult`'s function takes no context, and a lambda may not capture
-    /// one (SPEC 10.6) — so a fallible fold that has to *allocate* as it goes
-    /// could not be written at all. This is the `*Ctx` form every other
-    /// combinator here already has, for the same reason.
+    /// one (SPEC 10.6) — so you could not write a fallible fold that has to
+    /// *allocate* as it goes. This is the `*Ctx` form every other combinator
+    /// here already has, for the same reason.
     export fn foldResultCtx<B, E, C: Alloc>(
         self,
         ctx: C,
@@ -84,8 +84,8 @@ impl<T> [T] {
     /// Whether every neighbouring pair is in order — `cmp(xs[i], xs[i + 1])`
     /// is never `.Greater`. The empty list and a single element are sorted.
     ///
-    /// The predicate `sort` and `sortBy` answer, which makes it the one to
-    /// write an invariant against: a stable sort of a sorted list is that
+    /// This is the predicate `sort` and `sortBy` answer, which makes it the one
+    /// to write an invariant against: a stable sort of a sorted list is that
     /// list.
     export fn isSortedBy(self, cmp: fn(T, T) => Order): Bool {
         sortedFrom(self, cmp, 0)
@@ -94,9 +94,8 @@ impl<T> [T] {
     /// The greatest element by `cmp`, or `.None` for an empty list. Ties go to
     /// the earlier element, which is `maximum`'s answer too.
     ///
-    /// `maximum` is this with the type's own `Ord`; this is the form that
-    /// takes the order as a value, so "the row with the largest score" needs
-    /// no `Ord` on the row.
+    /// `maximum` is this with the type's own `Ord`. This form takes the order as
+    /// a value, so "the row with the largest score" needs no `Ord` on the row.
     export fn maxBy(self, cmp: fn(T, T) => Order): Option<T> {
         self.fold(
             fn(best, x) => {
@@ -146,10 +145,10 @@ impl<T> [T] {
     }
 }
 
-/// Walked by index rather than folded, because a fold's lambda would have to
-/// capture the other list — and a lambda may not capture a value whose type
+/// This walks by index rather than folding, because a fold's lambda would have
+/// to capture the other list — and a lambda may not capture a value whose type
 /// could be a context, which `[T]` with an unbounded `T` could (SPEC 10.6).
-/// The same reason `chainAt` in `core/order` is written this way.
+/// `chainAt` in `core/order` is written this way for the same reason.
 fn compareFrom<T>(a: [T], b: [T], cmp: fn(T, T) => Order, at: Int): Order {
     match ((a.get(at), b.get(at))) {
         (.None, .None) => .Equal,
@@ -181,11 +180,11 @@ impl<T: Ord> [T] {
     /// The type's own order, lexicographically over the list — `compareBy`
     /// with `T`'s `compare`.
     ///
-    /// A `Ord for [T]` conformance is what this would be if the language had
-    /// one to declare: an `impl` is registered against a type *constructor*
-    /// and `[T]` is not one, which is why `[T]`'s structural conformance
-    /// (SPEC 5.11) is the compiler's rather than this module's. This is that
-    /// same order, callable by name.
+    /// This would be an `Ord for [T]` conformance if the language had one to
+    /// declare. An `impl` registers against a type *constructor* and `[T]` is
+    /// not one, which is why the compiler owns `[T]`'s structural conformance
+    /// (SPEC 5.11) rather than this module. This is that same order, callable
+    /// by name.
     export fn compare(self, other: [T]): Order {
         self.compareBy(other, fn(a, b) => a.compare(b))
     }
@@ -198,28 +197,28 @@ impl<A> [A] {
 
     export fn mapCtx<B, C: Alloc>(self, ctx: C, f: fn(C, A) => B): [B];
 
-    /// `mapCtx`, with the step run by the runtime rather than by a loop the
+    /// `mapCtx`, with the runtime running the step rather than a loop the
     /// backend writes. The answer is `mapCtx`'s answer, element for element.
     ///
-    /// It exists to be *compared*. Every combinator above is open-coded by every
-    /// backend, so a whole mechanism the language will need — the runtime calling
+    /// It exists to be *compared*. Every backend open-codes every combinator
+    /// above, so a whole mechanism the language will need — the runtime calling
     /// back into Buri code, through a generated entry thunk, at an element type
-    /// it cannot name — has nowhere to be exercised until something uses it. This
-    /// is that something: one operation whose answer is already known, so that
-    /// the boundary can be landed and proved on its own rather than underneath
+    /// it cannot name — has nowhere to get exercised until something uses it.
+    /// This is that something: one operation whose answer is already known, so
+    /// the boundary can land and prove itself on its own rather than underneath
     /// the first scheduler that needs it.
     ///
-    /// Prefer `mapCtx`. This is slower by an indirect call per element and there
-    /// is no case where it is the better tool.
+    /// Prefer `mapCtx`. This is slower by an indirect call per element, and no
+    /// case makes it the better tool.
     export fn mapCtxStep<B, C: Alloc>(self, ctx: C, f: fn(C, A) => B): [B];
 
     /// `map` with a step that can fail: every element mapped, or the first
     /// `.Err` and nothing after it.
     ///
-    /// The traversal a `Result` per element otherwise gets written as a fold
-    /// over `foldResult` at every call site. It stops at the first failure —
-    /// `f` is not called again — so a validation reports the first bad element
-    /// rather than the last.
+    /// Without it, a `Result` per element turns into a fold over `foldResult` at
+    /// every call site. It stops at the first failure — it never calls `f`
+    /// again — so a validation reports the first bad element rather than the
+    /// last.
     ///
     /// ```buri run
     /// from "core/effect" import { Alloc, Stdout };
@@ -266,13 +265,13 @@ impl<A> [A] {
         )
     }
 
-    /// `mapResult`, with the context passed to the step rather than captured.
+    /// `mapResult`, but the step takes the context instead of capturing it.
     ///
-    /// The form a validation actually takes: checking an element usually
+    /// The form a validation actually takes. Checking an element usually
     /// *allocates* — a message, a parsed value, a list — and a lambda may not
-    /// capture a context (SPEC 10.6), so a step that needs one has to be handed
-    /// it. This is `mapCtx` and `foldResultCtx`'s arrangement, for the same
-    /// reason each of those exists.
+    /// capture a context (SPEC 10.6), so somebody has to hand a step the
+    /// context it needs. This is `mapCtx` and `foldResultCtx`'s arrangement,
+    /// for the same reason each of those exists.
     export fn mapResultCtx<B, E, C: Alloc>(
         self,
         ctx: C,
@@ -311,7 +310,7 @@ impl<A> [A] {
         }
     }
 
-    /// `mapOption`, with the context passed to the step rather than captured.
+    /// `mapOption`, but the step takes the context instead of capturing it.
     export fn mapOptionCtx<B, C: Alloc>(
         self,
         ctx: C,
@@ -333,11 +332,11 @@ impl<A> [A] {
         }
     }
 
-    /// Maps and filters in one pass: an element `f` answers `.None` for is
-    /// dropped, and the `.Some` payloads are the result.
+    /// Maps and filters in one pass: it drops an element `f` answers `.None`
+    /// for, and the `.Some` payloads are the result.
     ///
-    /// Written by hand it is a `map` to a zero-or-one-element list and a
-    /// `flatten`, which allocates a list per element to throw it away again.
+    /// By hand it is a `map` to a zero-or-one-element list and a `flatten`,
+    /// which allocates a list per element only to throw it away again.
     export fn filterMap<B, C: Alloc>(self, ctx: C, f: fn(A) => Option<B>): [B] {
         self.foldCtx(
             ctx,
@@ -351,7 +350,7 @@ impl<A> [A] {
         )
     }
 
-    /// `filterMap`, with the context passed to the step rather than captured.
+    /// `filterMap`, but the step takes the context instead of capturing it.
     export fn filterMapCtx<B, C: Alloc>(self, ctx: C, f: fn(C, A) => Option<B>): [B] {
         self.foldCtx(
             ctx,
@@ -413,8 +412,9 @@ impl<T> [T] {
     ///
     /// A list shorter than `size` has no windows, and a `size` of zero or less
     /// has none either — the alternative is an infinite number of empty ones.
-    /// Checking that neighbours are in order, or that a sequence has no gap,
-    /// is a `windows(ctx, 2)` and an `all` rather than arithmetic on indices.
+    /// To check that neighbours are in order, or that a sequence has no gap,
+    /// reach for `windows(ctx, 2)` and an `all` rather than arithmetic on
+    /// indices.
     export fn windows<C: Alloc>(self, ctx: C, size: Int): [[T]] {
         if (size <= 0) {
             empty<[T]>()
@@ -424,7 +424,7 @@ impl<T> [T] {
     }
 
     /// The first element of each class `cmp` calls `.Equal`, in the order they
-    /// arrived — the list's order is kept, not the comparator's, and two equal
+    /// arrived — it keeps the list's order, not the comparator's, and two equal
     /// elements need not be neighbours.
     ///
     /// O(n²) comparisons, because keeping the first occurrence means asking
