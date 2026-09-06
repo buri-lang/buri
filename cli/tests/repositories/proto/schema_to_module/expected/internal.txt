@@ -30,10 +30,10 @@ error: there is nothing named `encodePoint` in scope [unresolved-name]
      Why
      ───
 
-     There is no prelude and no ambient scope: the names available in a module
-     are the ones it declares plus the ones its own imports name. That is what
-     makes the suggestion trustworthy — the set it is drawn from is exactly the
-     set the file put there.
+     There is no prelude and no ambient scope. A module's available names are
+     the ones it declares plus the ones its own imports name. That is what makes
+     the suggestion trustworthy: it is drawn from exactly the set the file put
+     there.
 
 error: there is nothing named `decodePoint` in scope [unresolved-name]
   --> cmd/app/main.buri:17:26

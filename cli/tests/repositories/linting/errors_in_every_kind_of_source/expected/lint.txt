@@ -15,9 +15,9 @@ error: `Fs` is not a trait or effect [not-a-trait]
     Why
     ───
 
-    A bound is resolved to a declaration and then checked as a table lookup.
-    There are no where clauses and no structural constraints, so there is
-    nothing a bound could name except a trait or an effect.
+    A bound resolves to a declaration, and the compiler then checks it with a
+    table lookup. There are no where clauses and no structural constraints, so a
+    bound has nothing else it could name.
 
 error: `C` does not satisfy `Alloc` [unsatisfied-bound]
  --> lib/db/manager.buri:7:5
@@ -51,10 +51,10 @@ error: expected `Str`, found `Int` [type-mismatch]
      Why
      ───
 
-     No promotion of any kind, in either direction. A language that widened
-     silently would make the width of an arithmetic result a property of the
-     expression's shape rather than of what was written, and the one place it
-     matters is the one place nobody looks.
+     There is no promotion of any kind, in either direction. A language that
+     widened silently would make the width of an arithmetic result depend on the
+     shape of the expression rather than on what you wrote, and the one place
+     that matters is the one place nobody looks.
 
 error: `Fs` is not a declared effect [not-an-effect]
   --> lib/db/test/residency.buri:14:9
@@ -72,8 +72,8 @@ error: `Fs` is not a declared effect [not-an-effect]
      Why
      ───
 
-     A context binds effects to implementations, so each key has to be one — and
-     the set of them is core/effect's, plus ui/effect's where the platform
+     A context binds effects to implementations, so every key has to be an
+     effect. The set is core/effect's, plus ui/effect's where the platform
      grants them.
 
 error: expected `Str`, found `Int` [type-mismatch]

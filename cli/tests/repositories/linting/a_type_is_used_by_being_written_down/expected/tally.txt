@@ -17,17 +17,17 @@ warning: nothing uses `Tally` [unused-type]
 
     A shape that was meant to be published. It models something a caller outside
     this library needs. Then the answer is not to use it here but to re-export
-    it from lib.buri: a name on the library's surface is public API and this
-    rule does not ask about it, because the consumer this analysis can see is
-    not the only one there is. A type declared under testing/ is measured
-    against testing/lib.buri the same way, and for the same reason — a fixture
-    is written for another package's suite.
+    it from lib.buri. A name on the library's surface is public API, and this
+    rule does not ask about it, because the consumers this analysis can see are
+    not the only ones there are. A type declared under testing/ is measured
+    against testing/lib.buri the same way, and for the same reason: a fixture is
+    written for another package's suite.
 
-    A shape that was meant to be wired in. It was written before the code that
-    would build it, and that code was never written. That is the real bug, and
-    finishing it is the fix.
+    A shape that was meant to be wired in. Somebody wrote it before the code
+    that would build it, and that code was never written. That is the real bug,
+    and finishing it is the fix.
 
-    A type's own impl and derive blocks are not uses of it: they describe the
-    shape rather than reach for it. That is what keeps a dead type with ten
+    A type's own impl and derive blocks are not uses of it. They describe the
+    shape rather than reach for it, which is what keeps a dead type with ten
     methods on it a dead type.
 

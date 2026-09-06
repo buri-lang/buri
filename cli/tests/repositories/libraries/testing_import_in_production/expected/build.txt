@@ -16,11 +16,11 @@ error: this is a test-only module [test-only-import]
     Why
     ───
 
-    The restriction is carried by the path rather than by a field, so it is
-    visible where the import is written and there is nothing to remember to
-    declare. Any module path with a testing *directory* segment is covered —
+    The path carries the restriction rather than a field, so you can see it
+    where the import is written and there is nothing to remember to declare. Any
+    module path with a testing *directory* segment is covered:
     core/testing/assert, //lib/ledger/testing, //lib/testing/fakes. A file
-    called testing.buri is not one: the segment that would have made it
+    called testing.buri is not one, because the segment that would have made it
     test-only is the file's own name.
 
 error: there is nothing named `sample` in scope [unresolved-name]
@@ -40,8 +40,8 @@ error: there is nothing named `sample` in scope [unresolved-name]
      Why
      ───
 
-     There is no prelude and no ambient scope: the names available in a module
-     are the ones it declares plus the ones its own imports name. That is what
-     makes the suggestion trustworthy — the set it is drawn from is exactly the
-     set the file put there.
+     There is no prelude and no ambient scope. A module's available names are
+     the ones it declares plus the ones its own imports name. That is what makes
+     the suggestion trustworthy: it is drawn from exactly the set the file put
+     there.
 

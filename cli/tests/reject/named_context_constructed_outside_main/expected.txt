@@ -17,7 +17,7 @@ error: a context may not be constructed here [context-not-allowed]
      ───
 
      Three places may mint authority: main's body, a test source, and a
-     test-only module. A lambda is not one of them, and cannot be — a closure
+     test-only module. A lambda is not one of them, and cannot be. A closure
      able to build a context could hand one to a caller that never named an
-     effect, which is exactly what the capture rule exists to prevent.
+     effect, which is exactly what the capture rule prevents.
 

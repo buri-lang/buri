@@ -21,27 +21,27 @@ error: circular type alias: `Depth` in "//lib/units/soundings.buri" -> `Sounding
     ──────────
 
     Decide which name on the chain is the real type and declare it as one. A
-    struct or an enum may refer to itself — that is what makes a list or a tree
-    expressible — because its fields are a boundary the compiler can stop at. An
+    struct or an enum may refer to itself, which is what makes a list or a tree
+    expressible, because its fields give the compiler a boundary to stop at. An
     alias has no boundary, so a chain of them has to end somewhere else.
 
     Why
     ───
 
-    type Handle = Str does not introduce a type; it introduces a spelling. Every
-    place Handle is written the compiler substitutes Str, and the program is the
-    one it would have been if Str had been written there. So type A = A; asks
-    for a spelling of itself, and substituting it leaves the same question
-    standing. There is no answer to reach and no fixed point to settle on.
+    type Handle = Str introduces a spelling, not a type. Everywhere you write
+    Handle the compiler substitutes Str, and you get the program you would have
+    written with Str in the first place. So type A = A; asks for a spelling of
+    itself, and substituting leaves the same question standing. There is no
+    answer to reach and no fixed point to settle on.
 
-    The diagnostic names the whole chain rather than only the declaration it
-    stopped at, because a cycle of three aliases has no single culprit — any one
-    of the three is the one to change — and because an exported alias lets the
-    chain cross a module, where the other half is in a file the reader is not
-    looking at. When it does cross, each name is printed with the module that
-    declares it and each of the other declarations carries a span of its own.
+    The diagnostic names the whole chain rather than the declaration it stopped
+    at. A cycle of three aliases has no single culprit, since changing any one
+    of the three fixes it. And an exported alias lets the chain cross a module,
+    putting the other half in a file you are not looking at. When it does cross,
+    the diagnostic prints each name with the module that declares it and gives
+    every other declaration a span of its own.
 
-    The alias resolves to the error type, so the signatures and fields written
-    in terms of it report nothing further: one cycle is one diagnostic, however
+    The alias resolves to the error type, so signatures and fields written in
+    terms of it report nothing further. One cycle is one diagnostic, however
     many places name it.
 
