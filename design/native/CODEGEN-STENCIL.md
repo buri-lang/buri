@@ -467,36 +467,37 @@ checks on the rule itself.
 
 The prototype this backend grew out of wrote into an `mmap`ed, `PROT_EXEC`able
 region and patched absolute addresses into it, because it executed what it
-emitted in its own process. A backend does not. The same emitter now writes into
-a plain `Vec<u8>` whose "addresses" are section offsets, and records what it
-cannot resolve as a relocation (`stencil/region.rs`).
+emitted in its own process. A backend does not. The same emitter now writes
+into a plain `Vec<u8>` whose "addresses" are section offsets, and records what
+it cannot resolve as a relocation (`stencil/region.rs`).
 
-**Nothing about the emitter had to change for that**, and the reason is the
-property that made this backend possible at all: *every stencil is
-position-independent*. A stencil's bytes are whatever clang emitted for a leaf C
-function; the only addresses in them are the holes, and a hole is a literal, a
-pc-relative branch, or a pc-relative load of the constant pool. Emitting at a
-virtual base of zero and letting the linker choose the real one is the **same**
-patching, and the two addresses a hole cannot know — a symbol in another object,
-and the runtime's — are exactly the two the relocation format exists for.
+**Nothing about the emitter had to change for that**, because of the property
+that made this backend possible at all: *every stencil is
+position-independent*. A stencil's bytes are whatever clang emitted for a leaf
+C function; the only addresses in them are the holes, and a hole is a literal,
+a pc-relative branch, or a pc-relative load of the constant pool. Emitting at
+a virtual base of zero and letting the linker choose the real one is the
+**same** patching, and the two addresses a hole cannot know — a symbol in
+another object, and the runtime's — are exactly the two the relocation format
+exists for.
 
 One object per codegen unit, which is the granularity
-`build::actions::codegen_units` caches at, and the granularity every backend in
+`build::actions::codegen_units` caches at and the granularity every backend in
 this repository has emitted at. Two sections:
 
 * `__TEXT,__text` — the code. **Every** call is an `ARM64_RELOC_BRANCH26`
-  against `ir::Func::symbol`, whether or not the unit owns the callee, which is
-  the name both sides already agree on.
+  against `ir::Func::symbol`, whether or not the unit owns the callee, which
+  is the name both sides already agree on.
 
-  That the intra-unit case is a relocation too is load-bearing rather than
+  Relocating the intra-unit case too is load-bearing rather than
   uniform-for-tidiness. This writer sets `MH_SUBSECTIONS_VIA_SYMBOLS`, which
   tells `ld64` that every symbol begins an independently movable atom, and
   `build/link.rs` passes `-Wl,-dead_strip` on every macOS link. A baked
   displacement is not a *reference*, so nothing reaches the callee's atom, so
-  the linker moves it and then deletes it and the `bl` lands on whatever took
+  the linker moves it, then deletes it, and the `bl` lands on whatever took
   its place. Resolving those branches at emit time — which is what the
   in-process prototype did, because it had no linker — failed **977 of 997**
-  native conformance tests through `buri test` while passing every test that
+  native conformance tests through `buri test`, while passing every test that
   linked with a bare `cc`. The relocated form costs nothing: the linker
   resolves an intra-section `BRANCH26` to the same instruction, and emission
   measured within 0.5% either way.
@@ -507,141 +508,145 @@ this repository has emitted at. Two sections:
   arm64 code").
 
 That in turn means the `adrp`/`ldr` pair reaching the pool crosses a section
-boundary, whose distance is the linker's choice — so the pair is **not patched
-at all**. It is left exactly as clang emitted it, both immediate fields zero,
-with an `ARM64_RELOC_PAGE21`/`ARM64_RELOC_PAGEOFF12` pair naming the slot. Which
-is what clang's GOT form was before the prototype retargeted it: the port comes
+boundary, whose distance is the linker's choice — so nothing patches the pair
+at all. It stays exactly as clang emitted it, both immediate fields zero, with
+an `ARM64_RELOC_PAGE21`/`ARM64_RELOC_PAGEOFF12` pair naming the slot. That is
+what clang's GOT form was before the prototype retargeted it: the port comes
 back to the relocation it started from, once there is a linker to honour it.
 
-The unit that owns `main` also carries a zero-filled `__DATA,__bss` section for
-the Buri stack (§8).
+The unit that owns `main` also carries a zero-filled `__DATA,__bss` section
+for the Buri stack (§8).
 
 `stencil/object.rs` is the Mach-O writer and `stencil/elf.rs` is the ELF one;
 §3.2's target table says which reader, extractor and writer each of the three
-targets uses. The paragraph that used to stand here said there was no ELF writer
-and that `Platform::Linux` was refused because of it. Both halves stopped being
-true when the Linux targets landed: `elf.rs` writes objects that `ld.lld`
-statically links with every relocation resolving, and what is still refused is
-the *link* on a foreign host rather than the emission (ARCHITECTURE.md §9).
+targets uses. The paragraph that used to stand here said there was no ELF
+writer, and that `Platform::Linux` was refused because of it. Both halves
+stopped being true when the Linux targets landed: `elf.rs` writes objects that
+`ld.lld` statically links with every relocation resolving, and what is still
+refused is the *link* on a foreign host rather than the emission
+(ARCHITECTURE.md §9).
 
 ### 4.1 Reproducibility of the object bytes
 
-Two things are checked rather than assumed, because ARCHITECTURE.md §7 compares
-these bytes:
+Two things are checked rather than assumed, because ARCHITECTURE.md §7
+compares these bytes:
 
-- **Symbol and section order is a function of declaration order**, and
-  declaration order is the middle end's function order, which is source order
-  (`monomorphize.rs`). Nothing in the emission path iterates a `HashMap`.
-- **No timestamps.** Neither writer emits one for a relocatable object. The
+- **Symbol and section order follows declaration order**, and declaration
+  order is the middle end's function order, which is source order
+  (`monomorphize.rs`). Nothing in the emission path iterates a `HashMap`. -
+  **No timestamps.** Neither writer emits one for a relocatable object. The
   archive step (§12) is where a timestamp could enter, and it is zeroed there.
 
-`a_cross_emission_is_reproducible` (§10.1) is that stated as a test for the two
-Linux targets, and `--check-reproducible` (ARCHITECTURE.md §7) is it for the
-host one. Neither half of this subsection is this backend's alone: both were
-written for the removed one and are true of both writers, which is why §13 lists
-them among what stayed.
+`a_cross_emission_is_reproducible` (§10.1) states that as a test for the two
+Linux targets, and `--check-reproducible` (ARCHITECTURE.md §7) states it for
+the host one. Neither half of this subsection is this backend's alone: both
+were written for the removed one and are true of both writers, which is why
+§13 lists them among what stayed.
 
 ### 4.2 What the emission does once, and what it does per unit, 2026-09-03
 
 The emitter's own work is copying stencils, and it always was fast. What was
-slow was everything arranged *around* the copying, and all four of the findings
-below came out of one profile — a real repository's `buri test //...`, eighteen
+slow was everything arranged *around* the copying. All four findings below
+came out of one profile — a real repository's `buri test //...`, eighteen
 packages, 173 codegen units — where the whole of the compile was 5.8 s and the
 whole of the *running* was 1.2 s. §6.9 of `design/PERFORMANCE.md` is the
 measurement; this is what it changed.
 
-**One lowering, not two.** `build::actions::objects_named` lowers the program to
-hash the unit keys, and `emit_units` used to lower it again for the bytes. The
-comment that stood there said the two agreed by construction, which is true —
-`middle::lower` is a pure function of the program — and is exactly why the
-second one was waste. It is now handed over through
-`Backend::adopt_lowering`, a **hint** rather than a second entry point: emission
-is still `emit_units` and it still takes a `Program`, so a backend that ignores
+**One lowering, not two.** `build::actions::objects_named` lowers the program
+to hash the unit keys, and `emit_units` used to lower it again for the bytes.
+The comment that stood there said the two agreed by construction, which is
+true — `middle::lower` is a pure function of the program — and is exactly why
+the second one was waste. `Backend::adopt_lowering` now hands the first
+lowering over as a **hint** rather than as a second entry point: emission is
+still `emit_units` and it still takes a `Program`, so a backend that ignores
 the hint compiles what it always did. Each lowering carries a whole-program
-`middle::rc::analyze` inside it, and that pair was **1.0 s of an 8.2 s suite**.
-The hint is consumed rather than copied, so a second emission of a different
-program lowers for itself; two tests in `cli/tests/native/stencil.rs` hold both
-halves — the bytes are the ones the backend would have lowered, and a backend
-that adopted once does not serve the next program a stale IR.
+`middle::rc::analyze` inside it, and that pair was **1.0 s of an 8.2 s
+suite**. The hint is consumed rather than copied, so a second emission of a
+different program lowers for itself. Two tests in
+`cli/tests/native/stencil.rs` hold both halves: the bytes are the ones the
+backend would have lowered, and a backend that adopted once does not serve the
+next program a stale IR.
 
 **One `Cycles`, not one per unit.** `Jit::new` built its `Layouts` with
 `Layouts::new`, which walks every constructor in the program and runs Tarjan
-over them. `layout.rs`'s own header names that as the mistake it is — "building
-one per unit made a native build quadratic in the number of units",
+over them. `layout.rs`'s own header names that as the mistake it is —
+"building one per unit made a native build quadratic in the number of units",
 `design/PERFORMANCE.md` §6.4 — and names `Layouts::with_cycles` as the answer.
-The LLVM backend had taken it and this one had not. The analysis is now computed
-once per emission and shared, which is what turned its `Rc` into an `Arc`: it is
-the one handle inside a `Layouts` that crosses a thread.
+The LLVM backend had taken it and this one had not. The analysis is now
+computed once per emission and shared, which is what turned its `Rc` into an
+`Arc`: it is the one handle inside a `Layouts` that crosses a thread.
 
 **The units are compiled on a thread each.** `compile_unit` is a pure function
 of the whole-program tables — a `Jit`, a `Region` and a `Layouts` memo of its
-own, reading nothing another unit writes — which is `crate::parallel`'s contract
-exactly, and the whole-program work above the loop (the lowering, `frame_sigs`,
-`Cycles`) is what makes it one. `parallel::map` returns results in input order,
-so §4.1's byte-for-byte reproducibility is unaffected by how the work divided,
-and `emitting_one_program_twice_gives_the_same_objects_in_the_same_order` is
-that stated as a test.
+own, reading nothing another unit writes — which is `crate::parallel`'s
+contract exactly, and the whole-program work above the loop (the lowering,
+`frame_sigs`, `Cycles`) is what makes it one. `parallel::map` returns results
+in input order, so how the work divided does not affect §4.1's byte-for-byte
+reproducibility, and
+`emitting_one_program_twice_gives_the_same_objects_in_the_same_order` states
+that as a test.
 
-The ceiling this puts the emission against is **the largest single unit**, and
-on that repository it is `core/ordmap` at 11,267 monomorphized functions — the
+That leaves the emission against a ceiling: **the largest single unit**, which
+on that repository is `core/ordmap` at 11,267 monomorphized functions — the
 whole of the parallel emission's remaining time. Splitting a unit is a build
-system question (a unit is a cache key and an object file, ARCHITECTURE.md §5),
-so what closed the gap instead was making a function cheaper to emit:
+system question (a unit is a cache key and an object file, ARCHITECTURE.md
+§5), so what closed the gap instead was making a function cheaper to emit:
 
 **A `Layout` is shared, not copied, and a `Ty` is borrowed, not cloned.**
-`Layouts::shared` exists because a `Layout` carries one `Vec<u32>` per variant,
-and its note says "every caller in a loop over instructions must use this". The
-reference-counting walk *is* that loop — `walk_rc` asks for a layout per field
-of per variant of every value it releases, and `rc` cloned the value's `Ty`
-once per reference operation in the program — and nothing in this backend used
-the shared form. The walk, the copy walk, the counted-type classifier and every
-`MakeStruct`/`GetField`/`GetPayload`/`MakeEnum`/`GetTag` now do.
+`Layouts::shared` exists because a `Layout` carries one `Vec<u32>` per
+variant, and its note says "every caller in a loop over instructions must use
+this". The reference-counting walk *is* that loop — `walk_rc` asks for a
+layout per field of per variant of every value it releases, and `rc` cloned
+the value's `Ty` once per reference operation in the program — and nothing in
+this backend used the shared form. The walk, the copy walk, the counted-type
+classifier and every `MakeStruct`/`GetField`/`GetPayload`/`MakeEnum`/`GetTag`
+now do.
 
 **A folded twin is found by index, not by name.** `Jit::emit` asks for
-`key+ifold+fold`, `key+fold` and `key+ifold` on **every stencil it copies**, and
-it asked by building three `String`s with `format!` and hashing each one — three
-allocations per machine instruction this backend emits. The names are a function
-of the library alone, so `Library::fold_twin` resolves them once, on first use,
-for the whole library; `every_fold_twin_is_found_by_index_and_by_name` is the
-standing check that the index and the names agree for every stencil of every
-library this toolchain bakes. `Jit::elidable_arm`, which the emitter asks twice
-per conditional branch, borrows its answer out of the library for the same
-reason.
+`key+ifold+fold`, `key+fold` and `key+ifold` on **every stencil it copies**,
+and it asked by building three `String`s with `format!` and hashing each one —
+three allocations per machine instruction this backend emits. The names are a
+function of the library alone, so `Library::fold_twin` resolves them once, on
+first use, for the whole library.
+`every_fold_twin_is_found_by_index_and_by_name` is the standing check that the
+index and the names agree for every stencil of every library this toolchain
+bakes. `Jit::elidable_arm`, which the emitter asks twice per conditional
+branch, borrows its answer out of the library for the same reason.
 
 ### 4.3 A unit is emitted in parts, 2026-09-04
 
 §4.2 left the emission against one wall: **the largest single unit**. Units
 compile on a thread each, so an emission cannot finish before its biggest unit
-does, and on the repository §4.2 was measured against that is `core/ordmap`
-instantiated at one program's key types — 11,267 functions, 1.10 s, which was
-the whole of a ten-thread emission.
+does, and on the repository §4.2 was measured against that unit is
+`core/ordmap` instantiated at one program's key types — 11,267 functions, 1.10
+s, the whole of a ten-thread emission.
 
 Two ways past it were available and only one of them is cheap. Splitting the
 unit is a build-system change: a unit is a cache key and an object file
 (ARCHITECTURE.md §5), so a smaller unit is a different cache, a different
-manifest and a different link line. Dividing the *inside* of a unit is not: the
-object is still one object, under the same key, holding the same symbols in the
-same order. That is what this is.
+manifest and a different link line. Dividing the *inside* of a unit is not:
+the object is still one object, under the same key, holding the same symbols
+in the same order. That is what this is.
 
 **A part is a contiguous run of a unit's members, emitted into a region of its
 own.** `mod.rs::cut` cuts the unit's members — which `funcs_by_unit` yields in
-ascending index — into `ceil(members / PART_MEMBERS)` runs of equal size, evenly
-rather than into full parts and a remainder, because a last part holding one
-function is a worker's turn spent on setup. Every part builds its own `Jit`, its
-own `Region` and its own helper table, and `region::Emitted::append`
-concatenates the regions in part order afterwards.
+ascending index — into `ceil(members / PART_MEMBERS)` runs of equal size,
+evenly rather than into full parts and a remainder, because a last part
+holding one function is a worker's turn spent on setup. Every part builds its
+own `Jit`, its own `Region` and its own helper table, and
+`region::Emitted::append` concatenates the regions in part order afterwards.
 
-**The property that makes it legal is one this backend already had.** A part is
-emitted at a base of zero, and so is the next one, and moving a part is adding
-one number to each offset it carries — because *no address is ever baked into
-this backend's code*. §4's first bullet is the reason: every call is a
-relocation against `ir::Func::symbol` whether or not the unit owns the callee,
-a constant-pool reference is an `ARM64_RELOC_PAGE21`/`PAGEOFF12` pair the linker
-resolves, and the one thing that is resolved at emit time — a function-local
-branch — is resolved inside the part, where the distance between two blocks of
-one function is the same whatever the base is. So `append` moves a relocation's
-site by its section's base, moves a `Target::Pool` addend by the pool's, and
-rewrites no bytes at all.
+**The property that makes it legal is one this backend already had.** A part
+is emitted at a base of zero, and so is the next one, and moving a part is
+adding one number to each offset it carries — because *no address is ever
+baked into this backend's code*. §4's first bullet is the reason: every call
+is a relocation against `ir::Func::symbol` whether or not the unit owns the
+callee, a constant-pool reference is an `ARM64_RELOC_PAGE21`/`PAGEOFF12` pair
+the linker resolves, and the one thing that is resolved at emit time — a
+function-local branch — is resolved inside the part, where the distance
+between two blocks of one function is the same whatever the base is. So
+`append` moves a relocation's site by its section's base, moves a
+`Target::Pool` addend by the pool's, and rewrites no bytes at all.
 
 **What a part cannot share with the parts beside it, and what that costs.**
 Three things are per-`Jit` and become per-part: the constant pool's
@@ -649,38 +654,41 @@ deduplication (`Region::pool_index`), the map of where a stencil's spilled
 constants were copied (`Jit::spilled`, x86-64 only), and the generated glue
 (`glue.rs`). The glue is the one that needs a decision, because a helper's
 symbol is minted from its index and two parts do not know what the other asked
-for — so `glue::symbol` takes *two* numbers, the part and the index, and two
+for. So `glue::symbol` takes *two* numbers, the part and the index, and two
 parts that both drop a `[Str]` get a copy each under different local names.
-Measured on a synthetic of the §6.9 shape, the whole of that costs about **1%**
-of the object bytes at `PART_MEMBERS = 512`, and about 0.2% more per halving.
+Measured on a synthetic of the §6.9 shape, the whole of that costs about
+**1%** of the object bytes at `PART_MEMBERS = 512`, and about 0.2% more per
+halving.
 
 **What is kept per worker rather than per part**, because it is a memo and not
 an answer: the `Layouts` table and the counted-type classifier, handed between
-the parts one worker emits as `jit::Scratch` through `parallel::map_with`. They
-are caches of a pure function of the type tables, which is that function's
-scratch contract exactly; paying for them per part would have been most of what
-the division bought.
+the parts one worker emits as `jit::Scratch` through `parallel::map_with`.
+They are caches of a pure function of the type tables, which is that
+function's scratch contract exactly; paying for them per part would have been
+most of what the division bought.
 
 **One flat work list, not a pool per unit.** Every unit's parts go into one
-`parallel::map_with` and the per-unit pool that assembles the objects runs after
-it. A pool inside a pool would start `cores × cores` threads, and it would still
-queue the big unit's parts behind that unit's own turn rather than beside every
-other unit's work.
+`parallel::map_with`, and the per-unit pool that assembles the objects runs
+after it. A pool inside a pool would start `cores × cores` threads, and it
+would still queue the big unit's parts behind that unit's own turn rather than
+beside every other unit's work.
 
-**What is still serial, and why.** Everything downstream of the concatenation is
-one unit's own and stays on the unit's thread: the symbol table, the relocation
-list, the object writer, and the `codegen` key's digest. The key's *text* moved
-into the parts — it is `render_func` over the part's members, and concatenating
-the parts' texts in part order is the same string byte for byte — but the digest
-of it is one stream and stays where it was. On the synthetic's biggest unit that
-leaves about 65 ms of assembly against about 500 ms of body emission, which is
-the next thing in the way rather than a thing to fix now.
+**What is still serial, and why.** Everything downstream of the concatenation
+is one unit's own and stays on the unit's thread: the symbol table, the
+relocation list, the object writer, and the `codegen` key's digest. The key's
+*text* moved into the parts — it is `render_func` over the part's members, and
+concatenating the parts' texts in part order gives the same string byte for
+byte — but the digest of it is one stream and stays where it was. On the
+synthetic's biggest unit that leaves about 65 ms of assembly against about 500
+ms of body emission, which is the next thing in the way rather than a thing to
+fix now.
 
-The two standing checks are in `cli/tests/native/stencil.rs`:
+The two standing checks are in `cli/tests/native/stencil.rs`.
 `a_unit_of_several_parts_emits_the_same_bytes_twice` builds a unit of at least
-three parts and asserts the bytes and the `codegen` key are identical across two
-emissions, and `a_unit_of_several_parts_links_and_runs` links that object and
-executes it — because every way a part boundary goes wrong is a linking way.
+three parts and asserts the bytes and the `codegen` key are identical across
+two emissions, and `a_unit_of_several_parts_links_and_runs` links that object
+and executes it — because every way a part boundary goes wrong is a linking
+way.
 
 ## 5. The runtime boundary
 
