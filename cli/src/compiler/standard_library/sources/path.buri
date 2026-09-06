@@ -1,36 +1,36 @@
-//! core/path — where a file is, as a type rather than as a `Str`.
+//! core/path — where a file is, as a type instead of a `Str`.
 //!
-//! A `Path` is a string that has been through [`of`], and that is the whole of
-//! the promise: **every `Path` is spelled the one way**. `"logs//app/"`,
-//! `"logs/./app"` and `"logs/app"` are one path and compare equal, because the
-//! spelling was settled once — at the boundary where text became a path —
-//! rather than at each of the places that later compare two of them.
+//! Every `Path` comes out of [`of`], and that is the whole promise: **every
+//! `Path` is spelled one way**. `"logs//app/"`, `"logs/./app"` and
+//! `"logs/app"` are the same path and compare equal. The spelling gets settled
+//! once, at the boundary where text becomes a path, instead of at every place
+//! that later compares two of them.
 //!
-//! Everything in `core/fs` takes one. A filesystem operation that took a `Str`
-//! would take *any* `Str`, including the one four `${dir}/${name}`
-//! interpolations built with a separator too many, and the file it did not
-//! open would be reported as `.NotFound` — the same answer a genuinely missing
-//! file gives. The type is what moves that from the failure to the call.
+//! Everything in `core/fs` takes one. A filesystem call that took a `Str`
+//! would take *any* `Str`, including the one that four `${dir}/${name}`
+//! interpolations built with a separator too many. The file it failed to open
+//! would come back `.NotFound` — the same answer a genuinely missing file
+//! gives. The type moves that mistake from the failure to the call.
 //!
-//! ## What normalizing does, and what it deliberately does not
+//! ## What normalizing does, and what it won't do
 //!
 //! [`of`] drops empty components and `.` components, drops a trailing
 //! separator, and keeps a leading one. It does **not** resolve `..`.
 //!
-//! That second half is the interesting one. Removing `a/..` from `a/../b`
-//! looks like the same kind of tidying, and it is not: where `a` is a symbolic
-//! link, `a/../b` and `b` name two different files, so a normalizer that
-//! resolved `..` would quietly rewrite one into the other. `..` is therefore
-//! a component like any other — it survives, it compares equal to itself, and
-//! what it means is the filesystem's business rather than this module's.
+//! That second half is the interesting one. Turning `a/../b` into `b` looks
+//! like more of the same tidying, but it isn't. If `a` is a symbolic link,
+//! `a/../b` and `b` name two different files, so a normalizer that resolved
+//! `..` would quietly rewrite one into the other. So `..` is a component like
+//! any other. It survives, it compares equal to itself, and what it means is
+//! the filesystem's business, not this module's.
 //!
 //! ## Pure and allocating, as everywhere else
 //!
 //! [`Path::parent`], [`Path::fileName`], [`Path::stem`], [`Path::extension`]
 //! and [`Path::isAbsolute`] are **views** into a path that already exists, so
 //! they are pure and take no context (SPEC 10.5). [`of`], [`Path::join`],
-//! [`Path::withSuffix`] and [`Path::components`] build something new and name
-//! `Alloc`.
+//! [`Path::withSuffix`] and [`Path::components`] build something new, so they
+//! name `Alloc`.
 //!
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
@@ -62,18 +62,18 @@ from "core/str" import * as str;
 derive Eq, Show for Path;
 /// A filesystem path, in the one spelling [`of`] gives it.
 ///
-/// The text inside is not reachable as a field, and that is the invariant: a
-/// value of this type came through [`of`], so nothing downstream has to ask
-/// whether it did. [`Path::text`] hands the spelling back for the places that
-/// need a `Str` — a log line, an error message, a wire format.
+/// You can't reach the text as a field, and that's the invariant: this value
+/// came through [`of`], so nothing downstream has to ask whether it did.
+/// [`Path::text`] hands the spelling back when you need a `Str` — a log line,
+/// an error message, a wire format.
 export struct Path(Str);
 
 /// The path this text spells, normalized.
 ///
-/// Total: there is no text this refuses, because there is no text a filesystem
-/// refuses to be asked about. The empty string is `"."` — the directory a
-/// relative path is relative to — because `""` names nothing on any platform
-/// and `"."` is what a program that wrote it meant.
+/// Total: it refuses no text, because a filesystem refuses to be asked about
+/// no text. The empty string becomes `"."`, the directory a relative path is
+/// relative to, because `""` names nothing on any platform and `"."` is what
+/// the program that wrote it meant.
 ///
 /// ```buri run
 /// from "core/effect" import { Alloc, Stdout };
@@ -115,8 +115,8 @@ fn named<C: Alloc>(ctx: C, text: Str): [Str] {
     text.split(ctx, "/").filter(ctx, fn(part) => part != "" && part != ".")
 }
 
-/// Everything after the last separator, which for a path with no separator is
-/// the whole of it. A view: `splitOnce` copies nothing.
+/// Everything after the last separator. For a path with no separator, the
+/// whole thing. A view: `splitOnce` copies nothing.
 fn lastComponent(text: Str): Str {
     match (text.splitOnce("/")) {
         .None => text,
@@ -132,11 +132,11 @@ fn lastDot(name: Str, start: Int, best: Option<Int>): Option<Int> {
     }
 }
 
-/// Where the extension starts in `name`, as an index of its dot.
+/// Where the extension starts in `name`, as the index of its dot.
 ///
-/// `.None` where there is no extension, which is three cases and not one: no
-/// dot at all (`README`), a dot that begins the name (`.gitignore` is a name,
-/// not an extension), and a dot that ends it (`archive.`).
+/// `.None` where there is no extension, which covers three cases: no dot at
+/// all (`README`), a dot that begins the name (`.gitignore` is a name, not an
+/// extension), and a dot that ends it (`archive.`).
 fn extensionDot(name: Str): Option<Int> {
     match (lastDot(name, 0, .None)) {
         .None => .None,
@@ -149,9 +149,9 @@ fn extensionDot(name: Str): Option<Int> {
 impl Path {
     /// The spelling, for the places that need a `Str`.
     ///
-    /// A view into the path rather than a copy, so it is pure. Whatever comes
-    /// back is normalized, which is what makes it safe to hand to something
-    /// that will join more text onto it.
+    /// A view into the path rather than a copy, so it's pure. What comes back
+    /// is normalized, which makes it safe to hand to something that will join
+    /// more text onto it.
     export fn text(self): Str {
         self.0
     }
@@ -159,7 +159,7 @@ impl Path {
     /// Whether the path begins at the root.
     ///
     /// The other half of what [`Path::components`] answers: that list never
-    /// carries the leading separator, so `/a/b` and `a/b` have the same
+    /// carries the leading separator, so `/a/b` and `a/b` share their
     /// components and differ here.
     export fn isAbsolute(self): Bool {
         self.0.startsWith("/")
@@ -167,12 +167,12 @@ impl Path {
 
     /// This path with `other` appended to it, normalized.
     ///
-    /// **An absolute `other` is appended, not substituted.** `join` never
-    /// changes the root: `path.of(ctx, "/srv").join(ctx, "/etc")` is
-    /// `/srv/etc`. The other behaviour — an absolute argument silently
-    /// replacing the receiver — is how a program that joined a user's string
-    /// onto its own directory ends up reading `/etc/passwd`, and a caller that
-    /// meant the other path is already holding it.
+    /// **`join` appends an absolute `other`, it doesn't substitute it.** The
+    /// root never changes: `path.of(ctx, "/srv").join(ctx, "/etc")` is
+    /// `/srv/etc`. The other behaviour, where an absolute argument silently
+    /// replaces the receiver, is how a program that joins a user's string onto
+    /// its own directory ends up reading `/etc/passwd`. A caller that meant the
+    /// other path is already holding it.
     ///
     /// ```buri run
     /// from "core/effect" import { Alloc, Stdout };
@@ -202,17 +202,17 @@ impl Path {
         of(ctx, str.format(ctx, "${left}/${other}"))
     }
 
-    /// The directory this path is in: everything before its last component.
+    /// The directory this path sits in: everything before its last component.
     ///
     /// A relative path of one component answers `.`, because the directory
-    /// holding `app.log` is the one a relative path is relative to and that is
-    /// the path that names it. `.None` is for the two paths that name no
-    /// containing directory at all: the root, which is above everything, and
-    /// `.` itself, whose parent would have to be invented as `..`.
+    /// holding `app.log` is the one a relative path is relative to, and `.`
+    /// names it. `.None` is for the two paths that name no containing
+    /// directory at all: the root, which is above everything, and `.` itself,
+    /// whose parent would have to be invented as `..`.
     ///
-    /// Lexical, like the rest of this module: the parent of `a/..` is `a`,
-    /// because the last component is dropped and `..` is a component. See the
-    /// module header for why `..` is not resolved.
+    /// Lexical, like the rest of this module. The parent of `a/..` is `a`:
+    /// `parent` drops the last component, and `..` is a component. See the
+    /// module header for why it doesn't resolve `..`.
     ///
     /// ```buri run
     /// from "core/effect" import { Alloc, Stdout };
@@ -255,12 +255,11 @@ impl Path {
         }
     }
 
-    /// The last component, where that component names a file.
+    /// The last component, when that component names a file.
     ///
     /// `.None` for the root and for `.`, which have no last component, and for
-    /// a path ending in `..`, which has one that names no file — the directory
-    /// it refers to is named by where the path is resolved from, not by the
-    /// path.
+    /// a path ending in `..`, whose last component names no file — where the
+    /// path gets resolved from decides which directory that is, not the path.
     export fn fileName(self): Option<Str> {
         let last = lastComponent(self.0);
         if (last == "" || last == "." || last == "..") { .None } else { .Some(last) }
@@ -283,8 +282,8 @@ impl Path {
     /// What follows the last `.` of the file name, without the dot.
     ///
     /// `.None` where the name has no extension: `README` has no dot,
-    /// `.gitignore`'s dot begins the name rather than separating an extension
-    /// from it, and `archive.`'s ends it.
+    /// `.gitignore`'s dot begins the name instead of separating an extension
+    /// from it, and `archive.`'s dot ends the name.
     ///
     /// ```buri run
     /// from "core/effect" import { Alloc, Stdout };
@@ -325,9 +324,9 @@ impl Path {
 
     /// This path with `suffix` written onto the end of its text.
     ///
-    /// The sibling a temporary is written to — `fs.writeAtomic` names its
-    /// scratch file this way — so it deliberately appends to the *whole* name
-    /// rather than replacing the extension: `data.db` and `data.log` want two
+    /// This is how you name a temporary beside a file — `fs.writeAtomic` names
+    /// its scratch file this way — so it appends to the *whole* name rather
+    /// than replacing the extension. `data.db` and `data.log` want two
     /// different temporaries, and `withExtension` would give them one.
     ///
     /// `.None` where there is no last component to append to, which is the
@@ -342,9 +341,9 @@ impl Path {
     /// The components that name something, in order, without the leading
     /// separator.
     ///
-    /// `/a/b` and `a/b` answer the same two, and [`Path::isAbsolute`] is what
-    /// tells them apart — the root is not a component, it is where the walk
-    /// starts. The root and `.` answer the empty list.
+    /// `/a/b` and `a/b` answer the same two, and [`Path::isAbsolute`] tells
+    /// them apart — the root is not a component, it's where the walk starts.
+    /// The root and `.` answer the empty list.
     export fn components<C: Alloc>(self, ctx: C): [Str] {
         named(ctx, self.0)
     }

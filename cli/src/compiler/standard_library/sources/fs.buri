@@ -1,14 +1,14 @@
-//! core/fs — the filesystem: the two effects, and the doors onto them.
+//! core/fs — the filesystem: two effects, and the doors onto them.
 //!
-//! Every function here names `FsRead` or `FsWrite` in its bounds, so the disk
-//! is visible in the signature — and *which half* of the disk is visible too.
+//! Every function here names `FsRead` or `FsWrite` in its bounds. The disk is
+//! visible in the signature, and so is *which half* of the disk.
 //!
 //! ## Reading and writing are two authorities
 //!
-//! `FsRead` is four methods and `FsWrite` is eight, and they are two effects
-//! rather than one because they are two grants. A program that reads its
-//! configuration has not thereby earned the right to delete it, and the
-//! difference is one a reader of a context should be able to see:
+//! `FsRead` has four methods, `FsWrite` has eight. They are two effects rather
+//! than one because they are two grants. A program that reads its
+//! configuration hasn't thereby earned the right to delete it, and anyone
+//! reading a context should be able to see the difference:
 //!
 //! ```buri sig
 //! # from "core/effect" import { Alloc, IoError };
@@ -20,56 +20,56 @@
 //! }
 //! ```
 //!
-//! That signature is a promise the compiler keeps: nothing `settings` calls
-//! can write, because nothing it could hand `ctx` to can ask for `FsWrite`
-//! from a context that does not bind it.
+//! The compiler keeps that promise: nothing `settings` calls can write,
+//! because nothing it hands `ctx` to can ask for `FsWrite` from a context that
+//! doesn't bind it.
 //!
 //! The cost is that a program doing both binds both — `FsRead: host.fs,
-//! FsWrite: host.fs`, one filesystem under two authorities — and that is
-//! deliberate rather than a shortcoming waiting for a language feature. It is
-//! also what makes a *decorator* cheap: a fake or a fault injector that only
-//! has to be read from restates four methods rather than twelve.
+//! FsWrite: host.fs`, one filesystem under two authorities. That's deliberate,
+//! not a gap waiting for a language feature. It also makes a *decorator*
+//! cheap: a fake or a fault injector that only gets read from restates four
+//! methods rather than twelve.
 //!
 //! ## Every operation takes a `Path`
 //!
 //! Not a `Str`. `core/path` normalizes text once, at the boundary where it
 //! becomes a path, so a separator too many is a compile-time conversation
 //! rather than a `.NotFound` that reads exactly like a missing file. See that
-//! module for what normalizing does and, more importantly, what it does not.
+//! module for what normalizing does and, more importantly, what it won't do.
 //!
 //! ## Directories
 //!
-//! `makeDir` creates one and every missing parent of it; `removeDir` removes
-//! one that is **empty**. Neither is recursive, and the asymmetry is only
-//! apparent: creating a parent nobody asked for leaves a directory where a
-//! directory was wanted, and deleting a child nobody named deletes a file
-//! somebody wrote. So the creation is `mkdir -p` and the removal is `rmdir`,
-//! and a program that wants a recursive delete writes the walk out of `listDir`,
-//! `remove` and `removeDir` — where every path it deletes is one it named.
+//! `makeDir` creates a directory and every missing parent of it. `removeDir`
+//! removes one that is **empty**. Neither is recursive, and the asymmetry is
+//! only apparent: creating a parent nobody asked for leaves a directory where
+//! somebody wanted a directory, while deleting a child nobody named deletes a
+//! file somebody wrote. So creation is `mkdir -p`, removal is `rmdir`, and a
+//! program that wants a recursive delete writes the walk itself out of
+//! `listDir`, `remove` and `removeDir` — where it named every path it deletes.
 //!
 //! ## Text and octets
 //!
-//! `readText` and `writeText` are the text pair; `readBytes` and `writeBytes`
+//! `readText` and `writeText` are the text pair. `readBytes` and `writeBytes`
 //! are the same two operations without an encoding step. Reading text
-//! substitutes U+FFFD for what is not valid UTF-8, so a file that is not text
-//! has to be read as octets to come back unchanged.
+//! substitutes U+FFFD for anything that is not valid UTF-8, so read a file
+//! that is not text as octets to get it back unchanged.
 //!
 //! ## What is atomic, and what is durable
 //!
-//! Two different promises, and a program that keeps a write-ahead log needs
-//! both stated rather than assumed.
+//! Two different promises. A program that keeps a write-ahead log needs both
+//! stated rather than assumed.
 //!
-//! **Atomic** is `rename`, and only `rename`: after it returns, the
-//! destination names either the file it named before or the file the source
-//! named, never a mixture and never nothing. Within one filesystem this is the
-//! operating system's own guarantee — POSIX `rename(2)`, which the JavaScript
-//! runner reaches through `fs.renameSync`. Across two filesystems there is no
-//! such operation, so the answer is `.Err(.CrossDevice)` rather than a copy
-//! that pretends.
+//! **Atomic** is `rename`, and only `rename`. Once it returns, the destination
+//! names either the file it named before or the file the source named — never
+//! a mixture, never nothing. Within one filesystem that is the operating
+//! system's own guarantee: POSIX `rename(2)`, which the JavaScript runner
+//! reaches through `fs.renameSync`. Across two filesystems no such operation
+//! exists, so the answer is `.Err(.CrossDevice)` rather than a copy that
+//! pretends.
 //!
 //! **Durable** is `sync`, and only `sync`. `writeBytes` and `append` return
-//! when the platform accepted the octets, which is not the same as the storage
-//! device holding them. What each backend can promise:
+//! once the platform accepted the octets, which is not the same as the storage
+//! device holding them. What each backend promises:
 //!
 //! | Backend | `sync` is | Survives |
 //! |---|---|---|
@@ -78,18 +78,18 @@
 //! | JavaScript runner | `fs.fsyncSync` | the process, and the operating system |
 //! | `core/host/testing`'s `TestFs` | nothing to flush | the test that wrote it |
 //!
-//! The row that is easy to read past is macOS on the JavaScript runner: node's
-//! `fsync` is the plain `fsync(2)`, which on macOS asks the drive to write its
-//! cache and does not wait for it. The native backend asks for `F_FULLFSYNC`
-//! there, which does. Neither is wrong; they are different promises, and a
-//! program whose commit point must survive a power cut is entitled to know
-//! which one it has.
+//! The easy row to read past is macOS on the JavaScript runner. Node's `fsync`
+//! is the plain `fsync(2)`, which on macOS asks the drive to write its cache
+//! and does not wait for it. The native backend asks for `F_FULLFSYNC` there,
+//! which does wait. Neither is wrong — they are different promises, and a
+//! program whose commit point must survive a power cut deserves to know which
+//! one it has.
 //!
 //! `sync` on a **directory** flushes the directory entry rather than a file's
 //! contents, which is what makes a preceding `rename` durable rather than
-//! merely visible. The checkpoint sequence is therefore four calls —
-//! `writeBytes` the temporary, `sync` it, `rename` it over the old one, `sync`
-//! the directory holding both — and [`writeAtomic`] is those four written once.
+//! merely visible. So a checkpoint is four calls — `writeBytes` the temporary,
+//! `sync` it, `rename` it over the old one, `sync` the directory holding both
+//! — and [`writeAtomic`] is those four written once.
 
 from "core/effect" import { Alloc, IoError };
 from "core/path" import { Path };
@@ -100,26 +100,26 @@ from "core/path" export { Path };
 
 /// Looking at what is on the filesystem.
 ///
-/// The half of the filesystem that changes nothing. A context binding this and
-/// not `FsWrite` grants a program the authority to read and no authority at
-/// all to write, which is a sentence the type system will hold anyone to.
+/// The half of the filesystem that changes nothing. A context that binds this
+/// and not `FsWrite` grants a program authority to read and no authority at
+/// all to write, and the type system holds everyone to that.
 ///
 /// Declared here rather than in `core/effect` because every method names
-/// `Path`, and `core/path` names `Alloc` — so the declarations live on the
-/// side of that dependency where they can say what they mean.
+/// `Path`, and `core/path` names `Alloc`. The declarations live on the side of
+/// that dependency where they can say what they mean.
 export effect FsRead {
     fn readFile(self, path: Path): Result<Str, IoError>;
     fn fileExists(self, path: Path): Bool;
     fn readDir(self, path: Path): Result<[Str], IoError>;
 
     /// The octets, unchanged. `readFile` decodes UTF-8 and substitutes U+FFFD
-    /// for what is not; this is the operation for a file that is not text.
+    /// for anything that is not; use this for a file that is not text.
     fn readFileBytes(self, path: Path): Result<[U8], IoError>;
 }
 
 /// Changing what is on the filesystem.
 ///
-/// Eight methods, and none of them reads: a decorator over this restates these
+/// Eight methods, none of which reads. A decorator over this restates these
 /// eight, and a program that only writes — a logger, a recorder — binds this
 /// and nothing else.
 export effect FsWrite {
@@ -134,16 +134,16 @@ export effect FsWrite {
     /// Removes the directory, which must be **empty**. `.Err(.Other)` where it
     /// is not, and `.Err(.NotFound)` where the path names nothing.
     ///
-    /// Empty and not recursive, deliberately: the recursive version behind a
-    /// one-word name is a mistake that only happens once, and `removeDir`
-    /// below states the whole rule. It is the operation that lets a program
-    /// that made a scratch directory leave the filesystem as it found it —
-    /// `makeDir` had no inverse at all before it.
+    /// Empty and not recursive, deliberately: a recursive delete behind a
+    /// one-word name is a mistake that only happens once. `removeDir` below
+    /// states the whole rule. This is what lets a program that made a scratch
+    /// directory leave the filesystem as it found it — before it, `makeDir`
+    /// had no inverse at all.
     fn removeDir(self, path: Path): Result<(), IoError>;
     /// Parents included; an existing directory is `.Ok`.
     fn makeDir(self, path: Path): Result<(), IoError>;
-    /// The commit point: what was written to `path` is durable when this
-    /// returns. `sync` below states what each platform can promise.
+    /// The commit point: what was written to `path` is durable once this
+    /// returns. `sync` below states what each platform promises.
     fn syncFile(self, path: Path): Result<(), IoError>;
 }
 
@@ -170,8 +170,8 @@ export fn listDir<C: Alloc + FsRead>(ctx: C, path: Path): Result<[Str], IoError>
 /// The file's octets, unchanged.
 ///
 /// `.Err(.NotFound)` where the path names nothing, exactly as `readText` does.
-/// The difference from `readText` is only the encoding step: this is what a
-/// file holding a protobuf message or a log record wants, and `readText` would
+/// The only difference from `readText` is the encoding step. A file holding a
+/// protobuf message or a log record wants this one; `readText` would
 /// substitute U+FFFD into it.
 export fn readBytes<C: Alloc + FsRead>(ctx: C, path: Path): Result<[U8], IoError> {
     ctx.readFileBytes(path)
@@ -180,17 +180,16 @@ export fn readBytes<C: Alloc + FsRead>(ctx: C, path: Path): Result<[U8], IoError
 /// The file's octets, or `.None` where the path names nothing.
 ///
 /// "Read it, or carry on without it" — a cache, an optional override, a
-/// checkpoint that may not have been written yet. The difference between this
-/// and `readBytes` is only which of the two answers is an error, and the
-/// difference between this and `exists` followed by `readBytes` is that this
-/// one is *one* call: a file can be deleted between the two, so the two-call
-/// form has a window in which it reports a file that is there as missing, or
-/// fails on one it just saw. The `.None` therefore comes from matching
-/// `.NotFound` on the read itself and from nowhere else.
+/// checkpoint nobody has written yet. This differs from `readBytes` only in
+/// which of the two answers counts as an error. It differs from `exists`
+/// followed by `readBytes` in being *one* call: a file can be deleted between
+/// the two, so the two-call form has a window where it reports a file that is
+/// there as missing, or fails on one it just saw. So the `.None` comes from
+/// matching `.NotFound` on the read itself and from nowhere else.
 ///
 /// Every other failure is still a failure. A file that is there and cannot be
-/// read is `.Err(.PermissionDenied)`, not `.Ok(.None)` — "absent" and
-/// "forbidden" are different facts and a caller that folded them together
+/// read is `.Err(.PermissionDenied)`, not `.Ok(.None)`. "Absent" and
+/// "forbidden" are different facts, and a caller that folded them together
 /// would retry the wrong one.
 ///
 /// ```buri run
@@ -246,23 +245,23 @@ export fn writeBytes<C: Alloc + FsWrite>(
 /// Replaces the file's contents with these octets, or leaves the file exactly
 /// as it was.
 ///
-/// The checkpoint sequence the module header spells out, written once: a
-/// sibling temporary is written and synced, renamed over the destination, and
-/// the directory holding both is synced. A reader of the destination sees the
-/// old contents or the new ones, never a mixture and never nothing — including
-/// across a crash, which is what the two syncs are for and what a plain
+/// The checkpoint sequence the module header spells out, written once: it
+/// writes and syncs a sibling temporary, renames it over the destination, then
+/// syncs the directory holding both. A reader of the destination sees the old
+/// contents or the new ones, never a mixture and never nothing — including
+/// across a crash, which is what the two syncs buy and what a plain
 /// `writeBytes` cannot promise.
 ///
-/// **The temporary is `<path>.tmp`, a sibling.** Beside the destination rather
-/// than in a scratch directory, because `rename` is atomic only within one
-/// filesystem and a sibling is the one place guaranteed to be on the same one.
-/// Two writers of one path therefore share the temporary and the last rename
-/// wins — the same answer they would get writing directly, except that no
-/// reader ever sees half of either.
+/// **The temporary is `<path>.tmp`, a sibling.** It sits beside the
+/// destination rather than in a scratch directory, because `rename` is atomic
+/// only within one filesystem and a sibling is the one place guaranteed to be
+/// on the same one. So two writers of one path share the temporary and the
+/// last rename wins — the same answer they would get writing directly, except
+/// that no reader ever sees half of either.
 ///
-/// The first failure is the answer, and the temporary is left where it is: a
-/// `writeAtomic` that failed cleaning up after itself would report the cleanup
-/// rather than the write.
+/// The first failure is the answer, and the temporary stays where it is: a
+/// `writeAtomic` that failed while cleaning up after itself would report the
+/// cleanup rather than the write.
 ///
 /// `.Err(.Other)` where the path has no last component — the root, and `.` —
 /// because there is no sibling to write beside it.
@@ -288,9 +287,9 @@ export fn writeAtomic<C: Alloc + FsWrite>(
 /// Adds these octets to the end of the file, creating it when it is absent.
 ///
 /// Whole-body, so one call is one record and there is no partial-append window
-/// to reason about. The position is taken and the octets written as one
+/// to reason about. It takes the position and writes the octets as one
 /// operation, so two writers appending to one log interleave records rather
-/// than overwriting each other's.
+/// than overwriting each other.
 ///
 /// Durable only after `sync`, which is the whole reason a log has a commit
 /// point rather than a write.
@@ -305,14 +304,14 @@ export fn append<C: Alloc + FsWrite>(
 /// Moves `source` onto `destination`, replacing it if it is there.
 ///
 /// Atomic within one filesystem: a reader of the destination sees the old file
-/// or the new one and never a partial write, which is what makes "write a
+/// or the new one, never a partial write. That is what makes "write a
 /// temporary, then rename it over the real one" a crash-safe checkpoint.
 /// `.Err(.CrossDevice)` where the two paths are not on one filesystem, so the
 /// case where atomicity is unavailable is a value to match on rather than a
 /// footnote to remember.
 ///
-/// The rename is *visible* when this returns and *durable* after `sync` of the
-/// directory holding it. `writeAtomic` is the whole sequence.
+/// The rename is *visible* when this returns and *durable* after you `sync`
+/// the directory holding it. `writeAtomic` is the whole sequence.
 export fn rename<C: FsWrite>(
     ctx: C,
     source: Path,
@@ -323,54 +322,54 @@ export fn rename<C: FsWrite>(
 
 /// Deletes the file.
 ///
-/// `.Err(.NotFound)` where the path names nothing: the most common way for a
+/// `.Err(.NotFound)` where the path names nothing. The most common way for a
 /// deletion to be wrong is a path that was never right, and a `remove` that
 /// answered `.Ok` to it would hide that. "Delete it if it is there" is
 /// `result.ignore(fs.remove(ctx, p))`, written where it is meant.
 ///
 /// Files only. `removeDir` is the directory half, and it is a second name
 /// rather than a second behaviour of this one: a recursive delete behind a
-/// one-word name is a mistake that only happens once, so neither of them is
-/// recursive and the one that removes a directory says so in its name.
+/// one-word name is a mistake that only happens once, so neither is recursive
+/// and the one that removes a directory says so in its name.
 export fn remove<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
     ctx.removeFile(path)
 }
 
 /// Deletes the directory, which must be **empty**.
 ///
-/// This is `makeDir`'s inverse, and it is the one the effect went without: a
+/// This is `makeDir`'s inverse, and the effect went without it for a while: a
 /// program that made a scratch directory per run had no way to leave the
-/// filesystem as it found it, so a long-lived checkout accumulated one empty
+/// filesystem as it found it, so a long-lived checkout piled up one empty
 /// directory per run ever made.
 ///
-/// **Empty, and not recursive.** `rmdir(2)` is what this is, on every backend
-/// that has a real filesystem, and a directory that still holds something is
-/// `.Err(.Other)` — the platform's own `ENOTEMPTY`, carrying the platform's own
-/// sentence. There is deliberately no recursive form and no flag that turns one
-/// on: a recursive delete is a program-sized decision about which files may go,
-/// and a program that wants one writes the walk itself out of `listDir` and
-/// these two removals, where every path it deletes is one it named.
+/// **Empty, and not recursive.** On every backend with a real filesystem this
+/// is `rmdir(2)`, and a directory that still holds something is `.Err(.Other)`
+/// carrying the platform's own `ENOTEMPTY` sentence. There is deliberately no
+/// recursive form and no flag that turns one on: a recursive delete is a
+/// program-sized decision about which files may go, so a program that wants
+/// one writes the walk itself out of `listDir` and these two removals, where
+/// it named every path it deletes.
 ///
-/// The other two answers are the ones `remove` gives, for the same reasons:
-/// `.Err(.NotFound)` where the path names nothing, because a removal of what
-/// was never there is a belief that was wrong; and `.Err(.NotADirectory)`
-/// where the path names a file, because that request cannot be satisfied by
-/// anybody. "Remove it if it is there" is `fs.removeDir(ctx, p).ignore()`,
-/// written where it is meant.
+/// The other two answers match `remove`, for the same reasons.
+/// `.Err(.NotFound)` where the path names nothing, because removing what was
+/// never there means the belief behind it was wrong. `.Err(.NotADirectory)`
+/// where the path names a file, because nobody can satisfy that request.
+/// "Remove it if it is there" is `fs.removeDir(ctx, p).ignore()`, written
+/// where it is meant.
 export fn removeDir<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
     ctx.removeDir(path)
 }
 
-/// Creates the directory, and every parent of it that is missing.
+/// Creates the directory, and every missing parent of it.
 ///
 /// An existing directory is `.Ok`, so a tenant's directory is one call rather
-/// than a check and a race — the two callers who both find it missing both
+/// than a check and a race — two callers who both find it missing both
 /// succeed. A path that already names a *file* is `.Err(.AlreadyExists)`,
-/// because that request cannot be satisfied by anybody.
+/// because nobody can satisfy that request.
 ///
 /// The asymmetry with `remove` is deliberate. `makeDir` states a postcondition
 /// — this directory exists — that somebody else reaching it first does not
-/// violate. `remove` names a file the caller believes is there, and a path
+/// violate. `remove` names a file the caller believes is there, so a path
 /// naming nothing means that belief was wrong.
 export fn makeDir<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
     ctx.makeDir(path)
@@ -379,12 +378,12 @@ export fn makeDir<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
 /// Waits until what was written to `path` is durable.
 ///
 /// This is a program's commit point, stated as one. `writeBytes`, `append` and
-/// `rename` return when the platform accepted the operation; they survive a
+/// `rename` return once the platform accepted the operation; they survive a
 /// power cut only after this returns. On a directory path it flushes the
 /// directory entry, which is what a preceding `rename` needs.
 ///
-/// The module header has the table of what each backend can promise — they are
-/// not all the same promise, and the macOS rows differ between the two.
+/// The module header has the table of what each backend promises. They are not
+/// all the same promise, and the two macOS rows differ.
 export fn sync<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
     ctx.syncFile(path)
 }
