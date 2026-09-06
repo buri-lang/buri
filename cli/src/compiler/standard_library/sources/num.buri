@@ -16,20 +16,20 @@
 //! `Checked` and `Saturating` are the three ways to ask for a defined answer at
 //! the boundary, and each means the same thing everywhere.
 //!
-//! The conversion methods — `toI64`, `wrapToU8`, and the rest, one per
-//! source-and-target pair — are declared by the compiler on the primitive types
-//! themselves rather than written out here. They are methods, resolved by the
+//! The compiler declares the conversion methods — `toI64`, `wrapToU8`, and the
+//! rest, one per source-and-target pair — on the primitive types themselves,
+//! rather than this module writing them out. They are methods, resolved by the
 //! receiver's type, so `i32.toI64()` and `i64.toI32()` are different operations
-//! with different return types and no overloading is involved. `buri query` and
-//! the language reference list them; SPEC 6.2.1 gives the three shapes:
+//! with different return types, and no overloading is involved. `buri query` and
+//! the language reference list them. SPEC 6.2.1 gives the three shapes:
 //!
 //!   x.toT()      where every value fits  -> T
 //!   x.toT()      where it might not      -> Result<T, RangeError>
 //!   x.wrapToT()  modular                 -> T
 //!
-//! Also declared by the compiler, per primitive: `abs`, `signum`, `compare`,
-//! `eq`, `show`, `hash`, the operator-trait methods, and the `Checked`,
-//! `Wrapping` and `Saturating` method sets.
+//! The compiler also declares, per primitive: `abs`, `signum`, `compare`, `eq`,
+//! `show`, `hash`, the operator-trait methods, and the `Checked`, `Wrapping` and
+//! `Saturating` method sets.
 
 from "core/bits" import * as bits;
 from "core/char" import * as char;
@@ -39,8 +39,8 @@ from "core/order" import { Eq, Ord, Order, Show };
 from "core/str" import * as str;
 
 derive Eq, Show for RangeError;
-/// The error a narrowing conversion returns. Whether a conversion can fail is
-/// visible in its return type rather than in the choice of operator.
+/// The error a narrowing conversion returns. A conversion's return type says
+/// whether it can fail; the choice of operator does not.
 export struct RangeError {
     export value: Str,
     export target: Str,
@@ -88,11 +88,11 @@ export trait Bounded {
     fn maxValue(): Self;
 }
 
-/// Every one of these answers `.None` rather than a value the type cannot
-/// hold, which means outside the type's range and nothing else — every backend
-/// represents every value of every integer type. So `.Some(v)` is always a
-/// promise that `v` is the answer, which is the whole reason to reach for
-/// `Checked` over `+` (SPEC 6.2.2).
+/// Every one of these answers `.None` rather than a value the type cannot hold.
+/// `.None` means out of the type's range and nothing else: every backend
+/// represents every value of every integer type. So `.Some(v)` always promises
+/// that `v` is the answer, which is the whole reason to reach for `Checked` over
+/// `+` (SPEC 6.2.2).
 export trait Checked {
     fn checkedAdd(self, rhs: Self): Option<Self>;
     fn checkedSub(self, rhs: Self): Option<Self>;
@@ -107,8 +107,8 @@ export trait Wrapping {
 }
 
 /// Clamps to the type's own bounds, which at 64 bits and above are themselves
-/// rounded — `maxValue<I64>()` is the nearest `number` to I64's maximum, not
-/// that maximum. Use `Checked` where the difference matters.
+/// rounded: `maxValue<I64>()` is the nearest `number` to I64's maximum, not that
+/// maximum. Use `Checked` where the difference matters.
 export trait Saturating {
     fn saturatingAdd(self, rhs: Self): Self;
     fn saturatingSub(self, rhs: Self): Self;
@@ -136,14 +136,13 @@ export fn clamp<T: Ord>(lo: T, hi: T, x: T): T {
 //
 // `Int` only, and generic over nothing. `/` and `%` are the operator traits of
 // SPEC 6.2 and every numeric type has them, but rounding toward negative
-// infinity is a fact about the integers: on a float `math.floor(a / b)` is the
-// same idea written where it belongs, and on an unsigned type there is no
-// second answer for these to give. So these two take `Int` and say so, rather
-// than taking a `T: Div + Rem + Ord` that would compile at `F64` and mean
-// something else.
+// infinity is a fact about the integers. On a float, `math.floor(a / b)` says the
+// same thing where it belongs, and on an unsigned type there is no second answer
+// to give. So these two take `Int` and say so, rather than a `T: Div + Rem + Ord`
+// that would compile at `F64` and mean something else.
 //
-// Both abort on a zero divisor, because both are written in terms of `/` and
-// `%` and that is what those do (SPEC 6.2): there is no answer to give, and an
+// Both abort on a zero divisor, because both are written in terms of `/` and `%`
+// and that is what those do (SPEC 6.2). There is no answer to give, and an
 // `Option` in the signature would put a `.withDefault` at every call site of a
 // function that cannot fail for any divisor a caller meant to pass.
 
@@ -188,8 +187,8 @@ export fn remEuclid(a: Int, b: Int): Int {
     if (r >= 0) { r } else if (b < 0) { r - b } else { r + b }
 }
 
-/// `Bounded`'s methods take no `self`, so they are reached through these
-/// rather than through a receiver: `num.maxValue<U8>()`.
+/// `Bounded`'s methods take no `self`, so you reach them through these rather
+/// than through a receiver: `num.maxValue<U8>()`.
 export fn minValue<T: Bounded>(): T;
 
 export fn maxValue<T: Bounded>(): T;
