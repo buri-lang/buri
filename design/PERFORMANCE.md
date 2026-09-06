@@ -1974,21 +1974,21 @@ samply record <bench-binary> --quick              # if samply is installed
 xcrun xctrace record --template 'Time Profiler' --launch <bench-binary> -- --quick
 ```
 
-`--quick` keeps the run short enough to profile; the phase timers dominate the
-samples, so the hot functions under `lex`, `parse`, `Checker::run` and the
-lowering calls are directly attributable to their rows.
+`--quick` keeps the run short enough to profile. The phase timers dominate the
+samples, so you can attribute the hot functions under `lex`, `parse`,
+`Checker::run` and the lowering calls straight to their rows.
 
-**A controlled sweep is the other instrument, and it is not the lesser one.**
-The suite's whole parameter space is a command-line flag, so a suspected
-superlinear term can be tested by holding everything constant and moving the one
-axis it is suspected in. `--param lines_per_module=2500` at a fixed `--scale`
-changes the codegen unit count and nothing else that matters, and a row moving
-back to its old rate under it is a stronger statement than a flame graph: a
-profile says where the time is, and an experiment like that says what the time
-is a *function of*. That is how §6.4's Θ(units × functions) finding was made.
-What a profile cannot give here is cycles-per-line; the substitute discipline is
-to re-run the suite after every change and let §6's table, not the profile, say
-whether the change was real.
+**A controlled sweep is the other instrument, and not the lesser one.** The
+suite's whole parameter space is a command-line flag, so you can test a
+suspected superlinear term by holding everything constant and moving the one
+axis you suspect. `--param lines_per_module=2500` at a fixed `--scale` changes
+the codegen unit count and nothing else that matters, and a row moving back to
+its old rate under it says more than a flame graph: a profile says where the
+time is, and an experiment like that says what the time is a *function of*. That
+is how §6.4's Θ(units × functions) finding came out. A profile cannot give you
+cycles-per-line here; the discipline that stands in is to re-run the suite after
+every change and let §6's table, not the profile, say whether the change was
+real.
 
 **Two sweeps beat one.** A sweep over enum width once produced a curve that fell
 and then flattened — suggestive, and not an answer. A second sweep held the
