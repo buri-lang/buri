@@ -16,9 +16,9 @@ Close it with `*/`. Block comments nest, so each `/*` needs one.
 ## Why
 
 Nesting is what lets you comment out a region that already contains a comment.
-Its cost is that the lexer counts, so a missing `*/` swallows the rest of the
-file rather than ending at the first one it finds — which is why this is
-reported where the comment opened rather than where the file ran out.
+It costs you this: the lexer counts, so a missing `*/` swallows the rest of the
+file instead of stopping at the first one it finds. That is why the error points
+at where the comment opened rather than where the file ran out.
 
 ## A program that provokes it
 

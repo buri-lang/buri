@@ -17,9 +17,8 @@ being used as.
 ## Why
 
 `.Some` is shorthand for "the `Some` of whatever type is expected here", and a
-`let` with no annotation expects nothing. Inference flows into the shorthand
-rather than out of it, which is what keeps two enums free to share a variant
-name.
+`let` with no annotation expects nothing. Inference flows into the shorthand,
+never out of it, which is what leaves two enums free to share a variant name.
 
 ## A program that provokes it
 

@@ -16,9 +16,9 @@ Delete it, or move it above the arm that subsumes it.
 
 ## Why
 
-Arms are tried in order, so an arm the ones above it already cover can never
-run. Reported rather than ignored because the usual cause is an arm in the
-wrong place, and a silently dead arm reads as handled.
+The compiler tries arms in order, so an arm the ones above it already cover can
+never run. It reports rather than ignores that, because the usual cause is an
+arm in the wrong place and a silently dead arm reads as handled.
 
 ## A program that provokes it
 

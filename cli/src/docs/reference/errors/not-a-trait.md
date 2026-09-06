@@ -14,9 +14,9 @@ Name a declared trait or effect, or declare the one you meant.
 
 ## Why
 
-A bound is resolved to a declaration and then checked as a table lookup. There
-are no `where` clauses and no structural constraints, so there is nothing a
-bound could name except a trait or an effect.
+A bound resolves to a declaration, and the compiler then checks it with a table
+lookup. There are no `where` clauses and no structural constraints, so a bound
+has nothing else it could name.
 
 ## A program that provokes it
 

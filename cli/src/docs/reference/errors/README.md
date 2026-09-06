@@ -3,14 +3,15 @@
 Every code the toolchain emits has one page: `cli/src/docs/errors/<code>.md` for
 a compiler or build diagnostic, `cli/src/docs/lints/<code>.md` for a `buri lint`
 finding. The page is the whole of what a reader sees. The `---` block at the top
-is the wording the diagnostic prints; the markdown below it is the explanation
+is the wording the diagnostic prints. The markdown below it is the explanation
 that prints under the diagnostic the first time the code comes up in a run.
 
-This file is a reference for editing those pages by hand. Nothing reads it: the
+This file is a reference for editing those pages by hand. Nothing reads it. The
 catalogs pull each page in by name (`include_str!` per registered code), the
 tests walk the registry rather than the directory, and `buri docs examples`
 compiles only `buri` and `textproto` fences, of which this file has none. It is
-inert, and it sits here because here is where somebody editing a page is looking.
+inert, and it sits here because this is where somebody editing a page is
+looking.
 
 ## The frontmatter
 
@@ -30,7 +31,7 @@ adapted-from: some-guide (https://example.invalid/some-guide) guides/the-file.md
 | Key | Required | What it is |
 |---|---|---|
 | `title` | yes | The line the docs index shows. **Never printed in a diagnostic.** A declarative sentence stating the rule — "A name is declared once", not "Duplicate declaration". |
-| `severity` | no, defaults to `error` | `error` or `warning`. It must match what the emission site used to build. Every page under `lints/` writes `warning` — the catalogue has one severity, and whether a finding fails a run is `REPO.buri`'s question rather than the page's — so on a lint page this key is the one line that is the same on all of them, and a page omitting it would silently default to the wrong one. |
+| `severity` | no, defaults to `error` | `error` or `warning`, matching what the emission site built. Every page under `lints/` writes `warning`: the catalogue has one severity, and whether a finding fails a run is `REPO.buri`'s question rather than the page's. So on a lint page this key is the one line that is the same on all of them, and a page omitting it would silently default to the wrong one. |
 | `message` | yes | The sentence after `error: ` / `warning: `. |
 | `label` | no | The phrase printed beside the carets, under the `^^^` span. |
 | `note` | no | One `= note:` line of background — *why* the rule exists, not what to do. A call site may push further notes, and they land after this one. |
@@ -38,20 +39,21 @@ adapted-from: some-guide (https://example.invalid/some-guide) guides/the-file.md
 | `reproduction` | no | The only value is `none`, and it means no single-file program can provoke this code — it needs a repository, a `BUILD.buri`, a `.proto`, a second module, or a process that runs too long. Any other page must carry a fenced `buri fail code=<code>` block. |
 | `adapted-from` | no | Where a body adapted from somebody else's writing came from — source, file and licence. **Never printed in a diagnostic**: a reader looking at their own compile error is owed the explanation, not this repository's paperwork. `buri docs error <code>` and `buri docs lint <code>` render it as the page's last line instead. |
 
-Everything is a scalar. There are no lists and no maps, and an unknown key is an
-error rather than something quietly ignored — a misspelled `mesage` fails the
+Everything is a scalar. There are no lists and no maps. An unknown key is an
+error rather than something quietly ignored, so a misspelled `mesage` fails the
 build instead of printing nothing.
 
 A value is bare by default. Backticks and colons are ordinary characters in a
 bare value, because nearly every message has both. Quote a value only when it
-would otherwise lose its edges — a leading backtick, brace or quote, or leading
-and trailing whitespace that matters. `'single'` quotes are literal;
-`"double"` quotes take `\n`, `\t`, `\"` and `\\` and reject any other escape.
-A full-line `#` is a comment. Nothing may be indented: a value spans one line.
+would otherwise lose its edges: a leading backtick, brace or quote, or leading
+and trailing whitespace that matters. `'single'` quotes are literal.
+`"double"` quotes take `\n`, `\t`, `\"` and `\\`, and reject any other escape.
+A full-line `#` is a comment. Nothing may be indented, and a value spans one
+line.
 
-Every error is reported with its line number, and a page that will not parse is
-kept out of the catalog rather than half-read — the diagnostic prints without
-its wording, and the tests fail with the page named.
+Every error comes with its line number. A page that will not parse stays out of
+the catalog rather than being half-read, so the diagnostic prints without its
+wording and the tests fail with the page named.
 
 ## Templating
 
@@ -86,17 +88,17 @@ Diagnostic::templated(code, span).with_bind("function", name)
 `bind` re-renders the message, label, note and fix from the page every time, so
 a `fix` a call site sets *before* a `bind` is erased. Set it after.
 
-Three mistakes panic in a debug build — which is every test run — and degrade in
-release to printing the template as written: a code with no page, a placeholder
+Three mistakes panic in a debug build — which is every test run — and in release
+degrade to printing the template as written: a code with no page, a placeholder
 nothing bound, and a binding no template uses. Each names the code and the
-placeholder. Renaming a placeholder is therefore a two-file edit: the page and
-every site that binds it.
+placeholder. So renaming a placeholder is a two-file edit: the page, and every
+site that binds it.
 
 ## How the body prints
 
-Below the frontmatter, the page is freeform markdown, and it is printed under
-the diagnostic — wrapped to the terminal width, indented to the `= fix:` column,
-and dimmed when colour is on.
+Below the frontmatter, the page is freeform markdown. The toolchain prints it
+under the diagnostic, wrapped to the terminal width, indented to the `= fix:`
+column, and dimmed when colour is on.
 
 - **Once per code per run.** The second `type-mismatch` in a build prints the
   diagnostic and no body. The set is process-wide, so a command that opens
@@ -146,17 +148,17 @@ and `cli/tests/cli/`. Editing a `message`, `label`, `note` or `fix` changes them
 BURI_BLESS=1 cargo test -p buri
 ```
 
-regenerates every one. Read the diff before keeping it — `expected.json` should
+regenerates every one. Read the diff before you keep it. `expected.json` should
 move only when a code was split or renamed, or when the data bound to a
 placeholder changed. A `.txt` that moves with no `.json` beside it is a body
-edit, which is expected; a `.txt` whose `error:` line changed is a rewording,
-which should be one you meant.
+edit, which is expected. A `.txt` whose `error:` line changed is a rewording,
+and it should be one you meant.
 
 ## The placeholder vocabulary
 
 Every `{placeholder}` on every page, with what it holds and which codes use it.
-Values are strings the call site has already finished: it does the quoting, the
-pluralization and the joining, and the template supplies the backticks.
+Values are strings the call site has already finished. It does the quoting, the
+pluralization and the joining; the template supplies the backticks.
 
 | Placeholder | What it holds | Codes |
 |---|---|---|
@@ -259,12 +261,12 @@ pluralization and the joining, and the template supplies the backticks.
 ### Names that carry a role, and the one that does not
 
 `{name}` is the fallback: the identifier the diagnostic is about, where no
-narrower word fits. Where the thing has a role in the sentence the vocabulary
+narrower word fits. Where the thing has a role in the sentence, the vocabulary
 names it — `{function}`, `{method}`, `{trait}`, `{type}`, `{variant}`,
 `{field}`, `{effect}`, `{tag}`, `{module}`. The line is not perfectly drawn
-(`ambiguous-free-function` binds `{name}` to a function), and it is not worth
-redrawing: both names mean "an identifier, already unbackticked", so a page can
-be moved from one to the other whenever its sentence reads better for it.
+(`ambiguous-free-function` binds `{name}` to a function), and redrawing it is
+not worth the trouble. Both names mean "an identifier, already unbackticked", so
+move a page from one to the other whenever its sentence reads better for it.
 
 Three families are deliberately parallel rather than unified, because their
 sentences are:
@@ -288,12 +290,12 @@ ambiguous at a call site, but the second pair would read better as
 ### When a page binds its whole sentence
 
 Five pages are `message: {problem}`, and one of those also has `fix: {remedy}`.
-Each is a helper with a dozen or more callers whose sentences are all the same
-rule: `build-file-syntax` and `proto-schema` are parsers ("this file does not
-parse"), `module-not-found` is one rule stated six ways, `unknown-visibility`
-is one rule stated six ways, and `style-not-static` says in its own source
-comment why it is one code. They are the exception, not a pattern to copy: a
-page whose message is a placeholder is a page with nothing on it to edit.
+Each is a helper with a dozen or more callers whose sentences all state the same
+rule. `build-file-syntax` and `proto-schema` are parsers ("this file does not
+parse"). `module-not-found` is one rule stated six ways, and so is
+`unknown-visibility`. `style-not-static` says in its own source comment why it
+is one code. They are the exception, not a pattern to copy: a page whose message
+is a placeholder is a page with nothing on it to edit.
 
 ## Adding a code
 

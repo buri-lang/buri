@@ -15,9 +15,8 @@ Name an effect the platform declares, as in `Alloc` or `Stdout`.
 
 ## Why
 
-A context binds effects to implementations, so each key has to be one — and the
-set of them is `core/effect`'s, plus `ui/effect`'s where the platform grants
-them.
+A context binds effects to implementations, so every key has to be an effect.
+The set is `core/effect`'s, plus `ui/effect`'s where the platform grants them.
 
 ## A program that provokes it
 

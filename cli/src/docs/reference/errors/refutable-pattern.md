@@ -16,8 +16,8 @@ Use `match`, which makes you say what the other cases do.
 
 ## Why
 
-A `let` binds unconditionally and there is no exception to throw when it does
-not fit, so its pattern has to be one that cannot fail.
+A `let` binds unconditionally, and there is no exception to throw when the value
+does not fit. So its pattern has to be one that cannot fail.
 
 ## A program that provokes it
 
