@@ -16,10 +16,9 @@ Move `ctx` to that position.
 
 ## Why
 
-The position is the whole of what makes effectfulness readable: a reader
-answers "can this function touch the world?" from the first two parameters and
-stops. A `ctx` in fourth place would make that a question about the whole
-signature.
+The position is what makes effectfulness readable. You answer "can this function
+touch the world?" from the first two parameters and stop. A `ctx` in fourth
+place would turn that into a question about the whole signature.
 
 ## A program that provokes it
 

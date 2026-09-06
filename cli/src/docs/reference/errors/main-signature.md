@@ -15,8 +15,8 @@ returns `Result<(), Str>`.
 
 ## Why
 
-`main` is called by the runtime rather than by a program, so there is no call
-site to infer a type argument from and nothing to pass an argument in.
+The runtime calls `main`, not a program, so there is no call site to infer a
+type argument from and nothing to pass an argument in.
 
 ## A program that provokes it
 

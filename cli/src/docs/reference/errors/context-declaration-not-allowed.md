@@ -20,7 +20,7 @@ export fn print(output: Str): () {
 }
 ```
 
-To fix, just accept the context as an argument:
+To fix, accept the context as an argument:
 
 ```buri
 from "core/effect" import { Stdout };

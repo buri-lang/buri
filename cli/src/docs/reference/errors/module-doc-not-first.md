@@ -17,10 +17,10 @@ below it.
 ## Why
 
 `///` attaches downward, to the declaration beneath it. `//!` attaches upward,
-to the thing that contains it — which, at the top of a file, is the module. One
-written lower down has nothing above it to attach to except a declaration that
-already has its own comment form, so it is a `///` typo far more often than it
-is what was meant.
+to whatever contains it, which at the top of a file is the module. Written lower
+down it has nothing above it to attach to except a declaration that already has
+its own comment form. So it is a `///` typo far more often than it is
+deliberate.
 
 ## A program that provokes it
 
