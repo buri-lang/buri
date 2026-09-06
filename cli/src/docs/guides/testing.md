@@ -1,14 +1,15 @@
 # Testing your code
 
-A test lives in the package it tests, is declared in that package's build rule,
-and can reach exactly what a dependent could reach. There is no mocking
+A test lives in the package it tests. That package's build rule declares it, and
+it can reach exactly what a dependent could reach. There is no mocking
 framework, because there is nothing for one to do: an effect arrives as an
 argument, so a test that wants a different filesystem passes a different
 filesystem.
 
-This page teaches writing a suite. The exact rules — the `test` block's fields,
-what a test source may import, and every member of `core/host/testing` — are in
-[`reference/build/testing.md`](../reference/build/testing.md).
+This page teaches you to write a suite. The exact rules are in
+[`reference/build/testing.md`](../reference/build/testing.md): the `test`
+block's fields, what a test source may import, and every member of
+`core/host/testing`.
 
 ## Declare the suite
 
@@ -24,9 +25,9 @@ library {
 }
 ```
 
-Being listed in `test.sources` is the whole of what makes a file a test source.
-`test` declarations are legal there and nowhere else, the file is compiled into
-a test binary rather than into the library, and `buri gen` keeps the list in
+Listing a file in `test.sources` is the whole of what makes it a test source.
+`test` declarations are legal there and nowhere else, the compiler puts the file
+in a test binary rather than in the library, and `buri gen` keeps the list in
 step with the directory. Nothing else in the package changes.
 
 ## Your first test
@@ -54,13 +55,13 @@ Run it:
 buri test //lib/money
 ```
 
-A test takes no parameters and returns nothing: it passes by getting to the end
-without an assertion failing, and the first failure inside it ends that test
-alone — the rest of the file still runs. A failure reports the title, and
-`--filter` matches it, so two tests in one file may not share one.
+A test takes no parameters and returns nothing. It passes by reaching the end
+with no assertion failing. The first failure inside it ends that test alone, and
+the rest of the file still runs. A failure reports the title, and `--filter`
+matches on it, so two tests in one file may not share one.
 
-Notice the import: the suite reaches its own library through `//lib/money` — the
-surface, the same name a dependent writes — and not through
+Notice the import. The suite reaches its own library through `//lib/money` —
+the surface, the same name a dependent writes — and not through
 `//lib/money/parse.buri`. You test what dependents can call, so refactoring
 behind the surface never rewrites a test. Reaching for an internal module is an
 error, and the fix is either to put the name on the surface or to stop asserting
@@ -68,14 +69,14 @@ on a detail.
 
 A binary's suite works the same way, except that its entry point is a file:
 `from "//cmd/server/main.buri" import { route };`. `main` itself is not
-testable — it builds its own context out of `core/host`, so there is no double
-to hand it — which is the pressure that keeps logic in functions taking an
+testable, because it builds its own context out of `core/host` and there is no
+double to hand it. That is the pressure that keeps logic in functions taking an
 ordinary `ctx`.
 
 ## Assertions
 
-`core/testing/assert` is an ordinary module; `assert` is the name this file gave
-it with `import * as assert`. Two kinds of function live in it:
+`core/testing/assert` is an ordinary module, and `assert` is the name this file
+gave it with `import * as assert`. Two kinds of function live in it:
 
 | | |
 |---|---|
@@ -100,13 +101,13 @@ test "the error says which text it choked on" {
 ```
 
 A type an assertion compares needs `Eq`, and one a failure prints needs `Show`,
-so `derive Eq, Show for ParseError;` is what lets both lines above be written.
-`Result` is must-use everywhere, tests included: there is no statement form that
-drops one, so a test cannot silently skip the check it looks like it makes.
+so `derive Eq, Show for ParseError;` is what lets you write both lines above.
+`Result` is must-use everywhere, tests included. No statement form drops one, so
+a test cannot silently skip the check it looks like it makes.
 
 ## A test needs a context exactly when the code does
 
-`parse` is pure — no `ctx` parameter — so its suite builds no context at all.
+`parse` is pure, with no `ctx` parameter, so its suite builds no context at all.
 `format` allocates, says so with `C: Alloc`, and its test has to supply one:
 
 ```buri repo=cli/tests/example role=test
@@ -123,14 +124,14 @@ test "pads the cents place" {
 }
 ```
 
-That is the same `context` form `main` uses, and a test source and `main`'s body
-are the only places in the language where a context is *created* rather than
-received. `core/host/testing` is the platform a test binds, importable only from
-a test source.
+That is the same `context` form `main` uses. A test source and `main`'s body are
+the only places in the language that *create* a context rather than receive one.
+`core/host/testing` is the platform a test binds, and only a test source may
+import it.
 
 Bind what the function under test needs and nothing more. A context that names
-`Net` is a test admitting the code might reach the network; a context that does
-not name it is a proof that nothing it calls, however deep, can.
+`Net` admits the code might reach the network. One that does not name it proves
+that nothing it calls, however deep, can.
 
 ## Doubles are values, not a framework
 
@@ -138,9 +139,9 @@ Every member of `core/host/testing` is a function you call, and each call mints
 a fresh double, so nothing leaks from one test to the next. The defaults fail
 loudly rather than plausibly:
 
-- `fs()` is an empty in-memory filesystem — one double answering both `FsRead`
-  and `FsWrite`, so a context that reads and writes binds the *same* value
-  under both names.
+- `fs()` is an empty in-memory filesystem. One double answers both `FsRead` and
+  `FsWrite`, so a context that reads and writes binds the *same* value under
+  both names.
 - `net()` refuses every request.
 - `clock()` is stopped at zero.
 - `rand()` is seeded.
@@ -240,18 +241,18 @@ test "a timeout reaches the caller as an error" {
 }
 ```
 
-Nothing was registered, patched, or injected; the call site of `status` is the
-same one production uses. A fake you write answers from its fields rather than
-from a counter, because there is no mutation to keep one in — the runner's own
-doubles are what record and accumulate. For `Net` in particular you rarely need
-this: `net().respond(fn(request) => ...)` is the same function of the same
-request, already written.
+Nothing was registered, patched, or injected, and the call site of `status` is
+the one production uses. A fake you write answers from its fields rather than
+from a counter, because there is no mutation to keep a counter in. The runner's
+own doubles are the ones that record and accumulate. For `Net` in particular you
+rarely need this: `net().respond(fn(request) => ...)` is the same function of
+the same request, already written.
 
 ## What breaks: fault plans
 
-Fixtures say what a call *finds*. A fault plan says what a call **fails with**,
-and those are the only two sources — so a reader of a failing test knows which
-half to look in:
+Fixtures say what a call *finds*. A fault plan says what a call **fails with**.
+Those are the only two sources, so a reader of a failing test knows which half
+to look in:
 
 ```buri role=test
 from "core/effect" import { Alloc };
@@ -274,9 +275,9 @@ test "a file that cannot be read is reported rather than skipped" {
 }
 ```
 
-A fault is spelled as the call it names — `readFile(path)`, `writeFile(path,
-body)`, `fetch(request)` — where the path is the `Str` a `Path` spells, which is
-what `calls()` reports it as. `fails(e)` fails every occurrence and
+You spell a fault as the call it names: `readFile(path)`, `writeFile(path,
+body)`, `fetch(request)`. The path there is the `Str` a `Path` spells, which is
+what `calls()` reports it as. `fails(e)` fails every occurrence, and
 `failsOnCall(n, e)` fails the `n`th. **A fault whose call never happens fails
 the test**, so a plan cannot quietly stop describing the code.
 
@@ -306,23 +307,23 @@ FAIL //lib/merge  test/merge.buri  "the merge does not depend on which read fini
   --> lib/merge/test/merge.buri:14:1
 ```
 
-Paste the `seed(...)` back over the `anyOrder()` and the run is the one that
+Paste the `seed(...)` back over the `anyOrder()` and you replay the run that
 failed. Keep it that way: a test asserting on an order should name the order it
 means.
 
 ## Golden values and fixture files
 
 A golden is a value in the suite's own source, compared with `assert.eq`. There
-is no `--accept` and no golden directory; an editor is what rewrites one, and a
-diff review is what approves it.
+is no `--accept` and no golden directory. You rewrite one in your editor, and a
+diff review approves it.
 
-Hand a test a filesystem when the code under test is what does the reading —
-`fs().files([("statement.txt", "coffee")])` — and not merely to hold an expected
-string, which is a golden the filesystem is doing nothing for.
+Hand a test a filesystem when the code under test is what does the reading, as
+in `fs().files([("statement.txt", "coffee")])`. Do not use one merely to hold an
+expected string: that is a golden, and the filesystem is doing nothing for it.
 
 ## Fixtures more than one suite wants
 
-A helper two suites need is not a test source; it is ordinary library code that
+A helper two suites need is not a test source. It is ordinary library code that
 happens to be test-only, and it lives behind a path with a `testing` segment:
 
 ```buri repo=cli/tests/example package=//lib/ledger role=testing
@@ -353,7 +354,7 @@ export context WithLedger {
 }
 ```
 
-A named context binds `FsRead` and not `FsWrite` for a structural reason: its
+A named context binds `FsRead` and not `FsWrite` for a structural reason. Its
 bindings are separate expressions, so naming both halves would call `fs()` twice
 and hand every suite two unrelated filesystems. A fixture that must be written
 to as well as read is a function answering the double, and the suite builds the
@@ -374,18 +375,18 @@ buri test //... --watch              re-run on every save, until interrupted
 ```
 
 `--filter` is a substring match on the test's title, which is the other reason
-titles are worth writing carefully. `--watch` re-runs the same invocation
-whenever a declared input changes; a file you have just created is an input of
-nothing, so run `buri gen` and the loop picks it up with the build file.
+to write titles carefully. `--watch` re-runs the same invocation whenever a
+declared input changes. A file you have just created is an input of nothing, so
+run `buri gen` and the loop picks it up with the build file.
 
 A failure names the target, the file, the test, and the two values that did not
-match, and the summary counts what was cached — a suite whose declared inputs
-have not moved is not re-run at all, which is what makes a watch loop cheap.
+match. The summary counts what was cached: the runner skips a suite whose
+declared inputs have not moved, which is what makes a watch loop cheap.
 [The exact shape of a run](../reference/build/testing.md#running) is in the
 reference.
 
-`buri test` exits `0` only when every test passed, so it is usable directly as a
-CI gate.
+`buri test` exits `0` only when every test passed, so you can use it directly as
+a CI gate.
 
 ## Next
 

@@ -1,31 +1,31 @@
 # How Buri compiles fast
 
 Compile speed is a language design decision before it is a compiler engineering
-one. A checker is fast when it is allowed to be: when parsing never has to ask
-what a name means, when checking one function cannot depend on checking another,
-and when resolving a bound is a lookup rather than a search. Buri gives up some
-convenience to keep those three things true, and this page is what it bought.
+one. A checker is fast when the language lets it be: when parsing never has to
+ask what a name means, when checking one function cannot depend on checking
+another, and when resolving a bound is a lookup rather than a search. Buri gives
+up some convenience to keep those three things true, and this page is what it
+bought.
 
 Everything below is a promise the language makes, not an optimization the
-compiler happens to have. A conforming implementation may rely on all of them,
-and a proposed addition to the language should be measured against them — each
-one is the kind of property a reasonable-looking feature erodes quietly.
+compiler happens to have. A conforming implementation may rely on all of them.
+Measure a proposed addition to the language against them, because each one is
+the kind of property a reasonable-looking feature erodes quietly.
 
 ## Parsing depends on nothing
 
-No production in the grammar consults name resolution or types. A file can be
-parsed with no knowledge of any other file, so parsing is one pass and every
-file parses in parallel with no coordination.
+No production in the grammar consults name resolution or types. The compiler
+parses a file with no knowledge of any other file, so parsing is one pass and
+every file parses in parallel with no coordination.
 
 That is why `if` and `match` subjects are parenthesized, why there are no
 expression statements, and why there is no cast operator: each of those is a
 place where a grammar that wanted feedback from the checker would have needed
 it. `design/grammar-rationale.md` lists every such decision with what it cost.
 
-The practical consequence is that everything which only needs a parse tree is
-fast and needs no build graph: `buri format` and `buri lint` do not check types,
-and the language server can answer about a file it has never seen the
-dependencies of.
+So anything that needs only a parse tree is fast and needs no build graph.
+`buri format` and `buri lint` never check types, and the language server can
+answer about a file whose dependencies it has never seen.
 
 ## Signatures are mandatory, so bodies check independently
 
@@ -46,22 +46,20 @@ Bodies therefore check in parallel, in any order, and editing one body can never
 invalidate the check of another. A whole-program inference algorithm cannot make
 that promise: there, one edit anywhere can move a type anywhere.
 
-One consequence is visible in a program. A type variable still unconstrained
-when a body finishes checking is unconstrained for good, because no other body
-and no signature can reach it — so it becomes `()`. This is not the literal
-defaulting of [`language/types.md` §5.1.1](../language/types.md), which picks
-between the types a numeric class admits; here nothing in the program picks at
-all, and the type with one value and no structure is the answer.
-`assert.some(o)` on an `Option` whose payload the program never names is the
-shape that reaches it, and the value it renders is the `Option`, not the
-payload.
+One consequence shows up in real programs. A type variable still unconstrained
+when a body finishes checking stays unconstrained, because no other body and no
+signature can reach it. So it becomes `()`. That is not the literal defaulting
+of [`language/types.md` §5.1.1](../language/types.md), which picks between the
+types a numeric class admits. Here nothing in the program picks at all, and the
+answer is the type with one value and no structure. You meet this with
+`assert.some(o)` on an `Option` whose payload the program never names: what it
+renders is the `Option`, not the payload.
 
 ## Resolution and inference interleave, in a single traversal
 
 This is the one place Buri gives something up. Resolving `x.f()` requires
 knowing what `x` is, so name resolution and type inference cannot be separate
-passes. What keeps them a single traversal rather than a fixpoint is four
-things:
+passes. Four things keep them a single traversal rather than a fixpoint:
 
 - Method resolution needs only the receiver's **head type constructor**, not its
   full type. `xs.first()` resolves in `core/list` whether `xs` is `[Int]` or
@@ -83,19 +81,19 @@ worth defending.
 ## A module's surface is exactly its exported declarations
 
 Because conformance is declared rather than inferred from shape, adding or
-removing a private function cannot change what any other module sees.
-Invalidation is therefore precise: a dependent is rechecked only when a
+removing a private function cannot change what any other module sees. So
+invalidation is precise: the compiler rechecks a dependent only when a
 declaration it names actually changes.
 
-This is what makes the build system's split between `interface` and `compile`
+That is what makes the build system's split between `interface` and `compile`
 cheap rather than clever — see
 [`build/hermeticity.md`](../reference/build/hermeticity.md). Editing a function
 body recompiles that library and nothing upstream of it.
 
 ## Monomorphization is a codegen concern, not a checking one
 
-A generic body is checked once, polymorphically, with bounds verified at each
-call site. Checking is O(code), not O(code × instantiations). Generics are
+The compiler checks a generic body once, polymorphically, and verifies bounds at
+each call site. Checking is O(code), not O(code × instantiations). Generics are
 still monomorphized — there are no dictionaries at run time — but that happens
 after everything has been checked, on the code the entry point actually reaches.
 
@@ -115,10 +113,10 @@ search. `design/non-goals.md` keeps the list, and the argument for holding it.
 ## What this does not promise
 
 Fast compilation is not the same as no compilation. Monomorphization and the
-native backend's optimizations are real work proportional to the code the
-program reaches, a cold build still builds the standard library, and linking is
+native backend's optimizations are real work, proportional to the code the
+program reaches. A cold build still builds the standard library, and linking is
 linking. What the invariants promise is that the work is *proportional and
 parallel*: nothing in the front end is superlinear in the size of your program,
-and nothing forces one file to wait on another beyond the dependency edges you
+and nothing makes one file wait on another beyond the dependency edges you
 declared. [`build/hermeticity.md`](../reference/build/hermeticity.md) covers
 what the cache does with that, and `design/PERFORMANCE.md` has the measurements.
