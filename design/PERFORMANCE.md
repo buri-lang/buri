@@ -959,19 +959,18 @@ below 1.0 means it beats it.
 > **What it buys.** A line rate is only worth quoting over source somebody would
 > check in, and until this revision the corpora were the one Buri in the
 > repository nobody had laid out — exempt, by a written row, from the gate that
-> holds every other `.buri` file to one layout. The row is gone:
-> `cli/benches/corpora` is inside
-> `cli/tests/language/corpus.rs::every_source_in_the_repository_is_formatted`
-> now, and passes. What it is still outside is `BURI_BLESS`, because the fix for
-> a drift in generated output is `--record` and not laying the file out where it
-> sits.
+> holds every other `.buri` file to one layout. That row is gone:
+> `cli/benches/corpora` now sits inside
+> `cli/tests/language/corpus.rs::every_source_in_the_repository_is_formatted`,
+> and passes. It stays outside `BURI_BLESS`, because the fix for a drift in
+> generated output is `--record`, not laying the file out where it sits.
 >
-> **What it costs**, and where. Generating a corpus parses and prints it once
-> more before anything else reads it, which is about a fifth on top of every
+> **What it costs**, and where. Generating a corpus now parses and prints it
+> once more before anything else reads it, about a fifth on top of every
 > validation: `--validate` 10 s → 12 s, `--set=scale` 21 s → 26 s,
-> `--set=scale-full` 2 min 47 s → 3 min 24 s. All of it is at work-list
+> `--set=scale-full` 2 min 47 s → 3 min 24 s. All of it happens at work-list
 > construction, outside every timer, so no measured rate carries it. The other
-> cost is a coupling stated rather than hidden: **a change to `formatting` is
+> cost is a coupling, stated rather than hidden: **a change to `formatting` is
 > now a change to the generator**, and takes this same ceremony.
 
 > **Generator revision 6, 2026-08-31 — a break in the series, announced, and
@@ -980,9 +979,9 @@ below 1.0 means it beats it.
 > `core/list/lib.buri` is `core/list`. Every generated module imports four or
 > five standard library modules and nothing else across a boundary, so every
 > import line is nine bytes shorter; the `//bench/mNNNN.buri` imports name files
-> inside `//bench` and did not move at all. §3.1's rule applies and was followed
-> — **all eight** saved corpora were re-recorded and **all forty** pinned
-> manifests re-pinned.
+> inside `//bench` and did not move at all. §3.1's rule applies, and this
+> revision followed it: **all eight** saved corpora re-recorded, **all forty**
+> pinned manifests re-pinned.
 >
 > **Three corpora came back byte-identical**, and they are the exact ones
 > revision 5's note is about. `few-large-fns-1k` (23,867) and `wide-match-1k`
@@ -1005,8 +1004,8 @@ below 1.0 means it beats it.
 > the first one that moves a corpus holding no import.**
 > Every import named a file, so `core/list` became `core/list/lib.buri` and
 > `//bench/m0007` became `//bench/m0007.buri`: every generated import line was
-> longer by a suffix. §3.1's rule applies and was followed — **all eight** saved
-> corpora were re-recorded and **all forty** pinned manifests re-pinned.
+> longer by a suffix. §3.1's rule applies, and this revision followed it: **all
+> eight** saved corpora re-recorded, **all forty** pinned manifests re-pinned.
 >
 > All eight, and that is the part the revision-2 note did not anticipate. Six of
 > the corpora have imports and their source bytes grew: `mixed-10k` 346,270 →
@@ -1032,13 +1031,13 @@ below 1.0 means it beats it.
 > **Generator revision 4, 2026-08-27 — a break in the series, announced.**
 > An enum variant stopped carrying `export`, so every generated variant line
 > lost the keyword and a space and every recorded digest of a corpus containing
-> an enum moved. §3.1's rule applies and was followed: the six saved corpora
-> that carry an enum were re-recorded — five at **corpus revision 4** and
-> `wide-match-1k` at **revision 2**, which is its first move since it was
+> an enum moved. §3.1's rule applies, and this revision followed it: the six
+> saved corpora that carry an enum were re-recorded — five at **corpus revision
+> 4** and `wide-match-1k` at **revision 2**, its first move since it was
 > written — thirty-eight of the forty pinned manifests were re-pinned, and the
 > ones whose bytes never moved — `many-small-fns-1k`, `few-large-fns-1k`, and
-> the `struct-heavy` pins at both scales, which set `w_enum=0` — were **left
-> where they were**, for the reason the revision-2 note gives.
+> the `struct-heavy` pins at both scales, which set `w_enum=0` — stayed **where
+> they were**, for the reason the revision-2 note gives.
 >
 > **Nothing measurable moved with it.** The change deletes bytes from a
 > declaration and nothing else: `lines` and `modules` are identical for all
@@ -1049,12 +1048,12 @@ below 1.0 means it beats it.
 > **Generator revision 3, 2026-08-27 — a break in the series, announced.**
 > `self` stopped writing its type, so every generated method signature lost the
 > receiver's name and a colon and every recorded digest of a corpus containing
-> a method moved. §3.1's rule applies and was followed: the five saved corpora
-> that carry a method were re-recorded at **corpus revision 3**, thirty-six of
-> the forty pinned manifests were re-pinned at it, and the ones whose bytes
-> never moved — `wide-match-1k`, `many-small-fns-1k`, `few-large-fns-1k`, and
-> the `enum-heavy` and `struct-light` pins at both scales — were **left where
-> they were**, for the reason the revision-2 note gives.
+> a method moved. §3.1's rule applies, and this revision followed it: the five
+> saved corpora that carry a method were re-recorded at **corpus revision 3**,
+> thirty-six of the forty pinned manifests were re-pinned at it, and the ones
+> whose bytes never moved — `wide-match-1k`, `many-small-fns-1k`,
+> `few-large-fns-1k`, and the `enum-heavy` and `struct-light` pins at both
+> scales — stayed **where they were**, for the reason the revision-2 note gives.
 >
 > **Nothing measurable moved with it.** The change deletes bytes from a
 > signature and nothing else: `lines` and `modules` are identical for all forty
@@ -1064,11 +1063,12 @@ below 1.0 means it beats it.
 
 > **Generator revision 2, 2026-08-23 — a break in the series, announced.**
 > `core/cap` was renamed `core/effect`, so every generated module's import block
-> is three bytes longer and every recorded digest moved. §3.1's rule applies and
-> was followed: the five saved corpora that carry the import were re-recorded
-> at **corpus revision 2**, all forty pinned manifests were re-pinned at it, and
-> the three saved corpora whose bytes never moved — `wide-match-1k`,
-> `many-small-fns-1k`, `few-large-fns-1k` — were **left at revision 1**, because
+> is three bytes longer and every recorded digest moved. §3.1's rule applies,
+> and this revision followed it: the five saved corpora that carry the import
+> were re-recorded at **corpus revision 2**, all forty pinned manifests were
+> re-pinned at it, and the three saved corpora whose bytes never moved —
+> `wide-match-1k`, `many-small-fns-1k`, `few-large-fns-1k` — stayed **at
+> revision 1**, because
 > byte-stability across a generator change is the whole point of saving one and
 > re-recording an unchanged corpus would break its series for nothing.
 >
@@ -1083,10 +1083,10 @@ below 1.0 means it beats it.
 ### 6.1 Where every goal stands
 
 mixed/100k, the authoritative corpus, on the machine and protocol above.
-**Re-taken 2026-09-01 at `0c66339d`**, from the default run described in §6's
-note; the `2026-08-29` column is what this table said at `f9fffe1c`, and the
-column after it is that same commit's binary re-run today, which is what
-separates a machine from a compiler.
+**Re-taken 2026-09-01 at `0c66339d`**, from the default run §6's note describes.
+The `2026-08-29` column is what this table said at `f9fffe1c`, and the column
+after it is that same commit's binary re-run today, which is what separates a
+machine from a compiler.
 
 | Phase | Goal | 2026-08-29, `f9fffe1c` | `f9fffe1c` re-run today | **2026-09-01, `0c66339d`** | Gap |
 |---|---:|---:|---:|---:|---:|
@@ -1101,17 +1101,17 @@ lowering backends rather than on the JavaScript one alone. Lex+parse started at
 1.45 M lines/s and is 4.4× that now; native lowering started at nothing
 measurable, because the realistic corpora could not be compiled natively at all.
 
-**One row fell, and it is `lower+js`.** 311 k to 255 k is −18.0%, and it is two
-things rather than one: this machine on a different morning, and the compiler.
-Separating them is what the middle column is for — `f9fffe1c`'s own binary,
-rebuilt and re-run today, reads **284.1 k** where this table recorded 311 k on
-the day, so roughly half the fall is the machine and the rest is the toolchain.
-The toolchain's half was then priced on its own by running the two binaries
-**A/B/A/B** in one sitting, `--only=mixed/100k`, four processes, 2026-09-01 —
-the protocol §6.6 uses — taking each compiler's better median and discarding
-every leg whose MAD exceeded §2's ±5%. Both columns below are from that sitting,
-which is why its `0c66339d` figure is 248.9 k where the table above, whose
-better reading came from the default run, says 255.0 k:
+**One row fell, and it is `lower+js`.** 311 k to 255 k is −18.0%, and two things
+caused it rather than one: this machine on a different morning, and the
+compiler. The middle column separates them — `f9fffe1c`'s own binary, rebuilt
+and re-run today, reads **284.1 k** where this table recorded 311 k on the day,
+so roughly half the fall is the machine and the rest is the toolchain. Pricing
+the toolchain's half on its own meant running the two binaries **A/B/A/B** in
+one sitting, `--only=mixed/100k`, four processes, 2026-09-01 — the protocol §6.6
+uses — taking each compiler's better median and discarding every leg whose MAD
+exceeded §2's ±5%. Both columns below come from that sitting, which is why its
+`0c66339d` figure is 248.9 k where the table above, whose better reading came
+from the default run, says 255.0 k:
 
 | Phase | `f9fffe1c` | `0c66339d` | Δ in rate |
 |---|---:|---:|---:|
@@ -1126,26 +1126,26 @@ better reading came from the default run, says 255.0 k:
 **The JavaScript emitter is 12.4% slower per line and every other row is flat
 or better**, which is what makes the one that fell believable rather than a bad
 afternoon. **No budget on this page is stated over `lower+js`** — goal 3 is, and
-it is met by 2.5×, so this is a row to report and not a gate that failed. What
-it is not is a volume effect, and three denominators say so at once. Between
-the two commits the anchor's monomorphized function count *fell* 13,162 →
-12,735 and its emitted JavaScript grew only 1,317,286 →
+the row meets it by 2.5×, so this is something to report and not a gate that
+failed. It is not a volume effect, and three denominators say so at once.
+Between the two commits the anchor's monomorphized function count *fell* 13,162
+→ 12,735 and its emitted JavaScript grew only 1,317,286 →
 1,347,614 bytes, so the same row is **+18.3% per monomorphized function** and
 **−10.7% per emitted byte**: the emitter is doing more work per function, not
 being handed more program. The `ctx` parameter every module function now
 threads, `println`'s `Result`, and the actor and carrier lowerings are what
 arrived in `backend/js` over those 413 commits, and the census above prices the
 file at 7,214 → 8,108 lines. Which of them owns the 12.4% is a profile away
-(§7) and is not answered here.
+(§7), and this page does not answer it.
 
-**`lower+macos-arm64` is the row that moved, and it moved because its emitter
-was replaced.** Cranelift read 62.2 k lines/s on this machine on the day of the
-comparison — 58.1 k when this row was last written down — and the copy-and-patch
-backend reads **133.3 k**, which is 0.47× the time and 2.14× the rate. That is
-within noise of `design/native/CODEGEN-STENCIL.md` §1's "about 0.43×
-Cranelift's", and it is the first time goal 3 has been met natively here. The
-series breaks at the change of emitter and is marked rather than continued
-through, the same rule §3.1 applies to a generator revision.
+**`lower+macos-arm64` is the row that moved, and it moved because a new emitter
+replaced the old one.** Cranelift read 62.2 k lines/s on this machine on the day
+of the comparison — 58.1 k when this row was last written down — and the
+copy-and-patch backend reads **133.3 k**, which is 0.47× the time and 2.14× the
+rate. That sits within noise of `design/native/CODEGEN-STENCIL.md` §1's "about
+0.43× Cranelift's", and it is the first time goal 3 has been met natively here.
+The series breaks at the change of emitter, and this page marks the break rather
+than reading through it — the same rule §3.1 applies to a generator revision.
 
 | Corpus | Target | Cranelift | copy-and-patch | ratio | after, lines/s |
 |---|---|---:|---:|---:|---:|
@@ -1164,10 +1164,10 @@ a skip; `macos-x86_64` is absent because it has no stencil library and says so
 in its own words (§4). `enum-heavy` is the one row here still under the goal,
 and it halved like the rest.
 
-**The tuned corpus is not what produced this.** A copy-and-patch result is
-re-taken on freshly seeded 100k repositories before it is written down, because
-a pinned seed can sit in a local minimum. Five seeds minted for the comparison
-and never used before, three shapes between them:
+**The tuned corpus is not what produced this.** A copy-and-patch result gets
+re-taken on freshly seeded 100k repositories before anybody writes it down,
+because a pinned seed can sit in a local minimum. Five seeds minted for the
+comparison and never used before, three shapes between them:
 
 | Shape | Seed | ratio | after, lines/s |
 |---|---|---:|---:|
@@ -1190,31 +1190,31 @@ worst, which is the opposite of what overfitting to `mixed` would look like.
   allocator and no mid-end to skip (`design/native/CODEGEN-STENCIL.md` §1), so
   the two rows below that argue about one are history rather than a setting.
   **Three readings in this bullet are Cranelift's**, from before the flip, and
-  none has been re-taken because the emitter under all three has changed: LLVM
+  nobody re-took them, because the emitter under all three has changed: LLVM
   at `-O0` was 2.1–4.9× slower to lower on the shapes that decide it, and
   slowest exactly where the dev backend already missed; `opt_level = "speed"`
   cost 16–95% of native lowering and *lost* 2.6% of runtime (§6.4); and the path
-  ran the four kernels at 0.91× of bun. What *was* re-taken across the change is
-  the pair of comparisons the change was made for: emission at **0.47×**
-  Cranelift's time (§6.1) and the run side at **1.26×** Cranelift's, over the
-  four comparable kernels of the six-program series below. Erasing generics in
-  the dev profile
-  (2–10× measured runtime cost, and a second value model through both backends)
-  and moving instantiation placement (worth exactly one unit of blast radius,
-  and weak symbols would cost the direct branches) were both refuted by
-  measurement, and neither refutation depended on which emitter was under it.
+  ran the four kernels at 0.91× of bun. What did get re-taken across the change
+  is the pair of comparisons the change was made for: emission at **0.47×**
+  Cranelift's time (§6.1), and the run side at **1.26×** Cranelift's over the
+  four comparable kernels of the six-program series below. Measurement refuted
+  both erasing generics in the dev profile (2–10× measured runtime cost, and a
+  second value model through both backends) and moving instantiation placement
+  (worth exactly one unit of blast radius, and weak symbols would cost the
+  direct branches), and neither refutation depended on which emitter sat
+  underneath.
 - **Release: LLVM at `-O2`.** **10.55×** a cold dev build and **1.07× a no-op
   one**, for 1.84× the runtime over the four kernels below and 0.35× the
   artifact size — that last from before the flip and not re-taken. It lowers at
   5.5 k lines/s on the headline corpus, inside the 3.9–6.8 k band this row has
   always quoted, which is 18× under goal 3 and is the price of LLVM's optimizer
-  rather than of this repository's lowering; the goal is met by the path a
-  developer iterates on. The distance between the two profiles widened with the
-  removal without the release column moving at all: dev emission is 22.3× release
-  emission now, against 11.2× before.
+  rather than of this repository's lowering. The path a developer iterates on
+  meets the goal. The distance between the two profiles widened with the removal
+  while the release column never moved: dev emission is 22.3× release emission
+  now, against 11.2× before.
 
 **The end-to-end numbers behind those two ratios.** No 100,000-line repository
-ships in the tree and the generator's `--record` refuses one, so it was
+ships in the tree and the generator's `--record` refuses one, so this one was
 assembled out of the checked-in `mixed-10k` corpus: ten copies, one package
 each, module paths rewritten — **101,190 non-blank lines, 10 packages, 370
 modules**, every package a `MACOS`/`ARM64` binary. Cold is `buri clean` plus
@@ -1238,11 +1238,11 @@ cold and 0.087 s no-op.
 **The run side, on six kernels written for the comparison.** The four programs
 behind the 1.38× that `design/native/CODEGEN-STENCIL.md` §13 records **have no
 harness in this repository** — nothing in the tree reproduces them — so the six
-below are a fresh series and their geomean is not that number re-taken. What
-they are is the same six sources through three code generators, on one machine
-on one afternoon: whole-process wall clock, median of five, macOS arm64. The
-LLVM column is `-O2`, because `--release` is the only optimized native path here
-and there is no `-O0` one to hold it against; it is a harder bar than the
+below are a fresh series, and their geomean is not that number re-taken. They
+are the same six sources through three code generators, on one machine on one
+afternoon: whole-process wall clock, median of five, macOS arm64. The LLVM
+column is `-O2`, because `--release` is the only optimized native path here and
+there is no `-O0` one to hold it against. That is a harder bar than the
 literature's, not the same one.
 
 | Kernel | Cranelift dev | copy-and-patch dev | LLVM `-O2` | ÷ Cranelift | ÷ LLVM |
@@ -1256,9 +1256,10 @@ literature's, not the same one.
 | `str.concat` + `str.fromInt` × 1,000,000 | 59.6 ms | 53.5 ms | 47.1 ms | **0.90×** | 1.14× |
 
 The shape `design/native/CODEGEN-STENCIL.md` §13 describes holds, and has
-tightened. Three of the four are within 1.08–1.15× of Cranelift, and **the whole of the remaining gap is
-the `core/list` closure pipeline** — the surface `rtcall.rs` deliberately does
-not inline, which is a stated exclusion rather than a surprise. Cranelift itself
+tightened. Three of the four are within 1.08–1.15× of Cranelift, and **the whole
+of the remaining gap is the `core/list` closure pipeline** — the surface
+`rtcall.rs` deliberately does not inline, a stated exclusion rather than a
+surprise. Cranelift itself
 is 1.46× LLVM `-O2` on the same four, against the copy-and-patch backend's
 1.84×, so most of the distance to release is the optimizer rather than the
 emitter. The two concat rows are the in-place append port measured: both are at
@@ -1268,14 +1269,13 @@ left operand stays unique comes out *ahead*. Per append the cost went from
 rather than quadratically with appends.
 
 **`buri test` defaults to the native dev backend**, since 2026-08-21. A suite
-that names no platform is compiled with the dev backend and run as a binary, and
+that names no platform compiles with the dev backend and runs as a binary, and
 since 2026-09-03 there is no fallback: a toolchain that cannot build for its own
-host, or a program the backend has no body for, is a refusal naming what is
+host, or a program the backend has no body for, gets a refusal naming what is
 missing rather than a JavaScript run with a note (`commands/test.rs`;
-`design/native/ARCHITECTURE.md` §4). The set of hosts that refusal covers got
-one member wider on 2026-08-29: the dev backend answers for the triples it has a
-stencil library for and no others
-(`design/native/CODEGEN-STENCIL.md` §3.2). The
+`design/native/ARCHITECTURE.md` §4). That refusal covers one more host since
+2026-08-29: the dev backend answers for the triples it has a stencil library for
+and no others (`design/native/CODEGEN-STENCIL.md` §3.2). The
 number that paid for the change is the incremental one: a one-line edit at 104k
 lines is 502 ms to verdict native against bun's 622 on the fast suite and 1,484
 against 1,742 on the compute suite, the first measurement here where the native
@@ -1293,10 +1293,10 @@ compile column is itself the faster one.
   2026-09-01 (§6.1). It is not a volume effect — the same corpus is 3.2% *fewer*
   monomorphized functions and 2.3% more emitted JavaScript, so the cost is per
   function rather than per program — and goal 3 is still met by 2.5×, which is
-  why it is here and not above the fold. What it needs first is a profile (§7)
-  over the JavaScript lowering call, to say whether it is the threaded `ctx`
-  parameter, `println`'s `Result`, or the actor and carrier lowerings; nothing
-  in this slice tried to answer that.
+  why it is here and not above the fold. It needs a profile first (§7) over the
+  JavaScript lowering call, to say whether the threaded `ctx` parameter,
+  `println`'s `Result`, or the actor and carrier lowerings own it. Nothing in
+  this slice tried to answer that.
 - **The producer half of fusion.** `range` is still materialized.
 - **Derived `Show`**, which needs the design decision in §6.4 rather than more
   tuning.
@@ -1312,24 +1312,24 @@ compile column is itself the faster one.
   **0.519×**, a *larger* win than the tuned pair's 0.542×. The release backend
   followed (`3b262681`): **0.255×** over the six kernels that index a list, the
   held-out four at **0.250×**, again ahead of the tuned pair's 0.266×. Neither
-  half was tuned against a kernel, and the held-out column saying so twice is
-  the reason the numbers are here rather than in a footnote. Landing the dev
+  half was tuned against a kernel, and the held-out column says so twice, which
+  is why these numbers are here rather than in a footnote. Landing the dev
   half alone put the dev backend *ahead* of `--release` on exactly those six,
   dev÷release falling to 0.65×, and the release half restores the ordering with
   room to spare, at **2.59×**. A counted element still takes the call on both
   backends: the runtime entry retains through the glue it is handed and the
   open-coded sequence does not, so that half is a reference-counting question
   rather than a codegen one. §6.2's three-generator table predates all three
-  commits and is not re-taken here.
+  commits, and nobody re-took it here.
 - **~~Realistic native lowering's last 1.72×.~~ Closed 2026-08-29.** The
-  measurement said 88% of the row was inside Cranelift's own `define_function`
-  and 42% regalloc2 alone, so the lowering this repository owned was not the
-  cost, and the next step was a value-model change or a different codegen
-  strategy rather than a faster loop. **The second one was taken**: the emitter
+  measurement said 88% of the row sat inside Cranelift's own `define_function`
+  and 42% inside regalloc2 alone, so the lowering this repository owned was not
+  the cost, and the next step was a value-model change or a different codegen
+  strategy rather than a faster loop. **Somebody took the second**: the emitter
   under this row is a copy-and-patch one with no register allocator in it at
   all, the row reads 133.3 k lines/s, and goal 3 is met natively for the first
-  time (§6.1). It is left here rather than deleted because the reason it closed
-  is the finding — the gap was in a dependency's design, and no amount of
+  time (§6.1). It stays here rather than being deleted because the reason it
+  closed is the finding — the gap was in a dependency's design, and no amount of
   tuning on this side of the seam was going to reach it.
 - **Lex+parse's last 1.57×.** The plateau without a design change is
   ~5.5–6 M lines/s; reaching 10 M additionally needs the C3 rewrite. 11.2% of
@@ -1338,13 +1338,12 @@ compile column is itself the faster one.
 
 ### 6.4 Three findings that transfer
 
-The rounds that produced the numbers above are not kept as a chronology: a log
-whose every row is superseded by a later row in the same document is a worse
-version of the last row. An earlier revision numbered those rounds §6.1 through
-§6.9, so a citation to one of them lands here. Three of the findings are worth
-more than the numbers
-they produced, because each is a shape rather than a measurement, and they are
-the three below.
+This page does not keep the rounds that produced the numbers above as a
+chronology: a log whose every row is superseded by a later row in the same
+document is a worse version of the last row. An earlier revision numbered those
+rounds §6.1 through §6.9, so a citation to one of them lands here. Three
+findings are worth more than the numbers they produced, because each is a shape
+rather than a measurement:
 
 **Per-unit work over a whole-program array is Θ(units × functions), and it hides
 until it does not.** Two scans in the then-current native backend walked all of
@@ -1381,8 +1380,8 @@ renderer emitted once, which is what the JavaScript backend already does. That
 is a decision about `middle::derives`'s premise rather than an optimization, and
 it is recorded here because the measurement rules out the two cheaper answers.
 
-**`opt_level = "speed"` on the dev backend was refuted on both halves of the
-trade.** It cost 16–95% of native lowering. What it returned, over the four
+**Measurement refuted `opt_level = "speed"` on the dev backend, on both halves
+of the trade.** It cost 16–95% of native lowering. What it returned, over the four
 kernels: primes −3.6%, n-queens −4.3%, matmul ±0%, and the fused pipeline
 **+34%** — the one shape the fusion pass had just made fast, regressed by a
 third because the egraph mid-end rewrote the fused loop into something its
@@ -1398,7 +1397,7 @@ by.
 - **Branchless reference counting**: +15%.
 - **`opt_level = "speed"`** on the dev backend: +20% lowering, and §6.4's
   runtime regression. This and the row below were dials on the Cranelift backend,
-  removed 2026-08-29; they are kept because a dead end that is deleted gets
+  removed 2026-08-29. They stay here because a deleted dead end gets
   rediscovered.
 - **`regalloc_algorithm = "single_pass"`**: silently inert since Cranelift
   0.123, which withdrew the value — the line was set and had no effect. It went
@@ -1419,10 +1418,10 @@ it still takes the unshared arm and every corpus measured here is one.
 
 **The stated budget was 3% on every row of `--set=native`, and it is 3% on four
 of them.** The fifth, `lower+macos-arm64-release`, carries a budget of its own —
-**amended 2026-08-30** to the range measured below, +16.6% … +26.3%. The
-amendment is argued at the end of this section rather than here, because a
-budget widened to fit a number is only defensible once the number, and what was
-bought with it, are both on the page.
+**amended 2026-08-30** to the range measured below, +16.6% … +26.3%. The end of
+this section argues that amendment rather than this paragraph, because a budget
+widened to fit a number is only defensible once the number and what it bought
+are both on the page.
 
 Protocol: `--only=mixed --set=native --targets=macos-arm64 --json`, the same
 machine and §2's rules, run **A/B/A/B** — the baseline toolchain, this one, the
@@ -1442,7 +1441,7 @@ compilers. Each cell is the better of that compiler's two run medians, which is
 The first four rows have no direction — the change touches native lowering and
 nothing else, and the front-end rows moving by ±4% in both directions is what
 this machine's drift looks like over a twenty-five-minute run. They are the
-control, and they are why the fifth row is believed.
+control, and they are why the fifth row is credible.
 
 **Goal 3 is unmoved.** §6.1's goal-bearing lowering row is
 `lower+macos-arm64`, the development backend, and it is one of the four. The
