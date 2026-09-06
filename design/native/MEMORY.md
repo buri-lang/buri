@@ -687,7 +687,6 @@ further up. So the compiler emits the question rather than the answer:
 `state` the caller kept was marked at the call, so the field is marked, so the
 push copies — once, into a fresh unmarked struct, after which the loop runs in
 place.
-place.
 
 #### What the ownership half had to be told
 
