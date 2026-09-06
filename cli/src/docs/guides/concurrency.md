@@ -94,15 +94,18 @@ fn ledger<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Ledger> {
             let _ = io.println(c, "closed at ${total}").ignore();
             ()
         }),
-        mailbox: .Some(8),
     }
 }
 ```
 
 A variant carrying no `Reply` is a `send`; one carrying a `Reply<R>` is an `ask`
 that yields an `R`. The pairing between a request and its answer is therefore
-declared exactly once, in the enum. `onStop` and `mailbox` are `Option` fields a
-literal may leave out: no hook at all, and `core/actor`'s own `MAILBOX` of 64.
+declared exactly once, in the enum. `onStop` is an `Option` a literal may leave
+out, and leaving it out is no hook at all.
+
+The mailbox holds sixty-four messages and is not configurable. A `send` that
+finds it full runs the actor down before it answers, so the bound limits how
+much work may wait, never how much may arrive.
 
 ## `send`, `ask`, and `stop`
 

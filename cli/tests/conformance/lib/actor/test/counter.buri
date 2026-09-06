@@ -8,7 +8,7 @@
 // optimizing one.
 
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Reply };
+from "core/actor" import { Actor, Address, Reply };
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/host/testing" import { alloc, stdout, tasks };
 from "core/io" import * as io;
@@ -22,10 +22,7 @@ enum CounterMessage {
 
 /// The note's counter, with `Add` beside `Increment` so that ordering is
 /// visible in the answer rather than only in the count.
-fn counter<C: Alloc + Tasks>(
-    initial: Int,
-    box: Option<Int>,
-): Actor<C, Int, CounterMessage> {
+fn counter<C: Alloc + Tasks>(initial: Int): Actor<C, Int, CounterMessage> {
     Actor {
         state: initial,
         step: fn(c, count, message) => {
@@ -38,7 +35,6 @@ fn counter<C: Alloc + Tasks>(
                 },
             }
         },
-        mailbox: box,
     }
 }
 
@@ -47,7 +43,7 @@ test "the note's counter answers two increments" {
         Alloc: alloc(),
         Tasks: tasks(),
     };
-    let counted = actor.start(ctx, counter(0, .None));
+    let counted = actor.start(ctx, counter(0));
     let _ = counted.send(ctx, .Increment).ignore();
     let _ = counted.send(ctx, .Increment).ignore();
     assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(2));
@@ -59,7 +55,7 @@ test "one sender's messages arrive in the order it sent them" {
         Alloc: alloc(),
         Tasks: tasks(),
     };
-    let counted = actor.start(ctx, counter(0, .None));
+    let counted = actor.start(ctx, counter(0));
     let _ = counted.send(ctx, .Add(1)).ignore();
     let _ = counted.send(ctx, .Add(2)).ignore();
     let _ = counted.send(ctx, .Add(3)).ignore();
@@ -68,20 +64,52 @@ test "one sender's messages arrive in the order it sent them" {
     let _ = counted.stop(ctx).ignore();
 }
 
-test "a bounded mailbox is run down rather than grown" {
+test "a mailbox at its bound is run down rather than grown" {
     let ctx = context {
         Alloc: alloc(),
         Tasks: tasks(),
     };
-    // A mailbox of one: every `send` past the first finds it full, and the
-    // sender steps it. The answer is the same as the unbounded case, which is
-    // the whole claim — the bound is backpressure and not a semantics.
-    let counted = actor.start(ctx, counter(0, .Some(1)));
-    let _ = counted.send(ctx, .Add(1)).ignore();
-    let _ = counted.send(ctx, .Add(2)).ignore();
-    let _ = counted.send(ctx, .Add(3)).ignore();
-    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(123));
+    // Sixty-five posts into a mailbox that holds sixty-four. Nobody asked and
+    // nobody stopped, so the only thing that could have stepped the actor is
+    // the `send` that found the queue at its bound — and it stepped every
+    // message waiting, which is why the answer is the whole sixty-five and not
+    // some prefix of them.
+    let counted = actor.start(ctx, counter(0));
+    increments(ctx, counted, 65);
+    assert.eq(counted.ask(ctx, fn(reply) => .Get(reply)), .Ok(65));
     let _ = counted.stop(ctx).ignore();
+}
+
+test "the drain happens at the bound and not at the stop" {
+    let sink = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: sink,
+        Tasks: tasks(),
+    };
+    // `stop` discards what is still waiting, so what `onStop` prints is exactly
+    // what the mailbox had already run down. Sixty-five posts leave one behind:
+    // the sixty-fourth found the queue full and stepped all sixty-four, and the
+    // sixty-fifth is still sitting there when the stop throws it away.
+    let counted = actor.start(ctx, logged());
+    increments(ctx, counted, 65);
+    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.eq(sink.captured(), "final 64\n");
+}
+
+/// Posts `n` increments, one `send` at a time.
+fn increments<C: Alloc + Tasks>(
+    ctx: C,
+    counted: Address<C, Int, CounterMessage>,
+    n: Int,
+): () {
+    match (n <= 0) {
+        true => (),
+        false => {
+            let _ = counted.send(ctx, .Increment).ignore();
+            increments(ctx, counted, n - 1)
+        },
+    }
 }
 
 test "a send after a stop is .Err(.Stopped)" {
@@ -89,7 +117,7 @@ test "a send after a stop is .Err(.Stopped)" {
         Alloc: alloc(),
         Tasks: tasks(),
     };
-    let counted = actor.start(ctx, counter(0, .None));
+    let counted = actor.start(ctx, counter(0));
     let _ = counted.send(ctx, .Increment).ignore();
     assert.eq(counted.stop(ctx), .Ok(()));
     assert.eq(counted.send(ctx, .Increment), .Err(.Stopped));
@@ -162,7 +190,7 @@ test "testing an actor is calling its step" {
     };
     // No mailbox, no address, no runtime: the step is an ordinary function in
     // an ordinary field, which is why this module ships no test double.
-    let step = counter(0, .None).step;
+    let step = counter(0).step;
     assert.eq(step(ctx, 7, .Increment), 8);
     assert.eq(step(ctx, 7, .Add(2)), 72);
 }

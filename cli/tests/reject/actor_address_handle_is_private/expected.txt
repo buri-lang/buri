@@ -1,7 +1,7 @@
 error: field `handle` of `Address` is private to its module [private-to-module]
-  --> cmd/actor_address_handle_is_private/main.buri:27:48
+  --> cmd/actor_address_handle_is_private/main.buri:26:48
    |
-27 |     let _ = io.println(ctx, "mailbox ${address.handle}").ignore();
+26 |     let _ = io.println(ctx, "mailbox ${address.handle}").ignore();
    |                                                ^^^^^^
    |
    = a struct with any private field cannot be constructed or destructured elsewhere, though functional update still works because it never names the hidden fields

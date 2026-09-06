@@ -1,0 +1,31 @@
+// EXPECT: `Actor` has no field `mailbox`
+//
+// How many messages may wait is `core/actor`'s number and not a program's.
+// `send` is what enforces it — a post that finds the queue at the bound runs
+// the actor down before it answers — so the bound has to be a number the driver
+// and the runtime both already know, and a per-actor one bought nothing a
+// program could act on. An `Actor` is its state, its step and an optional
+// `onStop`, and a literal that still writes the old field is told which fields
+// there are.
+from "core/actor" import { Actor };
+from "core/actor" import * as actor;
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+enum Ping {
+    Ping,
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+    let address = actor.start(ctx, Actor {
+        state: 0,
+        mailbox: .Some(8),
+        step: fn(_c, count, _message: Ping) => count + 1,
+    });
+    let _ = address.send(ctx, .Ping).ignore();
+    let _ = io.println(ctx, "sent").ignore();
+    let _stopped = address.stop(ctx).ignore();
+    .Ok(())
+}
