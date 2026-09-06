@@ -2236,7 +2236,7 @@ function $host_HostProc_exitWith(self, code) {
 //
 // The mailbox, the state and the reply slots. Nine functions, and between them
 // they are the same table `cli/runtime/rt.rs` holds — one queue per actor, one
-// state beside it, one baton that says who may step it, and a slot per `ask`.
+// state beside it, one baton that says who may step it, and a slot per message.
 //
 // Everything crosses as a one-element list, which is what makes the native
 // half possible at all (a `[T]` is two words whatever `T` is) and costs nothing
@@ -2324,7 +2324,7 @@ function $actor_statePut(c, handle, state) {
 }
 
 // The reply slots, reused behind a generation, exactly as the native table
-// reuses them: a server answering a million `ask`s would otherwise grow a
+// reuses them: a server answering a million messages would otherwise grow a
 // table for the length of its uptime, and a stale handle must name nothing
 // rather than somebody else's answer.
 const $replies = { slots: [], free: [] };

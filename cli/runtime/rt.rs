@@ -1304,10 +1304,10 @@ pub unsafe extern "C" fn buri_rt_host_tasks_parallel(
 
 /// How many messages wait in a mailbox that asked for no number.
 ///
-/// It is **also** written in `core/actor` as `MAILBOX`, and the two must agree:
-/// the bound is enforced from both sides — this file refuses to take a message
-/// past it, and `core/actor::send` runs the mailbox down when it reaches it —
-/// so a bound only one side knew would be a bound the other could not respect.
+/// It is **also** written in `core/actor` as `MAILBOX`, and the two must agree.
+/// This file is what enforces the bound — a post past it waits — and the module
+/// is what quotes the number to a reader, so a number that could drift from
+/// this one is a claim nobody can check.
 /// `the_default_mailbox_is_the_one_core_actor_names` is that agreement as a
 /// test.
 pub const MAILBOX: i64 = 64;
@@ -1392,7 +1392,7 @@ fn actors() -> MutexGuard<'static, Vec<Mailbox>> {
     }
 }
 
-/// One `ask`'s answer, on its way back.
+/// One message's answer, on its way back.
 enum Answer {
     /// Opened by `replyOpen` and not yet answered.
     Waiting,
@@ -1406,7 +1406,7 @@ enum Answer {
 /// The reply slots, and the generation of each, beside the free list.
 ///
 /// **Reused, unlike an actor's slot, and the generation is why that is safe.**
-/// A server answering a million `ask`s opens a million reply slots, so a table
+/// A server answering a million messages opens a million reply slots, so a table
 /// that only grew would be a leak proportional to the program's uptime. A
 /// handle is `generation << 20 | index`, so a stale one — held past the answer
 /// it named — finds a generation that has moved on and is `.None` rather than
@@ -1474,10 +1474,10 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_open(ptr: *mut u8, len: u64, boun
 /// Thirty seconds, the same number `http.rs`, `tls.rs` and `net.rs` carry, and
 /// for the reason `net.rs` states as the rule: **every wait is bounded except
 /// the one a server is for**, and neither of these is one a server is for. It
-/// is not a number a correct program reaches — `core/actor::send` runs the
-/// mailbox down at the bound, so a single-task program never waits here at all
-/// — so it is priced as "long enough that reaching it is a bug" rather than as
-/// a latency budget.
+/// is not a number a correct program reaches — `core/actor::sendMessage` runs
+/// the mailbox down before it answers, so a single-task program never waits
+/// here at all — so it is priced as "long enough that reaching it is a bug"
+/// rather than as a latency budget.
 ///
 /// What expiry *means* is stated at each of the two callers, because the two
 /// answers differ and neither is a new variant: a program that wants to tell a
@@ -1521,9 +1521,9 @@ fn at(table: &mut [Mailbox], handle: i64) -> Option<&mut Mailbox> {
 /// waiting, or `.None` for a closed mailbox.
 ///
 /// **Waits while the mailbox is full**, on the permit `mailboxPop` gives back.
-/// `core/actor::send` runs the mailbox down after every post that reaches the
-/// bound, so a single-task program never reaches this wait; a second task
-/// posting into an actor somebody else drives is what does.
+/// `core/actor::sendMessage` runs the mailbox down after every post, so a
+/// single-task program never reaches this wait; a second task posting into an
+/// actor somebody else drives is what does.
 ///
 /// # Safety
 /// `ptr` is null or a live `[Carried<M>]` block the caller owns; `out` is
@@ -1562,9 +1562,9 @@ unsafe fn push_within(
     // `mailboxPop`, which takes the same lock.
     //
     // **Bounded**, which is [`ACTOR_DEADLINE`]'s row. `.None` is the answer to
-    // both endings, and it is the same `.Err(.Stopped)` `core/actor::send`
-    // renders for a closed mailbox — so a `send` that waited out the deadline
-    // is reported as a stop rather than as a deadlock. That is the honest limit
+    // both endings, and it is the same `.Err(.Stopped)`
+    // `core/actor::sendMessage` renders for a closed mailbox — so a post that
+    // waited out the deadline is reported as a stop rather than as a deadlock. That is the honest limit
     // of what can be said without a variant `core/actor` does not have, and it
     // is the right way round: the block is not taken, so the caller's own
     // release frees it, and a sender told "stopped" stops rather than retrying
@@ -3603,8 +3603,8 @@ mod tests {
     /// **A bounded mailbox actually blocks.**
     ///
     /// The acceptance case for the bound, and it is here rather than in Buri
-    /// because `core/actor::send` deliberately never reaches this wait — it
-    /// runs the mailbox down when a post fills it, so a single-task program
+    /// because `core/actor::sendMessage` deliberately never reaches this wait —
+    /// it runs the mailbox down before it answers, so a single-task program
     /// cannot see it. What can is a second carrier posting into an actor
     /// somebody else drives, which is what this drives directly.
     ///

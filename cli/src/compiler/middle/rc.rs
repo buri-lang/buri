@@ -1406,7 +1406,7 @@ pub fn suspends(key: &str) -> bool {
 ///
 /// **By prefix, not method by method**, which is the direction an omission has
 /// to cost performance rather than correctness. Every `host.HostTasks` row is
-/// one today and every row track F adds — `send`, `ask`, a detached `start` —
+/// one today and every row track F adds — `sendMessage`, a detached `start` —
 /// is one on the day it lands, without an edit here to remember. A key absent
 /// from this list is a value the program is promised nobody else can see, and
 /// the promise is kept by non-atomic counts on both backends, so an omission
