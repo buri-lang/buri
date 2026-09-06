@@ -4,24 +4,25 @@
 one line: two features that were specified and cut, and one open question that
 got an answer.**
 
-This is a maintainer document, and so is its neighbour: what a user needs is the
-outcome, which the language reference states where the feature would have been.
-What is kept here is the reasoning, because each of these constrains the next
-proposal that asks for the same thing.
+A maintainer document, like its neighbour. A user needs the outcome, and the
+language reference states that where the feature would have been. This page keeps
+the reasoning, because each argument constrains the next proposal that asks for
+the same thing.
 
 ## Considered and cut: `for` and `while`
 
-A `for`/`while` sugar was fully specified for v0.3 and then removed.
+A `for`/`while` sugar was fully specified for v0.3, then removed.
 
-The design was: `for (x in xs) with (acc = init) { body }` desugaring to a
-tail-recursive local function, where the body evaluates to the next accumulator;
-`while (cond) with (...)` likewise; plus a `Range` type and `a..b` / `a..=b`
-operators so that counting loops would not have to allocate an array.
+The design: `for (x in xs) with (acc = init) { body }` desugared to a
+tail-recursive local function, with the body evaluating to the next accumulator.
+`while (cond) with (...)` worked the same way. A `Range` type and `a..b` /
+`a..=b` operators came along so counting loops would not have to allocate an
+array.
 
 What it bought: familiar syntax for folds, and — the strongest argument — an
 exemption from the capture rule of Section 10.6, since a loop body is inlined
-control flow rather than a value of function type. Effectful iteration could be
-written directly instead of through a `*Ctx` combinator.
+control flow rather than a value of function type. You could write effectful
+iteration directly instead of routing it through a `*Ctx` combinator.
 
 What it cost, and why it lost:
 
@@ -38,18 +39,18 @@ What it cost, and why it lost:
   it means "can this construct see an effect?" stops having one answer. Better
   to keep the rule absolute and treat its cost as the open question it is.
 
-If loops return, the case to beat is: they must earn their keep on something
-other than familiarity, and the capture-rule exemption should be solved directly
-rather than routed around.
+If loops come back, they have to earn their keep on something other than
+familiarity, and the capture-rule exemption has to be solved directly rather than
+routed around.
 
 ## Considered and cut: the `|>` pipe operator
 
-`x |> f(a)` meant `f(a, x)`, and it is why the standard library originally put
-its data *last*. Method syntax (Section 6.7) covers the case that mattered —
-chaining operations that belong to a type — and covers it with resolution that
-needs no import. What remained for `|>` was chaining a function that is not a
-method of the receiver's type, which reads at least as well as a `let` sequence
-in a language that already has no expression statements.
+`x |> f(a)` meant `f(a, x)`, which is why the standard library originally put its
+data *last*. Method syntax (Section 6.7) covers the case that mattered —
+chaining operations that belong to a type — and resolves them with no import.
+That left `|>` one job: chaining a function that is not a method of the
+receiver's type. A `let` sequence reads at least as well, in a language that
+already has no expression statements.
 
 By the same standard that cut loops, it did not earn its keep. Removing it also
 freed the argument convention: with `|>` gone, the receiver could move to the
@@ -58,19 +59,20 @@ alike.
 
 ## Answered: `I64` on a JavaScript target
 
-This was an open question, and it was answered — not the way the entry that
+This was an open question. The answer came back, and not the way the entry that
 raised it expected.
 
-`Int` is `I64` on every target, and the question was whether "undefined above
-2^53" is a rule programmers internalize or one they discover. It is one they
-discover: buri-lang/buri#8 and #4 are the same person finding it twice, from two
-directions, porting nanosecond timestamps. So `I64`, `U64`, `I128` and `U128`
-are `BigInt`s on that backend now.
+`Int` is `I64` on every target. The question was whether "undefined above 2^53"
+is a rule programmers internalize or one they discover. They discover it:
+buri-lang/buri#8 and #4 are the same person finding it twice, from two
+directions, porting nanosecond timestamps. So `I64`, `U64`, `I128` and `U128` are
+`BigInt`s on that backend now.
 
-The objection the entry raised to that — it taxes every loop counter for a case
-most never reach — is real and was paid rather than argued away: the narrow
-widths keep the `number` representation, and a loop counter that does not need
-the range can say `I32`. What the tax actually is, measured on the conformance
-corpus rather than guessed, is in [`native/VALUE-MODEL.md`](./native/VALUE-MODEL.md)
-§12. The alternative that stays refused is a target-dependent `Int` width, which
-trades a performance problem for a portability one.
+The objection the entry raised — it taxes every loop counter for a case most
+never reach — is real, and the design pays it rather than arguing it away. The
+narrow widths keep the `number` representation, and a loop counter that does not
+need the range can say `I32`.
+[`native/VALUE-MODEL.md`](./native/VALUE-MODEL.md) §12 has the size of the tax,
+measured on the conformance corpus rather than guessed. The alternative that
+stays refused is a target-dependent `Int` width, which trades a performance
+problem for a portability one.
