@@ -2828,12 +2828,8 @@ fn template_text(t: &str) -> String {
     let mut out = String::new();
     for c in t.chars() {
         match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
             '$' => out.push_str("\\$"),
-            c => out.push(c),
+            c => escaped(c, &mut out),
         }
     }
     out
@@ -3007,16 +3003,35 @@ fn quote_char(c: char) -> String {
 fn quote(s: &str) -> String {
     let mut out = String::from("\"");
     for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            c => out.push(c),
-        }
+        escaped(c, &mut out);
     }
     out.push('"');
     out
+}
+
+/// One character of a string body, escaped the way the lexer reads it back.
+///
+/// **Every control character has to be written as an escape**, and not only the
+/// two that are easy to remember. A literal carriage return inside quotes was
+/// printed as itself; the file then held a bare `\r` in the middle of a string,
+/// and re-reading it dropped the character — so `buri format` changed what the
+/// program meant. `\0` had the same hole. The set below is
+/// [`quote_char`]'s, which never had it, and the fallback is `\u{..}` so that
+/// nothing under U+0020 can reach the output as itself.
+fn escaped(c: char, out: &mut String) {
+    match c {
+        '"' => out.push_str("\\\""),
+        '\\' => out.push_str("\\\\"),
+        '\n' => out.push_str("\\n"),
+        '\r' => out.push_str("\\r"),
+        '\t' => out.push_str("\\t"),
+        '\0' => out.push_str("\\0"),
+        c if (c as u32) < 0x20 => {
+            use std::fmt::Write;
+            let _ = write!(out, "\\u{{{:x}}}", c as u32);
+        }
+        c => out.push(c),
+    }
 }
 
 fn pattern_str(t: &Tree, p: PatId) -> String {
