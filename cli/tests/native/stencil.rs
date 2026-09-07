@@ -947,9 +947,17 @@ export fn main(): Result<(), Str> {
         .output()
         .unwrap();
     let text = String::from_utf8_lossy(&out.stdout);
+    // The marker is looked for *anywhere* in the line rather than at its
+    // start. libtest has two output modes and picks between them on how many
+    // threads it has: with more than one it prints `test <name> ... ok` whole,
+    // after the fact, and with one it prints `test <name> ... ` first and the
+    // verdict later — which glues the child's own first line to it. A machine
+    // with one core, or a container with a fraction of one, gets the second
+    // mode, and a parser anchored at the start of the line silently loses a
+    // digest there and fails a determinism test for a formatting reason.
     let theirs: Vec<u64> = text
         .lines()
-        .filter_map(|l| l.strip_prefix(DIGEST).and_then(|r| r.strip_prefix('=')))
+        .filter_map(|l| l.rsplit_once(DIGEST).and_then(|(_, r)| r.strip_prefix('=')))
         .filter_map(|n| n.parse().ok())
         .collect();
     assert!(!theirs.is_empty(), "the second process printed no digest:\n{text}");
