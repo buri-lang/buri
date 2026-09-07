@@ -441,6 +441,10 @@ impl Str {
     /// back empty. Lines are split and rejoined on `\n`, the way `lines` cuts
     /// them.
     ///
+    /// The margin is counted in characters, so a tab counts one and so does a
+    /// space. Indent a block with both and the cut lands where the *count*
+    /// agrees, not where the column does.
+    ///
     /// ```buri run
     /// from "core/effect" import { Alloc, Stdout };
     /// from "core/host" import * as host;
