@@ -703,6 +703,7 @@ const PACKAGES: &[Case] = &[
              whose *source* is a float, which is what holds \
              `numbers/conversions.buri` out. The rest of `core/simd` needs no \
              such conversion",
+    ),
     // `core/uuid`, over the two seeded doubles. Native on `crypto/entropy.buri`'s
     // terms — `TestEntropy` and `TestClock` are both `cli/runtime/testing.rs`
     // slots, so the identifiers this file writes down are the ones both backends

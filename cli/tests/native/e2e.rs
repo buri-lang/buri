@@ -1809,7 +1809,7 @@ export fn main(): Result<(), Str> {
 
     // A `cat` of a path that is not there writes to standard error and exits
     // non-zero: a child that ran and failed is `.Ok`, not `.Err`.
-    let complained = proc
+    let complained = process
         .run(ctx, process.command(cat.text(), ["no-such-file-here"]))
         .mapErr(fn(_e) => "cat missing")?;
     let _p5 = io
