@@ -68,7 +68,10 @@ export enum CsvError {
 /// from "core/effect" import { Alloc };
 ///
 /// export fn widths<C: Alloc>(ctx: C, text: Str): Result<[Int], csv.CsvError> {
-///     csv.parse(ctx, text).map(fn(rows) => rows.map(ctx, fn(row) => row.len()))
+///     match (csv.parse(ctx, text)) {
+///         .Err(e) => .Err(e),
+///         .Ok(rows) => .Ok(rows.map(ctx, fn(row) => row.len())),
+///     }
 /// }
 /// ```
 ///
@@ -156,8 +159,10 @@ export fn parseWithHeader<C: Alloc>(
 ///         Alloc: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
-///     let text = csv.render(ctx, [["plain", "one, two"], ["a\"b", ""]]);
-///     let _ = io.println(ctx, text.replace(ctx, "\r\n", " | ")).ignore();
+///     let rows = csv.render(ctx, [["plain", "one, two"], ["a\"b", ""]]).lines(ctx);
+///     let one = rows.get(0).withDefault("").trim();
+///     let two = rows.get(1).withDefault("").trim();
+///     let _ = io.println(ctx, "${one} | ${two}").ignore();
 ///     .Ok(())
 /// }
 /// ```
@@ -170,7 +175,9 @@ export fn parseWithHeader<C: Alloc>(
 /// the characters written.
 export fn render<C: Alloc>(ctx: C, rows: [[Str]]): Str {
     rows
-        .mapCtx(ctx, fn(c, row) => row.mapCtx(c, fn(f, cell) => quoted(f, cell)).join(c, ","))
+        .mapCtx(ctx, fn(c, row) => {
+            row.mapCtx(c, fn(f, cell) => quoted(f, cell)).join(c, ",")
+        })
         .join(ctx, "\r\n")
 }
 
@@ -180,8 +187,11 @@ export fn render<C: Alloc>(ctx: C, rows: [[Str]]): Str {
 // `BARE`, and runs quoted through `QUOTED` — with `AFTER_QUOTE` the one
 // character of lookahead that separates a doubled quote from a closing one.
 let FIELD_START: Int = 0;
+
 let BARE: Int = 1;
+
 let QUOTED: Int = 2;
+
 let AFTER_QUOTE: Int = 3;
 
 /// One character, then the next. A self tail call, so a megabyte costs one
@@ -206,7 +216,17 @@ fn scanning<C: Alloc>(
         .Some(c) => {
             if (state == QUOTED) {
                 if (c == '"') {
-                    scanning(ctx, cs, delimiter, at + 1, AFTER_QUOTE, true, field, row, rows)
+                    scanning(
+                        ctx,
+                        cs,
+                        delimiter,
+                        at + 1,
+                        AFTER_QUOTE,
+                        true,
+                        field,
+                        row,
+                        rows,
+                    )
                 } else {
                     scanning(
                         ctx,
@@ -247,7 +267,11 @@ fn scanning<C: Alloc>(
                     rows,
                 )
             } else if (c == '\n' || c == '\r') {
-                let skip = if (c == '\r' && cs.get(at + 1) == .Some('\n')) { 2 } else { 1 };
+                let skip = if (c == '\r' && cs.get(at + 1) == .Some('\n')) {
+                    2
+                } else {
+                    1
+                };
                 scanning(
                     ctx,
                     cs,
@@ -313,7 +337,9 @@ fn rectangular(rows: [[Str]], at: Int): Result<[[Str]], CsvError> {
 /// One field, quoted when it holds something a reader would otherwise split on.
 fn quoted<C: Alloc>(ctx: C, text: Str): Str {
     if (
-        text.contains(",") || text.contains("\"") || text.contains("\n")
+        text.contains(",")
+            || text.contains("\"")
+            || text.contains("\n")
             || text.contains("\r")
     ) {
         "\"".concat(ctx, text.replace(ctx, "\"", "\"\"")).concat(ctx, "\"")

@@ -208,12 +208,9 @@ export fn parseQuery<C: Alloc>(ctx: C, query: Str): [(Str, Str)] {
 /// ```
 export fn encodeQuery<C: Alloc>(ctx: C, pairs: [(Str, Str)]): Str {
     pairs
-        .mapCtx(
-            ctx,
-            fn(c, kv) => encodeComponent(c, kv.0)
-                .concat(c, "=")
-                .concat(c, encodeComponent(c, kv.1)),
-        )
+        .mapCtx(ctx, fn(c, kv) => {
+            encodeComponent(c, kv.0).concat(c, "=").concat(c, encodeComponent(c, kv.1))
+        })
         .join(ctx, "&")
 }
 
@@ -240,14 +237,16 @@ export fn parse<C: Alloc>(ctx: C, text: Str): Result<Url, UrlError> {
         .Some(scheme) => {
             match (hostPort(ctx, split.authority)) {
                 .Err(e) => .Err(e),
-                .Ok(place) => .Ok(Url {
-                    scheme: scheme.toLower(ctx),
-                    host: place.0,
-                    port: place.1,
-                    path: split.path,
-                    query: split.query.withDefault(""),
-                    fragment: split.fragment,
-                }),
+                .Ok(place) => {
+                    .Ok(Url {
+                        scheme: scheme.toLower(ctx),
+                        host: place.0,
+                        port: place.1,
+                        path: split.path,
+                        query: split.query.withDefault(""),
+                        fragment: split.fragment,
+                    })
+                },
             }
         },
     }
@@ -274,12 +273,9 @@ impl Url {
         } else {
             "//".concat(ctx, self.host).concat(ctx, portText(ctx, self.port))
         };
-        let after = if (self.query == "") {
-            ""
-        } else {
-            "?".concat(ctx, self.query)
-        };
-        self.scheme
+        let after = if (self.query == "") { "" } else { "?".concat(ctx, self.query) };
+        self
+            .scheme
             .concat(ctx, ":")
             .concat(ctx, place)
             .concat(ctx, self.path)
@@ -397,7 +393,7 @@ fn encoded<C: Alloc>(ctx: C, text: Str, keepSlash: Bool): Str {
 /// One character, kept or escaped. A character outside ASCII escapes to one
 /// `%XX` per UTF-8 byte.
 fn escaped<C: Alloc>(ctx: C, ch: Char, keepSlash: Bool): Str {
-    if (unreserved(ch) || (keepSlash && ch == '/')) {
+    if (unreserved(ch) || keepSlash && ch == '/') {
         str.fromChars(ctx, [ch])
     } else {
         bytes
@@ -419,12 +415,7 @@ fn percent<C: Alloc>(ctx: C, b: U8): Str {
 }
 
 /// The octets a component decodes to, or the index that stopped it.
-fn octets<C: Alloc>(
-    ctx: C,
-    cs: [Char],
-    at: Int,
-    acc: [U8],
-): Result<[U8], DecodeError> {
+fn octets<C: Alloc>(ctx: C, cs: [Char], at: Int, acc: [U8]): Result<[U8], DecodeError> {
     match (cs.get(at)) {
         .None => .Ok(acc),
         .Some(c) => {
@@ -556,11 +547,7 @@ fn schemeOf<C: Alloc>(ctx: C, text: Str): (Option<Str>, Str) {
     match (text.splitOnce(":")) {
         .None => (.None, text),
         .Some((head, tail)) => {
-            if (schemeShaped(ctx, head)) {
-                (.Some(head), tail)
-            } else {
-                (.None, text)
-            }
+            if (schemeShaped(ctx, head)) { (.Some(head), tail) } else { (.None, text) }
         },
     }
 }
@@ -570,20 +557,18 @@ fn schemeShaped<C: Alloc>(ctx: C, head: Str): Bool {
     match (cs.first()) {
         .None => false,
         .Some(lead) => {
-            lead.isAlpha() && !head.contains("/")
-                && cs.all(
-                    fn(c) => c.toDigit(36).isSome() || c == '+' || c == '-' || c == '.',
-                )
+            lead.isAlpha()
+                && !head.contains("/")
+                && cs.all(fn(c) => {
+                    c.toDigit(36).isSome() || c == '+' || c == '-' || c == '.'
+                })
         },
     }
 }
 
 /// An authority as a host and a port. `.None` for the authority is a reference
 /// with no `//` at all, which has neither.
-fn hostPort<C: Alloc>(
-    ctx: C,
-    text: Option<Str>,
-): Result<(Str, Option<Int>), UrlError> {
+fn hostPort<C: Alloc>(ctx: C, text: Option<Str>): Result<(Str, Option<Int>), UrlError> {
     match (text) {
         .None => .Ok(("", .None)),
         .Some(whole) => {
@@ -592,11 +577,13 @@ fn hostPort<C: Alloc>(
             } else if (whole.startsWith("[")) {
                 match (whole.indexOf("]")) {
                     .None => .Err(.BadHost(whole)),
-                    .Some(close) => hosted(
-                        ctx,
-                        whole.slice(0, close + 1),
-                        whole.slice(close + 1, whole.len()),
-                    ),
+                    .Some(close) => {
+                        hosted(
+                            ctx,
+                            whole.slice(0, close + 1),
+                            whole.slice(close + 1, whole.len()),
+                        )
+                    },
                 }
             } else {
                 match (whole.splitOnce(":")) {
@@ -651,20 +638,17 @@ fn hashText<C: Alloc>(ctx: C, fragment: Option<Str>): Str {
 
 /// RFC 3986 §5.2.2, with the reference already split and its authority already
 /// read.
-fn against<C: Alloc>(
-    ctx: C,
-    base: Url,
-    r: Parts,
-    place: (Str, Option<Int>),
-): Url {
+fn against<C: Alloc>(ctx: C, base: Url, r: Parts, place: (Str, Option<Int>)): Url {
     match (r.authority) {
-        .Some(_given) => Url {
-            scheme: base.scheme,
-            host: place.0,
-            port: place.1,
-            path: tidy(ctx, r.path),
-            query: r.query.withDefault(""),
-            fragment: r.fragment,
+        .Some(_given) => {
+            Url {
+                scheme: base.scheme,
+                host: place.0,
+                port: place.1,
+                path: tidy(ctx, r.path),
+                query: r.query.withDefault(""),
+                fragment: r.fragment,
+            }
         },
         .None => {
             let (path, query) = if (r.path == "") {

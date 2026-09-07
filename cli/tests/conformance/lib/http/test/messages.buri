@@ -1,0 +1,317 @@
+// core/net/http — the header fields that repeat, cookies, forms, status lines
+// and content types, and the bound `Request` now carries.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/net/http" import * as http;
+from "core/net/http" import { Cookie };
+from "core/path" import * as path;
+from "core/testing/assert" import * as assert;
+from "core/time" import * as time;
+
+// --- Header fields that repeat ----------------------------------------------
+
+test "headerValues answers every field, and header answers the first" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let reply = http
+        .status(200)
+        .withHeader(ctx, "set-cookie", "a=1")
+        .withHeader(ctx, "set-cookie", "b=2");
+    assert.eq(reply.headerValues(ctx, "set-cookie"), ["a=1", "b=2"]);
+    assert.eq(reply.header("set-cookie"), .Some("a=1"));
+    assert.eq(reply.headerValues(ctx, "vary"), list.empty<Str>());
+}
+
+test "a request's fields repeat the same way" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let ask = http
+        .request(.Get, "http://x/")
+        .withHeader(ctx, "Accept", "text/html")
+        .withHeader(ctx, "accept", "application/json");
+    assert.eq(ask.headerValues(ctx, "accept"), ["text/html", "application/json"]);
+}
+
+test "setHeader replaces every earlier field of that name" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let reply = http
+        .status(200)
+        .withHeader(ctx, "vary", "accept")
+        .withHeader(ctx, "vary", "origin")
+        .setHeader(ctx, "Vary", "cookie");
+    assert.eq(reply.headerValues(ctx, "vary"), ["cookie"]);
+    let ask = http
+        .request(.Get, "http://x/")
+        .withHeader(ctx, "accept", "text/html")
+        .setHeader(ctx, "accept", "*/*");
+    assert.eq(ask.headerValues(ctx, "accept"), ["*/*"]);
+}
+
+test "setHeader on a name that is not there is an append" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let reply = http.status(204).setHeader(ctx, "x-made-by", "buri");
+    assert.eq(reply.header("x-made-by"), .Some("buri"));
+    assert.eq(reply.headers.len(), 1);
+}
+
+// --- The bound a request carries ---------------------------------------------
+
+test "a request carries no bound until it asks for one" {
+    assert.eq(http.request(.Get, "http://x/").timeoutMillis, 0);
+}
+
+test "withTimeout is the field, and a number at or below zero clears it" {
+    let bounded = http.request(.Get, "http://x/").withTimeout(2500);
+    assert.eq(bounded.timeoutMillis, 2500);
+    assert.eq(bounded.withTimeout(0).timeoutMillis, 0);
+    assert.eq(bounded.withTimeout(-1).timeoutMillis, 0);
+}
+
+test "a Duration converts to the milliseconds the field counts in" {
+    let bounded = http.request(.Get, "http://x/").withTimeout(time.seconds(5).millis());
+    assert.eq(bounded.timeoutMillis, 5000);
+}
+
+test "the bound survives every other change to the request" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let bounded = http
+        .request(.Get, "http://x/")
+        .withTimeout(1000)
+        .withHeader(ctx, "accept", "*/*")
+        .withMethod(.Post)
+        .withBody([65]);
+    assert.eq(bounded.timeoutMillis, 1000);
+}
+
+// --- Cookies -----------------------------------------------------------------
+
+test "a Cookie field is its pairs" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let ask = http.request(.Get, "http://x/").withHeader(ctx, "cookie", "a=1; b=2");
+    assert.eq(http.cookies(ctx, ask), [("a", "1"), ("b", "2")]);
+}
+
+test "a value holding an equals sign keeps it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let ask = http.request(.Get, "http://x/").withHeader(ctx, "cookie", "t=a=b");
+    assert.eq(http.cookies(ctx, ask), [("t", "a=b")]);
+}
+
+test "no Cookie field, and a field with nothing in it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        http.cookies(ctx, http.request(.Get, "http://x/")),
+        list.empty<(Str, Str)>(),
+    );
+    let empty = http.request(.Get, "http://x/").withHeader(ctx, "cookie", "");
+    assert.eq(http.cookies(ctx, empty), list.empty<(Str, Str)>());
+    let trailing = http.request(.Get, "http://x/").withHeader(ctx, "cookie", "a=1;");
+    assert.eq(http.cookies(ctx, trailing), [("a", "1")]);
+}
+
+test "a cookie with nothing set is a name and a value" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let reply = http.withCookie(ctx, http.status(204), Cookie {
+        name: "id",
+        value: "7",
+        path: .None,
+        maxAge: .None,
+        httpOnly: false,
+        secure: false,
+        sameSite: .None,
+    });
+    assert.eq(reply.header("set-cookie"), .Some("id=7"));
+}
+
+test "every attribute a cookie can carry" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let reply = http.withCookie(ctx, http.status(204), Cookie {
+        name: "session",
+        value: "abc",
+        path: .Some("/"),
+        maxAge: .Some(time.hours(1)),
+        httpOnly: true,
+        secure: true,
+        sameSite: .Some(.Strict),
+    });
+    assert.eq(
+        reply.header("set-cookie"),
+        .Some("session=abc; Path=/; Max-Age=3600; HttpOnly; Secure; SameSite=Strict"),
+    );
+}
+
+test "two cookies are two fields" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = Cookie {
+        name: "a",
+        value: "1",
+        path: .None,
+        maxAge: .None,
+        httpOnly: false,
+        secure: false,
+        sameSite: .Some(.Lax),
+    };
+    let two = Cookie { ..one, name: "b", value: "2", sameSite: .Some(.None) };
+    let reply = http.withCookie(ctx, http.withCookie(ctx, http.status(204), one), two);
+    assert.eq(reply.headerValues(ctx, "set-cookie"), [
+        "a=1; SameSite=Lax",
+        "b=2; SameSite=None",
+    ]);
+}
+
+// --- Forms --------------------------------------------------------------------
+
+test "a form request is an encoded body and a content type" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let ask = http.formRequest(ctx, .Post, "http://x/s", [
+        ("user", "a b"),
+        ("t", "1&2"),
+    ]);
+    assert.eq(ask.method, .Post);
+    assert.eq(ask.header("content-type"), .Some("application/x-www-form-urlencoded"));
+    assert.eq(assert.ok(http.formBody(ctx, ask.body)), [("user", "a b"), ("t", "1&2")]);
+}
+
+test "a form body reads what a browser sends" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let ask = http.textRequest(ctx, .Post, "http://x/s", "who=ada+lovelace&when=1843");
+    assert.eq(assert.ok(http.formBody(ctx, ask.body)), [
+        ("who", "ada lovelace"),
+        ("when", "1843"),
+    ]);
+}
+
+test "an empty body has no fields, and a body that is not text fails" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.ok(http.formBody(ctx, [])), list.empty<(Str, Str)>());
+    let notText: [U8] = [255, 254];
+    assert.eq(assert.err(http.formBody(ctx, notText)).0, 0);
+}
+
+test "a form request with no fields is an empty body" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let ask = http.formRequest(ctx, .Post, "http://x/s", list.empty<(Str, Str)>());
+    assert.eq(ask.body, []);
+}
+
+// --- Reading a message ---------------------------------------------------------
+
+test "a content type is its media type and its parameters" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let found = assert.some(http.contentType(ctx, http.html(ctx, "<p>")));
+    assert.eq(found.0, "text/html");
+    assert.eq(found.1, [("charset", "utf-8")]);
+}
+
+test "no parameters, and no header at all" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let plain = assert.some(http.contentType(ctx, http.json(ctx, "{}")));
+    assert.eq(plain.0, "application/json");
+    assert.eq(plain.1, list.empty<(Str, Str)>());
+    assert.none(http.contentType(ctx, http.status(204)));
+}
+
+test "the type and the parameter names lowercase, the values do not" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let reply = http
+        .status(200)
+        .withHeader(ctx, "content-type", "Multipart/Form-Data; Boundary=AbC123");
+    let found = assert.some(http.contentType(ctx, reply));
+    assert.eq(found.0, "multipart/form-data");
+    assert.eq(found.1, [("boundary", "AbC123")]);
+}
+
+test "a quoted parameter loses its quotes" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let reply = http
+        .status(200)
+        .withHeader(ctx, "content-type", "text/plain; charset=\"utf-8\"; q=\"\"");
+    let found = assert.some(http.contentType(ctx, reply));
+    assert.eq(found.1, [("charset", "utf-8"), ("q", "")]);
+}
+
+test "a media type for the files a handler serves" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        http.contentTypeFor(path.of(ctx, "site/index.html")),
+        .Some("text/html; charset=utf-8"),
+    );
+    assert.eq(
+        http.contentTypeFor(path.of(ctx, "a/b/logo.svg")),
+        .Some("image/svg+xml"),
+    );
+    assert.eq(http.contentTypeFor(path.of(ctx, "app.wasm")), .Some("application/wasm"));
+    assert.eq(
+        http.contentTypeFor(path.of(ctx, "data.csv")),
+        .Some("text/csv; charset=utf-8"),
+    );
+}
+
+test "a name with no extension, and one this list does not know" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.none(http.contentTypeFor(path.of(ctx, "LICENSE")));
+    assert.none(http.contentTypeFor(path.of(ctx, "notes.qqq")));
+    // Pure, so the comparison is exact: an uppercase extension is not known.
+    assert.none(http.contentTypeFor(path.of(ctx, "PAGE.HTML")));
+}
+
+test "the reason phrase for a status" {
+    assert.eq(http.statusText(200), "OK");
+    assert.eq(http.statusText(404), "Not Found");
+    assert.eq(http.statusText(418), "Client Error");
+    assert.eq(http.statusText(503), "Service Unavailable");
+    assert.eq(http.statusText(100), "Continue");
+}
+
+test "a code nobody registered falls back to its class" {
+    assert.eq(http.statusText(199), "Informational");
+    assert.eq(http.statusText(299), "Successful");
+    assert.eq(http.statusText(399), "Redirection");
+    assert.eq(http.statusText(499), "Client Error");
+    assert.eq(http.statusText(599), "Server Error");
+    assert.eq(http.statusText(0), "Unknown");
+    assert.eq(http.statusText(600), "Unknown");
+    assert.eq(http.statusText(-1), "Unknown");
+}

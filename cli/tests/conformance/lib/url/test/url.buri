@@ -256,7 +256,10 @@ test "a bracket that never closes is a bad host" {
 // --- Back to text -------------------------------------------------------------
 
 test "text is parse backwards" {
-    assert.eq(roundTrip("https://example.com:8443/a/b?x=1#top"), "https://example.com:8443/a/b?x=1#top");
+    assert.eq(
+        roundTrip("https://example.com:8443/a/b?x=1#top"),
+        "https://example.com:8443/a/b?x=1#top",
+    );
     assert.eq(roundTrip("http://example.com"), "http://example.com");
     assert.eq(roundTrip("http://example.com/"), "http://example.com/");
     assert.eq(roundTrip("mailto:ada@example.com"), "mailto:ada@example.com");

@@ -680,6 +680,7 @@ impl Net for TestNet {
             request.url,
             request.headers,
             request.body,
+            request.timeoutMillis,
         );
         answer
     }
@@ -709,10 +710,17 @@ fn addNetFault(handle: I64, url: Str): ();
 /// One request, recorded after the responder has answered it.
 ///
 /// The request arrives in pieces: a `Method` is its variant index by the time the
-/// runner sees it (`methodCode`), and the runner puts the four values back
-/// together on the way out. They are the four `core/host`'s real `fetch` hands
+/// runner sees it (`methodCode`), and the runner puts the five values back
+/// together on the way out. They are the five `core/host`'s real `fetch` hands
 /// over, in the same order.
-fn recordFetch(handle: I64, method: Int, url: Str, headers: [Header], body: [U8]): ();
+fn recordFetch(
+    handle: I64,
+    method: Int,
+    url: Str,
+    headers: [Header],
+    body: [U8],
+    timeoutMillis: Int,
+): ();
 
 /// A `Method`'s index in its own declaration order, which `core/effect` states is
 /// the ABI. This is the one place in this module that spells it out.

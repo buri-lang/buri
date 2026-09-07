@@ -120,12 +120,13 @@ extern int32_t buri_rt_host_fs_make_dir(uint8_t *base, const uint8_t *ptr, uint6
 extern int32_t buri_rt_host_fs_sync_file(uint8_t *base, const uint8_t *ptr, uint64_t len,
                                          BuriStr *out_err);
 /* `Request` flattened: the method's variant index, the URL's three `Str`
- * leaves, then the `(ptr, len)` of a `[Header]` and of a `[U8]`. */
+ * leaves, then the `(ptr, len)` of a `[Header]` and of a `[U8]`, then
+ * `timeoutMillis` — zero for the runtime's own bound. */
 extern int32_t buri_rt_host_net_fetch(int32_t method, uint8_t *ubase, const uint8_t *uptr,
                                       uint64_t ulen, const uint8_t *hptr, uint64_t hlen,
-                                      const uint8_t *bptr, uint64_t blen, int64_t *out_status,
-                                      BuriList *out_headers, BuriList *out_body,
-                                      BuriStr *out_err);
+                                      const uint8_t *bptr, uint64_t blen, int64_t timeout_millis,
+                                      int64_t *out_status, BuriList *out_headers,
+                                      BuriList *out_body, BuriStr *out_err);
 /* The three doors `cli/runtime/net.rs` exports: which halves of the networking
  * stack this archive was built with, whether it has one at all, and whether it
  * has QUIC. The last is the interesting one, because `net-h3` is the feature
@@ -642,8 +643,9 @@ static int mode_net(const char *url) {
   sent[0].name = borrowed("x-probe");
   sent[0].value = borrowed("buri");
   static const uint8_t payload[] = {0xf0, 0x9f, 0x91, 0x8b};
-  int32_t result = buri_rt_host_net_fetch(0, S(url), (const uint8_t *)sent, 1, payload,
-                                          sizeof payload, &status, &out_headers, &out_body, &err);
+  int32_t result =
+      buri_rt_host_net_fetch(0, S(url), (const uint8_t *)sent, 1, payload, sizeof payload, 0,
+                             &status, &out_headers, &out_body, &err);
   if (result == BURI_OK) {
     const BuriHeader *got = (const BuriHeader *)out_headers.ptr;
     printf("status=%lld headers=%llu body=%.*s", (long long)status,
