@@ -1352,7 +1352,7 @@ const DOCUMENT_DOUBLE: &str = r##"
 const made = { elements: 0, text: 0 };
 
 function node(nodeType, nodeName) {
-  return {
+  const self = {
     nodeType,
     nodeName,
     childNodes: [],
@@ -1360,8 +1360,17 @@ function node(nodeType, nodeName) {
     listeners: {},
     attributes: {},
     data: "",
-    className: "",
-    style: { cssText: "", setProperty() {} },
+    // `className` and `style` are attributes in a browser, so they are
+    // attributes here: writing "" to either *adds* `class=""` to markup the
+    // server wrote, and a resume that did that would not be leaving the
+    // document alone.
+    get className() {
+      const held = this.attributes.class;
+      return held === undefined || held === null ? "" : held;
+    },
+    set className(value) {
+      this.attributes.class = value;
+    },
     get firstChild() {
       return this.childNodes.length > 0 ? this.childNodes[0] : null;
     },
@@ -1405,6 +1414,20 @@ function node(nodeType, nodeName) {
       return tail;
     },
   };
+  self.style = {
+    get cssText() {
+      const held = self.attributes.style;
+      return held === undefined || held === null ? "" : held;
+    },
+    set cssText(text) {
+      self.attributes.style = text;
+    },
+    setProperty(name, value) {
+      const held = self.style.cssText;
+      self.attributes.style = held === "" ? `${name}: ${value}` : `${held}; ${name}: ${value}`;
+    },
+  };
+  return self;
 }
 
 // HTML's own empty elements. A trailing slash closes one of these and nothing
@@ -1485,7 +1508,6 @@ function markup(n) {
     const value = n.attributes[key];
     out += value === null ? ` ${key}` : ` ${key}="${quoted(value)}"`;
   }
-  if (n.className !== "") out += ` class="${quoted(n.className)}"`;
   if (VOID.has(name)) return out + " />";
   // What is inside a `script` or a `style` is raw text: a browser neither reads
   // entities in it nor writes them back out.

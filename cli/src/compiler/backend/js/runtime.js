@@ -3185,6 +3185,10 @@ function $dom_classes(element, value) {
     element.classes = value;
     return;
   }
+  // Nothing to say is nothing to write. Assigning "" to an element that has no
+  // class *adds* `class=""` to it, which on a resume is markup the server did
+  // not write appearing on every element the reader can see.
+  if (value === "" && element.className === "") return;
   element.className = value;
 }
 
@@ -3196,6 +3200,8 @@ function $dom_styles(element, declarations) {
     for (const entry of declarations) element.styles[entry[0]] = entry[1];
     return;
   }
+  // `$dom_classes`'s rule, for the same attribute-shaped reason.
+  if (declarations.size === 0 && element.style.cssText === "") return;
   element.style.cssText = "";
   for (const entry of declarations) element.style.setProperty(entry[0], entry[1]);
 }
