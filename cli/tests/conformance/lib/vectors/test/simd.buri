@@ -4,6 +4,7 @@
 // that every operation is lane-wise, that a mask is 1 and 0 rather than a
 // boolean, and that a horizontal reduction reduces across all four.
 
+from "core/num" import * as num;
 from "core/simd" import * as simd;
 from "core/testing/assert" import * as assert;
 
@@ -137,4 +138,152 @@ test "a small kernel reads the way a vector kernel should" {
     let stepped = position.add(velocity.scale(2.0));
     assert.eq(stepped, simd.f32x4(2.0, 1.0, 5.0, 0.0));
     assert.eq(stepped.dot(stepped), 4.0 + 1.0 + 25.0);
+}
+
+// --- Reductions ---------------------------------------------------------------------
+
+test "minLane and maxLane reduce across the four lanes" {
+    let v = simd.f32x4(3.0, -1.0, 7.5, 0.0);
+    assert.eq(v.minLane(), -1.0);
+    assert.eq(v.maxLane(), 7.5);
+    assert.eq(simd.splatF(2.5).minLane(), 2.5);
+    assert.eq(simd.splatF(2.5).maxLane(), 2.5);
+    assert.eq(simd.ZERO_F.minLane(), 0.0);
+}
+
+test "minLane and maxLane agree with the lane-wise pair folded" {
+    let v = simd.f32x4(4.0, 9.0, -2.0, 6.0);
+    // `min` is lane-wise; a splat of the reduction is what it folds to.
+    assert.eq(v.min(simd.splatF(v.minLane())), simd.splatF(v.minLane()));
+    assert.eq(v.max(simd.splatF(v.maxLane())), simd.splatF(v.maxLane()));
+}
+
+test "a NaN lane neither wins nor poisons a reduction" {
+    let v = simd.f32x4(3.0, 0.0 / 0.0, 7.0, 1.0);
+    // `<` and `>` are both false at `NaN`, so it is simply passed over.
+    assert.eq(v.maxLane(), 7.0);
+    assert.eq(v.minLane(), 1.0);
+}
+
+// --- mulAdd -------------------------------------------------------------------------
+
+test "mulAdd is the multiply and the add together" {
+    let a = simd.f32x4(1.0, 2.0, 3.0, 4.0);
+    let b = simd.f32x4(10.0, 10.0, 10.0, 10.0);
+    let c = simd.f32x4(0.5, 0.5, 0.5, 0.5);
+    assert.eq(a.mulAdd(b, c), simd.f32x4(10.5, 20.5, 30.5, 40.5));
+    assert.eq(a.mulAdd(simd.ZERO_F, c), c);
+    assert.eq(a.mulAdd(b, simd.ZERO_F), a.mul(b));
+}
+
+test "mulAdd rounds twice, which is what makes it portable" {
+    // A fused multiply-add would round once and answer a different value on a
+    // machine that has the instruction. This is written to be the two.
+    let a = simd.splatF(1.0e16);
+    let b = simd.splatF(1.0);
+    let c = simd.splatF(1.0);
+    assert.eq(a.mulAdd(b, c), a.mul(b).add(c));
+}
+
+// --- The integer masks ----------------------------------------------------------------
+
+test "I32x4 lessThan and equalTo answer a mask of one and zero" {
+    let a = simd.i32x4(1, 5, 3, 9);
+    let b = simd.i32x4(2, 5, 1, 9);
+    assert.eq(a.lessThan(b), simd.i32x4(1, 0, 0, 0));
+    assert.eq(a.equalTo(b), simd.i32x4(0, 1, 0, 1));
+    assert.eq(a.lessThan(a), simd.ZERO_I);
+    assert.eq(a.equalTo(a), simd.splatI(1));
+}
+
+test "not inverts a mask rather than a bit pattern" {
+    let mask = simd.i32x4(1, 0, 1, 0);
+    assert.eq(mask.not(), simd.i32x4(0, 1, 0, 1));
+    assert.eq(mask.not().not(), mask);
+    // A non-zero lane of any size is true, so its inverse is zero.
+    assert.eq(simd.i32x4(7, -3, 0, 1).not(), simd.i32x4(0, 0, 1, 0));
+}
+
+test "not composes with the comparisons" {
+    let a = simd.i32x4(1, 5, 3, 9);
+    let b = simd.i32x4(2, 5, 1, 9);
+    assert.eq(a.lessThan(b).not(), simd.i32x4(0, 1, 1, 1));
+    assert.isTrue(a.equalTo(a).allTrue());
+    assert.isFalse(a.equalTo(a).not().anyTrue());
+}
+
+test "shl and shr move every lane" {
+    assert.eq(simd.i32x4(1, 2, 3, 4).shl(1), simd.i32x4(2, 4, 6, 8));
+    assert.eq(simd.i32x4(8, 16, 0, 1).shr(3), simd.i32x4(1, 2, 0, 0));
+    assert.eq(simd.i32x4(1, 2, 3, 4).shl(0), simd.i32x4(1, 2, 3, 4));
+    assert.eq(simd.ZERO_I.shl(10), simd.ZERO_I);
+}
+
+test "shr fills with zeros rather than with the sign bit" {
+    // The lanes are `Int`, so this is `bits.shr` — logical at every width.
+    assert.eq(simd.splatI(-1).shr(63), simd.splatI(1));
+    assert.eq(simd.splatI(1).shl(63), simd.splatI(num.minValue<I64>()));
+}
+
+// --- selectI ------------------------------------------------------------------------
+
+test "selectI takes each lane from the side the mask names" {
+    let yes = simd.i32x4(10, 20, 30, 40);
+    let no = simd.i32x4(1, 2, 3, 4);
+    assert.eq(simd.selectI(simd.i32x4(1, 0, 1, 0), yes, no), simd.i32x4(10, 2, 30, 4));
+    assert.eq(simd.selectI(simd.ZERO_I, yes, no), no);
+    assert.eq(simd.selectI(simd.splatI(1), yes, no), yes);
+    // Any non-zero lane selects, not only one.
+    assert.eq(
+        simd.selectI(simd.i32x4(-5, 0, 99, 0), yes, no),
+        simd.i32x4(10, 2, 30, 4),
+    );
+}
+
+test "selectI over a comparison is a branch-free clamp" {
+    let v = simd.i32x4(-3, 5, 0, 12);
+    let floorAt = simd.splatI(0);
+    assert.eq(simd.selectI(v.lessThan(floorAt), floorAt, v), simd.i32x4(0, 5, 0, 12));
+}
+
+// --- The loads ------------------------------------------------------------------------
+
+test "loadF32x4 takes four consecutive floats" {
+    let xs = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+    assert.eq(simd.loadF32x4(xs, 0), .Some(simd.f32x4(1.0, 2.0, 3.0, 4.0)));
+    assert.eq(simd.loadF32x4(xs, 2), .Some(simd.f32x4(3.0, 4.0, 5.0, 6.0)));
+}
+
+test "loadF32x4 answers .None rather than padding a short tail" {
+    let xs = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+    assert.eq(simd.loadF32x4(xs, 3), .None);
+    assert.eq(simd.loadF32x4(xs, 6), .None);
+    assert.eq(simd.loadF32x4(xs, -1), .None);
+    let short: [Float] = [1.0, 2.0];
+    assert.eq(simd.loadF32x4(short, 0), .None);
+    let none: [Float] = [];
+    assert.eq(simd.loadF32x4(none, 0), .None);
+}
+
+test "loadI32x4 is the same rule over integers" {
+    let xs = [10, 20, 30, 40, 50];
+    assert.eq(simd.loadI32x4(xs, 0), .Some(simd.i32x4(10, 20, 30, 40)));
+    assert.eq(simd.loadI32x4(xs, 1), .Some(simd.i32x4(20, 30, 40, 50)));
+    assert.eq(simd.loadI32x4(xs, 2), .None);
+    let none: [Int] = [];
+    assert.eq(simd.loadI32x4(none, 0), .None);
+}
+
+test "a kernel walks a list four at a time and stops at the tail" {
+    let xs = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0];
+    assert.eq(sumOfBlocks(xs, 0, 0.0), 36.0);
+}
+
+/// The shape `loadF32x4` exists for: whole blocks through the vector, the
+/// remainder left to the caller.
+fn sumOfBlocks(xs: [Float], at: Int, acc: Float): Float {
+    match (simd.loadF32x4(xs, at)) {
+        .None => acc,
+        .Some(v) => sumOfBlocks(xs, at + 4, acc + v.sum()),
+    }
 }

@@ -831,6 +831,10 @@ pub unsafe extern "C" fn buri_rt_i128_divmod(
 ///
 /// Every operand is a **pair of `u64`s, low half first**, per §2's first rule.
 ///
+/// `op` is `0` add, `1` sub, `2` mul, `3` div, `4` rem, `5` pow. A negation
+/// arrives as `1` with a zero on the left, and `5` reads `b` as the exponent —
+/// an `Int` sign-extended to 128 bits — rather than as a second operand.
+///
 /// # Safety
 /// `out` must be non-null and point at two writable, `u64`-aligned words.
 #[unsafe(no_mangle)]
@@ -850,6 +854,8 @@ pub unsafe extern "C" fn buri_rt_i128_checked(
             0 => a.checked_add(b),
             1 => a.checked_sub(b),
             2 => a.checked_mul(b),
+            4 => a.checked_rem(b),
+            5 => checked_power_u128(a, b as i128),
             _ => a.checked_div(b),
         }
     } else {
@@ -858,6 +864,8 @@ pub unsafe extern "C" fn buri_rt_i128_checked(
             0 => sa.checked_add(sb),
             1 => sa.checked_sub(sb),
             2 => sa.checked_mul(sb),
+            4 => sa.checked_rem(sb),
+            5 => checked_power_i128(sa, sb),
             _ => sa.checked_div(sb),
         };
         r.map(|v| v as u128)
@@ -871,6 +879,52 @@ pub unsafe extern "C" fn buri_rt_i128_checked(
         out.add(1).write((v >> 64) as u64);
     }
     BURI_OK
+}
+
+/// `checkedPower` at 128 bits, unsigned. Exponentiation by squaring, with
+/// `checked_mul` after every multiplication.
+///
+/// A loop rather than `u128::pow`, which panics on overflow instead of
+/// answering `None`, and which takes a `u32` exponent where `Checked`'s is an
+/// `Int`. A negative exponent is a fraction, which no integer type holds.
+fn checked_power_u128(base: u128, exponent: i128) -> Option<u128> {
+    if exponent < 0 {
+        return None;
+    }
+    let mut acc: u128 = 1;
+    let mut b = base;
+    let mut n = exponent;
+    while n > 0 {
+        if n & 1 == 1 {
+            acc = acc.checked_mul(b)?;
+        }
+        n >>= 1;
+        if n > 0 {
+            b = b.checked_mul(b)?;
+        }
+    }
+    Some(acc)
+}
+
+/// [`checked_power_u128`] over the signed type, where the overflow test is the
+/// signed one.
+fn checked_power_i128(base: i128, exponent: i128) -> Option<i128> {
+    if exponent < 0 {
+        return None;
+    }
+    let mut acc: i128 = 1;
+    let mut b = base;
+    let mut n = exponent;
+    while n > 0 {
+        if n & 1 == 1 {
+            acc = acc.checked_mul(b)?;
+        }
+        n >>= 1;
+        if n > 0 {
+            b = b.checked_mul(b)?;
+        }
+    }
+    Some(acc)
 }
 
 /// 128-bit saturating arithmetic, in one call. `op` is as

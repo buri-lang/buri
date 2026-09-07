@@ -1,0 +1,203 @@
+// core/random — the three draws from a list, at both doors.
+//
+// `shuffle`, `pick` and `sample` are the module header's own examples of what a
+// generator is for. Each has a `Gen` method that is the whole algorithm and a
+// `Rand` function that is that method over a generator the effect seeded, so
+// what is asserted here is both halves: the exact sequence a seed replays, and
+// the properties that hold whatever the seed was.
+//
+// `nextGaussian` is next door in `gaussian.buri`, because it reaches `math.ln`
+// and this file does not.
+
+from "core/effect" import { Alloc, Rand };
+from "core/host/testing" import { alloc, rand };
+from "core/list" import * as list;
+from "core/random" import * as random;
+from "core/random" import { Gen };
+from "core/testing/assert" import * as assert;
+
+// --- nextShuffle ---------------------------------------------------------------
+
+test "a seed replays its own permutation" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let items = [1, 2, 3, 4, 5];
+    let (a, _) = random.seeded(7).nextShuffle(ctx, items);
+    let (b, _) = random.seeded(7).nextShuffle(ctx, items);
+    assert.eq(a, b);
+}
+
+test "a shuffle is a permutation and nothing else" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let items = [1, 2, 3, 4, 5, 6, 7, 8];
+    let (mixed, _) = random.seeded(11).nextShuffle(ctx, items);
+    assert.eq(mixed.len(), items.len());
+    assert.eq(mixed.sort(ctx), items);
+}
+
+test "two seeds reach two permutations" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let (a, _) = random.seeded(1).nextShuffle(ctx, items);
+    let (b, _) = random.seeded(2).nextShuffle(ctx, items);
+    assert.notEq(a, b);
+}
+
+test "a shuffle steps the generator, and a short list does not" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let g = random.seeded(3);
+    let (_, after) = g.nextShuffle(ctx, [1, 2, 3, 4]);
+    assert.notEq(after, g);
+    // Nothing to permute, so nothing is drawn.
+    let (one, still) = g.nextShuffle(ctx, [9]);
+    assert.eq(one, [9]);
+    assert.eq(still, g);
+    let none: [Int] = [];
+    let (empty, unmoved) = g.nextShuffle(ctx, none);
+    assert.eq(empty, none);
+    assert.eq(unmoved, g);
+}
+
+test "a shuffle of two reaches both orders" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Sixteen seeds, and the pair comes out both ways round: the permutation
+    // depends on the draw rather than on the list.
+    let orders = list
+        .range(ctx, 0, 16)
+        .mapCtx(ctx, fn(c, seed) => {
+            let (pair, _) = random.seeded(seed).nextShuffle(c, [0, 1]);
+            pair.get(0).withDefault(-1)
+        });
+    assert.isTrue(orders.contains(0));
+    assert.isTrue(orders.contains(1));
+}
+
+test "a shuffle of strings moves the values it was given" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let cards = ["ace", "king", "queen", "jack"];
+    let (dealt, _) = random.seeded(5).nextShuffle(ctx, cards);
+    assert.eq(dealt.sort(ctx), cards.sort(ctx));
+}
+
+// --- nextPick ------------------------------------------------------------------
+
+test "nextPick answers a member of the list" {
+    let items = [10, 20, 30];
+    let (picked, _) = random.seeded(2).nextPick(items);
+    assert.isTrue(picked.isSome());
+    assert.isTrue(items.contains(assert.some(picked)));
+}
+
+test "nextPick on an empty list answers .None and does not step" {
+    let none: [Int] = [];
+    let g = random.seeded(4);
+    let (picked, after) = g.nextPick(none);
+    assert.eq(picked, .None);
+    assert.eq(after, g);
+}
+
+test "nextPick on one item is that item" {
+    let (picked, after) = random.seeded(4).nextPick([42]);
+    assert.eq(picked, .Some(42));
+    assert.notEq(after, random.seeded(4));
+}
+
+test "nextPick reaches every position given enough seeds" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let seen = list
+        .range(ctx, 0, 40)
+        .map(ctx, fn(seed) => {
+            let (picked, _) = random.seeded(seed).nextPick([0, 1, 2]);
+            picked.withDefault(-1)
+        });
+    assert.isTrue(seen.contains(0));
+    assert.isTrue(seen.contains(1));
+    assert.isTrue(seen.contains(2));
+    assert.isFalse(seen.contains(-1));
+}
+
+// --- nextSample ----------------------------------------------------------------
+
+test "nextSample draws without replacement" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let items = [1, 2, 3, 4, 5, 6, 7, 8];
+    let (drawn, _) = random.seeded(9).nextSample(ctx, items, 3);
+    assert.eq(drawn.len(), 3);
+    assert.eq(drawn.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 3);
+    assert.isEmpty(drawn.filter(ctx, fn(v) => !items.contains(v)));
+}
+
+test "nextSample stops at the list's own length" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let items = [1, 2, 3];
+    let (all, _) = random.seeded(9).nextSample(ctx, items, 100);
+    assert.eq(all.sort(ctx), items);
+    let (none, _) = random.seeded(9).nextSample(ctx, items, 0);
+    assert.isEmpty(none);
+    let (negative, _) = random.seeded(9).nextSample(ctx, items, -5);
+    assert.isEmpty(negative);
+}
+
+test "nextSample is the front of the shuffle it is written out of" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let items = [1, 2, 3, 4, 5, 6];
+    let (mixed, afterShuffle) = random.seeded(21).nextShuffle(ctx, items);
+    let (drawn, afterSample) = random.seeded(21).nextSample(ctx, items, 4);
+    assert.eq(drawn, mixed.take(ctx, 4));
+    assert.eq(afterSample, afterShuffle);
+}
+
+// --- the Rand door ---------------------------------------------------------------
+
+test "shuffle through a context is a permutation too" {
+    let ctx = context {
+        Alloc: alloc(),
+        Rand: rand(),
+    };
+    let items = [1, 2, 3, 4, 5, 6];
+    let mixed = random.shuffle(ctx, items);
+    assert.eq(mixed.len(), items.len());
+    assert.eq(mixed.sort(ctx), items);
+}
+
+test "pick through a context answers a member, and .None from nothing" {
+    let ctx = context {
+        Rand: rand(),
+    };
+    let items = ["a", "b", "c"];
+    let picked = random.pick(ctx, items);
+    assert.isTrue(items.contains(assert.some(picked)));
+    let none: [Str] = [];
+    assert.eq(random.pick(ctx, none), .None);
+}
+
+test "sample through a context draws without replacement" {
+    let ctx = context {
+        Alloc: alloc(),
+        Rand: rand(),
+    };
+    let items = [1, 2, 3, 4, 5, 6, 7];
+    let drawn = random.sample(ctx, items, 3);
+    assert.eq(drawn.len(), 3);
+    assert.eq(drawn.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 3);
+    assert.isEmpty(random.sample(ctx, items, -1));
+}
