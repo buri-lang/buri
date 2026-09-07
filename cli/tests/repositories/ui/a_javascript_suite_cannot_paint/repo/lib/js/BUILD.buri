@@ -1,0 +1,12 @@
+library {
+    sources: []
+
+    test {
+        sources: ["test/panel.buri"]
+
+        # The declaration this case is about. A snapshot is painted by the
+        # native runtime and the JavaScript one has no painter, so a suite that
+        # says this cannot take one.
+        platforms: [JS]
+    }
+}
