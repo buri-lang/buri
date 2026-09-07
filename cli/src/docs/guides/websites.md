@@ -140,6 +140,7 @@ export fn fetch(request: Request): Response {
         ctx,
         web.shell(
             ctx,
+            request.path(),
             web.render(
                 page(
                     .Const(request.path()),
@@ -163,7 +164,7 @@ export fn fetch(request: Request): Response {
 <!doctype html>
 <html>
 <head><meta charset="utf-8" /></head>
-<body><main><h1>Buri</h1>visitors: 3<button type="button">say thanks</button></main><script id="buri-state" type="application/json">{"title":"Buri","visitors":3}</script></body>
+<body><main><h1>Buri</h1>visitors: 3<button type="button">say thanks</button></main><script id="buri-state" type="application/json" data-path="/">{"title":"Buri","visitors":3}</script></body>
 </html>
 ```
 
@@ -176,9 +177,10 @@ what comes back is text.
 
 `shell` writes the document around it. The state goes in a
 `<script id="buri-state">`, which a browser neither runs nor renders, and every
-`<` in it is escaped, so a string holding `</script>` closes nothing. The
-stylesheet the compiler extracted goes in the head, so the page the reader sees
-first is already styled.
+`<` in it is escaped, so a string holding `</script>` closes nothing. The path it
+was rendered for rides on the same script as `data-path`, and the stylesheet the
+compiler extracted goes in the head, so the page the reader sees first is already
+styled.
 
 ## Routing is a match
 
@@ -226,10 +228,31 @@ why what a resume expects is exactly what a mount would have built.
 `web.path(ctx)` is the path now. It is the same cell `route` wraps, so a page
 that only wants to know where it is need not build a prop for it.
 
+## The address is checked first
+
+`shell` writes the path it rendered for beside the state, and `resume` compares
+it against the address bar before it walks a single node:
+
+```text
+this page is not the page the server sent: it was rendered at / and the address is /about
+```
+
+Without that, two routes that render the same *shape* resume into each other and
+nothing notices — a `/` and an `/about` that are both a heading and a paragraph
+adopt each other's markup happily, and the reader ends up looking at one page
+with the other page's handlers on it.
+
+A query string and a fragment are not part of a path and are not compared.
+`Request.path` leaves both out and so does the address bar, so `/notes?page=2`
+and `/notes#top` are the same page as `/notes`.
+
+Markup no `shell` wrote carries no path, and then only the shape below is
+checked.
+
 ## A tree the markup does not match
 
-A resume fails where the tree and the document disagree — a page resumed at an
-address the server did not render, or built from a state it did not send:
+A resume also fails where the tree and the document disagree — a page built from
+a state the server did not send:
 
 ```text
 this page is not the markup the server sent: wanted <button>, found nothing left

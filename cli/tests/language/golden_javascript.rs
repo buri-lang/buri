@@ -440,9 +440,12 @@ export fn main(): Result<(), Str> {
         "the blocking sleep is gone\n\n{artifact}"
     );
 
-    // Ten milliseconds apart over 300 of them is thirty callbacks if the loop
-    // is free; the assertion asks for five, which no amount of scheduling
-    // noise takes away and no blocking sleep ever reaches.
+    // The claim is zero against not-zero, and it is a claim about *order*: a
+    // callback that lands before the import resolves is a loop that turned
+    // while the program was sleeping. How many land is the host's business —
+    // `setInterval` re-arms after each firing rather than queueing the ones a
+    // stalled process missed, so a loaded machine legitimately shows one where
+    // an idle one shows thirty. A blocking sleep shows none, ever.
     scratch.write(
         ".buri/out/js/cmd/x/probe.mjs",
         "let ticks = 0;\n\
@@ -466,9 +469,9 @@ export fn main(): Result<(), Str> {
             panic!("no tick count in\n{text}\nstderr:\n{}", String::from_utf8_lossy(&out.stderr))
         });
     assert!(
-        ticks >= 5,
-        "only {ticks} timer callbacks ran during 300ms of sleeping, so the sleep is \
-         still blocking the event loop"
+        ticks >= 1,
+        "no timer callback ran during 300ms of sleeping, so the sleep is still blocking the \
+         event loop"
     );
 }
 

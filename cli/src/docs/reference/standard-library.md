@@ -412,22 +412,29 @@ fn page<C>(path: Prop<Str>): Node<C> {
 }
 
 fn answer<C: Alloc>(ctx: C, path: Str, state: Json): Response {
-    http.html(ctx, web.shell(ctx, web.render(page(.Const(path))), state))
+    http.html(ctx, web.shell(ctx, path, web.render(page(.Const(path))), state))
 }
 ```
 
 `render` takes no context and cannot need one: every constructor in `ui/node` is
 unbounded in `C`, so nothing in a tree can act while it is being written out.
-`shell` puts the state in an inert `<script id="buri-state">` and the compiler's
-stylesheet in the head.
+`shell` puts the state in an inert `<script id="buri-state">`, the path it
+rendered for on that script as `data-path`, and the compiler's stylesheet in the
+head.
 
 On the page, `web.state(ctx)` reads that state back and `web.resume(ctx, tree)`
 takes the document over. It creates no element and no run of text — the renderer
 takes the node the server already wrote for each one — and what it adds is the
 listeners and the computations. So a server-rendered button works, and nothing
-the reader is looking at is built twice. A tree whose *shape* the markup does not
-match is `.Err` naming the node it wanted; a run of text or an attribute that
-differs is written instead. Resume once — a second call answers that same `.Err`.
+the reader is looking at is built twice.
+
+Before it walks anything it compares the address bar against `data-path`, so a
+page resumed where the server did not render is `.Err` naming both — two routes
+that render the same shape would otherwise resume into each other. A query string
+and a fragment are not part of a path and are not compared. After that, a tree
+whose *shape* the markup does not match is `.Err` naming the node it wanted; a
+run of text or an attribute that differs is written instead. Resume once — a
+second call answers that same `.Err`.
 
 Routing is a match. A page function takes the path as a `Prop<Str>`: the worker
 passes `.Const(request.path())` and the page passes `web.route(ctx)`, which is

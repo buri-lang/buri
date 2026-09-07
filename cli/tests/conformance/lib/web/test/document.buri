@@ -54,12 +54,33 @@ fn body(document: Str): Str {
 
 /// The state a document embedded, as the text the page reads back.
 fn embedded(document: Str): Str {
-    match (document.splitOnce("type=\"application/json\">")) {
+    match (afterTheScriptTag(document).splitOnce("</script>")) {
+        .None => "",
+        .Some(inner) => inner.0,
+    }
+}
+
+/// The path a document says it was rendered at, which is what `resume` compares
+/// the address against.
+fn renderedAt(document: Str): Str {
+    match (document.splitOnce("data-path=\"")) {
         .None => "",
         .Some(pair) => {
-            match (pair.1.splitOnce("</script>")) {
+            match (pair.1.splitOnce("\">")) {
                 .None => "",
                 .Some(inner) => inner.0,
+            }
+        },
+    }
+}
+
+fn afterTheScriptTag(document: Str): Str {
+    match (document.splitOnce("data-path=\"")) {
+        .None => "",
+        .Some(pair) => {
+            match (pair.1.splitOnce("\">")) {
+                .None => "",
+                .Some(rest) => rest.1,
             }
         },
     }
@@ -210,7 +231,7 @@ test "the document carries the body and the state beside it" {
         Alloc: alloc(),
     };
     let state = Reading { title: "Titles", note: "plain" };
-    let document = web.shell(ctx, web.render(tree()), state.toJson(ctx));
+    let document = web.shell(ctx, "/", web.render(tree()), state.toJson(ctx));
     assert.isTrue(document.startsWith("<!doctype html>"));
     assert.eq(body(document), "<main><h1>Titles</h1>and text</main>");
     assert.eq(embedded(document), "{\"title\":\"Titles\",\"note\":\"plain\"}");
@@ -221,7 +242,7 @@ test "a state that ends the script it sits in closes nothing" {
         Alloc: alloc(),
     };
     let state = Reading { title: "Titles", note: "</script><b>" };
-    let document = web.shell(ctx, "", state.toJson(ctx));
+    let document = web.shell(ctx, "/", "", state.toJson(ctx));
     assert.isFalse(embedded(document).contains("</script>"));
     // And it is still the state, because a JSON reader reads the escape back.
     let read: Result<Reading, DecodeError> = json.decode(
@@ -247,7 +268,7 @@ test "the state crosses as every shape JSON has" {
         ("no items", .Array([])),
         ("items", .Array([.Num(1.0), .Str("two"), .Object([("deep", .Bool(true))])])),
     ]);
-    let document = web.shell(ctx, "", shapes);
+    let document = web.shell(ctx, "/", "", shapes);
     assert.eq(
         embedded(document),
         "{\"nothing\":null,\"yes\":true,\"no\":false,\"whole\":7,\"fraction\":0.5,\"negative\":-2,\"text\":\"héllo ✓ 𝄞\",\"no fields\":{},\"no items\":[],\"items\":[1,\"two\",{\"deep\":true}]}",
@@ -261,18 +282,46 @@ test "a state with no fields at all still crosses" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(embedded(web.shell(ctx, "", .Object([]))), "{}");
-    assert.eq(embedded(web.shell(ctx, "", .Null)), "null");
+    assert.eq(embedded(web.shell(ctx, "/", "", .Object([]))), "{}");
+    assert.eq(embedded(web.shell(ctx, "/", "", .Null)), "null");
 }
 
 test "an empty body is still a whole document" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let document = web.shell(ctx, "", .Object([]));
+    let document = web.shell(ctx, "/", "", .Object([]));
     assert.isTrue(document.startsWith("<!doctype html>"));
     assert.eq(body(document), "");
     assert.isTrue(document.endsWith("</body>\n</html>\n"));
+}
+
+test "the document says which address it was rendered for" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let state = Reading { title: "Titles", note: "plain" };
+    let document = web.shell(
+        ctx,
+        "/guide/routing",
+        web.render(tree()),
+        state.toJson(ctx),
+    );
+    assert.eq(renderedAt(document), "/guide/routing");
+    // The body and the state are where they were: the path rides on the script
+    // rather than displacing anything.
+    assert.eq(body(document), "<main><h1>Titles</h1>and text</main>");
+    assert.eq(embedded(document), "{\"title\":\"Titles\",\"note\":\"plain\"}");
+}
+
+test "a path that could end the attribute it sits in ends nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let document = web.shell(ctx, "/a\"><b>&x", "", .Object([]));
+    assert.eq(renderedAt(document), "/a&quot;&gt;&lt;b&gt;&amp;x");
+    // And the state after it is still the state, so the tag was not cut short.
+    assert.eq(embedded(document), "{}");
 }
 
 test "a document is answered as HTML" {

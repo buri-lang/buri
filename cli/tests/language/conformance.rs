@@ -1304,7 +1304,7 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
 
     let sent = "<main><h1>Buri</h1>visitors: 3\
                 <button type=\"button\">say thanks</button></main>\
-                <script id=\"buri-state\" type=\"application/json\">\
+                <script id=\"buri-state\" type=\"application/json\" data-path=\"/\">\
                 {\"title\":\"Buri\",\"visitors\":3}</script>";
     let pressed = sent.replace(">say thanks<", ">thanks<");
     assert_eq!(
@@ -1320,15 +1320,19 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
         "the website lost a half:\n{stderr}"
     );
 
-    // The failure. `/about` is a page the server did not send, so the tree the
-    // page builds is not the markup in front of it.
+    // The failure. `/about` is a page the server did not send, and `shell` wrote
+    // down which page it did send, so this is refused before a node is walked.
     let (code, stdout, stderr) = drive("/about");
-    assert_eq!(code, 1, "a resume onto markup it does not match must fail:\n{stdout}{stderr}");
+    assert_eq!(code, 1, "a resume at an address the server did not send must fail:\n{stdout}{stderr}");
     assert!(
-        stderr.contains("this page is not the markup the server sent"),
-        "and it must say so: {stderr}"
+        stderr.contains(
+            "this page is not the page the server sent: it was rendered at / and the address \
+             is /about"
+        ),
+        "and it must name both: {stderr}"
     );
 }
+
 /// A document a page can resume into: the markup a browser would have parsed,
 /// and the handful of operations the runtime asks of one.
 ///
@@ -1402,6 +1406,10 @@ function node(nodeType, nodeName) {
     },
     setAttribute(name, value) {
       this.attributes[name] = value;
+    },
+    getAttribute(name) {
+      const held = this.attributes[name];
+      return held === undefined ? null : held;
     },
     addEventListener(type, handler) {
       this.listeners[type] = handler;
@@ -1674,9 +1682,12 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
     let state = "{\"title\":\"Tom & Jerry \\u003cbr> ✓\",\"gap\":\" \",\"picture\":\"/cat.png\",\
                  \"twice\":false,\"rows\":[{\"key\":\"a\",\"label\":\"alpha\"},\
                  {\"key\":\"b\",\"label\":\"beta\"}]}";
-    // The whole body: the tree, and the state script `shell` put beside it.
-    let showing =
-        format!("{sent}<script id=\"buri-state\" type=\"application/json\">{state}</script>");
+    // The whole body: the tree, and the state script `shell` put beside it —
+    // carrying the address it rendered for.
+    let showing = format!(
+        "{sent}<script id=\"buri-state\" type=\"application/json\" \
+         data-path=\"/\">{state}</script>"
+    );
 
     // --- The whole of a page's life, in one run -------------------------------
     let (code, stdout, stderr) = drive("plain", "/");
@@ -1737,13 +1748,49 @@ fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
         );
     }
 
-    // A resume at an address the server never rendered is the same failure from
-    // further in: the routed region is the only part that differs.
-    let (code, _stdout, stderr) = drive("wrong-address", "/");
+    // --- The address, checked before the shape --------------------------------
+    //
+    // `/` and `/about` here render the same *shape* — a region holding a heading
+    // and a run of text — so the walk would adopt one into the other and find
+    // nothing wrong, leaving the reader looking at one page's markup with
+    // another page's handlers on it. The path `shell` wrote is what catches
+    // that, and it is compared before anything is walked.
+    let (code, stdout, stderr) = drive("wrong-address", "/");
     assert_eq!(code, 1, "a page resumed where the server did not render must fail");
     assert!(
+        stderr.contains(
+            "this page is not the page the server sent: it was rendered at / and the address \
+             is /about"
+        ),
+        "and it must name both:\n{stdout}{stderr}"
+    );
+
+    // Answered at `/about` and read at `/about`: the same page. The markup is
+    // not `/`'s, so this is the check saying yes rather than saying nothing.
+    let (code, stdout, stderr) = drive("plain", "/about");
+    assert_eq!(code, 0, "the address the server rendered must resume:\n{stdout}{stderr}");
+    assert!(
+        stdout.contains("made 0 elements and 0 runs of text\n"),
+        "and build nothing:\n{stdout}{stderr}"
+    );
+
+    // A query string and a fragment are not part of a path. The worker was asked
+    // for `/?ref=x#top` and `Request.path` answers `/`; the address bar has both
+    // and `location.pathname` has neither. One page, not two.
+    let (code, stdout, stderr) = drive("right-address", "/");
+    assert_eq!(code, 0, "a query string must not be a different page:\n{stdout}{stderr}");
+    assert!(
+        stdout.contains("made 0 elements and 0 runs of text\n"),
+        "and it must resume on the markup:\n{stdout}{stderr}"
+    );
+
+    // Markup no `shell` wrote carries no path, so there is nothing to compare
+    // and the shape is the whole check — which is what it was before.
+    let (code, stdout, stderr) = drive("no-path", "/");
+    assert_eq!(code, 1, "a page with no embedded path still fails on its shape");
+    assert!(
         stderr.contains("this page is not the markup the server sent"),
-        "and it must say so: {stderr}"
+        "and by the shape rather than the address:\n{stdout}{stderr}"
     );
 
     // The two that are written rather than refused. A page's numbers come from a
@@ -1982,6 +2029,7 @@ export fn fetch(request: Request): Response {
         ctx,
         web.shell(
             ctx,
+            request.path(),
             web.render(
                 page(.Const(request.path()), state, .Const("press me"), fn(_c, _event) => ()),
             ),
@@ -2005,10 +2053,14 @@ import worker from "./.buri/out/cloudflare-worker/cmd/edges/fetch.mjs";
 const how = process.argv[2];
 const at = process.argv[3];
 
-// `wrong-address` is the page resumed where the server did not render: the
-// worker answered `/` and the address bar says `/about`.
-const address = how === "wrong-address" ? "/about" : at;
-const answer = await worker.fetch(new Request("https://example.com" + at));
+// The address bar is not always the address the worker answered.
+// `wrong-address` and `no-path` are the page resumed where the server did not
+// render; `right-address` is the same route reached with a query string and a
+// fragment on it, neither of which is part of a path.
+const elsewhere = how === "wrong-address" || how === "no-path";
+const address = elsewhere ? "/about" : at;
+const asked = how === "right-address" ? at + "?ref=x#top" : at;
+const answer = await worker.fetch(new Request("https://example.com" + asked));
 const document_ = await answer.text();
 let sent = document_.split("<body>")[1].split("</body>")[0];
 console.log(`sent ${sent.split("<script")[0]}`);
@@ -2035,11 +2087,18 @@ if (how === "changed-attribute") change('src="/cat.png"', 'src="/dog.png"');
 // A page the state asks to resume twice.
 if (how === "twice") change('"twice":false', '"twice":true');
 
+// Markup no `shell` wrote: it carries no path, so only the shape is checked.
+if (how === "no-path") change(' data-path="/"', "");
+
 // Nowhere to resume, the two ways there are: a document with no body, and a
 // body the server wrote nothing into.
 if (how === "blank") sent = "";
 
 browser(sent, address, how !== "no-body");
+if (how === "right-address") {
+  globalThis.location.search = "?ref=x";
+  globalThis.location.hash = "#top";
+}
 
 const title = findFirst(body, "H1");
 await import("./.buri/out/web/cmd/edges/main.mjs");
