@@ -10,7 +10,6 @@
 #![allow(dead_code)]
 
 use buri::build::workspace::Workspace;
-use buri::diagnostics::{Diagnostics, SourceMap};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
