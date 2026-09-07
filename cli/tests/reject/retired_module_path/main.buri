@@ -1,0 +1,16 @@
+// EXPECT: "core/char" is now "core/character"
+//
+// The renamed modules do not answer to their old paths, and the refusal names
+// the new one rather than the rule. `core/proc` is on the same line for the
+// same reason, so one case pins both rows of the table.
+from "core/char" import * as character;
+from "core/proc" import * as process;
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let _ = io.println(ctx, "hi").ignore();
+  .Ok(())
+}

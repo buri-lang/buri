@@ -462,6 +462,18 @@ fn an_unknown_topic_exits_two_with_a_suggestion() {
     assert!(err.contains("language/effects"), "expected a suggestion, got:\n{err}");
 }
 
+/// A renamed module answers with its new name rather than with whatever is
+/// nearest by edit distance — `core/char` is two letters from `core/actor`.
+#[test]
+fn a_retired_module_names_what_it_became() {
+    for (old, now) in buri::compiler::standard_library::RETIRED {
+        let out = ran(&std::env::temp_dir(), &["docs", old, "--color=never"]);
+        assert_eq!(out.status.code(), Some(2), "`buri docs {old}` should be a bad invocation");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains(now), "`buri docs {old}` never says `{now}`:\n{err}");
+    }
+}
+
 /// No document may name a flag the binary does not accept.
 ///
 /// `--check-reproducible`, `query --output=proto`, and `lint --fix` were all

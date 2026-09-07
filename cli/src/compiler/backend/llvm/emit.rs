@@ -5467,7 +5467,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         args: &[ir::ValueId],
     ) -> bool {
         let Some(dest) = dests.first().copied() else { return false };
-        // `str.show`, `char.eq`, `bool.compare` and their siblings: the same
+        // `str.show`, `character.eq`, `bool.compare` and their siblings: the same
         // three operations `Unit::numeric` emits, at the three primitives whose
         // defining module is not `core/num` and whose keys are therefore two
         // segments rather than three.
@@ -5500,8 +5500,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             };
         }
         match key {
-            // `char.toU32()` is the identity: both sides are an `i32`.
-            "char.toU32" => {
+            // `character.toU32()` is the identity: both sides are an `i32`.
+            "character.toU32" => {
                 let Some(a) = args.first().copied() else { return false };
                 let value = self.get(state, a);
                 self.set(state, dest, value);
@@ -8482,14 +8482,14 @@ pub fn implemented(key: &str) -> bool {
         || prim_leaf(key).is_some()
 }
 
-/// `str.show`, `char.eq`, `bool.compare` and their six siblings.
+/// `str.show`, `character.eq`, `bool.compare` and their six siblings.
 ///
 /// `semantics/builtins.rs` declares `eq`, `compare`, `show` and `hash` on
 /// **every** primitive, and `monomorphize::intrinsic_key` names each after the
-/// type's own module — so `Str`'s live under `str.`, `Char`'s under `char.` and
-/// `Bool`'s under `bool.`, while the numeric ones are three segments under
-/// `num.` because `core/num` defines a dozen types. One rule, two spellings,
-/// and this is the half of it `numeric_op` does not cover.
+/// type's own module — so `Str`'s live under `str.`, `Char`'s under
+/// `character.` and `Bool`'s under `bool.`, while the numeric ones are three
+/// segments under `num.` because `core/num` defines a dozen types. One rule,
+/// two spellings, and this is the half of it `numeric_op` does not cover.
 ///
 /// `str.eq`, `str.compare` and `str.hash` are absent because the archive has
 /// bodies for all three and [`runtime::ENTRIES`] is where a body goes.
@@ -8497,7 +8497,7 @@ fn prim_leaf(key: &str) -> Option<(Prim, &str)> {
     let (module, op) = key.split_once('.')?;
     let prim = match module {
         "str" => Prim::Str,
-        "char" => Prim::Char,
+        "character" => Prim::Char,
         "bool" => Prim::Bool,
         _ => return None,
     };
@@ -8563,13 +8563,13 @@ fn open_coded_key(key: &str) -> bool {
             | "testing_assert.failExpected"
             | "testing_assert.reportShown"
             | "testing_assert.failExpectedShown"
-            // A `Char` **is** a `U32` (`char.buri`: "Exact: every `Char` is a
-            // `U32`"), so this is the identity on the register. The debug
-            // backend has had it since its list was written; here it was
-            // absent, and `core/char`'s eight arriving in the runtime table
-            // is what made the absence reachable — `data/strings.buri` and
-            // `text/json.buri` both call it right beside a classifier.
-            | "char.toU32"
+            // A `Char` **is** a `U32` (`character.buri`: "Exact: every
+            // `Char` is a `U32`"), so this is the identity on the register.
+            // The debug backend has had it since its list was written; here it
+            // was absent, and `core/character`'s eight arriving in the runtime
+            // table is what made the absence reachable — `data/strings.buri`
+            // and `text/json.buri` both call it right beside a classifier.
+            | "character.toU32"
     )
 }
 

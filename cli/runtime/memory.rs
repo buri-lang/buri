@@ -1592,7 +1592,7 @@ fn quarantine<T>(f: impl FnOnce(&mut Quarantine) -> T) -> T {
 }
 
 /// Set once the program has decided how it is ending — an abort, or
-/// `proc.exit` — so that the exit audit stays quiet.
+/// `process.exit` — so that the exit audit stays quiet.
 ///
 /// A program that stopped on its own terms has every right to be holding
 /// values: an assertion that failed in the middle of a list is not a leak, and

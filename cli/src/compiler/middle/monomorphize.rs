@@ -2267,7 +2267,7 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // "copy everything inside this value" is a question only a layout can
     // answer.
     "alloc.copyOut",
-    // `core/bool` and `core/char`: `show` and `toJson` are minted by
+    // `core/bool` and `core/character`: `show` and `toJson` are minted by
     // `semantics::builtins` at every primitive and both name `C: Alloc`,
     // because rendering allocates. The type is in the key already.
     "bool.show",
@@ -2279,8 +2279,8 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "bytes.f64ToBytes",
     "bytes.fromUtf8",
     "bytes.toUtf8",
-    "char.show",
-    "char.toJson",
+    "character.show",
+    "character.toJson",
     // `Tasks.parallel<C, A, B>` — the closure trampoline's second key, and the
     // one it was built for. It is on this list for the same reason
     // `list.mapCtxStep` is, which is A4's rule and not an exception to it: an
@@ -2739,7 +2739,7 @@ mod tests {
         alloc.copyOut \
         bool.show bool.toJson \
         bytes.f32ToBytes bytes.f64ToBytes bytes.fromUtf8 bytes.toUtf8 \
-        char.show char.toJson \
+        character.show character.toJson \
         host.HostTasks.parallel \
         host.HostUi.memo host.HostUi.read host.HostUi.signal host.HostUi.write \
         host.HostWatch.read \

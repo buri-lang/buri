@@ -39,7 +39,7 @@ from "core/net/server" import { Message, Socket };
 from "core/net/websocket" import * as websocket;
 from "core/net/websocket" import { Client };
 from "core/path" import * as path;
-from "core/proc" import * as proc;
+from "core/process" import * as process;
 from "core/random" import * as random;
 from "core/str" import * as str;
 from "core/tasks" import * as tasks;
@@ -67,7 +67,7 @@ fn elapsed<C: Clock>(ctx: C, waiting: Int): I64 {
 }
 
 fn stop<C: Proc>(ctx: C, code: Int): () {
-    proc.exit(ctx, code)
+    process.exit(ctx, code)
 }
 
 fn loadText<C: Alloc + FsRead>(ctx: C, at: Str): Result<Str, IoError> {

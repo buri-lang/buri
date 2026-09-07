@@ -258,7 +258,7 @@ export struct Arg {
 ///
 /// `C` is the caller's own context, exactly like `core/net/server`'s
 /// `Server.onRequest`. A handler may do anything the context it was written
-/// beside can do — print, read a file, `proc.exit` — and `core/cli` never
+/// beside can do — print, read a file, `process.exit` — and `core/cli` never
 /// learns what that is. A `Command<C>` is data rather than a second context
 /// (SPEC 10.2).
 export struct Command<C> {
@@ -267,7 +267,7 @@ export struct Command<C> {
     /// The sentence `--help` prints beside it.
     export about: Str,
     /// What runs. Its `.Err` is the message `main` exits 1 with. A command that
-    /// owns a *particular* status calls `proc.exit` itself.
+    /// owns a *particular* status calls `process.exit` itself.
     export run: fn(C, Arguments) => Result<(), Str>,
     /// Flags accepted after this command's name. `.None` is none of its own.
     export flags: Option<[Flag]>,

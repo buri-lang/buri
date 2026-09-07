@@ -28,11 +28,11 @@ pub fn prim_trait_op(key: &str) -> bool {
             | "bool.compare"
             | "bool.hash"
             | "bool.show"
-            | "char.eq"
-            | "char.compare"
-            | "char.hash"
-            | "char.show"
-            | "char.toU32"
+            | "character.eq"
+            | "character.compare"
+            | "character.hash"
+            | "character.show"
+            | "character.toU32"
             | "str.show"
     )
 }

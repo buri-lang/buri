@@ -31,7 +31,7 @@
 //! `Saturating` method sets.
 
 from "core/bits" import * as bits;
-from "core/char" import * as char;
+from "core/character" import * as character;
 from "core/effect" import { Alloc };
 from "core/list" import * as list;
 from "core/order" import { Eq, Ord, Order, Show };
@@ -211,7 +211,7 @@ export fn toHex<C: Alloc>(ctx: C, x: Int, width: Int): Str {
                 } else {
                     lowNibble(bits.shr(x, shift))
                 };
-                char.fromDigit(nibble, 16).withDefault('0')
+                character.fromDigit(nibble, 16).withDefault('0')
             }),
     )
 }

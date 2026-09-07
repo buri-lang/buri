@@ -1051,7 +1051,7 @@ answer.
   this shape.
 * **`json.*`, and `ToJson::toJson` called directly on a primitive.**
   `json.decode` is a descriptor-driven walker, and the five `bool.toJson` /
-  `char.toJson` / `str.toJson` / `num.<T>.toJson` keys are the trait's own
+  `character.toJson` / `str.toJson` / `num.<T>.toJson` keys are the trait's own
   leaves. `derivePrimJson` is not on this line: both backends build `Json`'s
   primitive arm (VALUE-MODEL.md §12 row 10).
 * **`core/math`'s thirteen transcendentals**, which are refused rather than

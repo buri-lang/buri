@@ -2804,8 +2804,8 @@ impl<'a> Jit<'a> {
         // reached here because the same key arrives two ways: spelled inline it
         // is an `Inst::CallIntrinsic`, and spelled as a method it is a call to
         // the `Body::Runtime` function whose body this is. Answering only the
-        // first left `char.eq`, `bits.shl` and `str.concat` refused in exactly
-        // the files that write them as methods.
+        // first left `character.eq`, `bits.shl` and `str.concat` refused in
+        // exactly the files that write them as methods.
         let ret_tag = self.ret_tag(prog, fi);
         if self.prim_trait_at(st, &key, ret0, p(0), p(1), Some(ret_tag)) {
             self.emit("ret", &[]);
@@ -2839,12 +2839,12 @@ impl<'a> Jit<'a> {
 impl<'a> Jit<'a> {
     /// A `Body::Runtime` whose key `runtime.rs`'s table has a row for.
     ///
-    /// `middle::lower` leaves `core/str`, `core/list`, `core/char`, `core/math`
-    /// and the host capabilities as bodyless functions carrying an intrinsic
-    /// key, exactly as it does for the other two backends, and the body is one
-    /// call to the archive. There is no second implementation of any of them
-    /// here: that was the prototype's shape, and it was `libburi_rt.a` written
-    /// twice.
+    /// `middle::lower` leaves `core/str`, `core/list`, `core/character`,
+    /// `core/math` and the host capabilities as bodyless functions carrying an
+    /// intrinsic key, exactly as it does for the other two backends, and the
+    /// body is one call to the archive. There is no second implementation of
+    /// any of them here: that was the prototype's shape, and it was
+    /// `libburi_rt.a` written twice.
     ///
     /// The parameters are already in the frame at the offsets `frame_sigs`
     /// gave them, so the argument list is the signature's types paired with
@@ -2990,7 +2990,7 @@ impl Jit<'_> {
         let Some((module, op)) = key.split_once('.') else { return false };
         let prim = match module {
             "bool" => Prim::Bool,
-            "char" => Prim::Char,
+            "character" => Prim::Char,
             "str" => Prim::Str,
             _ => return false,
         };

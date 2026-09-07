@@ -1892,11 +1892,12 @@ export fn main(): Result<(), Str> {
     // `llvm/runtime.rs`'s table or a loop in `emit::Unit`, and `map`, `sortBy`,
     // `zip` and `flatten` were the last of it to land. So the example
     // this test is built around moved out of `core/list`, and then twice more:
-    // to `char.isDigit`, to `bytes.toUtf8`, and now past both. `core/char` and
-    // `core/bytes` have archive bodies (`cli/runtime/char.rs`,
-    // `cli/runtime/bytes.rs`) and `data/strings.buri`, `text/bytes.buri`,
-    // `crypto/sha256.buri` and two of the three `//lib/proto` files are in the
-    // native conformance set because of them.
+    // to `character.isDigit`, to `bytes.toUtf8`, and now past both.
+    // `core/character` and `core/bytes` have archive bodies
+    // (`cli/runtime/character.rs`, `cli/runtime/bytes.rs`) and
+    // `data/strings.buri`, `text/bytes.buri`, `crypto/sha256.buri` and two of
+    // the three `//lib/proto` files are in the native conformance set because
+    // of them.
     //
     // `math.sin` is the example now, and it is a different *kind* of gap on
     // purpose: it is refused rather than unwritten. `cli/runtime/math.rs`
@@ -1953,8 +1954,8 @@ export fn main(): Result<(), Str> {
         "`math.sin` is refused on purpose and must be reported, got {missing:?}"
     );
     assert!(
-        !missing.iter().any(|m| m == "char.isDigit"),
-        "`char.isDigit` is a row in the runtime table now and must not be \
+        !missing.iter().any(|m| m == "character.isDigit"),
+        "`character.isDigit` is a row in the runtime table now and must not be \
          reported, got {missing:?}"
     );
     assert!(
@@ -2801,12 +2802,13 @@ export fn main(): Result<(), Str> {
     assert_eq!(code, Some(0));
 }
 
-/// `char.show`, `bool.show` and their `eq`/`compare` siblings.
+/// `character.show`, `bool.show` and their `eq`/`compare` siblings.
 ///
 /// `semantics/builtins.rs` declares these on every primitive and
 /// `monomorphize::intrinsic_key` names each after the type's own module, so
-/// they are `char.` and `bool.` keys rather than the three-segment `num.` ones
-/// — one rule, two spellings, and this is the half `numeric_op` does not cover.
+/// they are `character.` and `bool.` keys rather than the three-segment `num.`
+/// ones — one rule, two spellings, and this is the half `numeric_op` does not
+/// cover.
 /// `show` here is `$str` and not `$show`: a `Char` renders as itself, unquoted.
 #[test]
 fn the_char_and_bool_leaves_run() {

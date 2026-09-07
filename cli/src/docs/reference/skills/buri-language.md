@@ -39,10 +39,10 @@ Hand-roll one and you get a wrong answer that compiles.
   `io.println(ctx, "hi")` is, because you cannot call an effect method on the
   value carrying it (`effect-method-call`). The doors are `core/io`, `core/fs`,
   `core/env`, `core/time`, `core/random`, `core/alloc`, `core/net/http`,
-  `core/net/server`, `core/proc`, `core/tasks` and `ui/signal`. The filesystem
-  is **two** effects, `FsRead` and `FsWrite`. `core/fs` declares both, not
-  `core/effect`, and every function there takes a `Path` from `core/path`
-  rather than a `Str`. See the `buri-types` skill.
+  `core/net/server`, `core/process`, `core/tasks` and `ui/signal`. The
+  filesystem is **two** effects, `FsRead` and `FsWrite`. `core/fs` declares
+  both, not `core/effect`, and every function there takes a `Path` from
+  `core/path` rather than a `Str`. See the `buri-types` skill.
 - **A bare identifier in a pattern is always a binding.** `None` binds a
   variable; write `.None` or `Option.None` to match the variant.
 - **You may not discard a `Result`.** `let _ = someResult()` is a compile
