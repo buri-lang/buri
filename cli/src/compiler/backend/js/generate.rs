@@ -31,6 +31,9 @@ pub struct Output {
     /// Names the minifier must not rename.
     pub roots: Vec<String>,
     pub missing_intrinsics: Vec<String>,
+    /// The chunks `core/lazy` split out, in the order `middle::chunks`
+    /// numbered them. Empty for nearly every program.
+    pub chunks: Vec<Output>,
 }
 
 /// The state that belongs to the *one function* being emitted.
@@ -541,7 +544,158 @@ pub fn generate(
         }
     }
 
-    Output { stmts, roots, missing_intrinsics: g.missing }
+    let (stmts, roots, chunks) = split_chunks(program, stmts, roots);
+    Output { stmts, roots, missing_intrinsics: g.missing, chunks }
+}
+
+/// Moves each chunk's functions out of the artifact and into a module of its
+/// own, and gives each chunk the artifact's bindings.
+///
+/// **A chunk is a file, so it is a scope.** Everything it uses that it does not
+/// declare — a helper the artifact also calls, an interned constant, a type
+/// descriptor, a piece of the runtime — lives in the artifact, and the chunk
+/// needs a name for it.
+///
+/// **The chunk does not import the artifact; the artifact hands it what it
+/// needs.** An import would be a cycle, and this artifact is a module with a
+/// top-level `await` in it: the fetch happens *during* the artifact's own
+/// evaluation, so a chunk that waited for the artifact to finish evaluating
+/// would be waiting for the call that is waiting for it. Node says
+/// `unsettled top-level await` and exits 13. So the artifact emits a `$env<n>`
+/// thunk holding every name that chunk uses, `$lazy` calls the chunk's `$bind`
+/// with it the first time, and the chunk keeps them in `let`s of its own.
+///
+/// Neither side's names have to survive minification for that to work: the
+/// object's keys and the member reads off it are strings, and the minifier
+/// renames identifiers. Only `$bind` and the function the chunk was made for
+/// are named across the boundary, and those two are the chunk's `roots`.
+fn split_chunks(
+    program: &Program,
+    stmts: Vec<Stmt>,
+    roots: Vec<String>,
+) -> (Vec<Stmt>, Vec<String>, Vec<Output>) {
+    if program.chunks.is_empty() {
+        return (stmts, roots, Vec::new());
+    }
+    // Which chunk each function belongs to, by symbol. A function two chunks
+    // both reach is in both of them: one copy each is a byte or two more than
+    // a third file would be, and a third file is a second round trip.
+    let mut moved: Vec<(String, Vec<usize>)> = Vec::new();
+    for (n, chunk) in program.chunks.iter().enumerate() {
+        for member in &chunk.members {
+            let Some(f) = program.funcs.get(*member) else { continue };
+            match moved.iter_mut().find(|(s, _)| *s == f.symbol) {
+                Some((_, chunks)) => chunks.push(n),
+                None => moved.push((f.symbol.clone(), vec![n])),
+            }
+        }
+    }
+    let chunk_of = |name: &str| {
+        moved.iter().find(|(s, _)| s == name).map(|(_, c)| c.as_slice()).unwrap_or_default()
+    };
+
+    let mut kept: Vec<Stmt> = Vec::new();
+    let mut bodies: Vec<Vec<Stmt>> = vec![Vec::new(); program.chunks.len()];
+    for s in stmts {
+        let name = match &s {
+            Stmt::Func { name, .. } => name.clone(),
+            _ => String::new(),
+        };
+        let mine = chunk_of(&name);
+        if mine.is_empty() {
+            kept.push(s);
+            continue;
+        }
+        for n in mine {
+            if let Some(body) = bodies.get_mut(*n) {
+                body.push(s.clone());
+            }
+        }
+    }
+
+    // What the artifact declares, so that a name a chunk uses can be sorted
+    // into "the artifact has it" and "the chunk brought it".
+    let declared: HashSet<String> = kept
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::Func { name, .. } | Stmt::Var { name, .. } | Stmt::RawDecl { name, .. } => {
+                Some(name.clone())
+            }
+            _ => None,
+        })
+        .collect();
+
+    let mut chunks = Vec::new();
+    let mut envs = Vec::new();
+    for (n, (chunk, body)) in program.chunks.iter().zip(bodies).enumerate() {
+        let own: HashSet<String> = body
+            .iter()
+            .filter_map(|s| match s {
+                Stmt::Func { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        let mut used = HashSet::default();
+        for s in &body {
+            javascript::collect_idents_in(s, &mut used);
+        }
+        // Sorted, because a `HashSet` is not an order and two builds of one
+        // tree write identical bytes.
+        let mut borrowed: Vec<String> =
+            used.into_iter().filter(|u| !own.contains(u) && declared.contains(u)).collect();
+        borrowed.sort();
+
+        let entry = program
+            .funcs
+            .get(chunk.root)
+            .or_ice("a chunk's root is one of the functions monomorphization emitted")
+            .symbol
+            .clone();
+        // The artifact's side: one hoisted function per chunk, so that the
+        // epilogue can reach it whatever order the declarations came out in.
+        envs.push(Stmt::Func {
+            name: env_name(n),
+            params: Vec::new(),
+            body: vec![Stmt::Return(Some(Expr::Object(
+                borrowed.iter().map(|b| (b.clone(), Expr::ident(b.clone()))).collect(),
+            )))],
+            is_async: false,
+        });
+
+        // The chunk's side: a slot per borrowed name, and the one function that
+        // fills them. Always emitted, even for a chunk that borrows nothing, so
+        // that `$lazy` has one thing to call rather than a condition.
+        let mut stmts: Vec<Stmt> = borrowed
+            .iter()
+            .map(|b| Stmt::Var { kind: VarKind::Let, name: b.clone(), init: None })
+            .collect();
+        stmts.push(Stmt::Func {
+            name: String::from(BIND),
+            params: vec![String::from("m")],
+            body: borrowed
+                .iter()
+                .map(|b| {
+                    Stmt::Expr(Expr::Assign {
+                        target: Box::new(Expr::ident(b.clone())),
+                        value: Box::new(Expr::member(Expr::ident("m"), b)),
+                    })
+                })
+                .collect(),
+            is_async: false,
+        });
+        stmts.extend(body);
+        stmts.push(Stmt::Raw(format!("export{{{BIND},{entry}}};")));
+        chunks.push(Output {
+            stmts,
+            // The two names the artifact reads off this module.
+            roots: vec![String::from(BIND), entry],
+            missing_intrinsics: Vec::new(),
+            chunks: Vec::new(),
+        });
+    }
+
+    kept.extend(envs);
+    (kept, roots, chunks)
 }
 
 /// Whether this artifact reaches a node module by name.
@@ -875,6 +1029,15 @@ fn shareable(e: &Expr) -> bool {
 fn const_name(i: usize) -> String {
     format!("$k{i}")
 }
+
+/// The artifact's thunk holding everything chunk `n` borrows from it.
+fn env_name(n: usize) -> String {
+    format!("$env{n}")
+}
+
+/// What every chunk exports to receive that thunk. One name, because `$lazy`
+/// calls it for every chunk and a name per chunk would be a name to look up.
+const BIND: &str = "$bind";
 
 /// Where one placeholder argument ended up in an expansion.
 #[derive(Clone, Copy, Default)]
@@ -2289,6 +2452,32 @@ impl<'a> Gen<'a> {
                 Expr::index(b, Expr::Num(slot as f64))
             }
             ExprKind::CtxCall { .. } => Expr::Num(0.0),
+            // `core/lazy`. The argument is the function the chunk holds and it
+            // is deliberately *not* emitted: naming it here is what would keep
+            // it in this file. The chunk exports it under the same symbol, so
+            // fetching the module and reading the property off it is the whole
+            // of the crossing.
+            ExprKind::Intrinsic { name, args, .. }
+                if crate::compiler::backend::intrinsic_keys::lazy_chunk_of(name).is_some() =>
+            {
+                let n = crate::compiler::backend::intrinsic_keys::lazy_chunk_of(name)
+                    .unwrap_or_default();
+                let symbol = match args.first().map(|a| &a.kind) {
+                    Some(ExprKind::FnRef(c)) => c
+                        .func()
+                        .and_then(|i| self.program.funcs.get(i.index()))
+                        .map(|f| f.symbol.clone())
+                        .unwrap_or_default(),
+                    _ => String::new(),
+                };
+                Expr::member(
+                    Expr::Await(Box::new(Expr::call(
+                        Expr::ident("$lazy"),
+                        vec![Expr::Num(n as f64), Expr::ident(env_name(n))],
+                    ))),
+                    &symbol,
+                )
+            }
             ExprKind::Intrinsic { name, args, .. } => {
                 let a = self.exprs(args, out);
                 let e = match name.as_str() {

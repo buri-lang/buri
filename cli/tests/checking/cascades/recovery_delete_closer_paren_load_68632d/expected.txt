@@ -1,0 +1,30 @@
+error: `eq` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:77:5
+   |
+77 |     assert.eq(f(5, 10);
+   |     ^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
+error: expected 1 arguments, found 2 [argument-count-mismatch]
+  --> main.buri:77:15
+   |
+77 |     assert.eq(f(5, 10);
+   |               ^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:77:23
+   |
+77 |     assert.eq(f(5, 10);
+   |                       ^
+   |
+  --> main.buri:77:14
+   |
+77 |     assert.eq(f(5, 10);
+   |              ^ opened here
+   |
+   = fix: write `)` here

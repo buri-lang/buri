@@ -666,6 +666,99 @@ await say(new Request("https://example.com/", { method: "PUT", body: "ignored" }
     );
 }
 
+/// **When a `core/lazy` chunk is fetched**, asked of a running artifact.
+///
+/// `build::repositories`' `lazy_chunks` case reads the split off the two files
+/// a build wrote. What it cannot see is the half the feature exists for: that
+/// the chunk is not fetched by a request that never reaches the `load`. This is
+/// the driver-module pattern
+/// [`a_worker_answers_the_platforms_request_with_the_platforms_response`] uses,
+/// for the same reason — a worker is called per request, so one process can
+/// take two paths through one artifact.
+///
+/// **The chunk file is deleted between the two runs**, which is the only
+/// evidence that cannot be faked by a program that merely did not print. A run
+/// with no chunk on disk answers `/` and fails `/heavy`; with the chunk there,
+/// both answer. An artifact that fetched its chunks at start-up would fail the
+/// first run's `/` as well, and one that fetched nothing would pass `/heavy`
+/// without the file.
+#[test]
+fn a_chunk_is_fetched_only_where_the_program_asks_for_it() {
+    let scratch = Scratch::repo("lazy-when-fetched");
+    scratch.write(
+        "cmd/site/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        "cmd/site/main.buri",
+        r#"
+from "core/effect" import { Alloc, Request, Response };
+from "core/host" import * as host;
+from "core/lazy" import * as lazy;
+from "core/net/http" import * as http;
+from "core/str" import * as str;
+
+fn onlyTheChunkReachesThis<C: Alloc>(ctx: C, path: Str): Str {
+  str.format(ctx, "heavy ${path}")
+}
+
+fn heavy<C: Alloc>(ctx: C, path: Str): Str {
+  onlyTheChunkReachesThis(ctx, path)
+}
+
+export fn fetch(request: Request): Response {
+  let ctx = context { Alloc: host.alloc };
+  match (request.path()) {
+    "/heavy" => http.text(ctx, lazy.load(heavy)(ctx, request.path())),
+    other => http.text(ctx, other),
+  }
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/site"]).ok();
+
+    let artifact = scratch.path(".buri/out/cloudflare-worker/cmd/site/fetch.mjs");
+    let chunk = artifact.with_file_name("fetch.0.mjs");
+    let held = std::fs::read(&chunk).expect("the build wrote a chunk beside the module");
+
+    let driver = scratch.write(
+        "drive.mjs",
+        r#"
+import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
+
+const say = async (path) => {
+  try {
+    const answer = await worker.fetch(new Request("https://example.com" + path));
+    console.log(await answer.text());
+  } catch (e) {
+    console.log("no chunk");
+  }
+};
+
+await say("/home");
+await say("/heavy");
+"#,
+    );
+
+    let run = || {
+        let out = Command::new(js_runtime())
+            .arg(&driver)
+            .output()
+            .expect("the javascript runtime runs");
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+
+    std::fs::remove_file(&chunk).expect("the chunk is removable");
+    assert_eq!(
+        run(),
+        "/home\nno chunk\n",
+        "a request that never reaches the `load` needs no chunk, and one that does needs it"
+    );
+
+    std::fs::write(&chunk, &held).expect("the chunk goes back");
+    assert_eq!(run(), "/home\nheavy /heavy\n", "and with the chunk there, both answer");
+}
+
 /// A website, both halves, driven the way the two platforms drive them.
 ///
 /// **The top of what a website can be asked.** The repository is

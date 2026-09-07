@@ -169,6 +169,32 @@ fn generated_javascript_matches_its_record() {
             &format!("golden_javascript/{name}/expected.mjs"),
             &generated,
         );
+        // A `core/lazy` chunk is a second file the same build wrote, so it is
+        // recorded the same way the module is — and a case that stopped
+        // splitting fails rather than quietly shipping one file.
+        let module = scratch.artifact_in(out_dir, "cmd/x");
+        for n in 0.. {
+            let chunk = module.with_file_name(format!("x.{n}.mjs"));
+            let recorded = case.join(format!("expected.{n}.mjs"));
+            match std::fs::read_to_string(&chunk) {
+                Ok(text) => g.check(
+                    &recorded,
+                    &format!("golden_javascript/{name}/expected.{n}.mjs"),
+                    &program_only(&text),
+                ),
+                Err(_) => {
+                    if recorded.exists() {
+                        g.fail(format!(
+                            "{name}: `expected.{n}.mjs` records a chunk, and the program \
+                             no longer splits one out. Delete the file to record that \
+                             deliberately."
+                        ));
+                    }
+                    break;
+                }
+            }
+        }
+
         // The stylesheet is the other half of what this backend emits for a
         // user interface, and it is a separate record because it is a separate
         // artifact in every way but where the bytes sit: it is CSS, it is read

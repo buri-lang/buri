@@ -88,6 +88,43 @@ every package in the build, and an HTML shell that links the one and loads the
 other. Serve the directory. Writing the page is
 [user interfaces](./user-interfaces.md).
 
+## Shipping part of it later
+
+`core/lazy` splits a function, and everything only that function reaches, into a
+file beside the artifact:
+
+```buri
+from "core/effect" import { Stdout };
+from "core/io" import * as io;
+from "core/lazy" import * as lazy;
+
+fn editor<C: Stdout>(ctx: C): () {
+    io.println(ctx, "editing").ignore()
+}
+
+fn open<C: Stdout>(ctx: C, wanted: Bool): () {
+    if (wanted) {
+        let page = lazy.load(editor);
+        page(ctx)
+    } else {
+        io.println(ctx, "reading").ignore()
+    }
+}
+```
+
+```text
+$ ls .buri/out/web/cmd/basket/
+basket.0.mjs  basket.css  basket.html  basket.mjs
+```
+
+`basket.0.mjs` is the editor. The page fetches it when it reaches the `load` and
+not before, so a reader who never opens the editor never downloads it. The name
+is derived from the module's own URL at run time — nothing configures it, and
+serving the directory is still all there is to do.
+
+`load` takes the name of a function, and a native build ignores it and hands the
+function straight back.
+
 ## What changes about the program
 
 **The effects `main` may ask for.** A platform *is* the set of effects its host

@@ -3171,6 +3171,16 @@ fn eliminate_dead(stmts: Vec<Stmt>, roots: &[String]) -> Vec<Stmt> {
         .collect()
 }
 
+/// Every identifier a statement mentions.
+///
+/// The emitter asks this of a chunk's statements, to find the names the chunk
+/// uses and the artifact declares — which is exactly the set the two files have
+/// to agree on. It is the same walk [`eliminate_dead`] does, exported rather
+/// than copied, so a node this misses is a node that suite would miss too.
+pub fn collect_idents_in(s: &Stmt, out: &mut HashSet<String>) {
+    collect_idents_stmt(s, out);
+}
+
 fn collect_idents_stmt(s: &Stmt, out: &mut HashSet<String>) {
     match s {
         Stmt::Var { init, .. } => {

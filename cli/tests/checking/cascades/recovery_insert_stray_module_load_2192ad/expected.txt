@@ -1,0 +1,79 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> main.buri:17:46
+   |
+17 | from "core/testing/assert" import * as assert, ;
+   |                                              ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:39:5
+   |
+39 |     assert.eq(f(21), 42);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:40:5
+   |
+40 |     assert.eq(f(0), 0);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:41:5
+   |
+41 |     assert.eq(f(-3), -6);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:49:5
+   |
+49 |     assert.eq(f(ctx, 7), "n is 7");
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:54:5
+   |
+54 |     assert.eq(f(10), 12);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:60:5
+   |
+60 |     assert.eq(a(4), b(4));
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:61:5
+   |
+61 |     assert.eq(a(4), 8);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:69:5
+   |
+69 |     assert.eq([1, 2, 3].map(ctx, f), [2, 4, 6]);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:75:5
+   |
+75 |     assert.eq(double(5), 10);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `assert` in scope [unresolved-name]
+  --> main.buri:77:5
+   |
+77 |     assert.eq(f(5), 10);
+   |     ^^^^^^
+   |
+   = fix: declare `assert`, or import it — a name is in scope only from this module's own declarations and its imports

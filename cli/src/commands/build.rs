@@ -245,6 +245,11 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
                 vec![(artifact.clone(), compiled.module.clone())];
             for (companion, text) in
                 actions::web_companions(&written, &output, &compiled.stylesheet)
+                    .into_iter()
+                    // A `core/lazy` chunk is a file this build wrote, and the
+                    // module fetches it by name at run time — so it is as much
+                    // a part of "the artifact" as the stylesheet is.
+                    .chain(actions::chunk_paths(&written, &compiled.chunks))
             {
                 let name = companion
                     .file_name()

@@ -947,6 +947,7 @@ impl<'a, 'b> Infer<'a, 'b> {
             hir_args.push(r);
         }
         hir_args.extend(self.check_args(args, param_types));
+        self.check_lazy_load(f, &hir_args, args, span);
         typed::Expr::new(
             typed::ExprKind::CallFn {
                 func: typed::Callee::Decl { id: f, targs },
@@ -955,6 +956,49 @@ impl<'a, 'b> Infer<'a, 'b> {
             ret,
             span,
         )
+    }
+
+    /// `core/lazy`'s `load` takes the **name of a function**, and nothing else.
+    ///
+    /// `load<F>(f: F): F` is generic in what it is handed, because what it
+    /// answers is what it was given. So the type says nothing, and the one
+    /// thing the whole feature needs — a body to move into a chunk — is a
+    /// property of the *expression*: a name resolving to a function has one, a
+    /// lambda written at the call has nowhere to be moved from, and an `Int`
+    /// is not a function at all.
+    ///
+    /// Checked here rather than in `middle::chunks` because here is where the
+    /// span is. That pass answers a `load` it cannot split by splitting
+    /// nothing, which is the right answer for a program this has already
+    /// refused.
+    fn check_lazy_load(
+        &mut self,
+        f: FnId,
+        checked: &[typed::Expr],
+        args: &[ExprId],
+        span: Span,
+    ) {
+        {
+            let info = self.c.tables.fn_info(f);
+            if !info.intrinsic || info.name != "load" {
+                return;
+            }
+            if self.c.module(info.module).path != "core/lazy" {
+                return;
+            }
+        }
+        let Some(arg) = checked.first() else { return };
+        if matches!(arg.kind, typed::ExprKind::FnRef(_) | typed::ExprKind::Error) {
+            return;
+        }
+        let at = args.first().map(|a| self.tree().span(*a)).unwrap_or(span);
+        let described = match &arg.ty {
+            Ty::Fn(..) => String::from("a function value"),
+            other => crate::compiler::semantics::types::show(&self.c.tables, None, &[], other),
+        };
+        self.c.diags.push(
+            Diagnostic::templated("lazy-not-a-function", at).with_bind("got", described),
+        );
     }
 
     // -----------------------------------------------------------------------
