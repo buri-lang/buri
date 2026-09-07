@@ -2089,9 +2089,17 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_soc
         _ => -1,
     });
     let socket = buri_rt_host_testing_sockets_open(owner);
+    // **Every dial starts the script again.** `connect` returns when a socket
+    // closes and reconnecting is a loop around it, so a double that delivered
+    // its messages once would answer the second dial with a socket that was
+    // already spent — and a reconnect loop written against it would read as
+    // working while proving nothing. So the new socket takes the place of the
+    // old one, the cursor goes back to the front, and `gone` comes down.
     with(handle, (), |slot| {
-        if let Slot::Client { socket: held, .. } = slot {
+        if let Slot::Client { socket: held, next, gone, .. } = slot {
             *held = Some(socket);
+            *next = 0;
+            *gone = false;
         }
     });
     let value = BuriConnected {
