@@ -21,8 +21,11 @@
 //! named by an index nothing else can produce, so a test can only reach the
 //! cells it made.
 
+from "core/effect" import { Alloc };
 from "ui/effect" import { Scope, Ui, Watch };
+from "ui/node" import * as node;
 from "ui/node" import { Node };
+from "ui/style" import { State };
 from "ui/theme" import { Theme };
 
 /// Creates and writes signals, and runs computations, with no rendering.
@@ -161,6 +164,43 @@ export fn install(themes: [Theme]): Str;
 /// again: that is how a test sees a theme switch. The block changes and nothing
 /// else does, which is the claim.
 export fn variables(): Str;
+
+/// Paints `root` and compares it against `test/__snapshots__/<name>.png`.
+///
+/// ```text
+/// snapshot(ctx, "card", card(ctx, "Ada"), .Hover);
+/// ```
+///
+/// Fails the test when the bytes differ, and writes
+/// `test/__snapshots__/<name>.diff.png` beside the golden. `buri test --update`
+/// writes the golden instead of comparing.
+///
+/// No window and no browser: `describe` resolves the tree to a scene document
+/// and the toolchain's own renderer paints it. `state` is the pseudo-class to
+/// paint in, so a hovered card and a resting one are two snapshots of one tree.
+///
+/// The name is a file name and nothing more. It may not be empty and may not
+/// hold a path separator.
+export fn snapshot<C: Alloc + Ui>(ctx: C, name: Str, root: Node<C>, state: State): () {
+    paint(name, node.describe(ctx, root, state), stateName(state))
+}
+
+/// The runner's side: paint the scene, then compare or record.
+///
+/// Monomorphic — three strings in, nothing out — which is the whole reason the
+/// walk that produces the scene is Buri.
+fn paint(name: Str, scene: Str, state: Str): ();
+
+/// The state, as the painter spells it.
+fn stateName(state: State): Str {
+    match (state) {
+        .Hover => "hover",
+        .Focus => "focus",
+        .Active => "active",
+        .Disabled => "disabled",
+        .Checked => "checked",
+    }
+}
 
 /// An ordered log, for asserting on *when* something ran.
 ///

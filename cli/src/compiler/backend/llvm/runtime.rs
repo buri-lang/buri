@@ -1710,6 +1710,60 @@ pub const ENTRIES: &[Entry] = &[
     // And the other half of it, emitted after: whether to run this body again,
     // which is how `TestTasks.everyOrder` reruns it once per completion order.
     Entry { key: "test.replay", symbol: TEST_REPLAY, args: &[Arg::Scalar], ret: Ret::Scalar },
+    // -- the reactive graph, and the snapshot it paints ----------------------
+    //
+    // `runtime_table.rs`'s group of the same name argues the set. What is
+    // different here is only the column this table has and that one does not:
+    // the `Arg::Spilled` that hands a bare `T` over by address, and the
+    // `Arg::Stride`/`Arg::Retain` pair after it.
+    //
+    // `Arg::Spilled` is the reason `signal` and `write` need no widening in
+    // this backend: it already remembers the argument's own type. The two
+    // `read`s do — `generic_element` answers with a result's element, and here
+    // the result *is* the type — and that is the one line this slice added to
+    // `emit.rs`.
+    Entry {
+        key: "ui_node.rootScope",
+        symbol: "buri_rt_ui_node_root_scope",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_effect.Scope.read",
+        symbol: "buri_rt_ui_effect_scope_read",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.headless",
+        symbol: "buri_rt_ui_testing_headless",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.Headless.signal",
+        symbol: "buri_rt_ui_testing_headless_signal",
+        args: &[Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_testing.Headless.read",
+        symbol: "buri_rt_ui_testing_headless_read",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.Headless.write",
+        symbol: "buri_rt_ui_testing_headless_write",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_testing.paint",
+        symbol: "buri_rt_ui_testing_paint",
+        args: &[Arg::Str, Arg::Str, Arg::Str],
+        ret: Ret::Void,
+    },
 ];
 
 pub fn entry(key: &str) -> Option<&'static Entry> {

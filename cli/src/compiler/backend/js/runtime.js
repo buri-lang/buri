@@ -3698,6 +3698,14 @@ function $ui_node_mount(ctx, root, themes) {
   return $ok(0);
 }
 
+// The scope `ui/node`'s `describe` reads props under: `-1`, which is what
+// `$ui.tracking` already holds outside a computation. A snapshot looks at the
+// graph once and subscribes to nothing, so a read through this records no
+// dependency and nothing here ever re-runs.
+function $ui_node_rootScope() {
+  return [-1];
+}
+
 // --- The headless user-interface platform ------------------------------------
 //
 // The same graph, with no document attached: `ui/testing` is about what the
@@ -3739,6 +3747,17 @@ function $ui_testing_install(themes) {
 
 function $ui_testing_variables() {
   return $ui_theme_text;
+}
+
+// A snapshot is painted by the native runtime — taffy, cosmic-text and
+// tiny-skia, in `cli/runtime/paint.rs` — and there is no painter here. A suite
+// that declares `platforms: [JS]` and calls `snapshot` therefore fails rather
+// than passing without having painted anything.
+function $ui_testing_paint(name, scene, state) {
+  $testing_assert_failWith(
+    'the snapshot "' + name + '" was not painted: snapshots run natively, and this suite is JS',
+  );
+  return 0;
 }
 
 function $ui_testing_recorder() {

@@ -74,6 +74,9 @@ pub struct Flags {
     /// `buri test` only, and refused in the three combinations `parse` names
     /// below.
     pub watch: bool,
+    /// Record what `snapshot` painted as the golden instead of comparing
+    /// against it. `buri test` only.
+    pub update: bool,
 }
 
 /// How `buri docs` prints a page.

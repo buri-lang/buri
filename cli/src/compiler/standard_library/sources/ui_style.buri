@@ -70,6 +70,17 @@ from "ui/prop" import { Prop };
 /// `Scope` and `Event`, for the same reason.
 export struct Classes([(Int, Str)]);
 
+impl Classes {
+    /// The pairs, in the order the compiler wrote them. Last slot wins.
+    ///
+    /// Reading them is not minting one: the field stays private, so a program
+    /// still cannot build a `Classes` and still cannot write an `Extracted`.
+    /// `ui/node`'s `describe` needs this to put the classes in a scene.
+    export fn pairs(self): [(Int, Str)] {
+        self.0
+    }
+}
+
 /// One appearance property, or a group, a condition, or a computation over
 /// them.
 export enum Style {
@@ -292,6 +303,22 @@ export enum Color {
 /// ever learning about any package's token type: a library styles itself
 /// against its own closed enum, and only a reference crosses the boundary.
 export struct TokenReference(Str, Str);
+
+impl TokenReference {
+    /// The package the token belongs to.
+    ///
+    /// With `name` below, this is the custom property `--namespace-name`.
+    /// `ui/node`'s `describe` writes that into a scene the same way the
+    /// stylesheet writes it into a rule.
+    export fn namespace(self): Str {
+        self.0
+    }
+
+    /// The token's own name inside that package.
+    export fn name(self): Str {
+        self.1
+    }
+}
 
 /// The colour a design token names.
 ///
