@@ -4128,11 +4128,13 @@ from "core/io" import * as io;
 enum Reentrant<C> {
   Reenter(fn(C) => Int),
   Tick,
+  Say(Str),
   Get,
 }
 
 enum Reentered {
   Ticked,
+  Said(Str),
   Reentered(Int),
   Count(Int),
 }
@@ -4147,6 +4149,7 @@ fn reentrant<C: Alloc + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
           Stepped { state: count, answer: .Reentered(call(c)) }
         },
         .Tick => Stepped { state: count + 1, answer: .Ticked },
+        .Say(word) => Stepped { state: count + 1, answer: .Said(word.concat(c, "!")) },
         .Get => Stepped { state: count, answer: .Count(count) },
       }
     },
@@ -4170,12 +4173,39 @@ fn ticks<C: Alloc + Tasks>(
   }
 }
 
+/// Posts `left` messages that answer with a **block** rather than a number, and
+/// counts how many were answered on the spot, which is none of them.
+fn says<C: Alloc + Tasks>(
+  ctx: C,
+  address: Address<C, Int, Reentrant<C>, Reentered>,
+  left: Int,
+): Int {
+  match (left <= 0) {
+    true => 0,
+    false => {
+      let stepped = match (address.sendMessage(ctx, .Say("late"))) {
+        .Ok(_answered) => 1,
+        .Err(_gone) => 0,
+      };
+      stepped + says(ctx, address, left - 1)
+    },
+  }
+}
+
 fn number(answered: Result<Reentered, Stopped>): Int {
   match (answered) {
     .Ok(.Reentered(n)) => n,
     .Ok(.Count(n)) => n,
     .Ok(.Ticked) => -2,
+    .Ok(.Said(_word)) => -3,
     .Err(_gone) => -1,
+  }
+}
+
+fn said(answered: Result<Reentered, Stopped>): Str {
+  match (answered) {
+    .Ok(.Said(word)) => word,
+    _otherwise => "?",
   }
 }
 
@@ -4200,10 +4230,27 @@ export fn main(): Result<(), Str> {
   let _ = io.println(ctx, "fanned ${number(fanned)}").ignore();
   let _ = io.println(ctx, "filled ${number(filled.sendMessage(ctx, .Get))}").ignore();
   let _ = filled.stop(ctx).ignore();
+
+  // The same refusal, with an answer that is a **block**. Each of the eight
+  // sends opens a reply slot and takes it back with nothing in it, and the loop
+  // that runs afterwards writes a string this program built into a slot nobody
+  // is holding. A slot that stayed open would keep that string for the life of
+  // the process, which the exit audit reads as a leak; a slot given back
+  // without its generation moving would hand the string to whoever holds the
+  // index next, which the ordinary send below is what asks about — it opens an
+  // index one of the eight was named by, and has to come back with its own
+  // answer.
+  let saying = actor.start(ctx, reentrant());
+  let gaveUp = saying.sendMessage(ctx, .Reenter(fn(c) => says(c, saying, 8)));
+  let _ = io.println(ctx, "gave up ${number(gaveUp)}").ignore();
+  let _ = io.println(ctx, "heard ${number(saying.sendMessage(ctx, .Get))}").ignore();
+  let _ = io.println(ctx, "mine ${said(saying.sendMessage(ctx, .Say("mine")))}").ignore();
+  let _ = saying.stop(ctx).ignore();
   .Ok(())
 }
 "#,
-        "reentered 0\ncounted 1\nfanned 0\nfilled 64\n",
+        "reentered 0\ncounted 1\nfanned 0\nfilled 64\n\
+         gave up 0\nheard 8\nmine mine!\n",
     );
 }
 
@@ -5088,6 +5135,282 @@ export fn main(): Result<(), Str> {
 }
 "#,
         "cause .Unsupported\ntext the protocol is not supported by this toolchain\n",
+    );
+}
+
+/// **A closure does not spend what it captures, and four ordinary reads are
+/// not second references — on every backend.**
+///
+/// Both halves of `middle::rc::sharing`, in one program, and the row is written
+/// as a differential because the backend that had the bugs is the reference
+/// one. A capture read as a last use let `xs.slice(c, 0, i)` truncate the
+/// captured list **in place** on the first call, so a mapping that answers
+/// `0, 1, 2` answered `0, 0, 0`; the natives never had it, because
+/// `middle::closures` lifts a body into a function that reads a capture out of
+/// an environment. The four reads below are the same shape the other way up —
+/// each one used to be counted as a second reference, each one now is not, and
+/// a rule that reaches one step too far writes through a list somebody still
+/// holds. That is a wrong answer rather than a slow program, and it is a wrong
+/// answer on JavaScript only.
+///
+/// `conformance/lib/memory/test/captures.buri` and `data/test/lists.buri`'s
+/// "what is not a second reference" section are the same claims as a corpus,
+/// and the corpus's native run is the stencil backend alone. This is where the
+/// optimizing one answers.
+///
+/// Every list is grown by the program: a literal lives in the artifact's
+/// constant pool (VALUE-MODEL.md §5.2) and can never be the unique owner an
+/// in-place write is looking for.
+#[test]
+fn a_closure_does_not_spend_what_it_captures_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "sharing rules",
+        r#"
+from "core/host" import { alloc, stdout };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+struct Out { pieces: [Int], at: Int }
+struct Swapped { at: Int, pieces: [Int] }
+struct Held<C> { run: fn(C, Int) => Int }
+
+fn grown(n: Int): [Int] {
+  list.range(alloc, 0, n).foldCtx(alloc, fn(c, acc: [Int], i) => acc.push(c, i), list.empty())
+}
+
+/// One piece written: a push into a list beside a read of an `Int` out of the
+/// same record.
+fn wrote(out: Out, x: Int): Out {
+  Out { ..out, pieces: out.pieces.push(alloc, x), at: out.at + 1 }
+}
+
+/// The same two fields, declared the other way round. Moving them past each
+/// other used to decide whether the push copied.
+fn wroteSwapped(out: Swapped, x: Int): Swapped {
+  Swapped { ..out, at: out.at + 1, pieces: out.pieces.push(alloc, x) }
+}
+
+/// A walk whose **tail is a projection of a counted value**: the accumulator is
+/// a `(Out, Bool)` and what comes back is its first element.
+fn writing(i: Int, n: Int, acc: (Out, Bool)): Out {
+  if (i >= n) { acc.0 } else { writing(i + 1, n, (wrote(acc.0, i), true)) }
+}
+
+fn shown(xs: [Int]): Str { str.format(alloc, "${xs.len()}:${xs.sum()}") }
+
+export fn main(): Result<(), Str> {
+  // One closure, called four times, over a list the program grew.
+  let xs = grown(3);
+  let sliced = list.range(alloc, 0, 4).mapCtx(alloc, fn(c, i) => xs.slice(c, 0, i).len());
+  let kept = Held { run: fn(c, i) => xs.drop(c, i).len() };
+  let call = kept.run;
+  let _ = io.println(stdout, "captured ${shown(sliced)} ${call(alloc, 1)} ${shown(xs)}").ignore();
+
+  // A push beside an uncounted field of the same record, both ways round.
+  let base = wrote(Out { pieces: list.empty<Int>(), at: 0 }, 1);
+  let one = wrote(base, 2);
+  let two = wrote(base, 3);
+  let other = wroteSwapped(Swapped { at: 0, pieces: list.empty<Int>() }, 1);
+  let after = wroteSwapped(other, 2);
+  let _ = io.println(
+    stdout,
+    "beside ${shown(one.pieces)} ${shown(two.pieces)} ${shown(base.pieces)} ${shown(after.pieces)} ${shown(other.pieces)}",
+  ).ignore();
+
+  // A counted tail projection, a projection out of a nameless temporary, and a
+  // fold seed two folds are handed.
+  let walked = writing(0, 4, (Out { pieces: list.empty<Int>(), at: 0 }, false));
+  let nameless = list
+    .range(alloc, 0, 3)
+    .foldCtx(alloc, fn(c, acc: (Out, Bool), i) => (wrote(acc.0, i), true), (Out { pieces: list.empty<Int>(), at: 0 }, false))
+    .0;
+  let seed = grown(1);
+  let left = list.range(alloc, 0, 2).foldCtx(alloc, fn(c, acc: [Int], i) => acc.push(c, i), seed);
+  let right = list.range(alloc, 0, 3).foldCtx(alloc, fn(c, acc: [Int], i) => acc.push(c, i), seed);
+  let _ = io.println(
+    stdout,
+    "tails ${shown(walked.pieces)} ${walked.at} ${shown(nameless.pieces)} ${shown(left)} ${shown(right)} ${shown(seed)}",
+  ).ignore();
+  .Ok(())
+}
+"#,
+        "captured 4:6 2 3:3\nbeside 2:3 2:4 1:1 2:3 1:1\ntails 4:6 4 3:3 3:1 4:3 1:0\n",
+    );
+}
+
+/// **A `let` gives back every position its pattern skips, on every backend.**
+///
+/// `middle::rc` releases a value through a *name*, and a destructuring `let`
+/// used to leave the positions its pattern skipped with neither: `let (q, _) =
+/// nextToken(ctx, p)` gave element 0 to `q` and element 1 to nobody. Thirteen
+/// blocks of `proto_schema/refusals.buri` leaked for it.
+///
+/// Nothing about the *answers* moves either way, which is why this row is worth
+/// having beyond `conformance/lib/memory/test/discards.buri`: what it adds is
+/// the exit audit under a second native backend. Every row here runs under
+/// `BURI_RT_HEAP_CHECK` (`agree`), so a skipped position nobody freed fails
+/// here as a leak and an over-release fails as a use-after-free — and this is
+/// the only place the optimizing backend is asked.
+///
+/// The four shapes are the whole surface: a `_` at depth, a field a `..` stands
+/// for, a name nobody reads, and a `match` arm's payload — which goes back with
+/// its scrutinee instead, and must not be named twice for it.
+#[test]
+fn a_let_gives_back_every_position_its_pattern_skips_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "skipped pattern positions",
+        r#"
+from "core/host" import { alloc, stdout };
+from "core/io" import * as io;
+from "core/list" import * as list;
+
+struct Nest { tag: Int, both: (Str, [Int]) }
+enum Deep { Only(Nest) }
+struct Pair { kept: Int, dropped: Str }
+
+/// Grown rather than interned: a constant is in no block anybody gives back.
+fn grown(word: Str): Str { word.concat(alloc, "!") }
+
+fn deep(word: Str): Deep {
+  .Only(Nest { tag: 1, both: (grown(word), list.range(alloc, 0, 2)) })
+}
+
+/// One round of every shape that skips a counted position.
+fn skipping(i: Int, n: Int, acc: Int): Int {
+  if (i >= n) {
+    acc
+  } else {
+    // Three levels down, under two positions that do bind.
+    let .Only(Nest { tag, both: (_, _) }) = deep("token");
+    // A struct field written as `_`.
+    let Pair { kept, dropped: _ } = Pair { kept: 2, dropped: grown("word") };
+    // A struct field the pattern never wrote down at all.
+    let Nest { tag: shallow, .. } = Nest { tag: 4, both: (grown("rest"), list.range(alloc, 0, 3)) };
+    // A name nobody reads, which is the other half of the rule.
+    let (at, _unread) = (8, grown("named"));
+    skipping(i + 1, n, acc + tag + kept + shallow + at)
+  }
+}
+
+/// A `match` arm's unbound payload, which goes back with the scrutinee.
+fn arm(word: Str): Int {
+  match (deep(word)) {
+    .Only(Nest { tag, both: (_, _) }) => tag,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let _ = io.println(stdout, "skipped ${skipping(0, 8, 0)}").ignore();
+  let _ = io.println(stdout, "arm ${arm("held")}").ignore();
+  // And not twice: the destructuring is not the last read of `whole`.
+  let whole = deep("kept");
+  let .Only(Nest { tag, both: (_, rest) }) = whole;
+  let again = match (whole) {
+    .Only(nest) => nest.tag,
+  };
+  let _ = io.println(stdout, "twice ${tag} ${rest.len()} ${again}").ignore();
+  .Ok(())
+}
+"#,
+        "skipped 120\narm 1\ntwice 1 2 1\n",
+    );
+}
+
+/// **A recursive type round-trips on every backend** — a boxed field and a
+/// boxed variant payload, built, read back and released.
+///
+/// `middle::layout` puts a *pointer* where a field that would make its owner
+/// recursive would be (VALUE-MODEL.md §5.2), so the field's slots are one
+/// pointer and the value stored into it has its own. The optimizing backend
+/// used to assemble a two-slot register out of that one pointer, which its own
+/// IR verifier caught the first time a program built one —
+/// `native::llvm::a_boxed_field_round_trips` is the smallest case, and this is
+/// the same shape with the two things that make it a *memory* claim rather than
+/// a layout one: counted leaves inside the box, and enough of them to be worth
+/// counting.
+///
+/// Four shapes, because a box is reached four ways: a variant payload that is a
+/// struct with a boxed field, a struct with **two** boxed fields, an `Option` of
+/// a recursive type — the niche and the box in one value — and a tuple carrying
+/// one that is read twice. Every one carries a `Str` or a `[Int]` under the
+/// box, so a box the backend built and never released fails here as a leak
+/// rather than in whatever program happens to build one next.
+#[test]
+fn a_recursive_type_round_trips_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "boxed fields and payloads",
+        r#"
+from "core/host" import { alloc, stdout };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+enum Chain { End, Link(Cell) }
+struct Cell { next: Chain, value: Int, label: Str }
+
+enum Tree { Tip, Branch(Fork) }
+struct Fork { left: Tree, right: Tree, mark: [Int] }
+
+fn total(c: Chain): Int {
+  match (c) {
+    .End => 0,
+    .Link(cell) => cell.value + total(cell.next),
+  }
+}
+
+fn labels(c: Chain, acc: Str): Str {
+  match (c) {
+    .End => acc,
+    .Link(cell) => labels(cell.next, acc.concat(alloc, cell.label)),
+  }
+}
+
+fn built(i: Int, n: Int, acc: Chain): Chain {
+  if (i >= n) {
+    acc
+  } else {
+    built(i + 1, n, .Link(Cell { next: acc, value: i, label: str.fromInt(alloc, i) }))
+  }
+}
+
+fn size(t: Tree): Int {
+  match (t) {
+    .Tip => 0,
+    .Branch(f) => 1 + size(f.left) + size(f.right) + f.mark.len(),
+  }
+}
+
+fn tree(depth: Int): Tree {
+  if (depth <= 0) {
+    .Tip
+  } else {
+    .Branch(Fork { left: tree(depth - 1), right: tree(depth - 1), mark: list.range(alloc, 0, depth) })
+  }
+}
+
+fn held(o: Option<Chain>): Int {
+  match (o) {
+    .Some(c) => total(c),
+    .None => -1,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let chain = built(0, 8, .End);
+  let written = labels(chain, "");
+  let _ = io.println(stdout, "chain ${total(chain)} ${written}").ignore();
+  let _ = io.println(stdout, "tree ${size(tree(3))}").ignore();
+  let _ = io.println(stdout, "held ${held(.Some(built(0, 4, .End)))} ${held(.None)}").ignore();
+  let pair = (built(0, 3, .End), 5);
+  let _ = io.println(stdout, "pair ${total(pair.0)} ${total(pair.0)} ${pair.1}").ignore();
+  .Ok(())
+}
+"#,
+        "chain 28 76543210\ntree 18\nheld 6 -1\npair 3 3 5\n",
     );
 }
 

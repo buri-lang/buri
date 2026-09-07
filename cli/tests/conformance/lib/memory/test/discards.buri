@@ -16,6 +16,11 @@
 // literal — a literal lives in the constant pool (VALUE-MODEL.md §5.2) and is
 // never a block anybody has to give back.
 //
+// A field a `..` stands for is a skipped position too, and it is the one the
+// walk could not see: `..` left those fields out of the tree entirely, so
+// `let Nest { tag, .. }` leaked whatever it elided. The checker writes them out
+// as wildcards now, and the two `..` cases below are what found that.
+//
 // The last section is the other direction. Naming a skipped position is only
 // right if the name is not a *second* one for a value something else already
 // releases, so those cases read the value again after destructuring it: an
@@ -177,4 +182,245 @@ test "the same position skipped in a loop is given back every time round" {
             0,
         );
     assert.eq(steps, 8);
+}
+
+// -----------------------------------------------------------------------------
+// Every depth, and every counted shape
+// -----------------------------------------------------------------------------
+//
+// A pattern nests as far as the types do, and the walk that names a skipped
+// position stops at the first position that binds nothing — so a position three
+// levels down, under two that do bind, is the case a shallower walk would
+// miss. `Deep` is a tuple inside a struct inside a variant, which is the three
+// pattern forms a `let` may hold, in one type.
+//
+// **A parameter is not one of them.** A Buri parameter is a name and a type
+// (`grammar.ebnf`, `Param`), so there is no destructuring parameter to skip a
+// position in; the only patterns that reach `let`'s rule are the ones below,
+// and a `match` arm's payload goes with its scrutinee instead — the section
+// after them is what says so.
+
+derive Eq, Show for Nest;
+struct Nest {
+    tag: Int,
+    both: (Str, [Int]),
+}
+
+derive Eq, Show for Deep;
+enum Deep {
+    Only(Nest),
+}
+
+derive Eq, Show for Holder;
+struct Holder {
+    label: Str,
+    token: Token,
+}
+
+/// A `Deep` this program built, every counted leaf of it grown.
+fn deep<C: Alloc>(ctx: C, word: Str): Deep {
+    .Only(Nest { tag: 1, both: (grown(ctx, word), grownList(ctx, 2)) })
+}
+
+/// A `Holder` this program built.
+fn holder<C: Alloc>(ctx: C, word: Str): Holder {
+    Holder { label: grown(ctx, word), token: Token.Word(grown(ctx, word)) }
+}
+
+/// A list of strings, so a skipped position may be a block of blocks.
+fn grownWords<C: Alloc>(ctx: C, n: Int): [Str] {
+    list
+        .range(ctx, 0, n)
+        .foldCtx(ctx, fn(c, acc: [Str], _i) => acc.push(c, grown(c, "w")), list.empty())
+}
+
+test "a position skipped three levels down is given back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // `tag` is kept, so the walk goes on under `Only` and under `Nest`; the
+    // tuple's first element is where it stops, and that `Str` is what nothing
+    // used to release.
+    let .Only(Nest { tag, both: (_, kept) }) = deep(ctx, "enum");
+    assert.eq(tag, 1);
+    assert.eq(kept, [0, 1]);
+}
+
+test "two positions skipped at one depth are both given back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let .Only(Nest { tag, both: (_, _) }) = deep(ctx, "import");
+    assert.eq(tag, 1);
+}
+
+test "a position skipped either side of a kept one, two levels down, is given back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let (_, (_, n, _), _) = (
+        grown(ctx, "package"),
+        (grownWords(ctx, 2), 5, grownList(ctx, 3)),
+        grown(ctx, "weak"),
+    );
+    assert.eq(n, 5);
+}
+
+test "a struct field the pattern does not name at all is given back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // `..` names no field, so the fields it stands for are skipped positions
+    // the pattern never wrote down.
+    let Nest { tag, .. } = Nest {
+        tag: 3,
+        both: (grown(ctx, "stream"), grownList(ctx, 2)),
+    };
+    assert.eq(tag, 3);
+}
+
+test "a skipped position may hold a list of blocks" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let (n, _) = (6, grownWords(ctx, 3));
+    assert.eq(n, 6);
+}
+
+test "a skipped position may hold an option that is there" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let (n, _) = (7, Option.Some(grown(ctx, "returns")));
+    assert.eq(n, 7);
+}
+
+test "a skipped position may hold a struct with a list in it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let (n, _) = (8, Nest { tag: 0, both: (grown(ctx, "rpc"), grownList(ctx, 2)) });
+    assert.eq(n, 8);
+}
+
+test "a position named but never read is given back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The other half of the rule: a name nobody reads is not a skipped
+    // position at all — it is a binding the scan drops where it is bound —
+    // and it has to come back the way one that was never named does.
+    let (at, _unread) = next(ctx, 0, "oneof");
+    assert.eq(at, 1);
+}
+
+// -----------------------------------------------------------------------------
+// A `match` arm, which is the other model and stays the other model
+// -----------------------------------------------------------------------------
+//
+// An arm's unbound payload goes back with the *scrutinee*, because the arm is
+// one of several and the value is one. Naming those positions the way a `let`
+// names them would put a second release on a value the match already accounts
+// for, so these cases are here as the twin: the same skipped payloads, and
+// nothing given back twice.
+
+test "a payload a match arm skips is given back with its scrutinee" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let (_, token) = next(ctx, 0, "rpc");
+    let n = match (token) {
+        .Word(_) => 1,
+        .End => 0,
+    };
+    assert.eq(n, 1);
+}
+
+test "a payload a match arm skips under a field it keeps is given back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let n = match (holder(ctx, "service")) {
+        Holder { label, token: .Word(_) } => label.len(),
+        Holder { label: _, token: .End } => 0,
+    };
+    assert.eq(n, 7);
+}
+
+test "an arm that keeps a payload leaves the value it came out of whole" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let held = holder(ctx, "message");
+    let word = match (held) {
+        Holder { label: _, token: .Word(w) } => w,
+        Holder { label, token: .End } => label,
+    };
+    assert.eq(word, "message");
+    // The scrutinee is still whole, so the arm that kept a piece of it took a
+    // count rather than the one `held` holds.
+    assert.eq(held.label, "message");
+}
+
+// -----------------------------------------------------------------------------
+// Round a loop
+// -----------------------------------------------------------------------------
+
+test "a skipped position of a fold's accumulator is given back every round" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The accumulator carries a string it does not keep, and every round drops
+    // the previous one on the floor by not naming it.
+    let ended = list
+        .range(ctx, 0, 8)
+        .foldCtx(
+            ctx,
+            fn(c, acc: (Int, Str), _i) => {
+                let (at, _) = acc;
+                (at + 1, grown(c, "reserved"))
+            },
+            (0, ""),
+        );
+    let (at, _) = ended;
+    assert.eq(at, 8);
+}
+
+test "a position skipped inside a mapped closure is given back every element" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let steps = list
+        .range(ctx, 0, 8)
+        .mapCtx(ctx, fn(c, i) => {
+            let .Only(Nest { tag, both: (_, _) }) = deep(c, "syntax");
+            tag + i
+        });
+    assert.eq(steps, [1, 2, 3, 4, 5, 6, 7, 8]);
+}
+
+// -----------------------------------------------------------------------------
+// And still not twice, at depth
+// -----------------------------------------------------------------------------
+
+test "a deep skipped position of a value still in use is not given back twice" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let whole = deep(ctx, "extend");
+    let .Only(Nest { tag, both: (_, kept) }) = whole;
+    assert.eq(tag, 1);
+    assert.eq(kept, [0, 1]);
+    // The destructuring above was not the last read of `whole`.
+    assert.eq(whole, deep(ctx, "extend"));
+}
+
+test "a field `..` stood for is not given back twice while the struct is read" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let nest = Nest { tag: 2, both: (grown(ctx, "public"), grownList(ctx, 2)) };
+    let Nest { tag, .. } = nest;
+    assert.eq(tag, 2);
+    assert.eq(nest.both.0, "public");
 }
