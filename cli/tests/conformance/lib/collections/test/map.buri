@@ -10,6 +10,7 @@ from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/map" import * as map;
 from "core/map" import { Map };
+from "core/order" import { Eq, Hash };
 from "core/set" import * as set;
 from "core/testing/assert" import * as assert;
 
@@ -675,12 +676,7 @@ test "mapValues and filterMapValues on a map of one, and on a large one" {
     assert.eq(assert.some(one.mapValues(ctx, fn(v) => v * 10).get("a")), 10);
     assert.eq(one.filterMapValues(ctx, fn(_v) => .None).len(), 0);
     assert.eq(assert.some(one.filterMapValues(ctx, fn(v) => .Some(v)).get("a")), 1);
-    // The entries are named rather than built inside the call. Written as one
-    // expression, `map.of(ctx, xs.map(ctx, f))` answers a map of one entry on
-    // the native backends and the right one on JavaScript, which is a defect in
-    // the toolchain rather than in this module.
-    let entries = list.range(ctx, 0, 300).map(ctx, fn(i) => (i, i));
-    let big = map.of(ctx, entries);
+    let big = map.of(ctx, list.range(ctx, 0, 300).map(ctx, fn(i) => (i, i)));
     assert.eq(big.mapValues(ctx, fn(v) => v + 1).len(), 300);
     assert.eq(
         big
@@ -708,4 +704,66 @@ test "countBy and frequencies over one element and over three hundred" {
     assert.isTrue(list.range(ctx, 0, 300).all(fn(k) => many.get(k) == .Some(3)));
     // Every count adds up to the list it counted.
     assert.eq(many.values(ctx).sum(), 900);
+}
+
+// --- a list built inside the call that folds it -------------------------------
+//
+// `map.of(ctx, xs.map(ctx, f))` hands `list.map`'s result element the type
+// `(K, V)` out of `map.of`'s own signature before the lambda is looked at, so
+// the lambda's body is the only thing in the program that says what `K` and
+// `V` are. Every case below therefore asserts **sizes only**: a `get` with an
+// `Int` argument would pin `K` from the outside and the case would stop asking
+// the question. Naming the list first is the same program and has to answer
+// the same.
+
+/// A fold onto a persistent map, written by hand rather than taken from
+/// `core/map`, so the rule holds for a program that writes its own.
+fn keyedBy<K: Hash + Eq, V, C: Alloc>(ctx: C, entries: [(K, V)]): Map<K, V> {
+    entries.foldCtx(ctx, fn(c, acc, e) => acc.insert(c, e.0, e.1), map.empty<K, V>())
+}
+
+test "map.of over a list mapped inside the call keeps every entry" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(map.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
+    assert.eq(
+        map.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).keys(ctx).len(),
+        40,
+    );
+    let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
+    assert.eq(map.of(ctx, named).len(), 40);
+}
+
+test "the same for mapCtx and filterMap" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        map.of(ctx, list.range(ctx, 0, 40).mapCtx(ctx, fn(_c, i) => (i, i))).len(),
+        40,
+    );
+    assert.eq(
+        map
+            .of(ctx, list.range(ctx, 0, 40).filterMap(ctx, fn(i) => .Some((i, i))))
+            .len(),
+        40,
+    );
+}
+
+test "a hand-written fold onto a map answers the same" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(keyedBy(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
+    let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
+    assert.eq(keyedBy(ctx, named).len(), 40);
+}
+
+test "set.of over a list mapped inside the call keeps every item" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
+    assert.eq(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => i)).len(), 40);
 }

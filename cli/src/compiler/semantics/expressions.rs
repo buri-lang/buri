@@ -2820,9 +2820,29 @@ impl<'a, 'b> Infer<'a, 'b> {
         // leniency this position has always had, they cost nothing at run
         // time, and neither is a value the language promises was consumed.
         // Dropping a `Result` is, so it is the one this refuses.
+        //
+        // The other half of the same rule is the case where the expectation is
+        // not an expectation at all. `map.of(ctx, xs.map(ctx, fn(i) => (i, i)))`
+        // gives `list.map`'s result element the type `(K, V)` out of `map.of`'s
+        // signature before the lambda is visited, so `want_ret` is `(K, V)` with
+        // **both variables still unbound** — the hole this body is here to fill.
+        // Taking it as the answer threw the body's `(Int, Int)` away, nothing
+        // else in the program mentioned `K` or `V`, and
+        // `Subst::default_unconstrained` made both `()`: every key then hashed
+        // alike and `map.of` answered a map of one entry. So a `want_ret` that
+        // still holds a variable is **unified with the body**. That is what the
+        // bare-variable case below already did by handing the body's type back
+        // for the caller to unify; this is the same rule one layer down, where
+        // handing the type back cannot reach the variable.
+        //
+        // A concrete expectation keeps the leniency above: `Str`, `()` and `U8`
+        // hold no variable, so a `Template` for a `Str` and a value for a `()`
+        // are as free as they were.
         if declared_ret.is_none() {
             if let Some(r) = want_ret.clone() {
-                if self.is_known_result(&body_hir.ty) && !self.is_known_result(&r) {
+                if !self.is_settled(&r)
+                    || (self.is_known_result(&body_hir.ty) && !self.is_known_result(&r))
+                {
                     let body_span = self.tree().span(body);
                     self.unify_at(
                         body_span,
