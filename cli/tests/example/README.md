@@ -1,13 +1,12 @@
 # A worked monorepo
 
-This repository is the build system's worked example, and the source the
-documentation draws its snippets from. All of it compiles: `buri build //...`
-builds it, `buri test //...` runs its suites, and `buri docs test` compiles the
-examples in this file.
+The build system's worked example, and the source the documentation draws its
+snippets from. All of it compiles: `buri build //...` builds it,
+`buri test //...` runs its suites, and `buri docs test` compiles the examples in
+this file.
 
-It is also the smallest thing that exercises every rule the build system has —
-visibility, tags, platforms, a testing surface, and a library boundary. That is
-why the documentation keeps pointing at it.
+It is the smallest thing that exercises every rule the build system has —
+visibility, tags, platforms, a testing surface, and a library boundary.
 
 ```
 REPO.buri                     repository root, tag vocabulary
@@ -105,12 +104,10 @@ tools/
 Only the server binary reaches `//lib/store`, and its `server` tag means
 `//cmd/web` never can — not by a direct edge, which visibility also forbids, and
 not by four hops through a library that looked harmless, which visibility would
-miss.
-
-`//lib/kit` mirrors that: tagged `client`, and `forbids` is symmetric, so one
-line in `REPO.buri` keeps it out of `//cmd/server` from both directions.
-Everything above the tier tags — `//lib/money`, `//lib/ledger` — carries no tag
-and links into all four binaries, which is what an untagged library is *for*.
+miss. `//lib/kit` mirrors that: tagged `client`, and `forbids` is symmetric, so
+one line in `REPO.buri` keeps it out of `//cmd/server` from both directions.
+`//lib/money` and `//lib/ledger` carry no tag and link into all four binaries,
+which is what an untagged library is *for*.
 
 ## What each file is there to show
 
@@ -141,15 +138,15 @@ and links into all four binaries, which is what an untagged library is *for*.
 
 ## Things to try reading for
 
-- **Open one `lib.buri` and try to name the library's API.** That is the whole
-  test of the design: if the file is not enough, the boundary is not real.
+- **Open one `lib.buri` and try to name the library's API.** If the file is not
+  enough, the boundary is not real.
 - **Follow `toCents`.** Declared in `lib/money/cents.buri`, exported at module
   level, used by `lib/money/parse.buri`, absent from `lib/money/lib.buri`,
   unreachable from `lib/store`, and unmentionable in
   `lib/money/test/cents.buri`.
 - **Count the ways `//lib/store` stays out of the browser.** The tag, the
   visibility list, and its functions naming `Fs` in their bounds, which the JS
-  platform cannot satisfy. Three mechanisms, three failure modes, one intent.
+  platform cannot satisfy. Three mechanisms, three failure modes.
 - **Follow `sample()`.** Declared in `lib/ledger/testing/fixtures.buri`, built
   from the library's internals, re-exported by `lib/ledger/testing/lib.buri`,
   used by two suites in two packages, and importable by neither library's
@@ -160,31 +157,27 @@ and links into all four binaries, which is what an untagged library is *for*.
 - **Then compare all three `main.buri`s at once.** `//cmd/server` binds `Fs`
   and `Env`, `//cmd/web` binds neither, and `//cmd/basket` binds `Ui` and
   `Watch`, which `core/host` exports under `platform: WEB` and under no other —
-  plus `Net`, which every platform grants. `Net` is the newer half of the same
-  point. A page could not have it while a request blocked until the answer
-  arrived; the reason went away when the wait stopped blocking. None of the
-  three would build for either of the others' outputs, and the error lands on
-  the line that asked for the effect.
+  plus `Net`, which every platform grants. None of the three would build for
+  either of the others' outputs, and the error lands on the line that asked for
+  the effect.
 - **Follow a token from `lib/kit/tokens.buri` to a colour.** `Token.Surface` is
   a name //lib/kit chose. `cmd/basket/theme.buri` says it is worth this app's
   `Shade.Raised`; `day` and `night` say what *that* is worth; and `main.buri`
-  hands both mappings to `mount`. Three files, one chain, resolved once — and
-  the only thing holding it together is a `match` that stops compiling.
+  hands both mappings to `mount`. Three files, one chain, resolved once.
 - **Notice how few `platforms` fields there are.** Two, both inside a `test`
   block, and both saying where a *suite* runs rather than what a library
-  supports. A suite that renders a tree needs the reactive graph, which is a
+  supports — a suite that renders a tree needs the reactive graph, a
   JavaScript-backend intrinsic. No library or binary rule names a platform at
-  all. Libraries take no position on platforms unless they do something
-  platform-specific. The one real restriction lives on the `server` tag, where
-  it is policy rather than a fact about any single library.
+  all. The one real restriction lives on the `server` tag, where it is policy
+  rather than a fact about any single library.
 
 ## The page
 
 `//cmd/basket` is a real application: a basket of ledger lines you can type
-into, settle, and fill from the server's own `/entries` route. It is here for
-the same reason everything else is — it is the smallest thing that exercises
-the whole interface vocabulary. Signals, a memo, a keyed list, a form, both
-style tiers, dark mode, and a request that answers through a callback.
+into, settle, and fill from the server's own `/entries` route. It is the
+smallest thing that exercises the whole interface vocabulary — signals, a memo,
+a keyed list, a form, both style tiers, dark mode, and a request that answers
+through a callback.
 
 Building it writes three files rather than one:
 
@@ -195,12 +188,12 @@ Building it writes three files rather than one:
 ```
 
 Open the `.html` and the page runs. Run the `.mjs` under `bun` or `node` and it
-also runs: there is no document, so the runtime supplies one. That is what lets a
-test render a page.
+also runs: there is no document, so the runtime supplies one, which is what lets
+a test render a page.
 
 A component is an ordinary function returning a value. It takes no context, no
-allocator and no authority, because building a tree is fixed-size construction.
-So a component cannot do anything, and there is nothing to mock:
+allocator and no authority, because building a tree is fixed-size construction —
+so a component cannot do anything, and there is nothing to mock:
 
 ```buri package=//cmd/basket platform=WEB
 from "ui/node" import * as ui;
@@ -255,10 +248,9 @@ fn kitTheme(): Theme {
 }
 ```
 
-That `match` is the whole contract, and the language checks it the way it checks
-every other contract: by not compiling. Leave a token out, and the day //lib/kit
-adds a fifth one is the day this stops building — the only moment the omission is
-still cheap to fix:
+That `match` is the whole contract, and the language checks it by not compiling.
+Leave a token out, and the day //lib/kit adds a fifth one is the day this stops
+building — the only moment the omission is still cheap to fix:
 
 ```buri fail code=match-not-exhaustive package=//cmd/basket platform=WEB
 from "ui/style" import { Color };
@@ -275,10 +267,10 @@ fn incomplete(t: Token): Color {
 
 ## Its documentation is tested too
 
-`buri docs test` compiles every fenced example in every markdown file of whatever
-repository you run it in, against that repository's own packages. Nothing needs
-configuring. A fence needs `repo=` only when the example lives in a *different*
-repository's documentation.
+`buri docs test` compiles every fenced example in every markdown file of
+whatever repository you run it in, against that repository's own packages. A
+fence needs `repo=` only when the example lives in a *different* repository's
+documentation.
 
 ```buri run
 from "core/effect" import { Alloc, Stdout };
@@ -300,6 +292,6 @@ export fn main(): Result<(), Str> {
 a latte costs $4.50
 ```
 
-That block imports `//lib/money`, a package of this repository. The test suite
-compiles it, runs it, and compares what it printed against the transcript above. A
-change to `format` that altered the output fails here.
+That block imports `//lib/money`, a package of this repository. The suite
+compiles it, runs it, and compares what it printed against the transcript above.
+A change to `format` that altered the output fails here.

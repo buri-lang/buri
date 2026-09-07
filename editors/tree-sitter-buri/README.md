@@ -14,16 +14,16 @@ BURI_BLESS=1 cargo test -p buri --test language corpus::the_tree_sitter_grammar
 The EBNF carries everything tree-sitter needs beyond a context-free grammar —
 node names, hidden rules, field names, the external scanner's terminals, and the
 precedence cascade — as directives in its own comments. Its header documents
-them, and `cli/src/documentation/grammar.rs` turns them into this file. A cargo
-test regenerates the grammar and compares it byte for byte against the copy here,
-so the two cannot drift.
+them, and `cli/src/documentation/grammar.rs` turns them into this file. The
+cargo test above regenerates the grammar and compares it byte for byte against
+the copy here, so the two cannot drift.
 
-One file is hand-written, and stays that way:
+One file is hand-written and stays that way:
 
 - `src/scanner.c` — an external scanner, for the two things tree-sitter's lexer
   cannot express: string interpolation, where the `}` closing a hole is not the
-  `}` closing a block, and nestable block comments. Both need a lexer with state,
-  which no declarative grammar can describe.
+  `}` closing a block, and nestable block comments. Both need a lexer with
+  state.
 
 `tree-sitter generate` produces everything else in `src/`. Two of its products
 are checked in anyway, `src/parser.c` and `src/tree_sitter/`, because Zed
@@ -36,39 +36,35 @@ compiles them — see [Publishing](#publishing). The rest stays out.
 ```
 
 The generator proves the grammar says what the EBNF says. `check.sh` proves the
-EBNF says what the compiler does. That is the other half, and it needs the
-tree-sitter CLI, so it is a script rather than a `cargo test` — the toolchain may
-not depend on an external tool.
+EBNF says what the compiler does. It needs the tree-sitter CLI, so it is a
+script rather than a `cargo test` — the toolchain may not depend on an external
+tool.
 
-It asks the toolchain, live:
+It asks the toolchain, live, and records nothing in between:
 
 ```
 cargo run -q -p buri --example parse_verdicts < paths
 ```
 
-That prints `parses` or `rejects` for each path. Nothing gets recorded in
-between. A checked-in file of verdicts would only read back what the compiler
-does, and it would go stale exactly when the answer starts to matter. `check.sh`
-then holds the syntax tree to that answer in **both** directions:
+That prints `parses` or `rejects` for each path, and `check.sh` holds the syntax
+tree to the answer in **both** directions:
 
 - a source the parser accepts must have zero `ERROR` and zero `MISSING` nodes;
 - a source the parser rejects must have at least one.
 
-A corpus of working programs cannot check that second direction, and it is what
-says the grammar has not quietly become more permissive than the language. It
-found exactly that on its first run: `export fn` inside an `impl ... for ...`,
-which the previous hand-written grammar accepted and the compiler does not.
+A corpus of working programs cannot check the second direction, and it is what
+says the grammar has not quietly become more permissive than the language.
 
 `check.sh` also compiles every query in
-[`../zed/languages/buri`](../zed/languages/buri). A highlight query naming a node
-the grammar no longer has fails silently: the editor just stops colouring.
+[`../zed/languages/buri`](../zed/languages/buri). A highlight query naming a
+node the grammar no longer has fails silently: the editor just stops colouring.
 
 ## What it does not do
 
 Four files, listed in `check.sh` with a reason each, are where the compiler and
-the syntax tree *should* disagree. All four make the same argument: a grammar
-that refuses the program the compiler's own error message is about would replace
-a sentence with a red squiggle.
+the syntax tree *should* disagree. A grammar that refuses the program the
+compiler's own error message is about would replace a sentence with a red
+squiggle.
 
 - **Reserved words.** `while` is not a keyword in Buri, it is a word the lexer
   refuses, and tree-sitter parses it as an identifier. The language server
@@ -89,11 +85,10 @@ agree, so nobody can quietly park a problem there.
 `../zed/extension.toml` fetches the grammar from a git repository by commit —
 this repository, at `path = "editors/tree-sitter-buri"`. Zed shallow-clones that
 commit and compiles `src/parser.c` and `src/scanner.c` with clang. It never runs
-`tree-sitter generate`, which is why we commit the generated parser and the
-`src/tree_sitter/` headers it includes rather than ignoring them.
+`tree-sitter generate`, which is why the generated parser and the
+`src/tree_sitter/` headers it includes are committed.
 
-Two consequences. The pinned commit has to be **pushed**, because Zed fetches it
-from GitHub and not from the checkout you are sitting in. And a change to
-`grammar.js` reaches no editor until you run `tree-sitter generate`, commit and
-push the regenerated parser, and point `commit` in `../zed/extension.toml` at
-it.
+So the pinned commit has to be **pushed** — Zed fetches it from GitHub, not from
+your checkout — and a change to `grammar.js` reaches no editor until you run
+`tree-sitter generate`, commit and push the regenerated parser, and point
+`commit` in `../zed/extension.toml` at it.
