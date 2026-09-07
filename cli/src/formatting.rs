@@ -3004,6 +3004,12 @@ pub fn type_text(t: &Tree, id: TypeId) -> String {
 /// `\u{…}`. What is left — a letter, an accent, an emoji — is its own bytes,
 /// so an author's `\u{41}` comes back as `A`.
 ///
+/// **Every control has to leave as an escape**, not only the two that are easy
+/// to remember. A carriage return once printed as itself, so the file held a
+/// bare `\r` in the middle of a string; an editor and a scripted edit both
+/// read the line as ending there, and `buri format` had changed what the
+/// program said. `\0` and `DEL` had the same hole.
+///
 /// The delimiters are the caller's business, because which of `"`, `'` and `$`
 /// needs a backslash depends on what the literal is delimited by.
 fn control_escape(c: char) -> Option<String> {

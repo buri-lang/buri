@@ -632,6 +632,25 @@ const PACKAGES: &[Case] = &[
     // from either backend. It is in the corpus rather than beside `core/fs`'s
     // blocks for that reason: a path is not a filesystem.
     included("text/path.buri"),
+    // `core/csv` is pure string work: a character at a time through a tail
+    // call, `str.fromChars` and `[T].push`. It reaches no host and no shape the
+    // three files above do not, so it is native from the day it landed.
+    included("csv/csv.buri"),
+    // `core/compression` is DEFLATE and gzip written in Buri: bit shifts, two
+    // sorts, tail recursion and `[U8].push`. Every vector in it was written by
+    // zlib, so a divergence between the two backends would be one of them
+    // disagreeing with the format rather than with the other.
+    included("compression/deflate.buri"),
+    // `core/net/http`'s hand-written half: repeated header fields, cookies,
+    // form bodies, status lines and content types, and the bound a `Request`
+    // carries. All of it is string work over two structs and reaches no host,
+    // which is why it is here rather than beside `semantics/http.buri`.
+    included("http/messages.buri"),
+    // `core/net/url` is the same: percent-encoding over `[Char]`, RFC 3986's
+    // reference resolution over string views, and a six-field struct that
+    // derives `Eq` and `Show`. No effect, and nothing on either backend to
+    // disagree about but the answers.
+    included("url/url.buri"),
     excluded(
         "numbers/floats.buri",
         "core/math's thirteen *transcendentals*, whose answers IEEE 754 does \

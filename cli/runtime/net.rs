@@ -4201,18 +4201,24 @@ fn protocol_of(index: i64) -> Result<Protocol, ServeErr> {
     })
 }
 
-/// `Request` — `{ method: Method, url: Str, headers: [Header], body: [U8] }`.
+/// `Request` — `{ method: Method, url: Str, headers: [Header], body: [U8],
+/// timeoutMillis: Int }`.
 ///
 /// `Method` is a seven-variant enum with no payloads, which `middle/layout.rs`
 /// gives a bare `i8` tag: the value *is* the index. `url` therefore starts at
 /// offset 8 and not at 1, which is `#[repr(C)]`'s own padding rule and the
 /// value model's alignment rule agreeing.
+///
+/// `timeoutMillis` is `Request.withTimeout`'s and belongs to a request being
+/// *sent*. A request a server hands its handler carries zero — the bound on
+/// reading one off the wire is the listener's `Serve` plan, not the request's.
 #[repr(C)]
 pub struct BuriRequest {
     method: i8,
     url: BuriStr,
     headers: BuriList,
     body: BuriList,
+    timeout_millis: i64,
 }
 
 /// `Response` — `{ status: Int, headers: [Header], body: [U8] }`.
@@ -4357,6 +4363,7 @@ pub unsafe extern "C" fn buri_rt_host_listen_request(
                 url: str_of(&request.target),
                 headers: list_of_headers(&request.headers),
                 body: list_of_bytes(&request.body),
+                timeout_millis: 0,
             };
             // SAFETY: the caller promises a writable destination.
             unsafe { out.write(value) };
@@ -4904,16 +4911,19 @@ mod tests {
         assert_eq!(str_bytes, 24, "a `Str` is `{{ base, ptr, len }}` (§3)");
         assert_eq!(list_bytes, 16, "a `[T]` is `{{ ptr, len }}` (§4)");
 
-        // `Request { method: Method, url: Str, headers: [Header], body: [U8] }`.
-        // `Method` has seven payload-free variants, so its layout is a bare
-        // `i8` tag — one byte, aligned to one — and `url` starts at the next
-        // multiple of eight rather than at offset 1.
-        assert_eq!(std::mem::size_of::<BuriRequest>(), 64);
+        // `Request { method: Method, url: Str, headers: [Header], body: [U8],
+        // timeoutMillis: Int }`. `Method` has seven payload-free variants, so
+        // its layout is a bare `i8` tag — one byte, aligned to one — and `url`
+        // starts at the next multiple of eight rather than at offset 1. The
+        // bound is an `Int` appended last, so every offset above it is the one
+        // it was before the field existed.
+        assert_eq!(std::mem::size_of::<BuriRequest>(), 72);
         assert_eq!(std::mem::align_of::<BuriRequest>(), 8);
         assert_eq!(std::mem::offset_of!(BuriRequest, method), 0);
         assert_eq!(std::mem::offset_of!(BuriRequest, url), 8);
         assert_eq!(std::mem::offset_of!(BuriRequest, headers), 32);
         assert_eq!(std::mem::offset_of!(BuriRequest, body), 48);
+        assert_eq!(std::mem::offset_of!(BuriRequest, timeout_millis), 64);
 
         // `Response { status: Int, headers: [Header], body: [U8] }`.
         assert_eq!(std::mem::size_of::<BuriResponse>(), 40);

@@ -2160,21 +2160,34 @@ function $httpResponseHeaders(response) {
 // language now has a word for. What crosses is unchanged: a `Request` in, a
 // `Response` out, octets both ways.
 //
-// `Request` is `[method, url, headers, body]` and `Response` is
+// `Request` is `[method, url, headers, body, timeoutMillis]` and `Response` is
 // `[status, headers, body]`: a struct is its fields in order, a `Header` is
 // `[name, value]`, a payloadless enum is its variant index, and a `[U8]` is an
 // ordinary array of numbers.
+//
+// `timeoutMillis` is `Request.withTimeout`'s, and zero means the platform's own
+// bound — which for `fetch` is whatever the engine does. An `AbortController`
+// rather than `AbortSignal.timeout`: the controller is in every engine this
+// runs on and the static is not, and what an expired request has to answer is
+// `.Timeout` either way rather than the `AbortError` the platform throws.
 async function $host_HostNet_fetch(self, request) {
   const method = $HTTP_METHOD[Number(request[0])] || "GET";
   const url = request[1];
   const headers = request[2];
   const body = request[3];
+  const timeout = Number(request[4] ?? 0n);
+  const stopper = timeout > 0 ? new AbortController() : undefined;
+  const alarm =
+    stopper === undefined
+      ? undefined
+      : setTimeout(() => stopper.abort(), timeout);
   try {
     // A `GET` or a `HEAD` may carry no body at all, which `fetch` enforces
     // rather than ignores, so an empty one is left off entirely.
     const sends = body.length !== 0 && method !== "GET" && method !== "HEAD";
     const init = { method, headers: Array.from(headers, (h) => [h[0], h[1]]) };
     if (sends) init.body = new Uint8Array(body);
+    if (stopper !== undefined) init.signal = stopper.signal;
     const r = await fetch(url, init);
     // Every byte back unchanged, which is what the `overrideMimeType` trick was
     // standing in for: a response that is not text used to arrive as
@@ -2182,9 +2195,16 @@ async function $host_HostNet_fetch(self, request) {
     const octets = new Uint8Array(await r.arrayBuffer());
     return $ok([BigInt(r.status), $httpResponseHeaders(r), Array.from(octets)]);
   } catch (e) {
+    // The deadline fired, so this is `.Timeout` — `NetError`'s first variant —
+    // rather than the transport failing. Every engine aborts with a name of
+    // `AbortError`, and the controller is this runtime's own, so nothing else
+    // can have raised it.
+    if (stopper !== undefined && stopper.signal.aborted) return $err([0]);
     // `.Transport(Str)`, the fourth variant of `NetError` — a request that did
     // not reach an answer, whatever stopped it.
     return $err([3, String((e && e.message) || e)]);
+  } finally {
+    if (alarm !== undefined) clearTimeout(alarm);
   }
 }
 
@@ -2193,9 +2213,10 @@ async function $host_HostNet_fetch(self, request) {
 // The platform calls this per request with its own `Request` and sends what it
 // answers, so the module's default export is the whole of the artifact's
 // surface. What crosses is `$host_HostNet_fetch`'s crossing in reverse: a Buri
-// `Request` is `[method, url, headers, body]` and a `Response` is
+// `Request` is `[method, url, headers, body, timeoutMillis]` and a `Response` is
 // `[status, headers, body]`, a `Header` is `[name, value]`, a payloadless enum
-// is its variant index, and a `[U8]` is an ordinary array of numbers.
+// is its variant index, and a `[U8]` is an ordinary array of numbers. A request
+// a worker was *handed* carries no timeout of its own, so that field is zero.
 //
 // The body is read for every method that may carry one. `GET` and `HEAD` never
 // do, and asking a platform for the body of one is an error rather than an
@@ -2218,6 +2239,7 @@ async function $fetchEntry(entry, request) {
     request.url,
     headers,
     body,
+    0n,
   ]);
   return new Response(new Uint8Array(answer[2]), {
     status: Number(answer[0]),
@@ -5144,10 +5166,10 @@ function $host_testing_netWithPlan(h) {
   return $tmint({ calls: [], plan });
 }
 
-// One request, recorded once the responder has answered it. `Request`'s four
+// One request, recorded once the responder has answered it. `Request`'s five
 // fields arrive separately because a `Method` crosses as its variant index;
 // they go back together as the `NetCall` the constructor `fetch` builds.
-function $host_testing_recordFetch(h, method, url, headers, body) {
+function $host_testing_recordFetch(h, method, url, headers, body, timeout) {
   $t.h[Number(h)].calls.push([
     Number(method),
     url,
@@ -5155,6 +5177,7 @@ function $host_testing_recordFetch(h, method, url, headers, body) {
       return e.slice();
     }),
     body.slice(),
+    timeout,
   ]);
   return 0;
 }
