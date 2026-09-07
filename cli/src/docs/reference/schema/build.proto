@@ -11,8 +11,7 @@
 // line number rather than a silent no-op.
 //
 // `buri gen` rewrites only the fields it can derive from the sources —
-// `sources`, `proto_sources`, `dependencies`, and their `test`/`testing`
-// counterparts. It may
+// `sources`, `dependencies`, and their `test`/`testing` counterparts. It may
 // reformat the file as `buri format` would, but the *contents* of the
 // hand-authored fields survive: `tags`, `platforms`, and `timeout_seconds`
 // above all, and `visibility`, `outputs` and `generators` with them. See CLI.md.
@@ -53,15 +52,14 @@ message Library {
   // is a build error, not a silently ignored file.
   repeated string sources = 1;
 
-  // Every .proto file in this package that belongs to this library. Each one
-  // becomes a module named by its own path — `//lib/money/rates.proto` — holding
-  // the types the schema declares and their four codecs. The module is internal
-  // to the rule exactly as a .buri source is, so `lib.buri` decides which of the
-  // generated names leave the library. See PROTO.md.
-  //
-  // Package-relative, may descend into subdirectories, no globs. `buri gen`
-  // manages this field the way it manages `sources`.
-  repeated string proto_sources = 8;
+  // Field 8 was `proto_sources` — the .proto schemas this rule owned, each
+  // becoming a module. Retired: it was a generator the build could not name,
+  // running one program on one language, so a repository wanting a second kind
+  // of generated code had no way to ask. A schema is a generator's input now,
+  // handed to `std/codegen/proto` through `generators`. The number is not
+  // reused.
+  reserved 8;
+  reserved "proto_sources";
 
   // The generators this rule runs. Each one is a program the build executes,
   // and every module it hands back belongs to this rule exactly as a .buri
@@ -130,8 +128,10 @@ message Binary {
   // a co-located library, excluding `main.buri` and the test sources.
   repeated string sources = 1;
 
-  // Exactly the same meaning as on a library.
-  repeated string proto_sources = 6;
+  // Field 6 was `proto_sources`, retired for the reason the library's was. The
+  // number is not reused.
+  reserved 6;
+  reserved "proto_sources";
 
   // Exactly the same meaning as on a library.
   repeated Generator generators = 7;

@@ -23,7 +23,7 @@
 //! here reads a modification time or a request counter.
 
 use crate::build::session::{self, Session};
-use crate::build::workspace::{ModuleLocation, Workspace};
+use crate::build::workspace::Workspace;
 use crate::commands::arguments::Flags;
 use crate::compiler::driver::Analysis;
 use crate::diagnostics::FileId;
@@ -381,13 +381,12 @@ impl Sources {
 
 /// The files on disk one analysis read, which is what its answer depends on.
 ///
-/// The modules' own files, and — for a module nothing read off the disk — what
-/// it was made from: the schema behind a generated `.proto` module, and every
-/// input of the rule whose generator produced a generated one. A generated
-/// module carries no path of its own, so stopping at the modules would leave an
-/// input edit out of every key built from this list. The standard library is
-/// not among them — it is compiled into this binary, and its identity is the
-/// toolchain version.
+/// The modules' own files, and — for a module nothing read off the disk —
+/// every input of the rule whose generator produced it, the schema behind a
+/// `.proto` module included. A generated module carries no path of its own, so
+/// stopping at the modules would leave an input edit out of every key built
+/// from this list. The standard library is not among them — it is compiled into
+/// this binary, and its identity is the toolchain version.
 pub fn closure_of(workspace: &Workspace, analysis: &Analysis) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for module in &analysis.loaded.modules {
@@ -401,12 +400,6 @@ pub fn closure_of(workspace: &Workspace, analysis: &Analysis) -> Vec<PathBuf> {
                 files.push(dir.join(input));
             }
             continue;
-        }
-        if !module.path.ends_with(".proto") {
-            continue;
-        }
-        if let Ok(ModuleLocation::InPackage(schema)) = workspace.resolve_module(&module.path) {
-            files.push(schema.file);
         }
     }
     files.sort();
@@ -522,7 +515,7 @@ mod tests {
         let _ = std::fs::write(dir.join("REPO.buri"), "");
         let _ = std::fs::write(
             dir.join("lib/wire/BUILD.buri"),
-            "library {\n    proto_sources: [\"point.proto\"]\n}\n",
+            "library {\n    generators: [{ tool: \"std/codegen/proto\", inputs: [\"point.proto\"] }]\n}\n",
         );
         let _ = std::fs::write(
             dir.join("lib/wire/lib.buri"),

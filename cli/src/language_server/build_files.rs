@@ -48,7 +48,7 @@ pub fn definition(
         // `visibility` is a label field too, and the entries in it that are not
         // packages — `//visibility:public` — simply name no package.
         "dependencies" | "visibility" => label_target(session, path, entry),
-        "sources" | "proto_sources" => file_target(path, entry),
+        "sources" => file_target(path, entry),
         // `tags` under a rule and `tags` under `forbids` both name a tag.
         "tags" => tag_target(session, path, entry),
         _ => None,
@@ -58,7 +58,7 @@ pub fn definition(
 /// Every string in a build file that names a file, underlined.
 ///
 /// The same two producers `definition` answers with, run over all of them
-/// instead of over the one under the cursor: a `sources` or `proto_sources`
+/// instead of over the one under the cursor: a `sources`
 /// entry is a file beside this one, and a dependency label is a package, which
 /// is its `BUILD.buri`.
 ///
@@ -74,7 +74,7 @@ pub fn links(session: &Session, path: &Path, text: &str) -> Value {
             // `//visibility:public` is in a label field and names no package,
             // so it resolves to nothing and gets no underline.
             "dependencies" | "visibility" => label_path(session, path, entry),
-            "sources" | "proto_sources" => file_path(path, entry),
+            "sources" => file_path(path, entry),
             _ => None,
         };
         if let Some(target) = target {
@@ -363,7 +363,7 @@ pub fn completion(session: &Session, path: &Path, text: &str, position: Position
         (Some(field), true) => match field.as_str() {
             "dependencies" => labels(session),
             "visibility" => visibilities(session),
-            "sources" | "proto_sources" => files(path, text, field),
+            "sources" => files(path, text),
             "tags" => tags(session),
             _ => Vec::new(),
         },
@@ -488,13 +488,12 @@ fn visibilities(session: &Session) -> Vec<Entry> {
 /// and what `gen` would write are one list. `lib.buri` and `main.buri` are
 /// left out: those two are a rule's surface and are never written in
 /// `sources`.
-fn files(build_file: &Path, text: &str, field: &str) -> Vec<Entry> {
+fn files(build_file: &Path, text: &str) -> Vec<Entry> {
     let Some(dir) = build_file.parent() else { return Vec::new() };
     let mut sources = Vec::new();
     let mut schemas = Vec::new();
     crate::build::regenerate::collect(dir, dir, &mut sources, &mut schemas);
-    let found = if field == "proto_sources" { schemas } else { sources };
-    found
+    sources
         .into_iter()
         .filter(|name| !matches!(name.as_str(), "lib.buri" | "main.buri" | "REPO.buri"))
         // Already written somewhere in this file, so offering it again would

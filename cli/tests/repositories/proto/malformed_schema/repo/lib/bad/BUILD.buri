@@ -1,3 +1,5 @@
 library {
-    proto_sources: ["broken.proto"]
+    generators: [
+        { tool: "std/codegen/proto", inputs: ["broken.proto"] },
+    ]
 }

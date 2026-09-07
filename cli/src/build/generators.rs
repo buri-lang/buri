@@ -819,9 +819,18 @@ const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 ///
 /// `std/codegen/proto` is the whole of the list, and today it is this
 /// toolchain's own `.proto` reader and printer wrapped to answer the protocol:
-/// same schema parser, same generator, same diagnostics, no subprocess. That is
-/// what makes the boundary provable rather than asserted — a user's binary and
-/// the generator this toolchain has always shipped answer one protocol.
+/// same schema parser, same generator, same diagnostics, no subprocess.
+///
+/// The Buri port of both halves is the standard library's `std/codegen/proto`
+/// and `std/codegen/proto/schema`, and it does not run here yet for one reason:
+/// `core/buri/ast`'s printer is quadratic in the size of the module it prints.
+/// `Out` threads a growing `[Str]` through every function of the walk, and the
+/// JavaScript backend pushes into such a list in place only while nothing else
+/// can still see it — which a value passed to one function and read again after
+/// is not. Printing a four-hundred-field message takes 56 seconds and an
+/// eight-hundred-field one five minutes, against 8 milliseconds to build the
+/// tree. The reader and the emitter are right and are tested; the printer under
+/// them is what has to get faster first.
 pub fn run_toolchain(tool: &str, request: &Request) -> Result<Response, String> {
     if tool != PROTO_TOOL {
         return Err(format!(
@@ -830,28 +839,48 @@ pub fn run_toolchain(tool: &str, request: &Request) -> Result<Response, String> 
     }
     let mut modules = Vec::new();
     let mut diagnostics = Vec::new();
-    // Every input is read as a schema, and the schemas are read before any of
-    // them is generated: a field's type may live in any of the others.
+    // Every input is read as a schema before any of them is generated: a
+    // field's type may live in one of the others. The file id is the index into
+    // this list, so a diagnostic whose span points into an imported schema is
+    // reported against *that* file rather than the one being generated.
     let mut schemas: Vec<(String, crate::build::protoschema::Schema)> = Vec::new();
-    for (path, text) in &request.inputs {
-        let parsed = crate::build::protoschema::parse(text, crate::diagnostics::FileId(0));
+    for (i, (path, text)) in request.inputs.iter().enumerate() {
+        let parsed = crate::build::protoschema::parse(text, file_id(i));
         for d in parsed.errors {
-            diagnostics.push(reported(path, &d));
+            diagnostics.push(reported(request, &d));
         }
         schemas.push((path.clone(), parsed.schema));
     }
+    // What the declaring rule's dependencies own, under the module path an
+    // `import` writes for it.
+    let mut available: Vec<(String, crate::build::protoschema::Schema)> = Vec::new();
+    for (i, (path, text)) in request.dependencies.iter().enumerate() {
+        let parsed =
+            crate::build::protoschema::parse(text, file_id(request.inputs.len().saturating_add(i)));
+        available.push((crate::build::protogen::import_module_path(path), parsed.schema));
+    }
     for (path, schema) in &schemas {
-        let deps: Vec<(String, crate::build::protoschema::Schema)> = schemas
-            .iter()
-            .filter(|(other, _)| other != path)
-            .map(|(other, s)| {
-                (crate::build::protogen::import_module_path(other), s.clone())
-            })
-            .collect();
+        available.push((crate::build::protogen::import_module_path(path), schema.clone()));
+    }
+
+    for (path, schema) in &schemas {
+        // Its imports and not its siblings: a type is reachable from a file
+        // only when that file says so, which is what makes deleting an
+        // `import` change what resolves.
+        let mut deps: Vec<(String, crate::build::protoschema::Schema)> = Vec::new();
         let mut errors = crate::diagnostics::Diagnostics::new();
+        for import in &schema.imports {
+            let wanted = crate::build::protogen::import_module_path(&import.path);
+            match available.iter().find(|(name, _)| *name == wanted) {
+                Some((name, found)) => deps.push((name.clone(), found.clone())),
+                None => errors
+                    .items
+                    .push(crate::build::protogen::unresolved_import(import.span, &import.path)),
+            }
+        }
         let generated = crate::build::protogen::generate(path, schema, &deps, &mut errors.items);
         for d in &errors.items {
-            diagnostics.push(reported(path, d));
+            diagnostics.push(reported(request, d));
         }
         let name = path.rsplit_once('/').map(|(_, n)| n).unwrap_or(path);
         modules.push(GeneratedModule {
@@ -866,18 +895,38 @@ pub fn run_toolchain(tool: &str, request: &Request) -> Result<Response, String> 
     Ok(Response { modules, diagnostics })
 }
 
+/// The file id one input of a request is parsed under: its position in the
+/// request, inputs first and then dependencies. Private to this function —
+/// nothing outside it resolves one against a source map.
+fn file_id(index: usize) -> crate::diagnostics::FileId {
+    crate::diagnostics::FileId(index as u32)
+}
+
 /// One of this toolchain's own diagnostics, as a protocol one.
-fn reported(path: &str, d: &crate::diagnostics::Diagnostic) -> Diagnostic {
+///
+/// The origin is the request entry the span's file id names, so a diagnostic
+/// raised while generating one schema and pointing into another lands in the
+/// one it points at.
+fn reported(request: &Request, d: &crate::diagnostics::Diagnostic) -> Diagnostic {
+    let named = |id: crate::diagnostics::FileId| -> Option<&str> {
+        let i = id.0 as usize;
+        match request.inputs.get(i) {
+            Some((path, _)) => Some(path.as_str()),
+            None => request
+                .dependencies
+                .get(i.saturating_sub(request.inputs.len()))
+                .map(|(p, _)| p.as_str()),
+        }
+    };
     Diagnostic {
         code: d.code.clone().unwrap_or_else(|| "proto-schema".to_string()),
         message: d.message.clone(),
         note: d.notes.first().cloned(),
         fix: d.fix.clone(),
-        origin: (!d.span.is_none())
-            .then(|| Origin {
-                file: path.to_string(),
-                span: (d.span.start as usize, d.span.end as usize),
-            }),
+        origin: (!d.span.is_none()).then(|| named(d.span.file)).flatten().map(|file| Origin {
+            file: file.to_string(),
+            span: (d.span.start as usize, d.span.end as usize),
+        }),
     }
 }
 
@@ -905,14 +954,31 @@ pub fn run_artifact(artifact: &std::path::Path, request: &Request) -> Result<Res
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("{program}: {e}"))?;
-    {
-        let mut stdin = child.stdin.take().ok_or("the generator has no standard input")?;
-        let line = format!("{}\n", request.encode());
+    // Each pipe on a thread of its own, and none of them read after the wait.
+    // A pipe holds a page or two: a generator writing more than that — a schema
+    // of any size produces far more — blocks on the write, and this process
+    // waiting for an exit that the block prevents is a deadlock the deadline
+    // then reports as a hang. Draining while the tool runs is what makes the
+    // size of the answer not matter.
+    let mut stdin = child.stdin.take().ok_or("the generator has no standard input")?;
+    let line = format!("{}\n", request.encode());
+    let feeding = std::thread::spawn(move || {
         // A write that fails because the tool exited before reading is not
         // itself the failure worth reporting: the exit status below says more.
         let _ = stdin.write_all(line.as_bytes());
         let _ = stdin.flush();
-    }
+    });
+    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut text = String::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_string(&mut text);
+            }
+            text
+        })
+    };
+    let reading_out = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
+    let reading_err = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
     let deadline = std::time::Instant::now().checked_add(DEADLINE);
     loop {
         match child.try_wait().map_err(|e| e.to_string())? {
@@ -930,14 +996,9 @@ pub fn run_artifact(artifact: &std::path::Path, request: &Request) -> Result<Res
             }
         }
     }
-    let mut stdout = String::new();
-    let mut stderr = String::new();
-    if let Some(mut out) = child.stdout.take() {
-        let _ = out.read_to_string(&mut stdout);
-    }
-    if let Some(mut err) = child.stderr.take() {
-        let _ = err.read_to_string(&mut stderr);
-    }
+    let _ = feeding.join();
+    let stdout = reading_out.join().unwrap_or_default();
+    let stderr = reading_err.join().unwrap_or_default();
     let status = child.wait().map_err(|e| e.to_string())?;
     if !status.success() {
         let code = status.code().map(|c| c.to_string()).unwrap_or_else(|| "a signal".into());

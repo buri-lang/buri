@@ -252,21 +252,12 @@ pub enum ModuleKind {
     BinaryEntry,
     /// `//pkg/inner.buri` — one module inside a library.
     Internal,
-    /// `//pkg/schema.proto` — a module generated from a `.proto` schema. It is
-    /// `Internal` in every way that matters, and the separate kind exists so
-    /// the loader knows to *generate* it rather than read it.
-    Proto,
     /// `//pkg/whatever` — a module a `generators` entry produced. Also
-    /// `Internal` in every way that matters, and also a separate kind so the
-    /// loader knows to take its text from
-    /// [`crate::build::generators::Store`] rather than from disk.
-    ///
-    /// A separate kind from [`ModuleKind::Proto`] rather than a widening of it,
-    /// because the two answer different questions. A `Proto` module has a file
-    /// behind it and its name is that file's; a `Generated` one has no file at
-    /// all, and its name is whatever the generator called it — so every reader
-    /// that resolves a `Proto` module back to bytes on disk would be wrong
-    /// about this one.
+    /// `Internal` in every way that matters, and a separate kind so the loader
+    /// knows to take its text from [`crate::build::generators::Store`] rather
+    /// than from disk. It has no file at all, and its name is whatever the
+    /// generator called it, so every reader that resolves a module back to
+    /// bytes on disk would be wrong about this one.
     Generated,
 }
 
@@ -572,7 +563,6 @@ impl Workspace {
             let listed = l
                 .sources
                 .iter()
-                .chain(l.proto_sources.iter())
                 .chain(l.test.iter().flat_map(|t| t.sources.iter()))
                 .chain(l.testing.iter().flat_map(|t| t.sources.iter()));
             if listed.into_iter().any(|s| s.value == rel) {
@@ -582,7 +572,6 @@ impl Workspace {
         if let Some(b) = &p.build.binary {
             if b.sources
                 .iter()
-                .chain(b.proto_sources.iter())
                 .chain(b.test.iter().flat_map(|t| t.sources.iter()))
                 .any(|s| s.value == rel)
             {
@@ -754,11 +743,23 @@ impl Workspace {
                     (ModuleKind::TestingSurface, package.dir.join("testing/lib.buri"))
                 }
                 "main" | "main.buri" => (ModuleKind::BinaryEntry, package.dir.join("main.buri")),
-                // A `.proto` path names the schema itself. `build.proto`'s own
-                // header writes the import that way — `from
-                // "//proto/foo.proto" import ...` — and a schema has no module
-                // form, because it is a file inside a package like any other.
-                r if r.ends_with(".proto") => (ModuleKind::Proto, package.dir.join(r)),
+                // A `.proto` names a schema, and a schema is a generator's
+                // input rather than a module of its own. The only module one
+                // produces is the one `std/codegen/proto` handed back, which
+                // the lookup above already answered — so reaching here means no
+                // `generators` entry declares it, and the sentence says which
+                // of the two ways that happened.
+                r if r.ends_with(".proto") => {
+                    let file = package.dir.join(r);
+                    return Err(if file.is_file() {
+                        format!(
+                            "\"{path}\" names a schema, and no `generators` entry in {} hands it to a tool",
+                            package.label()
+                        )
+                    } else {
+                        format!("\"{path}\" names no file ({})", self.rel_of(&file))
+                    });
+                }
                 r if r.ends_with(".buri") => (ModuleKind::Internal, package.dir.join(r)),
                 // An extensionless inner path. Legal to *resolve* — it is how
                 // a dependent used to name someone else's internals, and it is

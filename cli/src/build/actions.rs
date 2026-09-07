@@ -291,10 +291,6 @@ fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
         RuleKind::Library => {
             if let Some(lib) = &package.build.library {
                 sources.extend(lib.sources.iter().map(|x| x.value.clone()));
-                // A `.proto` is an input like any other: the module it becomes
-                // is a pure function of its bytes, so editing a schema changes
-                // this key exactly as editing a source does.
-                sources.extend(lib.proto_sources.iter().map(|x| x.value.clone()));
                 // A generator's input is an input like any other: the modules
                 // it becomes are a pure function of its bytes, so editing one
                 // changes this key exactly as editing a source does.
@@ -310,7 +306,6 @@ fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
         RuleKind::Binary => {
             if let Some(bin) = &package.build.binary {
                 sources.extend(bin.sources.iter().map(|x| x.value.clone()));
-                sources.extend(bin.proto_sources.iter().map(|x| x.value.clone()));
                 sources.extend(
                     bin.generators.iter().flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
                 );
@@ -359,67 +354,15 @@ fn compile_key(session: &Session, target: TargetId, output: &Output, flags: &Fla
     k.finish()
 }
 
-/// The schemas a rule declares, package-relative and sorted.
-pub fn proto_sources(session: &Session, target: TargetId) -> Vec<String> {
-    let package = session.workspace.package(target.package);
-    let mut out: Vec<String> = match target.kind {
-        RuleKind::Library => package
-            .build
-            .library
-            .as_ref()
-            .map(|l| l.proto_sources.iter().map(|x| x.value.clone()).collect())
-            .unwrap_or_default(),
-        RuleKind::Binary => package
-            .build
-            .binary
-            .as_ref()
-            .map(|b| b.proto_sources.iter().map(|x| x.value.clone()).collect())
-            .unwrap_or_default(),
-    };
-    out.sort();
-    out
-}
-
-/// The key for turning one rule's schemas into modules.
-///
-/// Content, not paths and not timestamps — the generated module is a pure
-/// function of the schema text, so this is the whole of what it depends on.
-/// The platform is in it for the same reason it is in every other key, even
-/// though generation does not vary along it today: a key that leaves out
-/// something a future action varies on is the shape of a stale-cache bug.
-fn proto_key(session: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
-    let mut k = KeyBuilder::new(Action::Proto, flags.mode);
-    k.platform(output.platform(), output.arch());
-    let package = session.workspace.package(target.package);
-    let schemas = proto_sources(session, target);
-    k.rule_identity(&package.label(), "proto", &schemas);
-    for rel in &schemas {
-        let full = package.dir.join(rel);
-        k.input(&session.workspace.rel_of(&full), &std::fs::read(&full).unwrap_or_default());
-    }
-    k.finish()
-}
-
 /// Reports every action a build of `target` involves, deepest first: one
-/// `proto` line per rule that declares a schema, one `generate` line per rule
-/// that declares a generator, one `compile` line per closure member, then the
-/// `link` that consumed them.
+/// `generate` line per rule that declares a generator, one `compile` line per
+/// closure member, then the `link` that consumed them.
 fn explain_closure(session: &Session, target: TargetId, output: &Output, flags: &Flags) {
     if !flags.explain {
         return;
     }
     let platform = output.platform();
     for member in session.workspace.closure(target) {
-        if !proto_sources(session, member).is_empty() {
-            crate::build::cache::explain(
-                true,
-                crate::build::cache::Status::Keyed,
-                Action::Proto,
-                &session.workspace.label(member),
-                platform,
-                &proto_key(session, member, output, flags),
-            );
-        }
         if !crate::build::generators::declared(&session.workspace, member).is_empty() {
             crate::build::cache::explain(
                 true,

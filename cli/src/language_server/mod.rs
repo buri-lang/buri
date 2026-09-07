@@ -1838,10 +1838,10 @@ fn capabilities() -> Value {
 /// changes.
 ///
 /// One pattern covers all four kinds: a source, a `BUILD.buri` and a
-/// `REPO.buri` all wear the `.buri` extension, and a `.proto` a rule lists in
-/// `proto_sources` is compiled into a module like any of them — so an edit to
-/// one is an edit to the code, and a server that did not hear about it would
-/// keep answering from the module the old schema became. `**/` in the
+/// `REPO.buri` all wear the `.buri` extension, and a `.proto` a `generators`
+/// entry hands to `std/codegen/proto` becomes a module like any of them — so an
+/// edit to one is an edit to the code, and a server that did not hear about it
+/// would keep answering from the module the old schema became. `**/` in the
 /// protocol's glob matches any number of path segments *including none*, so
 /// `REPO.buri` at the root of a folder matches it as surely as
 /// `lib/money/BUILD.buri` does.

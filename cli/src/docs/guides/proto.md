@@ -22,24 +22,25 @@ message Point {
 
 ## Declare it
 
-A schema belongs to a rule the way a `.buri` does, and `buri gen` writes the
-field for you:
-
-```text
-$ buri gen
-updated libs/wire/BUILD.buri
-  + proto_sources: point.proto
-```
+A schema is a generator's input, and `std/codegen/proto` is the generator. Write
+the entry yourself — `buri gen` cannot know which generator owns a file, so it
+leaves `generators` alone:
 
 ```textproto schema=build
 # libs/wire/BUILD.buri
 library {
-    proto_sources: ["point.proto"]
+    generators: [
+        {
+            tool: "std/codegen/proto"
+            inputs: ["point.proto"]
+        }
+    ]
     visibility: ["//visibility:public"]
 }
 ```
 
-A schema no rule lists is `unused-library`, the same error a stray `.buri` gets.
+A schema no entry lists is `unused-library`, the same finding a stray `.buri`
+gets.
 
 ## Decide what leaves the library
 

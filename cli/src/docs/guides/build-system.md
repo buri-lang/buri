@@ -250,8 +250,8 @@ Often the better answer is a library both may see.
 ## Let `buri gen` write the boring fields
 
 `buri gen` rewrites the fields that merely restate the source tree — `sources`,
-`proto_sources`, `dependencies`, and their `test` and `testing` counterparts —
-from the files that exist and the imports they write:
+`dependencies`, and their `test` and `testing` counterparts — from the files
+that exist and the imports they write:
 
 ```sh
 buri gen              # the whole repository, the same as `buri gen //...`
@@ -264,8 +264,9 @@ habits make it dependable:
 
 - **It never invents a rule block**, so a new package needs a `BUILD.buri`
   before `gen` will write to it. An empty `library {}` is enough to start.
-- **It never touches a decision.** `tags`, `platforms`, `visibility`,
-  `outputs`, `timeout_seconds`, and every comment survive, so `buri gen //...`
+- **It never touches a decision.** `generators`, `tags`, `platforms`,
+  `visibility`, `outputs`, `timeout_seconds`, and every comment survive, so
+  `buri gen //...`
   can rewrite dependency edges across the repository without widening what any
   library is allowed to be.
 

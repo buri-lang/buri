@@ -56,12 +56,6 @@ pub use super::sha256::{hash_bytes, Sha256};
 /// The kinds of action the build graph has.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
-    /// Turning a `.proto` schema into a module. Keyed on the contents of every
-    /// schema the rule declares, which is the whole of what the generated
-    /// modules depend on — a schema may only import another in the same rule,
-    /// because the modules they become import each other and that import is
-    /// subject to the library boundary like any other.
-    Proto,
     /// Running one rule's generators. Keyed on the platform, the rule's
     /// identity, the tool, and the contents of every declared input — which is
     /// the whole of what the modules a generator hands back depend on, because
@@ -98,7 +92,6 @@ pub enum Action {
 impl Action {
     pub fn name(self) -> &'static str {
         match self {
-            Action::Proto => "proto",
             Action::Generate => "generate",
             Action::Compile => "compile",
             Action::Codegen => "codegen",
