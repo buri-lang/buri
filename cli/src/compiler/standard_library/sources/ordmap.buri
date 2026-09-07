@@ -117,6 +117,19 @@ export fn groupBy<A, K: Ord, C: Alloc>(
     )
 }
 
+/// How many elements answer each key, the keys in key order. `core/map` has the
+/// same pair for an unordered answer.
+export fn countBy<A, K: Ord, C: Alloc>(ctx: C, xs: [A], key: fn(A) => K): OrdMap<K, Int> {
+    xs.foldCtx(
+        ctx,
+        fn(c, acc: OrdMap<K, Int>, x) => {
+            let k = key(x);
+            acc.insert(c, k, acc.get(k).withDefault(0) + 1)
+        },
+        empty<K, Int>(),
+    )
+}
+
 /// One element per key rather than a group of them: `key(x)` to `x`, with a
 /// later element replacing an earlier one that answered the same key.
 export fn indexBy<A, K: Ord, C: Alloc>(ctx: C, xs: [A], key: fn(A) => K): OrdMap<K, A> {
@@ -527,6 +540,97 @@ fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
     }
 }
 
+/// The leftmost entry, and the subtree without it.
+///
+/// **One descent.** It walks the left spine to the leaf the entry sits in,
+/// takes it out, and repairs every node on the way back up — so a work queue
+/// pays for one root-to-leaf path rather than the two that `first` followed by
+/// `remove` costs. It compares nothing: the smallest key is wherever the shape
+/// says it is.
+fn takeFirst<K: Ord, V, C: Alloc>(
+    ctx: C,
+    n: Node<K, V>,
+): Option<((K, V), Node<K, V>)> {
+    let entries = entriesOf(n);
+    let children = childrenOf(n);
+    match (children.get(0)) {
+        .None => {
+            match (entries.get(0)) {
+                .None => .None,
+                .Some(e) => .Some((e, .Leaf(removeAt(ctx, entries, 0)))),
+            }
+        },
+        .Some(child) => {
+            match (takeFirst(ctx, child)) {
+                .None => .None,
+                .Some(taken) => {
+                    let (e, shrunk) = taken;
+                    .Some((e, fixChild(ctx, entries, children, 0, shrunk)))
+                },
+            }
+        },
+    }
+}
+
+/// The mirror of [`takeFirst`], down the right spine.
+fn takeLast<K: Ord, V, C: Alloc>(ctx: C, n: Node<K, V>): Option<((K, V), Node<K, V>)> {
+    let entries = entriesOf(n);
+    let children = childrenOf(n);
+    let at = children.len() - 1;
+    match (children.get(at)) {
+        .None => {
+            let last = entries.len() - 1;
+            match (entries.get(last)) {
+                .None => .None,
+                .Some(e) => .Some((e, .Leaf(removeAt(ctx, entries, last)))),
+            }
+        },
+        .Some(child) => {
+            match (takeLast(ctx, child)) {
+                .None => .None,
+                .Some(taken) => {
+                    let (e, shrunk) = taken;
+                    .Some((e, fixChild(ctx, entries, children, at, shrunk)))
+                },
+            }
+        },
+    }
+}
+
+/// The largest entry whose key is at most `key`, carrying the best answer found
+/// above down with it. One descent, and pure.
+fn floorIn<K: Ord, V>(n: Node<K, V>, key: K, best: Option<(K, V)>): Option<(K, V)> {
+    let entries = entriesOf(n);
+    let (at, found) = seek(entries, key, 0);
+    if (found) {
+        entries.get(at)
+    } else {
+        // `seek` puts `at` at the first key above `key`, so the entry before it
+        // is this node's best candidate. At `at == 0` there is none and the
+        // ancestors' stands.
+        let here = entries.get(at - 1).or(best);
+        match (childrenOf(n).get(at)) {
+            .None => here,
+            .Some(child) => floorIn(child, key, here),
+        }
+    }
+}
+
+/// The mirror of [`floorIn`]: the smallest entry whose key is at least `key`.
+fn ceilingIn<K: Ord, V>(n: Node<K, V>, key: K, best: Option<(K, V)>): Option<(K, V)> {
+    let entries = entriesOf(n);
+    let (at, found) = seek(entries, key, 0);
+    if (found) {
+        entries.get(at)
+    } else {
+        let here = entries.get(at).or(best);
+        match (childrenOf(n).get(at)) {
+            .None => here,
+            .Some(child) => ceilingIn(child, key, here),
+        }
+    }
+}
+
 // -----------------------------------------------------------------------------
 // Walking
 //
@@ -707,6 +811,168 @@ impl<K: Ord, V> OrdMap<K, V> {
             .Some(v) => self.insert(ctx, key, v),
             .None => self.remove(ctx, key),
         }
+    }
+
+    /// The value under `key` and the map without it, or `.None` when the key is
+    /// not there.
+    export fn pop<C: Alloc>(self, ctx: C, key: K): Option<(V, OrdMap<K, V>)> {
+        match (self.get(key)) {
+            .None => .None,
+            .Some(v) => .Some((v, self.remove(ctx, key))),
+        }
+    }
+
+    /// The entry with the smallest key, and the map without it.
+    ///
+    /// **One descent**, where `first` and then `remove` is two: the walk down
+    /// the left spine takes the entry out of the leaf it sits in and repairs
+    /// the tree on the way back up. That is what a sorted work queue does on
+    /// every step.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/ordmap" import * as ordmap;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let due = ordmap.of(ctx, [(30, "c"), (10, "a"), (20, "b")]);
+    ///     let next = match (due.popFirst(ctx)) {
+    ///         .None => "nothing",
+    ///         .Some(taken) => {
+    ///             let (entry, rest) = taken;
+    ///             let (_at, what) = entry;
+    ///             "${what}, ${rest.len()} left"
+    ///         },
+    ///     };
+    ///     let _ = io.println(ctx, next).ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// a, 2 left
+    /// ```
+    export fn popFirst<C: Alloc>(self, ctx: C): Option<((K, V), OrdMap<K, V>)> {
+        match (takeFirst(ctx, self.root)) {
+            .None => .None,
+            .Some(taken) => {
+                let (e, next) = taken;
+                .Some((e, OrdMap { root: shrinkRoot(next), size: self.size - 1 }))
+            },
+        }
+    }
+
+    /// The entry with the largest key, and the map without it. `popFirst` from
+    /// the other end, and one descent for the same reason.
+    export fn popLast<C: Alloc>(self, ctx: C): Option<((K, V), OrdMap<K, V>)> {
+        match (takeLast(ctx, self.root)) {
+            .None => .None,
+            .Some(taken) => {
+                let (e, next) = taken;
+                .Some((e, OrdMap { root: shrinkRoot(next), size: self.size - 1 }))
+            },
+        }
+    }
+
+    /// The entry with the largest key that is at most `key`, which `range`
+    /// cannot answer: a range needs both ends, and "nearest at or below" has
+    /// only one. O(log n), and pure.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/ordmap" import * as ordmap;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     // A step function: the band a reading falls in.
+    ///     let bands = ordmap.of(ctx, [(0, "cold"), (10, "mild"), (25, "hot")]);
+    ///     let band = match (bands.floor(17)) {
+    ///         .None => "off the scale",
+    ///         .Some(entry) => {
+    ///             let (_from, name) = entry;
+    ///             name
+    ///         },
+    ///     };
+    ///     let _ = io.println(ctx, band).ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// mild
+    /// ```
+    export fn floor(self, key: K): Option<(K, V)> {
+        floorIn(self.root, key, .None)
+    }
+
+    /// The entry with the smallest key that is at least `key`. `floor` from the
+    /// other side.
+    export fn ceiling(self, key: K): Option<(K, V)> {
+        ceilingIn(self.root, key, .None)
+    }
+
+    /// Both maps' entries, `other`'s winning where a key is in both.
+    ///
+    /// Right-biased, like `core/map`'s: `defaults.merge(ctx, overrides)` reads
+    /// the way it is used.
+    export fn merge<C: Alloc>(self, ctx: C, other: OrdMap<K, V>): OrdMap<K, V> {
+        other
+            .entries(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: OrdMap<K, V>, e) => {
+                    let (k, v) = e;
+                    acc.insert(c, k, v)
+                },
+                self,
+            )
+    }
+
+    /// Both maps' entries, with `combine(mine, theirs)` deciding a key that is
+    /// in both. `combine` is called only for those keys.
+    export fn mergeWith<C: Alloc>(
+        self,
+        ctx: C,
+        other: OrdMap<K, V>,
+        combine: fn(V, V) => V,
+    ): OrdMap<K, V> {
+        other
+            .entries(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: OrdMap<K, V>, e) => {
+                    let (k, v) = e;
+                    match (acc.get(k)) {
+                        .None => acc.insert(c, k, v),
+                        .Some(mine) => acc.insert(c, k, combine(mine, v)),
+                    }
+                },
+                self,
+            )
+    }
+
+    /// The entries `keep` answers true for, still in key order.
+    export fn filter<C: Alloc>(self, ctx: C, keep: fn(K, V) => Bool): OrdMap<K, V> {
+        self
+            .entries(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: OrdMap<K, V>, e) => {
+                    let (k, v) = e;
+                    if (keep(k, v)) { acc.insert(c, k, v) } else { acc }
+                },
+                empty<K, V>(),
+            )
     }
 
     /// The same keys, every value put through `f`.
