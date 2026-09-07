@@ -142,6 +142,11 @@ pub fn native(program: &mut Program) -> rc::Plan {
     // `closures` is what turns a lambda into a lifted function.
     fuse::run(program);
     closures::run(program);
+    // The last thing before the analysis, because it is the analysis's own
+    // precondition rather than a transformation anybody else wants: a value a
+    // `let` pattern skips over has no name, and `rc`'s plan can only release
+    // what it can name. `rc::name_discards` is where the argument is.
+    rc::name_discards(program);
     rc::run(program)
 }
 
