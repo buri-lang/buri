@@ -296,10 +296,24 @@ test "toRadix clamps a radix it has no alphabet for" {
         Alloc: alloc(),
     };
     // Below two is read as two, above thirty-six as thirty-six.
+    assert.eq(num.toRadix(ctx, 5, 1), "101");
     assert.eq(num.toRadix(ctx, 5, 1), num.toRadix(ctx, 5, 2));
     assert.eq(num.toRadix(ctx, 5, 0), num.toRadix(ctx, 5, 2));
     assert.eq(num.toRadix(ctx, 5, -10), num.toRadix(ctx, 5, 2));
+    assert.eq(num.toRadix(ctx, 5, num.minValue<I64>()), num.toRadix(ctx, 5, 2));
+    // Thirty-six is the last base there is an alphabet for; thirty-seven is the
+    // first one there is not.
+    assert.eq(num.toRadix(ctx, 40, 36), "14");
+    assert.eq(num.toRadix(ctx, 40, 37), num.toRadix(ctx, 40, 36));
     assert.eq(num.toRadix(ctx, 40, 99), num.toRadix(ctx, 40, 36));
+    assert.eq(num.toRadix(ctx, 40, num.maxValue<I64>()), num.toRadix(ctx, 40, 36));
+    // A negative value keeps its sign at either end of the clamp.
+    assert.eq(num.toRadix(ctx, -5, 1), "-101");
+    assert.eq(num.toRadix(ctx, -40, 37), "-14");
+    // And zero is one digit in every base, clamped or not.
+    assert.eq(num.toRadix(ctx, 0, 1), "0");
+    assert.eq(num.toRadix(ctx, 0, 37), "0");
+    assert.eq(num.toRadix(ctx, 0, -3), "0");
 }
 
 test "str.toRadix reads back what num.toRadix wrote" {

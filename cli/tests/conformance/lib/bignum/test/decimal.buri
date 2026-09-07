@@ -338,3 +338,159 @@ test "text reaches both ends of Int with a scale on it" {
     assert.eq(decimal.of(num.maxValue<I64>(), 2).text(ctx), "92233720368547758.07");
     assert.eq(decimal.of(num.minValue<I64>(), 2).text(ctx), "-92233720368547758.08");
 }
+
+// --- Scale zero, and the largest scale there is ----------------------------------------
+//
+// The scale is an `Int`, so it runs from zero to `maxValue`. At zero a
+// `Decimal` is a whole number and `text` is `str.fromInt`; at the top the value
+// is a fraction so small that nothing can be added to it and no digit of it can
+// be written. Both ends are reachable through `of`, so both have to answer.
+
+test "at scale zero a Decimal is the Int it holds" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decimal.of(0, 0).text(ctx), "0");
+    assert.eq(decimal.of(7, 0).text(ctx), "7");
+    assert.eq(decimal.of(-7, 0).text(ctx), "-7");
+    assert.eq(decimal.of(num.maxValue<I64>(), 0).text(ctx), "9223372036854775807");
+    assert.eq(decimal.of(num.minValue<I64>(), 0).text(ctx), "-9223372036854775808");
+    // A trailing zero is a digit at scale zero and is kept, because there is no
+    // scale left for it to be absorbed into.
+    assert.eq(decimal.of(100, 0).text(ctx), "100");
+    assert.eq(decimal.of(100, 0).scale, 0);
+    assert.eq(decimal.of(100, 0).units, 100);
+    // Where at any scale above zero it *is* absorbed.
+    assert.eq(decimal.of(100, 2), decimal.of(1, 0));
+    assert.eq(decimal.of(100, 1), decimal.of(10, 0));
+    // Whole-number arithmetic at scale zero is `Int` arithmetic.
+    assert.eq(decimal.of(7, 0).add(decimal.of(-7, 0)), .Some(decimal.of(0, 0)));
+    assert.eq(assert.some(decimal.of(7, 0).mul(decimal.of(6, 0))).text(ctx), "42");
+    assert.eq(decimal.of(7, 0).roundTo(0), decimal.of(7, 0));
+    assert.eq(decimal.of(7, 0).toFloat(), 7.0);
+}
+
+test "the largest scale is reachable and answers everywhere it can" {
+    let tiny = decimal.of(1, num.maxValue<I64>());
+    assert.eq(tiny.scale, num.maxValue<I64>());
+    assert.eq(tiny.units, 1);
+    assert.isFalse(tiny.isZero());
+    // A double has no exponent this small, so the conversion is zero.
+    assert.eq(tiny.toFloat(), 0.0);
+    // Rounding to any scale below it drops every digit, and the value is far
+    // below a half, so nothing is lifted.
+    assert.eq(tiny.roundTo(0), decimal.of(0, 0));
+    assert.eq(tiny.roundTo(5), decimal.of(0, 0));
+    // The sign still flips.
+    assert.eq(tiny.negate(), .Some(decimal.of(-1, num.maxValue<I64>())));
+    // And it orders below every ordinary number, without the common scale ever
+    // being computed.
+    assert.eq(tiny.compare(decimal.of(1, 0)), Order.Less);
+    assert.eq(decimal.of(1, 0).compare(tiny), Order.Greater);
+    assert.eq(tiny.compare(decimal.of(-1, 0)), Order.Greater);
+    assert.eq(tiny.compare(tiny), Order.Equal);
+}
+
+test "the largest scale a value can be written at" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Eighteen zeros and a one: the smallest number `parse` and `text` still
+    // round-trip, because raising a scale-zero value to it is nineteen powers
+    // of ten and that is where an `Int` stops.
+    assert.eq(decimal.of(1, 18).text(ctx), "0.000000000000000001");
+    assert.eq(decimal.parse("0.000000000000000001"), .Some(decimal.of(1, 18)));
+    assert.isTrue(decimal.of(1, 0).add(decimal.of(1, 18)).isSome());
+    assert.eq(decimal.of(1, 0).add(decimal.of(1, 19)), .None);
+    // One digit further still parses — the scale comes from the text and the
+    // units from the digits, and neither has left `Int`.
+    assert.eq(decimal.parse("0.0000000000000000001"), .Some(decimal.of(1, 19)));
+    assert.eq(decimal.of(1, 19).text(ctx), "0.0000000000000000001");
+}
+
+// --- Every path that answers .None -------------------------------------------------------
+
+test "add and sub answer .None at each of the three places they can" {
+    let top = decimal.of(num.maxValue<I64>(), 0);
+    let bottom = decimal.of(num.minValue<I64>(), 0);
+    // The sum itself does not fit.
+    assert.eq(top.add(decimal.of(1, 0)), .None);
+    assert.eq(bottom.sub(decimal.of(1, 0)), .None);
+    assert.eq(top.sub(bottom), .None);
+    assert.eq(bottom.add(bottom), .None);
+    // Raising the *left* side to the common scale does not fit.
+    assert.eq(top.add(decimal.of(1, 1)), .None);
+    assert.eq(top.sub(decimal.of(1, 1)), .None);
+    // Raising the *right* side does not fit.
+    assert.eq(decimal.of(1, 1).add(top), .None);
+    assert.eq(decimal.of(1, 1).sub(top), .None);
+    // A zero is short-circuited rather than scaled, so it survives a scale no
+    // number could be raised through.
+    assert.eq(decimal.of(0, 0).add(decimal.of(1, num.maxValue<I64>())).isSome(), true);
+    assert.eq(decimal.of(1, num.maxValue<I64>()).sub(decimal.of(0, 0)).isSome(), true);
+}
+
+test "mul answers .None from the units and from the scales alike" {
+    let top = decimal.of(num.maxValue<I64>(), 0);
+    // The product of the units does not fit.
+    assert.eq(top.mul(top), .None);
+    assert.eq(top.mul(decimal.of(2, 0)), .None);
+    assert.eq(top.mul(decimal.of(2, 5)), .None);
+    // The units fit and the *scales* do not: two tiny fractions whose scales
+    // add past `maxValue`.
+    let tiny = decimal.of(3, num.maxValue<I64>());
+    assert.eq(tiny.mul(tiny), .None);
+    assert.eq(tiny.mul(decimal.of(3, 1)), .None);
+    // A zero on either side is canonical zero at scale zero, so it multiplies
+    // through whatever the other side's scale is.
+    assert.eq(tiny.mul(decimal.of(0, 0)), .Some(decimal.of(0, 0)));
+    assert.eq(decimal.of(0, 0).mul(tiny), .Some(decimal.of(0, 0)));
+}
+
+test "negate answers .None at the one value with no negative" {
+    assert.eq(decimal.of(num.minValue<I64>(), 0).negate(), .None);
+    assert.eq(decimal.of(num.minValue<I64>(), 7).negate(), .None);
+    assert.eq(
+        decimal.of(num.maxValue<I64>(), 0).negate(),
+        .Some(decimal.of(-9223372036854775807, 0)),
+    );
+    assert.eq(decimal.of(0, 0).negate(), .Some(decimal.of(0, 0)));
+}
+
+test "parse answers .None at every shape and at every overflow" {
+    // A sign alone, and a sign with only a point after it.
+    assert.eq(decimal.parse("-"), .None);
+    assert.eq(decimal.parse("-."), .None);
+    assert.eq(decimal.parse("--1"), .None);
+    assert.eq(decimal.parse("1-"), .None);
+    // The whole part overflows before the point is ever reached.
+    assert.eq(decimal.parse("99999999999999999999.5"), .None);
+    // The digits after the point are what tips it over.
+    assert.eq(decimal.parse("9223372036854775807.1"), .None);
+    assert.eq(decimal.parse("922337203685477580.71"), .None);
+    // `maxValue + 1` is not mistaken for `minValue`: the accumulator counts
+    // below zero, so the negative numeral parses and the positive one does not.
+    assert.eq(
+        decimal.parse("-9223372036854775808"),
+        .Some(decimal.of(num.minValue<I64>(), 0)),
+    );
+    assert.eq(decimal.parse("9223372036854775808"), .None);
+    assert.eq(decimal.parse("-9223372036854775809"), .None);
+}
+
+test "parse reads leading zeros and a signed zero" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decimal.parse("007"), .Some(decimal.of(7, 0)));
+    assert.eq(decimal.parse("-007"), .Some(decimal.of(-7, 0)));
+    assert.eq(decimal.parse("0000"), .Some(decimal.of(0, 0)));
+    assert.eq(decimal.parse("-0.0"), .Some(decimal.of(0, 0)));
+    assert.eq(decimal.parse("0.00"), .Some(decimal.of(0, 0)));
+    assert.eq(decimal.parse("007.50"), .Some(decimal.of(75, 1)));
+    assert.eq(assert.some(decimal.parse("007.50")).text(ctx), "7.5");
+    // A zero of either sign is the one zero, at scale zero.
+    assert.eq(assert.some(decimal.parse("-0.0")).scale, 0);
+    assert.eq(assert.some(decimal.parse("-0.0")).text(ctx), "0");
+    assert.isTrue(assert.some(decimal.parse("-0.000")).isZero());
+}
