@@ -8,12 +8,13 @@ when what it caches depends on nothing it did not declare.
 ## Actions
 
 A build is a graph of **actions**. An action is a pure function from a declared
-set of inputs to a declared set of outputs. There are four kinds:
+set of inputs to a declared set of outputs. There are five kinds:
 
 | Action | Inputs | Outputs |
 |---|---|---|
+| `generate` | A rule's [`generators`](./generators.md) entries: each tool's artifact, and the contents of every declared input | The modules the tool answered with — text, and an anchor per node saying which input span it came from |
 | `interface` | A library's `lib.buri`, and the `interface` outputs of its dependencies | `<lib>.bi` — every exported name with its full type |
-| `compile` | One target's sources, the `interface` outputs of its dependencies, the platform | `<target>.bo` — the compiled module set |
+| `compile` | One target's sources, its `generate` output, the `interface` outputs of its dependencies, the platform | `<target>.bo` — the compiled module set |
 | `link` | A binary's `compile` output and those of its transitive dependencies | The artifact: an executable, or a `.mjs` |
 | `test` | A suite's `compile` output, the target's `compile` output, the `compile` output of every library the suite's own `dependencies` name | A pass/fail record and captured output |
 
@@ -46,19 +47,27 @@ system uses none, because the language already gives it:
   one store behind both `FsRead` and `FsWrite`, a clock the test sets, a seeded
   `Rand`, a seeded `Entropy`, and an `Env` of the test's own pairs
   ([`testing.md`](./testing.md)). There is no real capability to withhold.
-- **The action set is closed.** Four kinds, all of them this toolchain's own
-  code. A repository cannot define a fifth.
+- **The action set is closed, and one action's program is not.** Five kinds, and
+  a repository cannot define a sixth. `generate` is the one whose program this
+  toolchain did not write: a [generator](./generators.md) is a binary somebody
+  declared. It is held to the model by the same two things everything else is —
+  every input in the key, and the effect bounds on the context
+  `core/codegen`'s `run` hands it.
 
-Three of the four kinds never leave this process. The fourth, `test`, spawns a
-JavaScript runtime. That spawn is **deterministic** rather than confined:
+Three of the five kinds never leave this process. `test` and `generate` each
+spawn a JavaScript runtime. Both spawns are **deterministic** rather than
+confined:
 
 - **An explicit environment.** `env_clear`, then exactly two constants: `TZ=UTC`
   and `SOURCE_DATE_EPOCH=0`. This makes the same action produce the same bytes
   on a machine set to a different time zone or carrying a different `LANG`.
-- **A frozen clock.** The action's own script replaces `Date.now`,
-  `Math.random`, and the host clock intrinsics, so every action observes
+- **A frozen clock, for a suite.** A test's script replaces `Date.now`,
+  `Math.random`, and the host clock intrinsics, so it observes
   `1970-01-01T00:00:00Z`. Two runs of one suite produce the same record, not two
-  records differing in a timing field.
+  records differing in a timing field. A generator's artifact is the ordinary
+  linked one and gets no such splice, because it needs none: `run` hands the
+  generating function `Alloc`, `Stdin` and `Stdout`, and a generator that
+  reaches for a clock does not compile.
 
 `buri run` is the one deliberate exception. It executes a built artifact with
 the real environment and the real filesystem. Building is hermetic. Running a

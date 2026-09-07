@@ -158,8 +158,10 @@ unordered, so it answers `.Equal` for a pair it could not order.
   line from `Stdin`, hands your function the `Request`, and writes the
   `Response` back as one JSON line on `Stdout`. It calls `core/buri/ast`'s
   `print` for you, so what goes over the wire is text plus anchors and never a
-  tree. `main` names `Alloc`, `Stdin` and `Stdout` and nothing else, which is
-  what makes a generator deterministic. `run` answers `.Err` when there was no
+  tree. The function `run` takes is handed a context bounded by `Alloc`, `Stdin`
+  and `Stdout`, so a generator written the documented way cannot reach the clock
+  or the disk — that is the determinism, and it is a type error rather than a
+  rule. `run` answers `.Err` when there was no
   request to read or the line was not one; returning that from `main` is how a
   generator fails visibly. Costs one parse of the request line plus one `print`
   per module — O(n) in the text read and the text written.
