@@ -65,8 +65,7 @@ error: the generator produced no response [generator-failed]
   = fix: run the tool by hand and check it writes one line of JSON on standard output
 
     The note says which way it went: the tool did not build, it exited non-zero,
-    a signal killed it, it wrote nothing, what it wrote is not a response, or it
-    ran past the build's deadline.
+    a signal killed it, it wrote nothing, or what it wrote is not a response.
 
       = the generator was killed by SIGSEGV (signal 11)
         RangeError: Maximum call stack size exceeded.
@@ -86,6 +85,10 @@ error: the generator produced no response [generator-failed]
     your own above it costs nothing. core/codegen's run writes the line for you,
     and a tool built on it reaches this page only when it never got as far as
     answering.
+
+    A tool that is *slow* is not this page. Nothing puts a clock on a generator:
+    the build waits for as long as it runs, the way it waits for a compiler or a
+    linker. If a tool of yours never answers, stop the build and run it by hand.
 
 error: "//lib/wire/units" names no file (lib/wire/units.buri) [module-not-found]
  --> lib/wire/lib.buri:1:6
