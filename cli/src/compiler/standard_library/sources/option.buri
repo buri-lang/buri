@@ -110,7 +110,10 @@ impl<T> Option<T> {
     ///     let found: Option<Int> = .Some(3);
     ///     let missing: Option<Int> = .None;
     ///     let _ = io
-    ///         .println(ctx, "${found.mapOr(0, fn(n) => n * 10)} ${missing.mapOr(0, fn(n) => n * 10)}")
+    ///         .println(
+    ///             ctx,
+    ///             "${found.mapOr(0, fn(n) => n * 10)} ${missing.mapOr(0, fn(n) => n * 10)}",
+    ///         )
     ///         .ignore();
     ///     .Ok(())
     /// }

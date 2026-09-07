@@ -113,7 +113,7 @@ impl<T, E> Result<T, E> {
     /// from "core/io" import * as io;
     ///
     /// fn cached(key: Str): Result<Int, Str> {
-    ///     .Err("miss: ${key}")
+    ///     if (key == "size") { .Err("cold") } else { .Ok(1) }
     /// }
     ///
     /// export fn main(): Result<(), Str> {

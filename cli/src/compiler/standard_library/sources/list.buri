@@ -1174,11 +1174,9 @@ fn zippedFrom<A, B, R, C: Alloc>(
 ///         Alloc: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
-///     let halves = list.unfold(
-///         ctx,
-///         8,
-///         fn(n) => if (n == 0) { .None } else { .Some((n, n / 2)) },
-///     );
+///     let halves = list.unfold(ctx, 8, fn(n) => {
+///         if (n == 0) { .None } else { .Some((n, n / 2)) }
+///     });
 ///     let _ = io.println(ctx, "${halves.len()}").ignore();
 ///     .Ok(())
 /// }
