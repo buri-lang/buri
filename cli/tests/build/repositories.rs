@@ -159,7 +159,7 @@ fn test_suites() {
 /// so what is recorded is the real answer and not an assertion about one.
 #[test]
 fn concurrency_and_memory() {
-    run_corpus(&tests_dir().join("repositories/concurrency"), "concurrency", 5);
+    run_corpus(&tests_dir().join("repositories/concurrency"), "concurrency", 6);
 }
 
 /// Visual snapshots: a tree painted to a PNG and compared byte for byte.

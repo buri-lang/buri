@@ -1844,10 +1844,11 @@ it, so nothing it reaches can be bounded by `FsWrite`. Binding one half of the
 filesystem and not the other is the ordinary case rather than a precaution.
 
 Which platforms grant an effect is a row in a grant table. `Tasks` — "run this
-over every item at once" — is granted on `LINUX`, `MACOS` and `JS`, and withheld
-from `WEB`: `parallel` returns only when the last task has finished, and a page's
-concurrency is its event loop. That is the same three platforms as `FsRead`,
-`FsWrite`, `Stdin`, `Env` and `Proc`. `Listen` and `Sockets` — "I accept
+concurrently" — is granted everywhere, `WEB` included: a page's concurrency is
+its event loop, and `core/tasks`'s `spawn` is how a program puts a socket, a
+retry or a timer on one. `FsRead`, `FsWrite`, `Stdin`, `Env` and `Proc` are the
+three platforms that are not a page, because a page has no filesystem, no
+standard input, no command line and no process to exit. `Listen` and `Sockets` — "I accept
 connections" and "I can write to open sockets" — are granted on `LINUX` and
 `MACOS` and nowhere else, because holding a port open is a native program's
 authority and a page is served rather than serving. The two move together, since
@@ -1860,6 +1861,11 @@ declares the implementation struct and the value, and the row grants it nowhere.
 Every binding is then refused on every target, with the reason rather than with
 "no such name", and granting it later is an edit to that one row. An empty row
 says "nobody grants this today" and never "everybody will".
+
+A row also widens. `Tasks` is the one that has: declared and granted by nobody,
+then granted on the three platforms that are not a page, and now granted
+everywhere. Each move was an edit to that one row, and nothing changed for a
+program already written against the signature.
 
 None of this stops anyone writing a type that satisfies an effect, and Section
 10.9 does. That is not a forgery hole: a fake `Stdout` still cannot write
