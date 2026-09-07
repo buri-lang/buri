@@ -1,7 +1,7 @@
 error: `HostListen` implements `Listen`, which is not allowed on the WEB platform [effect-not-on-platform]
-  --> cmd/server_effects_not_granted_on_web/main.buri:23:13
+  --> cmd/server_effects_not_granted_on_web/main.buri:31:13
    |
-23 |     Listen: host.HostListen {},
+31 |     Listen: host.HostListen {},
    |             ^^^^^^^^^^^^^^^
    |
    = a platform is the set of effects its host exports; holding a port open is a native program's authority; a page is served rather than serving, and its host has no way to accept a connection
@@ -52,10 +52,11 @@ error: `HostListen` implements `Listen`, which is not allowed on the WEB platfor
      instead.
 
      An effect nobody grants yet gets the same sentence, from an empty row in
-     the same table. Listen and Sockets are granted on LINUX and MACOS, where
-     holding a port open is a native program's authority, and never will be on
-     JS or WEB. A row says who grants an effect now, not when the rest will
-     fill.
+     the same table. Listen is granted on LINUX and MACOS, where holding a port
+     open is a native program's authority, and never will be on JS or WEB. A row
+     says who grants an effect now, not when the rest will fill — and it can
+     widen too: Sockets was granted with Listen and only with it, until
+     WebSocketClient let a page get a socket without accepting one.
 
      Tasks shows the other direction. It landed granted by nobody, then on the
      three platforms that are not a page, and now on all four — one edit to one
@@ -69,11 +70,3 @@ error: `HostListen` implements `Listen`, which is not allowed on the WEB platfor
      the documentation harness which output to check the snippet as; without one
      it checks with the whole host granted.
 
-error: `HostSockets` implements `Sockets`, which is not allowed on the WEB platform [effect-not-on-platform]
-  --> cmd/server_effects_not_granted_on_web/main.buri:24:14
-   |
-24 |     Sockets: host.HostSockets {},
-   |              ^^^^^^^^^^^^^^^^
-   |
-   = a platform is the set of effects its host exports; writing to an open socket is granted with `Listen`, and a page neither accepts connections nor holds one to push on
-   = fix: drop `Sockets` from the context, or build this target for a platform that grants it: LINUX, MACOS

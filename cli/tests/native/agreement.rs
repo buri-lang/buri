@@ -4017,6 +4017,89 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **A WebSocket client refuses a scheme it cannot speak, the same way on every
+/// backend.**
+///
+/// The claim is about a `ServeError` **crossing**, and it is a different
+/// crossing on each side. Natively the struct comes back through an
+/// out-pointer of its own (`cli/runtime/lib.rs` §2.1's second shape) and each
+/// backend decides where the `Str` sits inside it; on JavaScript it is an array
+/// the runtime built. So one green pipeline says nothing at all about the
+/// other, which is what this file is for.
+///
+/// A refusal rather than a socket, because a row here compiles and runs one
+/// program under three pipelines with no network anywhere near it. A URL whose
+/// scheme is not `ws://` or `wss://` is the one answer every implementation of
+/// this effect can give without dialling anything, and it is the answer
+/// `core/net/websocket` documents.
+///
+/// **The cause and the sentence, and deliberately not `detail`.** `errorText`
+/// is a constant per variant, so it is the same string everywhere; `detail` is
+/// the platform's own words about what it was handed, and the native client and
+/// the browser's `WebSocket` are not obliged to phrase that alike. Asserting it
+/// would be asserting that two platforms wrote the same sentence.
+///
+/// The two silent lines are half the row: neither hook prints, because a socket
+/// that never opened runs none of them.
+#[test]
+fn a_websocket_client_refuses_a_scheme_it_cannot_speak_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "websocket client refusal",
+        r#"
+from "core/effect" import {
+  Alloc, ServeError, ServeFailure, Sockets, Stdout, WebSocketClient,
+};
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/server" import { CloseReason };
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+
+/// Hooks that would announce themselves if they ran. None of them does.
+fn dialling<C: Sockets + Stdout + WebSocketClient>(url: Str): Client<C, Int> {
+  Client {
+    url: url,
+    onOpen: fn(c, _socket, _response) => {
+      let _said = io.println(c, "opened").ignore();
+      0
+    },
+    onMessage: fn(_c, _socket, seen, _message) => seen + 1,
+    onClose: fn(c, _socket, _seen, _reason) => io.println(c, "closed").ignore(),
+  }
+}
+
+fn sentence(r: Result<CloseReason, ServeError>): Str {
+  match (r) {
+    .Ok(_reason) => "a socket opened",
+    .Err(e) => websocket.errorText(e),
+  }
+}
+
+fn cause(r: Result<CloseReason, ServeError>): ServeFailure {
+  match (r) {
+    .Ok(_reason) => .Closed,
+    .Err(e) => e.cause,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Sockets: host.sockets,
+    Stdout: host.stdout,
+    WebSocketClient: host.websocketClient,
+  };
+  let dialled = websocket.connect(ctx, dialling("http://example.test/socket"));
+  let _ = io.println(ctx, "cause ${cause(dialled)}").ignore();
+  let _ = io.println(ctx, "text ${sentence(dialled)}").ignore();
+  .Ok(())
+}
+"#,
+        "cause .Unsupported\ntext the protocol is not supported by this toolchain\n",
+    );
+}
+
 /// `every_conformance_file_is_accounted_for` has to its own list, and it
 /// needs no backend, so it runs on every host.
 #[test]

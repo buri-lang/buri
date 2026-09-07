@@ -5,7 +5,9 @@
 //! `net` and `net-h3` features bring in, which of them anything actually calls,
 //! and the doors a linked program asks those questions through. The second half
 //! is `effect Listen`'s implementation — the HTTP/1.1 server a Buri program
-//! reaches through `core/net/server`.
+//! reaches through `core/net/server`, and, since the WebSocket client landed,
+//! the other side of that server's wire: `effect WebSocketClient` dials a
+//! `ws://` or `wss://` URL and hands what comes back to the same framing.
 //!
 //! ## The crates, and what does or does not call them
 //!
@@ -1108,6 +1110,15 @@ enum Wire {
     /// of one.
     #[cfg(feature = "net")]
     Tls(Box<rustls::StreamOwned<rustls::ServerConnection, TcpStream>>),
+    /// The same wrapper on the other side of the handshake: a session this
+    /// process *started*, for a `wss://` socket the WebSocket client dialled.
+    ///
+    /// A different `rustls` type and not a different transport, which is why
+    /// it is a third variant rather than a second enum — everything above this
+    /// line reads and writes all three the same way, and `crate::tls::TlsStream`
+    /// is the alias `http.rs` already reaches `wrap` through.
+    #[cfg(feature = "net")]
+    ClientTls(Box<crate::tls::TlsStream>),
 }
 
 impl Wire {
@@ -1123,6 +1134,7 @@ impl Wire {
         match self {
             Wire::Plain(s) => s,
             Wire::Tls(s) => &s.sock,
+            Wire::ClientTls(s) => &s.sock,
         }
     }
 }
@@ -1133,6 +1145,8 @@ impl Read for Wire {
             Wire::Plain(s) => s.read(buf),
             #[cfg(feature = "net")]
             Wire::Tls(s) => s.read(buf),
+            #[cfg(feature = "net")]
+            Wire::ClientTls(s) => s.read(buf),
         }
     }
 }
@@ -1143,6 +1157,8 @@ impl Write for Wire {
             Wire::Plain(s) => s.write(buf),
             #[cfg(feature = "net")]
             Wire::Tls(s) => s.write(buf),
+            #[cfg(feature = "net")]
+            Wire::ClientTls(s) => s.write(buf),
         }
     }
 
@@ -1151,6 +1167,8 @@ impl Write for Wire {
             Wire::Plain(s) => s.flush(),
             #[cfg(feature = "net")]
             Wire::Tls(s) => s.flush(),
+            #[cfg(feature = "net")]
+            Wire::ClientTls(s) => s.flush(),
         }
     }
 }
@@ -2744,6 +2762,17 @@ fn answered(reply: Reply) -> hyper::Response<Once> {
 // takes a lock, pushes onto a queue, writes one byte, and returns. The socket's
 // own worker is out of `poll` before the caller's next instruction, and an idle
 // socket costs nothing at all until somebody has something to say to it.
+//
+// ## And the same wire from the other end
+//
+// `effect WebSocketClient` dials, and everything above this line is what it
+// reaches: the client half writes the request head, checks the `101` and then
+// hands the wire to [`sockets::adopt`], which is [`sockets::upgrade`] without
+// the connection table and with `Role::Client`. From there a dialled socket and
+// an accepted one are the same thing — the same table, the same `receive`, the
+// same three `Sockets` entries — because a `Role` is something the framing was
+// told once and nothing after that asks about. The section below the `sockets`
+// module is where the dialling itself is written.
 
 /// The `sec-websocket-key` a request offered, when it is an upgrade this
 /// acceptor could complete, and `None` when it is not.
@@ -2802,6 +2831,31 @@ pub const SOCKETS_OFF: &str =
     "WebSockets are not supported by this toolchain's native runtime: it was built without the \
      runtime's `net` feature, so it carries no RFC 6455 framing. Leave `Server`'s `websocket` \
      field unset and answer the request in `onRequest`";
+
+/// The sentence a `net`-off toolchain owes a program that tried to dial one.
+///
+/// [`SOCKETS_OFF`]'s neighbour and not the same words: that one tells a
+/// *server* to leave `Server`'s `websocket` field unset, and there is no field
+/// to leave unset here. What a client can do instead is nothing, so the
+/// sentence says what the toolchain is missing and stops.
+pub const WEB_SOCKET_CLIENT_OFF: &str =
+    "WebSocket clients are not supported by this toolchain's native runtime: it was built \
+     without the runtime's `net` feature, so it carries no RFC 6455 framing and no TLS. \
+     `WebSocketClient.connect` needs a toolchain built with it";
+
+/// What `connectSocket` answers with, before it becomes a Buri value.
+///
+/// Flat, and deliberately: the three fields beside the handle are the `101`
+/// handshake response's own, so the runtime writes one shape and Buri builds
+/// the value it wanted. [`Received`] is the same decision, one screen down.
+#[derive(Debug)]
+pub struct Connected {
+    pub socket: i64,
+    pub status: i64,
+    /// Field names lowercased, as `Header` states they are.
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
 
 /// What `listenReceive` answers with, before it becomes a Buri value.
 ///
@@ -3170,6 +3224,71 @@ mod sockets {
         Ok(socket)
     }
 
+    /// A socket this runtime **dialled**, handed to the machinery an accepted
+    /// one already goes through.
+    ///
+    /// Everything after this line is role-blind, and that is the whole reason
+    /// the client half is two entries rather than a second socket
+    /// implementation: [`receive`], [`send`] and [`close`] never ask what role
+    /// the framing has, and `tungstenite` masks a client's outbound frames on
+    /// its own.
+    ///
+    /// **`listener` is 0, and 0 names no listener.** [`super::NEXT_HANDLE`]
+    /// starts at 1, so [`land`] finds nothing to give a place back to
+    /// (`listening(0)` is an `Err`), [`on`] never matches a dialled socket, and
+    /// a drain or a `listenClose` on a real listener therefore leaves it alone.
+    /// That is the right answer rather than a convenient one: a socket this
+    /// process dialled was never in anybody's flight and no server owns it.
+    ///
+    /// `part` is whatever the head read overshot into. Normally nothing — a
+    /// `101` is a head and the frames come after it — but a server that writes
+    /// its first message in the same segment as its handshake response is a
+    /// server whose message would otherwise be read and thrown away, so those
+    /// bytes are handed to the framing rather than dropped.
+    pub(super) fn adopt(wire: Wire, part: Vec<u8>) -> Result<i64, ServeErr> {
+        let refused = |detail: String| Err(ServeErr::new(ServeFail::Transport, detail));
+        // **Non-blocking from here on**, for [`upgrade`]'s reason one screen
+        // up: the wait below is a wait on two descriptors, and a framing that
+        // answers `WouldBlock` is one that has told us everything it has.
+        let stream = wire.stream();
+        let fd = stream.as_raw_fd();
+        if let Err(e) = stream.set_nonblocking(true) {
+            return refused(format!("making the socket non-blocking: {e}"));
+        }
+        let Ok((woken, wake)) = UnixStream::pair() else {
+            return refused(String::from("opening the socket's wakeup pipe"));
+        };
+        if woken.set_nonblocking(true).is_err() || wake.set_nonblocking(true).is_err() {
+            return refused(String::from("making the socket's wakeup pipe non-blocking"));
+        }
+        // The same three knobs the accepted half sets, field by field for the
+        // same reason: `WebSocketConfig` is `#[non_exhaustive]`.
+        let mut config = WebSocketConfig::default();
+        config.read_buffer_size = READ_BUFFER;
+        config.write_buffer_size = 0;
+        // A dialled socket has no `Serve` plan to read a limit out of, so the
+        // number is the runtime's own — the same eight mebibytes the acceptor
+        // refuses a larger request body with. Unset would be `tungstenite`'s
+        // sixty-four, which is a peer deciding how much memory this process
+        // spends.
+        config.max_message_size = Some(super::BODY_LIMIT);
+        let framing = WebSocket::from_partially_read(wire, part, Role::Client, Some(config));
+        let socket = NEXT_SOCKET.fetch_add(1, Ordering::Relaxed);
+        let state = Arc::new(Socketed {
+            listener: 0,
+            bound: super::SOCKET_BUFFER,
+            out: Mutex::new(Outbound { queue: VecDeque::new(), ending: None }),
+            framing: Mutex::new(Some(framing)),
+            fd,
+            wake,
+            woken,
+            retired: AtomicBool::new(false),
+            landed: AtomicBool::new(false),
+        });
+        table(|open| open.insert(socket, state));
+        Ok(socket)
+    }
+
     /// `Listen::listenReceive` — the next thing to arrive on a socket.
     ///
     /// Three steps, in this order, and the order is the design: write what is
@@ -3461,12 +3580,494 @@ mod sockets {
 }
 
 // ---------------------------------------------------------------------------
+// WebSockets — the half this runtime dials
+// ---------------------------------------------------------------------------
+//
+// The acceptor above answers an upgrade; this answers the other side of the
+// same wire, and the two meet in [`sockets`]. What is written here is the
+// client handshake head — a request line and five fields — and the checks on
+// what comes back; what is handed over is every byte after the `101`, to the
+// same `tungstenite` framing an accepted socket uses, in the same table, under
+// the same three `Sockets` entries.
+//
+// **So `connectReceive` is `sockets::receive` and nothing else.** The framing
+// is told its role once, at construction, and `tungstenite` masks a client's
+// outbound frames from there on; nothing in `receive`, `send` or `close` ever
+// asks which role it has. That is the whole reason the client is two entries
+// rather than a second socket implementation.
+//
+// **Every step is bounded**, which is `http.rs`'s sentence from this side of
+// the wire: the name lookup, the connect, the TLS handshake, the write of the
+// request and the read of the response. A client that could hang forever would
+// hang a carrier forever, and a carrier is not the caller's to lose.
+#[cfg(feature = "net")]
+mod client {
+    use std::io::{Read, Write};
+    use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs};
+    use std::sync::mpsc::RecvTimeoutError;
+    use std::time::{Duration, Instant};
+
+    use super::{Connected, ServeErr, ServeFail, Wire, find, sockets};
+
+    /// How long any one step of a dial may take before it is a `Timeout`.
+    ///
+    /// **Its own constant rather than `http.rs`'s**, whose is private:
+    /// widening a neighbour's surface to share a number is a worse trade than
+    /// writing the number down twice. It is the same thirty seconds for the
+    /// same reason — a dial is a dial whichever protocol runs over it — and the
+    /// two are now free to differ on the day one of them has a reason to.
+    ///
+    /// Per step, with one exception, and the exception is the step that is a
+    /// loop: `SO_RCVTIMEO` bounds one `read(2)` and the kernel restarts it on
+    /// the next, so [`read_head`] carries this number a second way — as a
+    /// budget across the whole read — exactly as the acceptor's
+    /// [`super::HEAD_DEADLINE`] does.
+    const DEADLINE: Duration = Duration::from_secs(30);
+
+    /// The largest handshake response head this client will read. The
+    /// acceptor's own cap on a request head, read the other way round: a peer
+    /// sending header fields for ever is a peer this side stops listening to.
+    const HEAD_LIMIT: usize = 64 * 1024;
+
+    /// A `ws://` or `wss://` URL, taken apart.
+    ///
+    /// `http.rs`'s `Url` in shape and in refusals, written again here rather
+    /// than made public there: two schemes, a default port each, no userinfo,
+    /// and a target that is `/` when the URL named none.
+    struct Dialled<'a> {
+        authority: &'a str,
+        host: &'a str,
+        port: u16,
+        target: &'a str,
+        /// Whether the socket is wrapped before a byte of the handshake
+        /// crosses it. The only thing the scheme changes.
+        tls: bool,
+    }
+
+    fn parse(url: &str) -> Result<Dialled<'_>, ServeErr> {
+        let (rest, tls) = match (url.strip_prefix("ws://"), url.strip_prefix("wss://")) {
+            (Some(r), _) => (r, false),
+            (_, Some(r)) => (r, true),
+            _ => {
+                // The scheme is named back, because "this URL is wrong" without
+                // saying which part is a caller reading their own string
+                // looking for the difference.
+                let scheme = url.split_once("://").map_or(url, |(s, _)| s);
+                return Err(ServeErr::new(
+                    ServeFail::Unsupported,
+                    format!(
+                        "`{scheme}` is not a WebSocket scheme: a WebSocket client dials \
+                         `ws://` and `wss://`, and nothing else"
+                    ),
+                ));
+            }
+        };
+        let split = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+        let (authority, target) = rest.split_at(split);
+        if authority.is_empty() {
+            return Err(ServeErr::new(
+                ServeFail::Transport,
+                format!("there is no host in this URL: {url}"),
+            ));
+        }
+        // Not silently dropped, for `http.rs`'s reason: a client that ignored
+        // credentials would dial unauthenticated and report the server's
+        // refusal, which is the wrong error.
+        if authority.contains('@') {
+            return Err(ServeErr::new(
+                ServeFail::Transport,
+                format!("userinfo in a URL is not supported: {url}"),
+            ));
+        }
+        let (host, port) = match authority.rsplit_once(':') {
+            Some((h, p)) => match p.parse::<u16>() {
+                Ok(n) => (h, n),
+                Err(_) => {
+                    return Err(ServeErr::new(
+                        ServeFail::Transport,
+                        format!("the port in this URL is not a port: {url}"),
+                    ));
+                }
+            },
+            // 80 and 443, which are `ws://` and `wss://`'s defaults because
+            // they are HTTP's: the handshake is an HTTP request.
+            None => (authority, if tls { 443 } else { 80 }),
+        };
+        Ok(Dialled {
+            authority,
+            host,
+            port,
+            target: if target.is_empty() { "/" } else { target },
+            tls,
+        })
+    }
+
+    /// The address to dial, found within the deadline.
+    ///
+    /// A name lookup is the one step of a dial no socket option can bound —
+    /// `http.rs`'s `resolve` says why at length — so it happens on a thread of
+    /// its own and this one waits for it. An address literal, which is what
+    /// every loopback row below is, skips the whole arrangement.
+    fn resolve(host: &str, port: u16) -> Result<SocketAddr, ServeErr> {
+        if let Ok(ip) = host.parse::<IpAddr>() {
+            return Ok(SocketAddr::new(ip, port));
+        }
+        let name = host.to_string();
+        let found = within("the name lookup", move || {
+            (name.as_str(), port)
+                .to_socket_addrs()
+                .map(|addrs| addrs.collect::<Vec<_>>())
+                .map_err(|e| e.to_string())
+        })?;
+        match found {
+            Err(e) => Err(ServeErr::new(
+                ServeFail::Transport,
+                format!("{host} could not be resolved: {e}"),
+            )),
+            Ok(addrs) => addrs.into_iter().next().ok_or_else(|| {
+                ServeErr::new(ServeFail::Transport, format!("there is no address for {host}"))
+            }),
+        }
+    }
+
+    /// Run `work` on a thread of its own and wait [`DEADLINE`] for its answer.
+    ///
+    /// The deadline is on the wait and not on the work: nothing here can cancel
+    /// a `getaddrinfo` that is already in the kernel. What it can do is stop
+    /// the caller waiting on it, which is the difference between a dial that
+    /// fails and a process that has to be killed.
+    fn within<T: Send + 'static>(
+        what: &str,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> Result<T, ServeErr> {
+        let (answer, wait) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name(String::from("buri-rt-ws"))
+            .spawn(move || {
+                let _sent = answer.send(work());
+            })
+            .map_err(|e| {
+                ServeErr::new(
+                    ServeFail::Transport,
+                    format!("{what} needs a thread, and one could not be started: {e}"),
+                )
+            })?;
+        match wait.recv_timeout(DEADLINE) {
+            Ok(value) => Ok(value),
+            Err(RecvTimeoutError::Timeout) => Err(ServeErr::new(
+                ServeFail::Timeout,
+                format!("{what} did not answer within {}s", DEADLINE.as_secs()),
+            )),
+            Err(RecvTimeoutError::Disconnected) => Err(ServeErr::new(
+                ServeFail::Transport,
+                format!("{what} ended without an answer"),
+            )),
+        }
+    }
+
+    /// A connected socket with a deadline on every step of getting one.
+    fn dial(host: &str, port: u16) -> Result<TcpStream, ServeErr> {
+        let addr = resolve(host, port)?;
+        let sock = TcpStream::connect_timeout(&addr, DEADLINE)
+            .map_err(|e| ServeErr::io(&e, &format!("dialling {host}:{port}")))?;
+        sock.set_read_timeout(Some(DEADLINE))
+            .and_then(|()| sock.set_write_timeout(Some(DEADLINE)))
+            .map_err(|e| ServeErr::io(&e, "setting the dial's deadlines"))?;
+        // A handshake is one write and one read, so Nagle can only add a round
+        // trip to the front of it.
+        let _nodelay = sock.set_nodelay(true);
+        Ok(sock)
+    }
+
+    /// Wrap the socket if the URL asked for TLS, and hand it back untouched if
+    /// it did not.
+    ///
+    /// **A `NetFail` becomes a `ServeErr` here and never reaches the caller.**
+    /// `WebSocketClient` answers `Result<_, ServeError>` and `ServeError` is a
+    /// struct, so the platform's own words about a certificate cross whole;
+    /// `NetError` is an enum with payloads on two of five variants and would
+    /// have had to be flattened into one of them. A peer that stopped talking
+    /// part way through a handshake is the same `Timeout` a stalled read is,
+    /// and everything else is `Transport`.
+    fn wrap(sock: TcpStream, url: &Dialled<'_>) -> Result<Wire, ServeErr> {
+        if !url.tls {
+            return Ok(Wire::Plain(sock));
+        }
+        match crate::tls::connect(sock, url.host) {
+            Ok(stream) => Ok(Wire::ClientTls(Box::new(stream))),
+            Err(crate::http::NetFail::Timeout) => Err(ServeErr::new(
+                ServeFail::Timeout,
+                format!("the TLS handshake with {} did not finish in time", url.host),
+            )),
+            Err(other) => {
+                let said = other.message();
+                Err(ServeErr::new(
+                    ServeFail::Transport,
+                    if said.is_empty() {
+                        format!("the TLS handshake with {} failed", url.host)
+                    } else {
+                        said.to_string()
+                    },
+                ))
+            }
+        }
+    }
+
+    /// `WebSocketClient::connectSocket` — a URL becomes an open socket.
+    ///
+    /// The whole exchange, in order: parse, dial, wrap, write the handshake
+    /// head, read the response head, check the four things that make it an
+    /// upgrade, and hand the wire to [`sockets::adopt`].
+    pub(super) fn connect(url: &str) -> Result<Connected, ServeErr> {
+        let url = parse(url)?;
+        let sock = dial(url.host, url.port)?;
+        // The deadlines are on the `TcpStream` before it is wrapped, so they
+        // cover the TLS handshake as well as the WebSocket one.
+        let mut wire = wrap(sock, &url)?;
+        let key = nonce()?;
+        // The whole of the handshake this file writes, and the mirror image of
+        // the `101` the acceptor writes by hand one screen up. Field names
+        // lowercased because HTTP/1.1 says they are case-insensitive and this
+        // file has one spelling for a field name.
+        let head = format!(
+            "GET {} HTTP/1.1\r\nhost: {}\r\nupgrade: websocket\r\nconnection: Upgrade\r\n\
+             sec-websocket-key: {key}\r\nsec-websocket-version: 13\r\n\r\n",
+            url.target, url.authority
+        );
+        wire.write_all(head.as_bytes())
+            .and_then(|()| wire.flush())
+            .map_err(|e| ServeErr::io(&e, "writing the handshake request"))?;
+        let answered = read_head(&mut wire)?;
+        check(answered.status, &answered.headers, &key)?;
+        let socket = sockets::adopt(wire, answered.part)?;
+        // **The body is empty and it is not a placeholder.** A `101` is a
+        // protocol switch: RFC 9110 gives a 1xx response no content, and every
+        // byte after the blank line belongs to the framing rather than to this
+        // message. Anything the head read overshot into went to `adopt` for
+        // that reason, so there is nothing left that could be a body.
+        Ok(Connected {
+            socket,
+            status: answered.status,
+            headers: answered.headers,
+            body: Vec::new(),
+        })
+    }
+
+    /// A handshake response's head, and whatever the read of it overshot into.
+    struct Answered {
+        status: i64,
+        headers: Vec<(String, String)>,
+        /// The framing's bytes and not this message's — [`sockets::adopt`] is
+        /// where they go and where that is argued.
+        part: Vec<u8>,
+    }
+
+    /// The status line, the header fields, and whatever came after them.
+    ///
+    /// The same "read until the head is whole, within a budget" the acceptor's
+    /// `read_request` performs, for the same reason: `SO_RCVTIMEO` bounds one
+    /// read and a server dripping a byte at a time restarts it for ever.
+    fn read_head(wire: &mut Wire) -> Result<Answered, ServeErr> {
+        let until = Instant::now() + DEADLINE;
+        let mut buffer: Vec<u8> = Vec::with_capacity(1024);
+        let head = loop {
+            if let Some(at) = find(&buffer, b"\r\n\r\n") {
+                break at;
+            }
+            if buffer.len() > HEAD_LIMIT {
+                return Err(ServeErr::new(
+                    ServeFail::Transport,
+                    String::from("the server's handshake response head never ended"),
+                ));
+            }
+            // Checked before the read rather than after it, so a server that
+            // has already had its whole budget gets no further read at all.
+            if Instant::now() >= until {
+                return Err(ServeErr::new(
+                    ServeFail::Timeout,
+                    format!(
+                        "the server did not finish its handshake response within {}s",
+                        DEADLINE.as_secs()
+                    ),
+                ));
+            }
+            let mut chunk = [0u8; 1024];
+            match wire.read(&mut chunk) {
+                Ok(0) => {
+                    return Err(ServeErr::new(
+                        ServeFail::Transport,
+                        String::from(
+                            "the server closed the connection before answering the handshake",
+                        ),
+                    ));
+                }
+                Ok(n) => buffer.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+                Err(e) => return Err(ServeErr::io(&e, "reading the handshake response")),
+            }
+        };
+        let part = buffer.split_off(head.saturating_add(4));
+        let (status, headers) = parse_head(buffer.get(..head).unwrap_or(&[]))?;
+        Ok(Answered { status, headers, part })
+    }
+
+    /// The status line and the header fields after it.
+    fn parse_head(head: &[u8]) -> Result<(i64, Vec<(String, String)>), ServeErr> {
+        let bad = |what: String| {
+            ServeErr::new(ServeFail::Transport, format!("the server's handshake response {what}"))
+        };
+        let text = std::str::from_utf8(head)
+            .map_err(|_| bad(String::from("is not text")))?;
+        let mut lines = text.split("\r\n");
+        let status_line = lines.next().unwrap_or("");
+        let mut parts = status_line.splitn(3, ' ');
+        let version = parts.next().unwrap_or("");
+        if !version.starts_with("HTTP/1.") {
+            return Err(bad(format!("is not HTTP/1.x: `{status_line}`")));
+        }
+        let status = parts
+            .next()
+            .and_then(|code| code.parse::<i64>().ok())
+            .ok_or_else(|| bad(format!("carries no status code: `{status_line}`")))?;
+        let mut headers = Vec::new();
+        for line in lines {
+            if line.is_empty() {
+                continue;
+            }
+            let (name, value) =
+                line.split_once(':').ok_or_else(|| bad(format!("has no colon in `{line}`")))?;
+            // Lowercased on the way in, which is what `Header`'s declaration
+            // promises a reader — the acceptor's `parse_head` does the same to
+            // a request's fields.
+            headers.push((name.trim().to_ascii_lowercase(), value.trim().to_string()));
+        }
+        Ok((status, headers))
+    }
+
+    /// The four things that make a response an upgrade, each refused by name.
+    ///
+    /// The two multi-valued fields are searched rather than compared, for
+    /// `upgrade_key`'s reason on the other side of the wire: `connection` is a
+    /// comma-separated list and its tokens are case-insensitive.
+    fn check(status: i64, headers: &[(String, String)], key: &str) -> Result<(), ServeErr> {
+        let refused = |detail: String| Err(ServeErr::new(ServeFail::Transport, detail));
+        if status != 101 {
+            return refused(format!(
+                "the server answered {status} rather than 101: it did not switch protocols, so \
+                 this URL is not a WebSocket endpoint"
+            ));
+        }
+        let field = |name: &str| {
+            headers.iter().find(|(n, _)| n == name).map(|(_, v)| v.as_str())
+        };
+        let names = |value: Option<&str>, token: &str| {
+            value.is_some_and(|v| v.split(',').any(|part| part.trim().eq_ignore_ascii_case(token)))
+        };
+        if !names(field("upgrade"), "websocket") {
+            return refused(String::from(
+                "the server's 101 carries no `upgrade: websocket`, so it did not switch to this \
+                 protocol",
+            ));
+        }
+        if !names(field("connection"), "upgrade") {
+            return refused(String::from("the server's 101 carries no `connection: upgrade`"));
+        }
+        // **The whole point of the header**, and the one thing this side
+        // borrows from `tungstenite`'s handshake half: SHA-1 over the key that
+        // went out and RFC 6455's constant GUID, base64'd. A server that
+        // answers `101` without it is a server that did not read the request —
+        // a cache, a proxy, or something replaying an answer to somebody else.
+        let expected = tungstenite::handshake::derive_accept_key(key.as_bytes());
+        match field("sec-websocket-accept") {
+            Some(got) if got == expected => Ok(()),
+            Some(got) => refused(format!(
+                "the server's `sec-websocket-accept` is `{got}` and not `{expected}`: it did not \
+                 sign this handshake's key"
+            )),
+            None => refused(String::from(
+                "the server's 101 carries no `sec-websocket-accept`, so nothing says it answered \
+                 this handshake",
+            )),
+        }
+    }
+
+    /// The `sec-websocket-key`: sixteen octets from the platform's generator,
+    /// base64'd, as RFC 6455 §4.1 requires.
+    ///
+    /// **`ring`'s generator and not `getrandom`**, which is the one thing here
+    /// that is not `entropy.rs`'s answer to the same question. `entropy.rs` is
+    /// behind the `crypto` feature and this file is behind `net`, and the two
+    /// are independent: a toolchain built with `net` and without `crypto` has
+    /// no `getrandom` in it at all. `ring` is one of `net`'s own five crates,
+    /// its `SystemRandom` is `getrandom(2)`/`getentropy(2)` by another name,
+    /// and reaching it adds no dependency — which is what a runtime whose
+    /// admitted set is closed by an exact list needs.
+    ///
+    /// A generator that will not answer is a refusal rather than an abort,
+    /// unlike `Entropy`'s: this is a nonce that stops a cache answering the
+    /// handshake, not a key, and the caller already has a `ServeError` to be
+    /// told in.
+    fn nonce() -> Result<String, ServeErr> {
+        let mut key = [0u8; 16];
+        ring::rand::SecureRandom::fill(&ring::rand::SystemRandom::new(), &mut key).map_err(
+            |_| {
+                ServeErr::new(
+                    ServeFail::Transport,
+                    "this platform's generator would not answer, so the handshake has no nonce",
+                )
+            },
+        )?;
+        Ok(encode(&key))
+    }
+
+    /// Standard-alphabet base64, with padding.
+    ///
+    /// Written here because the archive has a decoder and no encoder: `tls.rs`
+    /// decodes PEM, `derive_accept_key` encodes its own answer, and the one
+    /// thing left that needs an encoder is sixteen octets long. Twenty lines
+    /// rather than a crate, which is the dependency bar's first clause reading
+    /// the way it usually does not.
+    fn encode(bytes: &[u8]) -> String {
+        const ALPHABET: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::with_capacity(bytes.len().div_ceil(3).saturating_mul(4));
+        for group in bytes.chunks(3) {
+            let mut block = [0u8; 3];
+            for (slot, byte) in block.iter_mut().zip(group) {
+                *slot = *byte;
+            }
+            let packed = (u32::from(block[0]) << 16)
+                | (u32::from(block[1]) << 8)
+                | u32::from(block[2]);
+            for sextet in 0..4usize {
+                // A group of three fills all four characters, a group of two
+                // fills three, and a group of one fills two — the rest is
+                // padding, which is what makes the length a multiple of four.
+                let digit = if sextet <= group.len() {
+                    let shift = 18_u32.saturating_sub(6 * sextet as u32);
+                    ALPHABET.get(((packed >> shift) & 63) as usize).copied().unwrap_or(b'A')
+                } else {
+                    b'='
+                };
+                out.push(char::from(digit));
+            }
+        }
+        out
+    }
+
+    #[cfg(test)]
+    pub(super) fn base64(bytes: &[u8]) -> String {
+        encode(bytes)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The C ABI
 // ---------------------------------------------------------------------------
 //
-// Five `Listen` entries and three `Sockets` ones, at `lib.rs` §1's naming rule
-// and §2's shapes. Three Buri values cross whole here — `Listener`, `Request`,
-// `Response`, and `ServeError` beside them — and each is transcribed below as a
+// Five `Listen` entries, three `Sockets` ones and two `WebSocketClient` ones,
+// at `lib.rs` §1's naming rule and §2's shapes. Four Buri values cross whole
+// here — `Listener`, `Request`, `Response` and `Connected`, with `ServeError`
+// beside them — and each is transcribed below as a
 // `#[repr(C)]` struct rather than written field by field through separate
 // out-pointers, for `BuriHeader`'s reason in `host.rs`: **the shape gets a name
 // a reader can check against the Buri declaration.**
@@ -4009,6 +4610,145 @@ fn enqueue_bytes(_socket: i64, _body: &[u8]) {}
 #[cfg(not(feature = "net"))]
 fn finish(_socket: i64, _code: i64, _reason: &str) {}
 
+// The two `WebSocketClient` entries — the other side of the wire the five
+// above accept on. `connectSocket` dials, completes the handshake and hands
+// the socket to the same table `listenUpgrade` fills; `connectReceive` is
+// `listenReceive` on a socket that was dialled instead of accepted, and it is
+// the same function underneath because the framing is role-blind.
+//
+// A socket either of them answers with is an ordinary handle: the three
+// `Sockets` entries above take it, and nothing about them had to change.
+
+/// `Connected` — `{ socket: Int, status: Int, headers: [Header], body: [U8] }`.
+///
+/// Flat, and the flatness is the decision: the three fields beside the handle
+/// are the `101` response's own, so the runtime writes one shape and Buri
+/// builds the value it wanted. [`BuriReceived`] is the same call made once
+/// already.
+#[repr(C)]
+pub struct BuriConnected {
+    socket: i64,
+    status: i64,
+    headers: BuriList,
+    body: BuriList,
+}
+
+/// `WebSocketClient::connectSocket(url) -> Result<Connected, ServeError>`.
+///
+/// `self` is `HostWebSocketClient`, an empty struct, so it flattens to nothing
+/// (`lib.rs` §2.1's rule 1); the `Str` flattens to base/ptr/len exactly as
+/// `buri_rt_host_listen_bind`'s address does.
+///
+/// # Safety
+/// The URL view must be live; both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_web_socket_client_connect_socket(
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriConnected,
+    err: *mut BuriServeError,
+) -> i32 {
+    // SAFETY: forwarded.
+    let url = unsafe { crate::host::text(ptr, len) };
+    // **A suspension point** (`rt.rs` §2), for `buri_rt_host_listen_bind`'s
+    // reason and more of it: a dial is a name lookup, a connect, a TLS
+    // handshake and an exchange, every one of which can block. The Buri blocks
+    // below are built after the park returns.
+    match park(|| connected(&url)) {
+        Ok(open) => {
+            let value = BuriConnected {
+                socket: open.socket,
+                status: open.status,
+                headers: list_of_headers(&open.headers),
+                body: list_of_bytes(&open.body),
+            };
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out.write(value) };
+            crate::BURI_OK
+        }
+        Err(e) => {
+            // SAFETY: as above.
+            unsafe { err.write(BuriServeError::of(&e)) };
+            0
+        }
+    }
+}
+
+#[cfg(feature = "net")]
+fn connected(url: &str) -> Result<Connected, ServeErr> {
+    client::connect(url)
+}
+
+/// With the feature off there is no RFC 6455 framing and no TLS in the archive,
+/// so the true answer is about how the toolchain was built.
+///
+/// The compiler refuses this key before code generation on a `net`-off
+/// toolchain — `Backend::missing_intrinsics` reads `libburi_rt.a.features` —
+/// so this body exists so that the archive links and not so that it runs, in
+/// exactly the way `upgraded` and `received` do one screen up.
+#[cfg(not(feature = "net"))]
+fn connected(_url: &str) -> Result<Connected, ServeErr> {
+    Err(ServeErr::new(ServeFail::Unsupported, WEB_SOCKET_CLIENT_OFF))
+}
+
+/// `WebSocketClient::connectReceive(socket) -> Result<Received, ServeError>`.
+///
+/// `buri_rt_host_listen_receive`, on a socket that was dialled rather than
+/// accepted — the same `sockets::receive` underneath, because the framing is
+/// told its role once at construction and nothing after that asks.
+///
+/// **A suspension point, and one that can wait forever**: a socket between
+/// messages is a worker between messages, which is the sentence the accepted
+/// half carries for the same call.
+///
+/// # Safety
+/// Both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_web_socket_client_connect_receive(
+    socket: i64,
+    out: *mut BuriReceived,
+    err: *mut BuriServeError,
+) -> i32 {
+    match park(|| dialled_received(socket)) {
+        Ok(event) => {
+            let value = BuriReceived {
+                frame: event.frame,
+                text: str_of(&event.text),
+                data: list_of_bytes(&event.data),
+                code: event.code,
+            };
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out.write(value) };
+            crate::BURI_OK
+        }
+        Err(e) => {
+            // SAFETY: as above.
+            unsafe { err.write(BuriServeError::of(&e)) };
+            0
+        }
+    }
+}
+
+#[cfg(feature = "net")]
+fn dialled_received(socket: i64) -> Result<Received, ServeErr> {
+    sockets::receive(socket)
+}
+
+/// `connected`'s sentence, for `connected`'s reason: the key is refused before
+/// code generation and this body is here so the archive links.
+///
+/// `Unsupported` rather than the `Closed` the accepted half answers, because
+/// the two are asked different questions. A `listenReceive` on a `net`-off
+/// toolchain is a socket that cannot exist, and "it has gone away" is the
+/// declared answer for that; a `connectReceive` is reached only by a program
+/// that already tried to dial, and what it is owed is the reason the dial was
+/// refused.
+#[cfg(not(feature = "net"))]
+fn dialled_received(_socket: i64) -> Result<Received, ServeErr> {
+    Err(ServeErr::new(ServeFail::Unsupported, WEB_SOCKET_CLIENT_OFF))
+}
+
 /// Run one blocking step inside the reactor's context where there is one, and
 /// inline where there is not.
 ///
@@ -4201,6 +4941,17 @@ mod tests {
         assert_eq!(std::mem::offset_of!(BuriReceived, text), 8);
         assert_eq!(std::mem::offset_of!(BuriReceived, data), 32);
         assert_eq!(std::mem::offset_of!(BuriReceived, code), 48);
+
+        // `Connected { socket: Int, status: Int, headers: [Header],
+        // body: [U8] }` — four fields with no tag among them, so this one is
+        // just §5's "fields back to back at their own alignments" with nothing
+        // to pad.
+        assert_eq!(std::mem::size_of::<BuriConnected>(), 48);
+        assert_eq!(std::mem::align_of::<BuriConnected>(), 8);
+        assert_eq!(std::mem::offset_of!(BuriConnected, socket), 0);
+        assert_eq!(std::mem::offset_of!(BuriConnected, status), 8);
+        assert_eq!(std::mem::offset_of!(BuriConnected, headers), 16);
+        assert_eq!(std::mem::offset_of!(BuriConnected, body), 32);
 
         // `Serve { Speak(Protocol), Certificate(Str), PrivateKey(Str),
         // DrainMillis(Int), SocketBuffer(Int) }` — §6's `tag ++ payload`, and
@@ -5819,6 +6570,275 @@ mod tests {
                 ServeFail::Closed
             );
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // The client half — this runtime dialling
+    // ---------------------------------------------------------------------
+    //
+    // The first row is both ends of the wire in one process: this file's
+    // acceptor serving an upgrade, and this file's client dialling it. That is
+    // the strongest thing available at this tier, and it is what says the two
+    // halves agree about the handshake rather than each agreeing with a
+    // hand-written idea of it.
+    //
+    // Every row binds loopback with `port: 0` and reads the port back, and
+    // every wait carries a deadline — `received_within` for a socket, and
+    // `PROMPTLY` for the one-shot servers below.
+
+    /// A one-shot HTTP server on loopback: read one request head, write
+    /// `answer`, and go.
+    ///
+    /// What it is for is the two handshake refusals — a server that says
+    /// something other than `101`, and one that says `101` and signs nothing —
+    /// neither of which this runtime's own acceptor can be made to say.
+    #[cfg(feature = "net")]
+    fn one_answer(answer: &'static str) -> (u16, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
+        let port = listener.local_addr().expect("the bound port").port();
+        let serving = std::thread::spawn(move || {
+            let (mut stream, _from) = listener.accept().expect("one connection");
+            stream.set_read_timeout(Some(PROMPTLY)).expect("a deadline");
+            stream.set_write_timeout(Some(PROMPTLY)).expect("a deadline");
+            let mut head: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 512];
+            while find(&head, b"\r\n\r\n").is_none() {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+                }
+            }
+            let _written = stream.write_all(answer.as_bytes());
+            let _flushed = stream.flush();
+        });
+        (port, serving)
+    }
+
+    /// **Both ends of the wire, in one process.**
+    ///
+    /// This runtime's acceptor answers the upgrade and this runtime's client
+    /// dials it, so the handshake is checked against the other half rather than
+    /// against a hand-written client: the key goes out, `derive_accept_key`
+    /// signs it on the server side, and the client's own check is what says the
+    /// signature is the one it asked for.
+    ///
+    /// After that the two sockets are the same kind of thing, which is the
+    /// claim the message each way makes: `send_text` queues on both, the next
+    /// `receive` flushes on both, and the close code crosses whole.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_dialled_socket_carries_a_message_each_way_and_then_closes() {
+        let plan = socket_plan(None);
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
+
+        // The dial has to be in flight while the acceptor is inside its own
+        // accept, so it runs on a thread and the acceptor's three steps run
+        // here.
+        let dialling = std::thread::spawn(move || {
+            client::connect(&format!("ws://127.0.0.1:{port}/socket"))
+        });
+        let server = upgraded_socket(handle);
+        let open = dialling
+            .join()
+            .expect("the dialling thread finished")
+            .expect("a handshake this acceptor completed");
+
+        assert_eq!(open.status, 101, "a WebSocket handshake answers 101");
+        assert!(open.body.is_empty(), "a 101 carries no body");
+        assert!(
+            open.headers
+                .iter()
+                .any(|(n, v)| n == "upgrade" && v.eq_ignore_ascii_case("websocket")),
+            "the 101's own fields reach the caller: {:?}",
+            open.headers
+        );
+        assert!(
+            open.headers.iter().any(|(n, _)| n == "sec-websocket-accept"),
+            "the signature the client checked is one of the fields it hands back: {:?}",
+            open.headers
+        );
+        assert!(
+            open.headers.iter().all(|(n, _)| n.chars().all(|c| !c.is_ascii_uppercase())),
+            "`Header` promises lowercased names: {:?}",
+            open.headers
+        );
+
+        let dialled = open.socket;
+        // The client speaks first. `send_text` only queues, so the message
+        // reaches the wire when the dialled socket's own loop next looks —
+        // which is this receive, on a thread because it then waits for the
+        // answer.
+        sockets::send_text(dialled, "ping");
+        let listening =
+            std::thread::spawn(move || received_within(dialled, handle, SOCKET_DEADLINE));
+
+        let arrived =
+            received_within(server, handle, SOCKET_DEADLINE).expect("the client's message");
+        assert_eq!(arrived.frame, 0, "a text frame arrived as frame {}", arrived.frame);
+        assert_eq!(arrived.text, "ping");
+        sockets::send_text(server, "pong");
+        let ending =
+            std::thread::spawn(move || received_within(server, handle, SOCKET_DEADLINE));
+
+        let back = listening
+            .join()
+            .expect("the client's receive finished")
+            .expect("the server's message");
+        assert_eq!(back.frame, 0, "a text frame arrived as frame {}", back.frame);
+        assert_eq!(back.text, "pong");
+
+        // And the close, decided by the client and seen by both.
+        sockets::close(dialled, 1000, "done");
+        let closed =
+            received_within(dialled, handle, SOCKET_DEADLINE).expect("the client's own close");
+        assert_eq!(closed.frame, 2, "a dialled socket's last event is its close");
+        assert_eq!(closed.code, 1000);
+        let ended = ending
+            .join()
+            .expect("the server's receive finished")
+            .expect("the client's close");
+        assert_eq!(ended.frame, 2);
+        assert_eq!(ended.code, 1000, "the close code crosses the wire whole");
+
+        // **`.Closed` is the last answer a dialled socket gives**, exactly as
+        // it is for an accepted one.
+        assert!(!sockets::is_open(dialled), "the dialled socket was not retired");
+        assert_eq!(sockets::receive(dialled).expect_err("spent").cause, ServeFail::Closed);
+
+        close(handle);
+    }
+
+    /// A dial to a port nobody holds is a `Transport` failure with a sentence.
+    ///
+    /// The port is one the kernel just handed out and this test then let go of,
+    /// which is how a loopback address that certainly refuses a connection is
+    /// come by without hard-coding a number some other process may hold.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_dial_to_a_port_nobody_holds_is_refused() {
+        let port = {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
+            listener.local_addr().expect("the bound port").port()
+        };
+        let refused = client::connect(&format!("ws://127.0.0.1:{port}/socket"))
+            .expect_err("nobody is listening");
+        assert_eq!(refused.cause, ServeFail::Transport);
+        assert!(
+            refused.detail.contains(&port.to_string()),
+            "the refusal says what could not be dialled: {}",
+            refused.detail
+        );
+    }
+
+    /// A URL whose scheme is not `ws`/`wss` is refused before anything is
+    /// dialled, and the sentence names the scheme.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_url_that_is_not_a_websocket_url_is_refused_by_name() {
+        for (url, named) in [
+            ("https://example.invalid/socket", "https"),
+            ("http://example.invalid/socket", "http"),
+            ("example.invalid/socket", "example.invalid/socket"),
+        ] {
+            let refused = client::connect(url).expect_err("not a WebSocket URL");
+            assert_eq!(refused.cause, ServeFail::Unsupported, "for {url}");
+            assert!(
+                refused.detail.contains(named),
+                "the refusal names the scheme it was given: {}",
+                refused.detail
+            );
+        }
+        // And the shapes a `ws://` URL can still be wrong in.
+        assert_eq!(
+            client::connect("ws://").expect_err("no host").cause,
+            ServeFail::Transport
+        );
+        assert_eq!(
+            client::connect("ws://host:not-a-port/").expect_err("bad port").cause,
+            ServeFail::Transport
+        );
+    }
+
+    /// A server that answers something other than `101` is refused, and the
+    /// sentence carries the status it did answer.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_server_that_does_not_switch_protocols_is_refused_with_its_status() {
+        let (port, serving) = one_answer(
+            "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+        );
+        let refused = client::connect(&format!("ws://127.0.0.1:{port}/socket"))
+            .expect_err("a 404 is not an upgrade");
+        assert_eq!(refused.cause, ServeFail::Transport);
+        assert!(
+            refused.detail.contains("404"),
+            "the refusal carries the status: {}",
+            refused.detail
+        );
+        serving.join().expect("the server finished");
+    }
+
+    /// A `101` whose `sec-websocket-accept` is not this handshake's is refused
+    /// naming that check.
+    ///
+    /// It is the one field the handshake exists for: a server that answers
+    /// `101` without signing the key that went out did not read the request,
+    /// and a client that accepted it would be talking RFC 6455 at a cache.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_server_that_signs_nothing_is_refused_naming_the_accept_key() {
+        let (port, serving) = one_answer(
+            "HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\nconnection: Upgrade\r\n\
+             sec-websocket-accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n",
+        );
+        let refused = client::connect(&format!("ws://127.0.0.1:{port}/socket"))
+            .expect_err("a signature for somebody else's key");
+        assert_eq!(refused.cause, ServeFail::Transport);
+        assert!(
+            refused.detail.contains("sec-websocket-accept"),
+            "the refusal says which check failed: {}",
+            refused.detail
+        );
+        serving.join().expect("the server finished");
+
+        // And the same `101` with the field missing altogether.
+        let (port, serving) = one_answer(
+            "HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\nconnection: Upgrade\r\n\r\n",
+        );
+        let refused = client::connect(&format!("ws://127.0.0.1:{port}/socket"))
+            .expect_err("no signature at all");
+        assert_eq!(refused.cause, ServeFail::Transport);
+        assert!(
+            refused.detail.contains("sec-websocket-accept"),
+            "the refusal says which check failed: {}",
+            refused.detail
+        );
+        serving.join().expect("the server finished");
+    }
+
+    /// The handshake key is standard base64, tail and all.
+    ///
+    /// The round trip above would pass with any encoding both halves of this
+    /// repository agreed on, because both halves are this repository. What says
+    /// the octets are the ones RFC 6455 asks for is the specification's own
+    /// example — `dGhlIHNhbXBsZSBub25jZQ==` is base64 of `the sample nonce` —
+    /// and the three padding tails beside it, which is `tls.rs`'s decoder test
+    /// read in the other direction.
+    #[cfg(feature = "net")]
+    #[test]
+    fn the_handshake_key_is_standard_base64() {
+        assert_eq!(client::base64(b""), "");
+        assert_eq!(client::base64(b"M"), "TQ==");
+        assert_eq!(client::base64(b"Ma"), "TWE=");
+        assert_eq!(client::base64(b"Man"), "TWFu");
+        assert_eq!(client::base64(b"the sample nonce"), "dGhlIHNhbXBsZSBub25jZQ==");
+        // Every octet, so the alphabet is checked rather than the twenty
+        // characters an ASCII string happens to reach.
+        let every: Vec<u8> = (0..=255u8).collect();
+        let encoded = client::base64(&every);
+        assert_eq!(encoded.len(), 344, "256 octets is 344 characters with padding");
+        assert!(encoded.ends_with('='), "256 is not a multiple of three");
     }
 
     /// Every clause RFC 6455 §4.2.1 requires, and none of them optional.

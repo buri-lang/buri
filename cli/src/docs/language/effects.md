@@ -79,10 +79,10 @@ export effect FsWrite {
 ```
 
 `core/effect` declares `Alloc`, `Net`, `Clock`, `Rand`, `Entropy`, `Env`,
-`Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`, and `Sockets`, and
-`core/fs` declares `FsRead` and `FsWrite`. **Only platform modules may declare
-effects**; `effect` in ordinary code is a compile error. So a program's platform
-fixes what that program can do to the world.
+`Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`, `Sockets` and
+`WebSocketClient`, and `core/fs` declares `FsRead` and `FsWrite`. **Only
+platform modules may declare effects**; `effect` in ordinary code is a compile
+error. So a program's platform fixes what that program can do to the world.
 
 **The filesystem is two effects because it is two grants.** A program that reads
 its configuration has not thereby earned the right to delete it. A
@@ -275,12 +275,17 @@ concurrently" — is granted everywhere, `WEB` included: a page's concurrency is
 its event loop, and `core/tasks`'s `spawn` is how a program puts a socket, a
 retry or a timer on one. `FsRead`, `FsWrite`, `Stdin`, `Env` and `Proc` are the
 three platforms that are not a page, because a page has no filesystem, no
-standard input, no command line and no process to exit. `Listen` and `Sockets` — "I accept
-connections" and "I can write to open sockets" — are granted on `LINUX` and
-`MACOS` and nowhere else, because holding a port open is a native program's
-authority and a page is served rather than serving. The two move together, since
-being a server is one authority in two halves: accepting a connection, and
-writing to one somebody already accepted.
+standard input, no command line and no process to exit. `Listen` — "I accept
+connections" — is granted on `LINUX` and `MACOS` and nowhere else, because
+holding a port open is a native program's authority and a page is served rather
+than serving.
+
+`Sockets` — "I can write to open sockets" — was granted with it and only with
+it, until a page could get a socket without accepting one. `WebSocketClient`
+dials one, so both of those are granted everywhere, and the rule that replaced
+the pairing is that **`Sockets` is granted wherever a socket can be come by**. A
+platform that could obtain a socket and not write on it would be handing out a
+handle nothing can use.
 
 **A row may name no platform at all**, which is how a declaration lands ahead of
 the runtime that will answer it: `core/effect` declares the effect, `core/host`
