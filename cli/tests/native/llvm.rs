@@ -4216,8 +4216,8 @@ fn a_snapshot_is_painted_and_compared_by_a_linked_release_program() {
     assert!(snapshots.join("card.diff.png").exists(), "the difference was not written");
 }
 
-/// **A struct whose field is boxed** round-trips: built, read back, and
-/// released.
+/// **A boxed field and a boxed variant payload** round-trip: built, read back,
+/// and released.
 ///
 /// `middle::layout` puts a pointer where a field that would make its owner
 /// recursive would be (VALUE-MODEL.md §5.2), so the field's *slots* are one
@@ -4229,9 +4229,10 @@ fn a_snapshot_is_painted_and_compared_by_a_linked_release_program() {
 ///
 /// `ui/node`'s `Node<C>` is that program — `struct Node<C>(NodeKind<C>)`, whose
 /// one field mentions `Node` — and it is the whole of why a snapshot could not
-/// be painted here. This is the shape on its own, with the heap check on, so a
-/// box that is never freed fails here rather than in the file that happens to
-/// build one.
+/// be painted here. An enum's payload has the same shape and the same answer,
+/// and the `Chain` below is both: a boxed variant payload holding a struct
+/// whose field is a boxed enum. With the heap check on, so a box that is never
+/// freed fails here rather than in the file that happens to build one.
 #[test]
 fn a_boxed_field_round_trips() {
     skip_unless_executable!();
@@ -4258,5 +4259,7 @@ export fn main(): Result<(), Str> {
     let (out, err, status) = build_and_run_with("boxed-field", &source, Some(ALLOC_PROBE));
     assert_eq!(status, Some(0), "{err}");
     assert_eq!(out, "42\n");
-    assert_eq!(live_blocks(&err), 0, "a boxed field was not released: {err}");
+    let (total, live) = probed(&err);
+    assert!(total > 0, "the program allocated nothing, so this asserts nothing");
+    assert_eq!(live, 0, "{total} blocks allocated and {live} still live: a box was not released");
 }

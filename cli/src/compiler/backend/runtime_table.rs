@@ -1067,14 +1067,20 @@ pub const ENTRIES: &[Entry] = &[
     // -- the reactive graph, and the snapshot it paints ----------------------
     //
     // `cli/runtime/ui.rs` holds the graph and `cli/runtime/snapshot.rs` the
-    // painter's entry. These six are what a *snapshot* reaches, which is less
-    // than the whole of `ui/testing`. `Ui.memo` and `Ui.watch` are here, and
-    // they are what [`Extra::Compute`] was added for: both take a Buri closure
-    // the runtime keeps and calls later, which is [`Extra::Step`]'s thunk with
-    // a lifetime problem to answer. `ui/node`'s `describe` needs neither —
-    // `rootScope` is the untracked scope it reads props under, and an
-    // untracked read subscribes nothing — so a *snapshot* still reaches none
-    // of it.
+    // painter's entry. The first six are what a *snapshot* reaches, and the
+    // rest is what a `ui/testing` suite reaches — the graph itself and the
+    // recorder that says when a computation ran.
+    //
+    // `Ui.memo` and `Ui.watch` are what [`Extra::Compute`] was added for: both
+    // take a Buri closure the runtime keeps and calls later, which is
+    // [`Extra::Step`]'s thunk with a lifetime problem to answer. A snapshot
+    // still reaches neither — `ui/node`'s `describe` reads props under
+    // `rootScope`, and an untracked read subscribes nothing.
+    //
+    // What is **not** here is `ui/testing`'s renderer: `render`, `Rendered`'s
+    // methods, `install`, `variables` and `stylesheet` are a *document*, and
+    // there is nothing on this side to render into. That is what still holds
+    // `ui/tree.buri` and `ui/theme.buri` out of the native conformance set.
     //
     // Three of them are generic and each carries §2 rule 4's pair. The type is
     // a bare `T` rather than a `[T]`'s element, which is what
