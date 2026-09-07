@@ -733,6 +733,63 @@ function $list_filterCtx(xs, c, p) {
   return $own(out);
 }
 
+// --- the same five, awaiting their step --------------------------------------
+//
+// A `*Ctx` combinator hands its step the caller's **whole context**, so the
+// step may do anything the caller may: dial a socket, sleep on a clock, ask an
+// actor, open a task scope. On this backend a step that waits is an `async`
+// arrow, and calling one returns a promise rather than an answer — so
+// `xs.mapCtx(ctx, fn(c, x) => …)` over a body that parks produced a list of
+// promises, `main` returned before any of them settled, and the work the step
+// was written to do silently did not happen. That is the bug these five exist
+// to fix, and `$list_mapCtx` above is why the plain loop still exists: a step
+// that never waits must stay synchronous, because an `async` combinator makes
+// its caller `async`, and this compiler hands function values to JavaScript
+// that cannot await one — a `view` given to `mount`, a sort comparator, the
+// row callbacks inside `ui.each`.
+//
+// Which of the two an instantiation is compiled to is not a decision this file
+// makes: `middle::rc`'s `can_park` column decides it, from the step that
+// actually arrived at the call (`intrinsic_keys::ctx_step_key`), and the same
+// column is what puts the `await` at the call site. The suffix is the whole
+// of the convention — `$x` and `$xAwait` — and `js/intrinsics.rs` reads it.
+//
+// Each is its synchronous twin with one `await` in it and nothing else
+// changed, including `$share` on the element and the seed left unmarked, so
+// the two cannot disagree about ownership.
+
+async function $list_foldCtxAwait(xs, c, f, acc) {
+  for (let i = 0; i < xs.length; i++) acc = await f(c, acc, $share(xs[i]));
+  return acc;
+}
+
+async function $list_foldResultCtxAwait(xs, c, f, acc) {
+  let cur = [0, acc];
+  for (let i = 0; i < xs.length; i++) {
+    cur = await f(c, cur[1], $share(xs[i]));
+    if (cur[0] !== 0) return cur;
+  }
+  return cur;
+}
+
+async function $list_mapCtxAwait(xs, c, f) {
+  const out = new Array(xs.length);
+  for (let i = 0; i < xs.length; i++) out[i] = await f(c, $share(xs[i]));
+  return $own(out);
+}
+
+async function $list_mapCtxStepAwait(xs, c, f) {
+  const out = new Array(xs.length);
+  for (let i = 0; i < xs.length; i++) out[i] = await f(c, $share(xs[i]));
+  return $own(out);
+}
+
+async function $list_filterCtxAwait(xs, c, p) {
+  const out = [];
+  for (let i = 0; i < xs.length; i++) if (await p(c, $share(xs[i]))) out.push(xs[i]);
+  return $own(out);
+}
+
 // The six operations below are the whole of the in-place half. Each is the
 // same shape: ask whether this list is ours and unshared, write through if it
 // is, and otherwise copy exactly as before — where the copy is fresh, so it is

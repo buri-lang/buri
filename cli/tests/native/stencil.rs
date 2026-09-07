@@ -1664,11 +1664,9 @@ fn compile_corpus(path: &str) -> Compiled {
 /// the refusal for every file that is not here.
 ///
 /// It is **`native/conformance.rs`'s `PACKAGES`**, entry for entry: the
-/// forty-nine files that file's native set holds. The nine that are not here
-/// are the nine it excludes, for the three reasons it records — an inexact
-/// numeric conversion (three files), `json.*` (two) and `core/math`'s
-/// transcendentals (one) — plus the three `ui/*` files no native backend
-/// takes.
+/// fifty-four files that file's native set holds. The twenty-one that are not
+/// here are the ones it excludes, each with its reason written beside it
+/// there.
 const CORPUS_COMPILES: &[&str] = &[
     "actor/counter.buri",
     "actor/scoped.buri",
@@ -1694,6 +1692,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "data/optionresult.buri",
     "data/ordering.buri",
     "data/patterns.buri",
+    "data/steps.buri",
     "data/strings.buri",
     "lazy/load.buri",
     "memory/allocators.buri",
