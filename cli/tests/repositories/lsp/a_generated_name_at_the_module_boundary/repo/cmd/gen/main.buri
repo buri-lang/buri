@@ -67,7 +67,10 @@ fn declaration<C: Alloc>(ctx: C, path: Str, whole: Str, line: Str): Option<Read>
     let value = words.get(2)?.toInt()?;
     let start = whole.indexOf(trimmed)?;
     let body = str.format(ctx, "export struct ${ty} {\n    export size: Int,\n}\n\n");
-    let held = str.format(ctx, "export let ${name}: ${ty} = ${ty} { size: ${value} };\n");
+    let held = str.format(
+        ctx,
+        "export let ${name}: ${ty} = ${ty} { size: ${value} };\n",
+    );
     .Some(Read {
         file: path,
         text: body.concat(ctx, held),
@@ -94,10 +97,7 @@ fn anchor(r: Read, start: Int): Json {
         ("file", .Str(r.file)),
         (
             "span",
-            .Object([
-                ("start", .Num(r.start.toF64())),
-                ("end", .Num(r.end.toF64())),
-            ]),
+            .Object([("start", .Num(r.start.toF64())), ("end", .Num(r.end.toF64()))]),
         ),
     ])
 }
