@@ -6,6 +6,7 @@ library {
             "test/allocators.buri",
             "test/captures.buri",
             "test/copyout.buri",
+            "test/discards.buri",
             "test/scoped.buri",
         ]
 
