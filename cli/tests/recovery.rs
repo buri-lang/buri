@@ -472,6 +472,17 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // through one diagnostic sink, which no case here can reach —
         // `harness::JS_BINARY` gives every one of them a single output. 434 of
         // 1956 is 22.2%, and twenty-three still covers it.
+        // Re-read once more when `core/buri/ast` grew a lexer and a parser,
+        // with `lib/buri_ast/test/{tokens,parsing}.buri`,
+        // `lib/data/test/properties.buri` and the round-trip driver beside
+        // them. Same reason and same evidence as every re-read above: the only
+        // compiler files in that change are `formatting.rs`'s string escape and
+        // one clause of `modules.rs`'s import rule, neither of which invents a
+        // type error. The population grew by sixty cases and the new files are
+        // the densest yet in what this row measures — an assertion wrapping a
+        // call wrapping a lambda, where a stray token leaves a call whose
+        // arguments the checker can still count. 441 of 1974 is 22.4%, read off
+        // a `BURI_RECOVERY_CAP=0` run, and twenty-three is that rounded up.
         ("a syntax error stays a syntax error", "insert-stray") => 23,
         // Re-read with the same F5 wave the `insert-stray` paragraph above
         // records: the new conformance files moved this row to 24.2% of a

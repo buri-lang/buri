@@ -498,3 +498,67 @@ test "a module of nothing prints nothing" {
     };
     assert.eq(ast.print(ctx, ast.Module { items: [], docs: [] }).text, "");
 }
+
+// --- what only a test source may write ---------------------------------------------
+
+test "a test declaration prints its name and its body" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = one(
+        .Test(ast.TestDecl {
+            name: "it holds",
+            body: block([], [ex(.Unit)]),
+            docs: [],
+        }),
+    );
+    assert.eq(ast.print(ctx, m).text, "test \"it holds\" {\n    ()\n}\n");
+}
+
+test "a test declaration with an empty body closes up" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = one(.Test(ast.TestDecl { name: "nothing", body: block([], []), docs: [] }));
+    assert.eq(ast.print(ctx, m).text, "test \"nothing\" {}\n");
+}
+
+test "a context declaration prints its name and its bindings" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = one(
+        .Context(ast.ContextDecl {
+            name: n("Fixture"),
+            spread: [],
+            bindings: [
+                ast.Binding {
+                    effectTy: ty("Alloc"),
+                    value: ex(.Call([id("alloc")], [])),
+                },
+            ],
+            exported: true,
+            docs: ["The world a test runs in."],
+        }),
+    );
+    assert.eq(
+        ast.print(ctx, m).text,
+        "/// The world a test runs in.\nexport context Fixture {\n    Alloc: alloc(),\n}\n",
+    );
+}
+
+test "a context declaration with nothing in it closes up" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = one(
+        .Context(ast.ContextDecl {
+            name: n("Empty"),
+            spread: [],
+            bindings: [],
+            exported: false,
+            docs: [],
+        }),
+    );
+    assert.eq(ast.print(ctx, m).text, "context Empty {\n}\n");
+}

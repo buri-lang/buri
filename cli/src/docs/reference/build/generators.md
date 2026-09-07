@@ -81,6 +81,11 @@ You build the module as `core/buri/ast` nodes, so a generator cannot emit a
 parse error. `run` prints them and sends text plus anchors — never the tree —
 and the compiler reads that text with its one ordinary parser.
 
+A generator that has to *read* Buri — one whose input is source rather than a
+schema — goes the other way with `ast.parse(ctx, file, source)`. Every node it
+answers carries an `Origin` naming that file and the bytes it came from, so what
+you build out of it anchors the same way what you built by hand does.
+
 `run` hands your `generate` the context `main` built, bounded by `Alloc`,
 `Stdin` and `Stdout`. Write `main` the way the example does and reaching for the
 clock or the filesystem is a type error, not a rule to remember. Bind more than
