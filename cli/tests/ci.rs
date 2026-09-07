@@ -1274,7 +1274,13 @@ fn the_runtime_archive_is_real() {
     // largest total consistent with the 19 MiB budget having been green is
     // 19.9 MB, which the same ratio takes to 22.3 MB. A container measurement
     // replaces the whole paragraph with one number.
-    let budget = if cfg!(target_os = "macos") { 15_728_640 } else { 23_068_672 };
+    //
+    // **And CI measured it.** With the filesystem, process and clock rows in
+    // and thin LTO on, the Linux legs built 23 143 926 bytes on arm64 and
+    // 23 218 810 bytes on x86_64 with `net-h3` (run 34160576351), 75 KB over
+    // the estimate. 24 MiB is the re-statement, from a measurement this time,
+    // and leaves 7.7 % of the margin — the same headroom the macOS line keeps.
+    let budget = if cfg!(target_os = "macos") { 15_728_640 } else { 25_165_824 };
     assert!(
         rt::ARCHIVE.len() <= budget,
         "libburi_rt.a is {} bytes, over the {budget}-byte budget for this platform. Every buri \
