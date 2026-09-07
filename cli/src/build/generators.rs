@@ -909,9 +909,18 @@ fn toolchain_artifact(
 /// one line out.
 ///
 /// The command comes from [`crate::build::spawn::command`] rather than
-/// `Command::new`, so a generator gets the explicit environment and the frozen
-/// clock every other action's process gets — which is what makes
-/// `--check-reproducible` mean anything here.
+/// `Command::new`, so a generator's process gets the same explicit environment
+/// every other action's does: cleared, then `TZ` and `SOURCE_DATE_EPOCH`.
+///
+/// The clock is the effect system's job rather than this one's.
+/// [`crate::build::spawn::FIXED_CLOCK_JS`] is spliced into a *suite's* script,
+/// which the runner writes; a generator's artifact is the ordinary linked one,
+/// and nothing here rewrites it. What keeps a generator off the clock is that
+/// `core/codegen`'s `run` hands `generate` a context bounded by `Alloc`,
+/// `Stdin` and `Stdout` — reach past those three and the program does not
+/// compile (`cli/tests/reject/generator_reaches_beyond_its_context`). A `main`
+/// that binds more than `run` needs is out of that bound, and
+/// `--check-reproducible` is what answers for it.
 pub fn run_artifact(artifact: &std::path::Path, request: &Request) -> Result<Response, String> {
     use std::io::{Read as _, Write as _};
     use std::process::Stdio;

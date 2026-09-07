@@ -1,0 +1,65 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a generated module is a module on every platform an output names: one .proto behind LINUX, MACOS, JS, WEB and CLOUDFLARE_WORKER outputs, compiled for each and run on one"
+
+# All five outputs, and nothing to say about any of them. A generated module is
+# compiled once per platform like any other source, so this is the whole claim:
+# what `std/codegen/proto` writes is a Buri module wherever a Buri module goes.
+# A platform that could not reach it would land here, naming the output.
+#
+# `lint` rather than `build` because a native artifact links only on a host of
+# its own platform, and the two native outputs have to mean something on both CI
+# hosts. `cli/tests/build/generators.rs` is where the host's own output is
+# linked and run.
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "every_output.txt"
+}
+
+# One `generate` action per platform, because a module is compiled per platform
+# and the text it is compiled from is the generator's answer for that platform.
+run {
+  args: ["build", "//cmd/app", "--output=js", "--explain"]
+  exit: 0
+  golden: "js.txt"
+}
+
+run {
+  args: ["build", "//cmd/app", "--output=web", "--explain"]
+  exit: 0
+  golden: "web.txt"
+}
+
+run {
+  args: ["build", "//cmd/app", "--output=cloudflare-worker", "--explain"]
+  exit: 0
+  golden: "worker.txt"
+}
+
+# And it runs. `buri run` picks the host's own platform where this toolchain
+# builds one, so on a machine with a native backend this is the generated module
+# through a code generator and a linker, and a `.mjs` everywhere else. The
+# answer is the same either way: the bytes are the wire format's — field 1
+# varint 1 (0x08 0x01), field 2 varint 300 (0x10 0xac 0x02).
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+}
+
+# The failure the rows above owe a reader: take the generator away and every
+# one of them stops, at every platform. That is what says the five clean
+# outputs are the generator's doing rather than a module that was there anyway.
+edit {
+  file: "lib/wire/BUILD.buri"
+  replace: "    generators: [\n        { tool: \"std/codegen/proto\", inputs: [\"point.proto\"] },\n    ]\n\n"
+  with: ""
+}
+
+run {
+  args: ["lint", "//lib/wire"]
+  exit: 1
+  golden: "without_the_generator.txt"
+}

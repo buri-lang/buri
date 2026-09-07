@@ -86,6 +86,16 @@ run {
   golden: "cached.txt"
 }
 
+# The generator the toolchain ships is held to what a repository tool is held to
+# in `generators/generated_module`: two independent runs, into two output
+# directories, compared byte for byte. `std/codegen/proto` is a program like any
+# other, so the check that covers a user's generator has to cover this one.
+run {
+  args: ["build", "//cmd/app", "--check-reproducible", "--verbose"]
+  exit: 0
+  golden: "reproducible.txt"
+}
+
 # Editing the schema changes the key, and the artifact.
 edit {
   file: "lib/wire/point.proto"

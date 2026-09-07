@@ -170,6 +170,7 @@ joining; the template supplies the backticks.
 | `{from_target}` | The label of the package that depends. |
 | `{function}` | The called function's name, or the name written to the left of the type arguments. |
 | `{given}` | How many were given, where `{expected}` is how many are taken. |
+| `{how}` | Who makes the edit an undeclared file needs: `buri gen` writes `sources` itself, and leaves `generators` to a person. |
 | `{importer_file}` | The importing module's own file, so the note can say which rule it belongs to. |
 | `{index}` | The tuple element, or the positional field, that was asked for. |
 | `{known_features}` | The proto features this reader models, joined with `, `. |

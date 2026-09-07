@@ -81,9 +81,12 @@ You build the module as `core/buri/ast` nodes, so a generator cannot emit a
 parse error. `run` prints them and sends text plus anchors — never the tree —
 and the compiler reads that text with its one ordinary parser.
 
-`main` names `Alloc`, `Stdin` and `Stdout` and nothing else, so a generator
-cannot read the clock or the filesystem. What it writes is a function of what it
-was handed, and the effect system is what says so.
+`run` hands your `generate` the context `main` built, bounded by `Alloc`,
+`Stdin` and `Stdout`. Write `main` the way the example does and reaching for the
+clock or the filesystem is a type error, not a rule to remember. Bind more than
+those three and you are answering for the result yourself: what a generator
+writes has to be a function of what it was handed, and `--check-reproducible` is
+what asks.
 
 `buri docs core/codegen` has the request and response documents, byte for byte.
 
@@ -140,3 +143,10 @@ exports — compiled to an `.mjs` the first time a build needs it, kept under
 `.buri/out/toolchain`, and handed a request on standard input like any other
 tool. There is no second path for it, which is the point: the `.proto`
 generator is the worked example of this page rather than an exception to it.
+
+That compile happens **once per repository**. The file's name is its action key,
+so a new toolchain writes a new one instead of reading a stale one, and every
+build after the first reads what is there — one schema or fifty, one target or
+the whole tree, every platform. `buri clean` drops it with the rest of `.buri`,
+and the next build pays for it again: on the order of a tenth of a second, in
+front of the first schema read and nothing else.
