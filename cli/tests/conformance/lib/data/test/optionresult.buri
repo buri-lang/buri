@@ -5,6 +5,7 @@ from "core/effect" import { Alloc, Stdin };
 from "core/host/testing" import { alloc, stdin };
 from "core/io" import * as io;
 from "core/list" import * as list;
+from "core/option" import * as option;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 
@@ -660,4 +661,142 @@ test "mapping a parse over a list yields Options in order" {
     assert.eq(assert.some(assert.some(parsed.get(0))), 1);
     assert.none(assert.some(parsed.get(1)));
     assert.eq(assert.some(assert.some(parsed.get(2))), 3);
+}
+
+// --- option.mapOr / withDefaultWith / orElse / okOrWith --------------------------
+
+test "mapOr transforms or answers the fallback" {
+    let some: Option<Int> = .Some(3);
+    let none: Option<Int> = .None;
+    assert.eq(some.mapOr(0, fn(n) => n * 10), 30);
+    assert.eq(none.mapOr(0, fn(n) => n * 10), 0);
+}
+
+test "mapOr may answer a different type" {
+    let some: Option<Int> = .Some(3);
+    let none: Option<Int> = .None;
+    assert.eq(some.mapOr("none", fn(_n) => "some"), "some");
+    assert.eq(none.mapOr("none", fn(_n) => "some"), "none");
+}
+
+test "withDefaultWith runs the fallback only when it is needed" {
+    let some: Option<Int> = .Some(3);
+    let none: Option<Int> = .None;
+    assert.eq(some.withDefaultWith(fn() => 9), 3);
+    assert.eq(none.withDefaultWith(fn() => 9), 9);
+}
+
+test "orElse takes the second answer only when the first is absent" {
+    let some: Option<Int> = .Some(3);
+    let none: Option<Int> = .None;
+    assert.eq(assert.some(some.orElse(fn() => .Some(9))), 3);
+    assert.eq(assert.some(none.orElse(fn() => .Some(9))), 9);
+    assert.none(none.orElse(fn() => .None));
+}
+
+test "okOrWith builds the error only when there is one" {
+    let some: Option<Int> = .Some(3);
+    let none: Option<Int> = .None;
+    assert.eq(assert.ok(some.okOrWith(fn() => "gone")), 3);
+    assert.eq(assert.err(none.okOrWith(fn() => "gone")), "gone");
+}
+
+test "isSomeAnd asks the predicate only when the value is there" {
+    let some: Option<Int> = .Some(3);
+    let none: Option<Int> = .None;
+    assert.isTrue(some.isSomeAnd(fn(n) => n == 3));
+    assert.isFalse(some.isSomeAnd(fn(n) => n == 4));
+    assert.isFalse(none.isSomeAnd(fn(_n) => true));
+}
+
+test "toList is one element or none" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let some: Option<Int> = .Some(3);
+    let none: Option<Int> = .None;
+    assert.eq(some.toList(ctx), [3]);
+    assert.isEmpty(none.toList(ctx));
+}
+
+// --- option.flatten / option.zip --------------------------------------------------
+
+test "flatten takes one Option off" {
+    let nested: Option<Option<Int>> = .Some(.Some(1));
+    let inner: Option<Option<Int>> = .Some(.None);
+    let outer: Option<Option<Int>> = .None;
+    assert.eq(assert.some(option.flatten(nested)), 1);
+    assert.none(option.flatten(inner));
+    assert.none(option.flatten(outer));
+}
+
+test "zip answers both values or neither" {
+    let one: Option<Int> = .Some(1);
+    let word: Option<Str> = .Some("a");
+    let missing: Option<Str> = .None;
+    let gone: Option<Int> = .None;
+    let both = assert.some(option.zip(one, word));
+    assert.eq(both.0, 1);
+    assert.eq(both.1, "a");
+    assert.none(option.zip(one, missing));
+    assert.none(option.zip(gone, word));
+    assert.none(option.zip(gone, missing));
+}
+
+// --- result.errToOption / orElse / orElseCtx / withDefaultWith --------------------
+
+test "errToOption keeps the error half" {
+    let ok: Result<Int, Str> = .Ok(2);
+    let bad: Result<Int, Str> = .Err("no");
+    assert.none(ok.errToOption());
+    assert.eq(assert.some(bad.errToOption()), "no");
+}
+
+test "orElse chains the failures" {
+    let ok: Result<Int, Str> = .Ok(2);
+    let bad: Result<Int, Str> = .Err("no");
+    assert.eq(assert.ok(ok.orElse(fn(_e) => .Ok(9))), 2);
+    assert.eq(assert.ok(bad.orElse(fn(_e) => .Ok(9))), 9);
+    assert.eq(assert.err(bad.orElse(fn(e) => .Err(e))), "no");
+}
+
+test "orElseCtx takes the context instead of capturing it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let bad: Result<Int, Str> = .Err("no");
+    let ok: Result<Int, Str> = .Ok(2);
+    assert.eq(assert.err(bad.orElseCtx(ctx, fn(c, e) => .Err(str.format(c, "<${e}>")))), "<no>");
+    assert.eq(assert.ok(ok.orElseCtx(ctx, fn(c, e) => .Err(str.format(c, "<${e}>")))), 2);
+}
+
+test "withDefaultWith builds the fallback from the error" {
+    let ok: Result<Int, Str> = .Ok(2);
+    let bad: Result<Int, Str> = .Err("no");
+    assert.eq(ok.withDefaultWith(fn(e) => e.len()), 2);
+    assert.eq(bad.withDefaultWith(fn(e) => e.len()), 2);
+}
+
+test "fold takes both halves onto one type" {
+    let ok: Result<Int, Str> = .Ok(2);
+    let bad: Result<Int, Str> = .Err("no");
+    assert.eq(ok.fold(fn(v) => v, fn(_e) => -1), 2);
+    assert.eq(bad.fold(fn(v) => v, fn(_e) => -1), -1);
+    assert.eq(ok.fold(fn(_v) => "ok", fn(e) => e), "ok");
+    assert.eq(bad.fold(fn(_v) => "ok", fn(e) => e), "no");
+}
+
+test "result mapOr transforms or answers the fallback" {
+    let ok: Result<Int, Str> = .Ok(2);
+    let bad: Result<Int, Str> = .Err("no");
+    assert.eq(ok.mapOr(0, fn(v) => v * 10), 20);
+    assert.eq(bad.mapOr(0, fn(v) => v * 10), 0);
+}
+
+test "isOkAnd asks the predicate only when there is a value" {
+    let ok: Result<Int, Str> = .Ok(2);
+    let bad: Result<Int, Str> = .Err("no");
+    assert.isTrue(ok.isOkAnd(fn(v) => v == 2));
+    assert.isFalse(ok.isOkAnd(fn(v) => v == 3));
+    assert.isFalse(bad.isOkAnd(fn(_v) => true));
 }
