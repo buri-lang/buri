@@ -1808,12 +1808,13 @@ fn compile_corpus(path: &str) -> Compiled {
 /// `cargo test -p buri --test native stencil::the_corpus -- --nocapture` prints
 /// the refusal for every file that is not here.
 ///
-/// It is **`native/conformance.rs`'s `PACKAGES`**, entry for entry: the
-/// forty-nine files that file's native set holds. The nine that are not here
-/// are the nine it excludes, for the three reasons it records — an inexact
-/// numeric conversion (three files), `json.*` (two) and `core/math`'s
-/// transcendentals (one) — plus the three `ui/*` files no native backend
-/// takes.
+/// It is **`native/conformance.rs`'s `PACKAGES`**, entry for entry: the files
+/// that file's native set holds. The ones that are not here are the ones it
+/// excludes, for the three reasons it records — an inexact numeric conversion
+/// (three files), `json.*` (two) and `core/math`'s transcendentals (one) —
+/// plus `ui/tree.buri` and `ui/theme.buri`, which are the *document*.
+/// `ui/reactivity.buri` was a third of those until the graph landed in
+/// `cli/runtime/ui.rs`.
 const CORPUS_COMPILES: &[&str] = &[
     "actor/counter.buri",
     "actor/scoped.buri",
@@ -1867,6 +1868,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "text/bytes.buri",
     "text/hex.buri",
     "text/path.buri",
+    "ui/reactivity.buri",
     "vectors/simd.buri",
 ];
 
