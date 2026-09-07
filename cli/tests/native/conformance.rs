@@ -325,6 +325,15 @@ const PACKAGES: &[Case] = &[
     // string. That is why the file is worth running here and not only on the
     // reference backend, where the copy is the identity.
     included("memory/copyout.buri"),
+    // What a closure may do to what it captured. Every case builds a list the
+    // program grew — never a literal, which is immortal and can never be the
+    // unique owner the in-place operations look for — hands it to a closure
+    // that runs several times, and asserts the answers. The bug it pins was
+    // the reference backend's alone, and this side is what says so: a rule
+    // about who owns a capture is a rule `middle::rc` states once for every
+    // backend, so the file is worth running where the lifted body reads it out
+    // of an environment as well as where it does not.
+    included("memory/captures.buri"),
     // It was excluded for `list.fold` until the backend grew the loop
     // over a closure, and
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what
