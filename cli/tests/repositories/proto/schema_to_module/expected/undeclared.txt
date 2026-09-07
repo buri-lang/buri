@@ -4,7 +4,7 @@ warning: lib/wire/point.proto belongs to no library or binary, so nothing builds
 1 | library {
   | ^
   |
-  = fix: add it to the library's or the binary's `proto_sources`, or delete it — `buri gen //lib/wire` does this automatically
+  = fix: add it to the library's or the binary's `generators`, or delete it — `buri gen //lib/wire` does this automatically
 
     Nothing in the project imports this file. No production code, no test, no
     entry point reaches it. Every reader who opens it has to work out whether it
@@ -20,4 +20,29 @@ warning: lib/wire/point.proto belongs to no library or binary, so nothing builds
     problem, the missing connection is. Wire it to the entry point that should
     have reached it, or declare it as a root in the tool's config. Do not
     silence the finding by ignoring the path.
+
+error: "//lib/wire/point.proto" names a schema, and no `generators` entry in //lib/wire hands it to a tool [module-not-found]
+ --> lib/wire/lib.buri:1:6
+  |
+1 | from "//lib/wire/point.proto" export { decodePoint, defaultPoint, encodePoint, Point };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
 

@@ -16,18 +16,24 @@ forget to run.
 
 ## Declaring the schema
 
-A `.proto` belongs to a rule the way a `.buri` does, through a field in
-`BUILD.buri`:
+A `.proto` is a generator's input, and `std/codegen/proto` is the generator:
 
 ```textproto schema=build
 library {
-    proto_sources: ["address.proto", "demo.proto"]
+    generators: [
+        {
+            tool: "std/codegen/proto"
+            inputs: ["address.proto", "demo.proto"]
+        }
+    ]
 }
 ```
 
-`buri gen` manages `proto_sources` exactly as it manages `sources`. A schema no
-rule lists is [`unused-library`](../lints/unused-library.md), the same error a
-stray `.buri` gets, and the fix names `proto_sources` rather than `sources`.
+`generators` is hand-authored — `buri gen` cannot know which generator owns a
+file, so it never writes the field. A schema no entry lists is
+[`unused-library`](../lints/unused-library.md), the same finding a stray `.buri`
+gets. The old spelling, `proto_sources`, is
+[retired](../errors/retired-proto-sources.md).
 
 The generated module belongs to the declaring rule, so the library boundary
 applies to it unchanged. `//lib/wire/point.proto` is internal to `//lib/wire`,
@@ -435,10 +441,10 @@ under cargo.
 
 A schema is an input like any other. Its contents go into the declaring rule's
 key, so editing one rebuilds exactly what depends on it and nothing else.
-`--explain` reports a `proto` action per rule that declares a schema:
+`--explain` reports a `generate` action per rule that declares a generator:
 
 ```text
-keyed  proto //lib/wire js a47062e1d851
+keyed  generate //lib/wire js a47062e1d851
 keyed  compile //lib/wire js 13a53a25987e
 run    link //cmd/app js 1c42f9658fa5
 ```

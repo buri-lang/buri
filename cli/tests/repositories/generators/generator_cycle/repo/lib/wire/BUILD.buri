@@ -1,0 +1,7 @@
+library {
+    generators: [
+        { tool: "//cmd/gen", inputs: ["units.txt"] },
+    ]
+
+    visibility: ["//visibility:public"]
+}

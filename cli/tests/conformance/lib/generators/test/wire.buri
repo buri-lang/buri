@@ -1,0 +1,233 @@
+// The request in, the response out, byte for byte.
+
+from "core/buri/ast" import * as ast;
+from "core/codegen" import * as codegen;
+from "core/codegen" import { Diagnostic, Request, Response };
+from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/host/testing" import { alloc, stdin, stdout };
+from "core/testing/assert" import * as assert;
+
+// --- what the tests drive -------------------------------------------------------
+
+/// Every input and every dependency, back out as a diagnostic. What a
+/// generator saw is only observable in what it answers, so this is how the
+/// request half is asserted on.
+fn echo<C: Alloc>(ctx: C, request: Request): Response {
+    let seen = request.inputs.concat(ctx, request.dependencies);
+    Response {
+        modules: [],
+        diagnostics: seen.map(ctx, fn(pair) => {
+            let (path, text) = pair;
+            Diagnostic {
+                code: path,
+                message: text,
+                note: .None,
+                fix: .None,
+                origin: .None,
+            }
+        }),
+    }
+}
+
+/// A module holding one `export type Id = Int;`, whose item came from
+/// `file[start..end]`. `print` records no anchor when `file` is empty.
+fn alias(file: Str, start: Int, end: Int): ast.Module {
+    let int = ast.Name { text: "Int", origin: ast.nowhere() };
+    let item = ast.Item {
+        kind: .TypeAlias(ast.TypeAliasDecl {
+            name: ast.Name { text: "Id", origin: ast.nowhere() },
+            generics: [],
+            ty: ast.Type { kind: .Named(int, []), origin: ast.nowhere() },
+            exported: true,
+            docs: [],
+        }),
+        origin: ast.origin(file, start, end),
+    };
+    ast.Module { items: [item], docs: [] }
+}
+
+let EMPTY_REQUEST: Str = "{\"inputs\":[],\"dependencies\":[]}";
+
+// --- the request ----------------------------------------------------------------
+
+test "a request document decodes to the Request a generator sees" {
+    // A text holding a quote, a backslash, a newline and a non-ASCII scalar —
+    // the four things an escape could get wrong in either direction.
+    let request = [
+        "{\"inputs\":[[\"lib/wire/p.proto\",\"a \\\"q\\\" \\\\ b\\nc é\"]],",
+        "\"dependencies\":[[\"dep/x.proto\",\"D\"]]}",
+    ].join(alloc(), "");
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdin: stdin().lines([request]),
+        Stdout: out,
+    };
+    assert.eq(codegen.run(ctx, fn(c, r) => echo(c, r)), .Ok(()));
+    assert.eq(
+        out.captured(),
+        [
+            "{\"modules\":[],\"diagnostics\":[",
+            "{\"code\":\"lib/wire/p.proto\",\"message\":\"a \\\"q\\\" \\\\ b\\nc é\",",
+            "\"note\":null,\"fix\":null,\"origin\":null},",
+            "{\"code\":\"dep/x.proto\",\"message\":\"D\",",
+            "\"note\":null,\"fix\":null,\"origin\":null}]}\n",
+        ].join(ctx, ""),
+    );
+}
+
+test "an empty request is an empty Request" {
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdin: stdin().lines([EMPTY_REQUEST]),
+        Stdout: out,
+    };
+    assert.eq(codegen.run(ctx, fn(c, r) => echo(c, r)), .Ok(()));
+    assert.eq(out.captured(), "{\"modules\":[],\"diagnostics\":[]}\n");
+}
+
+test "an absent member and a null one are both the empty list" {
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdin: stdin().lines(["{}"]),
+        Stdout: out,
+    };
+    assert.eq(codegen.run(ctx, fn(c, r) => echo(c, r)), .Ok(()));
+    assert.eq(out.captured(), "{\"modules\":[],\"diagnostics\":[]}\n");
+
+    let second = stdout();
+    let nulls = context {
+        Alloc: alloc(),
+        Stdin: stdin().lines(["{\"inputs\":null,\"dependencies\":null}"]),
+        Stdout: second,
+    };
+    assert.eq(codegen.run(nulls, fn(c, r) => echo(c, r)), .Ok(()));
+    assert.eq(second.captured(), "{\"modules\":[],\"diagnostics\":[]}\n");
+}
+
+// --- the response ---------------------------------------------------------------
+
+test "a module goes out as text plus anchors" {
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdin: stdin().lines([EMPTY_REQUEST]),
+        Stdout: out,
+    };
+    let answer = fn(_c, _r) => {
+        Response {
+            modules: [("point.proto", alias("rows.schema", 3, 9))],
+            diagnostics: [],
+        }
+    };
+    assert.eq(codegen.run(ctx, answer), .Ok(()));
+    assert.eq(
+        out.captured(),
+        [
+            "{\"modules\":[{\"name\":\"point.proto\",\"text\":\"export type Id = Int;\\n\",",
+            "\"anchors\":[{\"start\":0,\"end\":21,\"file\":\"rows.schema\",",
+            "\"span\":{\"start\":3,\"end\":9}}]}],\"diagnostics\":[]}\n",
+        ].join(ctx, ""),
+    );
+}
+
+test "a module whose nodes came from nowhere sends no anchors" {
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdin: stdin().lines([EMPTY_REQUEST]),
+        Stdout: out,
+    };
+    let answer = fn(_c, _r) => {
+        Response { modules: [("point.proto", alias("", 0, 0))], diagnostics: [] }
+    };
+    assert.eq(codegen.run(ctx, answer), .Ok(()));
+    assert.eq(
+        out.captured(),
+        [
+            "{\"modules\":[{\"name\":\"point.proto\",\"text\":\"export type Id = Int;\\n\",",
+            "\"anchors\":[]}],\"diagnostics\":[]}\n",
+        ].join(ctx, ""),
+    );
+}
+
+test "a diagnostic carries its origin, or null" {
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdin: stdin().lines([EMPTY_REQUEST]),
+        Stdout: out,
+    };
+    let answer = fn(_c, _r) => {
+        Response {
+            modules: [],
+            diagnostics: [
+                Diagnostic {
+                    code: "proto-unsupported",
+                    message: "groups are gone",
+                    note: .Some("since edition 2023"),
+                    fix: .Some("use a nested message"),
+                    origin: .Some(ast.origin("lib/wire/p.proto", 18, 29)),
+                },
+                Diagnostic {
+                    code: "proto-late",
+                    message: "nothing to point at",
+                    note: .None,
+                    fix: .None,
+                    origin: .None,
+                },
+            ],
+        }
+    };
+    assert.eq(codegen.run(ctx, answer), .Ok(()));
+    assert.eq(
+        out.captured(),
+        [
+            "{\"modules\":[],\"diagnostics\":[",
+            "{\"code\":\"proto-unsupported\",\"message\":\"groups are gone\",",
+            "\"note\":\"since edition 2023\",\"fix\":\"use a nested message\",",
+            "\"origin\":{\"file\":\"lib/wire/p.proto\",\"span\":{\"start\":18,\"end\":29}}},",
+            "{\"code\":\"proto-late\",\"message\":\"nothing to point at\",",
+            "\"note\":null,\"fix\":null,\"origin\":null}]}\n",
+        ].join(ctx, ""),
+    );
+}
+
+test "every offset is a plain integer, with no point and no exponent" {
+    // The whole reason the two ends of this wire interoperate: the parser in
+    // `cli/src/build/generators.rs` reads digits and nothing else, so a `0`
+    // that came out `0.0`, or a large offset that came out `1.23456789e9`,
+    // would be a response the build could not read.
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdin: stdin().lines([EMPTY_REQUEST]),
+        Stdout: out,
+    };
+    let answer = fn(_c, _r) => {
+        Response {
+            modules: [],
+            diagnostics: [
+                Diagnostic {
+                    code: "wide",
+                    message: "a schema nobody should write",
+                    note: .None,
+                    fix: .None,
+                    origin: .Some(ast.origin("big.schema", 0, 1234567890)),
+                },
+            ],
+        }
+    };
+    assert.eq(codegen.run(ctx, answer), .Ok(()));
+    assert.eq(
+        out.captured(),
+        [
+            "{\"modules\":[],\"diagnostics\":[",
+            "{\"code\":\"wide\",\"message\":\"a schema nobody should write\",",
+            "\"note\":null,\"fix\":null,",
+            "\"origin\":{\"file\":\"big.schema\",\"span\":{\"start\":0,\"end\":1234567890}}}]}\n",
+        ].join(ctx, ""),
+    );
+}

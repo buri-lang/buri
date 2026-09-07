@@ -1008,6 +1008,35 @@ pub fn run_file_in_repo(root: &std::path::Path, file: &str, text: &str) -> Vec<F
     run_file_with(root, true, file, text)
 }
 
+/// A loaded repository with its generators run, so that an example importing a
+/// generated module has one to import.
+///
+/// The session is built here rather than through `session::open_at` because the
+/// workspace was loaded into the caller's source map: a second load would give
+/// every build file a second file id, and a diagnostic pointing at one would
+/// then be rendered against the wrong text.
+fn prepared(
+    root: &std::path::Path,
+    workspace: crate::build::workspace::Workspace,
+    map: &SourceMap,
+) -> std::rc::Rc<crate::build::workspace::Workspace> {
+    let workspace = std::rc::Rc::new(workspace);
+    let mut session = crate::build::session::Session {
+        root: root.to_path_buf(),
+        map: map.clone(),
+        parsed: crate::parsing::parser::Cache::new(),
+        diagnostics: crate::diagnostics::Diagnostics::new(),
+        workspace: std::rc::Rc::clone(&workspace),
+        rendering: crate::build::session::Rendering::Human { color: false },
+    };
+    crate::build::generators::prepare(
+        &mut session,
+        &crate::commands::arguments::Flags::default(),
+        &crate::build::sources::Overlay::new(),
+    );
+    workspace
+}
+
 fn run_file_with(
     root: &std::path::Path,
     default_to_root: bool,
@@ -1020,8 +1049,10 @@ fn run_file_with(
     let mut map = SourceMap::new();
     let mut cache = crate::parsing::parser::Cache::new();
     // One `Workspace` per repository named in this document, not per block:
-    // loading a monorepo reads every build file in it.
-    let mut repos: HashMap<String, Option<crate::build::workspace::Workspace>> = HashMap::new();
+    // loading a monorepo reads every build file in it, and running its
+    // generators runs a program per rule that declares one.
+    let mut repos: HashMap<String, Option<std::rc::Rc<crate::build::workspace::Workspace>>> =
+        HashMap::new();
 
     for block in &extracted.blocks {
         let named = match (&block.repo, default_to_root) {
@@ -1039,11 +1070,12 @@ fn run_file_with(
                         &mut map,
                         &mut diagnostics,
                     )
-                    .ok();
+                    .ok()
+                    .map(|loaded| prepared(&root.join(rel), loaded, &map));
                     repos.insert(rel.clone(), loaded);
                 }
                 match repos.get(rel).and_then(|w| w.as_ref()) {
-                    Some(workspace) => Some(workspace),
+                    Some(workspace) => Some(&**workspace),
                     None => {
                         failures.push(Failure {
                             origin: block.origin.clone(),

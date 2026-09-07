@@ -1,0 +1,240 @@
+// One realistic module, printed whole.
+//
+// The text below is a fixed point of `buri format`: the imports in the order
+// the formatter sorts them, the `derive` sitting on the declaration it is
+// about, one blank line between declarations, and every construct the
+// formatter always breaks broken. It is asserted literally, because what
+// `print` promises is source another program reads.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+from "//lib/buri_ast" import {
+    block, call, ex, field, hole, id, item, n, pat, st, ty, tyOf,
+};
+
+fn imports(): [ast.Item] {
+    [
+        item(.Import(ast.Import { path: "core/list", clause: .Namespace(n("list")) })),
+        item(
+            .Import(ast.Import {
+                path: "core/effect",
+                clause: .Named([ast.ImportSpec { name: n("Alloc"), alias: [] }]),
+            }),
+        ),
+    ]
+}
+
+fn colour(): [ast.Item] {
+    [
+        item(
+            .Derive(ast.DeriveDecl {
+                traits: [ty("Eq"), ty("Show")],
+                selfTy: ty("Colour"),
+            }),
+        ),
+        item(
+            .Enum(ast.EnumDecl {
+                name: n("Colour"),
+                generics: [],
+                variants: [
+                    ast.Variant {
+                        name: n("Red"),
+                        payload: .Empty,
+                        docs: [],
+                        origin: ast.nowhere(),
+                    },
+                    ast.Variant {
+                        name: n("Named"),
+                        payload: .Tuple([ty("Str")]),
+                        docs: [],
+                        origin: ast.nowhere(),
+                    },
+                ],
+                exported: true,
+                docs: ["A colour, or the name of one."],
+            }),
+        ),
+    ]
+}
+
+fn point(): ast.Item {
+    item(
+        .Struct(ast.StructDecl {
+            name: n("Point"),
+            generics: [],
+            body: .Record([coord("x"), coord("y")]),
+            exported: true,
+            docs: [],
+        }),
+    )
+}
+
+fn coord(text: Str): ast.FieldDecl {
+    ast.FieldDecl {
+        name: n(text),
+        ty: ty("Int"),
+        exported: true,
+        docs: [],
+        origin: ast.nowhere(),
+    }
+}
+
+/// `let label = match (c) { .Red => "red", .Named(text) => text, };`
+fn labelStmt(): ast.Stmt {
+    let arms = [
+        ast.Arm {
+            pattern: pat(.Path(n("Red"), true, [])),
+            guard: [],
+            body: ex(.Str("red")),
+        },
+        ast.Arm {
+            pattern: pat(
+                .Path(n("Named"), true, [.Tuple([pat(.Bind(n("text"), []))])]),
+            ),
+            guard: [],
+            body: id("text"),
+        },
+    ];
+    st(.Let(pat(.Bind(n("label"), [])), [], ex(.Match([id("c")], arms))))
+}
+
+/// `let scaled = (p.x + p.y) * 2;`
+fn scaledStmt(): ast.Stmt {
+    let sum = ex(.Binary(.Add, [field(id("p"), "x")], [field(id("p"), "y")]));
+    st(.Let(pat(.Bind(n("scaled"), [])), [], ex(.Binary(.Mul, [sum], [ex(.Int(2))]))))
+}
+
+/// `let sign = if (scaled > 0) { "+" } else { "-" };`
+fn signStmt(): ast.Stmt {
+    let positive = ex(.Binary(.Gt, [id("scaled")], [ex(.Int(0))]));
+    let branch = ex(
+        .If([positive], [block([], [ex(.Str("+"))])], [
+            ex(.Block(block([], [ex(.Str("-"))]))),
+        ]),
+    );
+    st(.Let(pat(.Bind(n("sign"), [])), [], branch))
+}
+
+/// `let lengths = parts.map(ctx, fn(s) => s.len());`
+fn lengthsStmt(): ast.Stmt {
+    let body = call(field(id("s"), "len"), []);
+    let f = ex(.Lambda([ast.LambdaParam { name: n("s"), ty: [] }], [], [body]));
+    let mapped = call(field(id("parts"), "map"), [ex(.Ctx), f]);
+    st(.Let(pat(.Bind(n("lengths"), [])), [], mapped))
+}
+
+/// `let first = parts.first().okOr("empty")?;`
+fn firstStmt(): ast.Stmt {
+    let got = call(field(call(field(id("parts"), "first"), []), "okOr"), [
+        ex(.Str("empty")),
+    ]);
+    st(.Let(pat(.Bind(n("first"), [])), [], ex(.Try([got]))))
+}
+
+fn describe(): ast.Item {
+    let here = ex(
+        .StructLit([id("Point")], [], [
+            ast.Init { name: n("x"), value: [id("scaled")] },
+            ast.Init { name: n("y"), value: [ex(.Int(0))] },
+        ]),
+    );
+    let stmts = [
+        labelStmt(),
+        scaledStmt(),
+        signStmt(),
+        st(.Let(pat(.Bind(n("parts"), [])), [], ex(.Array([id("label"), id("sign")])))),
+        lengthsStmt(),
+        st(.Let(pat(.Bind(n("here"), [])), [], here)),
+        firstStmt(),
+    ];
+    let rendered = ex(
+        .Template([
+            .Hole(id("first")),
+            .Hole(field(id("here"), "x")),
+            .Hole(call(field(id("lengths"), "len"), [])),
+        ]),
+    );
+    let tail = call(ex(.DotVariant(n("Ok"))), [rendered]);
+    item(
+        .Fn(ast.FnDecl {
+            name: n("describe"),
+            generics: [ast.GenericParam { name: n("C"), bounds: [ty("Alloc")] }],
+            params: [
+                ast.Param { name: n("ctx"), ty: [ty("C")] },
+                ast.Param { name: n("p"), ty: [ty("Point")] },
+                ast.Param { name: n("c"), ty: [ty("Colour")] },
+            ],
+            ret: tyOf("Result", [ty("Str"), ty("Str")]),
+            body: [block(stmts, [tail])],
+            exported: true,
+            docs: [],
+        }),
+    )
+}
+
+/// The tail: `.Ok("...")` over three template holes.
+fn okLine<C: Alloc>(ctx: C): Str {
+    "    .Ok(\""
+        .concat(ctx, hole(ctx, "first"))
+        .concat(ctx, hole(ctx, "here.x"))
+        .concat(ctx, hole(ctx, "lengths.len()"))
+        .concat(ctx, "\")")
+}
+
+/// The text of that module, one line to a line.
+fn expected<C: Alloc>(ctx: C): Str {
+    [
+        "//! A generated module.",
+        "",
+        "from \"core/effect\" import { Alloc };",
+        "from \"core/list\" import * as list;",
+        "",
+        "derive Eq, Show for Colour;",
+        "/// A colour, or the name of one.",
+        "export enum Colour {",
+        "    Red,",
+        "    Named(Str),",
+        "}",
+        "",
+        "export struct Point {",
+        "    export x: Int,",
+        "    export y: Int,",
+        "}",
+        "",
+        "export fn describe<C: Alloc>(ctx: C, p: Point, c: Colour): Result<Str, Str> {",
+        "    let label = match (c) {",
+        "        .Red => \"red\",",
+        "        .Named(text) => text,",
+        "    };",
+        "    let scaled = (p.x + p.y) * 2;",
+        "    let sign = if (scaled > 0) { \"+\" } else { \"-\" };",
+        "    let parts = [label, sign];",
+        "    let lengths = parts.map(ctx, fn(s) => s.len());",
+        "    let here = Point { x: scaled, y: 0 };",
+        "    let first = parts.first().okOr(\"empty\")?;",
+        okLine(ctx),
+        "}",
+        "",
+    ].join(ctx, "\n")
+}
+
+test "a whole module prints the source the formatter leaves alone" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let items = imports().concat(ctx, colour()).concat(ctx, [point(), describe()]);
+    let m = ast.Module { items: items, docs: ["A generated module."] };
+    assert.eq(ast.print(ctx, m).text, expected(ctx));
+}
+
+test "nothing in that module knows where it came from" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let items = imports().concat(ctx, colour()).concat(ctx, [point(), describe()]);
+    let m = ast.Module { items: items, docs: ["A generated module."] };
+    assert.isEmpty(ast.print(ctx, m).anchors);
+}

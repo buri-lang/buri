@@ -1,0 +1,21 @@
+error: this lambda parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:36:28
+   |
+36 |     parsed.errors.find(fn(d=> ) d.code == code)
+   |                            ^^
+   |
+  --> main.buri:36:26
+   |
+36 |     parsed.errors.find(fn(d=> ) d.code == code)
+   |                          ^ opened here
+   |
+   = fix: write `)` here
+error: expected `=>`, found `d` [unexpected-token]
+  --> main.buri:36:33
+   |
+36 |     parsed.errors.find(fn(d=> ) d.code == code)
+   |                                 ^
+   |
+   = expected: `=>`
+   = actual: `d`
+   = fix: write `=>` here

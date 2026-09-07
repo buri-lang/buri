@@ -1,0 +1,35 @@
+error: `Type` is missing `origin` [missing-field-value]
+  --> main.buri:37:5
+   |
+37 |     ast.Type { kind: .Named(n(text, args), origin: ast.nowhere() }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: give `origin` a value — only an `Option` field may be left out — or start from an existing one with `Type { ..base, field: value }`
+error: `n` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:37:29
+   |
+37 |     ast.Type { kind: .Named(n(text, args), origin: ast.nowhere() }
+   |                             ^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: there is nothing named `origin` in scope [unresolved-name]
+  --> main.buri:37:44
+   |
+37 |     ast.Type { kind: .Named(n(text, args), origin: ast.nowhere() }
+   |                                            ^^^^^^
+   |
+   = fix: declare `origin`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:37:50
+   |
+37 |     ast.Type { kind: .Named(n(text, args), origin: ast.nowhere() }
+   |                                                  ^
+   |
+  --> main.buri:37:28
+   |
+37 |     ast.Type { kind: .Named(n(text, args), origin: ast.nowhere() }
+   |                            ^ opened here
+   |
+   = fix: write `)` here

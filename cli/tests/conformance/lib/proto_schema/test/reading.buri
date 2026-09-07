@@ -1,0 +1,341 @@
+// What a well-formed schema reads as.
+//
+// One schema with everything in it — a package, imports, a file feature, an
+// enum, a message with a feature of its own, five fields, a oneof, a nested
+// message and a nested enum — read once and asserted piece by piece. The
+// alternative is a test per construct, each with its own schema, and then no
+// case says what happens when they sit in one file.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "std/codegen/proto/schema" import * as schema;
+from "std/codegen/proto/schema" import {
+    Label, Presence, RepeatedEncoding, Scalar, TypeRef,
+};
+from "//lib/proto_schema" import { at, lines, read, withEdition };
+
+/// The schema every case here reads.
+fn everything<C: Alloc>(ctx: C): Str {
+    withEdition(
+        ctx,
+        lines(ctx, [
+            "package example.v1;",
+            "import \"proto/address.proto\";",
+            "import \"proto/other.proto\";",
+            "",
+            "option java_package = \"com.example\";",
+            "option features.field_presence = IMPLICIT;",
+            "",
+            "// A colour, and a comment to read past.",
+            "enum Colour {",
+            "  COLOUR_UNSPECIFIED = 0;",
+            "  RED = 1 [deprecated = true];",
+            "}",
+            "",
+            "message Person {",
+            "  option features.repeated_field_encoding = EXPANDED;",
+            "  reserved 9, 15 to 20;",
+            "  reserved \"old\";",
+            "  string name = 1;",
+            "  int32 age = 2 [features.field_presence = EXPLICIT, deprecated = true];",
+            "  repeated string emails = 3;",
+            "  Address home = 4;",
+            "  google.protobuf.Any payload = 5;",
+            "  oneof contact { string phone = 6; Address office = 7; }",
+            "  message Nickname { string text = 1; }",
+            "  enum Kind { KIND_UNSPECIFIED = 0; }",
+            "}",
+        ]),
+    )
+}
+
+test "a schema reads as the declarations it makes" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let parsed = read(ctx, everything(ctx));
+    assert.isEmpty(parsed.errors);
+    let s = parsed.schema;
+    assert.eq(s.package.withDefault("?"), "example.v1");
+    assert.len(s.imports, 2);
+    assert.eq(assert.some(s.imports.get(0)).path, "proto/address.proto");
+    assert.eq(assert.some(s.imports.get(1)).path, "proto/other.proto");
+    assert.len(s.enums, 1);
+    assert.len(s.messages, 1);
+}
+
+test "an enum keeps its values, in order, with their numbers" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let colour = assert.some(read(ctx, everything(ctx)).schema.enums.get(0));
+    assert.eq(colour.name, "Colour");
+    assert.len(colour.values, 2);
+    assert.eq(assert.some(colour.values.get(0)).name, "COLOUR_UNSPECIFIED");
+    assert.eq(assert.some(colour.values.get(0)).number, 0);
+    assert.eq(assert.some(colour.values.get(1)).name, "RED");
+    assert.eq(assert.some(colour.values.get(1)).number, 1);
+}
+
+test "a message keeps the fields that are not in a oneof, in order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
+    assert.eq(person.name, "Person");
+    assert.len(person.fields, 5);
+
+    let name = assert.some(person.fields.get(0));
+    assert.eq(name.name, "name");
+    assert.eq(name.number, 1);
+    assert.eq(name.label, Label.Single);
+    assert.eq(name.ty, TypeRef.Scalar(Scalar.Str));
+    assert.none(name.features.fieldPresence);
+
+    let age = assert.some(person.fields.get(1));
+    assert.eq(age.ty, TypeRef.Scalar(Scalar.Int32));
+    assert.eq(assert.some(age.features.fieldPresence), Presence.Explicit);
+
+    let emails = assert.some(person.fields.get(2));
+    assert.eq(emails.label, Label.Repeated);
+    assert.eq(emails.ty, TypeRef.Scalar(Scalar.Str));
+
+    assert.eq(assert.some(person.fields.get(3)).ty, TypeRef.Named("Address"));
+    // `google.protobuf.Any` is a two-field message and reads as one. Nothing
+    // here knows the name is special.
+    assert.eq(
+        assert.some(person.fields.get(4)).ty,
+        TypeRef.Named("google.protobuf.Any"),
+    );
+}
+
+test "a oneof keeps its cases, and a case carries no label" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
+    assert.len(person.oneofs, 1);
+    let contact = assert.some(person.oneofs.get(0));
+    assert.eq(contact.name, "contact");
+    assert.len(contact.cases, 2);
+    assert.eq(assert.some(contact.cases.get(0)).name, "phone");
+    assert.eq(assert.some(contact.cases.get(0)).number, 6);
+    assert.eq(assert.some(contact.cases.get(0)).ty, TypeRef.Scalar(Scalar.Str));
+    assert.eq(assert.some(contact.cases.get(1)).ty, TypeRef.Named("Address"));
+}
+
+test "a nested message and a nested enum sit inside the message that declared them" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let person = assert.some(read(ctx, everything(ctx)).schema.messages.get(0));
+    assert.len(person.messages, 1);
+    let nickname = assert.some(person.messages.get(0));
+    assert.eq(nickname.name, "Nickname");
+    assert.len(nickname.fields, 1);
+    assert.len(person.enums, 1);
+    assert.eq(assert.some(person.enums.get(0)).name, "Kind");
+}
+
+test "a feature resolves from the field outwards, and the edition is the floor" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = read(ctx, everything(ctx)).schema;
+    assert.eq(assert.some(s.features.fieldPresence), Presence.Implicit);
+    let person = assert.some(s.messages.get(0));
+    assert.eq(
+        assert.some(person.features.repeatedFieldEncoding),
+        RepeatedEncoding.Expanded,
+    );
+
+    let scopes = person.features.over(s.features).over(schema.editionDefaults());
+    // The file's value reaches a field that says nothing...
+    assert.eq(
+        assert.some(person.fields.get(0)).features.over(scopes).presence(),
+        Presence.Implicit,
+    );
+    // ...and the field's own wins where it does.
+    assert.eq(
+        assert.some(person.fields.get(1)).features.over(scopes).presence(),
+        Presence.Explicit,
+    );
+    // The message asked for the expanded encoding, so the file does not repack.
+    assert.isFalse(scopes.packed());
+}
+
+test "the edition's own defaults are the ones protobuf resolves" {
+    let defaults = schema.editionDefaults();
+    assert.eq(defaults.presence(), Presence.Explicit);
+    assert.isTrue(defaults.packed());
+    // A scope that says nothing changes nothing.
+    assert.eq(schema.inherited().over(defaults), defaults);
+}
+
+test "every declaration carries the span of the text that produced it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = everything(ctx);
+    let s = read(ctx, text).schema;
+    let person = assert.some(s.messages.get(0));
+    assert.eq(at(ctx, text, person.origin), "Person");
+    assert.eq(
+        at(ctx, text, assert.some(person.fields.get(0)).origin),
+        "string name = 1;",
+    );
+    assert.eq(
+        at(ctx, text, assert.some(s.imports.get(0)).origin),
+        "\"proto/address.proto\"",
+    );
+    let colour = assert.some(s.enums.get(0));
+    assert.eq(at(ctx, text, colour.origin), "Colour");
+    assert.eq(at(ctx, text, assert.some(colour.values.get(1)).origin), "RED");
+}
+
+test "comments of both kinds are trivia, wherever they fall" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        lines(ctx, [
+            "// line",
+            "/* block",
+            "   spanning */",
+            "message M { int64 x = 1; /* here */ }",
+        ]),
+    );
+    let parsed = read(ctx, text);
+    assert.isEmpty(parsed.errors);
+    assert.len(assert.some(parsed.schema.messages.get(0)).fields, 1);
+}
+
+test "option and reserved are skipped rather than refused" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        lines(ctx, [
+            "option java_package = \"com.x\";",
+            "message M {",
+            "  option (my.opt) = { a: 1 };",
+            "  reserved 2, 15 to 20;",
+            "  reserved \"old\";",
+            "  int32 x = 1 [deprecated = true];",
+            "}",
+        ]),
+    );
+    let parsed = read(ctx, text);
+    assert.isEmpty(parsed.errors);
+    let m = assert.some(parsed.schema.messages.get(0));
+    assert.len(m.fields, 1);
+    assert.eq(assert.some(m.fields.get(0)).name, "x");
+}
+
+test "a source-only feature is read past, so a schema can opt out of the naming lint" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        lines(ctx, [
+            "option features.enforce_naming_style = STYLE_LEGACY;",
+            "option features.default_symbol_visibility = EXPORT_ALL;",
+            "message M { int32 FieldName8 = 1; }",
+        ]),
+    );
+    let parsed = read(ctx, text);
+    assert.isEmpty(parsed.errors);
+    assert.len(assert.some(parsed.schema.messages.get(0)).fields, 1);
+}
+
+test "a malformed field does not swallow the rest of the file" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = withEdition(ctx, "message M { int32 = 1; string ok = 2; }\n");
+    let parsed = read(ctx, text);
+    assert.notEmpty(parsed.errors);
+    let m = assert.some(parsed.schema.messages.get(0));
+    assert.len(m.fields, 1);
+    assert.eq(assert.some(m.fields.get(0)).name, "ok");
+}
+
+/// The shapes `cli/tests/proto/`'s vendored schema is made of, kept verbatim:
+/// a corecursive nested message, an enum with a negative value, an enum with an
+/// `option` and aliased values, a field option the reader steps over, the names
+/// the JSON convention is tested with, and a nine-case oneof.
+fn vendored<C: Alloc>(ctx: C): Str {
+    withEdition(
+        ctx,
+        lines(ctx, [
+            "option features.enforce_naming_style = STYLE_LEGACY;",
+            "",
+            "package protobuf_test_messages.proto3;",
+            "",
+            "option java_package = \"com.google.protobuf_test_messages.proto3\";",
+            "option cc_enable_arenas = true;",
+            "",
+            "message TestAllTypesProto3 {",
+            "  message NestedMessage {",
+            "    int32 a = 1;",
+            "    TestAllTypesProto3 corecursive = 2;",
+            "  }",
+            "",
+            "  enum NestedEnum {",
+            "    FOO = 0;",
+            "    BAR = 1;",
+            "    NEG = -1;  // Intentionally negative.",
+            "  }",
+            "",
+            "  enum AliasedEnum {",
+            "    option allow_alias = true;",
+            "",
+            "    ALIAS_FOO = 0;",
+            "    ALIAS_BAR = 1;",
+            "    moo = 2;",
+            "  }",
+            "",
+            "  int32 optional_int32 = 1;",
+            "  repeated NestedMessage repeated_nested_message = 48;",
+            "  repeated string repeated_string_piece = 54 [ctype = STRING_PIECE];",
+            "",
+            "  oneof oneof_field {",
+            "    uint32 oneof_uint32 = 111;",
+            "    NestedMessage oneof_nested_message = 112;",
+            "    NestedEnum oneof_enum = 119;",
+            "  }",
+            "",
+            "  int32 field__name4_ = 404;",
+            "  int32 field_0_name6 = 406;",
+            "}",
+        ]),
+    )
+}
+
+test "the shapes the vendored conformance schema is made of read clean" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let parsed = read(ctx, vendored(ctx));
+    assert.isEmpty(parsed.errors);
+    let m = assert.some(parsed.schema.messages.get(0));
+    assert.eq(m.name, "TestAllTypesProto3");
+    assert.len(m.fields, 5);
+    // A message field of the enclosing message's own type.
+    let nested = assert.some(m.messages.get(0));
+    assert.eq(
+        assert.some(nested.fields.get(1)).ty,
+        TypeRef.Named("TestAllTypesProto3"),
+    );
+    // A negative enum value is a value like any other.
+    let e = assert.some(m.enums.get(0));
+    assert.eq(assert.some(e.values.get(2)).number, -1);
+    // `option allow_alias` inside an enum is skipped, and an alias is not the
+    // reader's business.
+    assert.len(assert.some(m.enums.get(1)).values, 3);
+    assert.len(assert.some(m.oneofs.get(0)).cases, 3);
+}

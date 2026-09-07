@@ -1,8 +1,8 @@
 //! `buri gen`.
 //!
-//! Rewrites the seven fields that restate the sources — `sources`,
-//! `proto_sources`, `dependencies`, `test.sources`, `test.dependencies`,
-//! `testing.sources`, `testing.dependencies` — and no others. `tags`, `platforms`,
+//! Rewrites the six fields that restate the sources — `sources`,
+//! `dependencies`, `test.sources`, `test.dependencies`, `testing.sources`,
+//! `testing.dependencies` — and no others. `generators`, `tags`, `platforms`,
 //! `timeout_seconds`, `visibility`, `outputs`, `test.platforms`,
 //! and every comment come back saying exactly what they said — see
 //! `crate::build::regenerate`, which does the rewriting.

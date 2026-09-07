@@ -11,10 +11,11 @@ error: there is no module "core/lists" [no-such-module]
 
 ## What to do
 
-Check the path. There are two kinds and no others: `"core/..."` and `"ui/..."`
-for the standard library's two reserved roots, and `"//..."` for this
-repository, from its root. A surface is named as a module — `"core/list"`,
-`"//lib/money"` — and every other module by its file, extension and all.
+Check the path. There are two kinds and no others: `"core/..."`, `"ui/..."` and
+`"std/..."` for the standard library's three reserved roots, and `"//..."` for
+this repository, from its root. A surface is named as a module —
+`"core/list"`, `"//lib/money"` — and every other module by its file, extension
+and all.
 
 The error lands where the path is written rather than where the missing name is
 later used.

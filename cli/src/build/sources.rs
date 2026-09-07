@@ -23,7 +23,7 @@
 //! here reads a modification time or a request counter.
 
 use crate::build::session::{self, Session};
-use crate::build::workspace::{ModuleLocation, Workspace};
+use crate::build::workspace::Workspace;
 use crate::commands::arguments::Flags;
 use crate::compiler::driver::Analysis;
 use crate::diagnostics::FileId;
@@ -238,8 +238,21 @@ impl Sources {
     /// Cheap: the text and the parses are shared, so what is copied is a
     /// vector of pointers. The copy is the caller's to write to, and what it
     /// goes on to read is offered back through [`Sources::keep`].
+    /// The one door every command opens a repository through, which is why
+    /// this is where the generators run.
+    ///
+    /// A `generators` entry names a program, and running it needs a session to
+    /// build the tool with — so it cannot happen while the graph is loading,
+    /// and it must happen before anything analyses a module a generator
+    /// produced. Doing it here is what makes `buri build`, `buri test`,
+    /// `buri lint` and the language server read one answer. What it produced is
+    /// recorded on the workspace, which is shared by every copy of the session,
+    /// so a rule whose inputs and tool have not moved is a lookup.
     pub fn session(&mut self, overlay: &Overlay) -> Result<Session, String> {
-        Ok((*self.shared(overlay)?).clone())
+        let mut session = (*self.shared(overlay)?).clone();
+        let flags = self.flags.clone();
+        crate::build::generators::prepare(&mut session, &flags, overlay);
+        Ok(session)
     }
 
     /// The files an analysis went on to read, kept for the next one.
@@ -368,11 +381,12 @@ impl Sources {
 
 /// The files on disk one analysis read, which is what its answer depends on.
 ///
-/// The modules' own files, and the schema behind each generated `.proto`
-/// module: a generated module carries no path of its own, so stopping at the
-/// modules would leave a schema edit out of every key built from this list.
-/// The standard library is not among them — it is compiled into this binary,
-/// and its identity is the toolchain version.
+/// The modules' own files, and — for a module nothing read off the disk —
+/// every input of the rule whose generator produced it, the schema behind a
+/// `.proto` module included. A generated module carries no path of its own, so
+/// stopping at the modules would leave an input edit out of every key built
+/// from this list. The standard library is not among them — it is compiled into
+/// this binary, and its identity is the toolchain version.
 pub fn closure_of(workspace: &Workspace, analysis: &Analysis) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for module in &analysis.loaded.modules {
@@ -380,11 +394,12 @@ pub fn closure_of(workspace: &Workspace, analysis: &Analysis) -> Vec<PathBuf> {
             files.push(disk.clone());
             continue;
         }
-        if !module.path.ends_with(".proto") {
+        if let Some(owner) = workspace.generated.owner(&module.path) {
+            let dir = &workspace.package(owner.package).dir;
+            for input in crate::build::generators::inputs(workspace, owner) {
+                files.push(dir.join(input));
+            }
             continue;
-        }
-        if let Ok(ModuleLocation::InPackage(schema)) = workspace.resolve_module(&module.path) {
-            files.push(schema.file);
         }
     }
     files.sort();
@@ -500,7 +515,7 @@ mod tests {
         let _ = std::fs::write(dir.join("REPO.buri"), "");
         let _ = std::fs::write(
             dir.join("lib/wire/BUILD.buri"),
-            "library {\n    proto_sources: [\"point.proto\"]\n}\n",
+            "library {\n    generators: [{ tool: \"std/codegen/proto\", inputs: [\"point.proto\"] }]\n}\n",
         );
         let _ = std::fs::write(
             dir.join("lib/wire/lib.buri"),

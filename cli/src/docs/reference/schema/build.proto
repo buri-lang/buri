@@ -11,11 +11,10 @@
 // line number rather than a silent no-op.
 //
 // `buri gen` rewrites only the fields it can derive from the sources —
-// `sources`, `proto_sources`, `dependencies`, and their `test`/`testing`
-// counterparts. It may
+// `sources`, `dependencies`, and their `test`/`testing` counterparts. It may
 // reformat the file as `buri format` would, but the *contents* of the
 // hand-authored fields survive: `tags`, `platforms`, and `timeout_seconds`
-// above all, and `visibility` and `outputs` with them. See CLI.md.
+// above all, and `visibility`, `outputs` and `generators` with them. See CLI.md.
 
 syntax = "proto3";
 
@@ -53,15 +52,24 @@ message Library {
   // is a build error, not a silently ignored file.
   repeated string sources = 1;
 
-  // Every .proto file in this package that belongs to this library. Each one
-  // becomes a module named by its own path — `//lib/money/rates.proto` — holding
-  // the types the schema declares and their four codecs. The module is internal
-  // to the rule exactly as a .buri source is, so `lib.buri` decides which of the
-  // generated names leave the library. See PROTO.md.
+  // Field 8 was `proto_sources` — the .proto schemas this rule owned, each
+  // becoming a module. Retired: it was a generator the build could not name,
+  // running one program on one language, so a repository wanting a second kind
+  // of generated code had no way to ask. A schema is a generator's input now,
+  // handed to `std/codegen/proto` through `generators`. The number is not
+  // reused.
+  reserved 8;
+  reserved "proto_sources";
+
+  // The generators this rule runs. Each one is a program the build executes,
+  // and every module it hands back belongs to this rule exactly as a .buri
+  // source does — internal to it, so `lib.buri` decides which of the generated
+  // names leave the library.
   //
-  // Package-relative, may descend into subdirectories, no globs. `buri gen`
-  // manages this field the way it manages `sources`.
-  repeated string proto_sources = 8;
+  // Hand-authored, like `visibility` and `outputs`. `buri gen` cannot know
+  // which generator owns a file, so it never writes this field and never
+  // touches an entry's `inputs`.
+  repeated Generator generators = 9;
 
   // Labels of libraries this one may use. `core/*` ships with the toolchain and
   // is never listed. Cycles are an error. A library is *used* by importing it
@@ -120,8 +128,13 @@ message Binary {
   // a co-located library, excluding `main.buri` and the test sources.
   repeated string sources = 1;
 
+  // Field 6 was `proto_sources`, retired for the reason the library's was. The
+  // number is not reused.
+  reserved 6;
+  reserved "proto_sources";
+
   // Exactly the same meaning as on a library.
-  repeated string proto_sources = 6;
+  repeated Generator generators = 7;
 
   repeated string dependencies = 2;
 
@@ -136,6 +149,27 @@ message Binary {
 
   // Tests that exercise this binary through `main.buri`.
   TestSuite test = 5;
+}
+
+// A program the build runs, whose output becomes a module.
+//
+// A generator is an ordinary Buri binary: it reads one JSON request on standard
+// input and writes one JSON response on standard output. Nothing else is
+// granted to it, so what it produces is a function of what it was handed.
+//
+// The module a generator names `N` is importable as `<this package's label>/N`,
+// so a generator naming `point.proto` in `//lib/wire` produces
+// `//lib/wire/point.proto`.
+message Generator {
+  // Which program to run. A `//label` names a binary target in this
+  // repository. Anything else names a generator the toolchain ships, and
+  // `std/codegen/proto` is the only one.
+  string tool = 1;
+
+  // The files handed to the generator, package-relative, no globs. Their
+  // contents are in the action key, so editing one re-runs the generator and
+  // rebuilds whatever depended on what it produced.
+  repeated string inputs = 2;
 }
 
 message Output {

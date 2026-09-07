@@ -1,0 +1,16 @@
+error: expected a type, found `@` [unexpected-token]
+  --> main.buri:60:43
+   |
+60 | export fn block(stmts: [ast.Stmt], tail: [@ ast.Expr]): ast.Block {
+   |                                           ^
+   |
+   = expected: a type
+   = actual: `@`
+   = fix: name a type here, as in `Int` or `[Str]`
+error: there is nothing named `block` in scope [unresolved-name]
+   --> main.buri:106:20
+    |
+106 |             body: [block(stmts, tail)],
+    |                    ^^^^^
+    |
+    = fix: declare `block`, or import it — a name is in scope only from this module's own declarations and its imports

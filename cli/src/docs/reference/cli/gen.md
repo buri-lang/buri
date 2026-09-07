@@ -1,11 +1,14 @@
 ## What it does
 
-Rewrites the seven fields of an existing build file that restate its sources:
-`sources`, `proto_sources`, `dependencies`, `test.sources`,
-`test.dependencies`, `testing.sources` and `testing.dependencies`. It reads
-what the source tree actually holds and what its modules actually import. It
-touches nothing else, so rules, tags, platforms, visibility, outputs, and
-comments all survive.
+Rewrites the six fields of an existing build file that restate its sources:
+`sources`, `dependencies`, `test.sources`, `test.dependencies`,
+`testing.sources` and `testing.dependencies`. It reads what the source tree
+actually holds and what its modules actually import. It touches nothing else, so
+rules, generators, tags, platforms, visibility, outputs, and comments all
+survive.
+
+`generators` is the field it deliberately leaves alone: nothing can work out
+which generator owns a new file, so an entry and its `inputs` are yours.
 
 With no target argument it regenerates every package in the repository: bare
 `buri gen` is `buri gen //...`. That default matters most here. Restate a tree

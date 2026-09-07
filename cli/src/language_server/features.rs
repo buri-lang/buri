@@ -15,6 +15,7 @@ use crate::json::Value;
 use crate::parsing::tree::Item;
 use std::path::Path;
 use super::convert::{self, Position};
+use super::origins;
 use super::state::Analyzed;
 use super::symbols;
 
@@ -56,7 +57,18 @@ pub fn hover(
     // what a function is, and the type of the name is the least interesting
     // thing about it.
     if let Some(found) = symbols::at(analyzed, path, text, offset) {
-        let (signature, docs) = symbols::describe(analyzed, &found.symbol);
+        let (signature, mut docs) = symbols::describe(analyzed, &found.symbol);
+        // A generated declaration's prose is written in the input, not in the
+        // text the generator printed — so the signature comes from the module
+        // and the sentences come from the schema the reader would go and edit.
+        // Nothing is invented and the generator is not asked: the origin names
+        // a span in a file, and the comment above it is read out of that file.
+        let declaration = symbols::declaration(analyzed, &found.symbol);
+        if let Some(at) = origins::of_span(&analyzed.session, declaration) {
+            if let Some(input) = at.text(&analyzed.session) {
+                docs.extend(origins::doc_comment(&input, &at));
+            }
+        }
         return Some(rendered(text, "buri", &signature, &docs, found.span, kind));
     }
 
@@ -246,9 +258,21 @@ fn location(analyzed: &Analyzed, span: crate::diagnostics::Span) -> Option<Value
         return None;
     }
     let f = analyzed.session.map.get(span.file);
-    // The standard library has no file on disk — it is `include_str!`d into the
-    // binary — so there is nowhere to send the editor.
     if f.abs_path.as_os_str().is_empty() {
+        // Generated code is written from an input, and the input is the file a
+        // reader wants: the declaration in the schema, not the printed struct
+        // the next build rewrites. An offset the generator anchored is the one
+        // that can say which.
+        if let Some(at) = origins::of_span(&analyzed.session, span) {
+            let text = at.text(&analyzed.session)?;
+            return Some(Value::object(vec![
+                ("uri", Value::str(at.uri())),
+                ("range", convert::range(&text, at.span_in(span))),
+            ]));
+        }
+        // The standard library has no file on disk — it is `include_str!`d into
+        // the binary — and neither does generated text nothing anchored, so
+        // there is nowhere to send the editor.
         return None;
     }
     let text = &f.text;

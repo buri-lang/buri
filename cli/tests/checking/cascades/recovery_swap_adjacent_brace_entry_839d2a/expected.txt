@@ -1,0 +1,32 @@
+error: there is nothing named `request` in scope [unresolved-name]
+  --> main.buri:47:5
+   |
+47 |     request let = Request {
+   |     ^^^^^^^
+   |
+   = did you mean `Request`?
+   = fix: correct the spelling, or declare it
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:47:12
+   |
+47 |     request let = Request {
+   |            ^
+   |
+   = fix: write `;` here
+error: expected a pattern, found `=` [unexpected-token]
+  --> main.buri:47:17
+   |
+47 |     request let = Request {
+   |                 ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `request` in scope [unresolved-name]
+  --> main.buri:51:31
+   |
+51 |     let out = proto.emit(ctx, request);
+   |                               ^^^^^^^
+   |
+   = did you mean `Request`?
+   = fix: correct the spelling, or declare it

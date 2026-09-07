@@ -1,0 +1,74 @@
+error: expected an identifier, found `,` [unexpected-token]
+ --> main.buri:9:29
+  |
+9 | from "core/effect" import { , Alloc };
+  |                             ^
+  |
+  = expected: an identifier
+  = actual: `,`
+  = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type
+error: expected a declaration, found `;` [unexpected-token]
+ --> main.buri:9:38
+  |
+9 | from "core/effect" import { , Alloc };
+  |                                      ^
+  |
+  = expected: a declaration
+  = actual: `;`
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: `Alloc` is not a declared effect [not-an-effect]
+  --> main.buri:16:9
+   |
+16 |         Alloc: alloc(),
+   |         ^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Alloc` is not one
+error: `a context` does not satisfy `Alloc` [unsatisfied-bound]
+  --> main.buri:31:15
+   |
+31 |     let out = proto.emit(ctx, request);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Alloc`, or use a type that has one
+error: `a context` does not satisfy `Alloc` [unsatisfied-bound]
+  --> main.buri:33:15
+   |
+33 |     assert.eq(out.modules.map(ctx, fn(m) => m.0), ["address.proto", "point.proto"]);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Alloc`, or use a type that has one
+error: `a context` does not satisfy `Alloc` [unsatisfied-bound]
+  --> main.buri:35:16
+   |
+35 |     let text = ast.print(ctx, person.1).text.lines(ctx);
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Alloc`, or use a type that has one
+error: `a context` does not satisfy `Alloc` [unsatisfied-bound]
+  --> main.buri:35:16
+   |
+35 |     let text = ast.print(ctx, person.1).text.lines(ctx);
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Alloc`, or use a type that has one
+error: `Alloc` is not a declared effect [not-an-effect]
+  --> main.buri:45:9
+   |
+45 |         Alloc: alloc(),
+   |         ^^^^^
+   |
+   = fix: name an effect the platform declares, as in `Alloc` or `Stdout`; `Alloc` is not one
+error: `a context` does not satisfy `Alloc` [unsatisfied-bound]
+  --> main.buri:51:15
+   |
+51 |     let out = proto.emit(ctx, request);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Alloc`, or use a type that has one
+error: `a context` does not satisfy `Alloc` [unsatisfied-bound]
+  --> main.buri:52:15
+   |
+52 |     assert.eq(out.diagnostics.map(ctx, fn(d) => d.code), ["proto-syntax-declaration"]);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Alloc`, or use a type that has one

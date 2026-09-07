@@ -277,7 +277,10 @@ fn an_else_if_chain_compiles_at_the_size_generated_code_reaches() {
 #[test]
 fn a_protobuf_schema_with_many_fields_builds() {
     let s = Scratch::repo("adversarial-proto");
-    s.write("lib/big/BUILD.buri", "library {\n  proto_sources: [\"big.proto\"]\n}\n");
+    s.write(
+        "lib/big/BUILD.buri",
+        "library {\n  generators: [{ tool: \"std/codegen/proto\", inputs: [\"big.proto\"] }]\n}\n",
+    );
     s.write("lib/big/lib.buri", "from \"//lib/big/big.proto\" export { M };\n");
     let fields: String =
         (0..2_000).map(|i| format!("  int32 f{i} = {};\n", i + 1)).collect();
@@ -446,7 +449,10 @@ fn a_source_file_that_is_a_directory_is_a_diagnostic() {
 #[test]
 fn a_hostile_schema_is_a_diagnostic() {
     let s = Scratch::repo("adversarial-schema");
-    s.write("lib/bad/BUILD.buri", "library {\n  proto_sources: [\"bad.proto\"]\n}\n");
+    s.write(
+        "lib/bad/BUILD.buri",
+        "library {\n  generators: [{ tool: \"std/codegen/proto\", inputs: [\"bad.proto\"] }]\n}\n",
+    );
     s.write("lib/bad/lib.buri", "from \"//lib/bad/bad.proto\" export { M };\n");
     for (what, text) in [
         ("nested messages", format!("edition = \"2026\";\npackage p;\n{}{}", "message M {".repeat(10_000), "}".repeat(10_000))),

@@ -35,22 +35,20 @@ use super::state::State;
 /// The files these operations are about, and the ones the server asks to have
 /// watched.
 ///
-/// One glob for both source languages: a `.buri` module and a `.proto` schema
-/// are both listed by a rule, in `sources` and `proto_sources` respectively.
-/// `matches: "file"` and not a folder — a folder is not a module, and the
-/// modules inside one arrive as their own operations if the client sends them
-/// at all.
+/// One glob for both source languages: a `.buri` module is listed in a rule's
+/// `sources`, and a `.proto` schema is a generator's input, so an edit to
+/// either moves what the analysis reads. `matches: "file"` and not a folder —
+/// a folder is not a module, and the modules inside one arrive as their own
+/// operations if the client sends them at all.
 pub const GLOB: &str = "**/*.{buri,proto}";
 
 /// The `sources`-family fields a rule can hold, in the order they are searched
 /// for an entry.
-const FIELDS: [(&str, &[&str]); 7] = [
+const FIELDS: [(&str, &[&str]); 5] = [
     ("library", &["sources"]),
-    ("library", &["proto_sources"]),
     ("library", &["test", "sources"]),
     ("library", &["testing", "sources"]),
     ("binary", &["sources"]),
-    ("binary", &["proto_sources"]),
     ("binary", &["test", "sources"]),
 ];
 
@@ -265,6 +263,10 @@ fn module_path(package_path: &str, rel: &str) -> Option<String> {
 /// entry point's imports reach it, and nothing reaches a file that does not
 /// exist yet. An entry point is `None` too — `lib.buri`, `main.buri` and
 /// `testing/lib.buri` are named by the rule itself and are in no list.
+///
+/// A generator's input is `None` too. `generators` is hand-authored — nothing
+/// can work out which entry owns a new file — so a `.proto` that appears is
+/// left for whoever writes the entry.
 fn destination(place: &Placement) -> Option<(&'static str, &'static [&'static str])> {
     if ENTRY_POINTS.contains(&place.rel.as_str()) {
         return None;
@@ -277,19 +279,20 @@ fn destination(place: &Placement) -> Option<(&'static str, &'static [&'static st
         (false, false, true) => "binary",
         (false, _, _) => return None,
     };
-    Some((rule, field_for(&place.rel)))
+    Some((rule, field_for(&place.rel)?))
 }
 
 /// Which list holds a file, by the same reading of its path `buri gen` uses.
-fn field_for(rel: &str) -> &'static [&'static str] {
-    if rel.starts_with("testing/") {
-        &["testing", "sources"]
+/// `None` when no list does.
+fn field_for(rel: &str) -> Option<&'static [&'static str]> {
+    if rel.ends_with(".proto") {
+        None
+    } else if rel.starts_with("testing/") {
+        Some(&["testing", "sources"])
     } else if rel.starts_with("test/") {
-        &["test", "sources"]
-    } else if rel.ends_with(".proto") {
-        &["proto_sources"]
+        Some(&["test", "sources"])
     } else {
-        &["sources"]
+        Some(&["sources"])
     }
 }
 
@@ -534,9 +537,7 @@ mod tests {
             destination(&place("testing/help.buri", true, true)).map(|(_, f)| f),
             Some(&["testing", "sources"][..])
         );
-        assert_eq!(
-            destination(&place("shop.proto", true, false)).map(|(_, f)| f),
-            Some(&["proto_sources"][..])
-        );
+        // A schema is a generator's input, and `generators` is hand-authored.
+        assert!(destination(&place("shop.proto", true, false)).is_none());
     }
 }

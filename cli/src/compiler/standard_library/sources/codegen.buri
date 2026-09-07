@@ -1,0 +1,288 @@
+//! core/codegen — the protocol a generator speaks.
+//!
+//! A generator is an ordinary Buri binary. [`run`] reads one JSON line from
+//! `Stdin`, hands your function the [`Request`], and writes the [`Response`]
+//! back as one JSON line on `Stdout`.
+//!
+//! **`main` names `Alloc`, `Stdin` and `Stdout` and nothing else**, so a
+//! generator cannot read the clock or the filesystem. It is deterministic by
+//! the effect system rather than by a promise.
+//!
+//! **It sends text plus anchors, never the tree.** `run` calls
+//! `core/buri/ast`'s `print` on every module you return, so what reaches the
+//! compiler is source its one ordinary parser reads, with one anchor per node
+//! saying which span of which input produced it.
+//!
+//! The two documents:
+//!
+//! ```text
+//! -> {"inputs":[["lib/wire/point.proto","edition = \"2026\";\n"]],"dependencies":[]}
+//! <- {"modules":[{"name":"point.proto","text":"export type Id = Int;\n",
+//!     "anchors":[{"start":0,"end":21,"file":"lib/wire/point.proto","span":{"start":0,"end":2}}]}],
+//!     "diagnostics":[]}
+//! ```
+//!
+//! Every offset is a plain non-negative integer, and an unset `note`, `fix` or
+//! `origin` is `null`. Both documents are read and written by hand against
+//! `core/json` rather than with `derive ToJson`: their shape is this
+//! protocol's, and it must not move when a derive does.
+//!
+//! `run` answers `.Err(message)` when standard input holds no line, or holds a
+//! line that is not a request. Returning that from `main` is how a generator
+//! fails where you can see it.
+//!
+//! Cost: one parse of the request line, one `print` per module, and one pass
+//! over the response — O(n) in the text read plus the text written.
+//!
+//! ```buri run
+//! from "core/buri/ast" import * as ast;
+//! from "core/codegen" import * as codegen;
+//! from "core/codegen" import { Request, Response };
+//! from "core/effect" import { Alloc, Stdin, Stdout };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//!
+//! fn generate<C: Alloc>(ctx: C, request: Request): Response {
+//!     let modules = request.inputs.map(ctx, fn(input) => alias(input));
+//!     Response { modules: modules, diagnostics: [] }
+//! }
+//!
+//! /// One `export type Id = Int;` per input, anchored on its first two bytes.
+//! fn alias(input: (Str, Str)): (Str, ast.Module) {
+//!     let (path, _text) = input;
+//!     let int = ast.Name { text: "Int", origin: ast.nowhere() };
+//!     let item = ast.Item {
+//!         kind: .TypeAlias(ast.TypeAliasDecl {
+//!             name: ast.Name { text: "Id", origin: ast.nowhere() },
+//!             generics: [],
+//!             ty: ast.Type { kind: .Named(int, []), origin: ast.nowhere() },
+//!             exported: true,
+//!             docs: [],
+//!         }),
+//!         origin: ast.origin(path, 0, 2),
+//!     };
+//!     (path, ast.Module { items: [item], docs: [] })
+//! }
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdin: host.stdin,
+//!         Stdout: host.stdout,
+//!     };
+//!     // Nothing is piping a request in, so this run takes the failure path.
+//!     match (codegen.run(ctx, fn(c, request) => generate(c, request))) {
+//!         .Ok(_) => .Ok(()),
+//!         .Err(message) => {
+//!             let _ = io.println(ctx, message).ignore();
+//!             .Ok(())
+//!         },
+//!     }
+//! }
+//! ```
+//!
+//! ```stdout
+//! codegen: standard input held no request
+//! ```
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/str" import * as str;
+
+derive Eq, Show for Request;
+/// What the build hands a generator: the files the rule declared, and the
+/// files its dependencies own. Each pair is `(repository-relative path, text)`,
+/// in the order the rule declared them.
+export struct Request {
+    export inputs: [(Str, Str)],
+    export dependencies: [(Str, Str)],
+}
+
+derive Eq, Show for Diagnostic;
+/// Something the generator has to say about its input.
+///
+/// `code` is looked up in the toolchain's catalogue. `origin` is `.None` for a
+/// diagnostic about no particular place, which the build then anchors on the
+/// `generators` entry that ran the tool.
+export struct Diagnostic {
+    export code: Str,
+    export message: Str,
+    export note: Option<Str>,
+    export fix: Option<Str>,
+    export origin: Option<ast.Origin>,
+}
+
+/// What a generator answers: modules by name, and what it wants to say.
+///
+/// A module named `N` in a package labelled `//lib/wire` is importable as
+/// `//lib/wire/N`.
+export struct Response {
+    export modules: [(Str, ast.Module)],
+    export diagnostics: [Diagnostic],
+}
+
+/// Reads the request, calls `generate`, writes the response.
+///
+/// The whole of a generator's `main`. See the module header for one.
+export fn run<C: Alloc + Stdin + Stdout>(
+    ctx: C,
+    generate: fn(C, Request) => Response,
+): Result<(), Str> {
+    match (readRequest(ctx)) {
+        .Err(message) => .Err(message),
+        .Ok(request) => {
+            let line = encodeResponse(ctx, generate(ctx, request));
+            let written = io.println(ctx, line);
+            written.mapErrCtx(ctx, fn(c, e) => {
+                str.format(c, "codegen: the response could not be written: ${e}")
+            })
+        },
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Reading the request
+// -----------------------------------------------------------------------------
+
+fn readRequest<C: Alloc + Stdin>(ctx: C): Result<Request, Str> {
+    match (io.readLine(ctx)) {
+        .None => .Err("codegen: standard input held no request"),
+        .Some(line) => decodeRequest(ctx, line),
+    }
+}
+
+fn decodeRequest<C: Alloc>(ctx: C, line: Str): Result<Request, Str> {
+    match (json.parse(ctx, line)) {
+        .Err(e) => .Err(str.format(ctx, "codegen: the request is not JSON: ${e}")),
+        .Ok(doc) => {
+            match (doc) {
+                .Object(_) => {
+                    let inputs = pairs(ctx, doc, "inputs")?;
+                    let dependencies = pairs(ctx, doc, "dependencies")?;
+                    .Ok(Request { inputs: inputs, dependencies: dependencies })
+                },
+                _ => .Err("codegen: the request is not an object"),
+            }
+        },
+    }
+}
+
+/// `inputs` or `dependencies`. An absent member and a `null` one both mean the
+/// empty list, so a build that has nothing to send may say so either way.
+fn pairs<C: Alloc>(ctx: C, doc: Json, name: Str): Result<[(Str, Str)], Str> {
+    match (doc.get(name).filter(fn(v) => !v.isNull())) {
+        .None => .Ok([]),
+        .Some(value) => {
+            match (value.asArray()) {
+                .None => .Err(str.format(ctx, "codegen: `${name}` is not a list")),
+                .Some(items) => {
+                    let bad = str.format(
+                        ctx,
+                        "codegen: `${name}` holds something that is not a (path, text) pair",
+                    );
+                    items.mapResult(ctx, fn(item) => pair(bad, item))
+                },
+            }
+        },
+    }
+}
+
+fn pair(bad: Str, item: Json): Result<(Str, Str), Str> {
+    match (item.asArray()) {
+        .None => .Err(bad),
+        .Some(parts) => {
+            if (parts.len() != 2) {
+                .Err(bad)
+            } else {
+                match (parts.get(0).andThen(fn(v) => v.asStr())) {
+                    .None => .Err(bad),
+                    .Some(path) => {
+                        match (parts.get(1).andThen(fn(v) => v.asStr())) {
+                            .None => .Err(bad),
+                            .Some(text) => .Ok((path, text)),
+                        }
+                    },
+                }
+            }
+        },
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Writing the response
+// -----------------------------------------------------------------------------
+
+fn encodeResponse<C: Alloc>(ctx: C, response: Response): Str {
+    let modules = response
+        .modules
+        .mapCtx(ctx, fn(c, entry) => {
+            let (name, tree) = entry;
+            moduleJson(c, name, ast.print(c, tree))
+        });
+    let diagnostics = response.diagnostics.map(ctx, fn(d) => diagnosticJson(d));
+    json.stringify(
+        ctx,
+        Json.Object([
+            ("modules", Json.Array(modules)),
+            ("diagnostics", Json.Array(diagnostics)),
+        ]),
+    )
+}
+
+fn moduleJson<C: Alloc>(ctx: C, name: Str, printed: ast.Printed): Json {
+    let anchors = printed.anchors.map(ctx, fn(a) => anchorJson(a));
+    Json.Object([
+        ("name", Json.Str(name)),
+        ("text", Json.Str(printed.text)),
+        ("anchors", Json.Array(anchors)),
+    ])
+}
+
+fn anchorJson(a: ast.Anchor): Json {
+    Json.Object([
+        ("start", offset(a.start)),
+        ("end", offset(a.end)),
+        ("file", Json.Str(a.origin.file)),
+        ("span", spanJson(a.origin.span)),
+    ])
+}
+
+fn diagnosticJson(d: Diagnostic): Json {
+    Json.Object([
+        ("code", Json.Str(d.code)),
+        ("message", Json.Str(d.message)),
+        ("note", textOrNull(d.note)),
+        ("fix", textOrNull(d.fix)),
+        (
+            "origin",
+            match (d.origin) {
+                .Some(o) => originJson(o),
+                .None => Json.Null,
+            },
+        ),
+    ])
+}
+
+fn originJson(o: ast.Origin): Json {
+    Json.Object([("file", Json.Str(o.file)), ("span", spanJson(o.span))])
+}
+
+fn spanJson(span: ast.Span): Json {
+    Json.Object([("start", offset(span.start)), ("end", offset(span.end))])
+}
+
+fn textOrNull(text: Option<Str>): Json {
+    match (text) {
+        .Some(s) => Json.Str(s),
+        .None => Json.Null,
+    }
+}
+
+/// A byte offset. `stringify` writes a whole `Float` with no point and no
+/// exponent, which is the only number shape the other end of this wire reads.
+fn offset(n: Int): Json {
+    Json.Num(n.toF64())
+}

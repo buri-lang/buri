@@ -268,7 +268,8 @@ macOS enforces an undocumented FSEvents path limit at roughly
 
 **The proposal is not to watch.** The build already knows the exact set of
 files that can affect an action, because it reads and hashes every one of them
-to compute a key: `contribute` enumerates a rule's sources and proto sources,
+to compute a key: `contribute` enumerates a rule's sources and its generators'
+inputs,
 and `test_key` adds the suite's sources, its data, and the closure of every
 library the suite's own `dependencies` name. `watch::inputs` and `test_key`
 walk the same edges. So the watch set is a *declared, enumerated,
@@ -710,7 +711,7 @@ loop:
 Per selected target, the union of:
 
 - every path `contribute` enumerates for every member of the target's closure
-  — the rule's entry point, its `sources`, its `proto_sources`, and its
+  — the rule's entry point, its `sources`, its generators' `inputs`, and its
   `testing/` sources (`actions.rs`);
 - every path `test_key` enumerates — the suite's `sources`, its `data`, and
   the closure of every library its `test { dependencies }` and

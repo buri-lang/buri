@@ -26,6 +26,10 @@
 pub mod actions;
 pub mod buildfile;
 pub mod cache;
+/// `generators`: a program the build runs, whose output becomes a module. The
+/// wire it speaks, the action that runs it, and the store the compiler reads
+/// what it produced through.
+pub mod generators;
 pub mod link;
 /// The musl sysroot `cli/build.rs` baked in: the `libc.a`, unwinder and crt
 /// objects that finish a hermetic Linux link, and the `Libc` this toolchain's

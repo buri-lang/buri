@@ -1,2 +1,0 @@
-updated lib/wire/BUILD.buri
-  + proto_sources: point.proto

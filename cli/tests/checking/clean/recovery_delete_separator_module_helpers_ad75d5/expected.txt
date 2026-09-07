@@ -1,0 +1,7 @@
+error: a `let` declaration ends with `;` [missing-terminator]
+  --> main.buri:18:47
+   |
+18 | export let HEAD: Str = "edition = \"2026\";\n"
+   |                                               ^
+   |
+   = fix: write `;` here

@@ -1,0 +1,17 @@
+library {
+    sources: ["builders.buri"]
+
+    test {
+        sources: [
+            "test/items.buri",
+            "test/module.buri",
+            "test/expressions.buri",
+            "test/anchors.buri",
+        ]
+
+        # The reference run, on the reference backend: `native::conformance`
+        # drives these same files through the stencil backend
+        # (cli/tests/README.md).
+        platforms: [JS]
+    }
+}

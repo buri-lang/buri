@@ -1,3 +1,5 @@
 library {
-    proto_sources: ["left.proto", "right.proto", "use.proto"]
+    generators: [
+        { tool: "std/codegen/proto", inputs: ["left.proto", "right.proto", "use.proto"] },
+    ]
 }

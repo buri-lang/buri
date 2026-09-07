@@ -1,0 +1,21 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# The generator writes a program the checker refuses, twice over. `width three`
+# prints `export let width: Int = three;` anchored at that line of `units.txt`;
+# the `~` line prints `export let spare: Int = nothing;` anchored nowhere.
+# Neither error is in a file on disk, and both used to be dropped in silence —
+# a repository showing a clean editor over code that does not build.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"diagnostic": {"relatedDocumentSupport": true}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+# Opening the surface analyses the rule, which is what compiles what the
+# generator produced. Two publishes follow: one for the input, one for the
+# build file — and the buffer that was opened is clean, because nothing is
+# wrong in it.
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri", "languageId": "buri", "version": 1, "text": "// The surface of the generated module: what a generator produces belongs to\n// the rule that ran it, so this is what lets anything else name what it holds.\nfrom \"//lib/wire/units\" export { spare, width };\n"}}}
+# The same two, pulled rather than published. The buffer itself is clean, and
+# the two findings arrive as related documents — which is the shape a client
+# that claimed `relatedDocumentSupport` reads a finding about a file it did not
+# ask about in.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/diagnostic", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}}}
+{"jsonrpc": "2.0", "id": 3, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

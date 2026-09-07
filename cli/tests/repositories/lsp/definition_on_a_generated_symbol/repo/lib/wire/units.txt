@@ -1,0 +1,3 @@
+# The plate's width, in millimetres.
+width 3
+~export let spare: Int = 7;

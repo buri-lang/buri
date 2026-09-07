@@ -547,7 +547,11 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
     };
     if let Some(lib) = &p.build.library {
         push(&lib.sources, &mut declared);
-        push(&lib.proto_sources, &mut declared);
+        // A generator's input is declared by the entry that hands it over.
+        // Without this every one of them is a file no rule lists.
+        for g in &lib.generators {
+            push(&g.inputs, &mut declared);
+        }
         if let Some(t) = &lib.test {
             push(&t.sources, &mut declared);
         }
@@ -557,7 +561,9 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
     }
     if let Some(bin) = &p.build.binary {
         push(&bin.sources, &mut declared);
-        push(&bin.proto_sources, &mut declared);
+        for g in &bin.generators {
+            push(&g.inputs, &mut declared);
+        }
         if let Some(t) = &bin.test {
             push(&t.sources, &mut declared);
         }
@@ -581,16 +587,33 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
     known.insert("main.buri".into());
     known.insert("testing/lib.buri".into());
 
+    // What a generator's inputs wear. A generator reads whatever it likes, so
+    // "every file belongs to a rule" cannot be asked of every file on disk —
+    // a README is nobody's. It can be asked of a file wearing an extension a
+    // generator in *this package* already reads: something declares `.units`
+    // here, so a second `.units` that nothing declares is an oversight rather
+    // than a document.
+    let mut extensions: BTreeSet<String> = BTreeSet::new();
+    for kind in [RuleKind::Library, RuleKind::Binary] {
+        let target = crate::build::workspace::TargetId { package, kind };
+        for input in crate::build::generators::inputs(&session.workspace, target) {
+            if let Some((_, ext)) = input.rsplit_once('.') {
+                extensions.insert(ext.to_string());
+            }
+        }
+    }
+
     let mut on_disk = Vec::new();
-    collect_package_sources(&p.dir, &p.dir, &mut on_disk);
+    collect_package_sources(&p.dir, &p.dir, &extensions, &mut on_disk);
     for rel in on_disk {
         if known.contains(&rel) {
             continue;
         }
-        // A `.proto` is declared in `proto_sources` rather than `sources`, and
-        // the fix has to say which — the rule is the same rule ("everything is
-        // declared"), so the code is the same code.
-        let field = if rel.ends_with(".proto") { "proto_sources" } else { "sources" };
+        // Which field a file belongs in follows from what it is, and the fix
+        // has to say which — the rule is the same rule ("everything is
+        // declared"), so the code is the same code. Anything that is not a
+        // `.buri` is nobody's but a generator's, a schema included.
+        let field = if rel.ends_with(".buri") { "sources" } else { "generators" };
         diagnostics.push(
             Diagnostic::templated("unused-library", Span::point(p.build_file_id, 0))
                 .with_bind("package_path", p.path.as_str())
@@ -600,7 +623,12 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
     }
 }
 
-fn collect_package_sources(root: &Path, dir: &Path, out: &mut Vec<String>) {
+fn collect_package_sources(
+    root: &Path,
+    dir: &Path,
+    extensions: &BTreeSet<String>,
+    out: &mut Vec<String>,
+) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut items: Vec<PathBuf> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
     items.sort();
@@ -614,9 +642,10 @@ fn collect_package_sources(root: &Path, dir: &Path, out: &mut Vec<String>) {
             if p.join("BUILD.buri").is_file() {
                 continue;
             }
-            collect_package_sources(root, &p, out);
+            collect_package_sources(root, &p, extensions, out);
         } else if (p.extension().is_some_and(|x| x == "buri") && name != "BUILD.buri")
             || p.extension().is_some_and(|x| x == "proto")
+            || p.extension().is_some_and(|x| extensions.contains(&x.to_string_lossy().to_string()))
         {
             let rel = p
                 .strip_prefix(root)
@@ -747,7 +776,7 @@ fn editable_modules_of(
         .loaded
         .modules
         .iter()
-        .filter(|m| m.pkg == Some(own) && !is_generated(&m.path))
+        .filter(|m| m.pkg == Some(own) && !is_generated(m))
         .map(|m| m.id)
         .collect()
 }
@@ -912,7 +941,7 @@ fn check_hygiene(
     let own = target.package;
     let unchecked = Unchecked::of(analysis);
     for m in &analysis.loaded.modules {
-        if m.pkg == Some(own) && !is_generated(&m.path) {
+        if m.pkg == Some(own) && !is_generated(m) {
             check_unused_imports(session, m, diagnostics);
             check_duplicate_imports(m, diagnostics);
             check_warning_comments(session, m, diagnostics);
@@ -1506,7 +1535,7 @@ fn check_dead_code(
         // two fixes this rule offers exists for one. A `.proto` schema exports
         // the whole of what it declares — that is what a schema *is* — and
         // `lib.buri` re-exports the part of it the library means to publish.
-        if is_generated(&m.path) {
+        if is_generated(m) {
             continue;
         }
         if taken_whole.contains(m.path.as_str()) {
@@ -1773,7 +1802,7 @@ impl Names {
             }
         }
         for m in &analysis.loaded.modules {
-            if !mine.contains(&m.id) || is_generated(&m.path) {
+            if !mine.contains(&m.id) || is_generated(m) {
                 continue;
             }
             // What the toolchain could not read: the bodies that did not check,
@@ -1990,11 +2019,17 @@ fn cons_in(
     }
 }
 
-/// A module the toolchain wrote rather than a person: today, one generated
-/// from a `.proto` schema. The hygiene rules ask a person to make an edit, and
-/// there is no file here to edit.
-fn is_generated(path: &str) -> bool {
-    crate::build::protogen::is_proto_path(path)
+/// A module the toolchain wrote rather than a person: one generated from a
+/// `.proto` schema, or one a `generators` entry produced. The hygiene rules ask
+/// a person to make an edit, and there is no file here to edit.
+///
+/// Asked of the module rather than of its path, because a generator names its
+/// own modules and the name says nothing: `db` is generated in one repository
+/// and a hand-written `db.buri` in the next. What every generated module has in
+/// common is the thing the rules actually care about — it belongs to a package,
+/// and it came from no file.
+fn is_generated(m: &crate::compiler::modules::ModuleData) -> bool {
+    m.pkg.is_some() && m.disk.is_none()
 }
 
 /// The name a module-level item exports, when it exports one.
@@ -2147,7 +2182,7 @@ fn check_ctx_rebindings(
         .loaded
         .modules
         .iter()
-        .filter(|m| m.pkg == Some(own) && !is_generated(&m.path))
+        .filter(|m| m.pkg == Some(own) && !is_generated(m))
         .map(|m| m.file)
         .collect();
     // Where a context may be built is a question about the function's bounds,

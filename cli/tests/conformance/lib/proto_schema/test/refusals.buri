@@ -1,0 +1,322 @@
+// Every construct the reader refuses, and where it says the problem is.
+//
+// Each case asserts the *code* and the text the span covers. The code is what
+// gives a diagnostic its page, and the span is what puts the caret under the
+// word a person has to change — so a refusal that kept its sentence and lost
+// either of those has stopped working.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/proto_schema" import { FILE, lines, pointsAt, read, under, withEdition };
+
+/// `text` is refused under `code`, with the span over `token`.
+fn refuses<C: Alloc>(ctx: C, text: Str, code: Str, token: Str): () {
+    let parsed = read(ctx, text);
+    let d = assert.some(under(parsed, code));
+    assert.eq(pointsAt(ctx, text, d), token);
+    // A refusal with no edit is one nobody can act on.
+    assert.isTrue(d.fix.isSome());
+}
+
+// --- the edition ----------------------------------------------------------------
+
+test "a syntax declaration asks for the migration, not for a different word" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    refuses(
+        ctx,
+        "syntax = \"proto3\";\n",
+        "proto-syntax-declaration",
+        "syntax = \"proto3\"",
+    );
+    refuses(
+        ctx,
+        "syntax = \"proto2\";\n",
+        "proto-syntax-declaration",
+        "syntax = \"proto2\"",
+    );
+    let parsed = read(ctx, "syntax = \"proto3\";\n");
+    let d = assert.some(under(parsed, "proto-syntax-declaration"));
+    assert.eq(d.message, "`syntax = \"proto3\"` is not accepted");
+}
+
+test "an edition before 2026 is refused at the edition it names" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    refuses(ctx, "edition = \"2023\";\n", "proto-edition", "\"2023\"");
+    refuses(ctx, "edition = \"2024\";\n", "proto-edition", "\"2024\"");
+    let parsed = read(ctx, "edition = \"2023\";\n");
+    assert.eq(
+        assert.some(under(parsed, "proto-edition")).message,
+        "edition 2023 is not accepted",
+    );
+}
+
+test "a file that declares no edition is refused at the file" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The span is the start of the file, because there is no token to point at
+    // — the problem is the line that is not there.
+    let missing = read(ctx, "message M { int32 x = 1; }\n");
+    let d = assert.some(under(missing, "proto-edition-missing"));
+    let origin = assert.some(d.origin);
+    assert.eq(origin.file, FILE);
+    assert.eq(origin.span.start, 0);
+    assert.eq(origin.span.end, 0);
+    assert.isTrue(d.fix.isSome());
+    // And the edition this reader does implement is accepted in silence.
+    assert.isEmpty(read(ctx, withEdition(ctx, "message M { int32 x = 1; }\n")).errors);
+}
+
+// --- constructs -----------------------------------------------------------------
+
+test "service and rpc are refused, because there is no transport to generate against" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = withEdition(ctx, "service S { rpc Go (A) returns (B); }\n");
+    refuses(ctx, text, "proto-unsupported", "service");
+    assert.eq(
+        assert.some(under(read(ctx, text), "proto-unsupported")).message,
+        "`service` is not supported",
+    );
+}
+
+test "extend and extensions are refused wherever they are written" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    refuses(
+        ctx,
+        withEdition(ctx, "extend M { int32 x = 100; }\n"),
+        "proto-unsupported",
+        "extend",
+    );
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { extensions 100 to 200; }\n"),
+        "proto-unsupported",
+        "extensions",
+    );
+}
+
+test "a group is refused at the word" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { group G = 1 { int32 x = 2; } }\n"),
+        "proto-unsupported",
+        "group",
+    );
+}
+
+test "a map field is refused at its type" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { map<string, int32> m = 1; }\n"),
+        "proto-unsupported",
+        "map",
+    );
+}
+
+test "the labels editions removed are refused at the label" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { optional int32 x = 1; }\n"),
+        "proto-unsupported",
+        "optional",
+    );
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { required int32 x = 1; }\n"),
+        "proto-unsupported",
+        "required",
+    );
+    let text = withEdition(ctx, "message M { optional int32 x = 1; }\n");
+    assert.eq(
+        assert.some(under(read(ctx, text), "proto-unsupported")).message,
+        "the `optional` label is not supported",
+    );
+}
+
+test "a public import is refused at the word public" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    refuses(
+        ctx,
+        withEdition(ctx, "import public \"x.proto\";\n"),
+        "proto-unsupported",
+        "public",
+    );
+}
+
+// --- features -------------------------------------------------------------------
+
+test "a feature value this mapping cannot express is refused by name" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    refusedFeature(ctx, "features.field_presence = LEGACY_REQUIRED");
+    refusedFeature(ctx, "features.enum_type = CLOSED");
+    refusedFeature(ctx, "features.message_encoding = DELIMITED");
+    refusedFeature(ctx, "features.utf8_validation = NONE");
+    refusedFeature(ctx, "features.json_format = LEGACY_BEST_EFFORT");
+}
+
+/// `option <setting>;` is refused, with the span over the setting itself.
+fn refusedFeature<C: Alloc>(ctx: C, setting: Str): () {
+    let text = withEdition(
+        ctx,
+        lines(ctx, ["option ".concat(ctx, setting).concat(ctx, ";")]),
+    );
+    refuses(ctx, text, "proto-unsupported", setting);
+}
+
+test "a refused feature is refused on a field too, where it is written" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { int32 x = 1 [features.enum_type = CLOSED]; }\n"),
+        "proto-unsupported",
+        "features.enum_type = CLOSED",
+    );
+}
+
+test "the block form of a feature is one spelling too many" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = withEdition(ctx, "option features = { field_presence: IMPLICIT };\n");
+    refuses(ctx, text, "proto-unsupported", "features =");
+    assert.eq(
+        assert.some(under(read(ctx, text), "proto-unsupported")).message,
+        "`option features = { ... }` is not supported",
+    );
+}
+
+test "a feature nobody has heard of is named, with a near miss offered" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = withEdition(ctx, "option features.field_presense = EXPLICIT;\n");
+    refuses(ctx, text, "proto-unknown-feature", "features.field_presense = EXPLICIT");
+    let d = assert.some(under(read(ctx, text), "proto-unknown-feature"));
+    assert.eq(
+        d.message,
+        "`features.field_presense = EXPLICIT` is not a feature this reader knows",
+    );
+    assert.eq(d.fix.withDefault(""), "did you mean `features.field_presence`?");
+}
+
+test "a feature with no near miss gets the list instead" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = withEdition(ctx, "option features.wobbling = YES;\n");
+    let d = assert.some(under(read(ctx, text), "proto-unknown-feature"));
+    assert.isTrue(d.fix.withDefault("").contains("field_presence, enum_type"));
+}
+
+// --- shapes the reader still refuses ---------------------------------------------
+
+test "a oneof case takes no label, and the case is kept so the rest is still read" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = withEdition(
+        ctx,
+        "message M { oneof pick { repeated string a = 1; string b = 2; } }\n",
+    );
+    refuses(ctx, text, "proto-schema", "repeated string a = 1;");
+    let parsed = read(ctx, text);
+    let cases = assert
+        .some(assert.some(parsed.schema.messages.get(0)).oneofs.get(0))
+        .cases;
+    assert.len(cases, 2);
+    assert.eq(assert.some(cases.get(0)).name, "a");
+}
+
+test "a field number outside the range, and one protobuf reserves, are refused" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    refuses(ctx, withEdition(ctx, "message M { int32 x = 0; }\n"), "proto-schema", "0");
+    refuses(
+        ctx,
+        withEdition(ctx, "message M { int32 x = 19500; }\n"),
+        "proto-schema",
+        "19500",
+    );
+    let text = withEdition(ctx, "message M { int32 x = 19500; }\n");
+    assert.isTrue(
+        assert
+            .some(under(read(ctx, text), "proto-schema"))
+            .message
+            .contains("reserves"),
+    );
+}
+
+test "an enum starts at zero, and an empty one is refused at its name" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    refuses(ctx, withEdition(ctx, "enum E { E_ONE = 1; }\n"), "proto-schema", "E_ONE");
+    refuses(ctx, withEdition(ctx, "enum E { }\n"), "proto-schema", "E");
+}
+
+test "nesting is bounded, so a file of nothing but message M { is a diagnostic" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = withEdition(ctx, "message M {".repeat(ctx, 40));
+    let parsed = read(ctx, text);
+    assert.isTrue(parsed.errors.any(fn(d) => d.message.contains("nest too deeply")));
+}
+
+test "no schema can crash the reader, and every diagnostic says what to do" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let cases = [
+        "edition = \"\\é\";",
+        "edition = \"2026\";\nmessage M { string \\é = 1; }",
+        "é",
+        "message é {",
+        "edition = \"2026\";\nmessage M { int32 x = 99999999999999999999; }",
+        "/*",
+        "/* é",
+        "\"",
+        "edition = \"2026\";\nmessage M {",
+        "edition = \"2026\";\nenum E {",
+        "edition = \"2026\";\nmessage M { oneof o {",
+        "edition = \"2026\";\noption features.",
+    ];
+    // An escape wider than a byte.
+    // A stray character where a word belongs.
+    // An unterminated block comment, and an unterminated string.
+    let _ = cases.foldCtx(
+        ctx,
+        fn(c, _acc: Bool, text) => {
+            let parsed = read(c, text);
+            assert.notEmpty(parsed.errors);
+            assert.isTrue(parsed.errors.all(fn(d) => d.fix.isSome()));
+            true
+        },
+        true,
+    );
+}

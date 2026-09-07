@@ -76,7 +76,7 @@ With `--watch`, `buri test` runs the same invocation again every time one of its
 inputs changes, until you interrupt it.
 
 **What it watches**, for every selected target: its closure's entry points,
-`sources`, `proto_sources` and `testing/` sources; the suite's own `sources`;
+`sources`, generator `inputs` and `testing/` sources; the suite's own `sources`;
 every `BUILD.buri` in the repository; and `REPO.buri`. That is the same declared
 list the cache keys are already made of. The loop polls each file with one
 `stat` every 150 ms, so it acts on a save between 150 and 300 ms after it lands,

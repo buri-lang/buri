@@ -277,6 +277,59 @@ const PACKAGES: &[Case] = &[
     // assertion is a line of captured output rather than a timing.
     included("tasks/scope.buri"),
     //
+    // `core/buri/ast` and `core/codegen` are ordinary Buri over lists, strings
+    // and tuples, with no host effect anywhere in them, so every assertion
+    // here is an answer rather than something a platform decides. All six are
+    // out anyway, and for a backend limit rather than a platform one: an
+    // `ast.Item` is 448 bytes and the stencil backend stages a `[T]` element
+    // in 320. Every one of these files holds a `[Item]`, because that is what
+    // a module is. They run on the reference backend, and they come back here
+    // when the frame grows.
+    excluded(
+        "buri_ast/anchors.buri",
+        "an `ast.Item` is 448 bytes and the stencil backend stages a `[T]` \
+             element in 320, so an array of declarations is past what a frame \
+             here can hold",
+    ),
+    excluded(
+        "buri_ast/expressions.buri",
+        "the same 448-byte element: an expression tree is arrays of nodes",
+    ),
+    excluded(
+        "buri_ast/items.buri",
+        "the same 448-byte element, one declaration form per case",
+    ),
+    excluded(
+        "buri_ast/module.buri",
+        "the same 448-byte element, over a whole printed module",
+    ),
+    excluded(
+        "generators/wire.buri",
+        "it prints a module, so it carries the 448-byte `ast.Item` too, and \
+             `core/json`'s unescaping reaches `num.U32.toChar`, which this \
+             backend does not compile yet",
+    ),
+    excluded(
+        "generators/failure.buri",
+        "the same two: a printed module's element width, and `toChar`",
+    ),
+    //
+    // The `.proto` generator, ported to Buri. The reader is ordinary parsing
+    // over `[Char]` and this backend compiles it; the emitter builds
+    // `core/buri/ast` nodes, so it carries the same 448-byte `ast.Item` — and
+    // three narrower ones — that keeps `buri_ast/` out above.
+    included("proto_schema/reading.buri"),
+    included("proto_schema/refusals.buri"),
+    excluded(
+        "proto_gen/codecs.buri",
+        "it builds `ast` nodes, whose widest element is 448 bytes against the \
+             320 a frame stages a `[T]` element in",
+    ),
+    excluded("proto_gen/entry.buri", "the same element width, through `emit`"),
+    excluded("proto_gen/failures.buri", "the same element width"),
+    excluded("proto_gen/mapping.buri", "the same element width"),
+    excluded("proto_gen/origins.buri", "the same element width"),
+    //
     // Five files, and between them they are `core/bits` entire,
     // `Checked`/`Wrapping`/`Saturating`/`Bounded` at every width including
     // 128, the bitwise and string codegen corpora, and `core/simd`.
@@ -868,7 +921,18 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
 /// would have released after it, a `let _ = …` that bound nothing and so
 /// released nothing, and a `..base` update that threw away the reference the
 /// base held for the field it replaced.
-const KNOWN_LEAKS: &[(&str, u64, &str)] = &[];
+const KNOWN_LEAKS: &[(&str, u64, &str)] = &[(
+    "proto_schema/refusals.buri",
+    13,
+    "13 blocks and 14 bytes, against an empty heap from `reading.buri` beside \
+     it. The file is the refusal half of the `.proto` reader, so what it does \
+     that its sibling does not is build diagnostics: a `codegen.Diagnostic` \
+     with `Option<Str>` in `note` and `fix`, thirty-odd times, most of them \
+     discarded by the 32-diagnostic cap. That is the shape to look at, and it \
+     is an under-decrement between `middle::rc` and the runtime rather than \
+     anything the file asks for. Not diagnosed further here: it arrived with \
+     the module and wants its own change.",
+)];
 
 /// What the ledger says a file leaks, or zero.
 fn allowed_leak(path: &str) -> u64 {

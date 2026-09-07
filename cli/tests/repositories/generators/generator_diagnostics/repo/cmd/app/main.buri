@@ -1,0 +1,15 @@
+// The generated module is not imported here on purpose. This case is about
+// what the *generator* says, so the report has to hold that and nothing else —
+// a name that came and went with an edit would report twice over.
+
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io.println(ctx, "ready").mapErr(fn(_e) => "could not write to standard output")
+}

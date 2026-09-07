@@ -1,0 +1,2 @@
+# The plate's width, in millimetres.
+width 3

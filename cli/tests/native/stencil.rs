@@ -1704,6 +1704,8 @@ const CORPUS_COMPILES: &[&str] = &[
     "numbers/special_floats.buri",
     "proto/binary.buri",
     "proto/failures.buri",
+    "proto_schema/reading.buri",
+    "proto_schema/refusals.buri",
     "random/gen.buri",
     "semantics/anonymous.buri",
     "semantics/effects.buri",

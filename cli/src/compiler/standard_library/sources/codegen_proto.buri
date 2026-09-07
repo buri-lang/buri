@@ -1,0 +1,2758 @@
+//! std/codegen/proto — a `.proto` schema, as a Buri module.
+//!
+//! [`emit`] is the generator: hand it a `core/codegen` request and it answers
+//! one module per schema in it. [`generate`] does the same work on one schema
+//! `std/codegen/proto/schema` has already read.
+//!
+//! The mapping is normative, and it is written down in
+//! `cli/src/docs/reference/build/proto.md` rather than left to be read off the
+//! output. In summary:
+//!
+//! ```text
+//! message Person                  -> struct Person, derive Eq, Show
+//! string name = 1                 -> Option<Str>, because presence is tracked
+//! int32 age = 2 [.. = IMPLICIT]   -> Int
+//! repeated string emails = 3      -> [Str]
+//! Address home = 4                -> Option<Address>, whatever the feature says
+//! oneof pick { .. }               -> enum Person_Pick, held as an Option
+//! message Outer { message Inner } -> Outer and Outer_Inner, side by side
+//! enum Colour                     -> enum Colour, plus Unrecognized(Int)
+//! ```
+//!
+//! **Every node carries the declaration it came from.** A struct carries its
+//! `message`'s span, a field's name the span of the `.proto` field, a variant
+//! the span of its value. That is what makes go-to-definition on `Person.name`
+//! land on `string name = 1;`. A node no declaration is behind — a binding
+//! inside a codec — takes `ast.nowhere()`.
+//!
+//! The codecs are *generated Buri* rather than a walk over a descriptor. The
+//! descriptor `derive ToJson` walks carries field names and variant shapes, and
+//! a protobuf message is made of field numbers and wire types, which it does
+//! not carry at all. What every schema shares lives in `core/proto`.
+//!
+//! Cost: one pass over the schema to build the type table and one to write the
+//! tree. A name is resolved through an `OrdMap`, so a lookup is O(log t) in the
+//! number of declared types and a schema of `n` declarations costs O(n log t).
+
+from "core/buri/ast" import * as ast;
+from "core/codegen" import { Diagnostic, Request, Response };
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/ordmap" import * as ordmap;
+from "core/ordmap" import { OrdMap };
+from "core/str" import * as str;
+from "std/codegen/proto/schema" import * as schema;
+
+// -----------------------------------------------------------------------------
+// Names
+// -----------------------------------------------------------------------------
+
+/// Every word a Buri identifier may not be: the keywords, and the words
+/// reserved for a future version. A field called `type` becomes `type_`; its
+/// JSON name is untouched, because the document is not ours to rename.
+let TAKEN: [Str] = [
+    "as",
+    "const",
+    "context",
+    "ctx",
+    "derive",
+    "effect",
+    "else",
+    "enum",
+    "export",
+    "false",
+    "fn",
+    "for",
+    "from",
+    "if",
+    "impl",
+    "import",
+    "let",
+    "match",
+    "self",
+    "Self",
+    "struct",
+    "test",
+    "trait",
+    "true",
+    "type",
+    "async",
+    "await",
+    "break",
+    "continue",
+    "do",
+    "in",
+    "is",
+    "loop",
+    "module",
+    "mut",
+    "opaque",
+    "panic",
+    "pub",
+    "return",
+    "unreachable",
+    "use",
+    "when",
+    "where",
+    "while",
+    "with",
+    "yield",
+];
+
+/// protoc's rule, exactly: drop each `_` and capitalise what follows it.
+///
+/// Nothing else changes case, so a schema's `URL` stays `URL` and the JSON name
+/// this produces is the one protoc would put in the descriptor. Cost: O(n) in
+/// the name.
+export fn camelCase<C: Alloc>(ctx: C, name: Str): Str {
+    let seed: ([Char], Bool) = ([], false);
+    let out = name
+        .chars(ctx)
+        .foldCtx(
+            ctx,
+            fn(c, acc: ([Char], Bool), ch) => {
+                let (letters, up) = acc;
+                if (ch == '_') {
+                    (letters, true)
+                } else if (up) {
+                    (letters.push(c, ch.toUpper()), false)
+                } else {
+                    (letters.push(c, ch), false)
+                }
+            },
+            seed,
+        );
+    str.fromChars(ctx, out.0)
+}
+
+/// A name a Buri declaration may carry: a keyword gets a trailing underscore.
+export fn escape<C: Alloc>(ctx: C, name: Str): Str {
+    if (TAKEN.contains(name)) { name.concat(ctx, "_") } else { name }
+}
+
+/// `pick` -> `Pick`, for the enum a `oneof` becomes and for its cases.
+export fn upperFirst<C: Alloc>(ctx: C, name: Str): Str {
+    match (name.charAt(0)) {
+        .None => name,
+        .Some(ch) => {
+            str.fromChars(ctx, [ch.toUpper()]).concat(ctx, name.slice(1, name.len()))
+        },
+    }
+}
+
+// -----------------------------------------------------------------------------
+// The type table
+// -----------------------------------------------------------------------------
+
+/// Whether a declared type is a message or an enum. The two take different
+/// wire types, different codecs and different defaults.
+export enum Kind {
+    Message,
+    Enum,
+}
+
+/// One declared type, wherever it came from.
+export struct Entry {
+    /// The Buri name: nesting flattened with `_`.
+    export buri: Str,
+    export kind: Kind,
+    /// The generated module this type lives in, when it is not this one.
+    export inModule: Option<Str>,
+    /// An enum's zero value, which is its default and what an unrecognised
+    /// number decodes to.
+    export zero: Option<Str>,
+    /// Where it was declared. The file is what a diagnostic naming two of them
+    /// prints; the span is only pointable for a type declared here.
+    export origin: ast.Origin,
+}
+
+/// The file a diagnostic names when it says where a type was declared.
+///
+/// The module path for a type reached through an import, and the input's own
+/// path for one declared here — which is what a reader of the diagnostic can
+/// act on, because the module path is what an `import` in this file writes.
+fn declaredIn(e: Entry): Str {
+    match (e.inModule) {
+        .Some(m) => m,
+        .None => e.origin.file,
+    }
+}
+
+/// Whether two entries are the same declaration reached twice, rather than two
+/// declarations claiming one name.
+fn sameAs(a: Entry, b: Entry): Bool {
+    a.buri == b.buri && a.origin.file == b.origin.file
+}
+
+/// Every message and enum a set of schemas declares, under every name a field
+/// could reasonably use to reach it.
+///
+/// A name can be claimed twice, and the two ways that happens are not the same
+/// mistake — so neither is silently resolved by whichever file was read first:
+///
+/// * a **fully-qualified** name claimed twice is a duplicate declaration, and
+///   one of the two files has to change;
+/// * a **short** name claimed by two packages is ordinary ambiguity, which is
+///   only a problem where a field actually reaches through it — so it is
+///   recorded here and reported at the use.
+export struct Table {
+    export byName: OrdMap<Str, Entry>,
+    /// Short keys two different declarations both claim, with both of them.
+    export ambiguous: OrdMap<Str, [Entry]>,
+    /// Fully-qualified names declared twice: the name, and the two entries.
+    export duplicates: [(Str, Entry, Entry)],
+}
+
+/// A table nothing has been collected into.
+export fn emptyTable(): Table {
+    Table {
+        byName: ordmap.empty<Str, Entry>(),
+        ambiguous: ordmap.empty<Str, [Entry]>(),
+        duplicates: [],
+    }
+}
+
+/// One key, for one entry. `qualified` says whether the key is the whole of a
+/// type's name or an abbreviation of it, which is what parts a duplicate
+/// declaration from ordinary ambiguity.
+fn addKey<C: Alloc>(ctx: C, t: Table, key: Str, entry: Entry, qualified: Bool): Table {
+    match (t.byName.get(key)) {
+        .None => Table { ..t, byName: t.byName.insert(ctx, key, entry) },
+        .Some(existing) => {
+            if (sameAs(existing, entry)) {
+                // One declaration reached under a name it already has. Nothing
+                // to say: a type may be findable more than one way.
+                t
+            } else if (qualified) {
+                if (t.duplicates.any(fn(d) => d.0 == key)) {
+                    t
+                } else {
+                    Table {
+                        ..t,
+                        duplicates: t.duplicates.push(ctx, (key, existing, entry)),
+                    }
+                }
+            } else {
+                let seen = match (t.ambiguous.get(key)) {
+                    .Some(claimants) => claimants,
+                    .None => [existing],
+                };
+                let grown = if (seen.any(fn(e) => sameAs(e, entry))) {
+                    seen
+                } else {
+                    seen.push(ctx, entry)
+                };
+                Table { ..t, ambiguous: t.ambiguous.insert(ctx, key, grown) }
+            }
+        },
+    }
+}
+
+/// Every name a field could reach this type by, widest first. The first is the
+/// whole of it; the rest are abbreviations another package may also be using.
+fn keysFor<C: Alloc>(ctx: C, scope: [Str], name: Str, package: Str): [(Str, Bool)] {
+    let relative = scope.push(ctx, name).join(ctx, ".");
+    let short: [(Str, Bool)] = if (relative == name) { [] } else { [(name, false)] };
+    if (package.isEmpty()) {
+        // With no package the relative name *is* the whole name.
+        [(relative, true)].concat(ctx, short)
+    } else {
+        [(str.format(ctx, "${package}.${relative}"), true), (relative, false)].concat(
+            ctx,
+            short,
+        )
+    }
+}
+
+fn addEnumTo<C: Alloc>(
+    ctx: C,
+    t: Table,
+    e: schema.Enum,
+    scope: [Str],
+    package: Str,
+    inModule: Option<Str>,
+): Table {
+    let entry = Entry {
+        buri: scope.push(ctx, e.name).join(ctx, "_"),
+        kind: .Enum,
+        inModule: inModule,
+        zero: zeroValue(ctx, e),
+        origin: e.origin,
+    };
+    keysFor(ctx, scope, e.name, package).foldCtx(
+        ctx,
+        fn(c, acc, k) => addKey(c, acc, k.0, entry, k.1),
+        t,
+    )
+}
+
+fn addMessageTo<C: Alloc>(
+    ctx: C,
+    t: Table,
+    m: schema.Message,
+    scope: [Str],
+    package: Str,
+    inModule: Option<Str>,
+): Table {
+    let path = scope.push(ctx, m.name);
+    let entry = Entry {
+        buri: path.join(ctx, "_"),
+        kind: .Message,
+        inModule: inModule,
+        zero: .None,
+        origin: m.origin,
+    };
+    let keyed = keysFor(ctx, scope, m.name, package).foldCtx(
+        ctx,
+        fn(c, acc, k) => addKey(c, acc, k.0, entry, k.1),
+        t,
+    );
+    let withEnums = m
+        .enums
+        .foldCtx(
+            ctx,
+            fn(c, acc, e) => addEnumTo(c, acc, e, path, package, inModule),
+            keyed,
+        );
+    m
+        .messages
+        .foldCtx(
+            ctx,
+            fn(c, acc, inner) => {
+                addMessageTo(c, acc, inner, path, package, inModule)
+            },
+            withEnums,
+        )
+}
+
+/// Every type one schema declares, under every name that reaches it.
+/// `inModule` is `.None` for the schema being generated.
+export fn collect<C: Alloc>(
+    ctx: C,
+    t: Table,
+    s: schema.Schema,
+    inModule: Option<Str>,
+): Table {
+    let package = match (s.package) {
+        .Some(p) => p,
+        .None => "",
+    };
+    let withEnums = s
+        .enums
+        .foldCtx(ctx, fn(c, acc, e) => addEnumTo(c, acc, e, [], package, inModule), t);
+    s
+        .messages
+        .foldCtx(
+            ctx,
+            fn(c, acc, m) => addMessageTo(c, acc, m, [], package, inModule),
+            withEnums,
+        )
+}
+
+/// proto's name resolution, narrowed to what a schema this small needs: a
+/// leading `.` is absolute, and everything else is tried from the innermost
+/// enclosing message outward.
+///
+/// Answers the key it matched as well as the entry, because whether the answer
+/// is trustworthy depends on which name found it.
+export fn resolveName<C: Alloc>(
+    ctx: C,
+    t: Table,
+    name: Str,
+    scope: [Str],
+    package: Str,
+): Option<(Str, Entry)> {
+    if (name.startsWith(".")) {
+        lookup(t, name.slice(1, name.len()))
+    } else {
+        let start: Option<(Str, Entry)> = .None;
+        let found = list
+            .range(ctx, 0, scope.len() + 1)
+            .reverse(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: Option<(Str, Entry)>, i) => {
+                    match (acc) {
+                        .Some(_hit) => acc,
+                        .None => tryScope(c, t, name, scope, package, i),
+                    }
+                },
+                start,
+            );
+        match (found) {
+            .Some(hit) => .Some(hit),
+            .None => lookup(t, name),
+        }
+    }
+}
+
+fn tryScope<C: Alloc>(
+    ctx: C,
+    t: Table,
+    name: Str,
+    scope: [Str],
+    package: Str,
+    width: Int,
+): Option<(Str, Entry)> {
+    let joined = scope.take(ctx, width).push(ctx, name).join(ctx, ".");
+    match (lookup(t, joined)) {
+        .Some(hit) => .Some(hit),
+        .None => {
+            if (package.isEmpty()) {
+                .None
+            } else {
+                lookup(t, str.format(ctx, "${package}.${joined}"))
+            }
+        },
+    }
+}
+
+fn lookup(t: Table, key: Str): Option<(Str, Entry)> {
+    match (t.byName.get(key)) {
+        .Some(e) => .Some((key, e)),
+        .None => .None,
+    }
+}
+
+/// The declarations a key names, when it names more than one.
+export fn ambiguity(t: Table, key: Str): Option<[Entry]> {
+    t.ambiguous.get(key)
+}
+
+// -----------------------------------------------------------------------------
+// What an enum is worth
+// -----------------------------------------------------------------------------
+
+/// The variant an open enum keeps an unrecognised number in.
+///
+/// Editions enums are OPEN by default, and an open enum's contract is that a
+/// value the schema does not know *survives*: it is part of the value, not an
+/// unknown field. The name gives way to a declared one rather than the other
+/// way round, because a schema is allowed to have a value called
+/// `Unrecognized` and its meaning wins.
+export fn unrecognizedName<C: Alloc>(ctx: C, e: schema.Enum): Str {
+    grow(ctx, e.values.mapCtx(ctx, fn(c, v) => escape(c, v.name)), "Unrecognized")
+}
+
+fn grow<C: Alloc>(ctx: C, taken: [Str], name: Str): Str {
+    if (taken.contains(name)) { grow(ctx, taken, name.concat(ctx, "_")) } else { name }
+}
+
+/// What an unset field of this enum means: the zero value, or the first where
+/// the schema declares no zero.
+export fn zeroValue<C: Alloc>(ctx: C, e: schema.Enum): Option<Str> {
+    let chosen = e.values.find(fn(v) => v.number == 0).or(e.values.first());
+    match (chosen) {
+        .Some(v) => .Some(escape(ctx, v.name)),
+        .None => .None,
+    }
+}
+
+/// The codecs that come with a type, which is what an import of it must name.
+export fn codecNames<C: Alloc>(ctx: C, entry: Entry): [Str] {
+    let n = entry.buri;
+    match (entry.kind) {
+        .Message => {
+            [
+                str.format(ctx, "default${n}"),
+                str.format(ctx, "encode${n}"),
+                str.format(ctx, "decode${n}"),
+                str.format(ctx, "merge${n}"),
+                str.format(ctx, "encode${n}Json"),
+                str.format(ctx, "decode${n}JsonAt"),
+            ]
+        },
+        .Enum => {
+            [
+                str.format(ctx, "encode${n}"),
+                str.format(ctx, "decode${n}"),
+                str.format(ctx, "encode${n}Json"),
+                str.format(ctx, "decode${n}Json"),
+            ]
+        },
+    }
+}
+
+/// The module a schema import names: an import is written from the repository
+/// root, exactly as protoc's `-I.` resolves one, so
+/// `import "proto/address.proto";` is the module `//proto/address.proto`.
+export fn importModulePath<C: Alloc>(ctx: C, path: Str): Str {
+    let trimmed = if (path.startsWith("./")) {
+        path.slice(2, path.len())
+    } else if (path.startsWith("/")) {
+        path.slice(1, path.len())
+    } else {
+        path
+    };
+    str.format(ctx, "//${trimmed}")
+}
+
+// -----------------------------------------------------------------------------
+// A field, resolved
+// -----------------------------------------------------------------------------
+
+/// Where a field's type landed.
+export enum FieldType {
+    Scalar(schema.Scalar),
+    Named(Entry),
+}
+
+/// The keyword a schema writes this scalar as. Every decision about a scalar
+/// asks this one question, so the fifteen variants are matched once.
+fn scalarName(s: schema.Scalar): Str {
+    match (s) {
+        .Int32 => "int32",
+        .Int64 => "int64",
+        .Uint32 => "uint32",
+        .Uint64 => "uint64",
+        .Sint32 => "sint32",
+        .Sint64 => "sint64",
+        .Fixed32 => "fixed32",
+        .Fixed64 => "fixed64",
+        .Sfixed32 => "sfixed32",
+        .Sfixed64 => "sfixed64",
+        .Bool => "bool",
+        .Str => "string",
+        .Bytes => "bytes",
+        .Double => "double",
+        .Float => "float",
+    }
+}
+
+/// The wire type this field's values carry, by the name `core/proto` gives it.
+fn wireName(t: FieldType): Str {
+    match (t) {
+        .Scalar(s) => {
+            let n = scalarName(s);
+            if (n == "fixed64" || n == "sfixed64" || n == "double") {
+                "I64"
+            } else if (n == "fixed32" || n == "sfixed32" || n == "float") {
+                "I32"
+            } else if (n == "string" || n == "bytes") {
+                "LEN"
+            } else {
+                "VARINT"
+            }
+        },
+        .Named(e) => {
+            match (e.kind) {
+                .Enum => "VARINT",
+                .Message => "LEN",
+            }
+        },
+    }
+}
+
+/// A repeated field of this type is packed by default. Nothing
+/// length-delimited is: packing strings would be indistinguishable from one
+/// long string.
+fn packable(t: FieldType): Bool {
+    wireName(t) != "LEN"
+}
+
+/// The Buri type one value of this field has, before its label is applied.
+fn baseType(t: FieldType): ast.Type {
+    match (t) {
+        .Scalar(s) => {
+            let n = scalarName(s);
+            if (n == "bool") {
+                tyNamed("Bool")
+            } else if (n == "string") {
+                tyNamed("Str")
+            } else if (n == "bytes") {
+                tyArray(tyNamed("U8"))
+            } else if (n == "double" || n == "float") {
+                tyNamed("Float")
+            } else {
+                tyNamed("Int")
+            }
+        },
+        .Named(e) => tyNamed(e.buri),
+    }
+}
+
+/// A field with its type resolved and its two names settled.
+export struct ResolvedField {
+    /// The Buri field or variant name.
+    export name: Str,
+    /// The name proto3 JSON writes. The same string unless it collided with a
+    /// Buri keyword.
+    export json: Str,
+    /// The name the schema wrote, which proto3 JSON also *accepts* on the way
+    /// in. The same string as `json` for a name that is already camel.
+    export declared: Str,
+    export number: Int,
+    export label: schema.Label,
+    export ty: FieldType,
+    /// Resolved against the field, the message and the file, in that order.
+    /// `EXPLICIT` — the edition's default — is what makes a singular field an
+    /// `Option`.
+    export presence: schema.Presence,
+    /// Whether a repeated field of a packable type is written packed.
+    export packed: Bool,
+    /// The `.proto` declaration this field came from.
+    export origin: ast.Origin,
+}
+
+/// A `oneof`, resolved.
+export struct ResolvedOneof {
+    /// The Buri field on the enclosing struct.
+    export field: Str,
+    /// The Buri enum the cases became.
+    export enumName: Str,
+    export cases: [ResolvedField],
+    /// The `oneof` declaration this came from.
+    export origin: ast.Origin,
+}
+
+fn isRepeated(f: ResolvedField): Bool {
+    match (f.label) {
+        .Repeated => true,
+        _other => false,
+    }
+}
+
+fn isMessageField(f: ResolvedField): Bool {
+    match (f.ty) {
+        .Named(e) => {
+            match (e.kind) {
+                .Message => true,
+                .Enum => false,
+            }
+        },
+        _other => false,
+    }
+}
+
+/// Whether the Buri field is an `Option`.
+///
+/// Under editions this is the *default* for a singular field rather than the
+/// exception it was under proto3: `features.field_presence` is EXPLICIT unless
+/// something says otherwise, and a message field tracks presence whatever the
+/// feature says, because there is no "default message" for an absent one to
+/// mean.
+fn isOptional(f: ResolvedField): Bool {
+    let explicit = match (f.presence) {
+        .Explicit => true,
+        _other => false,
+    };
+    !isRepeated(f) && (isMessageField(f) || explicit)
+}
+
+fn fieldType(f: ResolvedField): ast.Type {
+    let base = baseType(f.ty);
+    if (isRepeated(f)) {
+        tyArray(base)
+    } else if (isOptional(f)) {
+        tyOf("Option", [base])
+    } else {
+        base
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Writing a tree
+// -----------------------------------------------------------------------------
+
+fn nm(text: Str): ast.Name {
+    ast.Name { text: text, origin: ast.nowhere() }
+}
+
+fn nmAt(text: Str, o: ast.Origin): ast.Name {
+    ast.Name { text: text, origin: o }
+}
+
+fn tyOf(text: Str, args: [ast.Type]): ast.Type {
+    ast.Type { kind: .Named(nm(text), args), origin: ast.nowhere() }
+}
+
+fn tyNamed(text: Str): ast.Type {
+    tyOf(text, [])
+}
+
+fn tyArray(elem: ast.Type): ast.Type {
+    ast.Type { kind: .Array([elem]), origin: ast.nowhere() }
+}
+
+fn ex(kind: ast.ExprKind): ast.Expr {
+    ast.Expr { kind: kind, origin: ast.nowhere() }
+}
+
+fn id(text: Str): ast.Expr {
+    ex(.Ident(nm(text)))
+}
+
+fn dot(base: ast.Expr, member: Str): ast.Expr {
+    ex(.Field([base], nm(member)))
+}
+
+fn callOf(callee: ast.Expr, args: [ast.Expr]): ast.Expr {
+    ex(.Call([callee], args))
+}
+
+fn callName(name: Str, args: [ast.Expr]): ast.Expr {
+    callOf(id(name), args)
+}
+
+/// `module.name(args)`, for the imports the generated module makes.
+fn nsCall(space: Str, name: Str, args: [ast.Expr]): ast.Expr {
+    callOf(dot(id(space), name), args)
+}
+
+fn method(base: ast.Expr, name: Str, args: [ast.Expr]): ast.Expr {
+    callOf(dot(base, name), args)
+}
+
+fn intE(n: Int): ast.Expr {
+    ex(.Int(n))
+}
+
+fn strE(text: Str): ast.Expr {
+    ex(.Str(text))
+}
+
+fn variantE(name: Str): ast.Expr {
+    ex(.DotVariant(nm(name)))
+}
+
+fn variantCall(name: Str, args: [ast.Expr]): ast.Expr {
+    callOf(variantE(name), args)
+}
+
+fn tryE(e: ast.Expr): ast.Expr {
+    ex(.Try([e]))
+}
+
+fn binE(op: ast.BinOp, lhs: ast.Expr, rhs: ast.Expr): ast.Expr {
+    ex(.Binary(op, [lhs], [rhs]))
+}
+
+fn eqE(lhs: ast.Expr, rhs: ast.Expr): ast.Expr {
+    binE(.Eq, lhs, rhs)
+}
+
+fn andE(lhs: ast.Expr, rhs: ast.Expr): ast.Expr {
+    binE(.And, lhs, rhs)
+}
+
+fn blk(stmts: [ast.Stmt], tail: [ast.Expr]): ast.Block {
+    ast.Block { stmts: stmts, tail: tail, origin: ast.nowhere() }
+}
+
+fn tailBlock(e: ast.Expr): ast.Block {
+    blk([], [e])
+}
+
+fn blockE(b: ast.Block): ast.Expr {
+    ex(.Block(b))
+}
+
+fn stmtOf(kind: ast.StmtKind): ast.Stmt {
+    ast.Stmt { kind: kind, origin: ast.nowhere() }
+}
+
+fn letS(name: Str, annotation: [ast.Type], value: ast.Expr): ast.Stmt {
+    stmtOf(.Let(bindP(name), annotation, value))
+}
+
+fn letPatS(p: ast.Pattern, value: ast.Expr): ast.Stmt {
+    stmtOf(.Let(p, [], value))
+}
+
+fn letWildS(value: ast.Expr): ast.Stmt {
+    stmtOf(.Let(patOf(.Wild), [], value))
+}
+
+fn patOf(kind: ast.PatternKind): ast.Pattern {
+    ast.Pattern { kind: kind, origin: ast.nowhere() }
+}
+
+fn bindP(name: Str): ast.Pattern {
+    patOf(.Bind(nm(name), []))
+}
+
+fn dotP(name: Str, payload: [ast.Payload]): ast.Pattern {
+    patOf(.Path(nm(name), true, payload))
+}
+
+/// `.None`
+fn dotP0(name: Str): ast.Pattern {
+    dotP(name, [])
+}
+
+/// `.Some(x)`
+fn dotP1(name: Str, inner: Str): ast.Pattern {
+    dotP(name, [.Tuple([bindP(inner)])])
+}
+
+fn armOf(p: ast.Pattern, body: ast.Expr): ast.Arm {
+    ast.Arm { pattern: p, guard: [], body: body }
+}
+
+fn matchE(scrutinee: ast.Expr, arms: [ast.Arm]): ast.Expr {
+    ex(.Match([scrutinee], arms))
+}
+
+fn lambdaP(name: Str): ast.LambdaParam {
+    ast.LambdaParam { name: nm(name), ty: [] }
+}
+
+fn lam1(a: Str, body: ast.Expr): ast.Expr {
+    ex(.Lambda([lambdaP(a)], [], [body]))
+}
+
+fn lam2(a: Str, b: Str, body: ast.Expr): ast.Expr {
+    ex(.Lambda([lambdaP(a), lambdaP(b)], [], [body]))
+}
+
+/// A lambda whose accumulator carries a written type, which is what a fold
+/// over an empty list needs to have one.
+fn foldLambda(a: Str, b: Str, accTy: ast.Type, c: Str, body: ast.Expr): ast.Expr {
+    ex(
+        .Lambda(
+            [lambdaP(a), ast.LambdaParam { name: nm(b), ty: [accTy] }, lambdaP(c)],
+            [],
+            [body],
+        ),
+    )
+}
+
+/// The `else` of an `if`: a chained `if` stays bare so the printer writes
+/// `else if`, and anything else takes braces.
+fn elseOf(e: ast.Expr): ast.Expr {
+    match (e.kind) {
+        .If(_cond, _then, _otherwise) => e,
+        _other => blockE(tailBlock(e)),
+    }
+}
+
+fn ifE(cond: ast.Expr, then: ast.Expr, otherwise: ast.Expr): ast.Expr {
+    ex(.If([cond], [tailBlock(then)], [elseOf(otherwise)]))
+}
+
+fn genericE(base: ast.Expr, args: [ast.Type]): ast.Expr {
+    ex(.Generic([base], args))
+}
+
+/// `list.empty<T>()`
+fn emptyList(elem: ast.Type): ast.Expr {
+    callOf(genericE(dot(id("list"), "empty"), [elem]), [])
+}
+
+fn initOf(name: Str, value: ast.Expr): ast.Init {
+    ast.Init { name: nm(name), value: [value] }
+}
+
+fn structE(name: Str, fields: [ast.Init]): ast.Expr {
+    ex(.StructLit([id(name)], [], fields))
+}
+
+/// `Name { ..base, f: v }`
+fn structOver(name: Str, base: ast.Expr, fields: [ast.Init]): ast.Expr {
+    ex(.StructLit([id(name)], [base], fields))
+}
+
+/// `.BadJson { path: <path>, wanted: "..." }`, wrapped in the `.Err` every use
+/// of it wants.
+fn badJson(path: ast.Expr, wanted: Str): ast.Expr {
+    variantCall("Err", [
+        ex(
+            .StructLit([variantE("BadJson")], [], [
+                initOf("path", path),
+                initOf("wanted", strE(wanted)),
+            ]),
+        ),
+    ])
+}
+
+/// An `if`/`else if`/`else` chain over expressions.
+fn chainExpr<C: Alloc>(
+    ctx: C,
+    arms: [(ast.Expr, ast.Expr)],
+    otherwise: ast.Expr,
+): ast.Expr {
+    arms.reverse(ctx).fold(fn(acc, a) => ifE(a.0, a.1, acc), otherwise)
+}
+
+/// The same over blocks, answering a block — so a chain with no arms is the
+/// `else` on its own rather than a pair of braces around it.
+fn chainBlocks<C: Alloc>(
+    ctx: C,
+    arms: [(ast.Expr, ast.Block)],
+    otherwise: ast.Block,
+): ast.Block {
+    if (arms.isEmpty()) {
+        otherwise
+    } else {
+        tailBlock(
+            arms
+                .reverse(ctx)
+                .fold(fn(acc, a) => ex(.If([a.0], [a.1], [acc])), blockE(otherwise)),
+        )
+    }
+}
+
+fn fnItem(d: ast.FnDecl): ast.Item {
+    ast.Item { kind: .Fn(d), origin: ast.nowhere() }
+}
+
+/// `<C: Alloc>`, which every generated codec that allocates carries.
+fn allocGeneric(): [ast.GenericParam] {
+    [ast.GenericParam { name: nm("C"), bounds: [tyNamed("Alloc")] }]
+}
+
+fn param(name: Str, t: ast.Type): ast.Param {
+    ast.Param { name: nm(name), ty: [t] }
+}
+
+fn ctxParam(): ast.Param {
+    param("ctx", tyNamed("C"))
+}
+
+fn deriveEqShow(name: Str): ast.Item {
+    ast.Item {
+        kind: .Derive(ast.DeriveDecl {
+            traits: [tyNamed("Eq"), tyNamed("Show")],
+            selfTy: tyNamed(name),
+        }),
+        origin: ast.nowhere(),
+    }
+}
+
+fn resultOf(name: Str): ast.Type {
+    tyOf("Result", [tyNamed(name), tyNamed("ProtoError")])
+}
+
+// -----------------------------------------------------------------------------
+// An enum, and its four codecs
+// -----------------------------------------------------------------------------
+
+/// One value of a generated enum: its Buri name, the name the schema wrote,
+/// its number, and the declaration behind it.
+struct Valued {
+    buri: Str,
+    declared: Str,
+    number: Int,
+    origin: ast.Origin,
+}
+
+fn enumItems<C: Alloc>(ctx: C, e: schema.Enum, scope: [Str]): [ast.Item] {
+    let name = scope.push(ctx, e.name).join(ctx, "_");
+    let here = e.origin;
+    let zero = match (zeroValue(ctx, e)) {
+        .Some(z) => z,
+        .None => "UNSPECIFIED",
+    };
+    // A schema whose enum has no values is already an error; emitting one value
+    // keeps the module parseable, so the real diagnostic is the one a reader
+    // sees.
+    let values = if (e.values.isEmpty()) {
+        [Valued { buri: zero, declared: zero, number: 0, origin: here }]
+    } else {
+        e
+            .values
+            .mapCtx(ctx, fn(c, v) => {
+                Valued {
+                    buri: escape(c, v.name),
+                    declared: v.name,
+                    number: v.number,
+                    origin: v.origin,
+                }
+            })
+    };
+    let unknown = unrecognizedName(ctx, e);
+    [
+        enumDeclItem(ctx, name, here, values, unknown),
+        deriveEqShow(name),
+        enumEncode(ctx, name, values, unknown),
+        enumDecode(ctx, name, values, unknown),
+        enumEncodeJson(ctx, name, values, unknown),
+        enumDecodeJson(ctx, name, values),
+    ]
+}
+
+fn enumDeclItem<C: Alloc>(
+    ctx: C,
+    name: Str,
+    here: ast.Origin,
+    values: [Valued],
+    unknown: Str,
+): ast.Item {
+    let declared = values.map(ctx, fn(v) => {
+        ast.Variant {
+            name: nmAt(v.buri, v.origin),
+            payload: .Empty,
+            docs: [],
+            origin: v.origin,
+        }
+    });
+    let all = declared.push(ctx, ast.Variant {
+        name: nm(unknown),
+        payload: .Tuple([tyNamed("Int")]),
+        docs: [
+            "A number this schema does not name.",
+            "",
+            "Editions enums are open, and an open enum keeps a value it does not",
+            "recognise rather than losing it — so a message written by a newer",
+            "schema survives being read and written again by this one.",
+        ],
+        origin: ast.nowhere(),
+    });
+    ast.Item {
+        kind: .Enum(ast.EnumDecl {
+            name: nmAt(name, here),
+            generics: [],
+            variants: all,
+            exported: true,
+            docs: [],
+        }),
+        origin: here,
+    }
+}
+
+fn enumEncode<C: Alloc>(ctx: C, name: Str, values: [Valued], unknown: Str): ast.Item {
+    let arms = values
+        .map(ctx, fn(v) => armOf(dotP0(v.buri), intE(v.number)))
+        .push(ctx, armOf(dotP1(unknown, "n"), id("n")));
+    fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "encode${name}")),
+        generics: [],
+        params: [param("value", tyNamed(name))],
+        ret: tyNamed("Int"),
+        body: [tailBlock(matchE(id("value"), arms))],
+        exported: true,
+        docs: [str.format(ctx, "The number `${name}` goes on the wire as.")],
+    })
+}
+
+fn enumDecode<C: Alloc>(ctx: C, name: Str, values: [Valued], unknown: Str): ast.Item {
+    // An alias — two names for one number — decodes to the first of them.
+    let seed: ([Int], [(ast.Expr, ast.Expr)]) = ([], []);
+    let built = values.foldCtx(
+        ctx,
+        fn(c, acc: ([Int], [(ast.Expr, ast.Expr)]), v) => {
+            let (seen, arms) = acc;
+            if (seen.contains(v.number)) {
+                (seen, arms)
+            } else {
+                (
+                    seen.push(c, v.number),
+                    arms.push(
+                        c,
+                        (eqE(id("number"), intE(v.number)), dot(id(name), v.buri)),
+                    ),
+                )
+            }
+        },
+        seed,
+    );
+    let body = chainExpr(ctx, built.1, callOf(dot(id(name), unknown), [id("number")]));
+    fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "decode${name}")),
+        generics: [],
+        params: [param("number", tyNamed("Int"))],
+        ret: tyNamed(name),
+        body: [tailBlock(body)],
+        exported: true,
+        docs: [
+            str.format(
+                ctx,
+                "A number this schema does not name is kept as `${unknown}`.",
+            ),
+            "",
+            "That is what `features.enum_type = OPEN` means, and it is edition 2026's",
+            "default: adding a value to an enum does not break a reader built before",
+            "it, and the number it did not know comes back out unchanged.",
+        ],
+    })
+}
+
+fn enumEncodeJson<C: Alloc>(
+    ctx: C,
+    name: Str,
+    values: [Valued],
+    unknown: Str,
+): ast.Item {
+    let arms = values
+        .map(ctx, fn(v) => {
+            armOf(dotP0(v.buri), callOf(dot(id("Json"), "Str"), [strE(v.declared)]))
+        })
+        .push(ctx, armOf(dotP1(unknown, "n"), nsCall("proto", "jsonInt32", [id("n")])));
+    fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "encode${name}Json")),
+        generics: [],
+        params: [param("value", tyNamed(name))],
+        ret: tyNamed("Json"),
+        body: [tailBlock(matchE(id("value"), arms))],
+        exported: true,
+        docs: [
+            "JSON writes an enum as the *name* of its value — and a value with no",
+            "name as its number, which is what the mapping says an open enum does.",
+        ],
+    })
+}
+
+fn enumDecodeJson<C: Alloc>(ctx: C, name: Str, values: [Valued]): ast.Item {
+    let wanted = str.format(ctx, "a value of ${name}");
+    let arms = values.map(ctx, fn(v) => {
+        (eqE(id("s"), strE(v.declared)), variantCall("Ok", [dot(id(name), v.buri)]))
+    });
+    let byName = chainExpr(ctx, arms, badJson(id("path"), wanted));
+    let byNumber = variantCall("Ok", [
+        callName(str.format(ctx, "decode${name}"), [method(id("x"), "wrapToI64", [])]),
+    ]);
+    let body = matchE(id("doc"), [
+        armOf(dotP1("Str", "s"), byName),
+        armOf(dotP1("Num", "x"), byNumber),
+        armOf(patOf(.Wild), badJson(id("path"), wanted)),
+    ]);
+    fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "decode${name}Json")),
+        generics: [],
+        params: [param("doc", tyNamed("Json")), param("path", tyNamed("Str"))],
+        ret: resultOf(name),
+        body: [tailBlock(body)],
+        exported: true,
+        docs: ["A name, or — as proto3 JSON also allows — the number."],
+    })
+}
+
+// -----------------------------------------------------------------------------
+// A message: the declarations
+// -----------------------------------------------------------------------------
+
+fn oneofItems<C: Alloc>(ctx: C, owner: Str, o: ResolvedOneof): [ast.Item] {
+    let variants = o
+        .cases
+        .mapCtx(ctx, fn(c, k) => {
+            ast.Variant {
+                name: nmAt(upperFirst(c, k.name), k.origin),
+                payload: .Tuple([baseType(k.ty)]),
+                docs: [],
+                origin: k.origin,
+            }
+        });
+    [
+        ast.Item {
+            kind: .Enum(ast.EnumDecl {
+                name: nmAt(o.enumName, o.origin),
+                generics: [],
+                variants: variants,
+                exported: true,
+                docs: [str.format(ctx, "The cases of `${owner}`'s `${o.field}`.")],
+            }),
+            origin: o.origin,
+        },
+        deriveEqShow(o.enumName),
+    ]
+}
+
+fn structItem<C: Alloc>(
+    ctx: C,
+    name: Str,
+    here: ast.Origin,
+    fields: [ResolvedField],
+    oneofs: [ResolvedOneof],
+): ast.Item {
+    let members = fields.map(ctx, fn(f) => {
+        ast.FieldDecl {
+            name: nmAt(f.name, f.origin),
+            ty: fieldType(f),
+            exported: true,
+            docs: [],
+            origin: f.origin,
+        }
+    });
+    let held = oneofs.map(ctx, fn(o) => {
+        ast.FieldDecl {
+            name: nmAt(o.field, o.origin),
+            ty: tyOf("Option", [tyNamed(o.enumName)]),
+            exported: true,
+            docs: [],
+            origin: o.origin,
+        }
+    });
+    ast.Item {
+        kind: .Struct(ast.StructDecl {
+            name: nmAt(name, here),
+            generics: [],
+            body: .Record(members.concat(ctx, held)),
+            exported: true,
+            docs: [],
+        }),
+        origin: here,
+    }
+}
+
+// -----------------------------------------------------------------------------
+// A message: the defaults
+// -----------------------------------------------------------------------------
+
+fn defaultOf(f: ResolvedField): ast.Expr {
+    if (isRepeated(f)) {
+        emptyList(baseType(f.ty))
+    } else if (isOptional(f)) {
+        variantE("None")
+    } else {
+        match (f.ty) {
+            .Scalar(s) => {
+                let k = scalarName(s);
+                if (k == "bool") {
+                    ex(.Bool(false))
+                } else if (k == "string") {
+                    strE("")
+                } else if (k == "bytes") {
+                    emptyList(tyNamed("U8"))
+                } else if (k == "double" || k == "float") {
+                    ex(.Float(0.0))
+                } else {
+                    intE(0)
+                }
+            },
+            .Named(e) => {
+                let zero = match (e.zero) {
+                    .Some(z) => z,
+                    .None => "UNSPECIFIED",
+                };
+                dot(id(e.buri), zero)
+            },
+        }
+    }
+}
+
+fn defaultFn<C: Alloc>(
+    ctx: C,
+    name: Str,
+    fields: [ResolvedField],
+    oneofs: [ResolvedOneof],
+): ast.Item {
+    let inits = fields
+        .map(ctx, fn(f) => initOf(f.name, defaultOf(f)))
+        .concat(ctx, oneofs.map(ctx, fn(o) => initOf(o.field, variantE("None"))));
+    fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "default${name}")),
+        generics: [],
+        params: [],
+        ret: tyNamed(name),
+        body: [tailBlock(structE(name, inits))],
+        exported: true,
+        docs: [
+            "Every field at its proto3 default: what a message of no bytes decodes to.",
+        ],
+    })
+}
+
+// -----------------------------------------------------------------------------
+// A message: the binary encoder
+// -----------------------------------------------------------------------------
+
+/// The bytes of one whole field — header included — given an expression
+/// holding its value.
+fn writeOne<C: Alloc>(
+    ctx: C,
+    f: ResolvedField,
+    value: ast.Expr,
+    c: ast.Expr,
+): ast.Expr {
+    let n = intE(f.number);
+    match (f.ty) {
+        .Scalar(s) => {
+            let k = scalarName(s);
+            if (k == "sint32" || k == "sint64") {
+                nsCall("proto", "varintField", [
+                    c,
+                    n,
+                    nsCall("bytes", "zigzag", [value]),
+                ])
+            } else if (k == "bool") {
+                nsCall("proto", "varintField", [c, n, ifE(value, intE(1), intE(0))])
+            } else if (k == "fixed32" || k == "sfixed32") {
+                nsCall("proto", "fixed32Field", [c, n, value])
+            } else if (k == "fixed64" || k == "sfixed64") {
+                nsCall("proto", "fixed64Field", [c, n, value])
+            } else if (k == "double") {
+                nsCall("proto", "f64Field", [c, n, value])
+            } else if (k == "float") {
+                nsCall("proto", "f32Field", [c, n, value])
+            } else if (k == "string") {
+                nsCall("proto", "strField", [c, n, value])
+            } else if (k == "bytes") {
+                nsCall("proto", "bytesField", [c, n, value])
+            } else {
+                nsCall("proto", "varintField", [c, n, value])
+            }
+        },
+        .Named(e) => {
+            match (e.kind) {
+                .Enum => {
+                    nsCall("proto", "varintField", [
+                        c,
+                        n,
+                        callName(str.format(ctx, "encode${e.buri}"), [value]),
+                    ])
+                },
+                .Message => {
+                    nsCall("proto", "bytesField", [
+                        c,
+                        n,
+                        callName(str.format(ctx, "encode${e.buri}"), [c, value]),
+                    ])
+                },
+            }
+        },
+    }
+}
+
+/// One element of a packed repeated field: the value with no header.
+fn writeRaw<C: Alloc>(
+    ctx: C,
+    f: ResolvedField,
+    value: ast.Expr,
+    c: ast.Expr,
+): ast.Expr {
+    match (f.ty) {
+        .Scalar(s) => {
+            let k = scalarName(s);
+            if (k == "sint32" || k == "sint64") {
+                nsCall("bytes", "toVarint", [c, nsCall("bytes", "zigzag", [value])])
+            } else if (k == "bool") {
+                nsCall("bytes", "toVarint", [c, ifE(value, intE(1), intE(0))])
+            } else if (k == "fixed32" || k == "sfixed32") {
+                nsCall("proto", "le32", [value])
+            } else if (k == "fixed64" || k == "sfixed64") {
+                nsCall("proto", "le64", [c, value])
+            } else if (k == "double") {
+                nsCall("bytes", "f64ToBytes", [c, value])
+            } else if (k == "float") {
+                nsCall("bytes", "f32ToBytes", [c, value])
+            } else {
+                nsCall("bytes", "toVarint", [c, value])
+            }
+        },
+        .Named(e) => {
+            nsCall("bytes", "toVarint", [
+                c,
+                callName(str.format(ctx, "encode${e.buri}"), [value]),
+            ])
+        },
+    }
+}
+
+/// The test that decides whether a singular field is written at all. proto3
+/// omits a field holding its default, and that is what makes an encoding
+/// canonical rather than merely correct.
+fn isDefaultTest<C: Alloc>(ctx: C, f: ResolvedField, value: ast.Expr): ast.Expr {
+    match (f.ty) {
+        .Scalar(s) => {
+            let k = scalarName(s);
+            if (k == "bool") {
+                eqE(value, ex(.Bool(false)))
+            } else if (k == "string") {
+                eqE(value, strE(""))
+            } else if (k == "bytes") {
+                eqE(method(value, "len", []), intE(0))
+            } else if (k == "double" || k == "float") {
+                eqE(value, ex(.Float(0.0)))
+            } else {
+                eqE(value, intE(0))
+            }
+        },
+        .Named(e) => {
+            eqE(callName(str.format(ctx, "encode${e.buri}"), [value]), intE(0))
+        },
+    }
+}
+
+fn encodePiece<C: Alloc>(ctx: C, f: ResolvedField): ast.Expr {
+    let v = dot(id("value"), f.name);
+    let none = emptyList(tyNamed("U8"));
+    if (isRepeated(f)) {
+        if (packable(f.ty) && f.packed) {
+            let each = method(
+                method(v, "mapCtx", [
+                    id("ctx"),
+                    lam2("c", "x", writeRaw(ctx, f, id("x"), id("c"))),
+                ]),
+                "flatten",
+                [id("ctx")],
+            );
+            ifE(
+                eqE(method(v, "len", []), intE(0)),
+                none,
+                nsCall("proto", "bytesField", [id("ctx"), intE(f.number), each]),
+            )
+        } else {
+            method(
+                method(v, "mapCtx", [
+                    id("ctx"),
+                    lam2("c", "x", writeOne(ctx, f, id("x"), id("c"))),
+                ]),
+                "flatten",
+                [id("ctx")],
+            )
+        }
+    } else if (isOptional(f)) {
+        matchE(v, [
+            armOf(dotP1("Some", "x"), writeOne(ctx, f, id("x"), id("ctx"))),
+            armOf(dotP0("None"), none),
+        ])
+    } else {
+        ifE(isDefaultTest(ctx, f, v), none, writeOne(ctx, f, v, id("ctx")))
+    }
+}
+
+fn encodeOneofPiece<C: Alloc>(ctx: C, o: ResolvedOneof): ast.Expr {
+    let arms = o
+        .cases
+        .mapCtx(ctx, fn(c, k) => {
+            armOf(dotP1(upperFirst(c, k.name), "x"), writeOne(c, k, id("x"), id("ctx")))
+        });
+    matchE(dot(id("value"), o.field), [
+        armOf(dotP1("Some", "k"), matchE(id("k"), arms)),
+        armOf(dotP0("None"), emptyList(tyNamed("U8"))),
+    ])
+}
+
+fn encodeFn<C: Alloc>(
+    ctx: C,
+    name: Str,
+    fields: [ResolvedField],
+    oneofs: [ResolvedOneof],
+): ast.Item {
+    let body = if (fields.isEmpty() && oneofs.isEmpty()) {
+        blk([letWildS(id("value")), letWildS(id("ctx"))], [emptyList(tyNamed("U8"))])
+    } else {
+        let pieces = fields
+            .mapCtx(ctx, fn(c, f) => encodePiece(c, f))
+            .concat(ctx, oneofs.mapCtx(ctx, fn(c, o) => encodeOneofPiece(c, o)));
+        tailBlock(method(ex(.Array(pieces)), "flatten", [id("ctx")]))
+    };
+    fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "encode${name}")),
+        generics: allocGeneric(),
+        params: [ctxParam(), param("value", tyNamed(name))],
+        ret: tyArray(tyNamed("U8")),
+        body: [body],
+        exported: true,
+        docs: [
+            "The protobuf wire encoding, fields in schema order.",
+            "",
+            "A singular field holding its default is omitted, which is what proto3",
+            "calls the canonical encoding; a field that tracks presence and is set is",
+            "written whatever it holds, because that is the difference presence buys.",
+        ],
+    })
+}
+
+// -----------------------------------------------------------------------------
+// A message: the binary decoder
+// -----------------------------------------------------------------------------
+
+fn namedEntry(t: FieldType): Option<Entry> {
+    match (t) {
+        .Named(e) => .Some(e),
+        _other => .None,
+    }
+}
+
+/// What to read at `next`: a `Result` of the raw value and the index just past
+/// it.
+fn readOne(f: ResolvedField): ast.Expr {
+    match (f.ty) {
+        .Scalar(s) => {
+            let k = scalarName(s);
+            if (k == "string") {
+                tryE(nsCall("proto", "readStr", [id("ctx"), id("b"), id("next")]))
+            } else if (k == "bytes") {
+                tryE(nsCall("proto", "readBytes", [id("ctx"), id("b"), id("next")]))
+            } else if (k == "double") {
+                tryE(nsCall("proto", "readF64", [id("b"), id("next")]))
+            } else if (k == "float") {
+                tryE(nsCall("proto", "readF32", [id("b"), id("next")]))
+            } else if (k == "fixed32" || k == "sfixed32") {
+                tryE(nsCall("proto", "readFixed32", [id("b"), id("next")]))
+            } else if (k == "fixed64" || k == "sfixed64") {
+                tryE(nsCall("proto", "readFixed64", [id("b"), id("next")]))
+            } else if (k == "int32" || k == "uint32" || k == "sint32") {
+                // A 32-bit field is the varint's low 32 bits, read as such
+                // rather than truncated afterwards.
+                tryE(nsCall("proto", "readVarint32", [id("b"), id("next")]))
+            } else {
+                tryE(nsCall("proto", "readVarint", [id("b"), id("next")]))
+            }
+        },
+        .Named(e) => {
+            match (e.kind) {
+                .Enum => tryE(nsCall("proto", "readVarint32", [id("b"), id("next")])),
+                .Message => {
+                    tryE(nsCall("proto", "readBytes", [id("ctx"), id("b"), id("next")]))
+                },
+            }
+        },
+    }
+}
+
+/// The raw reading turned into the field's own type.
+///
+/// A 32-bit field truncates. The wire format has one integer encoding, so a
+/// `uint32` field can arrive carrying 2^33; protobuf reads the low 32 bits and
+/// every implementation agrees on that, so a decoder that kept the whole number
+/// would disagree with all of them.
+fn adapt<C: Alloc>(ctx: C, f: ResolvedField, raw: ast.Expr): ast.Expr {
+    match (f.ty) {
+        .Scalar(s) => {
+            let k = scalarName(s);
+            if (k == "int32" || k == "sfixed32") {
+                nsCall("proto", "signed32", [raw])
+            } else if (k == "sint32" || k == "sint64") {
+                nsCall("bytes", "unzigzag", [raw])
+            } else if (k == "bool") {
+                binE(.Ne, raw, intE(0))
+            } else {
+                raw
+            }
+        },
+        .Named(e) => {
+            match (e.kind) {
+                .Enum => {
+                    callName(str.format(ctx, "decode${e.buri}"), [
+                        nsCall("proto", "signed32", [raw]),
+                    ])
+                },
+                .Message => {
+                    tryE(callName(str.format(ctx, "decode${e.buri}"), [id("ctx"), raw]))
+                },
+            }
+        },
+    }
+}
+
+/// The same, for one element of a packed field, where the values arrive as a
+/// list rather than one at a time.
+fn adaptPacked<C: Alloc>(ctx: C, f: ResolvedField): ast.Expr {
+    let values = id("values");
+    match (f.ty) {
+        .Scalar(s) => {
+            let k = scalarName(s);
+            if (k == "bool") {
+                method(values, "map", [
+                    id("ctx"),
+                    lam1("v", binE(.Ne, id("v"), intE(0))),
+                ])
+            } else if (k == "int32" || k == "sfixed32") {
+                method(values, "map", [
+                    id("ctx"),
+                    lam1("v", nsCall("proto", "signed32", [id("v")])),
+                ])
+            } else if (k == "sint32" || k == "sint64") {
+                method(values, "map", [
+                    id("ctx"),
+                    lam1("v", nsCall("bytes", "unzigzag", [id("v")])),
+                ])
+            } else {
+                values
+            }
+        },
+        .Named(e) => {
+            method(values, "map", [
+                id("ctx"),
+                lam1(
+                    "v",
+                    callName(str.format(ctx, "decode${e.buri}"), [
+                        nsCall("proto", "signed32", [id("v")]),
+                    ]),
+                ),
+            ])
+        },
+    }
+}
+
+fn packedReader(f: ResolvedField): ast.Expr {
+    match (f.ty) {
+        .Scalar(s) => {
+            let k = scalarName(s);
+            if (k == "int32" || k == "uint32" || k == "sint32") {
+                tryE(nsCall("proto", "packedVarints32", [id("ctx"), id("raw")]))
+            } else if (k == "double") {
+                tryE(nsCall("proto", "packedF64", [id("ctx"), id("raw")]))
+            } else if (k == "float") {
+                tryE(nsCall("proto", "packedF32", [id("ctx"), id("raw")]))
+            } else if (k == "fixed32" || k == "sfixed32") {
+                tryE(nsCall("proto", "packedFixed32", [id("ctx"), id("raw")]))
+            } else if (k == "fixed64" || k == "sfixed64") {
+                tryE(nsCall("proto", "packedFixed64", [id("ctx"), id("raw")]))
+            } else {
+                tryE(nsCall("proto", "packedVarints", [id("ctx"), id("raw")]))
+            }
+        },
+        // Only an enum is both named and packable; a repeated message field is
+        // length-delimited and never packed.
+        _other => tryE(nsCall("proto", "packedVarints32", [id("ctx"), id("raw")])),
+    }
+}
+
+/// A singular message field merges into whatever is already there, so two
+/// encodings of one message read as the message they describe together.
+fn mergeSeed<C: Alloc>(
+    ctx: C,
+    f: ResolvedField,
+    e: Entry,
+    seat: Option<ResolvedOneof>,
+): ast.Expr {
+    let fallback = callName(str.format(ctx, "default${e.buri}"), []);
+    let seed = match (seat) {
+        .Some(o) => {
+            matchE(dot(id("acc"), o.field), [
+                armOf(
+                    dotP("Some", [.Tuple([dotP1(upperFirst(ctx, f.name), "prev")])]),
+                    id("prev"),
+                ),
+                armOf(patOf(.Wild), fallback),
+            ])
+        },
+        .None => {
+            matchE(dot(id("acc"), f.name), [
+                armOf(dotP1("Some", "prev"), id("prev")),
+                armOf(dotP0("None"), fallback),
+            ])
+        },
+    };
+    tryE(callName(str.format(ctx, "merge${e.buri}"), [id("ctx"), id("raw"), seed]))
+}
+
+/// Where a read value lands in the accumulator.
+fn assignment<C: Alloc>(
+    ctx: C,
+    f: ResolvedField,
+    seat: Option<ResolvedOneof>,
+): ast.Init {
+    match (seat) {
+        .Some(o) => {
+            initOf(
+                o.field,
+                variantCall("Some", [
+                    callOf(dot(id(o.enumName), upperFirst(ctx, f.name)), [id("value")]),
+                ]),
+            )
+        },
+        .None => {
+            if (isRepeated(f)) {
+                initOf(
+                    f.name,
+                    method(dot(id("acc"), f.name), "push", [id("ctx"), id("value")]),
+                )
+            } else if (isOptional(f)) {
+                initOf(f.name, variantCall("Some", [id("value")]))
+            } else {
+                initOf(f.name, id("value"))
+            }
+        },
+    }
+}
+
+/// Every header case one field answers to: the packed reading of a repeated
+/// numeric field, and the field itself. A writer may send either form of a
+/// packable repeated field, so a reader takes either.
+fn fieldArms<C: Alloc>(
+    ctx: C,
+    name: Str,
+    f: ResolvedField,
+    seat: Option<ResolvedOneof>,
+): [(ast.Expr, ast.Block)] {
+    let readName = str.format(ctx, "read${name}");
+    let packedArms: [(ast.Expr, ast.Block)] = if (isRepeated(f) && packable(f.ty)) {
+        let grown = structOver(name, id("acc"), [
+            initOf(
+                f.name,
+                method(dot(id("acc"), f.name), "concat", [
+                    id("ctx"),
+                    adaptPacked(ctx, f),
+                ]),
+            ),
+        ]);
+        [
+            (
+                andE(
+                    eqE(id("field"), intE(f.number)),
+                    eqE(id("wire"), dot(id("proto"), "LEN")),
+                ),
+                blk(
+                    [
+                        letPatS(
+                            patOf(.Tuple([bindP("raw"), bindP("after")])),
+                            tryE(
+                                nsCall("proto", "readBytes", [
+                                    id("ctx"),
+                                    id("b"),
+                                    id("next"),
+                                ]),
+                            ),
+                        ),
+                        letS("values", [], packedReader(f)),
+                    ],
+                    [callName(readName, [id("ctx"), id("b"), id("after"), grown])],
+                ),
+            ),
+        ]
+    } else {
+        []
+    };
+    let merged: Option<ast.Expr> = match (namedEntry(f.ty)) {
+        .Some(e) => {
+            match (e.kind) {
+                .Message => {
+                    if (isRepeated(f)) {
+                        .None
+                    } else {
+                        .Some(mergeSeed(ctx, f, e, seat))
+                    }
+                },
+                .Enum => .None,
+            }
+        },
+        .None => .None,
+    };
+    let adapted = match (merged) {
+        .Some(m) => m,
+        .None => adapt(ctx, f, id("raw")),
+    };
+    let landed = structOver(name, id("acc"), [assignment(ctx, f, seat)]);
+    let main = (
+        andE(
+            eqE(id("field"), intE(f.number)),
+            eqE(id("wire"), dot(id("proto"), wireName(f.ty))),
+        ),
+        blk(
+            [
+                letPatS(patOf(.Tuple([bindP("raw"), bindP("after")])), readOne(f)),
+                letS("value", [], adapted),
+            ],
+            [callName(readName, [id("ctx"), id("b"), id("after"), landed])],
+        ),
+    );
+    packedArms.push(ctx, main)
+}
+
+fn decodeFns<C: Alloc>(
+    ctx: C,
+    name: Str,
+    fields: [ResolvedField],
+    oneofs: [ResolvedOneof],
+): [ast.Item] {
+    let readName = str.format(ctx, "read${name}");
+    let bytesTy = tyArray(tyNamed("U8"));
+    let decodeItem = fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "decode${name}")),
+        generics: allocGeneric(),
+        params: [ctxParam(), param("b", bytesTy)],
+        ret: resultOf(name),
+        body: [
+            tailBlock(
+                callName(readName, [
+                    id("ctx"),
+                    id("b"),
+                    intE(0),
+                    callName(str.format(ctx, "default${name}"), []),
+                ]),
+            ),
+        ],
+        exported: true,
+        docs: [
+            "Reads one message. A field this schema does not know is skipped, which is",
+            "proto3's forward compatibility and the whole of it.",
+        ],
+    });
+    let mergeItem = fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "merge${name}")),
+        generics: allocGeneric(),
+        params: [ctxParam(), param("b", bytesTy), param("into", tyNamed(name))],
+        ret: resultOf(name),
+        body: [
+            tailBlock(callName(readName, [id("ctx"), id("b"), intE(0), id("into")])),
+        ],
+        exported: true,
+        docs: [
+            "Reads one message *on top of* another.",
+            "",
+            "A singular message field that arrives twice is merged rather than",
+            "replaced — the specification says so, and it is what makes a message",
+            "splittable across two encodings of itself. Every other kind of field",
+            "takes the later value, which merging also does.",
+        ],
+    });
+    let none: Option<ResolvedOneof> = .None;
+    let plain = fields.map(ctx, fn(f) => (f, none));
+    let cased = oneofs
+        .mapCtx(ctx, fn(c, o) => {
+            let seat: Option<ResolvedOneof> = .Some(o);
+            o.cases.map(c, fn(k) => (k, seat))
+        })
+        .flatten(ctx);
+    let arms = plain
+        .concat(ctx, cased)
+        .mapCtx(ctx, fn(c, seat) => fieldArms(c, name, seat.0, seat.1))
+        .flatten(ctx);
+    let otherwise = blk(
+        [
+            letS(
+                "after",
+                [],
+                tryE(nsCall("proto", "skip", [id("b"), id("next"), id("wire")])),
+            ),
+        ],
+        [callName(readName, [id("ctx"), id("b"), id("after"), id("acc")])],
+    );
+    let inner = chainBlocks(ctx, arms, otherwise);
+    let elseBlock = blk(
+        [
+            letPatS(
+                patOf(.Tuple([bindP("field"), bindP("wire"), bindP("next")])),
+                tryE(nsCall("proto", "readTag", [id("b"), id("at")])),
+            ),
+        ].concat(ctx, inner.stmts),
+        inner.tail,
+    );
+    let readItem = fnItem(ast.FnDecl {
+        name: nm(readName),
+        generics: allocGeneric(),
+        params: [
+            ctxParam(),
+            param("b", bytesTy),
+            param("at", tyNamed("Int")),
+            param("acc", tyNamed(name)),
+        ],
+        ret: resultOf(name),
+        body: [
+            tailBlock(
+                ex(
+                    .If(
+                        [binE(.Ge, id("at"), method(id("b"), "len", []))],
+                        [tailBlock(variantCall("Ok", [id("acc")]))],
+                        [blockE(elseBlock)],
+                    ),
+                ),
+            ),
+        ],
+        exported: false,
+        docs: [],
+    });
+    [decodeItem, mergeItem, readItem]
+}
+
+// -----------------------------------------------------------------------------
+// A message: the JSON mapping
+// -----------------------------------------------------------------------------
+
+/// `(Str, Json)`, which is what one member of an object is.
+fn memberTy(): ast.Type {
+    ast.Type { kind: .Tuple([tyNamed("Str"), tyNamed("Json")]), origin: ast.nowhere() }
+}
+
+fn jsonOf<C: Alloc>(ctx: C, f: ResolvedField, value: ast.Expr, c: ast.Expr): ast.Expr {
+    match (f.ty) {
+        .Scalar(s) => {
+            let k = scalarName(s);
+            if (k == "int64" || k == "uint64" || k == "sint64") {
+                nsCall("proto", "jsonInt64", [c, value])
+            } else if (k == "fixed64" || k == "sfixed64") {
+                nsCall("proto", "jsonInt64", [c, value])
+            } else if (k == "bool") {
+                callOf(dot(id("Json"), "Bool"), [value])
+            } else if (k == "string") {
+                callOf(dot(id("Json"), "Str"), [value])
+            } else if (k == "bytes") {
+                nsCall("proto", "jsonBytes", [c, value])
+            } else if (k == "double" || k == "float") {
+                nsCall("proto", "jsonFloat", [value])
+            } else {
+                nsCall("proto", "jsonInt32", [value])
+            }
+        },
+        .Named(e) => {
+            match (e.kind) {
+                .Enum => callName(str.format(ctx, "encode${e.buri}Json"), [value]),
+                .Message => {
+                    callName(str.format(ctx, "encode${e.buri}Json"), [c, value])
+                },
+            }
+        },
+    }
+}
+
+/// `[("name", value)]`, the one-member list a written field contributes.
+fn oneMember(name: Str, value: ast.Expr): ast.Expr {
+    ex(.Array([ex(.Tuple([strE(name), value]))]))
+}
+
+fn jsonPiece<C: Alloc>(ctx: C, f: ResolvedField): ast.Expr {
+    let v = dot(id("value"), f.name);
+    let none = emptyList(memberTy());
+    if (isRepeated(f)) {
+        let each = method(v, "mapCtx", [
+            id("ctx"),
+            lam2("c", "x", jsonOf(ctx, f, id("x"), id("c"))),
+        ]);
+        ifE(
+            eqE(method(v, "len", []), intE(0)),
+            none,
+            oneMember(f.json, callOf(dot(id("Json"), "Array"), [each])),
+        )
+    } else if (isOptional(f)) {
+        matchE(v, [
+            armOf(
+                dotP1("Some", "x"),
+                oneMember(f.json, jsonOf(ctx, f, id("x"), id("ctx"))),
+            ),
+            armOf(dotP0("None"), none),
+        ])
+    } else {
+        ifE(
+            isDefaultTest(ctx, f, v),
+            none,
+            oneMember(f.json, jsonOf(ctx, f, v, id("ctx"))),
+        )
+    }
+}
+
+fn jsonOneofPiece<C: Alloc>(ctx: C, o: ResolvedOneof): ast.Expr {
+    let arms = o
+        .cases
+        .mapCtx(ctx, fn(c, k) => {
+            armOf(
+                dotP1(upperFirst(c, k.name), "x"),
+                oneMember(k.json, jsonOf(c, k, id("x"), id("ctx"))),
+            )
+        });
+    matchE(dot(id("value"), o.field), [
+        armOf(dotP1("Some", "k"), matchE(id("k"), arms)),
+        armOf(dotP0("None"), emptyList(memberTy())),
+    ])
+}
+
+fn jsonEncodeFn<C: Alloc>(
+    ctx: C,
+    name: Str,
+    fields: [ResolvedField],
+    oneofs: [ResolvedOneof],
+): ast.Item {
+    let body = if (fields.isEmpty() && oneofs.isEmpty()) {
+        blk([letWildS(id("value")), letWildS(id("ctx"))], [
+            callOf(dot(id("Json"), "Object"), [emptyList(memberTy())]),
+        ])
+    } else {
+        let pieces = fields
+            .mapCtx(ctx, fn(c, f) => jsonPiece(c, f))
+            .concat(ctx, oneofs.mapCtx(ctx, fn(c, o) => jsonOneofPiece(c, o)));
+        tailBlock(
+            callOf(dot(id("Json"), "Object"), [
+                method(ex(.Array(pieces)), "flatten", [id("ctx")]),
+            ]),
+        )
+    };
+    fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "encode${name}Json")),
+        generics: allocGeneric(),
+        params: [ctxParam(), param("value", tyNamed(name))],
+        ret: tyNamed("Json"),
+        body: [body],
+        exported: true,
+        docs: [
+            "The proto3 JSON mapping — which is *not* `derive ToJson`'s. A 64-bit",
+            "integer is a string, `bytes` is base64, an enum is its value's name, and",
+            "a oneof's case is an ordinary member of this object.",
+        ],
+    })
+}
+
+/// The range a JSON reader holds an integer field to.
+///
+/// The 64-bit bounds are `Int`'s own, which is `I64`'s: a `uint64` above 2^63
+/// has no `Int` to be, and the reader says so rather than wrapping.
+fn jsonRange(s: schema.Scalar): (Int, Int) {
+    let k = scalarName(s);
+    let top = 9223372036854775807;
+    let bottom = -9223372036854775807 - 1;
+    if (k == "int32" || k == "sint32" || k == "sfixed32") {
+        (-2147483648, 2147483647)
+    } else if (k == "uint32" || k == "fixed32") {
+        (0, 4294967295)
+    } else if (k == "uint64" || k == "fixed64") {
+        (0, top)
+    } else {
+        (bottom, top)
+    }
+}
+
+/// Reading one value out of a document, as a `Result` expression.
+///
+/// `c` is named rather than assumed: inside a fold over an array the context is
+/// the lambda's parameter, and a lambda may not capture the enclosing one
+/// (SPEC 10.6).
+fn jsonRead<C: Alloc>(
+    ctx: C,
+    f: ResolvedField,
+    doc: ast.Expr,
+    path: ast.Expr,
+    c: ast.Expr,
+): ast.Expr {
+    match (f.ty) {
+        .Scalar(s) => {
+            let k = scalarName(s);
+            if (k == "bool") {
+                nsCall("proto", "asBool", [doc, path])
+            } else if (k == "string") {
+                nsCall("proto", "asStr", [doc, path])
+            } else if (k == "bytes") {
+                nsCall("proto", "asBytes", [c, doc, path])
+            } else if (k == "double") {
+                nsCall("proto", "asFloat", [doc, path])
+            } else if (k == "float") {
+                nsCall("proto", "asFloat32", [doc, path])
+            } else {
+                // proto3 JSON rejects a value the field cannot hold rather than
+                // truncating it, which is what the binary format does — so the
+                // field's own range has to travel to the reader.
+                let bounds = jsonRange(s);
+                nsCall("proto", "asInt", [doc, path, intE(bounds.0), intE(bounds.1)])
+            }
+        },
+        .Named(e) => {
+            match (e.kind) {
+                .Enum => {
+                    callName(str.format(ctx, "decode${e.buri}Json"), [doc, path])
+                },
+                .Message => {
+                    callName(str.format(ctx, "decode${e.buri}JsonAt"), [c, doc, path])
+                },
+            }
+        },
+    }
+}
+
+/// Looking a field up in an object.
+///
+/// proto3 JSON *writes* the camelCase name and *accepts* either it or the name
+/// the schema wrote. A field whose schema name is already camel needs only the
+/// one lookup, and gets it.
+fn memberCall(f: ResolvedField): ast.Expr {
+    if (f.json == f.declared) {
+        nsCall("proto", "member", [id("doc"), strE(f.json)])
+    } else {
+        nsCall("proto", "memberEither", [id("doc"), strE(f.json), strE(f.declared)])
+    }
+}
+
+/// A oneof's cases, read in order: the first member present wins, which is what
+/// a document holding two of them means to every other implementation.
+fn oneofJsonFn<C: Alloc>(ctx: C, o: ResolvedOneof): ast.Item {
+    let seed = variantCall("Ok", [variantE("None")]);
+    let body = o
+        .cases
+        .reverse(ctx)
+        .foldCtx(
+            ctx,
+            fn(c, acc, k) => {
+                let at = nsCall("proto", "at", [id("ctx"), id("path"), strE(k.json)]);
+                let read = jsonRead(c, k, id("v"), at, id("ctx"));
+                matchE(memberCall(k), [
+                    armOf(
+                        dotP1("Some", "v"),
+                        variantCall("Ok", [
+                            variantCall("Some", [
+                                callOf(dot(id(o.enumName), upperFirst(c, k.name)), [
+                                    tryE(read),
+                                ]),
+                            ]),
+                        ]),
+                    ),
+                    armOf(dotP0("None"), acc),
+                ])
+            },
+            seed,
+        );
+    fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "read${o.enumName}")),
+        generics: allocGeneric(),
+        params: [
+            ctxParam(),
+            param("doc", tyNamed("Json")),
+            param("path", tyNamed("Str")),
+        ],
+        ret: tyOf("Result", [
+            tyOf("Option", [tyNamed(o.enumName)]),
+            tyNamed("ProtoError"),
+        ]),
+        body: [tailBlock(body)],
+        exported: false,
+        docs: [],
+    })
+}
+
+/// The bindings one field contributes to `decodeMJsonAt`.
+///
+/// Every binding is annotated: a `.None` arm has no type to infer from on its
+/// own, and the annotation is what a reader of the generated module wants
+/// anyway.
+fn fieldLets<C: Alloc>(ctx: C, f: ResolvedField): [ast.Stmt] {
+    let at = nsCall("proto", "at", [id("ctx"), id("path"), strE(f.json)]);
+    if (isRepeated(f)) {
+        let pathName = str.format(ctx, "p_${f.name}");
+        let base = baseType(f.ty);
+        let element = jsonRead(ctx, f, id("item"), id(pathName), id("c"));
+        let step = blockE(
+            blk([letS("one", [], tryE(element))], [
+                variantCall("Ok", [method(id("acc"), "push", [id("c"), id("one")])]),
+            ]),
+        );
+        let folded = tryE(
+            method(
+                tryE(nsCall("proto", "asArray", [id("v"), id(pathName)])),
+                "foldResultCtx",
+                [
+                    id("ctx"),
+                    foldLambda("c", "acc", tyArray(base), "item", step),
+                    emptyList(base),
+                ],
+            ),
+        );
+        [
+            letS(pathName, [tyNamed("Str")], at),
+            letS(
+                f.name,
+                [fieldType(f)],
+                matchE(memberCall(f), [
+                    armOf(dotP0("None"), emptyList(base)),
+                    armOf(dotP1("Some", "v"), folded),
+                ]),
+            ),
+        ]
+    } else if (isOptional(f)) {
+        let read = jsonRead(ctx, f, id("v"), at, id("ctx"));
+        [
+            letS(
+                f.name,
+                [fieldType(f)],
+                matchE(memberCall(f), [
+                    armOf(dotP0("None"), variantE("None")),
+                    armOf(dotP1("Some", "v"), variantCall("Some", [tryE(read)])),
+                ]),
+            ),
+        ]
+    } else {
+        let read = jsonRead(ctx, f, id("v"), at, id("ctx"));
+        [
+            letS(
+                f.name,
+                [fieldType(f)],
+                matchE(memberCall(f), [
+                    armOf(dotP0("None"), defaultOf(f)),
+                    armOf(dotP1("Some", "v"), tryE(read)),
+                ]),
+            ),
+        ]
+    }
+}
+
+fn jsonDecodeFns<C: Alloc>(
+    ctx: C,
+    name: Str,
+    fields: [ResolvedField],
+    oneofs: [ResolvedOneof],
+): [ast.Item] {
+    let readers = oneofs.mapCtx(ctx, fn(c, o) => oneofJsonFn(c, o));
+    let bound = fields
+        .mapCtx(ctx, fn(c, f) => fieldLets(c, f))
+        .flatten(ctx)
+        .concat(
+            ctx,
+            oneofs.mapCtx(ctx, fn(c, o) => {
+                letS(
+                    o.field,
+                    [],
+                    tryE(
+                        callName(str.format(c, "read${o.enumName}"), [
+                            id("ctx"),
+                            id("doc"),
+                            id("path"),
+                        ]),
+                    ),
+                )
+            }),
+        );
+    let inits = fields
+        .map(ctx, fn(f) => initOf(f.name, id(f.name)))
+        .concat(ctx, oneofs.map(ctx, fn(o) => initOf(o.field, id(o.field))));
+    let objectArm = blockE(blk(bound, [variantCall("Ok", [structE(name, inits)])]));
+    let atItem = fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "decode${name}JsonAt")),
+        generics: allocGeneric(),
+        params: [
+            ctxParam(),
+            param("doc", tyNamed("Json")),
+            param("path", tyNamed("Str")),
+        ],
+        ret: resultOf(name),
+        body: [
+            tailBlock(
+                matchE(id("doc"), [
+                    armOf(dotP1("Object", "_entries"), objectArm),
+                    armOf(patOf(.Wild), badJson(id("path"), "an object")),
+                ]),
+            ),
+        ],
+        exported: true,
+        docs: [
+            "The same, from somewhere inside a larger document, so that an error names",
+            "a place a reader can find.",
+        ],
+    });
+    let jsonItem = fnItem(ast.FnDecl {
+        name: nm(str.format(ctx, "decode${name}Json")),
+        generics: allocGeneric(),
+        params: [ctxParam(), param("doc", tyNamed("Json"))],
+        ret: resultOf(name),
+        body: [
+            tailBlock(
+                callName(str.format(ctx, "decode${name}JsonAt"), [
+                    id("ctx"),
+                    id("doc"),
+                    strE("$"),
+                ]),
+            ),
+        ],
+        exported: true,
+        docs: [
+            "Reads a proto3 JSON document. An absent member and a `null` one mean the",
+            "same thing, which is what the mapping says.",
+        ],
+    });
+    readers.concat(ctx, [jsonItem, atItem])
+}
+
+// -----------------------------------------------------------------------------
+// A message, whole
+// -----------------------------------------------------------------------------
+
+fn messageItems<C: Alloc>(
+    ctx: C,
+    name: Str,
+    here: ast.Origin,
+    fields: [ResolvedField],
+    oneofs: [ResolvedOneof],
+): [ast.Item] {
+    oneofs
+        .mapCtx(ctx, fn(c, o) => oneofItems(c, name, o))
+        .flatten(ctx)
+        .push(ctx, structItem(ctx, name, here, fields, oneofs))
+        .push(ctx, deriveEqShow(name))
+        .push(ctx, defaultFn(ctx, name, fields, oneofs))
+        .push(ctx, encodeFn(ctx, name, fields, oneofs))
+        .concat(ctx, decodeFns(ctx, name, fields, oneofs))
+        .push(ctx, jsonEncodeFn(ctx, name, fields, oneofs))
+        .concat(ctx, jsonDecodeFns(ctx, name, fields, oneofs))
+}
+
+// -----------------------------------------------------------------------------
+// Generating
+// -----------------------------------------------------------------------------
+
+/// What one module's generation carries: the names it may reach, the types it
+/// actually used, and what it has written so far.
+struct Gen {
+    table: Table,
+    package: Str,
+    used: OrdMap<Str, Entry>,
+    diagnostics: [Diagnostic],
+    items: [ast.Item],
+}
+
+fn reportUnknown<C: Alloc>(ctx: C, g: Gen, name: Str, origin: ast.Origin): Gen {
+    let d = Diagnostic {
+        code: "proto-unknown-type",
+        message: str.format(ctx, "`${name}` names no message or enum"),
+        note: .None,
+        fix: .Some(
+            "declare it in this file, or `import` the file that declares it — an import path is written from the repository root",
+        ),
+        origin: .Some(origin),
+    };
+    Gen { ..g, diagnostics: g.diagnostics.push(ctx, d) }
+}
+
+fn reportAmbiguous<C: Alloc>(
+    ctx: C,
+    g: Gen,
+    name: Str,
+    claimants: [Entry],
+    origin: ast.Origin,
+): Gen {
+    let candidates = claimants
+        .mapCtx(ctx, fn(c, e) => str.format(c, "${e.buri} in ${declaredIn(e)}"))
+        .sort(ctx)
+        .join(ctx, ", or ");
+    let d = Diagnostic {
+        code: "proto-ambiguous-type",
+        message: str.format(ctx, "`${name}` is ambiguous"),
+        note: .Some(str.format(ctx, "it could be ${candidates}")),
+        fix: .Some(
+            "write the fully-qualified name, package and all, so the field says which one it means",
+        ),
+        origin: .Some(origin),
+    };
+    Gen { ..g, diagnostics: g.diagnostics.push(ctx, d) }
+}
+
+/// A fully-qualified name declared twice is a mistake in the schemas rather
+/// than in a reference to them, so it is reported whether or not anything uses
+/// the name.
+fn duplicateDiagnostics<C: Alloc>(ctx: C, t: Table): [Diagnostic] {
+    t
+        .duplicates
+        .mapCtx(ctx, fn(c, d) => {
+            let (name, first, second) = d;
+            Diagnostic {
+                code: "proto-duplicate-type",
+                message: str.format(c, "`${name}` is declared twice"),
+                note: .Some(
+                    str.format(
+                        c,
+                        "declared in ${declaredIn(first)} and in ${declaredIn(second)}",
+                    ),
+                ),
+                fix: .Some(
+                    "rename one of them, or put them in different packages — a fully-qualified name names one type",
+                ),
+                origin: .Some(second.origin),
+            }
+        })
+}
+
+/// A written type, resolved against the file's declarations and its imports'.
+///
+/// Two packages can both have a `Status`, and a short name that reaches both is
+/// not an answer — it is a coin toss decided by which file was read first.
+fn resolveType<C: Alloc>(
+    ctx: C,
+    g: Gen,
+    t: schema.TypeRef,
+    origin: ast.Origin,
+    scope: [Str],
+): (Gen, Option<FieldType>) {
+    match (t) {
+        .Scalar(s) => (g, .Some(.Scalar(s))),
+        .Named(written) => {
+            match (resolveName(ctx, g.table, written, scope, g.package)) {
+                .None => (reportUnknown(ctx, g, written, origin), .None),
+                .Some(hit) => {
+                    let (key, e) = hit;
+                    match (ambiguity(g.table, key)) {
+                        .Some(claimants) => {
+                            (reportAmbiguous(ctx, g, written, claimants, origin), .None)
+                        },
+                        .None => {
+                            (
+                                Gen { ..g, used: g.used.insert(ctx, e.buri, e) },
+                                .Some(.Named(e)),
+                            )
+                        },
+                    }
+                },
+            }
+        },
+    }
+}
+
+fn buildField<C: Alloc>(
+    ctx: C,
+    name: Str,
+    number: Int,
+    label: schema.Label,
+    own: schema.Features,
+    t: FieldType,
+    scope: schema.Features,
+    origin: ast.Origin,
+): ResolvedField {
+    let json = camelCase(ctx, name);
+    let features = own.over(scope);
+    ResolvedField {
+        name: escape(ctx, json),
+        json: json,
+        declared: name,
+        number: number,
+        label: label,
+        ty: t,
+        presence: features.presence(),
+        packed: features.packed(),
+        origin: origin,
+    }
+}
+
+/// A oneof case, which is a field with no label: the case being selected is its
+/// presence, so both are fixed rather than resolved.
+fn buildCase<C: Alloc>(
+    ctx: C,
+    k: schema.OneofCase,
+    t: FieldType,
+    scope: schema.Features,
+    origin: ast.Origin,
+): ResolvedField {
+    let base = buildField(ctx, k.name, k.number, .Single, k.features, t, scope, origin);
+    ResolvedField { ..base, presence: .Explicit }
+}
+
+fn resolveFields<C: Alloc>(
+    ctx: C,
+    g: Gen,
+    m: schema.Message,
+    scope: [Str],
+    inherited: schema.Features,
+): (Gen, [ResolvedField]) {
+    let seed: (Gen, [ResolvedField]) = (g, []);
+    m
+        .fields
+        .foldCtx(
+            ctx,
+            fn(c, acc: (Gen, [ResolvedField]), f) => {
+                let (gen, out) = acc;
+                let origin = f.origin;
+                let found = resolveType(c, gen, f.ty, origin, scope);
+                match (found.1) {
+                    .None => (found.0, out),
+                    .Some(t) => {
+                        (
+                            found.0,
+                            out.push(
+                                c,
+                                buildField(
+                                    c,
+                                    f.name,
+                                    f.number,
+                                    f.label,
+                                    f.features,
+                                    t,
+                                    inherited,
+                                    origin,
+                                ),
+                            ),
+                        )
+                    },
+                }
+            },
+            seed,
+        )
+}
+
+fn resolveOneofs<C: Alloc>(
+    ctx: C,
+    g: Gen,
+    m: schema.Message,
+    scope: [Str],
+    name: Str,
+    inherited: schema.Features,
+): (Gen, [ResolvedOneof]) {
+    let seed: (Gen, [ResolvedOneof]) = (g, []);
+    m
+        .oneofs
+        .foldCtx(
+            ctx,
+            fn(c, acc: (Gen, [ResolvedOneof]), o) => {
+                let (gen, out) = acc;
+                let inner: (Gen, [ResolvedField]) = (gen, []);
+                let read = o
+                    .cases
+                    .foldCtx(
+                        c,
+                        fn(d, seen: (Gen, [ResolvedField]), k) => {
+                            let (g2, ks) = seen;
+                            let origin = k.origin;
+                            let found = resolveType(d, g2, k.ty, origin, scope);
+                            match (found.1) {
+                                .None => (found.0, ks),
+                                .Some(t) => {
+                                    (
+                                        found.0,
+                                        ks.push(
+                                            d,
+                                            buildCase(d, k, t, inherited, origin),
+                                        ),
+                                    )
+                                },
+                            }
+                        },
+                        inner,
+                    );
+                // A oneof with no cases would be an uninhabited enum, which the
+                // language rejects and which says nothing anyway.
+                if (read.1.isEmpty()) {
+                    (read.0, out)
+                } else {
+                    let camel = camelCase(c, o.name);
+                    let one = ResolvedOneof {
+                        field: escape(c, camel),
+                        enumName: str.format(c, "${name}_${upperFirst(c, camel)}"),
+                        cases: read.1,
+                        origin: o.origin,
+                    };
+                    (read.0, out.push(c, one))
+                }
+            },
+            seed,
+        )
+}
+
+fn genEnum<C: Alloc>(ctx: C, g: Gen, e: schema.Enum, scope: [Str]): Gen {
+    Gen { ..g, items: g.items.concat(ctx, enumItems(ctx, e, scope)) }
+}
+
+fn genMessage<C: Alloc>(
+    ctx: C,
+    g: Gen,
+    m: schema.Message,
+    scope: [Str],
+    inherited: schema.Features,
+): Gen {
+    let path = scope.push(ctx, m.name);
+    let name = path.join(ctx, "_");
+    let features = m.features.over(inherited);
+    let withFields = resolveFields(ctx, g, m, path, features);
+    let withOneofs = resolveOneofs(ctx, withFields.0, m, path, name, features);
+    let here = m.origin;
+    let items = messageItems(ctx, name, here, withFields.1, withOneofs.1);
+    let written = Gen { ..withOneofs.0, items: withOneofs.0.items.concat(ctx, items) };
+    let withEnums = m
+        .enums
+        .foldCtx(ctx, fn(c, acc, e) => genEnum(c, acc, e, path), written);
+    m
+        .messages
+        .foldCtx(
+            ctx,
+            fn(c, acc, inner) => genMessage(c, acc, inner, path, features),
+            withEnums,
+        )
+}
+
+// -----------------------------------------------------------------------------
+// The imports a generated module makes
+// -----------------------------------------------------------------------------
+
+fn namedImport<C: Alloc>(ctx: C, path: Str, names: [Str]): ast.Item {
+    let specs = names.map(ctx, fn(n) => ast.ImportSpec { name: nm(n), alias: [] });
+    ast.Item {
+        kind: .Import(ast.Import { path: path, clause: .Named(specs) }),
+        origin: ast.nowhere(),
+    }
+}
+
+fn namespaceImport(path: Str, alias: Str): ast.Item {
+    ast.Item {
+        kind: .Import(ast.Import { path: path, clause: .Namespace(nm(alias)) }),
+        origin: ast.nowhere(),
+    }
+}
+
+/// One import line per foreign module, naming the types used and the codecs
+/// that come with them.
+fn foreignImports<C: Alloc>(ctx: C, used: OrdMap<Str, Entry>): [ast.Item] {
+    let seed: OrdMap<Str, [Str]> = ordmap.empty<Str, [Str]>();
+    let grouped = used
+        .values(ctx)
+        .foldCtx(
+            ctx,
+            fn(c, acc: OrdMap<Str, [Str]>, e) => {
+                match (e.inModule) {
+                    .None => acc,
+                    .Some(home) => {
+                        let names = match (acc.get(home)) {
+                            .Some(ns) => ns,
+                            .None => [],
+                        };
+                        acc.insert(
+                            c,
+                            home,
+                            names.push(c, e.buri).concat(c, codecNames(c, e)),
+                        )
+                    },
+                }
+            },
+            seed,
+        );
+    grouped.entries(ctx).mapCtx(ctx, fn(c, pair) => namedImport(c, pair.0, pair.1))
+}
+
+fn importItems<C: Alloc>(ctx: C, used: OrdMap<Str, Entry>): [ast.Item] {
+    [
+        namedImport(ctx, "core/effect", ["Alloc"]),
+        namespaceImport("core/bytes", "bytes"),
+        namedImport(ctx, "core/json", ["Json"]),
+        namespaceImport("core/list", "list"),
+        namedImport(ctx, "core/proto", ["ProtoError"]),
+        namespaceImport("core/proto", "proto"),
+    ].concat(ctx, foreignImports(ctx, used))
+}
+
+// -----------------------------------------------------------------------------
+// The two entry points
+// -----------------------------------------------------------------------------
+
+/// One generated module, and what generating it had to say.
+export struct Generated {
+    export tree: ast.Module,
+    export diagnostics: [Diagnostic],
+}
+
+/// Turns one schema into one module.
+///
+/// `deps` is the schema of every file this one may reach, with the module path
+/// its generated form has — a field's type may live in any of them. Cost: one
+/// pass to collect the table and one to write the tree.
+export fn generate<C: Alloc>(
+    ctx: C,
+    file: Str,
+    s: schema.Schema,
+    deps: [(Str, schema.Schema)],
+): Generated {
+    let none: Option<Str> = .None;
+    let own = collect(ctx, emptyTable(), s, none);
+    let table = deps.foldCtx(
+        ctx,
+        fn(c, acc, d) => collect(c, acc, d.1, .Some(d.0)),
+        own,
+    );
+    let package = match (s.package) {
+        .Some(p) => p,
+        .None => "",
+    };
+    let start = Gen {
+        table: table,
+        package: package,
+        used: ordmap.empty<Str, Entry>(),
+        diagnostics: duplicateDiagnostics(ctx, table),
+        items: [],
+    };
+    // The file's own `option features.…` over the edition's defaults, which is
+    // where every field's resolution starts.
+    let fileFeatures = s.features.over(schema.editionDefaults());
+    let withEnums = s
+        .enums
+        .foldCtx(ctx, fn(c, acc, e) => genEnum(c, acc, e, []), start);
+    let done = s
+        .messages
+        .foldCtx(
+            ctx,
+            fn(c, acc, m) => genMessage(c, acc, m, [], fileFeatures),
+            withEnums,
+        );
+    Generated {
+        tree: ast.Module {
+            items: importItems(ctx, done.used).concat(ctx, done.items),
+            docs: [
+                str.format(
+                    ctx,
+                    "Generated from ${file}. Not a file to edit: the schema is the source,",
+                ),
+                "and this module is rebuilt from it whenever the schema changes.",
+                "",
+                "What the mapping is, and why: `buri docs build/proto`.",
+            ],
+        },
+        diagnostics: done.diagnostics,
+    }
+}
+
+/// The module name a schema path implies: the file's own name, which the
+/// package it belongs to qualifies.
+fn baseName<C: Alloc>(ctx: C, path: Str): Str {
+    match (path.split(ctx, "/").last()) {
+        .Some(n) => n,
+        .None => path,
+    }
+}
+
+/// What one file's `import`s reached: the schemas to resolve its field types
+/// against, and what to say about the ones that reached nothing.
+struct Resolved {
+    deps: [(Str, schema.Schema)],
+    diagnostics: [Diagnostic],
+}
+
+/// The schemas one file imports, looked up among everything the request
+/// carries.
+///
+/// Its imports and not its siblings: a type is reachable from a file only when
+/// that file says so, which is what makes deleting an `import` change what
+/// resolves. `available` is keyed by module path, and so is the lookup, so an
+/// import written `./a.proto` and an input spelled `a.proto` are one key.
+fn resolveImports<C: Alloc>(
+    ctx: C,
+    available: [(Str, schema.Schema)],
+    imports: [schema.Import],
+): Resolved {
+    let seed = Resolved { deps: [], diagnostics: [] };
+    imports.foldCtx(
+        ctx,
+        fn(c, acc: Resolved, i) => {
+            let wanted = importModulePath(c, i.path);
+            match (available.find(fn(entry) => entry.0 == wanted)) {
+                .Some(entry) => Resolved { ..acc, deps: acc.deps.push(c, entry) },
+                .None => {
+                    let d = Diagnostic {
+                        code: "proto-import-not-found",
+                        message: str.format(
+                            c,
+                            "\"${i.path}\" names no schema in this repository",
+                        ),
+                        note: .Some(
+                            "an import inside a schema is written from the repository root, the way protoc resolves one against `-I.`",
+                        ),
+                        fix: .Some(
+                            "write the path from the repository root, as in `import \"proto/address.proto\";`",
+                        ),
+                        origin: .Some(i.origin),
+                    };
+                    Resolved { ..acc, diagnostics: acc.diagnostics.push(c, d) }
+                },
+            }
+        },
+        seed,
+    )
+}
+
+/// The generator's entry point: hand this to `core/codegen`'s `run`.
+///
+/// Every input is read as a schema before any of them is generated, because a
+/// field's type may live in any of the others — but only in the ones the file
+/// imports, so the schemas are read together and resolved one at a time.
+export fn emit<C: Alloc>(ctx: C, request: Request): Response {
+    let read = request
+        .inputs
+        .mapCtx(ctx, fn(c, input) => (input.0, schema.parse(c, input.1, input.0)));
+    let dependencies = request
+        .dependencies
+        .mapCtx(ctx, fn(c, d) => {
+            (importModulePath(c, d.0), schema.parse(c, d.1, d.0).schema)
+        });
+    // Everything an `import` in any of these files could name, under the module
+    // path the import writes.
+    let available = read
+        .mapCtx(ctx, fn(c, entry) => (importModulePath(c, entry.0), entry.1.schema))
+        .concat(ctx, dependencies);
+    let seed: ([(Str, ast.Module)], [Diagnostic]) = ([], []);
+    let built = read.foldCtx(
+        ctx,
+        fn(c, acc: ([(Str, ast.Module)], [Diagnostic]), entry) => {
+            let (modules, diagnostics) = acc;
+            let (path, parsed) = entry;
+            let resolved = resolveImports(c, available, parsed.schema.imports);
+            let out = generate(c, path, parsed.schema, resolved.deps);
+            (
+                modules.push(c, (baseName(c, path), out.tree)),
+                diagnostics
+                    .concat(c, parsed.errors)
+                    .concat(c, resolved.diagnostics)
+                    .concat(c, out.diagnostics),
+            )
+        },
+        seed,
+    );
+    Response { modules: built.0, diagnostics: built.1 }
+}

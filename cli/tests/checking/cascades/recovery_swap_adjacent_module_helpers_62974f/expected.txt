@@ -1,0 +1,41 @@
+error: expected a declaration, found a string literal [unexpected-token]
+ --> main.buri:9:1
+  |
+9 | "core/bytes" from import * as bytes;
+  | ^^^^^^^^^^^^
+  |
+  = expected: a declaration
+  = actual: a string literal
+  = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected a string literal, found `import` [unexpected-token]
+ --> main.buri:9:19
+  |
+9 | "core/bytes" from import * as bytes;
+  |                   ^^^^^^
+  |
+  = expected: a string literal
+  = actual: `import`
+  = fix: quote it, as in `"core/list"`
+error: there is nothing named `bytes` in scope [unresolved-name]
+  --> main.buri:50:18
+   |
+50 |     let octets = bytes.toUtf8(ctx, text).slice(ctx, origin.span.start, origin.span.end);
+   |                  ^^^^^
+   |
+   = fix: declare `bytes`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `bytes` in scope [unresolved-name]
+  --> main.buri:51:12
+   |
+51 |     match (bytes.fromUtf8(ctx, octets)) {
+   |            ^^^^^
+   |
+   = did you mean `octets`?
+   = fix: correct the spelling, or declare it
+error: there is nothing named `s` in scope [unresolved-name]
+  --> main.buri:52:19
+   |
+52 |         .Ok(s) => s,
+   |                   ^
+   |
+   = did you mean `Eq`?
+   = fix: correct the spelling, or declare it

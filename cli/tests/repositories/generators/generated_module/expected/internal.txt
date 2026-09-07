@@ -1,0 +1,8 @@
+error: //lib/wire/units is internal to //lib/wire [internal-import]
+ --> cmd/app/main.buri:4:6
+  |
+4 | from "//lib/wire/units" import { height, width };
+  |      ^^^^^^^^^^^^^^^^^^
+  |
+  = only names re-exported by lib/wire/lib.buri are available
+  = fix: import the library instead: from "//lib/wire" import { ... }

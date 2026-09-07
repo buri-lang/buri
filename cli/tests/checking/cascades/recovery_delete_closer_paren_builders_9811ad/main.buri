@@ -1,0 +1,111 @@
+// The constructors the `core/buri/ast` tests build trees with.
+//
+// Every node is `{ kind, origin }` and a child position is a one-element
+// array, so a tree written out in full is mostly punctuation. These give the
+// four common nodes a one-word spelling, and everything else is written the
+// long way in the test that needs it. They live here rather than in a test
+// file because there are four of those and a test source may not `export`.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Alloc };
+from "core/str" import * as str;
+
+/// The text of a template hole, built rather than written: a `Str` literal
+/// holding those two characters is a literal `buri format` cannot print back,
+/// and every source in this repository is formatted.
+export fn hole<C: Alloc>(ctx: C, inner: Str): Str {
+    "$".concat(ctx, "{").concat(ctx, inner).concat(ctx, "}")
+}
+
+/// A name nothing produced.
+export fn n(text: Str): ast.Name {
+    ast.Name { text: text, origin: ast.nowhere() }
+}
+
+/// A name that came from `file[start..end]`.
+export fn nAt(text: Str, file: Str, start: Int, end: Int): ast.Name {
+    ast.Name { text: text, origin: ast.origin(file, start, end) }
+}
+
+/// A named type with no arguments.
+export fn ty(text: Str): ast.Type {
+    ast.Type { kind: .Named(n(text), []), origin: ast.nowhere() }
+}
+
+/// A named type and its arguments.
+export fn tyOf(text: Str, args: [ast.Type]): ast.Type {
+    ast.Type { kind: .Named(n(text, args), origin: ast.nowhere() }
+}
+
+export fn item(kind: ast.ItemKind): ast.Item {
+    ast.Item { kind: kind, origin: ast.nowhere() }
+}
+
+export fn itemAt(kind: ast.ItemKind, file: Str, start: Int, end: Int): ast.Item {
+    ast.Item { kind: kind, origin: ast.origin(file, start, end) }
+}
+
+export fn ex(kind: ast.ExprKind): ast.Expr {
+    ast.Expr { kind: kind, origin: ast.nowhere() }
+}
+
+export fn st(kind: ast.StmtKind): ast.Stmt {
+    ast.Stmt { kind: kind, origin: ast.nowhere() }
+}
+
+export fn pat(kind: ast.PatternKind): ast.Pattern {
+    ast.Pattern { kind: kind, origin: ast.nowhere() }
+}
+
+export fn block(stmts: [ast.Stmt], tail: [ast.Expr]): ast.Block {
+    ast.Block { stmts: stmts, tail: tail, origin: ast.nowhere() }
+}
+
+/// A bare identifier.
+export fn id(text: Str): ast.Expr {
+    ex(.Ident(n(text)))
+}
+
+/// `base.field`
+export fn field(base: ast.Expr, text: Str): ast.Expr {
+    ex(.Field([base], n(text)))
+}
+
+/// `callee(args)`
+export fn call(callee: ast.Expr, args: [ast.Expr]): ast.Expr {
+    ex(.Call([callee], args))
+}
+
+/// One module of one declaration, with nothing above it.
+export fn one(kind: ast.ItemKind): ast.Module {
+    ast.Module { items: [item(kind)], docs: [] }
+}
+
+/// A module of one `let X: Int = <value>;`, which is the shortest declaration
+/// an expression can be printed inside.
+export fn letOf(value: ast.Expr): ast.Module {
+    one(
+        .Let(ast.LetDecl {
+            name: n("X"),
+            ty: ty("Int"),
+            value: value,
+            exported: false,
+            docs: [],
+        }),
+    )
+}
+
+/// A module of one `export fn go(): Int { ... }`, for printing statements.
+export fn fnOf(stmts: [ast.Stmt], tail: [ast.Expr]): ast.Module {
+    one(
+        .Fn(ast.FnDecl {
+            name: n("go"),
+            generics: [],
+            params: [],
+            ret: ty("Int"),
+            body: [block(stmts, tail)],
+            exported: true,
+            docs: [],
+        }),
+    )
+}

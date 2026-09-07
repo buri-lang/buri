@@ -1,0 +1,12 @@
+// The `core/buri/ast` conformance package: what the printer writes, and where
+// it says each node landed.
+//
+// The text is asserted literally rather than round-tripped, because what
+// `print` promises is *source another program reads* — source `buri format`
+// leaves alone. A round trip is symmetric and would pass just as happily if
+// both halves moved together.
+
+from "//lib/buri_ast/builders.buri" export {
+    block, call, ex, field, fnOf, hole, id, item, itemAt, letOf, n, nAt, one, pat, st,
+    ty, tyOf,
+};

@@ -1,0 +1,16 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:71:20
+   |
+71 |         Stdoutout :,
+   |                    ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:75:32
+   |
+75 |         assert.err(codegen.run(ctx, silent)),
+   |                                ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
