@@ -151,8 +151,8 @@ function core_json$quote$u3rqgv(ctx_0,s_1){
       return '\\r';
     }else if(ch_3==='\t'){
       return '\\t';
-    }else if(BigInt($char_toU32(ch_3))<32n){
-      const n_7=BigInt($char_toU32(ch_3));
+    }else if(BigInt($character_toU32(ch_3))<32n){
+      const n_7=BigInt($character_toU32(ch_3));
       const self_8=$str_charAt('0123456789abcdef',n_7/16n);
       let $t1;
       if(self_8!==void 0){

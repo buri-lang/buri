@@ -1,14 +1,14 @@
 //! What a program's last moment does with what it printed.
 //!
 //! `buri docs language/programs` makes two promises about the end of a run —
-//! `.Err(msg)` prints `msg` on stderr and exits 1, and `proc.exit(n)` exits
+//! `.Err(msg)` prints `msg` on stderr and exits 1, and `process.exit(n)` exits
 //! `n` — and both were kept about the *status* while losing the *output*. The
 //! JavaScript backend buffers its streams and empties them on the exit path,
 //! and every asynchronous writer a JavaScript host offers hands the text to
-//! the event loop and answers before it has landed. `process.exit` does not
-//! wait for the loop, so a flush the runtime had already reported as done was
-//! discarded: buri-lang/buri#42 for the failing return, buri-lang/buri#37 for
-//! `proc.exit`.
+//! the event loop and answers before it has landed. The *host's* own
+//! `process.exit` does not wait for the loop, so a flush the runtime had
+//! already reported as done was discarded: buri-lang/buri#42 for the failing
+//! return, buri-lang/buri#37 for `process.exit`.
 //!
 //! **Both the file and the pipe are asserted, and neither is redundant.** The
 //! two hosts this suite runs on lost different halves of it: `bun` dropped a
@@ -39,7 +39,7 @@ fn program(ending: &str) -> String {
 from \"core/effect\" import {{ Alloc, Proc, Stderr, Stdout }};
 from \"core/host\" import * as host;
 from \"core/io\" import * as io;
-from \"core/proc\" import * as proc;
+from \"core/process\" import * as process;
 
 // Prints `line` `n` times. Recursive, so nothing here folds it away.
 fn shout<C: Alloc + Stdout>(ctx: C, line: Str, n: Int): Int {{
@@ -102,7 +102,7 @@ fn a_failing_main_keeps_both_streams() {
     check(&scratch.exec_js("cmd/works"), 0, "on stderr\n");
 }
 
-/// buri-lang/buri#37: `proc.exit` carries the status a program chose, and
+/// buri-lang/buri#37: `process.exit` carries the status a program chose, and
 /// everything printed before it reaches the stream — whether the stream is a
 /// terminal, a pipe or a file. A status that is neither 0 nor 1 is the only
 /// reason to call it, and a failing run is exactly the one whose output a
@@ -112,7 +112,7 @@ fn an_exit_keeps_what_was_printed_before_it() {
     let scratch = Scratch::repo("js-streams-exit");
     scratch.binary_package(
         "cmd/exits",
-        &program("let _ = proc.exit(ctx, 3);\n    .Ok(())"),
+        &program("let _ = process.exit(ctx, 3);\n    .Ok(())"),
     );
     scratch.run(&["build", "//cmd/exits", "--force"]).ok();
 
@@ -130,7 +130,7 @@ fn the_release_artifact_flushes_too() {
     scratch.binary_package("cmd/fails", &program(".Err(\"the program failed\")"));
     scratch.binary_package(
         "cmd/exits",
-        &program("let _ = proc.exit(ctx, 3);\n    .Ok(())"),
+        &program("let _ = process.exit(ctx, 3);\n    .Ok(())"),
     );
     scratch.run(&["build", "//cmd/fails", "--release", "--force"]).ok();
     scratch.run(&["build", "//cmd/exits", "--release", "--force"]).ok();

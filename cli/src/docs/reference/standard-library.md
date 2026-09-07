@@ -53,7 +53,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
 ## Text
 
 [`core/str`](../../compiler/standard_library/sources/str.buri),
-[`core/char`](../../compiler/standard_library/sources/char.buri),
+[`core/character`](../../compiler/standard_library/sources/character.buri),
 [`core/bytes`](../../compiler/standard_library/sources/bytes.buri),
 [`core/json`](../../compiler/standard_library/sources/json.buri),
 [`core/proto`](../../compiler/standard_library/sources/proto.buri),
@@ -79,8 +79,9 @@ unordered, so it answers `.Equal` for a pair it could not order.
   replacement character.
 
 - **Hexadecimal is one story across four modules, and none of it needs a table
-  of digits.** `char.fromDigit(n, radix)` and `char.toDigit(radix)` invert each
-  other over base 2 to base 36, and `char.isHexDigit` is the predicate.
+  of digits.** `character.fromDigit(n, radix)` and `character.toDigit(radix)`
+  invert each other over base 2 to base 36, and `character.isHexDigit` is the
+  predicate.
   `num.toHex(ctx, x, width)` renders a number zero-padded and lowercase in
   64-bit two's complement, so a negative number comes out as its bit pattern
   rather than a `-`. `str.toRadix(text, radix)` reads any of those bases back,
@@ -454,7 +455,7 @@ implements them all, and only the module that exports `main` may import it.
 [`core/net/http`](../../compiler/standard_library/sources/http.buri),
 [`core/net/server`](../../compiler/standard_library/sources/server.buri),
 [`core/net/websocket`](../../compiler/standard_library/sources/websocket.buri),
-[`core/proc`](../../compiler/standard_library/sources/proc.buri),
+[`core/process`](../../compiler/standard_library/sources/process.buri),
 [`core/tasks`](../../compiler/standard_library/sources/tasks.buri) and
 [`core/actor`](../../compiler/standard_library/sources/actor.buri) are the interfaces
 you use those effects through, and the *only* way through. A program performs an
@@ -476,8 +477,8 @@ match arm using it could not produce a value.
 [Tasks and actors](../guides/concurrency.md) is the concurrency model
 underneath. What follows is the map.
 
-`core/proc` is the thinnest of them. `proc.exit(ctx, code)` is `Proc`'s one
-operation.
+`core/process` is the thinnest of them. `process.exit(ctx, code)` is `Proc`'s
+one operation.
 
 `core/env` and `core/cli` are the two halves of a command line. `env.args(ctx)`
 is the raw `[Str]`. Both hosts drop the program's own name, so there is no

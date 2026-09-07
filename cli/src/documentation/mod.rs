@@ -1015,7 +1015,7 @@ const CONCEPTS: &[(&[&str], &[&str])] = &[
         &["core/order", "core/list"],
     ),
     (&["pad", "padding", "align", "alignment", "justify", "column"], &["core/str"]),
-    (&["hex", "hexadecimal", "base16", "nibble"], &["core/bytes", "core/char"]),
+    (&["hex", "hexadecimal", "base16", "nibble"], &["core/bytes", "core/character"]),
     (&["random", "seed", "seeded", "rng", "shuffle"], &["core/random"]),
     (&["discard", "ignore", "unused", "unhandled"], &["core/result"]),
     (&["fixture", "fake", "mock", "stub", "double", "harness"], &["core/host/testing"]),

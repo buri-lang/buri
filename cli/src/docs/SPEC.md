@@ -1344,7 +1344,7 @@ Defining modules:
 | a `struct` or `enum` you declared | the module declaring it |
 | `[T]` | `core/list` |
 | `Str` | `core/str` |
-| `Char` | `core/char` |
+| `Char` | `core/character` |
 | `Bool` | `core/bool` |
 | every integer and float type | `core/num` |
 | `Option<T>` | `core/option` |

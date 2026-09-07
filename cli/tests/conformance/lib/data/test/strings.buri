@@ -1,10 +1,10 @@
-// core/str and core/char — SPEC 3.5, 3.6, 11.1.
+// core/str and core/character — SPEC 3.5, 3.6, 11.1.
 //
 // The load-bearing claim here is that `Str` is measured in Unicode scalar
 // values, not UTF-8 bytes and not UTF-16 code units, so every length, index,
 // and slice test below uses a non-BMP character somewhere.
 
-from "core/char" import * as char;
+from "core/character" import * as character;
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
@@ -891,7 +891,7 @@ test "padStart counts the width in scalar values" {
     assert.eq("😀".padStart(ctx, 3, '.'), "..😀");
 }
 
-// --- core/char ----------------------------------------------------------------
+// --- core/character ----------------------------------------------------------
 
 test "isDigit accepts ASCII digits" {
     assert.isTrue('0'.isDigit());
