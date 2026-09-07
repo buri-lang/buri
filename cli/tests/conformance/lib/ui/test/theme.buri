@@ -278,6 +278,6 @@ test "a token the compiler could not fold is the same custom property inline" {
     // looks like.
     assert.eq(
         render(ctx, tinted(Card.Accent.color())).markup(),
-        "<div style=\"background-color: var(--cardlib-accent)\" />",
+        "<div style=\"background-color: var(--cardlib-accent)\"></div>",
     );
 }
