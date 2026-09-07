@@ -13,6 +13,8 @@ from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/map" import * as map;
+from "core/ordmap" import * as ordmap;
+from "core/queue" import * as queue;
 from "core/set" import * as set;
 from "core/testing/assert" import * as assert;
 
@@ -185,4 +187,87 @@ test "unordered counts duplicates and holds for two empty lists" {
     assert.unordered(ctx, list.empty<Int>(), list.empty<Int>());
     assert.unordered(ctx, ["b", "a"], ["a", "b"]);
     assert.eq([1, 1, 2].len(), 3);
+}
+
+// --- eqWith over the collections that have no Eq of their own -------------------------
+
+test "eqWith takes each collection that answers equals rather than deriving Eq" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let sortedOne = ordmap.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
+    let sortedTwo = ordmap.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
+    assert.eqWith(ctx, sortedOne, sortedTwo, fn(c, a, b) => a.equals(c, b));
+    let setOne = set.empty<Int>().insert(ctx, 1).insert(ctx, 2);
+    let setTwo = set.empty<Int>().insert(ctx, 2).insert(ctx, 1);
+    assert.eqWith(ctx, setOne, setTwo, fn(c, a, b) => a.equals(c, b));
+    let queued = queue.empty<Int>().push(ctx, 1).push(ctx, 2);
+    assert.eqWith(ctx, queued, queued, fn(c, a, b) => a.equals(c, b));
+    assert.eq(sortedOne.len(), 2);
+}
+
+test "eqWith holds for a value against itself whatever the comparison" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eqWith(ctx, "text", "text", fn(_c, a, b) => a == b);
+    assert.eqWith(ctx, list.empty<Int>(), list.empty<Int>(), fn(_c, a, b) => {
+        a.len() == b.len()
+    });
+    assert.eq("text".len(), 4);
+}
+
+// --- containsText and startsWith, where a scalar is more than one byte ----------------
+
+test "containsText and startsWith measure in scalars, not bytes" {
+    assert.containsText("a😀b", "😀");
+    assert.containsText("héllo", "é");
+    assert.startsWith("😀 first", "😀");
+    assert.startsWith("héllo", "hé");
+    assert.eq("a😀b".len(), 3);
+}
+
+test "a needle as long as the haystack, and one at the very end" {
+    assert.containsText("abc", "c");
+    assert.containsText("abc", "bc");
+    assert.startsWith("abc", "a");
+    assert.eq("abc".len(), 3);
+}
+
+// --- unordered, at its edges -----------------------------------------------------------
+
+test "unordered holds for one element and for a list against itself" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.unordered(ctx, [7], [7]);
+    let items = [5, 3, 5, 1];
+    assert.unordered(ctx, items, items);
+    assert.eq(items.len(), 4);
+}
+
+test "unordered is the type's own Ord, so text and characters sort too" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.unordered(ctx, ["b", "a", "b"], ["b", "b", "a"]);
+    assert.unordered(ctx, ['z', 'a'], ['a', 'z']);
+    assert.unordered(ctx, [true, false], [false, true]);
+    assert.eq(["b", "a", "b"].len(), 3);
+}
+
+// --- approxEqRelative at the tolerance exactly ---------------------------------------------
+
+test "approxEqRelative holds when the gap is exactly the tolerance times the scale" {
+    // 100.0 against 110.0 is a tenth of the larger, so a tolerance of a tenth
+    // is the last one that holds.
+    assert.approxEqRelative(100.0, 110.0, 0.1);
+    assert.approxEq(100.0, 110.0, 10.0);
+    assert.eq(110.0 - 100.0, 10.0);
+}
+
+test "approxEqRelative scales off the larger side, whichever side that is" {
+    assert.approxEqRelative(110.0, 100.0, 0.1);
+    assert.approxEqRelative(0.0 - 100.0, 0.0 - 110.0, 0.1);
+    assert.eq(100.0 < 110.0, true);
 }

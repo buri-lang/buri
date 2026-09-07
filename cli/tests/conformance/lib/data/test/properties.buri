@@ -14,6 +14,7 @@ from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/random" import * as random;
+from "core/random" import { Gen };
 from "core/testing/assert" import * as assert;
 from "core/testing/check" import * as check;
 
@@ -127,4 +128,40 @@ test "sorting keeps the length and the elements" {
         items.sort(c).isSortedBy(fn(a, b) => a.compare(b))
     });
     assert.eq([1, 2, 3].len(), 3);
+}
+
+// --- the hundredth case, and the seed a report would name -----------------------------
+
+/// The generator's state and its draw, `skip` cases into a run from `g`.
+fn drawAt(g: Gen, skip: Int): (Int, Int) {
+    if (skip <= 0) {
+        let (value, _next) = check.int(0, 100)(g);
+        (g.0.wrapToI64(), value)
+    } else {
+        let (_value, next) = check.int(0, 100)(g);
+        drawAt(next, skip - 1)
+    }
+}
+
+test "the hundredth draw is the one the failing report names" {
+    // `cli/tests/failing/property_failure` records a property that holds for
+    // ninety-nine draws and breaks on this one. These are the two numbers its
+    // report prints, so a change to the draw order fails here as well as there.
+    let last = drawAt(random.seeded(0), check.CASES - 1);
+    assert.eq(last.0, 3419378616714001439);
+    assert.eq(last.1, 94);
+}
+
+test "the seed a report names replays the case beside it" {
+    let (case, _) = check.int(0, 100)(random.seeded(3419378616714001439));
+    assert.eq(case, 94);
+    // And the very first case, which is the one a property that never holds
+    // reports: seed zero, drawing 35.
+    let (first, _) = check.int(0, 100)(random.seeded(0));
+    assert.eq(first, 35);
+}
+
+test "a property that holds for every one of the hundred is a no-op" {
+    check.forAll(check.int(0, 100), fn(n) => n >= 0 && n <= 99);
+    assert.eq(check.CASES, 100);
 }
