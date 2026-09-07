@@ -1,10 +1,9 @@
 # The standard library
 
 The standard library ships with the toolchain. You never list it in a
-`dependencies`, every target can use it, and nothing replaces it. There is one,
-and this is it. It owns two reserved module roots. `core/*` is a deliberately
-small set of essentials. `ui/*` is the reactivity vocabulary, a different kind
-of thing and a much larger surface.
+`dependencies`, every target can use it, and nothing replaces it. It owns two
+reserved module roots. `core/*` is a deliberately small set of essentials.
+`ui/*` is the reactivity vocabulary, a much larger surface.
 
 **The reference for a module is the module.** `buri docs core/list` renders it
 from the source the compiler checked, so a signature on the page is a signature
@@ -28,8 +27,7 @@ applied:
 One rule decides the tier. An operation with a fixed result size is pure. An
 operation whose result size depends on runtime data names `Alloc`. So `len` and
 `fold` are pure, and `map` and `filter` are not. A `F32x4` is four numbers in a
-struct, so every operation in `core/simd` is pure. The vector types are exactly
-the shape the rule was drawn around.
+struct, so every operation in `core/simd` is pure.
 
 ## Values and control
 
@@ -62,12 +60,12 @@ unordered, so it answers `.Equal` for a pair it could not order.
 
 - **`core/str`** — a `Str` measures in Unicode scalar values everywhere. `len`
   counts them, `charAt` and `slice` index by them, and `compare` orders by them.
-  Read that last one before you rely on it. Two orders are plausible, and they
-  disagree above the basic multilingual plane. `compare` uses scalar order,
-  which is byte-for-byte UTF-8 order for a valid string, as in Rust, Go and
-  Python. It is *not* the UTF-16 code-unit order a JavaScript `<` gives, on
-  either backend. `<`, `[Str].sort`, `core/order`'s `str` and an
-  `OrdMap<Str, _>`'s key order all use that one comparison.
+  Read that last one before you rely on it. `compare` uses scalar order, which
+  is byte-for-byte UTF-8 order for a valid string, as in Rust, Go and Python. It
+  is *not* the UTF-16 code-unit order a JavaScript `<` gives, on either backend,
+  and the two disagree above the basic multilingual plane. `<`, `[Str].sort`,
+  `core/order`'s `str` and an `OrdMap<Str, _>`'s key order all use that one
+  comparison.
 
 - **`core/bytes`** — UTF-8, hex, base64, varints. These are free functions
   rather than methods on `[U8]`, because you may only declare a method in its
@@ -87,22 +85,20 @@ unordered, so it answers `.Equal` for a pair it could not order.
   digits rather than the bytes, so rendering a megabyte costs one allocation
   and not a million.
 
-  The varints live here beside hex and base64 rather than in `core/proto`. A
-  varint encodes a number as bytes, it has exactly one definition, and anything
-  speaking a length-prefixed format needs that same one. They do 64-bit
-  arithmetic on two 32-bit halves, so a negative `int64` writes the ten bytes
-  protoc writes, and every digit of a value past 2^53 survives on every
+  The varints live here beside hex and base64 rather than in `core/proto`,
+  because anything speaking a length-prefixed format needs the same one. They do
+  64-bit arithmetic on two 32-bit halves, so a negative `int64` writes the ten
+  bytes protoc writes, and every digit of a value past 2^53 survives on every
   backend.
 
   A **`Reader`** gives a name to the index that `readVarint(b, at)` threads.
   `takeByte`, `takeVarint`, `takeSlice` and `takeFramed` each answer the value
-  and the *next* reader, rather than moving this one. A reader is a value like
-  everything else, so a decoder that looks ahead and changes its mind still
-  holds the reader it started from. The methods that only move the cursor are
-  pure. The two that answer a `[U8]` name `Alloc`, because a Buri list is a
-  value and not a view, so slicing one copies. For the same reason there is
-  **no `Builder`**: nothing appends to a value in place, and `[[U8]].flatten`
-  is what building looks like here.
+  and the *next* reader, rather than moving this one, so a decoder that looks
+  ahead and changes its mind still holds the reader it started from. The methods
+  that only move the cursor are pure. The two that answer a `[U8]` name `Alloc`,
+  because a Buri list is a value and not a view, so slicing one copies. For the
+  same reason there is **no `Builder`**: `[[U8]].flatten` is what building looks
+  like here.
 
   `fromU64Be` and its seven relatives cover both ends of both widths, in both
   directions. Writing one is *pure*: an array literal of a fixed size allocates
@@ -114,8 +110,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
   ordered association list, not a map**, so key order round-trips, nothing needs
   a `Hash` bound, and `get` costs O(n). Every number is a `Float`, which is what
   JSON says a number is. `MAX_DEPTH` caps nesting, because parsing recurses and
-  the recursion is not in tail position. Without the cap, a deep enough document
-  crashes rather than erroring.
+  the recursion is not in tail position.
 
   **`derive ToJson` and `derive FromJson` map it onto your own types**, and
   `encode` and `decode` are the two functions that use them. Both sit on
@@ -126,22 +121,21 @@ unordered, so it answers `.Equal` for a pair it could not order.
   means `Option<Option<T>>` does not round-trip.
 
   The compiler enforces that you **derive both traits and never write them by
-  hand**. A derived encoder stands for the type's shape. A hand-written one
-  would run where something encodes the type on its own, and be skipped
-  silently where something encodes a type holding it.
+  hand**, because a hand-written encoder would run where something encodes the
+  type on its own and be skipped silently where something encodes a type holding
+  it.
 
 - **`core/proto`** — the protobuf wire format: tags, wire types, the packed
-  readers, and `ProtoError`. You write none of this by hand either, for a
-  different reason. A `.proto` schema in a package *becomes* a module, and this
-  module is the part of that generated code that stays the same for every
-  schema. See [the proto reference](./build/proto.md) for the mapping, and for
-  why those codecs are generated Buri rather than a descriptor walk.
+  readers, and `ProtoError`. You write none of this by hand either. A `.proto`
+  schema in a package *becomes* a module, and this module is the part of that
+  generated code that stays the same for every schema. See [the proto
+  reference](./build/proto.md) for the mapping.
 
   `Stdin.readBytes` and `Stdout.writeBytes` are for reading a request and
   writing a reply over a pipe. `readLine` reads the stream to its end, so a
   program using it cannot answer before the other side has finished speaking.
-  Text and octets are two questions about one stream, so they are two
-  operations, and a program should ask only one of them.
+  Text and octets are two questions about one stream, so a program should ask
+  only one of them.
 
 ## Collections
 
@@ -153,9 +147,8 @@ unordered, so it answers `.Equal` for a pair it could not order.
 [`core/ordset`](../../compiler/standard_library/sources/ordset.buri),
 [`core/bitset`](../../compiler/standard_library/sources/bitset.buri).
 
-Every one of these is a value, so every "modification" answers a new one. That
-costs something, and each module states its cost rather than leaving you to
-guess:
+Every one of these is a value, so every "modification" answers a new one. Each
+module states its cost rather than leaving you to guess:
 
 | | Lookup | Insert | Note |
 |---|---|---|---|
@@ -166,20 +159,17 @@ guess:
 
 **Two keyed collections, and order is what you choose between.** `Map` hashes,
 and looks one key up faster. `OrdMap` compares, and answers "every key between
-these two" or "every key starting with this" without visiting the rest. A keyed
-range scan over a `Map` costs a sort per query, which is what `core/ordmap`
-avoids. Its keys need `Ord` rather than `Hash + Eq`. A compound key is a struct
-with `derive Ord`, and a derived `Ord` compares fields in declaration order,
-which is what a multi-column index wants.
+these two" or "every key starting with this" without visiting the rest. Its keys
+need `Ord` rather than `Hash + Eq`. A compound key is a struct with `derive
+Ord`, and a derived `Ord` compares fields in declaration order, which is what a
+multi-column index wants.
 
 **A fallible step is a traversal, not a fold.** `xs.mapResult(ctx, f)` and
 `mapOption` map every element, or stop at the first that fails. `filterMap` maps
-and filters in one pass. Without these three you write a `foldResult` at every
-call site. Each has a `*Ctx` form that hands the step the context, because a
-validation usually allocates as it goes and a lambda may not capture a context.
-Beside them in `core/list`: `removeAt`, `windows`, `generate`, `uniqueBy`,
-`isSortedBy`, `maxBy`/`minBy` and `compareBy`. The last three are the comparator
-forms of operations `core/list` already had for an `Ord`. `uniqueBy` keeps the
+and filters in one pass. Each has a `*Ctx` form that hands the step the context,
+because a validation usually allocates as it goes and a lambda may not capture a
+context. Beside them in `core/list`: `removeAt`, `windows`, `generate`,
+`uniqueBy`, `isSortedBy`, `maxBy`/`minBy` and `compareBy`. `uniqueBy` keeps the
 first of each equal class, so it costs O(n²) in comparisons. Where the order may
 change, `sortBy` and a walk is the O(n log n) answer.
 
@@ -187,27 +177,23 @@ change, `sortBy` and a walk is the O(n log n) answer.
 key)` and `ordmap.groupBy` collect the elements under each key, and `indexBy`
 keeps one element per key. They are free functions because `core/list` sits at
 the bottom of the dependency order and cannot name a map. `OrdMap.alter` is
-insert, replace and remove in one call, which is what a counter needs, or the
-empty-inner pruning of a map of maps. `OrdMap.mapValues` puts every value
-through a function without touching the keys, rebuilding the tree as it goes.
-That costs O(n log n), rather than the O(n) a copy node for node would cost.
+insert, replace and remove in one call, which is what a counter needs.
+`OrdMap.mapValues` puts every value through a function without touching the
+keys, rebuilding the tree as it goes, which costs O(n log n).
 
 `Queue`, `Map`, `Set`, `OrdMap`, `OrdSet` and `BitSet` provide `equals` rather
 than deriving `Eq`, because a derived `Eq` would compare the *representation*.
-Two queues holding the same elements need not share a front/back split. Two maps
-built in different orders need not share a bucket layout. Two ordered maps built
-in different orders need not share a tree.
+Two maps built in different orders need not share a bucket layout.
 
 ## Numbers and vectors
 
 [`core/simd`](../../compiler/standard_library/sources/simd.buri) — `F32x4` and `I32x4`.
 
-**On the JavaScript backend these are scalar and buy no speed.** A plain `.mjs`
-artifact reaches no SIMD. What they buy is the shape. A kernel written
-lane-wise, with no loop-carried dependency, is the form a backend with vector
-registers can lower directly. The same kernel written as a fold over a list is
-not, because a fold says "in this order". Do not benchmark against a scalar loop
-expecting a win. There is not one today.
+**On the JavaScript backend these are scalar and buy no speed.** What they buy
+is the shape. A kernel written lane-wise, with no loop-carried dependency, is
+the form a backend with vector registers can lower directly. The same kernel
+written as a fold over a list is not, because a fold says "in this order". Do
+not benchmark against a scalar loop expecting a win.
 
 ## Time
 
@@ -218,26 +204,23 @@ and none of it performs one: what day of the week a date falls on does not
 depend on anything.
 
 `core/date` uses Hinnant's `days_from_civil`. It does integer arithmetic only
-and stays exact over the whole range of `Int`. `Duration` is a length and
-`Instant` is a point, and they are different types on purpose.
+and stays exact over the whole range of `Int`.
 
-**Both of those types live in `core/time`.** `Duration` used to belong to the
-calendar, and nobody could write `instant.plus(duration)` at all. You may only
-declare a method in its receiver's defining module, so a length in one module
-and a point in another never meet on either of them. `core/date` re-exports the
-name, so `from "core/date" import { Duration }` still resolves, to the same
-type.
+**`Duration` and `Instant` both live in `core/time`.** A `Duration` is a length
+and an `Instant` is a point, and they are different types on purpose. They share
+a module because you may only declare a method in its receiver's defining
+module, and `instant.plus(duration)` has to live somewhere. `core/date`
+re-exports `Duration`, so `from "core/date" import { Duration }` still resolves
+to the same type.
 
 A `Duration` counts **nanoseconds**. An `Instant` counts milliseconds, which is
 what the clock reports. `time.seconds(30)`, `millis`, `micros`, `nanos`,
 `minutes` and `hours` build one, and `add`, `sub`, `mul`, `negate` and `abs`
-combine them. **Every one of those saturates.** Overflow is undefined behaviour,
-and a deadline is where a program can least afford it. Saturating replaces a
-`checkedMul`, then a `checkedSub`, then a decision taken from whichever sign
-survived. `instant.hasPassed(deadline)` is that whole check. Its `Show` prints
-`1.5s`, `300ms`, `750us` or `1ns`: the largest unit the length reaches, with the
-exact fraction. There is no `m` or `h`, because a fraction of an hour is not a
-decimal, and a reader cannot compare a rendering that rounds against the value.
+combine them. **Every one of those saturates**, because overflow is undefined
+behaviour and a deadline is where a program can least afford it.
+`instant.hasPassed(deadline)` is that whole check. Its `Show` prints `1.5s`,
+`300ms`, `750us` or `1ns`: the largest unit the length reaches, with the exact
+fraction. There is no `m` or `h`, because a fraction of an hour is not a decimal.
 
 **There is no timezone database, and there will not be one.** tzdata runs to
 megabytes and changes several times a year, and this toolchain has no
@@ -248,8 +231,8 @@ It does not cover `America/New_York`, and it does not pretend to.
 ## Randomness
 
 [`core/random`](../../compiler/standard_library/sources/random.buri) has two
-doors. The split follows one principle: **an RNG either takes a seed or takes a
-context**.
+doors, and the split follows one principle: **an RNG either takes a seed or
+takes a context**.
 
 `int`, `float` and `bytes` take a context and perform the `Rand` effect. `Gen`
 takes a seed and performs nothing. `random.seeded(7)` is an ordinary value,
@@ -258,17 +241,14 @@ on every backend and in every process. `Gen` is splitmix64, published in the
 module rather than hidden behind an effect. `split()` answers two streams, where
 a program would otherwise invent salt constants by hand.
 
-A generator that is a value is what a deterministic simulator needs and could
-not otherwise have. A simulation replays a failure from a seed, so it cannot
-take its generator from whoever called it. `random.gen(ctx)` bridges the two:
-draw a seed from the platform once, then stay pure.
+`random.gen(ctx)` bridges the two: draw a seed from the platform once, then stay
+pure. That is what a deterministic simulator needs, since it replays a failure
+from a seed and cannot take its generator from whoever called it.
 
-`Gen.nextInt` rejection-samples, so it has **no modulo bias**. The bounded draw
-is where a hand-written generator keeps going wrong.
+`Gen.nextInt` rejection-samples, so it has **no modulo bias**.
 
-Neither door is a secret. Both are uniform and both are predictable. For `Gen`,
-a single draw predicts the rest, which is what publishing the algorithm means.
-For octets nobody can guess, see [`core/crypto`](#cryptography) below.
+Neither door is a secret. Both are uniform and both are predictable. For octets
+nobody can guess, see [`core/crypto`](#cryptography) below.
 
 ## Checksums
 
@@ -276,12 +256,10 @@ For octets nobody can guess, see [`core/crypto`](#cryptography) below.
 `fnv1a64`, `crc32c` and `siphash24`, pure over `[U8]`.
 
 **This is not [`core/crypto`](#cryptography), and that is the whole reason it is
-a module of its own.** Nothing here is a digest. Given a target value, producing
+a module of its own.** Nothing here is a digest: given a target value, producing
 a message that hashes to it is arithmetic rather than work. Use these where a
-digest is the wrong size: a flipped bit in a log record, a bucket index, a
-fingerprint you can compare two runs of a simulator on. A storage format puts
-four octets of guard on a record on purpose. Before this module existed, that
-decision cost every repository that made it a hand-written FNV-1a.
+digest is the wrong size — a flipped bit in a log record, a bucket index, a
+fingerprint you can compare two runs of a simulator on.
 
 Write `crc32c` into a record, because a storage format's readers already expect
 it. `siphash24` is the only one that takes a key, and the key is the point. Put
@@ -291,9 +269,7 @@ hand you a thousand keys that all land in one bucket.
 Each one is written in Buri and pinned to the vectors its publisher wrote down:
 Noll's for FNV-1a, the CRC-32C check value and RFC 3720 B.4's iSCSI cases, and
 the SipHash-2-4 reference table. So the answer is the same on both backends, and
-it is the answer another implementation gives. That also makes the package a
-hard test of the language: U32 and U64 wrapping arithmetic, both shifts, and the
-same numbers where a `U64` is a machine word and where it is a `BigInt`.
+it is the answer another implementation gives.
 
 ## Cryptography
 
@@ -303,24 +279,20 @@ randomness.
 
 The hashes are written in Buri rather than handed to the platform, because a
 dependency tree is a second thing to audit. The NIST vectors check them, and
-check the independent SHA-256 the build cache uses, in two languages neither of
-which can compile the other.
+check the independent SHA-256 the build cache uses.
 
 `randomBytes` and `token` are the half *not* written here. They perform the
 `Entropy` effect, and the operating system supplies the octets: `getrandom(2)`
 and `getentropy(2)` under a native binary, `crypto.getRandomValues` under a
-JavaScript one. A platform supplies a CSPRNG, and nobody reimplements the
-algorithm. It performs an effect rather than being a plain function, and that is
-the point of the whole arrangement: a program has to be able to *ask* for
-unguessability, and to be refused where it cannot be had.
+JavaScript one. It is an effect rather than a plain function so that a program
+has to *ask* for unguessability, and can be refused where it cannot be had.
 
 **`randomBytes` is in `core/crypto` and not in `core/random`, deliberately.**
-`core/random` is seeded and reproducible on purpose, because a hermetic test
-needs the same numbers every run, and its own `bytes` keeps that promise. You
-cannot tell the two sets of octets apart by inspection. They differ only in
-whether an observer can predict the next one, so a program says which it meant
-by the module it imports. `token(ctx, 32)` is the spelling for a session's
-resume token: 32 octets of entropy, written as lowercase hex.
+`core/random` is seeded and reproducible on purpose. You cannot tell the two
+sets of octets apart by inspection — they differ only in whether an observer can
+predict the next one — so a program says which it meant by the module it
+imports. `token(ctx, 32)` is the spelling for a session's resume token: 32
+octets of entropy, written as lowercase hex.
 
 Every platform grants `Entropy`. What can be missing is the *toolchain*: a
 runtime archive built without its `crypto` feature refuses `randomBytes` by
@@ -333,22 +305,16 @@ Deliberately absent, and not by oversight:
 - **No ciphers, yet.** Ship a block function without a key schedule, a mode, a
   nonce discipline and an authentication tag, and people end up with ECB. It
   would take the shape of one authenticated construction: an AEAD, with
-  `Entropy` minting the nonce rather than the caller. That is a slice of work on
-  its own. It needs a second host effect on both backends. `crypto.subtle` is
-  undefined on a page that is not a secure context, while
-  `crypto.getRandomValues` stays defined there. And every Buri function that
-  could reach it becomes `async` in the emitted JavaScript, because
-  `crypto.subtle` is promise-shaped. Each of those has an answer. None has a
-  quiet one.
+  `Entropy` minting the nonce rather than the caller. It needs a second host
+  effect on both backends, `crypto.subtle` is undefined on a page that is not a
+  secure context, and every Buri function that could reach it becomes `async` in
+  the emitted JavaScript.
 - **No public-key anything.**
 - **No key derivation and no password hashing.**
 
-`sha256` is **not a password hash**. It is fast, which is the wrong property.
-
-It is also the wrong size for a flipped-bit guard: thirty-two octets of frame on
-a log record where four would do. [`core/hash`](#checksums) covers that case.
-The two modules stay separate so a program says which it meant by which one it
-imports.
+`sha256` is **not a password hash**. It is fast, which is the wrong property. It
+is also the wrong size for a flipped-bit guard: thirty-two octets of frame on a
+log record where four would do. [`core/hash`](#checksums) covers that case.
 
 ## User interfaces
 
@@ -396,8 +362,8 @@ Only a test source may import
 `ge`, `lt`, `le`, `approxEq`, and the unwrapping `ok`, `err`, `some`, `none` —
 because the report is the point. Each one names the two values it compared,
 where `assert.isTrue(xs.contains(x))` can only say "expected true, got false".
-There is no `assert.fail`. It answered `()` rather than a bottom type, so a
-match arm using it could not produce a value, and the test had to fabricate one.
+There is no `assert.fail`: it answered `()` rather than a bottom type, so a
+match arm using it could not produce a value.
 
 [Build a web server](../guides/web-server.md) walks the four of them end to end.
 [Tasks and actors](../guides/concurrency.md) is the concurrency model
@@ -412,20 +378,16 @@ is the raw `[Str]`. Both hosts drop the program's own name, so there is no
 
 `core/cli` is the opinionated half. A `Cli<C>` carries the name, the version,
 the global `Flag`s and a list of `Command<C>`s. A command carries its own flags,
-its declared `Arg`s **and the function that fires when you choose it**. That is
-the arrangement `Server.onRequest` uses, so a library call dispatches rather
-than the caller's `match` over a command name. One declaration therefore reads
-four ways: the parse, the help page, the version line, and the message a refused
-line earns. They cannot drift apart. `run(ctx, spec)` is the only exported
-function and the one call a `main` needs. It reads the arguments, then prints
-the automatic help or version page when someone asked for one, or fires the
-command. A parse error goes to stderr with the usage under it and comes back as
-`.Err`, which `main`'s contract turns into exit 1. A handler takes an
-`Arguments` and asks it by name — `on`, `value`, `many`, `arg`, `positionals` —
-rather than a struct of its own fields. `derive` only attaches a conformance to
-a type that already exists, and one `Cli` holds *one* list of commands, so a
-per-command argument struct has no type to be. Everything under `run` sits at
-the `Alloc` tier, which lets a test hand it `core/host/testing`'s
+its declared `Arg`s **and the function that fires when you choose it**. So one
+declaration reads four ways — the parse, the help page, the version line, and
+the message a refused line earns — and they cannot drift apart. `run(ctx, spec)`
+is the only exported function and the one call a `main` needs. It reads the
+arguments, then prints the automatic help or version page when someone asked for
+one, or fires the command. A parse error goes to stderr with the usage under it
+and comes back as `.Err`, which `main`'s contract turns into exit 1. A handler
+takes an `Arguments` and asks it by name — `on`, `value`, `many`, `arg`,
+`positionals` — rather than a struct of its own fields. Everything under `run`
+sits at the `Alloc` tier, which lets a test hand it `core/host/testing`'s
 `env().arguments([...])` and read the answer out of a captured stream.
 `buri docs core/cli` is the module's own page, with the five spellings a flag
 may take and a program worked end to end.
@@ -437,29 +399,23 @@ second spelling.
 A `Server<C, S>` holds the whole configuration. It carries a `port` and an
 `onRequest` handler taking the caller's own context. `Option` knobs cover the
 address, the protocols, a certificate, a request limit, an idle timeout, a
-shutdown deadline, the WebSocket hooks and a socket buffer. Leave one out of the
-literal and the runtime chooses. `S` is what one socket carries. On a server
-with no hooks nothing constrains it, and the checker settles it as `()`, so a
-program that does not do WebSockets never spells it. `serve` binds and answers
-until the listener closes. `bind` and `run` split that in two, for a program
-that wants the port number before it starts answering. `errorText` turns a
-`ServeError` into a line.
+shutdown deadline, the WebSocket hooks and a socket buffer; leave one out of the
+literal and the runtime chooses. `S` is what one socket carries, and the checker
+settles it as `()` on a server with no hooks, so a program that does not do
+WebSockets never spells it. `serve` binds and answers until the listener closes.
+`bind` and `run` split that in two, for a program that wants the port number
+before it starts answering. `errorText` turns a `ServeError` into a line.
 
 It speaks HTTP/1.1, and HTTP/2 over TLS. A `tls: .Some(Tls { certificate,
 key })` names two PEM *files*, read once when the port opens, so a certificate
-that is missing or does not match its key stops the program starting. It turns
-the server into an HTTPS one without changing a handler, which never learns
-which transport its request arrived on. HTTP/2 comes with TLS and only with TLS,
-because ALPN chooses it inside the handshake. So a `Server` naming `.Http2`
-without a certificate fails at the bind rather than quietly serving HTTP/1.1,
-and a `Server` with a certificate and no `protocols` offers HTTP/1.1, because
-`.None` is the absence of a choice. An HTTP/1.1 connection carries one request.
-Several share an HTTP/2 one, which is what multiplexing is. The server answers
-as many at once as the acceptor said it would host, because `run` puts each
-handler on a task of its own. That is why `serve` needs `Tasks` and `Alloc`
-beside `Listen`. Only `LINUX` and `MACOS` grant `Listen`, because a page is
-served rather than serving. `WEB` grants no `Tasks` either, so it refuses a
-server on a page twice.
+that is missing or does not match its key stops the program starting. A handler
+never learns which transport its request arrived on. HTTP/2 comes with TLS and
+only with TLS, because ALPN chooses it inside the handshake: a `Server` naming
+`.Http2` without a certificate fails at the bind, and one with a certificate and
+no `protocols` offers HTTP/1.1. The server answers as many requests at once as
+the acceptor said it would host, because `run` puts each handler on a task of
+its own, which is why `serve` needs `Tasks` and `Alloc` beside `Listen`. Only
+`LINUX` and `MACOS` grant `Listen`, and `WEB` grants no `Tasks` either.
 
 **A `Server` with a `websocket` speaks WebSockets, and the upgrade is
 invisible.** With hooks present, a client that asks for a socket at the path the
@@ -470,65 +426,56 @@ hooks name gets one, and `onOpen` runs. Without them the same request reaches
 upgraded every URL would have none left for anything else. The server compares
 the request's path to it exactly. The query string plays no part and nothing is
 normalised, so `"/socket"` and `"/socket/"` are two different paths. An upgrade
-request to any other path is an ordinary request, and `onRequest` answers it
-exactly as it would on a server whose `websocket` is `.None`.
+request to any other path is an ordinary request.
 
 `onOpen` answers the socket's first state, every later hook takes the current
 one, and `onMessage` answers the next. So per-socket state is a value rather
-than a table keyed by socket, and the counter-per-socket example in
-`buri docs core/net/server` is an actor's address. A `Socket` is inert: one
-integer, comparable, and sendable to an actor. That actor can push on it long
-after the request that opened it returned, because `socket.send` and
-`socket.close` need `C: Sockets` and nothing else. `send` never waits. It hands
-the message to the socket's outbound buffer, and a buffer that fills closes the
-socket with `.Overflow` and runs `onClose`. `socketBuffer` sets how deep that
-buffer is. A close is a `CloseReason` and never a wire code, in both directions.
-Ping and pong belong to the platform, so `onMessage` sees `.Text` and `.Binary`
-and nothing else. A socket costs a worker: its whole life runs on the one that
-accepted it. That makes the hooks on a socket run in order by construction, and
-it means a server holding `listener.handlers` sockets has none left to accept
-with. A socket still open when a shutdown begins closes with `.GoingAway`, so a
-drain does not wait out a client that is doing nothing wrong, and `onClose`
-still runs.
+than a table keyed by socket. A `Socket` is inert: one integer, comparable, and
+sendable to an actor. That actor can push on it long after the request that
+opened it returned, because `socket.send` and `socket.close` need `C: Sockets`
+and nothing else. `send` never waits. It hands the message to the socket's
+outbound buffer, and a buffer that fills closes the socket with `.Overflow` and
+runs `onClose`. `socketBuffer` sets how deep that buffer is. A close is a
+`CloseReason` and never a wire code, in both directions. Ping and pong belong to
+the platform, so `onMessage` sees `.Text` and `.Binary` and nothing else. A
+socket costs a worker: its whole life runs on the one that accepted it, so the
+hooks on a socket run in order by construction, and a server holding
+`listener.handlers` sockets has none left to accept with. A socket still open
+when a shutdown begins closes with `.GoingAway`, and `onClose` still runs.
 
 **A server stops gracefully.** `SIGTERM` and `SIGINT` do not kill a program
 holding a port. The platform stops accepting connections, lets the program
 answer the requests already in flight, then tells the accept loop the listener
-is closed. `serve` returns `.Ok(())`, `main` falls off its end, and whatever a
-program does after `serve` still happens. `drainMillis` bounds how long the
-middle step may take. A second signal is the operating system's own, so
-`Ctrl-C` twice stops a process that will not drain. None of this touches a
-program with no listener open: the platform holds the signals only while it
-holds a port.
+is closed. `serve` returns `.Ok(())`, and whatever a program does after `serve`
+still happens. `drainMillis` bounds how long the middle step may take, and a
+second signal is the operating system's own, so `Ctrl-C` twice stops a process
+that will not drain. The platform holds the signals only while it holds a port.
 
 `core/fs` is the one module that declares its own effects, and it declares
 **two**. `FsRead` is four methods and `FsWrite` is eight. Reading and writing
 are two grants rather than two spellings of one: a program that reads its
-configuration has not thereby earned the right to delete it. A
-`<C: Alloc + FsRead>` is a promise the compiler keeps for the whole call graph
-below it. They live here rather than in `core/effect` because every method names
-a `Path`, and `core/path` names `Alloc`. `core/fs` re-exports `Path`, so
-`from "core/fs" import { FsRead, Path }` is one import. Beyond the wrappers over
-those twelve methods it has two operations of its own. `readBytesIfExists` folds
+configuration has not thereby earned the right to delete it. `core/fs`
+re-exports `Path`, so `from "core/fs" import { FsRead, Path }` is one import.
+Beyond the wrappers over those twelve methods it has two operations of its own.
+`readBytesIfExists` folds
 `.NotFound` into `.None` in a single call, rather than the two an `exists` and a
 read would take. `writeAtomic` is the write-sync-rename-sync sequence a
 crash-safe checkpoint needs, written once.
 
 `core/path` says where a file *is*, as a type. Every `Path` has been through
 `path.of(ctx, text)`, so every one is spelled the one way: `"logs//app/"` and
-`"logs/app"` are one path and compare equal. A filesystem operation taking a
-`Str` would take any `Str`, including one an interpolation built with a
-separator too many. The file that string does not open comes back `.NotFound`,
-which reads exactly like a genuinely missing file. The type moves that
-conversation to the call site. Normalizing drops empty and `.` components and a
-trailing separator, and deliberately does **not** resolve `..`. Where `a` is a
-symbolic link, `a/../b` and `b` name two different files, so `..` stays a
-component and the filesystem decides what it means. `parent`, `fileName`,
-`stem`, `extension` and `isAbsolute` are views and take no context. `of`, `join`,
-`withSuffix` and `components` build something new and name `Alloc`. `join` never
-substitutes an absolute argument for the receiver, so `path.of(ctx, "/srv").join(ctx, "/etc")`
-is `/srv/etc`. The other behaviour is how a program that joined a user's string
-onto its own directory ends up reading `/etc/passwd`.
+`"logs/app"` are one path and compare equal. Without the type, a string an
+interpolation built with a separator too many opens nothing and comes back
+`.NotFound`, which reads exactly like a genuinely missing file. Normalizing
+drops empty and `.` components and a trailing separator, and deliberately does
+**not** resolve `..`. Where `a` is a symbolic link, `a/../b` and `b` name two
+different files, so `..` stays a component and the filesystem decides what it
+means. `parent`, `fileName`, `stem`, `extension` and `isAbsolute` are views and
+take no context. `of`, `join`, `withSuffix` and `components` build something new
+and name `Alloc`. `join` never substitutes an absolute argument for the
+receiver, so `path.of(ctx, "/srv").join(ctx, "/etc")` is `/srv/etc`. The other
+behaviour is how a program that joined a user's string onto its own directory
+ends up reading `/etc/passwd`.
 
 `core/tasks` is one function. `parallel(ctx, items, f)` runs `f` over every item
 and answers the results **in the items' order**, whatever order the work
@@ -552,11 +499,9 @@ arrives as a parameter because a lambda may not capture a context
 How much actually runs at once is the platform's business, not the signature's.
 JavaScript starts the tasks together and awaits them together. A native
 `--release` build gives each task a carrier of its own, so two that wait
-overlap. `buri run` runs them in index order on one carrier, because a program
-its backend builds has a single Buri stack to hold their frames in. All three
-answer the same list, which is the point of fixing the order. Two tasks that
-*compute* do not yet overlap on either native backend: `parallel` buys
-overlapped waiting rather than more processors.
+overlap. `buri run` runs them in index order on one carrier. All three answer
+the same list. Two tasks that *compute* do not yet overlap on either native
+backend: `parallel` buys overlapped waiting rather than more processors.
 
 `core/actor` is the other half of concurrency: state that outlives one call,
 behind a mailbox. An actor is a *value*, an initial state and a
@@ -584,15 +529,11 @@ fn counter<C>(initial: Int): Actor<C, Int, CounterMessage, Int> {
 }
 ```
 
-It needs no test double, and that falls out of the shape rather than being an
-omission: `step` is an ordinary function in an ordinary field, so you test an
-actor by calling it. The mailbox holds sixty-four messages and you cannot
-configure it. **The actor steps on the task that drives it.** `sendMessage` runs
-the mailbox down before it answers, and `stop` before it runs `onStop`, so the
-bound is what limits how much work may wait for a driver busy somewhere else.
-That is a scheduling decision and not a semantic one, since the answers are the
-same either way, exactly as `parallel`'s two arms answer the same list. But it
-means an actor is not yet a way to get work done in the background.
+It needs no test double: `step` is an ordinary function in an ordinary field, so
+you test an actor by calling it. The mailbox holds sixty-four messages and you
+cannot configure it. **The actor steps on the task that drives it.**
+`sendMessage` runs the mailbox down before it answers, and `stop` before it runs
+`onStop`. So an actor is not yet a way to get work done in the background.
 
 `core/net/http` documents `Request` and `Response`, the two types `Net.fetch`
 speaks in. It re-exports them from `core/effect`, where the effect's own
@@ -650,16 +591,14 @@ seed is the order's own number, so a failure names a line that replays it.
 `sockets()` doubles the writing half of a WebSocket. `sockets().open()` mints a
 `Socket` with no network behind it, `sent()` reads back `[(Socket, Message)]`,
 and `isOpen(s)` says whether this double will still take a message for that
-socket. So you test a broadcast room, which is `Sockets` and nothing else, with
-no listener, no port and no client.
+socket. So you test a broadcast room with no listener, no port and no client.
 
 `entropy()` is the one double that is the *opposite* of what the effect
 promises, and the only place in this language where these octets are predictable
 on purpose. It draws from `rand()`'s own generator at `rand()`'s own seeds, so a
 token minted in a test is a value you can write an assertion against, and it is
 the same value on both backends. A program cannot reach it, because only a test
-source may import `core/host/testing`, and a test cannot reach the real one. See
-[testing](./build/testing.md).
+source may import `core/host/testing`. See [testing](./build/testing.md).
 
 ## Allocators
 
@@ -671,9 +610,9 @@ has been granted nothing.
 
 - **`GeneralPurpose`** — unbounded, counts. `gp.stats()` answers
   `Stats { allocations, bytes }`.
-- **`FixedBuffer(n)`** — a byte budget, and charging past it **aborts**. Nobody
-  chose that. It is forced: `allocate` answers `Region` and not
-  `Result<Region, _>`, so there is no value to report a failure with, and
+- **`FixedBuffer(n)`** — a byte budget, and charging past it **aborts**. That is
+  forced: `allocate` answers `Region` and not `Result<Region, _>`, so there is
+  no value to report a failure with, and
   [`language/expressions.md` §6.9](../language/expressions.md) says that is
   what an abort is for. The message carries both numbers.
 - **`Arena`** — a separate counter, and nothing more than a counter. It does
@@ -700,38 +639,31 @@ to the platform. Nothing else changes: the body prints on the same stdout, reads
 the same files, and fans out onto the same tasks.
 
 It holds the **values** too. A `[Str]` a scope builds lives in the arena's own
-pages, and they go back with the rest when `body` returns. So a scope is a
-lifetime and not only a budget. One value leaves, `body`'s answer, and Buri
-deep-copies it onto the caller's allocator first, at every depth: a nested list,
-an enum's payload, a closure's captured environment. You never write that copy
-and cannot observe it except as a cost.
+pages, so a scope is a lifetime and not only a budget. One value leaves,
+`body`'s answer, and Buri deep-copies it onto the caller's allocator first, at
+every depth: a nested list, an enum's payload, a closure's captured environment.
 
 Two consequences follow. **Answer only what you need**, because the copy is
-proportional to what leaves: a scope that answers a whole parsed document copies
-a whole parsed document. And **a task started inside a scope allocates outside
-it**, on the ordinary heap. The arena belongs to the carrier that entered the
-scope, and a step of a `Tasks.parallel` runs somewhere else.
+proportional to what leaves. And **a task started inside a scope allocates
+outside it**, on the ordinary heap: the arena belongs to the carrier that
+entered the scope, and a step of a `Tasks.parallel` runs somewhere else.
 
 An allocator hears about less than the cost model defines, identically on both
 backends: **every `allocate(ctx, n)`, and nothing else.** The charge for an
 operation is *defined* rather than measured. A `Str` of *n* UTF-8 bytes charges
 `16 + n`, a `[T]` of *n* charges `16 + n * stride(T)`, and a view charges
-nothing. The list and string rows are charged by definition and reported to no
-allocator. The model sits beside `Alloc` in `core/effect`, where you meet it
-while reading the effect.
+nothing. Those rows are charged by definition and reported to no allocator. The
+model sits beside `Alloc` in `core/effect`.
 
 ## What is deliberately not here
 
 - **Struct-of-arrays / `MultiArrayList`.** Not typeable today. Exposing "column
   *i* of `T`, at `T`'s *i*-th field type" needs dependent or row types, and
   [`language/types.md` §5.5](../language/types.md) has no records. Write the
-  two-field struct yourself. On the JavaScript backend that is all a library
-  would do.
+  two-field struct yourself.
 - **Bulk reclamation outside a scope.** `scoped` frees in bulk because it knows
   when it is over and copies its answer out. `Arena`, the type you carry
-  around, has no boundary to copy at, so it stays a counter. It answers "how
-  much did parsing charge?" and reclaims nothing a `GeneralPurpose` would not
-  have reclaimed anyway.
+  around, has no boundary to copy at, so it stays a counter.
 - **Automatic accounting of the list and string rows.** As above: the cost
   model defines them, and no allocator hears about them.
 
@@ -740,5 +672,4 @@ written where the machinery is.
 [`design/native/MEMORY.md`](../../../../design/native/MEMORY.md) §7 covers the
 cost model and the allocators.
 [`design/non-goals.md`](../../../../design/non-goals.md) covers struct-of-arrays
-and the type-generating `derive` it would need. Both are contributors'
-documents, not a user's.
+and the type-generating `derive` it would need.

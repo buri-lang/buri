@@ -7,11 +7,11 @@ buri lsp
 A language server, speaking the Language Server Protocol over stdin and stdout.
 Your editor starts it; you never run it by hand.
 
-It runs the same analysis `buri build` runs. The front end is a library, and the
-server calls `driver::analyze`, so your editor shows you what a build would say.
-That covers diagnostics, hover, go-to-definition and the rest of the navigation
-requests, references, rename, completion, signature help, formatting, the
-outline, inlay hints, code actions and code lenses. It serves all of them in
+It runs the same analysis `buri build` runs — the front end is a library, and
+the server calls `driver::analyze` — so your editor shows you what a build would
+say. That covers diagnostics, hover, go-to-definition and the rest of the
+navigation requests, references, rename, completion, signature help, formatting,
+the outline, inlay hints, code actions and code lenses. It serves all of them in
 `.buri` sources and in `BUILD.buri` and `REPO.buri` alike.
 
 Only the protocol goes to stdout. The server writes everything it says out loud
