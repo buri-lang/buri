@@ -1,0 +1,9 @@
+// The `core/lazy` conformance package.
+//
+// One claim, and it is the only one every backend shares: `load(f)` answers a
+// function that behaves exactly as `f` does. Which *file* it came out of is the
+// artifact's business, not the language's — a native build has one file — so
+// nothing here asserts on that. `build::repositories`' `lazy_chunks` case reads
+// the split off the artifact, and
+// `language::conformance::a_chunk_is_fetched_only_where_the_program_asks_for_it`
+// drives one from a `.mjs` to say when it is fetched.

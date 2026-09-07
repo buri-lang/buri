@@ -713,6 +713,7 @@ mod tests {
             stylesheet: String::new(),
             inline_styles: false,
             themes: false,
+            chunks: Vec::new(),
         }
     }
 

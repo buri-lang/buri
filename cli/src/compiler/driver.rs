@@ -284,19 +284,23 @@ pub fn run_snippet_in(
         return Err(diags);
     }
     let flags = crate::commands::arguments::Flags::default();
-    let source = actions::emit(
+    let (source, chunks) = actions::emit_all(
         &mut program,
         &analysis.checked.tables,
         crate::compiler::backend::Target { platform: crate::build::buildfile::Platform::Js, arch: None },
         &flags,
         &mut diags,
     )?;
-    execute(name, &source)
+    execute(name, &source, &chunks)
 }
 
 /// Writes the emitted module to a scratch file and runs it under the JS
 /// runtime, because an ES module has to come from a file to be imported.
-fn execute(name: &str, source: &str) -> Result<String, Diagnostics> {
+///
+/// A `core/lazy` chunk goes beside it under the name the module will ask for,
+/// for the same reason: an example that splits itself has to be able to find
+/// its own halves.
+fn execute(name: &str, source: &str, chunks: &[String]) -> Result<String, Diagnostics> {
     use std::process::Command;
     let fail = |msg: String, fix: &str| {
         let mut d = Diagnostics::new();
@@ -318,6 +322,12 @@ fn execute(name: &str, source: &str) -> Result<String, Diagnostics> {
     if let Err(e) = std::fs::write(&path, source) {
         return Err(fail(format!("cannot write {}: {e}", path.display()), "check TMPDIR"));
     }
+    let written = actions::chunk_paths(&path, chunks);
+    for (at, text) in &written {
+        if let Err(e) = std::fs::write(at, text) {
+            return Err(fail(format!("cannot write {}: {e}", at.display()), "check TMPDIR"));
+        }
+    }
     let out = match Command::new(crate::commands::test::js_runtime()).arg(&path).output() {
         Ok(o) => o,
         Err(e) => {
@@ -328,6 +338,9 @@ fn execute(name: &str, source: &str) -> Result<String, Diagnostics> {
         }
     };
     let _ = std::fs::remove_file(&path);
+    for (at, _) in &written {
+        let _ = std::fs::remove_file(at);
+    }
     if !out.status.success() {
         return Err(fail(
             format!(

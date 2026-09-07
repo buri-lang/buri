@@ -1,0 +1,37 @@
+error: `load` takes the name of a function, and this is a function value [lazy-not-a-function]
+  --> cmd/page/main.buri:23:26
+   |
+23 |     let open = lazy.load(fn(c, rows) => editor(c, rows));
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ nothing to move into a chunk
+   |
+   = fix: name a function: `lazy.load(adminPage)`
+
+     What to do
+     ──────────
+
+     Write the function down somewhere and hand load its name.
+
+       from "core/effect" import { Stdout };
+       from "core/io" import * as io;
+       from "core/lazy" import * as lazy;
+
+       fn admin<C: Stdout>(ctx: C): () {
+           io.println(ctx, "admin").ignore()
+       }
+
+       fn route<C: Stdout>(ctx: C): () {
+           let page = lazy.load(admin);
+           page(ctx)
+       }
+
+     Why
+     ───
+
+     load moves a function into a chunk of its own, so there has to be a
+     function to move. A lambda written at the call site is part of the body it
+     sits in and has nowhere to move from. A local holding a function value is a
+     value, and the compiler cannot see which body it will hold.
+
+     load<F>(f: F): F is generic, because what it answers is what it was handed.
+     So the type cannot refuse anything here, and this is the check that does.
+
