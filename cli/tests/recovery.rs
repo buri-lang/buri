@@ -439,7 +439,15 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // array literal inside a call, where a stray token leaves a call whose
         // arguments the checker can still count. 406 of 1914 is 21.2%, and
         // twenty-two is that rounded up.
-        ("a syntax error stays a syntax error", "insert-stray") => 22,
+        // Re-read again when the edge-case passes over `core/actor`,
+        // `core/tasks` and the memory rules landed — `actor/test/payloads.buri`,
+        // `tasks/test/background.buri`, and the grown `memory/test/captures.buri`
+        // and `discards.buri`. The one semantics change in those merges (a `..`
+        // in a struct pattern written out as a wildcard per field) was reverted
+        // and the row re-run: 431 violated either way, so the toolchain did not
+        // move and the population did. 431 of 1956 is 22.03%, and twenty-three
+        // is that rounded up.
+        ("a syntax error stays a syntax error", "insert-stray") => 23,
         // Re-read with the same F5 wave the `insert-stray` paragraph above
         // records: the new conformance files moved this row to 24.2% of a
         // grown population (409 of its cases), with no parser or checker code
