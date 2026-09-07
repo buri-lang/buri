@@ -77,9 +77,11 @@ test "traits, effects and impls" {
     same(ctx, "export effect Clock {\n    fn now(self): Int;\n}\n");
     same(ctx, "impl Point {\n    export fn area(self): Int {\n        1\n    }\n}\n");
     same(ctx, "impl<T> [T] {\n    fn head(self): Int {\n        0\n    }\n}\n");
+    // The trait comes first and the type second, which is the language's order
+    // and the opposite of the one the grammar's labels read as.
     same(
         ctx,
-        "impl Point for Show {\n    fn show(self): Str {\n        \"p\"\n    }\n}\n",
+        "impl Show for Point {\n    fn show(self): Str {\n        \"p\"\n    }\n}\n",
     );
     same(ctx, "derive Eq, Show for Point;\n");
 }
