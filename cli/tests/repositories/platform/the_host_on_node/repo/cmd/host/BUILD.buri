@@ -1,0 +1,8 @@
+# A JavaScript binary, because node is the host under test: `buri run` builds
+# it and runs it outside the sandbox, with the real filesystem, the real
+# environment and a real process table.
+binary {
+    outputs: [
+        { platform: JS },
+    ]
+}

@@ -492,7 +492,12 @@ impl Path {
     /// equality test.
     ///
     /// An absolute path matches only an absolute pattern. A `]` closes a set and
-    /// cannot be a member of one.
+    /// cannot be a member of one. A pattern of no components matches `.` and
+    /// nothing else.
+    ///
+    /// **There is no escape.** A `\` is an ordinary character, so a name that
+    /// really holds a `*` cannot be asked for literally — compare it with `==`
+    /// instead.
     ///
     /// Pure, so it allocates nothing and takes no context. Backtracking is
     /// recursion, so a pattern of many `*`s against a long name costs what

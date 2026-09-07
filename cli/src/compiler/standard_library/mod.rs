@@ -1217,6 +1217,49 @@ mod tests {
     }
 
     /// `Listen` is granted on the two native platforms and never on a page;
+    /// Starting a program is granted where there is a process table and nowhere
+    /// else.
+    ///
+    /// `Spawn` is the largest authority the standard library hands out — a
+    /// context that can run `sh` can do anything its user can — so both halves
+    /// of its row are asserted: the three platforms that have it, and the two
+    /// that must not gain it by accident. A page and a worker have nowhere to
+    /// put a child.
+    ///
+    /// The reject corpus can ask for `JS` and `WEB` and no more, so
+    /// `reject/host_spawn_not_granted_on_web` pins the sentence a person reads
+    /// and the worker's half is here.
+    #[test]
+    fn spawn_is_withheld_from_a_page_and_a_worker() {
+        let grant = host_grant_of("spawn").expect("`spawn` is in the grant table");
+        assert_eq!(grant.effect, "`Spawn`");
+        assert_eq!(grant.platforms_phrase(), "LINUX, MACOS, JS");
+        for platform in [Platform::Web, Platform::CloudflareWorker] {
+            for name in ["HostSpawn", "spawn"] {
+                assert!(
+                    host_withholds(platform, name),
+                    "`{}` grants `{name}`, and it has no process table to put a child in",
+                    platform.proto()
+                );
+            }
+        }
+        for platform in [Platform::Linux, Platform::Macos, Platform::Js] {
+            for name in ["HostSpawn", "spawn"] {
+                assert!(
+                    !host_withholds(platform, name),
+                    "`{}` withholds `{name}`",
+                    platform.proto()
+                );
+            }
+        }
+        // Ending this process and starting another are two authorities, so the
+        // two rows are separate declarations that happen to name one set. A
+        // change to either is a change to this line.
+        let ending = host_grant_of("proc").expect("`proc` is in the grant table");
+        assert_eq!(grant.platforms, ending.platforms, "`Spawn` is `Proc`'s platforms");
+        assert_ne!(grant.exports, ending.exports, "`Spawn` is not `Proc`'s export");
+    }
+
     /// `Sockets` is granted exactly where a socket can be come by.
     ///
     /// The pairing this used to assert — that `Listen` and `Sockets` are
