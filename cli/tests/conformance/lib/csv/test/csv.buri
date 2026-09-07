@@ -147,3 +147,130 @@ test "render then parse gives the records back" {
     let rows = [["plain", "one, two", "a\"b"], ["", "line\nbreak", "trailing "]];
     assert.eq(assert.ok(read(write(rows))), rows);
 }
+
+// --- The terminators, one at a time -----------------------------------------------
+
+test "a file of one terminator is one record of one empty field" {
+    assert.eq(assert.ok(read("\n")), [[""]]);
+    assert.eq(assert.ok(read("\r")), [[""]]);
+    assert.eq(assert.ok(read("\r\n")), [[""]]);
+}
+
+test "a carriage return that is not part of a CRLF ends its own record" {
+    assert.eq(assert.ok(read("a\n\r\nb")), [["a"], [""], ["b"]]);
+    assert.eq(assert.ok(read("a\r\rb")), [["a"], [""], ["b"]]);
+    assert.eq(assert.ok(read("a\n\nb")), [["a"], [""], ["b"]]);
+}
+
+test "a terminator at the end and one in the middle are not the same thing" {
+    assert.eq(assert.ok(read("a\nb\n")), [["a"], ["b"]]);
+    assert.eq(assert.ok(read("a\nb")), [["a"], ["b"]]);
+    // Two terminators at the end: the first ends the record, the second opens
+    // one that has an empty field in it.
+    assert.eq(assert.err(read("a,b\n\n")), CsvError.RaggedRow(1));
+}
+
+// --- A quote where a reader does not expect one --------------------------------------
+
+test "a quote inside an unquoted field is data" {
+    assert.eq(assert.ok(read("a\"b")), [["a\"b"]]);
+    assert.eq(assert.ok(read("a\"\"b")), [["a\"\"b"]]);
+    assert.eq(assert.ok(read("12\" pipe,x")), [["12\" pipe", "x"]]);
+}
+
+test "a quoted field spanning records is one field" {
+    assert.eq(assert.ok(read("\"one\rtwo\"")), [["one\rtwo"]]);
+    assert.eq(assert.ok(read("a,\"one\ntwo\"\nb,c")), [["a", "one\ntwo"], ["b", "c"]]);
+    // Three records' worth of terminators, all inside one field.
+    assert.eq(assert.ok(read("\"\n\r\n\r\"")), [["\n\r\n\r"]]);
+}
+
+test "a quote that never closes, wherever it opened" {
+    assert.eq(assert.err(read("a,\"b")), CsvError.Unterminated(0));
+    assert.eq(assert.err(read("a\nb\n\"c")), CsvError.Unterminated(2));
+    // A field that opened, closed and opened again.
+    assert.eq(assert.err(read("\"a\"\"b")), CsvError.Unterminated(0));
+}
+
+// --- A delimiter the format did not have in mind ---------------------------------------
+
+test "a delimiter that is a quote loses to the quoting rules" {
+    // The quote is read as a quote first, so it separates fields only where a
+    // field is already under way.
+    assert.eq(assert.ok(readWith("a\"b", '"')), [["a", "b"]]);
+    assert.eq(assert.ok(readWith("\"a\"", '"')), [["a"]]);
+}
+
+test "a delimiter that is a record terminator leaves one record" {
+    // `\n` is asked about as a delimiter before it is asked about as a
+    // terminator, so nothing ends a record and the whole file is one.
+    assert.eq(assert.ok(readWith("a\nb\nc", '\n')), [["a", "b", "c"]]);
+}
+
+test "a delimiter outside ASCII is a delimiter like any other" {
+    assert.eq(assert.ok(readWith("a☃b", '☃')), [["a", "b"]]);
+    assert.eq(assert.ok(readWith("\"a☃b\"☃c", '☃')), [["a☃b", "c"]]);
+}
+
+// --- Ragged, counted over every record ---------------------------------------------------
+
+test "a file of one record can never be ragged" {
+    assert.eq(assert.ok(read("a,b,c")), [["a", "b", "c"]]);
+    assert.eq(assert.ok(read(",,")), [["", "", ""]]);
+}
+
+test "a blank record among wide ones is the ragged one" {
+    assert.eq(assert.err(read("a,b\n\nc,d")), CsvError.RaggedRow(1));
+    assert.eq(assert.err(read("a,b\nc,d\n\n")), CsvError.RaggedRow(2));
+}
+
+test "the first record is the width every other one is held to" {
+    // Wider than the first, not only narrower.
+    assert.eq(assert.err(read("a\nb,c,d")), CsvError.RaggedRow(1));
+}
+
+// --- The header, at its edges --------------------------------------------------------------
+
+test "a header with a terminator under it and nothing else" {
+    let table = assert.ok(readHeaded("name,age\n"));
+    assert.eq(table.0, ["name", "age"]);
+    assert.eq(table.1, list.empty<[Str]>());
+}
+
+test "a file of one terminator has a header of one empty column" {
+    let table = assert.ok(readHeaded("\n"));
+    assert.eq(table.0, [""]);
+    assert.eq(table.1, list.empty<[Str]>());
+}
+
+test "an unterminated quote fails through the header reader too" {
+    assert.eq(assert.err(readHeaded("a,b\nc,\"d")), CsvError.Unterminated(1));
+}
+
+// --- Writing, at its edges -----------------------------------------------------------------
+
+test "a field of only a quote, and one of only a delimiter" {
+    assert.eq(write([["\""]]), "\"\"\"\"");
+    assert.eq(write([[","]]), "\",\"");
+    assert.eq(write([["\r\n"]]), "\"\r\n\"");
+}
+
+test "space is not a reason to quote, and neither is anything else" {
+    assert.eq(write([[" a "]]), " a ");
+    assert.eq(write([["a;b\tc"]]), "a;b\tc");
+    assert.eq(write([["☃"]]), "☃");
+}
+
+test "a record of no fields is an empty line" {
+    assert.eq(write([list.empty<Str>()]), "");
+    assert.eq(write([list.empty<Str>(), list.empty<Str>()]), "\r\n");
+}
+
+test "render then parse gives back every shape a field can take" {
+    let rows = [
+        ["", "\"", ",", "\r\n"],
+        ["\n", "a\"\"b", " padded ", "☃"],
+        ["plain", "one, two", "line\nbreak", "cr\rreturn"],
+    ];
+    assert.eq(assert.ok(read(write(rows))), rows);
+}

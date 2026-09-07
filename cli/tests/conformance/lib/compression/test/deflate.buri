@@ -11,6 +11,7 @@ from "core/compression" import * as compression;
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
+from "core/random" import * as random;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 
@@ -489,4 +490,259 @@ test "six kilobytes there and back, through both wrappers" {
 test "and it actually compresses" {
     let raw = large();
     assert.lt(packed(raw).len(), raw.len() / 3);
+}
+
+// gzip again, with the extra field, the file name, the comment and the header
+// checksum all present, over "flagged member".
+let GZIP_EVERY_FLAG: [U8] = [
+    31,
+    139,
+    8,
+    30,
+    0,
+    0,
+    0,
+    0,
+    0,
+    255,
+    3,
+    0,
+    97,
+    98,
+    99,
+    110,
+    111,
+    116,
+    101,
+    46,
+    116,
+    120,
+    116,
+    0,
+    104,
+    105,
+    0,
+    0,
+    0,
+    75,
+    203,
+    73,
+    76,
+    79,
+    79,
+    77,
+    81,
+    200,
+    77,
+    205,
+    77,
+    74,
+    45,
+    2,
+    0,
+    197,
+    106,
+    0,
+    132,
+    14,
+    0,
+    0,
+    0,
+];
+
+// Two members, concatenated: `gzip -9` of "first " and then `gzip -9` of
+// "second".
+let GZIP_TWO_MEMBERS: [U8] = [
+    31,
+    139,
+    8,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    255,
+    75,
+    203,
+    44,
+    42,
+    46,
+    81,
+    0,
+    0,
+    252,
+    122,
+    241,
+    28,
+    6,
+    0,
+    0,
+    0,
+    31,
+    139,
+    8,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    255,
+    43,
+    78,
+    77,
+    206,
+    207,
+    75,
+    1,
+    0,
+    105,
+    17,
+    31,
+    182,
+    6,
+    0,
+    0,
+    0,
+];
+
+// --- Inputs at the small end ------------------------------------------------------
+
+test "one byte there and back, through both wrappers" {
+    let one: [U8] = [7];
+    assert.eq(assert.ok(unpacked(packed(one))), one);
+    assert.eq(assert.ok(unwrapped(wrapped(one))), one);
+    // Every byte value, one member each, is more than this suite needs; the two
+    // ends of the range are the ones a signed/unsigned slip would break.
+    assert.eq(assert.ok(unwrapped(wrapped([0]))), [0]);
+    assert.eq(assert.ok(unwrapped(wrapped([255]))), [255]);
+}
+
+test "an input of nothing but zeroes" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let zeroes: [U8] = list.repeat(ctx, 0, 4096);
+    assert.eq(assert.ok(unpacked(packed(zeroes))), zeroes);
+    assert.eq(assert.ok(unwrapped(wrapped(zeroes))), zeroes);
+    // One run: this is the case a back-reference is for.
+    assert.lt(packed(zeroes).len(), 64);
+}
+
+test "an input nothing can compress still round-trips" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let noise = random.seeded(20260907).nextBytes(ctx, 1200).0;
+    assert.eq(assert.ok(unpacked(packed(noise))), noise);
+    assert.eq(assert.ok(unwrapped(wrapped(noise))), noise);
+    // A fixed-Huffman block over eight-bit noise costs about a bit a byte, and
+    // this pins that it does not run away.
+    assert.lt(packed(noise).len(), noise.len() * 3 / 2);
+}
+
+// --- Inputs past the window and past the stored-block limit -------------------------
+
+// A ten-byte marker, `filler` bytes of one value, and the marker again — so the
+// second copy sits exactly `filler + 10` bytes after the first.
+fn spanning(filler: Int): [U8] {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let marker: [U8] = [77, 97, 114, 107, 101, 114, 48, 49, 50, 51];
+    marker.concat(ctx, list.repeat(ctx, 90, filler)).concat(ctx, marker)
+}
+
+test "a match at the window's last distance is taken, and one past it is not" {
+    // The window is 32768 bytes, which is also the largest distance RFC 1951
+    // has a code for. So the second marker is one back-reference when it sits
+    // exactly that far from the first, and ten literals when it sits one byte
+    // further.
+    let reachable = spanning(32758);
+    let tooFar = spanning(32759);
+    let atTheEdge = packed(reachable);
+    let pastIt = packed(tooFar);
+    assert.eq(reachable.len(), 32778);
+    assert.eq(assert.ok(unpacked(atTheEdge)), reachable);
+    assert.eq(assert.ok(unpacked(pastIt)), tooFar);
+    // The one that could reach back is the smaller stream.
+    assert.lt(atTheEdge.len(), pastIt.len());
+}
+
+test "a stored block reaches its 65535-byte limit and the next one carries the rest" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Two stored blocks by hand: the first is the largest one the format has,
+    // the second is the final three bytes. `deflate` never writes one, so this
+    // is the only way to ask `inflate` about the boundary.
+    let first: [U8] = list.repeat(ctx, 65, 65535);
+    let rest: [U8] = [66, 67, 68];
+    let opening: [U8] = [0, 255, 255, 0, 0];
+    let closing: [U8] = [1, 3, 0, 252, 255];
+    let stream = opening.concat(ctx, first).concat(ctx, closing).concat(ctx, rest);
+    assert.eq(assert.ok(unpacked(stream)), first.concat(ctx, rest));
+}
+
+test "a stored block holding nothing at all" {
+    assert.eq(assert.ok(unpacked([1, 0, 0, 255, 255])), list.empty<U8>());
+}
+
+// --- What `inflate` refuses, in the dynamic header ------------------------------------
+
+test "a code-length alphabet that claims more codes than there is room for" {
+    // Four codes of length one, where a binary tree has room for two.
+    assert.eq(assert.err(unpacked([5, 0, 146, 4])), DecodeError(3));
+}
+
+test "a dynamic block claiming more codes than the format has" {
+    // HLIT of 30 asks for 287 literal codes and there are 286.
+    assert.eq(assert.err(unpacked([245, 0, 0])), DecodeError(2));
+    // HDIST of 30 asks for 31 distance codes and there are 30.
+    assert.eq(assert.err(unpacked([5, 30, 0])), DecodeError(2));
+}
+
+test "bytes after the final block are not read" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let trailing: [U8] = [75, 76, 74, 6, 0, 1, 2, 3];
+    assert.eq(text(assert.ok(unpacked(trailing))), "abc");
+    let _ = ctx;
+}
+
+// --- gzip, the rest of its header and the ways a member ends early -----------------------
+
+test "a header carrying every optional field is read past" {
+    assert.eq(text(assert.ok(unwrapped(GZIP_EVERY_FLAG))), "flagged member");
+}
+
+test "two members in one file check the first against the second's trailer" {
+    // The trailer is the last eight bytes, so a second member's is the one the
+    // first member's output is compared against — and it does not match.
+    assert.eq(assert.err(unwrapped(GZIP_TWO_MEMBERS)), DecodeError(44));
+}
+
+test "a member whose compressed body was cut" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.err(unwrapped(GZIP_HELLO.take(ctx, 20))), DecodeError(20));
+}
+
+test "a member whose trailer was cut" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The stream inflates, and then runs past where the trailer has to start.
+    assert.eq(assert.err(unwrapped(GZIP_HELLO.take(ctx, 28))), DecodeError(24));
+}
+
+test "a member of exactly the length the header check allows" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let seventeen = GZIP_HELLO.take(ctx, 17);
+    assert.eq(assert.err(unwrapped(seventeen)), DecodeError(0));
 }

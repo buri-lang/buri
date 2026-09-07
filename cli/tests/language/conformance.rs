@@ -797,6 +797,167 @@ await say(new Request("https://example.com/broken"));
     );
 }
 
+/// How long anything in the bounded-fetch case below may take before the claim
+/// it makes — that the *program's own* bound is what ends a request — is the
+/// thing that failed. Fifty times the bound the program asks for, so a loaded
+/// machine is not a failing one.
+const PATIENTLY: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// One connection, or nothing by `PATIENTLY`. `TcpListener::accept` has no
+/// deadline of its own, so this polls a non-blocking listener rather than
+/// leaving a thread in `accept` for a client that never dials.
+fn dialled_within(listener: &std::net::TcpListener) -> Option<std::net::TcpStream> {
+    let until = std::time::Instant::now() + PATIENTLY;
+    loop {
+        match listener.accept() {
+            Ok((socket, _from)) => {
+                let _blocking = socket.set_nonblocking(false);
+                let _read = socket.set_read_timeout(Some(PATIENTLY));
+                let _written = socket.set_write_timeout(Some(PATIENTLY));
+                return Some(socket);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if std::time::Instant::now() >= until {
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(_stopped) => return None,
+        }
+    }
+}
+
+/// A whole request head, or as much of one as arrived.
+fn request_head(socket: &mut std::net::TcpStream) -> Vec<u8> {
+    use std::io::Read;
+    let mut head: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 512];
+    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+        match socket.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+        }
+    }
+    head
+}
+
+/// **`Request.withTimeout` is honoured by the JavaScript host call**, against a
+/// server that accepts and then says nothing.
+///
+/// `fetch` is the one host call whose asynchrony the language has a word for,
+/// and this bound is the only thing a program can put on it.
+/// `cli/runtime/http.rs` holds the same pair for the native client, where a Buri
+/// program cannot reach `fetch` at all (`native/shared.rs` says why); this is
+/// the JavaScript half, as a whole program over a real socket.
+///
+/// Both halves in one run. The first request meets a listener that accepts,
+/// reads the whole request head and then holds the connection open, so the only
+/// thing that can end it is the program's own bound — and the program prints
+/// `.Timeout` rather than a transport failure, because those are two different
+/// things to a caller deciding whether to retry. The second request meets the
+/// same listener answering at once under a bound thirty times larger, so a
+/// bound that fired on everything would fail here too.
+///
+/// Nothing sleeps to make this happen: the stall is a peer that does not write
+/// and the answer is a peer that writes at once. Every wait has a deadline, the
+/// child is killed if it outlives one, and the peer thread is joined.
+#[test]
+fn a_request_with_a_bound_gives_up_on_a_server_that_never_answers() {
+    use std::io::Write;
+
+    // Bound before the source is written, so the port is one this machine
+    // really handed out rather than a number the test picked and hoped for.
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
+    let port = listener.local_addr().expect("the bound port").port();
+    listener.set_nonblocking(true).expect("a listener that can be polled");
+
+    let scratch = Scratch::repo("fetch-timeout");
+    scratch.write("cmd/dial/BUILD.buri", "binary {\n    outputs: [{ platform: JS }]\n}\n");
+    scratch.write(
+        "cmd/dial/main.buri",
+        &format!(
+            r#"
+from "core/effect" import {{ Alloc, Net, NetError, Response, Stdout }};
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{ Alloc: host.alloc, Net: host.net, Stdout: host.stdout }};
+  // A peer that accepts and never answers, under a bound of a third of a second.
+  let stalling = http.request(.Get, "http://127.0.0.1:{port}/stall").withTimeout(300);
+  let _ = io.println(ctx, said(ctx, http.send(ctx, stalling))).ignore();
+  // The same peer, answering at once, under a bound it cannot reach.
+  let answering = http.request(.Get, "http://127.0.0.1:{port}/answer").withTimeout(10000);
+  let _ = io.println(ctx, said(ctx, http.send(ctx, answering))).ignore();
+  .Ok(())
+}}
+
+fn said<C: Alloc>(ctx: C, answer: Result<Response, NetError>): Str {{
+  match (answer) {{
+    .Ok(reply) => str.format(ctx, "answered ${{reply.status}}"),
+    .Err(e) => str.format(ctx, "gave up: ${{http.errorText(e)}}"),
+  }}
+}}
+"#
+        ),
+    );
+    scratch.run(&["build", "//cmd/dial"]).ok();
+
+    // The peer. It holds the first connection for as long as it lives, which is
+    // until it has answered the second one.
+    let serving = std::thread::spawn(move || {
+        let Some(mut stalled) = dialled_within(&listener) else { return false };
+        let _asked = request_head(&mut stalled);
+        let Some(mut answering) = dialled_within(&listener) else { return false };
+        let _asked_again = request_head(&mut answering);
+        let _sent = answering.write_all(
+            b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nhi",
+        );
+        let _flushed = answering.flush();
+        true
+    });
+
+    // Streams to files rather than pipes, because this child is polled rather
+    // than waited on and a full pipe would be a deadlock of this test's own.
+    let out_path = scratch.path(".buri/dial.stdout");
+    let err_path = scratch.path(".buri/dial.stderr");
+    std::fs::create_dir_all(out_path.parent().expect("a parent")).expect("a directory");
+    let mut child = Command::new(js_runtime())
+        .arg(scratch.artifact("cmd/dial"))
+        .stdout(std::fs::File::create(&out_path).expect("a file"))
+        .stderr(std::fs::File::create(&err_path).expect("a file"))
+        .spawn()
+        .expect("the javascript runtime runs");
+    let until = std::time::Instant::now() + PATIENTLY;
+    let ended = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if std::time::Instant::now() >= until => {
+                let _killed = child.kill();
+                let _reaped = child.wait();
+                break None;
+            }
+            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(10)),
+            Err(_broken) => break None,
+        }
+    };
+    let both_dialled = serving.join().expect("the peer thread");
+    let said = std::fs::read_to_string(&out_path).unwrap_or_default();
+    let complained = std::fs::read_to_string(&err_path).unwrap_or_default();
+
+    assert!(
+        ended.is_some(),
+        "the program outlived its own bound and had to be killed.\nit said:\n{said}\n{complained}"
+    );
+    assert!(both_dialled, "the peer was not dialled twice.\nthe program said:\n{said}");
+    assert_eq!(
+        said, "gave up: the request timed out\nanswered 200\n",
+        "the bound was not the thing that ended the first request.\nstderr:\n{complained}"
+    );
+}
+
 /// **When a `core/lazy` chunk is fetched**, asked of a running artifact.
 ///
 /// `build::repositories`' `lazy_chunks` case reads the split off the two files

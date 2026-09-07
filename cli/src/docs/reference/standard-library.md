@@ -835,7 +835,9 @@ both halves of `core/net` need it. `encodeComponent`, `encodePath` and
 `encodeQuery` are the `name=value` pairs of a query string, with `+` read as a
 space because that is what a form sends. A `Url` is its six parts — scheme,
 host, port, path, query, fragment — and `parse` lowercases the scheme and the
-host and changes nothing else, so `text` gives the URL back. `resolve` is
+host and changes nothing else, so `text` gives the URL back. Two spellings it
+cannot: a bare `?` is dropped, and an empty authority goes with it, so
+`file:///tmp/x` comes back `file:/tmp/x`. `resolve` is
 reference resolution, dot segments and all, against this URL as the base. There
 is no field for a user name and a password, so `https://user:pass@host/` is
 refused rather than quietly halved.
