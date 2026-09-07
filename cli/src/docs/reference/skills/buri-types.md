@@ -190,9 +190,9 @@ An effect is a trait in every other respect but three:
   `effect-method-call`. Only `core/*` and an `impl` supplying an effect keep
   the method form, which lets a wrapper delegate with `self.0.readFile(path)`.
   Every `core/fs` function takes a `Path`, built once with
-  `path.of(ctx, text)`. **A print returns `Result<(), IoError>`**, so drop one with
-  `let _ = io.println(ctx, "hi").ignore();`, and `buri lint` reports it like any
-  other drop.
+  `path.of(ctx, text)`. **A print returns `Result<(), IoError>`**, so drop one
+  with `let _ = io.println(ctx, "hi").ignore();`, and `buri lint` reports it
+  like any other drop.
 
 ### The `ctx` rule
 
