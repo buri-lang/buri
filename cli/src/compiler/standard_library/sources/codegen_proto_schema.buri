@@ -1,0 +1,1934 @@
+//! std/codegen/proto/schema — a reader for `.proto` *schemas*.
+//!
+//! [`parse`] answers the declarations a schema makes, plus every diagnostic it
+//! has to raise about them. `std/codegen/proto` turns that into a module.
+//!
+//! **Editions only, and one edition.** A schema declares `edition = "2026";` —
+//! not `syntax = "proto3"`, not proto2, not an earlier edition. See
+//! [`REQUIRED_EDITION`].
+//!
+//! ```text
+//! edition = "2026";
+//! package example.v1;
+//! import "proto/address.proto";
+//!
+//! enum Colour { COLOUR_UNSPECIFIED = 0; RED = 1; }
+//!
+//! message Person {
+//!   string name = 1;                                     // presence tracked
+//!   int32 age = 2 [features.field_presence = IMPLICIT];  // and here it is not
+//!   repeated string emails = 3;
+//!   Address home = 4;
+//!   oneof contact { string phone = 5; string email = 6; }
+//!   message Nickname { string text = 1; }
+//! }
+//! ```
+//!
+//! Editions replaced the `optional` and `required` labels with a *feature*:
+//! `features.field_presence`, which defaults to `EXPLICIT` and can be set per
+//! file, per message, or per field. That is the one change with teeth, because
+//! it decides whether a singular field is `Option<T>` or `T`. See
+//! `cli/src/docs/reference/build/proto.md`.
+//!
+//! What is *not* here is refused by name rather than ignored: `service`,
+//! `extend`, `extensions`, groups, `map<>`, the two removed labels, and every
+//! feature value this mapping cannot express. Each would change what a message
+//! means on the wire, and a reader that skipped one would decode the file in
+//! front of it as a different file. `reserved`, and an `option` that is not a
+//! `features.` one, are skipped instead: neither says anything about the shape
+//! of a message, and `option` is how a schema talks to code generators that are
+//! not this one.
+//!
+//! Cost: one pass to split the text into characters and one to read it, so
+//! O(n). Alongside the characters it keeps one `Int` per character — the byte
+//! offset of each — because a diagnostic's span is measured in bytes and a
+//! `Str` is measured in scalar values.
+//!
+//! ```buri run
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//! from "std/codegen/proto/schema" import * as schema;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let text = "edition = \"2026\";\nmessage Person { string name = 1; }\n";
+//!     let parsed = schema.parse(ctx, text, "lib/wire/person.proto");
+//!     let first = parsed.schema.messages.get(0);
+//!     let name = first.map(fn(m) => m.name).withDefault("?");
+//!     let fields = first.map(fn(m) => m.fields.len()).withDefault(0);
+//!     let said = parsed.errors.len();
+//!     let _ = io.println(ctx, "${name}: ${fields} field, ${said} diagnostics").ignore();
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! Person: 1 field, 0 diagnostics
+//! ```
+
+from "core/buri/ast" import * as ast;
+from "core/codegen" import * as codegen;
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/order" import { Order };
+from "core/str" import * as str;
+
+// -----------------------------------------------------------------------------
+// The tree
+// -----------------------------------------------------------------------------
+
+derive Eq, Show for Scalar;
+/// A built-in field type.
+export enum Scalar {
+    Int32,
+    Int64,
+    Uint32,
+    Uint64,
+    Sint32,
+    Sint64,
+    Fixed32,
+    Fixed64,
+    Sfixed32,
+    Sfixed64,
+    Bool,
+    Str,
+    Bytes,
+    Double,
+    Float,
+}
+
+derive Eq, Show for TypeRef;
+/// What a field's type word named.
+export enum TypeRef {
+    Scalar(Scalar),
+    /// A message or enum, by the name the schema wrote. Resolved against the
+    /// file's own declarations and its imports' when the module is generated.
+    Named(Str),
+}
+
+derive Eq, Show for Label;
+/// Whether a field holds one value or many.
+export enum Label {
+    /// A singular field. Whether its presence is tracked is
+    /// `features.field_presence`, not the label — editions removed `optional`.
+    Single,
+    Repeated,
+}
+
+/// The edition this reader implements, and the only one it accepts.
+///
+/// **One constant, deliberately.** Every wire- and JSON-affecting feature
+/// resolves identically at editions 2023, 2024 and 2026 — protobuf gives a
+/// feature the default of the closest edition at or before it, and no such
+/// default arrived after 2023 — so moving the requirement forward is this line
+/// and the fixtures, and nothing in the mapping.
+export let REQUIRED_EDITION: Str = "2026";
+
+derive Eq, Show for Presence;
+/// `features.field_presence`.
+export enum Presence {
+    /// The editions default: the field is on the wire only if it was set, and a
+    /// field set to its zero value is still on the wire.
+    Explicit,
+    /// What proto3 called a singular field: no presence, and a value equal to
+    /// the type's default is indistinguishable from an absent one.
+    Implicit,
+}
+
+derive Eq, Show for RepeatedEncoding;
+/// `features.repeated_field_encoding`.
+export enum RepeatedEncoding {
+    Packed,
+    Expanded,
+}
+
+derive Eq, Show for Features;
+/// The subset of `FeatureSet` this reader models, unresolved: `.None` is
+/// "inherited from the enclosing scope, or from the edition".
+///
+/// Everything else protobuf's `FeatureSet` carries either has no bearing on
+/// what a message means — `enforce_naming_style` and
+/// `default_symbol_visibility` are source-retention lints — or is refused by
+/// name where it is written.
+export struct Features {
+    export fieldPresence: Option<Presence>,
+    export repeatedFieldEncoding: Option<RepeatedEncoding>,
+}
+
+/// The edition's own defaults, which is where every resolution bottoms out.
+export fn editionDefaults(): Features {
+    Features { fieldPresence: .Some(.Explicit), repeatedFieldEncoding: .Some(.Packed) }
+}
+
+/// A scope that says nothing of its own.
+export fn inherited(): Features {
+    Features { fieldPresence: .None, repeatedFieldEncoding: .None }
+}
+
+impl Features {
+    /// `self` layered over `outer`: a scope overrides what encloses it.
+    export fn over(self, outer: Features): Features {
+        Features {
+            fieldPresence: self.fieldPresence.or(outer.fieldPresence),
+            repeatedFieldEncoding: self
+                .repeatedFieldEncoding
+                .or(outer.repeatedFieldEncoding),
+        }
+    }
+
+    export fn presence(self): Presence {
+        self.fieldPresence.withDefault(.Explicit)
+    }
+
+    export fn packed(self): Bool {
+        self.repeatedFieldEncoding.withDefault(.Packed) == RepeatedEncoding.Packed
+    }
+}
+
+derive Eq, Show for Field;
+/// One field of a message. `origin` is the whole declaration, `;` included.
+export struct Field {
+    export name: Str,
+    export number: Int,
+    export label: Label,
+    export ty: TypeRef,
+    export origin: ast.Origin,
+    /// This field's own `features.…`, before resolution against the message and
+    /// the file.
+    export features: Features,
+}
+
+derive Eq, Show for OneofCase;
+/// One case of a `oneof`.
+///
+/// **It has no label, and that is the point.** A `repeated` case is not a thing
+/// protobuf has — a oneof is already a choice of exactly one — so rather than
+/// diagnosing one and carrying it anyway, the type a case is parsed into cannot
+/// hold a label at all. A labelled case is refused at the one place a [`Field`]
+/// becomes a `OneofCase`, and nothing downstream has to remember that a
+/// diagnostic was issued.
+export struct OneofCase {
+    export name: Str,
+    export number: Int,
+    export ty: TypeRef,
+    export origin: ast.Origin,
+    export features: Features,
+}
+
+derive Eq, Show for Oneof;
+/// A `oneof` and its cases, in declaration order.
+export struct Oneof {
+    export name: Str,
+    export origin: ast.Origin,
+    export cases: [OneofCase],
+}
+
+derive Eq, Show for EnumValue;
+/// One value of an enum. `origin` is its name.
+export struct EnumValue {
+    export name: Str,
+    export number: Int,
+    export origin: ast.Origin,
+}
+
+derive Eq, Show for Enum;
+/// An enum and its values. `origin` is its name.
+export struct Enum {
+    export name: Str,
+    export origin: ast.Origin,
+    export values: [EnumValue],
+}
+
+derive Eq, Show for Message;
+/// A message and everything it declares. `origin` is its name.
+export struct Message {
+    export name: Str,
+    export origin: ast.Origin,
+    /// Fields not inside a `oneof`, in declaration order.
+    export fields: [Field],
+    export oneofs: [Oneof],
+    /// Nested messages. A Buri type recurses through `[T]`, and this is one.
+    export messages: [Message],
+    export enums: [Enum],
+    /// Declared on the message, and inherited by its fields and its nested
+    /// types.
+    export features: Features,
+}
+
+derive Eq, Show for Import;
+/// One `import "…";`, with the span of the quoted path.
+export struct Import {
+    export path: Str,
+    export origin: ast.Origin,
+}
+
+derive Eq, Show for Schema;
+/// Everything one `.proto` file declares.
+export struct Schema {
+    export package: Option<Str>,
+    export imports: [Import],
+    export messages: [Message],
+    export enums: [Enum],
+    /// The file's own `option features.…`, layered over [`editionDefaults`]
+    /// when a field is resolved.
+    export features: Features,
+}
+
+derive Eq, Show for Parsed;
+/// What [`parse`] answers. A schema always comes back, however broken the text
+/// was, so one bad declaration does not hide what the rest of the file says.
+export struct Parsed {
+    export schema: Schema,
+    export errors: [codegen.Diagnostic],
+}
+
+// -----------------------------------------------------------------------------
+// Reading
+// -----------------------------------------------------------------------------
+
+/// Reads `text` as the schema at `file`.
+///
+/// `file` is the repository-relative path, and every diagnostic's origin names
+/// it. Offsets are bytes, which is what the compiler resolves a span against.
+export fn parse<C: Alloc>(ctx: C, text: Str, file: Str): Parsed {
+    let cs = text.chars(ctx);
+    let start = P {
+        cs: cs,
+        offsets: byteOffsets(ctx, cs),
+        file: file,
+        at: 0,
+        errors: list.empty<codegen.Diagnostic>(),
+        depth: 0,
+    };
+    let (p, schema) = declarations(ctx, start, emptySchema(), false);
+    Parsed { schema: schema, errors: p.errors }
+}
+
+fn emptySchema(): Schema {
+    Schema {
+        package: .None,
+        imports: list.empty<Import>(),
+        messages: list.empty<Message>(),
+        enums: list.empty<Enum>(),
+        features: inherited(),
+    }
+}
+
+/// The reader's whole state: the text, where it is in it, and what it has said.
+struct P {
+    cs: [Char],
+    /// The byte offset of each character, one longer than `cs`.
+    offsets: [Int],
+    file: Str,
+    at: Int,
+    errors: [codegen.Diagnostic],
+    depth: Int,
+}
+
+derive Eq for Token;
+/// One token. A `.proto` schema needs no more vocabulary than this.
+enum Token {
+    Word(Str),
+    Num(Int),
+    Str(Str),
+    /// One character, as text, so a stray `é` is a token rather than a crash.
+    Punctuation(Str),
+    End,
+}
+
+/// How many diagnostics one file may produce. Past this the reader stops
+/// talking: a page of them is a report, and a thousand is a wall.
+let LIMIT: Int = 32;
+
+let DECLARATIONS: Str =
+    "a schema holds `syntax`, `package`, `import`, `option`, `message` and `enum` declarations";
+
+let KNOWN_FEATURES: [Str] = [
+    "field_presence",
+    "enum_type",
+    "repeated_field_encoding",
+    "utf8_validation",
+    "message_encoding",
+    "json_format",
+];
+
+// --- positions ----------------------------------------------------------------
+
+/// The byte offset of every character, and of the end.
+///
+/// A `Str` indexes by scalar value and a span is measured in bytes, so one of
+/// the two has to be converted and this converts it once.
+fn byteOffsets<C: Alloc>(ctx: C, cs: [Char]): [Int] {
+    let first: [Int] = [0];
+    cs.foldCtx(
+        ctx,
+        fn(c, acc: [Int], ch) => acc.push(c, acc.last().withDefault(0) + utf8Len(ch)),
+        first,
+    )
+}
+
+/// How many bytes a character occupies in UTF-8.
+fn utf8Len(c: Char): Int {
+    let v = c.toU32().toI64();
+    if (v < 128) { 1 } else if (v < 2048) { 2 } else if (v < 65536) { 3 } else { 4 }
+}
+
+fn byteOf(p: P, index: Int): Int {
+    match (p.offsets.get(index)) {
+        .Some(b) => b,
+        .None => p.offsets.last().withDefault(0),
+    }
+}
+
+/// The origin of `cs[start..end]`, in bytes.
+fn span(p: P, start: Int, end: Int): ast.Origin {
+    ast.origin(p.file, byteOf(p, start), byteOf(p, end))
+}
+
+/// The end of a span the reader wants to be at least one character wide.
+fn atLeastOne(p: P, start: Int): Int {
+    if (p.at > start) { p.at } else { start + 1 }
+}
+
+fn charAt(p: P, index: Int): Char {
+    // A space past the end, which begins no token; every caller checks the
+    // length first.
+    p.cs.get(index).withDefault(' ')
+}
+
+fn step(p: P): P {
+    P { ..p, at: p.at + 1 }
+}
+
+fn text<C: Alloc>(ctx: C, p: P, start: Int, end: Int): Str {
+    str.fromChars(ctx, p.cs.slice(ctx, start, end))
+}
+
+// --- what the reader says -----------------------------------------------------
+
+/// Every way a schema can be malformed shares one code, so the sentence and the
+/// edit are what each site supplies.
+fn err<C: Alloc>(ctx: C, p: P, origin: ast.Origin, problem: Str, remedy: Str): P {
+    capped(ctx, p, codegen.Diagnostic {
+        code: "proto-schema",
+        message: problem,
+        note: .None,
+        fix: .Some(remedy),
+        origin: .Some(origin),
+    })
+}
+
+/// A construct this reader refuses rather than ignores. Named, always, because
+/// "unsupported" without a noun is a message you cannot act on.
+fn unsupported<C: Alloc>(
+    ctx: C,
+    p: P,
+    origin: ast.Origin,
+    what: Str,
+    why: Str,
+    remedy: Str,
+): P {
+    capped(ctx, p, codegen.Diagnostic {
+        code: "proto-unsupported",
+        message: str.format(ctx, "${what} is not supported"),
+        note: .Some(why),
+        fix: .Some(remedy),
+        origin: .Some(origin),
+    })
+}
+
+fn capped<C: Alloc>(ctx: C, p: P, d: codegen.Diagnostic): P {
+    if (p.errors.len() >= LIMIT) { p } else { record(ctx, p, d) }
+}
+
+/// A diagnostic the limit does not apply to. Every file gets to hear about its
+/// edition, however much else is wrong with it.
+fn record<C: Alloc>(ctx: C, p: P, d: codegen.Diagnostic): P {
+    P { ..p, errors: p.errors.push(ctx, d) }
+}
+
+// --- the lexer ----------------------------------------------------------------
+
+fn skipTrivia<C: Alloc>(ctx: C, p: P): P {
+    if (p.at >= p.cs.len()) {
+        p
+    } else {
+        let c = charAt(p, p.at);
+        let next = charAt(p, p.at + 1);
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+            skipTrivia(ctx, step(p))
+        } else if (c == '/' && next == '/') {
+            skipTrivia(ctx, skipLine(p))
+        } else if (c == '/' && next == '*') {
+            skipTrivia(ctx, skipBlock(ctx, P { ..p, at: p.at + 2 }, p.at))
+        } else {
+            p
+        }
+    }
+}
+
+fn skipLine(p: P): P {
+    if (p.at >= p.cs.len() || charAt(p, p.at) == '\n') { p } else { skipLine(step(p)) }
+}
+
+fn skipBlock<C: Alloc>(ctx: C, p: P, start: Int): P {
+    if (p.at + 1 >= p.cs.len()) {
+        let ended = P { ..p, at: p.cs.len() };
+        err(
+            ctx,
+            ended,
+            span(ended, start, ended.at),
+            "unterminated block comment",
+            "close it with `*/`",
+        )
+    } else if (charAt(p, p.at) == '*' && charAt(p, p.at + 1) == '/') {
+        P { ..p, at: p.at + 2 }
+    } else {
+        skipBlock(ctx, step(p), start)
+    }
+}
+
+/// ASCII, the way protoc's lexer is: a stray `é` is one punctuation character
+/// rather than the start of a word.
+fn isLetter(c: Char): Bool {
+    c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+fn isDigit(c: Char): Bool {
+    c >= '0' && c <= '9'
+}
+
+fn isWordStart(c: Char): Bool {
+    isLetter(c) || c == '_'
+}
+
+/// A word carries `.` so that `google.protobuf.Any` and `features.field_presence`
+/// are each one token.
+fn isWordPart(c: Char): Bool {
+    isLetter(c) || isDigit(c) || c == '_' || c == '.'
+}
+
+/// The next token, consuming it.
+fn nextToken<C: Alloc>(ctx: C, p0: P): (P, Token) {
+    let p = skipTrivia(ctx, p0);
+    if (p.at >= p.cs.len()) {
+        (p, Token.End)
+    } else {
+        let c = charAt(p, p.at);
+        if (isWordStart(c)) {
+            let end = wordEnd(p, p.at);
+            (P { ..p, at: end }, Token.Word(text(ctx, p, p.at, end)))
+        } else if (isDigit(c) || c == '-' && isDigit(charAt(p, p.at + 1))) {
+            number(ctx, p)
+        } else if (c == '"' || c == '\'') {
+            quoted(ctx, P { ..p, at: p.at + 1 }, c, p.at, list.empty<Char>())
+        } else {
+            (step(p), Token.Punctuation(text(ctx, p, p.at, p.at + 1)))
+        }
+    }
+}
+
+fn wordEnd(p: P, index: Int): Int {
+    match (p.cs.get(index)) {
+        .Some(c) => if (isWordPart(c)) { wordEnd(p, index + 1) } else { index },
+        .None => index,
+    }
+}
+
+fn alnumEnd(p: P, index: Int): Int {
+    match (p.cs.get(index)) {
+        .Some(c) => {
+            if (isLetter(c) || isDigit(c)) { alnumEnd(p, index + 1) } else { index }
+        },
+        .None => index,
+    }
+}
+
+fn number<C: Alloc>(ctx: C, p: P): (P, Token) {
+    let start = p.at;
+    let digits = if (charAt(p, start) == '-') { start + 1 } else { start };
+    let end = alnumEnd(p, digits);
+    let raw = text(ctx, p, start, end);
+    let q = P { ..p, at: end };
+    match (readInt(raw)) {
+        .Some(n) => (q, Token.Num(n)),
+        .None => {
+            (
+                err(
+                    ctx,
+                    q,
+                    span(q, start, end),
+                    str.format(ctx, "`${raw}` is not a number"),
+                    "write a decimal or `0x` field number",
+                ),
+                Token.Num(0),
+            )
+        },
+    }
+}
+
+fn readInt(raw: Str): Option<Int> {
+    if (raw.startsWith("0x") || raw.startsWith("0X")) {
+        raw.slice(2, raw.len()).toRadix(16)
+    } else {
+        raw.toInt()
+    }
+}
+
+/// The rest of a quoted string, from just past its opening quote.
+fn quoted<C: Alloc>(ctx: C, p: P, quote: Char, start: Int, acc: [Char]): (P, Token) {
+    if (p.at >= p.cs.len() || charAt(p, p.at) == '\n') {
+        let q = err(
+            ctx,
+            p,
+            span(p, start, p.at),
+            "unterminated string",
+            "close it with a quote",
+        );
+        (q, Token.Str(str.fromChars(ctx, acc)))
+    } else {
+        let c = charAt(p, p.at);
+        if (c == quote) {
+            (P { ..p, at: p.at + 1 }, Token.Str(str.fromChars(ctx, acc)))
+        } else if (c == '\\') {
+            match (p.cs.get(p.at + 1)) {
+                // A backslash at the end of the input leaves the cursor there,
+                // and the loop head reports the unterminated string.
+                .None => quoted(ctx, step(p), quote, start, acc),
+                .Some(e) => {
+                    quoted(
+                        ctx,
+                        P { ..p, at: p.at + 2 },
+                        quote,
+                        start,
+                        acc.push(ctx, escape(e)),
+                    )
+                },
+            }
+        } else {
+            quoted(ctx, step(p), quote, start, acc.push(ctx, c))
+        }
+    }
+}
+
+fn escape(c: Char): Char {
+    if (c == 'n') {
+        '\n'
+    } else if (c == 't') {
+        '\t'
+    } else if (c == 'r') {
+        '\r'
+    } else {
+        c
+    }
+}
+
+/// The next token without consuming it. Anything the lexer had to say about it
+/// is kept, so a broken token is reported once rather than at every look.
+fn peekToken<C: Alloc>(ctx: C, p: P): (P, Token) {
+    let (q, t) = nextToken(ctx, p);
+    (P { ..q, at: p.at }, t)
+}
+
+fn describe<C: Alloc>(ctx: C, t: Token): Str {
+    match (t) {
+        .Word(w) => str.format(ctx, "`${w}`"),
+        .Num(n) => str.format(ctx, "`${n}`"),
+        .Str(s) => str.format(ctx, "\"${s}\""),
+        .Punctuation(c) => str.format(ctx, "`${c}`"),
+        .End => "the end of the file",
+    }
+}
+
+/// Consumes one punctuation character, reporting when it is not there.
+fn expect<C: Alloc>(ctx: C, p0: P, want: Str, after: Str): (P, Bool) {
+    let p = skipTrivia(ctx, p0);
+    let start = p.at;
+    let (q, t) = nextToken(ctx, p);
+    if (t == Token.Punctuation(want)) {
+        (q, true)
+    } else {
+        let found = describe(ctx, t);
+        (
+            err(
+                ctx,
+                q,
+                span(q, start, atLeastOne(q, start)),
+                str.format(ctx, "expected `${want}` after ${after}, found ${found}"),
+                str.format(ctx, "write `${want}` here"),
+            ),
+            false,
+        )
+    }
+}
+
+fn word<C: Alloc>(ctx: C, p0: P, what: Str): (P, Option<(Str, ast.Origin)>) {
+    let p = skipTrivia(ctx, p0);
+    let start = p.at;
+    let (q, t) = nextToken(ctx, p);
+    match (t) {
+        .Word(w) => (q, .Some((w, span(q, start, q.at)))),
+        other => {
+            let found = describe(ctx, other);
+            (
+                err(
+                    ctx,
+                    q,
+                    span(q, start, atLeastOne(q, start)),
+                    str.format(ctx, "expected ${what}, found ${found}"),
+                    str.format(ctx, "write ${what} here"),
+                ),
+                .None,
+            )
+        },
+    }
+}
+
+/// Everything up to and including the next `;`, for the statements this reader
+/// records nothing from.
+fn skipStatement<C: Alloc>(ctx: C, p: P): P {
+    let (q, t) = nextToken(ctx, p);
+    match (t) {
+        .End => q,
+        .Punctuation(c) => {
+            if (c == ";") {
+                q
+            } else if (c == "{") {
+                // An option value may be a block: `option (x) = { a: 1 };`.
+                skipStatement(ctx, skipBraces(ctx, q, 1))
+            } else {
+                skipStatement(ctx, q)
+            }
+        },
+        _ => skipStatement(ctx, q),
+    }
+}
+
+fn skipBraces<C: Alloc>(ctx: C, p: P, depth: Int): P {
+    let (q, t) = nextToken(ctx, p);
+    match (t) {
+        .End => q,
+        .Punctuation(c) => {
+            if (c == "{") {
+                skipBraces(ctx, q, depth + 1)
+            } else if (c == "}" && depth <= 1) {
+                q
+            } else if (c == "}") {
+                skipBraces(ctx, q, depth - 1)
+            } else {
+                skipBraces(ctx, q, depth)
+            }
+        },
+        _ => skipBraces(ctx, q, depth),
+    }
+}
+
+/// After an unsupported block-shaped declaration: step over the block if there
+/// is one, so one refusal does not become twenty.
+fn recoverBlock<C: Alloc>(ctx: C, p: P): P {
+    let (p1, t) = peekToken(ctx, p);
+    let (q, _) = nextToken(ctx, p1);
+    match (t) {
+        .End => q,
+        .Punctuation(c) => {
+            if (c == "{") {
+                skipBraces(ctx, q, 1)
+            } else if (c == ";") {
+                q
+            } else {
+                recoverBlock(ctx, q)
+            }
+        },
+        _ => recoverBlock(ctx, q),
+    }
+}
+
+// --- features -----------------------------------------------------------------
+
+/// An `option` statement, after the word `option`.
+///
+/// A `features.…` one is read; everything else is skipped, because an ordinary
+/// option is how a schema talks to code generators that are not this one and
+/// says nothing about the shape of a message.
+fn featureOption<C: Alloc>(ctx: C, p0: P): (P, Option<Features>) {
+    let p = skipTrivia(ctx, p0);
+    let start = p.at;
+    let (p1, t) = nextToken(ctx, p);
+    match (t) {
+        .Word(name) => {
+            if (name == "features") {
+                featureBlock(ctx, p1, start)
+            } else if (name.startsWith("features.")) {
+                featureAssignment(ctx, p1, start, name.slice(9, name.len()))
+            } else {
+                (skipStatement(ctx, P { ..p1, at: start }), .None)
+            }
+        },
+        _ => (skipStatement(ctx, P { ..p1, at: start }), .None),
+    }
+}
+
+/// `option features = { ... };` sets several at once. Refused rather than read:
+/// the block form nests, and one spelling of a thing is enough for a reader
+/// this size to have to be right about.
+fn featureBlock<C: Alloc>(ctx: C, p: P, start: Int): (P, Option<Features>) {
+    let (p1, t) = peekToken(ctx, p);
+    if (t != Token.Punctuation("=")) {
+        (skipStatement(ctx, P { ..p1, at: start }), .None)
+    } else {
+        let (p2, _) = nextToken(ctx, p1);
+        let (p3, brace) = peekToken(ctx, p2);
+        let p4 = if (brace == Token.Punctuation("{")) {
+            unsupported(
+                ctx,
+                p3,
+                span(p3, start, p3.at),
+                "`option features = { ... }`",
+                "the block form sets several features at once, and this reader takes one spelling of a thing rather than two",
+                "write them one at a time: `option features.field_presence = IMPLICIT;`",
+            )
+        } else {
+            p3
+        };
+        (skipStatement(ctx, p4), .None)
+    }
+}
+
+fn featureAssignment<C: Alloc>(
+    ctx: C,
+    p: P,
+    start: Int,
+    name: Str,
+): (P, Option<Features>) {
+    let (p1, _) = expect(ctx, p, "=", "an option name");
+    let p2 = skipTrivia(ctx, p1);
+    let valueAt = p2.at;
+    let (p3, t) = nextToken(ctx, p2);
+    match (t) {
+        .Word(value) => {
+            let (p4, f) = feature(ctx, p3, name, value, span(p3, start, p3.at));
+            let (p5, _) = expect(ctx, p4, ";", "an option");
+            (p5, .Some(f))
+        },
+        other => {
+            let found = describe(ctx, other);
+            let q = err(
+                ctx,
+                p3,
+                span(p3, valueAt, atLeastOne(p3, valueAt)),
+                str.format(ctx, "expected a feature value, found ${found}"),
+                "a feature's value is a bare word, as in `IMPLICIT`",
+            );
+            (skipStatement(ctx, q), .None)
+        },
+    }
+}
+
+/// One `features.<name> = <value>`, wherever it was written.
+///
+/// Every value protobuf's `FeatureSet` admits is named here, and each one is
+/// either honoured or refused *by name*. A feature silently ignored is a schema
+/// that means something other than what it says.
+fn feature<C: Alloc>(
+    ctx: C,
+    p: P,
+    name: Str,
+    value: Str,
+    origin: ast.Origin,
+): (P, Features) {
+    if (name == "field_presence" && value == "EXPLICIT") {
+        (p, Features { ..inherited(), fieldPresence: .Some(.Explicit) })
+    } else if (name == "field_presence" && value == "IMPLICIT") {
+        (p, Features { ..inherited(), fieldPresence: .Some(.Implicit) })
+    } else if (name == "field_presence" && value == "LEGACY_REQUIRED") {
+        (
+            unsupported(
+                ctx,
+                p,
+                origin,
+                "`features.field_presence = LEGACY_REQUIRED`",
+                "a required field is a promise the format cannot keep across versions, which is why editions carries it only to describe proto2 files",
+                "leave the presence at its default, which is EXPLICIT",
+            ),
+            inherited(),
+        )
+    } else if (name == "repeated_field_encoding" && value == "PACKED") {
+        (p, Features { ..inherited(), repeatedFieldEncoding: .Some(.Packed) })
+    } else if (name == "repeated_field_encoding" && value == "EXPANDED") {
+        (p, Features { ..inherited(), repeatedFieldEncoding: .Some(.Expanded) })
+    } else if (name == "enum_type" && value == "OPEN") {
+        // Honoured by being the default and the only thing implemented: an enum
+        // is open, and a value the schema does not know survives a round trip
+        // as `Unrecognized`.
+        (p, inherited())
+    } else if (name == "enum_type" && value == "CLOSED") {
+        (
+            unsupported(
+                ctx,
+                p,
+                origin,
+                "`features.enum_type = CLOSED`",
+                "a closed enum makes an unrecognised value an unknown *field*, which a generated struct has nowhere to keep; open enums keep it in the value itself",
+                "leave the enum open, which is edition 2026's default",
+            ),
+            inherited(),
+        )
+    } else if (name == "message_encoding" && value == "LENGTH_PREFIXED") {
+        (p, inherited())
+    } else if (name == "message_encoding" && value == "DELIMITED") {
+        (
+            unsupported(
+                ctx,
+                p,
+                origin,
+                "`features.message_encoding = DELIMITED`",
+                "delimited is the old group encoding, and a reader has to understand a group to get past one — so treating it as an unknown field would read the rest of the message at the wrong offset",
+                "leave the encoding length-prefixed, which is edition 2026's default",
+            ),
+            inherited(),
+        )
+    } else if (name == "utf8_validation" && value == "VERIFY") {
+        // `Str` is text or it is not one, so a string field is validated
+        // whatever this says.
+        (p, inherited())
+    } else if (name == "utf8_validation" && value == "NONE") {
+        (
+            unsupported(
+                ctx,
+                p,
+                origin,
+                "`features.utf8_validation = NONE`",
+                "a `string` field becomes a `Str`, and a `Str` is text — there is no unvalidated one for the bytes to become",
+                "declare the field `bytes` if it carries octets rather than text",
+            ),
+            inherited(),
+        )
+    } else if (name == "json_format" && value == "ALLOW") {
+        (p, inherited())
+    } else if (name == "json_format" && value == "LEGACY_BEST_EFFORT") {
+        (
+            unsupported(
+                ctx,
+                p,
+                origin,
+                "`features.json_format = LEGACY_BEST_EFFORT`",
+                "it exists to describe what proto2 files did to JSON, and this reader writes the one JSON mapping editions defines",
+                "leave the format at ALLOW, which is edition 2026's default",
+            ),
+            inherited(),
+        )
+    } else if (name == "enforce_naming_style" || name == "default_symbol_visibility") {
+        // Source-retention lints. They say nothing about what a message means,
+        // so they are read past rather than refused.
+        (p, inherited())
+    } else {
+        (unknownFeature(ctx, p, name, value, origin), inherited())
+    }
+}
+
+fn unknownFeature<C: Alloc>(
+    ctx: C,
+    p: P,
+    name: Str,
+    value: Str,
+    origin: ast.Origin,
+): P {
+    // A near miss replaces the page's list, which is the answer when there is
+    // no name close enough to guess at.
+    let fix = match (nearest(ctx, name, KNOWN_FEATURES)) {
+        .Some(near) => str.format(ctx, "did you mean `features.${near}`?"),
+        .None => {
+            let known = KNOWN_FEATURES.join(ctx, ", ");
+            str.format(ctx, "the features this reader models are: ${known}")
+        },
+    };
+    capped(ctx, p, codegen.Diagnostic {
+        code: "proto-unknown-feature",
+        message: str.format(
+            ctx,
+            "`features.${name} = ${value}` is not a feature this reader knows",
+        ),
+        note: .Some(
+            "a feature it ignored would be a schema that means something other than what it says",
+        ),
+        fix: .Some(fix),
+        origin: .Some(origin),
+    })
+}
+
+/// The closest of `known` to `word`, when one is close enough to guess at.
+///
+/// Costs one edit-distance table per candidate, so O(k·n·m) — paid only when a
+/// feature name was already wrong.
+fn nearest<C: Alloc>(ctx: C, word: Str, known: [Str]): Option<Str> {
+    let best = known.foldCtx(
+        ctx,
+        fn(c, acc: Option<(Int, Str)>, k) => {
+            let distance = editDistance(c, word, k);
+            let longest = if (word.len() > k.len()) { word.len() } else { k.len() };
+            let third = longest / 3;
+            let limit = if (third > 1) { third } else { 1 } + 1;
+            if (distance > limit) {
+                acc
+            } else {
+                match (acc) {
+                    .None => Option.Some((distance, k)),
+                    .Some(b) => {
+                        let closer = distance < b.0
+                            || distance == b.0 && k.compare(b.1) == Order.Less;
+                        if (closer) { Option.Some((distance, k)) } else { acc }
+                    },
+                }
+            }
+        },
+        .None,
+    );
+    best.map(fn(b) => b.1)
+}
+
+fn editDistance<C: Alloc>(ctx: C, a: Str, b: Str): Int {
+    let bs = b.chars(ctx);
+    let first = list.range(ctx, 0, bs.len() + 1);
+    let last = a
+        .chars(ctx)
+        .foldCtx(ctx, fn(c, prev: [Int], ca) => nextRow(c, prev, bs, ca), first);
+    last.last().withDefault(0)
+}
+
+/// One row of the Levenshtein table, from the row above it.
+fn nextRow<C: Alloc>(ctx: C, prev: [Int], bs: [Char], ca: Char): [Int] {
+    let start: [Int] = [prev.get(0).withDefault(0) + 1];
+    list
+        .range(ctx, 0, bs.len())
+        .foldCtx(
+            ctx,
+            fn(c, cur: [Int], j) => {
+                let left = cur.last().withDefault(0);
+                let diagonal = prev.get(j).withDefault(0);
+                let up = prev.get(j + 1).withDefault(0);
+                let cost = match (bs.get(j)) {
+                    .Some(cb) => if (cb == ca) { 0 } else { 1 },
+                    .None => 1,
+                };
+                cur.push(c, least(up + 1, least(left + 1, diagonal + cost)))
+            },
+            start,
+        )
+}
+
+fn least(a: Int, b: Int): Int {
+    if (a < b) { a } else { b }
+}
+
+// --- the file -----------------------------------------------------------------
+
+fn declarations<C: Alloc>(ctx: C, p0: P, schema: Schema, seen: Bool): (P, Schema) {
+    let p = skipTrivia(ctx, p0);
+    let start = p.at;
+    let (p1, t) = nextToken(ctx, p);
+    match (t) {
+        .End => (endOfFile(ctx, p1, seen), schema),
+        .Word(w) => {
+            let (q, next, sawEdition) = declaration(ctx, p1, start, w, schema, seen);
+            declarations(ctx, q, next, sawEdition)
+        },
+        other => {
+            let q = if (other == Token.Punctuation(";")) {
+                p1
+            } else {
+                let found = describe(ctx, other);
+                err(
+                    ctx,
+                    p1,
+                    span(p1, start, atLeastOne(p1, start)),
+                    str.format(ctx, "expected a declaration, found ${found}"),
+                    DECLARATIONS,
+                )
+            };
+            declarations(ctx, q, schema, seen)
+        },
+    }
+}
+
+fn endOfFile<C: Alloc>(ctx: C, p: P, seen: Bool): P {
+    if (seen) {
+        p
+    } else {
+        record(ctx, p, codegen.Diagnostic {
+            code: "proto-edition-missing",
+            message: "the file does not declare its edition",
+            note: .Some(
+                "a file with no declaration is proto2 to every other tool, and proto2 is not what this mapping implements",
+            ),
+            fix: .Some(
+                str.format(
+                    ctx,
+                    "add `edition = \"${REQUIRED_EDITION}\";` as the first line",
+                ),
+            ),
+            origin: .Some(ast.origin(p.file, 0, 0)),
+        })
+    }
+}
+
+fn declaration<C: Alloc>(
+    ctx: C,
+    p: P,
+    start: Int,
+    w: Str,
+    schema: Schema,
+    seen: Bool,
+): (P, Schema, Bool) {
+    if (w == "syntax") {
+        (syntaxDeclaration(ctx, p, start), schema, true)
+    } else if (w == "edition") {
+        (editionDeclaration(ctx, p), schema, true)
+    } else if (w == "package") {
+        let (p1, named) = word(ctx, p, "a package name");
+        let next = match (named) {
+            .Some(pair) => Schema { ..schema, package: .Some(pair.0) },
+            .None => schema,
+        };
+        let (p2, _) = expect(ctx, p1, ";", "the package declaration");
+        (p2, next, seen)
+    } else if (w == "import") {
+        importDeclaration(ctx, p, schema, seen)
+    } else if (w == "option") {
+        let (p1, f) = featureOption(ctx, p);
+        let next = match (f) {
+            .Some(one) => Schema { ..schema, features: one.over(schema.features) },
+            .None => schema,
+        };
+        (p1, next, seen)
+    } else if (w == "reserved") {
+        (skipStatement(ctx, p), schema, seen)
+    } else if (w == "message") {
+        let (p1, m) = message(ctx, p);
+        let next = match (m) {
+            .Some(one) => Schema { ..schema, messages: schema.messages.push(ctx, one) },
+            .None => schema,
+        };
+        (p1, next, seen)
+    } else if (w == "enum") {
+        let (p1, e) = enumDeclaration(ctx, p);
+        let next = match (e) {
+            .Some(one) => Schema { ..schema, enums: schema.enums.push(ctx, one) },
+            .None => schema,
+        };
+        (p1, next, seen)
+    } else if (w == "service" || w == "extend" || w == "extensions") {
+        let why = if (w == "service") {
+            "this reader turns a schema into data types; it has no RPC transport to generate a stub against"
+        } else {
+            "an extension adds fields to a message from outside it, so the generated type would not be the whole of the message"
+        };
+        let remedy = if (w == "service") {
+            "delete the `service` block, or keep it in a schema this repository does not import"
+        } else {
+            "put the fields in the message itself"
+        };
+        let q = unsupported(
+            ctx,
+            p,
+            span(p, start, p.at),
+            str.format(ctx, "`${w}`"),
+            why,
+            remedy,
+        );
+        // Both forms carry a block; step over it so the rest of the file is
+        // still read.
+        (recoverBlock(ctx, q), schema, seen)
+    } else {
+        let q = err(
+            ctx,
+            p,
+            span(p, start, p.at),
+            str.format(ctx, "`${w}` does not begin a declaration"),
+            DECLARATIONS,
+        );
+        (skipStatement(ctx, q), schema, seen)
+    }
+}
+
+/// `syntax` is what a proto2 or proto3 file declares, and neither is accepted.
+///
+/// The diagnostic is about migrating rather than about the word, because the
+/// word is not the problem: presence, defaults and enum openness all differ, and
+/// a file that says `proto3` means something this mapping no longer implements.
+fn syntaxDeclaration<C: Alloc>(ctx: C, p: P, start: Int): P {
+    let (p1, _) = expect(ctx, p, "=", "`syntax`");
+    let p2 = skipTrivia(ctx, p1);
+    let valueAt = p2.at;
+    let (p3, value) = nextToken(ctx, p2);
+    let named = match (value) {
+        .Str(v) => str.format(ctx, "`syntax = \"${v}\"`"),
+        other => {
+            let found = describe(ctx, other);
+            str.format(ctx, "syntax ${found}")
+        },
+    };
+    let q = record(ctx, p3, codegen.Diagnostic {
+        code: "proto-syntax-declaration",
+        message: str.format(ctx, "${named} is not accepted"),
+        note: .Some(
+            "this reader implements Protobuf Editions. proto2 and proto3 differ from it in field presence, in what a default means on the wire, and in whether an enum is open — so a `syntax` file is not a file it can read a little differently, it is a file it would read wrongly",
+        ),
+        fix: .Some(
+            str.format(
+                ctx,
+                "migrate it: `edition = \"${REQUIRED_EDITION}\";`, drop every `optional` and `required` label, and write `[features.field_presence = IMPLICIT]` on the fields that had none",
+            ),
+        ),
+        origin: .Some(span(p3, start, atLeastOne(p3, valueAt))),
+    });
+    let (q2, _) = expect(ctx, q, ";", "the syntax declaration");
+    q2
+}
+
+fn editionDeclaration<C: Alloc>(ctx: C, p: P): P {
+    let (p1, _) = expect(ctx, p, "=", "`edition`");
+    let p2 = skipTrivia(ctx, p1);
+    let valueAt = p2.at;
+    let (p3, value) = nextToken(ctx, p2);
+    let q = if (value == Token.Str(REQUIRED_EDITION)) {
+        p3
+    } else {
+        let named = match (value) {
+            .Str(v) => str.format(ctx, "edition ${v}"),
+            other => {
+                let found = describe(ctx, other);
+                str.format(ctx, "edition ${found}")
+            },
+        };
+        record(ctx, p3, codegen.Diagnostic {
+            code: "proto-edition",
+            message: str.format(ctx, "${named} is not accepted"),
+            note: .Some(
+                str.format(
+                    ctx,
+                    "this reader implements edition ${REQUIRED_EDITION} and no other. One edition rather than a range is the same choice the toolchain makes everywhere else: a schema means one thing, and a reader that quietly accepted an older set of feature defaults would decode the file in front of it as a different file",
+                ),
+            ),
+            fix: .Some(str.format(ctx, "write `edition = \"${REQUIRED_EDITION}\";`")),
+            origin: .Some(span(p3, valueAt, atLeastOne(p3, valueAt))),
+        })
+    };
+    let (q2, _) = expect(ctx, q, ";", "the edition declaration");
+    q2
+}
+
+fn importDeclaration<C: Alloc>(
+    ctx: C,
+    p0: P,
+    schema: Schema,
+    seen: Bool,
+): (P, Schema, Bool) {
+    let p = skipTrivia(ctx, p0);
+    let at = p.at;
+    let (p1, t) = nextToken(ctx, p);
+    match (t) {
+        .Str(path) => {
+            let next = Schema {
+                ..schema,
+                imports: schema
+                    .imports
+                    .push(ctx, Import { path: path, origin: span(p1, at, p1.at) }),
+            };
+            let (p2, _) = expect(ctx, p1, ";", "the import");
+            (p2, next, seen)
+        },
+        .Word(w) => {
+            if (w == "public" || w == "weak") {
+                let q = unsupported(
+                    ctx,
+                    p1,
+                    span(p1, at, p1.at),
+                    str.format(ctx, "`import ${w}`"),
+                    "a public import re-exports another file's declarations, which would make one module's surface depend on a second file's",
+                    "write a plain `import \"...\";`, and import the second file where its types are used",
+                );
+                (skipStatement(ctx, q), schema, seen)
+            } else {
+                (badImport(ctx, p1, at, Token.Word(w)), schema, seen)
+            }
+        },
+        other => (badImport(ctx, p1, at, other), schema, seen),
+    }
+}
+
+fn badImport<C: Alloc>(ctx: C, p: P, at: Int, found: Token): P {
+    let shown = describe(ctx, found);
+    let q = err(
+        ctx,
+        p,
+        span(p, at, atLeastOne(p, at)),
+        str.format(ctx, "expected a quoted path after `import`, found ${shown}"),
+        "write `import \"path/from/the/repository/root.proto\";`",
+    );
+    skipStatement(ctx, q)
+}
+
+// --- messages -----------------------------------------------------------------
+
+/// How deeply messages may nest. Nesting is read by recursion, so a file that is
+/// nothing but `message M {` would otherwise exhaust the stack.
+let MAX_NESTING: Int = 16;
+
+fn message<C: Alloc>(ctx: C, p: P): (P, Option<Message>) {
+    let (p1, named) = word(ctx, p, "a message name");
+    match (named) {
+        .None => (p1, .None),
+        .Some(pair) => {
+            let (name, origin) = pair;
+            let (p2, opened) = expect(ctx, p1, "{", "a message name");
+            if (!opened) {
+                (p2, .None)
+            } else if (p2.depth + 1 > MAX_NESTING) {
+                let q = err(
+                    ctx,
+                    p2,
+                    origin,
+                    "messages nest too deeply",
+                    "flatten them; sixteen levels is the limit",
+                );
+                (skipBraces(ctx, q, 1), .None)
+            } else {
+                let empty = Message {
+                    name: name,
+                    origin: origin,
+                    fields: list.empty<Field>(),
+                    oneofs: list.empty<Oneof>(),
+                    messages: list.empty<Message>(),
+                    enums: list.empty<Enum>(),
+                    features: inherited(),
+                };
+                let (q, m) = messageBody(ctx, P { ..p2, depth: p2.depth + 1 }, empty);
+                (P { ..q, depth: p2.depth }, .Some(m))
+            }
+        },
+    }
+}
+
+fn messageBody<C: Alloc>(ctx: C, p0: P, m: Message): (P, Message) {
+    let p = skipTrivia(ctx, p0);
+    let start = p.at;
+    let (p1, t) = peekToken(ctx, p);
+    match (t) {
+        .End => {
+            (
+                err(
+                    ctx,
+                    p1,
+                    span(p1, start, start + 1),
+                    str.format(ctx, "`${m.name}` is not closed"),
+                    "close the message with `}`",
+                ),
+                m,
+            )
+        },
+        .Word(w) => messageItem(ctx, p1, start, w, m),
+        other => {
+            if (other == Token.Punctuation("}")) {
+                (nextToken(ctx, p1).0, m)
+            } else if (other == Token.Punctuation(";")) {
+                messageBody(ctx, nextToken(ctx, p1).0, m)
+            } else {
+                messageField(ctx, p1, m)
+            }
+        },
+    }
+}
+
+fn messageItem<C: Alloc>(ctx: C, p: P, start: Int, w: Str, m: Message): (P, Message) {
+    if (w == "message") {
+        let (p1, inner) = message(ctx, nextToken(ctx, p).0);
+        let next = match (inner) {
+            .Some(one) => Message { ..m, messages: m.messages.push(ctx, one) },
+            .None => m,
+        };
+        messageBody(ctx, p1, next)
+    } else if (w == "enum") {
+        let (p1, e) = enumDeclaration(ctx, nextToken(ctx, p).0);
+        let next = match (e) {
+            .Some(one) => Message { ..m, enums: m.enums.push(ctx, one) },
+            .None => m,
+        };
+        messageBody(ctx, p1, next)
+    } else if (w == "oneof") {
+        let (p1, o) = oneof(ctx, nextToken(ctx, p).0);
+        let next = match (o) {
+            .Some(one) => Message { ..m, oneofs: m.oneofs.push(ctx, one) },
+            .None => m,
+        };
+        messageBody(ctx, p1, next)
+    } else if (w == "option") {
+        let (p1, f) = featureOption(ctx, nextToken(ctx, p).0);
+        let next = match (f) {
+            .Some(one) => Message { ..m, features: one.over(m.features) },
+            .None => m,
+        };
+        messageBody(ctx, p1, next)
+    } else if (w == "reserved") {
+        messageBody(ctx, skipStatement(ctx, nextToken(ctx, p).0), m)
+    } else if (w == "extensions" || w == "extend") {
+        let p1 = nextToken(ctx, p).0;
+        let q = unsupported(
+            ctx,
+            p1,
+            span(p1, start, p1.at),
+            str.format(ctx, "`${w}`"),
+            "an extension adds fields to a message from outside it, so the generated type would not be the whole of the message",
+            "put the fields in the message itself",
+        );
+        messageBody(ctx, recoverBlock(ctx, q), m)
+    } else if (w == "group") {
+        let p1 = nextToken(ctx, p).0;
+        let q = unsupported(
+            ctx,
+            p1,
+            span(p1, start, p1.at),
+            "`group`",
+            "groups are proto2's inline nesting, and their wire encoding was removed from proto3",
+            "declare a nested `message` and a field of that type",
+        );
+        messageBody(ctx, recoverBlock(ctx, q), m)
+    } else if (w == "required" || w == "optional") {
+        // Editions removed both labels: presence is a feature now, and protoc
+        // refuses these in exactly the same way.
+        let p1 = nextToken(ctx, p).0;
+        let why = if (w == "required") {
+            "editions replaced the labels with `features.field_presence`, and the value that corresponds to `required` is LEGACY_REQUIRED — which this reader refuses in its own right"
+        } else {
+            "editions replaced the labels with `features.field_presence`, whose default is EXPLICIT — so a singular field already tracks presence and `optional` would say it twice"
+        };
+        let remedy = if (w == "required") {
+            "drop the label; a singular field already has presence"
+        } else {
+            "drop the label; write `[features.field_presence = IMPLICIT]` on the fields that should *not* track presence"
+        };
+        let q = unsupported(
+            ctx,
+            p1,
+            span(p1, start, p1.at),
+            str.format(ctx, "the `${w}` label"),
+            why,
+            remedy,
+        );
+        messageBody(ctx, skipStatement(ctx, q), m)
+    } else {
+        messageField(ctx, p, m)
+    }
+}
+
+fn messageField<C: Alloc>(ctx: C, p: P, m: Message): (P, Message) {
+    let (q, f) = field(ctx, p);
+    match (f) {
+        .Some(one) => {
+            messageBody(ctx, q, Message { ..m, fields: m.fields.push(ctx, one) })
+        },
+        .None => messageBody(ctx, skipStatement(ctx, q), m),
+    }
+}
+
+fn oneof<C: Alloc>(ctx: C, p: P): (P, Option<Oneof>) {
+    let (p1, named) = word(ctx, p, "a oneof name");
+    match (named) {
+        .None => (p1, .None),
+        .Some(pair) => {
+            let (name, origin) = pair;
+            let (p2, opened) = expect(ctx, p1, "{", "a oneof name");
+            if (!opened) {
+                (p2, .None)
+            } else {
+                let (q, o) = oneofBody(ctx, p2, Oneof {
+                    name: name,
+                    origin: origin,
+                    cases: list.empty<OneofCase>(),
+                });
+                (q, .Some(o))
+            }
+        },
+    }
+}
+
+fn oneofBody<C: Alloc>(ctx: C, p0: P, o: Oneof): (P, Oneof) {
+    let p = skipTrivia(ctx, p0);
+    let start = p.at;
+    let (p1, t) = peekToken(ctx, p);
+    match (t) {
+        .End => {
+            (
+                err(
+                    ctx,
+                    p1,
+                    span(p1, start, start + 1),
+                    str.format(ctx, "`oneof ${o.name}` is not closed"),
+                    "close it with `}`",
+                ),
+                o,
+            )
+        },
+        .Word(w) => {
+            if (w == "option") {
+                let (q, _) = featureOption(ctx, nextToken(ctx, p1).0);
+                oneofBody(ctx, q, o)
+            } else {
+                oneofCase(ctx, p1, o)
+            }
+        },
+        other => {
+            if (other == Token.Punctuation("}")) {
+                (nextToken(ctx, p1).0, o)
+            } else if (other == Token.Punctuation(";")) {
+                oneofBody(ctx, nextToken(ctx, p1).0, o)
+            } else {
+                oneofCase(ctx, p1, o)
+            }
+        },
+    }
+}
+
+/// The one place a [`Field`] becomes a [`OneofCase`], and so the only place a
+/// label can be refused — past here a case has nowhere to keep one. The case is
+/// still kept: the error already fails the build, and dropping it would take a
+/// second round of diagnostics about the same schema away from whoever has to
+/// fix it.
+fn oneofCase<C: Alloc>(ctx: C, p: P, o: Oneof): (P, Oneof) {
+    let (q, f) = field(ctx, p);
+    match (f) {
+        .None => oneofBody(ctx, skipStatement(ctx, q), o),
+        .Some(one) => {
+            let q2 = if (one.label == Label.Single) {
+                q
+            } else {
+                err(
+                    ctx,
+                    q,
+                    one.origin,
+                    "a oneof case takes no label",
+                    "remove `repeated`; a oneof is already a choice of exactly one case, so a repeated one has no meaning to give it",
+                )
+            };
+            let c = OneofCase {
+                name: one.name,
+                number: one.number,
+                ty: one.ty,
+                origin: one.origin,
+                features: one.features,
+            };
+            oneofBody(ctx, q2, Oneof { ..o, cases: o.cases.push(ctx, c) })
+        },
+    }
+}
+
+// --- fields -------------------------------------------------------------------
+
+/// `[repeated] Type name = N [options];`
+fn field<C: Alloc>(ctx: C, p0: P): (P, Option<Field>) {
+    let p = skipTrivia(ctx, p0);
+    let start = p.at;
+    let (p1, first) = word(ctx, p, "a field type");
+    match (first) {
+        .None => (p1, .None),
+        .Some(pair) => {
+            let (w, origin) = pair;
+            if (w == "repeated") {
+                let (p2, ty) = word(ctx, p1, "a field type");
+                fieldRest(ctx, p2, start, Label.Repeated, ty)
+            } else if (w == "optional" || w == "required") {
+                // Both removed labels are refused where they are written, so a
+                // migrated file is told once per field rather than once per file.
+                let remedy = if (w == "optional") {
+                    "drop the label; a singular field already tracks presence"
+                } else {
+                    "drop the label; a field that must be there is a promise the format cannot keep across versions"
+                };
+                let q = unsupported(
+                    ctx,
+                    p1,
+                    span(p1, start, p1.at),
+                    str.format(ctx, "the `${w}` label"),
+                    "editions replaced the labels with `features.field_presence`, whose default is EXPLICIT",
+                    remedy,
+                );
+                let (p2, ty) = word(ctx, q, "a field type");
+                fieldRest(ctx, p2, start, Label.Single, ty)
+            } else {
+                fieldRest(ctx, p1, start, Label.Single, .Some((w, origin)))
+            }
+        },
+    }
+}
+
+fn fieldRest<C: Alloc>(
+    ctx: C,
+    p: P,
+    start: Int,
+    label: Label,
+    named: Option<(Str, ast.Origin)>,
+): (P, Option<Field>) {
+    match (named) {
+        .None => (p, .None),
+        .Some(pair) => {
+            let (tyWord, tyOrigin) = pair;
+            let (p1, ahead) = peekToken(ctx, p);
+            if (tyWord == "map" || ahead == Token.Punctuation("<")) {
+                (
+                    unsupported(
+                        ctx,
+                        p1,
+                        tyOrigin,
+                        "`map<>`",
+                        "a map field is sugar for a repeated entry message with its own wire layout, and Buri's `Map` is not ordered the way a decoded map would have to be",
+                        "declare `repeated Entry entries = N;` with an explicit `message Entry { ... }`",
+                    ),
+                    .None,
+                )
+            } else {
+                let ty = match (scalar(tyWord)) {
+                    .Some(s) => TypeRef.Scalar(s),
+                    .None => TypeRef.Named(tyWord),
+                };
+                fieldNumbered(ctx, p1, start, label, ty)
+            }
+        },
+    }
+}
+
+fn fieldNumbered<C: Alloc>(
+    ctx: C,
+    p: P,
+    start: Int,
+    label: Label,
+    ty: TypeRef,
+): (P, Option<Field>) {
+    let (p1, named) = word(ctx, p, "a field name");
+    match (named) {
+        .None => (p1, .None),
+        .Some(pair) => {
+            let (name, _) = pair;
+            let (p2, assigned) = expect(ctx, p1, "=", "a field name");
+            if (!assigned) {
+                (p2, .None)
+            } else {
+                let p3 = skipTrivia(ctx, p2);
+                let numAt = p3.at;
+                let (p4, t) = nextToken(ctx, p3);
+                match (t) {
+                    .Num(number) => {
+                        if (number < 1 || number > 536870911) {
+                            (
+                                err(
+                                    ctx,
+                                    p4,
+                                    span(p4, numAt, p4.at),
+                                    str.format(ctx, "${number} is not a field number"),
+                                    "field numbers run from 1 to 536870911",
+                                ),
+                                .None,
+                            )
+                        } else if (number >= 19000 && number <= 19999) {
+                            (
+                                err(
+                                    ctx,
+                                    p4,
+                                    span(p4, numAt, p4.at),
+                                    str.format(
+                                        ctx,
+                                        "${number} is in the range protobuf reserves for itself",
+                                    ),
+                                    "use a number outside 19000..19999",
+                                ),
+                                .None,
+                            )
+                        } else {
+                            let (p5, features) = fieldOptions(ctx, p4, inherited());
+                            let (p6, _) = expect(ctx, p5, ";", "a field");
+                            (
+                                p6,
+                                .Some(Field {
+                                    name: name,
+                                    number: number,
+                                    label: label,
+                                    ty: ty,
+                                    origin: span(p6, start, p6.at),
+                                    features: features,
+                                }),
+                            )
+                        }
+                    },
+                    other => {
+                        let found = describe(ctx, other);
+                        (
+                            err(
+                                ctx,
+                                p4,
+                                span(p4, numAt, atLeastOne(p4, numAt)),
+                                str.format(
+                                    ctx,
+                                    "expected a field number, found ${found}",
+                                ),
+                                "every field carries a number, and the number is what goes on the wire",
+                            ),
+                            .None,
+                        )
+                    },
+                }
+            }
+        },
+    }
+}
+
+/// The field's own options. `features.…` is read and everything else —
+/// `ctype`, `deprecated`, `json_name` — is stepped over.
+fn fieldOptions<C: Alloc>(ctx: C, p: P, features: Features): (P, Features) {
+    let (p1, bracket) = peekToken(ctx, p);
+    if (bracket != Token.Punctuation("[")) {
+        (p1, features)
+    } else {
+        fieldOption(ctx, nextToken(ctx, p1).0, features)
+    }
+}
+
+fn fieldOption<C: Alloc>(ctx: C, p0: P, features: Features): (P, Features) {
+    let p = skipTrivia(ctx, p0);
+    let at = p.at;
+    let (p1, t) = nextToken(ctx, p);
+    match (t) {
+        .End => (p1, features),
+        .Word(w) => {
+            let (p2, assigned) = peekToken(ctx, p1);
+            if (assigned != Token.Punctuation("=")) {
+                fieldOption(ctx, p2, features)
+            } else {
+                let p3 = skipTrivia(ctx, nextToken(ctx, p2).0);
+                let (p4, value) = nextToken(ctx, p3);
+                if (!w.startsWith("features.")) {
+                    fieldOption(ctx, p4, features)
+                } else {
+                    let shown = match (value) {
+                        .Word(v) => v,
+                        other => describe(ctx, other),
+                    };
+                    let (p5, f) = feature(
+                        ctx,
+                        p4,
+                        w.slice(9, w.len()),
+                        shown,
+                        span(p4, at, p4.at),
+                    );
+                    fieldOption(ctx, p5, f.over(features))
+                }
+            }
+        },
+        other => {
+            if (other == Token.Punctuation("]")) {
+                (p1, features)
+            } else {
+                fieldOption(ctx, p1, features)
+            }
+        },
+    }
+}
+
+fn scalar(word: Str): Option<Scalar> {
+    if (word == "int32") {
+        .Some(.Int32)
+    } else if (word == "int64") {
+        .Some(.Int64)
+    } else if (word == "uint32") {
+        .Some(.Uint32)
+    } else if (word == "uint64") {
+        .Some(.Uint64)
+    } else if (word == "sint32") {
+        .Some(.Sint32)
+    } else if (word == "sint64") {
+        .Some(.Sint64)
+    } else if (word == "fixed32") {
+        .Some(.Fixed32)
+    } else if (word == "fixed64") {
+        .Some(.Fixed64)
+    } else if (word == "sfixed32") {
+        .Some(.Sfixed32)
+    } else if (word == "sfixed64") {
+        .Some(.Sfixed64)
+    } else if (word == "bool") {
+        .Some(.Bool)
+    } else if (word == "string") {
+        .Some(.Str)
+    } else if (word == "bytes") {
+        .Some(.Bytes)
+    } else if (word == "double") {
+        .Some(.Double)
+    } else if (word == "float") {
+        .Some(.Float)
+    } else {
+        .None
+    }
+}
+
+// --- enums --------------------------------------------------------------------
+
+fn enumDeclaration<C: Alloc>(ctx: C, p: P): (P, Option<Enum>) {
+    let (p1, named) = word(ctx, p, "an enum name");
+    match (named) {
+        .None => (p1, .None),
+        .Some(pair) => {
+            let (name, origin) = pair;
+            let (p2, opened) = expect(ctx, p1, "{", "an enum name");
+            if (!opened) {
+                (p2, .None)
+            } else {
+                let (p3, e) = enumBody(ctx, p2, Enum {
+                    name: name,
+                    origin: origin,
+                    values: list.empty<EnumValue>(),
+                });
+                (enumStartsAtZero(ctx, p3, e), .Some(e))
+            }
+        },
+    }
+}
+
+fn enumBody<C: Alloc>(ctx: C, p0: P, e: Enum): (P, Enum) {
+    let p = skipTrivia(ctx, p0);
+    let start = p.at;
+    let (p1, t) = peekToken(ctx, p);
+    match (t) {
+        .End => {
+            (
+                err(
+                    ctx,
+                    p1,
+                    span(p1, start, start + 1),
+                    str.format(ctx, "`enum ${e.name}` is not closed"),
+                    "close it with `}`",
+                ),
+                e,
+            )
+        },
+        .Word(w) => {
+            if (w == "option") {
+                // Read for its diagnostics: only `field_presence` and
+                // `repeated_field_encoding` are modelled and neither targets an
+                // enum, so there is nothing here to keep.
+                let (q, _) = featureOption(ctx, nextToken(ctx, p1).0);
+                enumBody(ctx, q, e)
+            } else if (w == "reserved") {
+                enumBody(ctx, skipStatement(ctx, nextToken(ctx, p1).0), e)
+            } else {
+                enumValue(ctx, p1, e)
+            }
+        },
+        other => {
+            if (other == Token.Punctuation("}")) {
+                (nextToken(ctx, p1).0, e)
+            } else if (other == Token.Punctuation(";")) {
+                enumBody(ctx, nextToken(ctx, p1).0, e)
+            } else {
+                enumValue(ctx, p1, e)
+            }
+        },
+    }
+}
+
+fn enumValue<C: Alloc>(ctx: C, p: P, e: Enum): (P, Enum) {
+    let (p1, named) = word(ctx, p, "an enum value name");
+    match (named) {
+        .None => enumBody(ctx, skipStatement(ctx, p1), e),
+        .Some(pair) => {
+            let (name, origin) = pair;
+            let (p2, assigned) = expect(ctx, p1, "=", "an enum value name");
+            if (!assigned) {
+                enumBody(ctx, skipStatement(ctx, p2), e)
+            } else {
+                let p3 = skipTrivia(ctx, p2);
+                let numAt = p3.at;
+                let (p4, t) = nextToken(ctx, p3);
+                match (t) {
+                    .Num(number) => {
+                        let p5 = skipEnumValueOptions(ctx, p4);
+                        let (p6, _) = expect(ctx, p5, ";", "an enum value");
+                        let value = EnumValue {
+                            name: name,
+                            number: number,
+                            origin: origin,
+                        };
+                        enumBody(ctx, p6, Enum {
+                            ..e,
+                            values: e.values.push(ctx, value),
+                        })
+                    },
+                    other => {
+                        let found = describe(ctx, other);
+                        let q = err(
+                            ctx,
+                            p4,
+                            span(p4, numAt, atLeastOne(p4, numAt)),
+                            str.format(
+                                ctx,
+                                "expected an enum value number, found ${found}",
+                            ),
+                            "every enum value carries the number that goes on the wire",
+                        );
+                        enumBody(ctx, skipStatement(ctx, q), e)
+                    },
+                }
+            }
+        },
+    }
+}
+
+fn skipEnumValueOptions<C: Alloc>(ctx: C, p: P): P {
+    let (p1, bracket) = peekToken(ctx, p);
+    if (bracket != Token.Punctuation("[")) {
+        p1
+    } else {
+        skipToBracket(ctx, nextToken(ctx, p1).0)
+    }
+}
+
+fn skipToBracket<C: Alloc>(ctx: C, p: P): P {
+    let (q, t) = nextToken(ctx, p);
+    match (t) {
+        .End => q,
+        .Punctuation(c) => if (c == "]") { q } else { skipToBracket(ctx, q) },
+        _ => skipToBracket(ctx, q),
+    }
+}
+
+/// An open enum's first value must be zero, and the mapping leans on it: it is
+/// what an unset field decodes to.
+fn enumStartsAtZero<C: Alloc>(ctx: C, p: P, e: Enum): P {
+    match (e.values.first()) {
+        .None => {
+            err(
+                ctx,
+                p,
+                e.origin,
+                str.format(ctx, "`${e.name}` has no values"),
+                "an enum needs a zero value, which is what an unset field decodes to",
+            )
+        },
+        .Some(v) => {
+            if (v.number == 0) {
+                p
+            } else {
+                err(
+                    ctx,
+                    p,
+                    v.origin,
+                    str.format(ctx, "the first value of `${e.name}` is not zero"),
+                    str.format(
+                        ctx,
+                        "give `${v.name}` the number 0, or put a zero value first",
+                    ),
+                )
+            }
+        },
+    }
+}

@@ -135,6 +135,12 @@ pub const MODULES: &[StdModule] = &[
     // What a generator is: `main` names `Stdin` and `Stdout` and nothing else,
     // so a generator cannot read the clock or the filesystem.
     m("core/codegen", include_str!("sources/codegen.buri")),
+    // The `.proto` reader and the generator built on it. A schema becomes a
+    // module through the same protocol any generator speaks, which is the
+    // rule for every generator the toolchain ships: a user could have written
+    // this one.
+    m("std/codegen/proto/schema", include_str!("sources/codegen_proto_schema.buri")),
+    m("std/codegen/proto", include_str!("sources/codegen_proto.buri")),
     m("core/map", include_str!("sources/map.buri")),
     m("core/set", include_str!("sources/set.buri")),
     m("core/ordmap", include_str!("sources/ordmap.buri")),
@@ -235,9 +241,11 @@ pub const MODULES: &[StdModule] = &[
 /// `core/` is the deliberately small set of essentials; `ui/` is the reactive
 /// and styling vocabulary, which is a different kind of thing and a much
 /// larger surface, so it gets its own root rather than diluting what `core/`
-/// means (SPEC rule 35). Both are reserved: a repository path is always
-/// `//...`, so nothing here can collide with user code.
-pub const ROOTS: &[&str] = &["core/", "ui/"];
+/// means (SPEC rule 35). `std/` is the tools the toolchain ships as ordinary
+/// Buri programs — `std/codegen/proto` and the schema reader under it — which
+/// are neither essentials nor vocabulary. All three are reserved: a repository
+/// path is always `//...`, so nothing here can collide with user code.
+pub const ROOTS: &[&str] = &["core/", "ui/", "std/"];
 
 /// Whether a module path names the embedded standard library at all.
 ///
