@@ -1,0 +1,7 @@
+error: a struct-literal field ends with `,` [missing-separator]
+   --> main.buri:103:25
+    |
+103 |             generics: []
+    |                         ^
+    |
+    = fix: write `,` here

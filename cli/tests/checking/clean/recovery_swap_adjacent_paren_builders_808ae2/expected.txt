@@ -1,0 +1,9 @@
+error: expected an identifier, found `{` [unexpected-token]
+   --> main.buri:101:17
+    |
+101 |         .Fn(ast.{ FnDecl
+    |                 ^
+    |
+    = expected: an identifier
+    = actual: `{`
+    = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

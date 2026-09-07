@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:40:1
+   |
+40 | export fn item(kind: ast.ItemKind): ast.Item {
+   | ^^^^^^
+   |
+  --> main.buri:36:55
+   |
+36 | export fn tyOf(text: Str, args: [ast.Type]): ast.Type {
+   |                                                       ^ opened here
+   |
+   = fix: write `}` here

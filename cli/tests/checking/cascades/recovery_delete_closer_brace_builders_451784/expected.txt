@@ -1,0 +1,28 @@
+error: `LetDecl` is missing `value`, `exported` and `docs` [missing-field-value]
+  --> main.buri:88:14
+   |
+88 |         .Let(ast.LetDecl {
+   |              ^^^^^^^^^^^^^
+   |
+   = fix: give `value`, `exported` and `docs` a value — only an `Option` field may be left out — or start from an existing one with `LetDecl { ..base, field: value }`
+error: `ty` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:90:17
+   |
+90 |             ty: ty("Int",
+   |                 ^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:91:18
+   |
+91 |             value: value,
+   |                  ^
+   |
+  --> main.buri:90:19
+   |
+90 |             ty: ty("Int",
+   |                   ^ opened here
+   |
+   = fix: write `)` here

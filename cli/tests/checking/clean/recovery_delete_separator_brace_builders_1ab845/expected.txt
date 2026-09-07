@@ -1,0 +1,7 @@
+error: a struct-literal field ends with `,` [missing-separator]
+  --> main.buri:57:29
+   |
+57 |     ast.Pattern { kind: kind origin: ast.nowhere() }
+   |                             ^
+   |
+   = fix: write `,` here

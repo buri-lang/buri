@@ -1,0 +1,7 @@
+error: a struct-literal field ends with `,` [missing-separator]
+  --> main.buri:90:26
+   |
+90 |             ty: ty("Int")
+   |                          ^
+   |
+   = fix: write `,` here

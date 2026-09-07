@@ -1,0 +1,9 @@
+error: expected an identifier, found `,` [unexpected-token]
+  --> main.buri:62:22
+   |
+62 |     assert.eq(assert., err(codegen.run(ctx, silent)), "codegen: `inputs` is not a list");
+   |                      ^
+   |
+   = expected: an identifier
+   = actual: `,`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

@@ -1,0 +1,21 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:57:22
+   |
+57 |         Alloc: alloc(,
+   |                      ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:95:1
+   |
+95 | 
+   | ^
+   |
+  --> main.buri:54:49
+   |
+54 | test "an inputs that is not a list is an error" {
+   |                                                 ^ opened here
+   |
+   = fix: write `}` here

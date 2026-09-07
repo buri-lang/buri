@@ -277,6 +277,43 @@ const PACKAGES: &[Case] = &[
     // assertion is a line of captured output rather than a timing.
     included("tasks/scope.buri"),
     //
+    // `core/buri/ast` and `core/codegen` are ordinary Buri over lists, strings
+    // and tuples, with no host effect anywhere in them, so every assertion
+    // here is an answer rather than something a platform decides. All six are
+    // out anyway, and for a backend limit rather than a platform one: an
+    // `ast.Item` is 448 bytes and the stencil backend stages a `[T]` element
+    // in 320. Every one of these files holds a `[Item]`, because that is what
+    // a module is. They run on the reference backend, and they come back here
+    // when the frame grows.
+    excluded(
+        "buri_ast/anchors.buri",
+        "an `ast.Item` is 448 bytes and the stencil backend stages a `[T]` \
+             element in 320, so an array of declarations is past what a frame \
+             here can hold",
+    ),
+    excluded(
+        "buri_ast/expressions.buri",
+        "the same 448-byte element: an expression tree is arrays of nodes",
+    ),
+    excluded(
+        "buri_ast/items.buri",
+        "the same 448-byte element, one declaration form per case",
+    ),
+    excluded(
+        "buri_ast/module.buri",
+        "the same 448-byte element, over a whole printed module",
+    ),
+    excluded(
+        "generators/wire.buri",
+        "it prints a module, so it carries the 448-byte `ast.Item` too, and \
+             `core/json`'s unescaping reaches `num.U32.toChar`, which this \
+             backend does not compile yet",
+    ),
+    excluded(
+        "generators/failure.buri",
+        "the same two: a printed module's element width, and `toChar`",
+    ),
+    //
     // Five files, and between them they are `core/bits` entire,
     // `Checked`/`Wrapping`/`Saturating`/`Bounded` at every width including
     // 128, the bitwise and string codegen corpora, and `core/simd`.

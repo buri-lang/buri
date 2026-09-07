@@ -1,0 +1,30 @@
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:68:5
+   |
+68 |     ctx let = context {
+   |     ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:68:8
+   |
+68 |     ctx let = context {
+   |        ^
+   |
+   = fix: write `;` here
+error: expected a pattern, found `=` [unexpected-token]
+  --> main.buri:68:13
+   |
+68 |     ctx let = context {
+   |             ^
+   |
+   = expected: a pattern
+   = actual: `=`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:75:32
+   |
+75 |         assert.err(codegen.run(ctx, silent)),
+   |                                ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

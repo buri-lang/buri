@@ -435,7 +435,17 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // records: the new conformance files moved this row to 24.2% of a
         // grown population (409 of its cases), with no parser or checker code
         // in any of the merges. Twenty-five is that rate rounded up.
-        ("a syntax error stays a syntax error", "swap-adjacent") => 25,
+        // Re-read a fifth time when `core/buri/ast` and `core/codegen` landed,
+        // with `cli/tests/conformance/lib/buri_ast/` and `lib/generators/`
+        // beside them. The same reason and the same evidence as every re-read
+        // above: no parsing, semantics or middle-end file is in those commits
+        // at all, and the population grew by six files. They are dense in the
+        // shape this row measures — an AST node is nested struct literals
+        // inside array literals inside a call, so swapping two adjacent tokens
+        // inside one leaves a second reading the grammar accepts and the
+        // checker then has something to say about. 448 of 1773 is 25.3%, and
+        // twenty-six is that rounded up.
+        ("a syntax error stays a syntax error", "swap-adjacent") => 26,
 
         // Every row not named above, and every row of an invariant R2 owns.
         (_, _) => 0,
