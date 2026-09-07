@@ -159,6 +159,12 @@
 //! native `--release` build they run on carriers of their own, and under
 //! `buri run` they run one after another in the order they were spawned.
 //!
+//! One consequence of that last column: under `buri run` a spawned task that
+//! never ends starves the ones behind it, because they wait for a round that
+//! never finishes. Spawn a socket loop and a timer, and both run on JavaScript
+//! and under `--release`, while under `buri run` the timer never starts
+//! (`design/native/DECISIONS.md`).
+//!
 //! A task spawned **after** its scope's body has returned — which on a page is
 //! what a handler does — runs on the task that spawned it, because the scope's
 //! own drain has already ended. A page is the outer scope and it closes when

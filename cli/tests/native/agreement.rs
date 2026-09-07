@@ -3404,6 +3404,56 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **A timer is a task that sleeps**, and the sleep is a wait on every backend.
+///
+/// The row above proves the order; this one proves the waiting. `core/tasks`
+/// ships no `Timer` and no `setTimeout` — the whole claim is that
+/// `clock.sleepMillis` inside a spawned task is one — so a backend where the
+/// sleep answered without waiting would pass every ordering assertion in this
+/// file and still have no timers in it.
+///
+/// The clock is read on the calling task, before and after the scope, and what
+/// is printed is a comparison rather than a duration: a program that says
+/// `waited: true` says the same thing on a machine of any speed, and a sleep
+/// that did nothing prints `waited: false` on all of them. Fifty milliseconds
+/// three times over is the whole cost of the row.
+#[test]
+fn a_spawned_timer_waits_on_the_clock_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.scope timer",
+        r#"
+from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout, Tasks: host.tasks,
+  };
+  let started = time.now(ctx).0;
+  let _ = tasks.scope(ctx, fn(c, here) => {
+    let _ = tasks.spawn(c, here, fn(c2) => {
+      let _ = time.sleepMs(c2, 50);
+      let _ = io.println(c2, "the timer fired").ignore();
+      ()
+    });
+    ()
+  });
+  let waited = match (time.now(ctx).0 - started >= 50) {
+    true => "true",
+    false => "false",
+  };
+  let _ = io.println(ctx, "waited: ${waited}").ignore();
+  .Ok(())
+}
+"#,
+        "the timer fired\nwaited: true\n",
+    );
+}
+
 /// A task that aborts stops the program, with the same message and the same
 /// status on every backend — and with what was printed before it flushed.
 ///
