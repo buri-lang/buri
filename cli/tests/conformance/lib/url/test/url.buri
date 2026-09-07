@@ -442,18 +442,18 @@ test "encodePath escapes everything a component does except the slash" {
 
 test "a two-byte, a three-byte and a four-byte character, and back again" {
     // The first scalar of each UTF-8 length above one, and the last.
-    assert.eq(encodeOne("\u{80}"), "%C2%80");
-    assert.eq(encodeOne("\u{7FF}"), "%DF%BF");
-    assert.eq(encodeOne("\u{800}"), "%E0%A0%80");
-    assert.eq(encodeOne("\u{FFFF}"), "%EF%BF%BF");
-    assert.eq(encodeOne("\u{10000}"), "%F0%90%80%80");
-    assert.eq(encodeOne("\u{10FFFF}"), "%F4%8F%BF%BF");
-    assert.eq(assert.ok(decodeOne(encodeOne("\u{10FFFF}"))), "\u{10FFFF}");
-    assert.eq(assert.ok(decodeOne(encodeOne("\u{80}"))), "\u{80}");
+    assert.eq(encodeOne(""), "%C2%80");
+    assert.eq(encodeOne("߿"), "%DF%BF");
+    assert.eq(encodeOne("ࠀ"), "%E0%A0%80");
+    assert.eq(encodeOne("￿"), "%EF%BF%BF");
+    assert.eq(encodeOne("𐀀"), "%F0%90%80%80");
+    assert.eq(encodeOne("􏿿"), "%F4%8F%BF%BF");
+    assert.eq(assert.ok(decodeOne(encodeOne("􏿿"))), "􏿿");
+    assert.eq(assert.ok(decodeOne(encodeOne(""))), "");
 }
 
 test "a null byte survives both directions" {
-    assert.eq(encodeOne("\u{0}"), "%00");
+    assert.eq(encodeOne("\0"), "%00");
     assert.eq(assert.ok(decodeOne("%00")).len(), 1);
     assert.eq(assert.ok(decodeOne("a%00b")).len(), 3);
 }

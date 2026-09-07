@@ -435,8 +435,11 @@ test "a cookie a server sets is a cookie the reader reads back" {
     let field = reply.header("set-cookie").withDefault("");
     let sent = http
         .request(.Get, "http://x/")
-        .withHeader(ctx, "cookie", field.splitOnce(";").map(fn(two) => two.0)
-            .withDefault(field));
+        .withHeader(
+            ctx,
+            "cookie",
+            field.splitOnce(";").map(fn(two) => two.0).withDefault(field),
+        );
     assert.eq(http.cookies(ctx, sent), [("session", "abc")]);
 }
 
@@ -568,9 +571,10 @@ test "an extension the list knows, at both ends of the file name" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(http.contentTypeFor(path.of(ctx, "a.b.c/index.html")), .Some(
-        "text/html; charset=utf-8",
-    ));
+    assert.eq(
+        http.contentTypeFor(path.of(ctx, "a.b.c/index.html")),
+        .Some("text/html; charset=utf-8"),
+    );
     assert.eq(http.contentTypeFor(path.of(ctx, ".html")), Option.None);
     assert.eq(http.contentTypeFor(path.of(ctx, "index.")), Option.None);
 }

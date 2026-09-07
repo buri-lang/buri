@@ -15,7 +15,7 @@ from "core/testing/assert" import * as assert;
 // the byte — unreadable inline, and fine behind a name.
 
 /// U+007F DELETE, the last of the C0 controls.
-let DELETE: Char = '';
+let DELETE: Char = '\u{7f}';
 
 /// U+0080 PADDING CHARACTER, the first of the C1 ones.
 let PADDING: Char = '';
