@@ -17,7 +17,7 @@ from "core/alloc" import * as alloc;
 from "core/crypto" import * as crypto;
 from "core/effect" import {
     Alloc, Clock, Entropy, Env, Header, IoError, Net, NetError, Proc, Rand, Region,
-    Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks, WebSocketClient,
 };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
@@ -29,13 +29,15 @@ from "core/fs" import { FsRead, FsWrite };
 from "core/host/testing" import {
     alloc, appendFile, clock, entropy, env, fetch, fileExists, fs, makeDir, net, proc,
     rand, readBytes, readDir, readFile, readFileBytes, readLine, removeFile, renameFile,
-    sockets, stderr, stdin, stdout, syncFile, task, TaskCall, tasks, writeFile,
-    writeFileBytes,
+    sockets, stderr, stdin, stdout, syncFile, task, TaskCall, tasks, TestSockets,
+    websocketClient, writeFile, writeFileBytes,
 };
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/net/server" import { Message, Socket };
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
 from "core/path" import * as path;
 from "core/proc" import * as proc;
 from "core/random" import * as random;
@@ -2606,4 +2608,119 @@ test "a socket the room closed is one a later broadcast does not reach" {
     assert.eq(assert.ok(members.sendMessage(ctx, .Publish(.Text("room")))), 2);
     assert.eq(s.sent(), [(staying, Message.Text("room"))]);
     let _stopped = members.stop(ctx);
+}
+
+// --- websocketClient(), and a client with no server at all --------------------
+//
+// The other end of the same socket. `websocketClient(sockets, messages)` is a
+// client whose script is a list: it dials once, delivers those messages, and
+// closes normally. The socket it mints belongs to the `sockets()` double it was
+// handed, so what a program pushes back is recorded by that double — which puts
+// both halves of a socket program in one block, with no port, no server and no
+// network.
+
+/// A client that echoes every message back and says goodbye it cannot send.
+///
+/// Bounded by `WebSocketClient` for the dialling and `Sockets` for the pushing,
+/// which is `connect`'s own bound written at a call site.
+fn echoing<C: Sockets + WebSocketClient>(url: Str): Client<C, Int> {
+    Client {
+        url: url,
+        onOpen: fn(c, socket, _response) => {
+            let _sent = socket.send(c, .Text("hello"));
+            0
+        },
+        onMessage: fn(c, socket, seen, message) => {
+            let _echoed = socket.send(c, message);
+            seen + 1
+        },
+        onClose: fn(c, socket, _seen, _reason) => {
+            // The socket is already closed when this runs, so this push goes
+            // nowhere — and the log below is the evidence for it.
+            socket.send(c, .Text("goodbye"))
+        },
+    }
+}
+
+/// Every message pushed through a double, without the socket each went to.
+fn pushed(s: TestSockets): [Message] {
+    s.sent().map(alloc(), fn(one) => one.1)
+}
+
+test "a client runs its hooks over the script and answers how the socket ended" {
+    let s = sockets();
+    let ctx = context {
+        Sockets: s,
+        WebSocketClient: websocketClient(s, [.Text("one"), .Binary([1, 2]), .Text("two")]),
+    };
+    // The script running out is a close, and a close is an `.Ok`: a socket
+    // ending is the ordinary end of one rather than a failure.
+    assert.eq(websocket.connect(ctx, echoing("ws://example/socket")), .Ok(.Normal));
+    // `onOpen`'s greeting, then one echo per scripted message, and nothing at
+    // all from `onClose` — the socket had already gone by then.
+    assert.eq(pushed(s), [
+        Message.Text("hello"),
+        Message.Text("one"),
+        Message.Binary([1, 2]),
+        Message.Text("two"),
+    ]);
+}
+
+test "a URL this platform cannot dial never opens a socket" {
+    let s = sockets();
+    let ctx = context {
+        Sockets: s,
+        WebSocketClient: websocketClient(s, [.Text("never read")]),
+    };
+    // The signature failure, and the whole of what a client's `.Err` means: the
+    // socket was never opened, so no hook ran and nothing was pushed. A scheme
+    // this platform does not speak is `.Unsupported` — a fact about the
+    // platform rather than about the attempt.
+    let refused = assert.err(websocket.connect(ctx, echoing("http://example/socket")));
+    assert.eq(refused.cause, .Unsupported);
+    assert.eq(s.sent(), []);
+}
+
+test "a client that closes the socket stops reading the script" {
+    let s = sockets();
+    let ctx = context {
+        Sockets: s,
+        WebSocketClient: websocketClient(s, [.Text("one"), .Text("two"), .Text("three")]),
+    };
+    let hangingUp = Client {
+        url: "ws://example/socket",
+        onOpen: fn(_c, _socket, _response) => 0,
+        onMessage: fn(c, socket, seen, message) => {
+            let _echoed = socket.send(c, message);
+            let _closed = socket.close(c, .Normal);
+            seen + 1
+        },
+        onClose: fn(c, socket, _seen, _reason) => socket.send(c, .Text("goodbye")),
+    };
+    assert.eq(websocket.connect(ctx, hangingUp), .Ok(.Normal));
+    // One message reached the hook and then the socket was gone, so the other
+    // two scripted messages were never delivered and `onClose` pushed nothing.
+    assert.eq(pushed(s), [Message.Text("one")]);
+}
+
+test "the response that opened the socket reaches onOpen" {
+    let s = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: s,
+        WebSocketClient: websocketClient(s, []),
+    };
+    let reading = Client {
+        url: "wss://example/socket",
+        onOpen: fn(c, socket, response) => {
+            let _sent = socket.send(c, .Text(str.format(c, "status ${response.status}")));
+            response.headers.len()
+        },
+        onMessage: fn(_c, _socket, headers, _message) => headers,
+        onClose: fn(_c, _socket, _headers, _reason) => (),
+    };
+    // A handshake that finished answered `101`; anything else would have been an
+    // `.Err` and `onOpen` would never have run.
+    assert.eq(websocket.connect(ctx, reading), .Ok(.Normal));
+    assert.eq(pushed(s), [Message.Text("status 101")]);
 }

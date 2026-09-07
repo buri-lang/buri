@@ -62,7 +62,7 @@
 //! than keeping the caller's pointer, which is the same sentence as "a runtime
 //! function never stores a pointer it was passed".
 
-use crate::value::{list_of_bytes, list_of_strs, str_of, BuriList, BuriStr};
+use crate::value::{list_of_bytes, list_of_headers, list_of_strs, str_of, BuriList, BuriStr};
 use crate::BURI_OK;
 use std::sync::Mutex;
 
@@ -178,6 +178,28 @@ enum Slot {
     /// it points the other way: a view names its store, and a socket names the
     /// double that will record what is pushed on it.
     Socket { owner: i64, open: bool },
+    /// `core/host/testing`'s `TestWebSocketClient` — the `sockets()` double its
+    /// socket belongs to, the messages it will deliver, and how far through them
+    /// it has got.
+    ///
+    /// It mints no sockets of its own, which is why `owner` names somebody
+    /// else's double: a program's `socket.send` is recorded by *that* double's
+    /// `sent()` and its close shows up in that double's `isOpen`. Reading a
+    /// socket and writing on one are two authorities, and this is the two
+    /// doubles arranged the same way.
+    ///
+    /// `socket` is `None` until `connectSocket` mints one. `next` is the
+    /// position in `script`, and a `next` past its end is a socket that has
+    /// already been told it is closed.
+    Client { owner: i64, socket: Option<i64>, script: Vec<Scripted>, next: usize },
+}
+
+/// One message a `websocketClient` will deliver, in the flat shape
+/// [`SentLog`] uses and for the same reason.
+struct Scripted {
+    frame: i8,
+    text: String,
+    data: Vec<u8>,
 }
 
 /// One call to a `TestFs`, as `core/host/testing`'s `FsCall` records it: the
@@ -1875,6 +1897,278 @@ pub unsafe extern "C" fn buri_rt_host_testing_sockets_sent(handle: i64, out: *mu
         });
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
+}
+
+// -- `core/host/testing`'s `websocketClient()` -------------------------------
+//
+// A WebSocket client with a script instead of a network. `connectSocket` mints
+// a socket on the `sockets()` double it was handed and answers a `101`;
+// `connectReceive` takes the next message off the script, and answers a close
+// when the script runs out or when the program has closed the socket.
+//
+// **Nothing here waits.** There is no timer, no thread and no deadline: the
+// script is a list that is already in memory. That is the same promise
+// `sockets()` makes, and it is what makes a socket test as deterministic as a
+// filesystem one.
+
+/// `Frame::Closed`'s variant index, beside [`FRAME_TEXT`] and [`FRAME_BINARY`].
+const FRAME_CLOSED: i8 = 2;
+
+/// `ServeFailure::Closed`'s variant index, in `core/effect`'s declared order.
+const SERVE_CLOSED: i8 = 5;
+
+/// `ServeFailure::Unsupported`'s, which is what a URL this double cannot dial
+/// answers — the same cause a real client gives a scheme it cannot speak.
+const SERVE_UNSUPPORTED: i8 = 3;
+
+/// What a socket the script ran out on closes with: 1000, which
+/// `core/net/websocket` reads as `.Normal`.
+const CLOSED_NORMALLY: i64 = 1000;
+
+/// `Connected` — `{ socket: Int, status: Int, headers: [Header], body: [U8] }`.
+///
+/// Transcribed here rather than borrowed from `net.rs`, which is [`BuriSent`]'s
+/// arrangement: the shape gets a name a reader can check against the Buri
+/// declaration, in the file that writes it.
+#[repr(C)]
+struct BuriConnected {
+    socket: i64,
+    status: i64,
+    headers: BuriList,
+    body: BuriList,
+}
+
+/// `Received` — `{ frame: Frame, text: Str, data: [U8], code: Int }`.
+#[repr(C)]
+struct BuriReceived {
+    frame: i8,
+    text: BuriStr,
+    data: BuriList,
+    code: i64,
+}
+
+/// `ServeError` — `{ cause: ServeFailure, detail: Str }`.
+#[repr(C)]
+struct BuriServeError {
+    cause: i8,
+    detail: BuriStr,
+}
+
+/// `Message` — `enum { Text(Str), Binary([U8]) }`, which is how the script
+/// arrives.
+///
+/// VALUE-MODEL.md §6 lays an enum out as `tag ++ payload`, the payload area
+/// starting at the first offset with its own alignment. A `Str` is three words
+/// and eight-aligned, so the tag is one byte, the payload starts at 8, and the
+/// whole is 32 — `net.rs`'s `BuriServe` is the same shape for the same reason.
+#[repr(C)]
+struct BuriMessage {
+    tag: i8,
+    payload: BuriMessagePayload,
+}
+
+/// `Message`'s payload area: a `Str` or a `[U8]`.
+///
+/// `ManuallyDrop` is Rust's rule for a union field rather than a claim about
+/// ownership — nothing here owns anything, exactly as `[Header]` does not.
+#[repr(C)]
+union BuriMessagePayload {
+    text: std::mem::ManuallyDrop<BuriStr>,
+    data: std::mem::ManuallyDrop<BuriList>,
+}
+
+/// The `[Message]` script, read into the flat records this double keeps.
+///
+/// A tag no variant has is dropped rather than refused. It cannot arise from a
+/// program this toolchain built, and a double that aborted on it would be
+/// reporting a toolchain bug as a test failure.
+///
+/// # Safety
+/// `ptr` must address `len` live `Message` values.
+unsafe fn script_of(ptr: *const u8, len: u64) -> Vec<Scripted> {
+    let mut out = Vec::new();
+    if ptr.is_null() || len == 0 {
+        return out;
+    }
+    for index in 0..len as usize {
+        // SAFETY: the caller promises `len` live elements at `Message`'s own
+        // stride.
+        let element = unsafe { &*ptr.cast::<BuriMessage>().add(index) };
+        match element.tag {
+            // SAFETY: the tag says which arm of the union is live, and an
+            // element of a live list holds a live `Str` view.
+            0 => {
+                let text = unsafe { element.payload.text.as_str() }.into_owned();
+                out.push(Scripted { frame: FRAME_TEXT, text, data: Vec::new() });
+            }
+            // SAFETY: as above, for a `[U8]` whose stride is one.
+            1 => {
+                let list = unsafe { &element.payload.data };
+                let data = if list.ptr.is_null() || list.len == 0 {
+                    Vec::new()
+                } else {
+                    // SAFETY: the list is live and a `[U8]`'s payload is its
+                    // bytes.
+                    unsafe { std::slice::from_raw_parts(list.ptr, list.len as usize) }.to_vec()
+                };
+                out.push(Scripted { frame: FRAME_BINARY, text: String::new(), data });
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// `websocketClient(sockets, messages)` — a client that will deliver those
+/// messages on a socket of that double's.
+///
+/// # Safety
+/// The `[Message]` must be live; `out` writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_websocket_client(
+    sockets: i64,
+    ptr: *const u8,
+    len: u64,
+    out: *mut i64,
+) {
+    // SAFETY: forwarded.
+    let script = unsafe { script_of(ptr, len) };
+    let handle = install(Slot::Client { owner: sockets, socket: None, script, next: 0 });
+    // SAFETY: the caller promises a writable destination.
+    unsafe { out.write(handle) }
+}
+
+/// Whether a URL is one this double will pretend to dial.
+///
+/// The scheme and nothing else. A double that parsed a URL properly would be a
+/// second implementation of the thing under test, and what a test wants from
+/// here is the refusal path with no network — so `ws://` and `wss://` succeed
+/// and everything else is the `.Err` a real client answers for a scheme it
+/// cannot speak.
+fn dialable(url: &str) -> bool {
+    url.starts_with("ws://") || url.starts_with("wss://")
+}
+
+/// `TestWebSocketClient::connectSocket` — a socket of the `sockets()` double
+/// this client was built with, and a `101` with nothing in it.
+///
+/// # Safety
+/// The URL must be a live `Str` view; both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_socket(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriConnected,
+    err: *mut BuriServeError,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let url = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    if !dialable(&url) {
+        let detail = format!(
+            "this is not a WebSocket URL: `{url}` names neither `ws://` nor `wss://`"
+        );
+        // SAFETY: the caller promises a writable destination.
+        unsafe { err.write(BuriServeError { cause: SERVE_UNSUPPORTED, detail: str_of(&detail) }) };
+        return 0;
+    }
+    // Two locks and not one, because [`lock`] is not reentrant: the mint is a
+    // slot of the same table, so it happens outside the `with` that records it.
+    let owner = with(handle, -1, |slot| match slot {
+        Slot::Client { owner, .. } => *owner,
+        _ => -1,
+    });
+    let socket = buri_rt_host_testing_sockets_open(owner);
+    with(handle, (), |slot| {
+        if let Slot::Client { socket: held, .. } = slot {
+            *held = Some(socket);
+        }
+    });
+    let value = BuriConnected {
+        socket,
+        status: 101,
+        headers: list_of_headers(&[]),
+        body: list_of_bytes(&[]),
+    };
+    // SAFETY: the caller promises a writable destination.
+    unsafe { out.write(value) };
+    BURI_OK
+}
+
+/// `TestWebSocketClient::connectReceive` — the next scripted message, or the
+/// close that ends the script.
+///
+/// A socket this client did not mint is `.Err(.Closed)`, which is the same
+/// answer a spent one gives: "a handle that names no open socket is one that has
+/// already gone" is `effect Sockets`' sentence, and this is it from the reading
+/// side.
+///
+/// # Safety
+/// Both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_receive(
+    handle: i64,
+    socket: i64,
+    out: *mut BuriReceived,
+    err: *mut BuriServeError,
+) -> i32 {
+    let owner = with(handle, -1, |slot| match slot {
+        Slot::Client { owner, socket: held, .. } if *held == Some(socket) => *owner,
+        _ => -1,
+    });
+    // The socket has to be one this client minted *and* one the program has not
+    // closed. Read outside the `with` below, for the reentrancy reason above.
+    let open = owner >= 0 && writable(owner, socket);
+    let next = with(handle, None, |slot| match slot {
+        Slot::Client { script, next, .. } => {
+            if !open || *next >= script.len() {
+                None
+            } else {
+                let message = &script[*next];
+                *next += 1;
+                Some((message.frame, message.text.clone(), message.data.clone()))
+            }
+        }
+        _ => None,
+    });
+    let Some((frame, text, data)) = next else {
+        // The script has run out, or the program closed the socket. Either way
+        // this socket is finished: it is closed on the double that owns it, so
+        // a later send is dropped, and a second `connectReceive` is `.Err`.
+        if !open {
+            // SAFETY: the caller promises a writable destination.
+            unsafe {
+                err.write(BuriServeError {
+                    cause: SERVE_CLOSED,
+                    detail: str_of("this socket has already closed"),
+                })
+            };
+            return 0;
+        }
+        buri_rt_host_testing_test_sockets_socket_close(
+            owner,
+            socket,
+            CLOSED_NORMALLY,
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            0,
+        );
+        let value = BuriReceived {
+            frame: FRAME_CLOSED,
+            text: str_of(""),
+            data: list_of_bytes(&[]),
+            code: CLOSED_NORMALLY,
+        };
+        // SAFETY: the caller promises a writable destination.
+        unsafe { out.write(value) };
+        return BURI_OK;
+    };
+    let value =
+        BuriReceived { frame, text: str_of(&text), data: list_of_bytes(&data), code: 0 };
+    // SAFETY: the caller promises a writable destination.
+    unsafe { out.write(value) };
+    BURI_OK
 }
 
 // -- `core/host/testing`'s call log -----------------------------------------

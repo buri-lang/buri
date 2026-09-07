@@ -1362,6 +1362,12 @@ pub fn suspends(key: &str) -> bool {
         // enqueued rather than delivered, which is the whole of what
         // `socketSendText` promises.
         || key.starts_with("host.HostListen.")
+        // The client half of the same story, and both of its operations wait:
+        // `connectSocket` resolves a name, opens a connection and finishes a
+        // handshake, and `connectReceive` is where a client sits between
+        // messages — `listenReceive`'s wait from the other end. By prefix for
+        // `HostListen`'s reason.
+        || key.starts_with("host.HostWebSocketClient.")
         || matches!(
             key,
             "host.HostNet.fetch"
@@ -5488,6 +5494,8 @@ export fn main(): Result<(), Str> {
             "host.HostClock.sleepMillis",
             "host.HostStdin.readLine",
             "host.HostStdin.readBytes",
+            "host.HostWebSocketClient.connectSocket",
+            "host.HostWebSocketClient.connectReceive",
             // `core/actor`'s two, and they are the family's *only* two.
             "actor.mailboxPush",
             "actor.mailboxClose",
@@ -5500,6 +5508,10 @@ export fn main(): Result<(), Str> {
             "host.HostRand.nextInt",
             "host_testing.TestFs.readFile",
             "host_testing.TestClock.sleepMillis",
+            // The client double reaches no network, so neither of its two
+            // methods waits — `host_testing.TestFs` one line up, for its reason.
+            "host_testing.TestWebSocketClient.connectSocket",
+            "host_testing.TestWebSocketClient.connectReceive",
             "derivePrimHash",
             // The other seven `actor.*` keys. Listing them is the half a
             // prefix rule would have got wrong: `stateTake` answers `.None`
