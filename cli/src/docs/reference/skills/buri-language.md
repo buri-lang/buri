@@ -52,7 +52,7 @@ Hand-roll one and you get a wrong answer that compiles.
   on purpose with `.ignore()`, which `buri lint` reports as
   `discarded-result`. **A print returns one too.** A line the program does not
   care about reads `let _ = io.println(ctx, "hi").ignore();`.
-- **No relative imports.** A module path is `core/...`, `ui/...`, or
+- **No relative imports.** A module path is `core/...`, `ui/...`, `std/...`, or
   `//...` from the repository root, and means the same module everywhere.
 - **Methods live in an `impl` block in their type's own module.** You reach
   them through the receiver's type rather than through scope, so they need no
