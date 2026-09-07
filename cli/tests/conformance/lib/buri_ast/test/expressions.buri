@@ -419,3 +419,20 @@ test "an else that is an if is the chain, unwrapped" {
         "let X: Int = if (a) { 1 } else if (b) { 2 } else { 3 };\n",
     );
 }
+
+// --- a literal wider than the number that would hold one --------------------------
+
+test "a wide integer prints the digits it was given" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        ast.print(ctx, letOf(ex(.WideInt("18446744073709551615")))).text,
+        "let X: Int = 18446744073709551615;\n",
+    );
+    assert.eq(ast.print(ctx, letOf(ex(.WideInt("0xff")))).text, "let X: Int = 0xff;\n");
+    assert.eq(
+        ast.print(ctx, letOf(ex(.WideInt("1_000")))).text,
+        "let X: Int = 1_000;\n",
+    );
+}
