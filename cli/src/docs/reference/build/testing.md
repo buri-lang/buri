@@ -490,6 +490,10 @@ it a value the test writes:
 | `tasks().everyOrder()` | Every order: the whole `test` body runs once per completion order |
 | `tasks().faults([TaskFault])` | The tasks the plan names end the block, with the reason the test gave |
 
+The same builders decide the order `tasks.spawn`'s work runs in, because a
+scope runs a round of what was spawned through `Tasks.parallel`. So a test of
+background work names an order too, and waits on no real time.
+
 Nothing here is concurrent. A task runs to completion before the next one
 starts, and `calls()` reports them in the order they finished:
 
