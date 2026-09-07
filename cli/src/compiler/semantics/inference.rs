@@ -146,7 +146,13 @@ fn check_fn(c: &mut Checker, fid: FnId) {
     let mut inf = Infer::new(c, info.module, info.generics.clone(), info.ret.clone());
     inf.self_con = info.self_ty;
     inf.in_effect_impl = in_effect_impl;
-    inf.in_main = info.name == "main" && info.exported && inf.role == Role::Entry;
+    // An entry builds its own context, and there may be several: a page's
+    // `main` and a worker's `fetch` out of one `main.buri`. The table the
+    // resolver filled says which exported functions those are.
+    inf.in_main = inf.role == Role::Entry
+        && info.exported
+        && inf.c.entry_points.contains(&info.name)
+        && inf.c.entries.get(&info.name) == Some(&fid);
     inf.push_scope();
     for p in &info.params {
         let local = inf.new_local(&p.name, p.ty.clone(), p.span);
@@ -165,11 +171,18 @@ fn check_fn(c: &mut Checker, fid: FnId) {
             inf.note_capture_risk(local, &ty);
         }
     }
+    // What the platform check is asked on behalf of. Set for the whole of this
+    // body and cleared after it, so a helper checked next is checked against
+    // every output again.
+    if inf.in_main {
+        inf.c.entry_being_checked = Some(info.name.clone());
+    }
     let expected = info.ret.clone();
     let body_span = inf.t.block_span(body);
     let expr = inf.check_block(body, Some(&expected));
     inf.unify_at(body_span, &expr.ty.clone(), &expected, "the declared return type");
     let hir_body = inf.finish(expr);
+    c.entry_being_checked = None;
     c.bodies.insert(fid, hir_body);
 }
 
@@ -377,8 +390,11 @@ pub struct Infer<'a, 'b> {
     /// `core/fs`'s wrapper, which is bounded `Alloc + Fs` where the `impl`
     /// carries only `C: Fs`. See `expressions.rs`'s `report_effect_method`.
     pub(crate) in_effect_impl: bool,
-    /// Whether the body being checked is `main`'s. A context may be built in
-    /// `main`'s body, not merely anywhere in the module that exports it.
+    /// Whether the body being checked is an entry's. A context may be built in
+    /// an entry's body, not merely anywhere in the module that exports it.
+    ///
+    /// There may be more than one entry: a binary declaring a page and a worker
+    /// enters through `main` and through `fetch`, and both build their own.
     pub(crate) in_main: bool,
     /// The or-pattern being checked, if any.
     pub(crate) or_scope: Option<OrScope>,

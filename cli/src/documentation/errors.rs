@@ -122,6 +122,8 @@ pub const ERRORS: &[ErrorDoc] = &[
     ),
     e!("effect-outside-platform", "Only a platform module declares an effect"),
     e!("effect-param-not-ctx", "An effect-carrying parameter is `self` or `ctx`"),
+    e!("entry-not-a-name", "An output's `entry` names a function", &["build/build-files"]),
+    e!("entry-not-found", "An output enters through a function its binary exports", &["build/build-files"]),
     e!("entry-point-listed", "An entry point is named by its rule, never listed", &["build/build-files"]),
     e!("enum-without-a-variant", "An enum is named through one of its variants"),
     e!("error-type-mismatch", "`?` does not convert the error type"),

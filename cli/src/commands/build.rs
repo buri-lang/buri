@@ -89,6 +89,7 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                     // A library is checked, not built for an output, and it
                     // cannot import `core/host` at all. See `Unit::platform`.
                     platform: None,
+                    entry: None,
                     with_tests: false,
                 };
                 let analysis = crate::compiler::driver::analyze(
@@ -226,7 +227,7 @@ fn check_reproducible(args: &arguments::Args) -> i32 {
             let compiled = match actions::compile_artifact(
                 &mut session,
                 target,
-                platform,
+                &output,
                 &flags,
                 &mut diagnostics,
             ) {

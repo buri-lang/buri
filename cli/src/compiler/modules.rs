@@ -92,6 +92,13 @@ pub struct Unit {
     /// that is not building. **The check belongs to the build, per output**,
     /// which is where `design/ui-reactivity.md` §Targets puts it.
     pub platform: Option<Platform>,
+    /// The exported function the output being built enters through.
+    ///
+    /// `Some("fetch")` says that this artifact starts at `fetch` and holds only
+    /// what `fetch` reaches, so `main`'s own `core/host` bindings are none of
+    /// this build's business. `None` is every analysis that is not building one
+    /// artifact, and every build of the default entry.
+    pub entry: Option<String>,
     /// Compile the target's `test.sources` too, and run them.
     pub with_tests: bool,
 }
@@ -105,6 +112,9 @@ pub struct Loaded {
     /// so that the checker can subset `core/host` to what that platform
     /// grants. `None` for every analysis that is not building one.
     pub platform: Option<Platform>,
+    /// The entry the output being built enters through, carried over from
+    /// [`Unit::entry`]. See it for what it decides.
+    pub entry: Option<String>,
     /// The platforms the suites in this compilation declared, by package.
     ///
     /// A suite's `test.platforms` is not one of its binary's `outputs`, and it
@@ -140,6 +150,8 @@ pub struct Loader<'a> {
     stack: Vec<String>,
     /// See [`Loaded::platform`].
     platform: Option<Platform>,
+    /// See [`Loaded::entry`].
+    entry: Option<String>,
     /// See [`Loaded::test_platforms`].
     test_platforms: HashMap<crate::build::workspace::PackageId, Vec<Platform>>,
     test_sources: Vec<ModuleId>,
@@ -167,6 +179,7 @@ impl<'a> Loader<'a> {
             test_sources: Vec::new(),
             schemas: HashMap::default(),
             platform: None,
+            entry: None,
             test_platforms: HashMap::default(),
         }
     }
@@ -177,6 +190,7 @@ impl<'a> Loader<'a> {
             by_path: self.by_path,
             test_sources: self.test_sources,
             platform: self.platform,
+            entry: self.entry,
             test_platforms: self.test_platforms,
         }
     }
@@ -189,6 +203,7 @@ impl<'a> Loader<'a> {
         // carry `None` for exactly that reason.
         if self.platform.is_none() {
             self.platform = unit.platform;
+            self.entry = unit.entry.clone();
         }
         // The modules that define the built-in types, and no others. A method
         // needs no import (SPEC 6.7.3), so `[T]`'s and `Str`'s defining modules

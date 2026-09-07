@@ -112,7 +112,7 @@ pub fn build_target(
     }
     explain_link(crate::build::cache::Status::Run);
 
-    let compiled = compile_artifact(session, target, platform, flags, &mut diagnostics)?;
+    let compiled = compile_artifact(session, target, output, flags, &mut diagnostics)?;
     cache.put(&key, compiled.module.as_bytes());
     if platform == Platform::Web {
         cache.put(&sheet_key, compiled.stylesheet.as_bytes());
@@ -158,20 +158,33 @@ pub struct Compiled {
 /// and without an output directory, which is what `--check-reproducible` needs
 /// and what makes "two builds of the same commit produce identical bytes"
 /// something the toolchain can be asked rather than something a comment claims.
-/// Analyse, insist on a `main`, and monomorphize from it.
+/// Analyse, find the entry this output names, and monomorphize from it.
 ///
 /// The front end `compile_artifact` and `compile_objects` both run before they
 /// part company over a backend. Two copies is two places for "a program is its
-/// `main`" to be spelled, and they had already drifted over how the missing-
-/// `main` diagnostic was laid out.
-fn monomorphized_main(
+/// entry" to be spelled, and they had already drifted over how the missing-
+/// entry diagnostic was laid out.
+///
+/// **Monomorphizing from the named entry is the whole of per-entry dead-code
+/// elimination.** `Roots::Main` roots the program at one function, and
+/// `middle::dce` walks from the root; so a binary whose page enters at `main`
+/// and whose worker enters at `fetch` produces two artifacts, and neither holds
+/// what only the other reaches.
+fn monomorphized_entry(
     session: &mut Session,
     target: TargetId,
-    platform: Platform,
+    output: &Output,
     diagnostics: &mut Diagnostics,
 ) -> Result<(crate::compiler::driver::Analysis, monomorphize::Program), Diagnostics> {
+    let platform = output.platform();
+    let name = output.entry_name().to_string();
     // `Some`: a build is the per-output check. See `Unit::platform`.
-    let unit = Unit { target: Some(target), platform: Some(platform), with_tests: false };
+    let unit = Unit {
+        target: Some(target),
+        platform: Some(platform),
+        entry: Some(name.clone()),
+        with_tests: false,
+    };
     let mut analysis = crate::compiler::driver::analyze(
         Some(&session.workspace),
         &mut session.map,
@@ -183,11 +196,8 @@ fn monomorphized_main(
     }
     diagnostics.extend(std::mem::take(&mut analysis.diagnostics.items));
 
-    let Some(entry) = analysis.checked.entry else {
-        diagnostics.push(
-            Diagnostic::templated("no-main", Span::NONE)
-                .with_bind("package", session.workspace.package(target.package).label()),
-        );
+    let Some(entry) = analysis.checked.entries.get(&name).copied() else {
+        diagnostics.push(missing_entry(session, target, output, &analysis.checked));
         return Err(std::mem::take(diagnostics));
     };
 
@@ -205,14 +215,48 @@ fn monomorphized_main(
     Ok((analysis, program))
 }
 
+/// "This output enters through a function that is not there."
+///
+/// Two diagnostics rather than one, because they are two mistakes. A binary
+/// with no `main` has not written its entry point yet; an output naming an
+/// `entry` that `main.buri` does not export has written the name twice and
+/// spelled it differently once, so its page offers what the module does export.
+fn missing_entry(
+    session: &Session,
+    target: TargetId,
+    output: &Output,
+    checked: &crate::compiler::semantics::resolve::Checked,
+) -> Diagnostic {
+    let package = session.workspace.package(target.package).label();
+    let name = output.entry_name();
+    if output.entry.is_none() {
+        return Diagnostic::templated("no-main", Span::NONE).with_bind("package", package);
+    }
+    let mut exported: Vec<&str> = checked.entries.keys().map(String::as_str).collect();
+    exported.sort_unstable();
+    let mut d = Diagnostic::templated("entry-not-found", output.span)
+        .with_bind("entry", name)
+        .with_bind("package", package);
+    if let Some(near) = crate::build::buildfile::nearest(name, &exported) {
+        d = d.with_note(format!("did you mean `{near}`?"));
+    }
+    if exported.is_empty() {
+        d = d.with_note("`main.buri` exports no function at all");
+    } else {
+        d = d.with_note(format!("`main.buri` exports: {}", exported.join(", ")));
+    }
+    d
+}
+
 pub fn compile_artifact(
     session: &mut Session,
     target: TargetId,
-    platform: Platform,
+    output: &Output,
     flags: &Flags,
     diagnostics: &mut Diagnostics,
 ) -> Result<Compiled, Diagnostics> {
-    let (analysis, mut program) = monomorphized_main(session, target, platform, diagnostics)?;
+    let platform = output.platform();
+    let (analysis, mut program) = monomorphized_entry(session, target, output, diagnostics)?;
     // The arch is `None` until a native backend has one to vary on: every
     // `Output` carries it and it is already in every key, but nothing below
     // here reads it while the only backend is JavaScript.
@@ -1116,8 +1160,7 @@ pub fn compile_objects(
     flags: &Flags,
     diagnostics: &mut Diagnostics,
 ) -> Result<Objects, Diagnostics> {
-    let platform = output.platform();
-    let (analysis, mut program) = monomorphized_main(session, target, platform, diagnostics)?;
+    let (analysis, mut program) = monomorphized_entry(session, target, output, diagnostics)?;
     objects_of(session, target, output, flags, &mut program, &analysis.checked.tables, diagnostics)
 }
 
@@ -1655,7 +1698,15 @@ pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> Pa
         // is the empty one.
         package.path.rsplit('/').next().unwrap_or(&package.path).to_string()
     };
-    let base = output.artifact_name.clone().unwrap_or(dir_name);
+    // An output that enters somewhere other than `main` is named after its
+    // entry, because two outputs of one binary otherwise write one path. A
+    // page's `main` keeps the directory's name, which is what every binary
+    // written before entries were nameable is called.
+    let default = match output.entry {
+        None => dir_name,
+        Some(_) => output.entry_name().to_string(),
+    };
+    let base = output.artifact_name.clone().unwrap_or(default);
     // The catch-all this used to end in would have given a WEB artifact no
     // extension at all. Every JavaScript platform writes an `.mjs`, and a
     // native one writes the bare name, so the match is over the two answers

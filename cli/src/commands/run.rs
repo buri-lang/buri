@@ -11,6 +11,7 @@
 )]
 
 use crate::build::actions;
+use crate::build::buildfile::Platform;
 use crate::build::session;
 use crate::build::workspace::RuleKind;
 use crate::commands::arguments;
@@ -123,7 +124,16 @@ fn choose(
         // Any JavaScript output is runnable here, `WEB` included: the runtime
         // supplies a document where there is none, so a page runs to its first
         // paint and prints whatever `main` printed.
-        .or_else(|| outputs.iter().find(|o| o.platform().is_javascript()))
+        //
+        // A worker is the exception, and it is not about JavaScript. `run`
+        // starts a program; a worker is *called* by its platform, once per
+        // request, so there is nothing for this command to start. A binary
+        // that declares a page and a worker runs the page.
+        .or_else(|| {
+            outputs.iter().find(|o| {
+                o.platform().is_javascript() && o.platform() != Platform::CloudflareWorker
+            })
+        })
         // A target that declares only an output this toolchain cannot produce
         // is built anyway, so that the refusal is the build's — which names the
         // platform, the backend and the feature — rather than a sentence this
