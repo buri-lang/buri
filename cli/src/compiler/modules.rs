@@ -538,6 +538,14 @@ impl<'a> Loader<'a> {
                 .with_bind("source", d.message.clone())
                 .with_bind("field", "generators");
         }
+        if d.code == "generator-module-taken" {
+            let mut reported = Diagnostic::templated("generator-module-taken", span)
+                .with_bind("module", d.message.clone());
+            if let Some(note) = &d.note {
+                reported = reported.with_note(note.clone());
+            }
+            return reported;
+        }
         let known = crate::documentation::page_of_code(&d.code).is_some();
         let mut reported = match known {
             true => Diagnostic::error(span, d.message.clone()).with_code(d.code.clone()),

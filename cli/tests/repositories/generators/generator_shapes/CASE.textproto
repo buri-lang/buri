@@ -1,0 +1,113 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "what a generator may hand back and what it may not: no modules, two of them with one importing the other, an entry with no inputs at all, noise on either stream — and the three names a generated module is not allowed to take"
+
+# Two modules from one entry, `right` importing `left`; a second entry with no
+# inputs at all, whose module is `nothing`; and a hand-written source beside
+# them. One program reads all four.
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "two.txt"
+}
+
+# A tool that writes to standard error and answers anyway. Standard error is
+# where a tool talks to a person, and the build reads it only when the tool
+# failed.
+edit {
+  file: "lib/wire/mode.txt"
+  replace: "two"
+  with: "noisy"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "noisy.txt"
+}
+
+# The response is the *last* non-empty line of standard output, so a println of
+# the tool's own above it costs nothing — including an empty one.
+edit {
+  file: "lib/wire/mode.txt"
+  replace: "noisy"
+  with: "chatty"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "chatty.txt"
+}
+
+# The signature failure of the exit status: a whole, valid response, and then a
+# non-zero exit. The answer is not taken — a tool that failed after writing has
+# no way to say the writing was finished.
+edit {
+  file: "lib/wire/mode.txt"
+  replace: "chatty"
+  with: "late"
+}
+
+run {
+  args: ["build", "//lib/wire"]
+  exit: 1
+  golden: "late.txt"
+}
+
+# A generator that produced no modules leaves nothing to import, and the import
+# says so where it is written — never an empty module that resolves to nothing.
+edit {
+  file: "lib/wire/mode.txt"
+  replace: "late"
+  with: "zero"
+}
+
+run {
+  args: ["build", "//lib/wire"]
+  exit: 1
+  golden: "zero.txt"
+}
+
+# A generated module may not take a source file's name. The file wins, so
+# `spare` still means what `spare.buri` says.
+edit {
+  file: "lib/wire/mode.txt"
+  replace: "zero"
+  with: "shadow"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 1
+  golden: "shadow.txt"
+}
+
+# `lib.buri` above all: a library's whole public surface, which a generator that
+# took it over would decide.
+edit {
+  file: "lib/wire/mode.txt"
+  replace: "shadow"
+  with: "surface"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 1
+  golden: "surface.txt"
+}
+
+# And the same rule between two entries of one rule: the first to name it keeps
+# it, and the second is reported where it is written.
+edit {
+  file: "lib/wire/mode.txt"
+  replace: "surface"
+  with: "taken"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 1
+  golden: "taken.txt"
+}

@@ -79,7 +79,7 @@ fn proto_schemas() {
 /// input, and one for a tool built from the target that runs it.
 #[test]
 fn generators() {
-    run_corpus(&tests_dir().join("repositories/generators"), "generators", 3);
+    run_corpus(&tests_dir().join("repositories/generators"), "generators", 4);
 }
 
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own

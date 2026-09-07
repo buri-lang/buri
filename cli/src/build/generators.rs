@@ -1189,11 +1189,12 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
     }
 
     let mut outcome = Outcome { diagnostics: missing, ..Outcome::default() };
+    let mut produced: Vec<(GeneratedModule, Span)> = Vec::new();
     for entry in entries {
         match answer(session, &workspace, target, &entry, flags) {
             Ok(response) => {
                 for module in response.modules {
-                    outcome.modules.push(Arc::new(module));
+                    produced.push((module, entry.generator.span));
                 }
                 for d in response.diagnostics {
                     outcome.diagnostics.push((d, entry.generator.span));
@@ -1211,7 +1212,73 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
             )),
         }
     }
+    keep_the_names_that_are_free(&workspace, target, produced, &mut outcome);
     workspace.generated.record(&workspace, target, fingerprint, outcome);
+}
+
+/// Moves the modules whose names are the generator's own into the outcome, and
+/// reports the ones that are not.
+///
+/// **A name is either a generator's or a person's, never both.** Two entries
+/// naming one module used to be one of them silently replacing the other, and a
+/// generated `lib.buri` used to replace a library's whole public surface: the
+/// program ran, printed the generator's answer, and `lint` had nothing to say
+/// about the file nobody was compiling any more.
+///
+/// The one that is already there wins, so the file on disk keeps meaning what
+/// it says while the build reports the collision.
+fn keep_the_names_that_are_free(
+    workspace: &Workspace,
+    target: TargetId,
+    produced: Vec<(GeneratedModule, Span)>,
+    outcome: &mut Outcome,
+) {
+    let package = workspace.package(target.package);
+    let mut taken: BTreeSet<String> = BTreeSet::new();
+    for (module, span) in produced {
+        let clash = if taken.contains(&module.name) {
+            Some("a generator on this rule has already named it".to_string())
+        } else {
+            shadowed_source(&package.dir, &module.name)
+                .map(|file| format!("`{}` is a source of this package", file))
+        };
+        match clash {
+            None => {
+                taken.insert(module.name.clone());
+                outcome.modules.push(Arc::new(module));
+            }
+            Some(note) => outcome.diagnostics.push((
+                Diagnostic {
+                    code: "generator-module-taken".to_string(),
+                    // The path a person would write, which is what the page
+                    // asks for and what an import would have named.
+                    message: package.module_path(&module.name),
+                    note: Some(note),
+                    fix: None,
+                    origin: None,
+                },
+                span,
+            )),
+        }
+    }
+}
+
+/// The source file a generated module's name would take over, if it takes one.
+///
+/// Only the names that resolve to a *module* of the package count, which is why
+/// this is a short list rather than "a file with this name exists":
+/// `std/codegen/proto` names its module `point.proto` and `lib/wire/point.proto`
+/// is a file on disk, and those two are not a collision — a schema is the
+/// generator's input, not a module anybody imports.
+fn shadowed_source(dir: &std::path::Path, name: &str) -> Option<String> {
+    let file = match name {
+        "" | "lib.buri" => "lib.buri",
+        "main" | "main.buri" => "main.buri",
+        "testing" | "testing/lib.buri" => "testing/lib.buri",
+        other if other.ends_with(".buri") => other,
+        _other => return None,
+    };
+    dir.join(file).is_file().then(|| file.to_string())
 }
 
 /// One entry's answer: the cache's, or the tool's.

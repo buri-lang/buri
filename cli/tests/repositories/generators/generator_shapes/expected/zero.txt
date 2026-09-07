@@ -1,0 +1,32 @@
+error: "//lib/wire/left" names no file (lib/wire/left.buri) [module-not-found]
+ --> lib/wire/lib.buri:1:6
+  |
+1 | from "//lib/wire/left" export { leftValue };
+  |      ^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+
+error: "//lib/wire/right" names no file (lib/wire/right.buri) [module-not-found]
+ --> lib/wire/lib.buri:3:6
+  |
+3 | from "//lib/wire/right" export { rightValue };
+  |      ^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
