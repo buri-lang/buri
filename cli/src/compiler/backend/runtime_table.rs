@@ -446,8 +446,8 @@ pub const ENTRIES: &[Entry] = &[
     e("bytes.f32FromBytes", "buri_rt_bytes_f32_from_bytes", Ret::Opt),
     // -- core/character -----------------------------------------------------
     //
-    // Eight of `character.buri`'s nine. `toU32` is the ninth and is not here: a
-    // `Char` **is** a `U32`, so it is a representation change the backend
+    // Eight of `character.buri`'s nine. `toU32` is the ninth and is not here:
+    // a `Char` **is** a `U32`, so it is a representation change the backend
     // open-codes, and `isAlphanumeric` is written in Buri over two of these.
     //
     // Every one of them is one comparison or one table lookup, and a call is
@@ -456,8 +456,8 @@ pub const ENTRIES: &[Entry] = &[
     // six hundred ranges of Unicode data, `isUpper` is two full case mappings,
     // and open-coding *those* in two backends is two places for the data to
     // drift. So all eight go through the archive together rather than four of
-    // them here and four there, and `cli/runtime/character.rs` is the one place the
-    // answers live.
+    // them here and four there, and `cli/runtime/character.rs` is the one
+    // place the answers live.
     e("character.isDigit", "buri_rt_character_is_digit", Ret::Scalar),
     e("character.isAlpha", "buri_rt_character_is_alpha", Ret::Scalar),
     e("character.isSpace", "buri_rt_character_is_space", Ret::Scalar),

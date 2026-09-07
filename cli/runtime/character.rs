@@ -1,8 +1,9 @@
 //! `core/character` — the eight entries a `Char` cannot answer for itself.
 //!
-//! `character.buri` declares nine methods and this file is eight of them; `toU32` is
-//! the ninth and is a representation change the backend open-codes, because a
-//! `Char` **is** a `U32` (`character.buri`: "Exact: every `Char` is a `U32`").
+//! `character.buri` declares nine methods and this file is eight of them;
+//! `toU32` is the ninth and is a representation change the backend open-codes,
+//! because a `Char` **is** a `U32` (`character.buri`: "Exact: every `Char` is
+//! a `U32`").
 //!
 //! `lib.rs` §0 divided the intrinsic surface into what a generated program
 //! cannot do for itself and what has no single right answer, and put
