@@ -7933,12 +7933,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `Checked` and `Saturating`, which are integer traits: exact
             // arithmetic in 128 bits, then a range test or a clamp.
             (
-                "checkedAdd" | "checkedSub" | "checkedMul" | "checkedDiv",
+                "checkedAdd" | "checkedSub" | "checkedMul" | "checkedDiv"
+                | "checkedRemainder",
                 Some(BasicValueEnum::IntValue(x)),
                 Some(BasicValueEnum::IntValue(y)),
             ) => {
                 let task = Wide { op, prim: from, x, y };
                 return self.checked(state, code, dest, &task, span);
+            }
+            // `0 - x`, tested against the type's range: the minimum of a signed
+            // type has no negative, and neither has any non-zero value of an
+            // unsigned one.
+            ("checkedNegate", Some(BasicValueEnum::IntValue(x)), _) => {
+                let zero = x.get_type().const_zero();
+                let task = Wide { op, prim: from, x: zero, y: x };
+                return self.checked(state, code, dest, &task, span);
+            }
+            ("checkedPower", Some(BasicValueEnum::IntValue(x)), Some(BasicValueEnum::IntValue(e))) => {
+                return self.checked_power(state, code, dest, from, x, e, span);
             }
             (
                 "saturatingAdd" | "saturatingSub" | "saturatingMul",
@@ -8007,8 +8019,50 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let mut ok = bool_ty.const_int(1, false);
         let value = match op {
             "checkedAdd" => self.builder.build_int_add(a, b, "ck.add").unwrap_or(a),
-            "checkedSub" => self.builder.build_int_sub(a, b, "ck.sub").unwrap_or(a),
+            // `checkedNegate` arrives here as `0 - x`, which is the whole of it:
+            // the range test below is what rejects a signed minimum and every
+            // non-zero unsigned value.
+            "checkedSub" | "checkedNegate" => {
+                self.builder.build_int_sub(a, b, "ck.sub").unwrap_or(a)
+            }
             "checkedMul" => self.builder.build_int_mul(a, b, "ck.mul").unwrap_or(a),
+            // A remainder cannot leave the type's range, so a zero divisor is
+            // all there is to guard — and `MIN % -1` is `0`, which `1` in place
+            // of `-1` also answers, so the instruction never sees either.
+            "checkedRemainder" => {
+                let bool_ty = self.ctx.bool_type();
+                let nonzero = self
+                    .builder
+                    .build_int_compare(IntPredicate::NE, b, wide.const_zero(), "ck.nz")
+                    .unwrap_or_else(|_| bool_ty.const_zero());
+                let all_ones = wide.const_all_ones();
+                let is_minus_one = self
+                    .builder
+                    .build_int_compare(IntPredicate::EQ, b, all_ones, "ck.m1")
+                    .unwrap_or_else(|_| bool_ty.const_zero());
+                let unsafe_divisor = self
+                    .builder
+                    .build_or(
+                        is_minus_one,
+                        self.builder
+                            .build_not(nonzero, "ck.zero")
+                            .unwrap_or_else(|_| bool_ty.const_zero()),
+                        "ck.sub1",
+                    )
+                    .unwrap_or(is_minus_one);
+                ok = nonzero;
+                let safe: IntValue<'ctx> = self
+                    .builder
+                    .build_select(unsafe_divisor, wide.const_int(1, false), b, "ck.safe")
+                    .ok()
+                    .and_then(|v| v.try_into().ok())
+                    .unwrap_or(b);
+                if signed {
+                    self.builder.build_int_signed_rem(a, safe, "ck.rem").unwrap_or(a)
+                } else {
+                    self.builder.build_int_unsigned_rem(a, safe, "ck.rem").unwrap_or(a)
+                }
+            }
             _ => {
                 // A checked division by zero is `.None`, not SPEC 6.2's abort.
                 // The divisor is *replaced* by one where it is zero rather than
@@ -8055,6 +8109,192 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             self.set(state, dest, v);
             true
         })
+    }
+
+    /// `checkedPower` — the one member of `Checked` that is a loop.
+    ///
+    /// Exponentiation by squaring in 128 bits, with the type's own range tested
+    /// after every multiplication. Two operands under 2^63 multiply to under
+    /// 2^126, so the wide arithmetic is exact and the test over it is the same
+    /// one [`Unit::checked`] makes.
+    ///
+    /// The squaring is skipped on the last round, so `x.checkedPower(1)` never
+    /// asks whether `x * x` fits. Where a squaring *does* leave the range so has
+    /// the answer: the exponent still has a bit above the one just folded in,
+    /// and a base of `0`, `1` or `-1` never grows.
+    ///
+    /// At 128 bits there is no wider type to compute in, so the loop is
+    /// `cli/runtime/lib.rs`'s — the same split [`Unit::checked`] makes.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the destination and its code locate the `Option`'s layout, \
+                  the primitive is the range, and the base and the exponent are \
+                  two values of different widths; none is derivable from another"
+    )]
+    fn checked_power(
+        &mut self,
+        state: &mut Function<'ctx>,
+        code: &ir::Code,
+        dest: ir::ValueId,
+        prim: Prim,
+        x: IntValue<'ctx>,
+        e: IntValue<'ctx>,
+        span: Span,
+    ) -> bool {
+        let wide = self.ctx.i128_type();
+        if prim.bits() == 128 {
+            let exponent = self.widen(e, wide, true);
+            let task = Wide { op: "checkedPower", prim, x, y: exponent };
+            return self.checked_128(state, code, dest, &task, span);
+        }
+        let Some((lo, hi)) = prim.int_range() else { return false };
+        let ty = wide.as_basic_type_enum();
+        let (
+            BasicValueEnum::IntValue(low),
+            BasicValueEnum::IntValue(high),
+        ) = (
+            self.int_constant(ty, lo.unsigned_abs(), lo < 0),
+            self.int_constant(ty, hi, false),
+        ) else {
+            return false;
+        };
+        let bool_ty = self.ctx.bool_type();
+        let count_ty = e.get_type();
+        let Some(entry) = self.builder.get_insert_block() else { return false };
+        let head = self.ctx.append_basic_block(state.value, "pw.head");
+        let body = self.ctx.append_basic_block(state.value, "pw.body");
+        let step = self.ctx.append_basic_block(state.value, "pw.step");
+        let square = self.ctx.append_basic_block(state.value, "pw.sq");
+        let done = self.ctx.append_basic_block(state.value, "pw.done");
+
+        // A negative exponent is a fraction, which no integer type holds.
+        let negative = self
+            .builder
+            .build_int_compare(IntPredicate::SLT, e, count_ty.const_zero(), "pw.neg")
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        let base0 = self.widen(x, wide, prim.is_signed());
+        let _ = self.builder.build_conditional_branch(negative, done, head);
+
+        self.builder.position_at_end(head);
+        let (Ok(acc_phi), Ok(base_phi), Ok(n_phi)) = (
+            self.builder.build_phi(wide, "pw.acc"),
+            self.builder.build_phi(wide, "pw.base"),
+            self.builder.build_phi(count_ty, "pw.n"),
+        ) else {
+            return false;
+        };
+        let (Ok(acc), Ok(base), Ok(n)): (
+            Result<IntValue<'ctx>, _>,
+            Result<IntValue<'ctx>, _>,
+            Result<IntValue<'ctx>, _>,
+        ) = (
+            acc_phi.as_basic_value().try_into(),
+            base_phi.as_basic_value().try_into(),
+            n_phi.as_basic_value().try_into(),
+        ) else {
+            return false;
+        };
+        let more = self
+            .builder
+            .build_int_compare(IntPredicate::SGT, n, count_ty.const_zero(), "pw.more")
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        let _ = self.builder.build_conditional_branch(more, body, done);
+
+        // One round: fold the low bit of the exponent into the accumulator.
+        self.builder.position_at_end(body);
+        let bit = self
+            .builder
+            .build_and(n, count_ty.const_int(1, false), "pw.bit")
+            .unwrap_or(n);
+        let odd = self
+            .builder
+            .build_int_compare(IntPredicate::NE, bit, count_ty.const_zero(), "pw.odd")
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        let product = self.builder.build_int_mul(acc, base, "pw.mul").unwrap_or(acc);
+        let folded: IntValue<'ctx> = self
+            .builder
+            .build_select(odd, product, acc, "pw.fold")
+            .ok()
+            .and_then(|v| v.try_into().ok())
+            .unwrap_or(acc);
+        let inside = self.inside_range(folded, low, high, "pw.in");
+        let _ = self.builder.build_conditional_branch(inside, step, done);
+
+        // Halve the exponent, and square only where a further round needs it.
+        self.builder.position_at_end(step);
+        let halved = self
+            .builder
+            .build_right_shift(n, count_ty.const_int(1, false), false, "pw.half")
+            .unwrap_or(n);
+        let again = self
+            .builder
+            .build_int_compare(IntPredicate::SGT, halved, count_ty.const_zero(), "pw.again")
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        let _ = self.builder.build_conditional_branch(again, square, head);
+
+        self.builder.position_at_end(square);
+        let squared = self.builder.build_int_mul(base, base, "pw.sq").unwrap_or(base);
+        let fits = self.inside_range(squared, low, high, "pw.sqin");
+        let _ = self.builder.build_conditional_branch(fits, head, done);
+
+        acc_phi.add_incoming(&[
+            (&wide.const_int(1, false), entry),
+            (&folded, step),
+            (&folded, square),
+        ]);
+        base_phi.add_incoming(&[(&base0, entry), (&base, step), (&squared, square)]);
+        n_phi.add_incoming(&[(&e, entry), (&halved, step), (&halved, square)]);
+
+        self.builder.position_at_end(done);
+        let (Ok(ok_phi), Ok(value_phi)) =
+            (self.builder.build_phi(bool_ty, "pw.ok"), self.builder.build_phi(wide, "pw.v"))
+        else {
+            return false;
+        };
+        let no = bool_ty.const_zero();
+        let yes = bool_ty.const_int(1, false);
+        let nothing = wide.const_zero();
+        ok_phi.add_incoming(&[(&no, entry), (&yes, head), (&no, body), (&no, square)]);
+        value_phi.add_incoming(&[
+            (&nothing, entry),
+            (&acc, head),
+            (&nothing, body),
+            (&nothing, square),
+        ]);
+        let (Ok(ok), Ok(value)): (Result<IntValue<'ctx>, _>, Result<IntValue<'ctx>, _>) =
+            (ok_phi.as_basic_value().try_into(), value_phi.as_basic_value().try_into())
+        else {
+            return false;
+        };
+        let narrow = self
+            .builder
+            .build_int_truncate_or_bit_cast(value, x.get_type(), "pw.n8")
+            .unwrap_or(x);
+        self.option_value(code, dest, ok, narrow).is_some_and(|v| {
+            self.set(state, dest, v);
+            true
+        })
+    }
+
+    /// `low <= v && v <= high`, at 128 bits and signed both ways: every bound of
+    /// every type of 64 bits or fewer is exactly an `i128`.
+    fn inside_range(
+        &mut self,
+        v: IntValue<'ctx>,
+        low: IntValue<'ctx>,
+        high: IntValue<'ctx>,
+        name: &str,
+    ) -> IntValue<'ctx> {
+        let bool_ty = self.ctx.bool_type();
+        let above = self
+            .builder
+            .build_int_compare(IntPredicate::SGE, v, low, name)
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        let below = self
+            .builder
+            .build_int_compare(IntPredicate::SLE, v, high, name)
+            .unwrap_or_else(|_| bool_ty.const_zero());
+        self.builder.build_and(above, below, name).unwrap_or(below)
     }
 
     fn checked_128(
@@ -8130,8 +8370,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let byte = self.ctx.i8_type();
         let code = match op {
             "checkedAdd" | "saturatingAdd" => 0,
-            "checkedSub" | "saturatingSub" => 1,
+            // A negation arrives as `0 - x`, which is the subtraction already.
+            "checkedSub" | "saturatingSub" | "checkedNegate" => 1,
             "checkedMul" | "saturatingMul" => 2,
+            "checkedRemainder" => 4,
+            "checkedPower" => 5,
             _ => 3,
         };
         let (a_lo, a_hi) = self.halves(x);
@@ -8649,6 +8892,9 @@ pub fn numeric_op(key: &str) -> bool {
             | "checkedSub"
             | "checkedMul"
             | "checkedDiv"
+            | "checkedRemainder"
+            | "checkedNegate"
+            | "checkedPower"
             | "saturatingAdd"
             | "saturatingSub"
             | "saturatingMul"

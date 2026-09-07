@@ -5554,6 +5554,40 @@ function $sat(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+// `x` to the `e`th, inside `[lo, hi]`, or `undefined`. The one member of
+// `Checked` that is a loop rather than an expression.
+//
+// Exponentiation by squaring, with the range tested after every multiplication,
+// so a `.Some` is the value the answer really is. A negative exponent is
+// `undefined`: the answer is a fraction, and an integer type holds none.
+//
+// The squaring is skipped on the last round, so `x.checkedPower(1)` never asks
+// whether `x * x` fits. Where a squaring *does* leave the range, the answer has
+// left it too — the exponent still has a bit above the one just folded in, and
+// the base is at least two in magnitude.
+function $checkedPow(x, e, lo, hi, big) {
+  // The exponent is an `Int`, which is a BigInt here, and its parity has to be
+  // read exactly: past 2^53 a double no longer knows whether it is even.
+  let n = $toBig(e);
+  if (n < 0n) return undefined;
+  const inside = (v) => v >= lo && v <= hi;
+  let acc = big ? 1n : 1;
+  let base = x;
+  while (n > 0n) {
+    if (n % 2n === 1n) {
+      acc = acc * base;
+      if (!inside(acc)) return undefined;
+    }
+    n = n / 2n;
+    if (n === 0n) break;
+    // A squaring that leaves the range takes the answer with it: there is a
+    // bit of the exponent left, and a base of 0, 1 or -1 never grows.
+    base = base * base;
+    if (!inside(base)) return undefined;
+  }
+  return big ? $checkedInBig(acc, lo, hi) : $checkedIn(acc, lo, hi);
+}
+
 // Turning a Template into a Str is the point at which interpolation
 // allocates; constructing the Template itself does not.
 function $str_format(c, t) {

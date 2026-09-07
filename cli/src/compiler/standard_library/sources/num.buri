@@ -94,6 +94,20 @@ export trait Checked {
     fn checkedSub(self, rhs: Self): Option<Self>;
     fn checkedMul(self, rhs: Self): Option<Self>;
     fn checkedDiv(self, rhs: Self): Option<Self>;
+    /// `.None` on a zero divisor, and on nothing else: a remainder is always
+    /// smaller than what it came from, so it cannot leave the type's range.
+    /// `minValue.checkedRemainder(-1)` is `.Some(0)`, where the matching
+    /// division is `.None`.
+    fn checkedRemainder(self, other: Self): Option<Self>;
+    /// `.None` at `minValue`, whose negation is one past `maxValue`, and at
+    /// every non-zero value of an unsigned type.
+    fn checkedNegate(self): Option<Self>;
+    /// `.None` on overflow and on a negative exponent, which is a fraction.
+    /// `checkedPower(0)` is `.Some(1)` at every base.
+    ///
+    /// The exponent is an `Int` whatever `Self` is: it counts multiplications
+    /// rather than being one of the values multiplied.
+    fn checkedPower(self, exponent: Int): Option<Self>;
 }
 
 export trait Wrapping {

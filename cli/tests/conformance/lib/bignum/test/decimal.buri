@@ -1,0 +1,340 @@
+// core/decimal — a number whose value is its digits.
+//
+// Two claims, and every test below is one of them: the arithmetic is exact or
+// it answers `.None`, and `roundTo` sends a tie to the even neighbour. Both are
+// what money wants and neither is what a `Float` gives.
+//
+// Ordinary Buri over two `Int`s with no host anywhere in it, so the assertions
+// are answers rather than anything a platform decides.
+
+from "core/decimal" import * as decimal;
+from "core/decimal" import { Decimal };
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/math" import * as math;
+from "core/num" import * as num;
+from "core/order" import { Order };
+from "core/testing/assert" import * as assert;
+
+// --- of, and the canonical form --------------------------------------------------
+
+test "of puts the point where the scale says" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decimal.of(1999, 2).text(ctx), "19.99");
+    assert.eq(decimal.of(5, 2).text(ctx), "0.05");
+    assert.eq(decimal.of(-5, 2).text(ctx), "-0.05");
+    assert.eq(decimal.of(7, 0).text(ctx), "7");
+    assert.eq(decimal.of(0, 5).text(ctx), "0");
+    assert.eq(decimal.of(123, 3).text(ctx), "0.123");
+}
+
+test "a trailing zero is absorbed into the scale" {
+    assert.eq(decimal.of(100, 2), decimal.of(1, 0));
+    assert.eq(decimal.of(150, 2), decimal.of(15, 1));
+    assert.eq(decimal.of(1000, 3), decimal.of(1, 0));
+    assert.eq(decimal.of(0, 9), decimal.of(0, 0));
+    // The zeros before the point stay, because the scale cannot absorb them.
+    assert.notEq(decimal.of(100, 0), decimal.of(10, 0));
+}
+
+test "a negative scale is read as zero" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decimal.of(5, -2), decimal.of(5, 0));
+    assert.eq(decimal.of(5, -2).text(ctx), "5");
+    // Multiplying is how you get the other thing.
+    assert.eq(assert.some(decimal.of(5, 0).mul(decimal.of(100, 0))).text(ctx), "500");
+}
+
+test "equality is numeric because the shape is canonical" {
+    assert.eq(decimal.of(10, 1), decimal.of(1, 0));
+    assert.eq(decimal.of(10, 1).hash(), decimal.of(1, 0).hash());
+    assert.eq(decimal.of(0, 0).hash(), decimal.of(0, 7).hash());
+    assert.notEq(decimal.of(1, 1), decimal.of(1, 0));
+}
+
+// --- parse --------------------------------------------------------------------------
+
+test "parse reads a decimal numeral" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decimal.parse("0"), .Some(decimal.of(0, 0)));
+    assert.eq(decimal.parse("-0"), .Some(decimal.of(0, 0)));
+    assert.eq(decimal.parse("19.99"), .Some(decimal.of(1999, 2)));
+    assert.eq(decimal.parse("-19.99"), .Some(decimal.of(-1999, 2)));
+    assert.eq(decimal.parse("0.5"), .Some(decimal.of(5, 1)));
+    assert.eq(decimal.parse("1.50"), .Some(decimal.of(15, 1)));
+    assert.eq(assert.some(decimal.parse("1.50")).text(ctx), "1.5");
+    assert.eq(decimal.parse("42"), .Some(decimal.of(42, 0)));
+}
+
+test "parse is strict" {
+    assert.eq(decimal.parse(""), .None);
+    assert.eq(decimal.parse("-"), .None);
+    assert.eq(decimal.parse("."), .None);
+    assert.eq(decimal.parse("1."), .None);
+    assert.eq(decimal.parse(".5"), .None);
+    assert.eq(decimal.parse("1.2.3"), .None);
+    assert.eq(decimal.parse("+1"), .None);
+    assert.eq(decimal.parse(" 1"), .None);
+    assert.eq(decimal.parse("1 "), .None);
+    assert.eq(decimal.parse("1_000"), .None);
+    assert.eq(decimal.parse("1e3"), .None);
+}
+
+test "parse answers .None past what an Int holds" {
+    assert.eq(
+        decimal.parse("9223372036854775807"),
+        .Some(decimal.of(num.maxValue<I64>(), 0)),
+    );
+    assert.eq(
+        decimal.parse("-9223372036854775808"),
+        .Some(decimal.of(num.minValue<I64>(), 0)),
+    );
+    assert.eq(decimal.parse("9223372036854775808"), .None);
+    assert.eq(decimal.parse("99999999999999999999999"), .None);
+}
+
+test "parse and text round-trip" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let written = ["0", "1", "-1", "19.99", "-0.05", "1234567.891", "0.000001"];
+    let broken = written.filterCtx(ctx, fn(c, t) => {
+        match (decimal.parse(t)) {
+            .None => true,
+            .Some(d) => d.text(c) != t,
+        }
+    });
+    assert.isEmpty(broken);
+}
+
+// --- add, sub and mul ------------------------------------------------------------
+
+test "add raises both sides to the larger scale" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.some(decimal.of(10, 1).add(decimal.of(20, 2))).text(ctx), "1.2");
+    assert.eq(assert.some(decimal.of(1, 0).add(decimal.of(1, 2))).text(ctx), "1.01");
+    assert.eq(assert.some(decimal.of(1999, 2).add(decimal.of(1, 2))).text(ctx), "20");
+    assert.eq(assert.some(decimal.of(0, 0).add(decimal.of(5, 3))).text(ctx), "0.005");
+}
+
+test "the sum a Float gets wrong" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // `0.1 + 0.2` is `0.30000000000000004` as doubles.
+    assert.notEq(0.1 + 0.2, 0.3);
+    let sum = assert.some(decimal.of(1, 1).add(decimal.of(2, 1)));
+    assert.eq(sum.text(ctx), "0.3");
+    assert.eq(sum, decimal.of(3, 1));
+}
+
+test "sub is add with the other sign" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.some(decimal.of(1999, 2).sub(decimal.of(99, 2))).text(ctx), "19");
+    assert.eq(assert.some(decimal.of(1, 0).sub(decimal.of(1, 2))).text(ctx), "0.99");
+    assert.eq(assert.some(decimal.of(5, 1).sub(decimal.of(5, 1))), decimal.of(0, 0));
+    assert.eq(assert.some(decimal.of(1, 1).sub(decimal.of(2, 1))).text(ctx), "-0.1");
+}
+
+test "mul adds the scales and keeps every digit" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.some(decimal.of(5, 1).mul(decimal.of(5, 1))).text(ctx), "0.25");
+    assert.eq(
+        assert.some(decimal.of(1999, 2).mul(decimal.of(3, 0))).text(ctx),
+        "59.97",
+    );
+    assert.eq(assert.some(decimal.of(0, 0).mul(decimal.of(1999, 2))), decimal.of(0, 0));
+    assert.eq(assert.some(decimal.of(-5, 1).mul(decimal.of(5, 1))).text(ctx), "-0.25");
+}
+
+test "every arithmetic method answers .None where the units would not fit" {
+    let top = decimal.of(num.maxValue<I64>(), 0);
+    let bottom = decimal.of(num.minValue<I64>(), 0);
+    assert.eq(top.add(decimal.of(1, 0)), .None);
+    assert.eq(bottom.sub(decimal.of(1, 0)), .None);
+    assert.eq(top.mul(top), .None);
+    // Raising to a common scale is where a small pair can fail.
+    assert.eq(decimal.of(1, 0).add(decimal.of(1, 19)), .None);
+    assert.isTrue(decimal.of(1, 0).add(decimal.of(1, 18)).isSome());
+}
+
+test "add and sub undo each other" {
+    let a = decimal.of(1999, 2);
+    let b = decimal.of(7, 3);
+    assert.eq(a.add(b).andThen(fn(v) => v.sub(b)), .Some(a));
+    assert.eq(a.sub(b).andThen(fn(v) => v.add(b)), .Some(a));
+}
+
+test "negate flips the sign, and fails only where the negation does not fit" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.some(decimal.of(1999, 2).negate()).text(ctx), "-19.99");
+    assert.eq(assert.some(decimal.of(0, 0).negate()), decimal.of(0, 0));
+    assert.eq(decimal.of(num.minValue<I64>(), 0).negate(), .None);
+    assert.isFalse(decimal.of(1999, 2).isZero());
+    assert.isTrue(decimal.of(0, 3).isZero());
+}
+
+// --- roundTo -------------------------------------------------------------------------
+
+test "roundTo sends a tie to the even neighbour" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decimal.of(25, 2).roundTo(1).text(ctx), "0.2");
+    assert.eq(decimal.of(35, 2).roundTo(1).text(ctx), "0.4");
+    assert.eq(decimal.of(45, 2).roundTo(1).text(ctx), "0.4");
+    assert.eq(decimal.of(55, 2).roundTo(1).text(ctx), "0.6");
+    assert.eq(decimal.of(15, 1).roundTo(0).text(ctx), "2");
+    assert.eq(decimal.of(25, 1).roundTo(0).text(ctx), "2");
+    assert.eq(decimal.of(5, 1).roundTo(0).text(ctx), "0");
+}
+
+test "roundTo takes a negative tie to the even neighbour too" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decimal.of(-25, 2).roundTo(1).text(ctx), "-0.2");
+    assert.eq(decimal.of(-35, 2).roundTo(1).text(ctx), "-0.4");
+    assert.eq(decimal.of(-15, 1).roundTo(0).text(ctx), "-2");
+    assert.eq(decimal.of(-5, 1).roundTo(0).text(ctx), "0");
+}
+
+test "roundTo rounds to the nearer number where there is one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decimal.of(24, 2).roundTo(1).text(ctx), "0.2");
+    assert.eq(decimal.of(26, 2).roundTo(1).text(ctx), "0.3");
+    assert.eq(decimal.of(-26, 2).roundTo(1).text(ctx), "-0.3");
+    assert.eq(decimal.of(314159, 5).roundTo(2).text(ctx), "3.14");
+    assert.eq(decimal.of(314159, 5).roundTo(4).text(ctx), "3.1416");
+}
+
+test "a column of ties does not drift" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Four ties, two up and two down, so the rounded total is the true total.
+    let ties = [
+        decimal.of(5, 1),
+        decimal.of(15, 1),
+        decimal.of(25, 1),
+        decimal.of(35, 1),
+    ];
+    let rounded = ties.fold(fn(acc, d) => acc + d.roundTo(0).units, 0);
+    assert.eq(rounded, 8);
+    assert.eq(ties.fold(fn(acc, d) => acc + d.units, 0), 80);
+}
+
+test "roundTo at or above the current scale changes nothing" {
+    let a = decimal.of(1999, 2);
+    assert.eq(a.roundTo(2), a);
+    assert.eq(a.roundTo(5), a);
+    assert.eq(decimal.of(0, 0).roundTo(4), decimal.of(0, 0));
+}
+
+test "roundTo with a negative scale is roundTo zero" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decimal.of(1999, 2).roundTo(-3), decimal.of(1999, 2).roundTo(0));
+    assert.eq(decimal.of(1999, 2).roundTo(0).text(ctx), "20");
+}
+
+test "roundTo drops more digits than an Int has powers of ten" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The scale is past 10^19, so the quotient is zero and only the halfway
+    // test can lift it.
+    assert.eq(decimal.of(num.maxValue<I64>(), 19).roundTo(0).text(ctx), "1");
+    assert.eq(decimal.of(1, 19).roundTo(0).text(ctx), "0");
+    assert.eq(decimal.of(num.minValue<I64>(), 19).roundTo(0).text(ctx), "-1");
+    assert.eq(decimal.of(1, 30).roundTo(0).text(ctx), "0");
+}
+
+// --- toFloat -------------------------------------------------------------------------
+
+test "toFloat is the nearest double" {
+    assert.eq(decimal.of(1, 0).toFloat(), 1.0);
+    assert.eq(decimal.of(1999, 2).toFloat(), 19.99);
+    assert.eq(decimal.of(1, 1).toFloat(), 0.1);
+    assert.eq(decimal.of(-5, 2).toFloat(), -0.05);
+    assert.eq(decimal.of(0, 0).toFloat(), 0.0);
+    assert.eq(decimal.of(1, 400).toFloat(), 0.0);
+}
+
+test "toFloat is where the exactness stops" {
+    // A tenth is not a binary fraction, which is the whole reason this type
+    // exists — so three tenths added as doubles and as decimals differ.
+    let asFloats = decimal.of(1, 1).toFloat() + decimal.of(2, 1).toFloat();
+    assert.notEq(asFloats, decimal.of(3, 1).toFloat());
+    assert.isTrue(math.isCloseAbsolute(asFloats, 0.3, 1.0e-15));
+}
+
+// --- Ord and Show -----------------------------------------------------------------------
+
+test "order is numeric and not the field order a derive would give" {
+    // `units` sorts before `scale`, so a derived order would put `1` below
+    // `0.5`.
+    assert.eq(decimal.of(1, 0).compare(decimal.of(5, 1)), Order.Greater);
+    assert.eq(decimal.of(5, 1).compare(decimal.of(1, 0)), Order.Less);
+    assert.eq(decimal.of(1, 0).compare(decimal.of(10, 1)), Order.Equal);
+    assert.eq(decimal.of(-1, 0).compare(decimal.of(1, 0)), Order.Less);
+    assert.eq(decimal.of(-5, 1).compare(decimal.of(-1, 0)), Order.Greater);
+}
+
+test "order is exact even where the common scale would not fit" {
+    // `1` at scale 19 is past `Int`, so the comparison cannot raise it — and
+    // the value that will not fit is the larger magnitude by that very fact.
+    assert.eq(decimal.of(1, 0).compare(decimal.of(1, 19)), Order.Greater);
+    assert.eq(decimal.of(1, 19).compare(decimal.of(1, 0)), Order.Less);
+    assert.eq(decimal.of(-1, 0).compare(decimal.of(1, 19)), Order.Less);
+    assert.eq(decimal.of(1, 19).compare(decimal.of(-1, 0)), Order.Greater);
+}
+
+test "sorting puts them in numeric order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let values = [
+        decimal.of(1, 0),
+        decimal.of(5, 1),
+        decimal.of(-1, 0),
+        decimal.of(0, 0),
+    ];
+    let sorted = values.sort(ctx).mapCtx(ctx, fn(c, d) => d.text(c));
+    assert.eq(sorted, ["-1", "0", "0.5", "1"]);
+}
+
+test "Show is text" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decimal.of(1999, 2).show(ctx), "19.99");
+    assert.eq(decimal.of(0, 0).show(ctx), "0");
+    assert.eq(decimal.of(-5, 3).show(ctx), "-0.005");
+}
+
+test "text reaches both ends of Int with a scale on it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(decimal.of(num.maxValue<I64>(), 2).text(ctx), "92233720368547758.07");
+    assert.eq(decimal.of(num.minValue<I64>(), 2).text(ctx), "-92233720368547758.08");
+}

@@ -252,6 +252,58 @@ impl<'a> Gen<'a> {
                     vec![raw, int_const(from, lo), upper_const(from, hi)],
                 ))
             }
+            // A remainder is smaller than what it came from, so the only way
+            // out is a zero divisor — `checkedDiv`'s shape without the
+            // `MIN / -1` case, which as a remainder is `0` and in range.
+            "checkedRemainder" => {
+                let (x, y) = two()?;
+                let (lo, hi) = from.int_range()?;
+                let bound = if from.is_bigint() { "$checkedInBig" } else { "$checkedIn" };
+                let zero = int_const(from, 0);
+                Some(Expr::cond(
+                    Expr::bin(BinOp::StrictEq, y.clone(), zero),
+                    Expr::Undefined,
+                    Expr::call(
+                        Expr::ident(bound),
+                        vec![
+                            Expr::bin(BinOp::Rem, x, y),
+                            int_const(from, lo),
+                            upper_const(from, hi),
+                        ],
+                    ),
+                ))
+            }
+            // `0 - x` rather than `-x`, so negating zero is `0` and not `-0`.
+            "checkedNegate" => {
+                let v = a?;
+                let (lo, hi) = from.int_range()?;
+                let bound = if from.is_bigint() { "$checkedInBig" } else { "$checkedIn" };
+                Some(Expr::call(
+                    Expr::ident(bound),
+                    vec![
+                        Expr::bin(BinOp::Sub, int_const(from, 0), v),
+                        int_const(from, lo),
+                        upper_const(from, hi),
+                    ],
+                ))
+            }
+            // A loop, so it is the runtime's rather than an expression: the
+            // bound is tested after every multiplication, which is the same
+            // promise `checkedMul` makes at each step.
+            "checkedPower" => {
+                let (x, e) = two()?;
+                let (lo, hi) = from.int_range()?;
+                Some(Expr::call(
+                    Expr::ident("$checkedPow"),
+                    vec![
+                        x,
+                        e,
+                        int_const(from, lo),
+                        upper_const(from, hi),
+                        Expr::Bool(from.is_bigint()),
+                    ],
+                ))
+            }
             // `Wrapping` is the surface a program uses when it wants the bit
             // pattern — a checksum, a hash, a wire format — so the answer has
             // to be the low bits of the *exact* result rather than the low bits

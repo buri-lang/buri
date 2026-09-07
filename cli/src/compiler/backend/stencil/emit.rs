@@ -3108,6 +3108,9 @@ impl Jit<'_> {
             "Sub" => "sub",
             "Mul" => "mul",
             "Div" => "div",
+            "Remainder" => "rem",
+            "Negate" => "neg",
+            "Power" => "pow",
             _ => return false,
         };
         let key = format!("chk/{name}/{tag}");
@@ -4161,4 +4164,9 @@ fn numeric_key(key: &str) -> bool {
         || ["checked", "saturating", "wrapping"]
             .iter()
             .any(|p| op.strip_prefix(p).is_some_and(|k| matches!(k, "Add" | "Sub" | "Mul" | "Div")))
+        // `Checked`'s other three, which no other family has: a remainder, a
+        // negation and a power (`sources.rs::checks`).
+        || op
+            .strip_prefix("checked")
+            .is_some_and(|k| matches!(k, "Remainder" | "Negate" | "Power"))
 }

@@ -251,3 +251,65 @@ test "fromHex reads uppercase too" {
     };
     assert.eq(assert.ok(bytes.fromHex(ctx, "ABCD")), [171, 205]);
 }
+
+// --- num.toRadix -------------------------------------------------------------------
+//
+// `toHex` renders a bit pattern; this renders a signed numeral, in any base
+// from 2 to 36. `str.toRadix` reads back exactly what it writes, which is the
+// round trip the two assertions below are for.
+
+test "toRadix writes the digits of a base" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(num.toRadix(ctx, 0, 10), "0");
+    assert.eq(num.toRadix(ctx, 255, 16), "ff");
+    assert.eq(num.toRadix(ctx, 255, 2), "11111111");
+    assert.eq(num.toRadix(ctx, 8, 8), "10");
+    assert.eq(num.toRadix(ctx, 1234567890, 10), "1234567890");
+    assert.eq(num.toRadix(ctx, 35, 36), "z");
+    assert.eq(num.toRadix(ctx, 1295, 36), "zz");
+}
+
+test "toRadix writes a sign rather than a two's complement" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(num.toRadix(ctx, -5, 2), "-101");
+    assert.eq(num.toRadix(ctx, -255, 16), "-ff");
+    assert.eq(num.toRadix(ctx, -1, 10), "-1");
+    // Where `toHex` says the whole sixty-four-bit pattern.
+    assert.eq(num.toHex(ctx, -1, 0), "ffffffffffffffff");
+}
+
+test "toRadix reaches both ends of Int" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(num.toRadix(ctx, num.maxValue<I64>(), 10), "9223372036854775807");
+    assert.eq(num.toRadix(ctx, num.minValue<I64>(), 10), "-9223372036854775808");
+    assert.eq(num.toRadix(ctx, num.minValue<I64>(), 16), "-8000000000000000");
+}
+
+test "toRadix clamps a radix it has no alphabet for" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Below two is read as two, above thirty-six as thirty-six.
+    assert.eq(num.toRadix(ctx, 5, 1), num.toRadix(ctx, 5, 2));
+    assert.eq(num.toRadix(ctx, 5, 0), num.toRadix(ctx, 5, 2));
+    assert.eq(num.toRadix(ctx, 5, -10), num.toRadix(ctx, 5, 2));
+    assert.eq(num.toRadix(ctx, 40, 99), num.toRadix(ctx, 40, 36));
+}
+
+test "str.toRadix reads back what num.toRadix wrote" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let values = [0, 1, -1, 7, -7, 255, -256, 1234567890, num.maxValue<I64>()];
+    let broken = values.filterCtx(ctx, fn(c, v) => {
+        let written = num.toRadix(c, v, 7);
+        written.toRadix(7) != .Some(v)
+    });
+    assert.isEmpty(broken);
+}
