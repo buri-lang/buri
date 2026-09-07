@@ -509,7 +509,14 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // two adjacent tokens in one leaves a program the grammar reads
         // differently and the checker then has an honest opinion about. 485 of
         // 1857 is 26.1%, and twenty-seven is that rounded up.
-        ("a syntax error stays a syntax error", "swap-adjacent") => 27,
+        // Re-read when the rest of the standard-library wave landed — the parser
+        // and its round-trip corpus, the tcp, process, filesystem, timestamp and
+        // uuid packages, and the formatter's escape fixtures. No parser change is
+        // in those merges beyond `buri_ast.buri`'s own (which is a library, not
+        // `cli/src/parsing/`); the population grew by a hundred and twenty cases
+        // dense in adjacent calls and literals. 567 of 2091 is 27.1%, and
+        // twenty-eight is that rounded up.
+        ("a syntax error stays a syntax error", "swap-adjacent") => 28,
 
         // Every row not named above, and every row of an invariant R2 owns.
         (_, _) => 0,
