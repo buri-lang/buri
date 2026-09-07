@@ -58,13 +58,12 @@ test "addition composes" {
 }
 ```
 
-- `test STRING Block`. The name is a string literal because test names are
-  prose. A test takes no parameters and returns nothing. It passes unless an
-  assertion in it fails, and a failing assertion ends that test and no other.
+- `test STRING Block`. A test takes no parameters and returns nothing. It
+  passes unless an assertion in it fails, and a failing assertion ends that
+  test and no other.
 - **Use a title once per file** (`duplicate-test-name`); two files may share
-  one. A pure assertion needs no context at all, and seeing which is which from
-  the body is the point. `assert` is not a keyword either: the name comes from
-  `import * as assert`.
+  one. A pure assertion needs no context at all. `assert` is not a keyword: the
+  name comes from `import * as assert`.
 
 ### Assertions
 
@@ -78,13 +77,12 @@ test "addition composes" {
 | `assert.err(r)` | fails unless `r` is `.Err`; returns the error |
 | `assert.some(o)` | fails unless `o` is `.Some`; returns the wrapped value |
 
-Reach for the narrowest one that fits. Each names both values in its report,
-while `assert.isTrue(xs.contains(x))` says only "expected true, got false". There
-is no `assert.fail`. Everything but the last three returns `()`, so they stand
-alone as statements. A test source is the one place the language admits an
-expression statement, and only at type `()`: any expression of that type
-qualifies, so a `match` whose arms all assert is one, terminated by `;`. The last
-three return a value, which is how you use up a must-use `Result`.
+Reach for the narrowest one that fits: each names both values in its report,
+while `assert.isTrue(xs.contains(x))` says only "expected true, got false".
+There is no `assert.fail`. Everything but the last three returns `()`, so they
+stand alone as statements; the last three return a value, which is how you use
+up a must-use `Result`. A test source is the one place the language admits an
+expression statement, and only at type `()`, terminated by `;`.
 
 ```buri
 test "reads the config it wrote" {
@@ -104,8 +102,7 @@ If `assert.eq` reports `unsatisfied-bound`, the type under test needs
 
 `core/host/testing` is `core/host`'s surface written out for a test: the same
 names, **called** rather than referred to. Each call hands back a fresh double,
-one per effect rather than a pre-assembled world, and only a test source may
-import it.
+one per effect, and only a test source may import it.
 
 | Member | Effect | In a test |
 |---|---|---|
@@ -146,9 +143,8 @@ test "falls back when the variable is unset" {
 }
 ```
 
-**Each call builds a fresh context.** That is why you call a named context
-rather than refer to it: what one test writes to its filesystem or its captured
-stdout is invisible to the next. It is also why one declaration cannot bind
+**Each call builds a fresh context**, so what one test writes to its filesystem
+or its captured stdout is invisible to the next. One declaration cannot bind
 `FsRead` and `FsWrite` over a single filesystem — two bindings are two `fs()`
 calls, so a block that reads *and* writes names the double first. Bind what the
 function needs and nothing else, and reach a double like the real thing:
@@ -178,15 +174,13 @@ test "a timeout reaches the caller as an error" {
 }
 ```
 
-A fake answers from its fields rather than from a counter, since it has no
-mutation to hold one in. Only the runner keeps state between calls: `clock()`
-and `stdout()` are intrinsics holding a slot in a table the runtime owns, and a
-fake you write cannot get one. "The third write fails" is a fault plan
-(`fs().faults([...])`). A crash *between* two calls is a step boundary: split it
-into a pure `prepare`, one effectful `persist` and a pure `publish`, then hand
-the step you choose an `.Err`. A read-only fake implements `FsRead`: four
-methods, not twelve. Defence in depth comes free: a suite that never binds `Net`
-cannot open a socket, so there is no operating-system confinement to apply.
+A fake answers from its fields rather than from a counter: it has no mutation
+to hold one. Only the runner keeps state between calls, so "the third write
+fails" is a fault plan (`fs().faults([...])`). A crash *between* two calls is a
+step boundary: split it into a pure `prepare`, one effectful `persist` and a
+pure `publish`, then hand the step you choose an `.Err`. A read-only fake
+implements `FsRead`: four methods, not twelve. A suite that never binds `Net`
+cannot open a socket.
 
 ## What a test source may and may not do
 
@@ -226,8 +220,7 @@ code behind a path with a `testing` segment, declared by a
 `testing { sources: [...] }` block. It may import the library's internals,
 carries its own `dependencies`, never links into a production artifact, and
 inherits the library's `visibility` and `tags`. A consumer reaches it by label,
-in `test { dependencies }`. Keep the helper private while one suite wants it, and
-promote it as soon as a second does. A fixture on a public surface is an API.
+in `test { dependencies }`. A fixture on a public surface is an API.
 
 ## Golden files
 
@@ -246,10 +239,8 @@ test "renders the statement" {
 A golden you read straight back out is usually shorter as a value in the
 assertion; the filesystem earns its place when the code under test reads.
 
-`test { data: [...] }` and `buri test --accept` are both retired. The field made
-a suite's filesystem a fact about the build that only the JavaScript runner could
-supply — a linked test binary has no runner — so the backends disagreed. A golden
-now lives as a value in the suite's own source, and every backend can have one.
+`test { data: [...] }` and `buri test --accept` are both retired: a golden lives
+as a value in the suite's own source, so every backend can have one.
 
 ## Running
 
@@ -275,17 +266,15 @@ FAIL //lib/money  test/cents.buri  "pads the cents place"
 12 passed, 1 failed, 0 skipped (0.4s, 11 cached)
 ```
 
-A suite that never compiled has no cases, so the report counts it separately,
-and only when there is one. Tests are otherwise ordinary build actions: a suite
-whose sources, target, dependencies and toolchain are unchanged does not run
-again and reports as **cached**. With no mutable global state and no observable
-ordering, the runner shards and reorders freely, and no flag turns that off.
+A suite that never compiled has no cases, so the report counts it separately.
+Tests are otherwise ordinary build actions: a suite whose sources, target,
+dependencies and toolchain are unchanged does not run again and reports as
+**cached**. The runner shards and reorders freely, and no flag turns that off.
 
-A suite runs natively on the host. Two things send it to JavaScript, and both are
-somebody saying so: `test { platforms: [JS] }` or `--output=js`. Nothing else
-does. A program the backend has no body for, or a toolchain that cannot build for
-this host, is an **error** (`native-run-not-available` or
-`platform-not-implemented`), never a reroute.
+A suite runs natively on the host. Only `test { platforms: [JS] }` or
+`--output=js` sends it to JavaScript. A program the backend has no body for, or
+a toolchain that cannot build for this host, is an **error**
+(`native-run-not-available` or `platform-not-implemented`), never a reroute.
 
 Suites naming no platform go into one binary per tag-compatible batch, linked
 once. Verdicts, caching and reports stay per suite. A `test { platforms }`,
