@@ -106,13 +106,15 @@ export fn fetch(request: Request): Response {
         ctx,
         web.shell(
             ctx,
-            web.render(page(
-                .Const(request.path()),
-                state.title,
-                str.format(ctx, "visitors: ${state.visitors}"),
-                .Const("say thanks"),
-                fn(_ctx, _event) => (),
-            )),
+            web.render(
+                page(
+                    .Const(request.path()),
+                    state.title,
+                    str.format(ctx, "visitors: ${state.visitors}"),
+                    .Const("say thanks"),
+                    fn(_ctx, _event) => (),
+                ),
+            ),
             state.toJson(ctx),
         ),
     )
