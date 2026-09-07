@@ -101,7 +101,8 @@ error: `listen` implements `Listen`, which is not allowed on the WEB platform [e
      Tasks is the worked example, in both directions. It landed declared and
      granted by nobody, so all four platforms refused it with that reason.
      Editing that one row granted it on three, and programs written against the
-     signature it was reviewed with started compiling.
+     signature it was reviewed with started compiling. A later edit to the same
+     row granted it on the fourth, once core/tasks had a spawn a page could use.
 
      An empty list still promises nothing about filling. Listen and Sockets show
      what that looks like once the runtime arrives. Both landed declared and
@@ -120,11 +121,3 @@ error: `listen` implements `Listen`, which is not allowed on the WEB platform [e
      one, the harness checks a snippet with the whole host granted, because the
      snippet builds no output.
 
-error: `tasks` implements `Tasks`, which is not allowed on the WEB platform [effect-not-on-platform]
-  --> cmd/app/main.buri:18:21
-   |
-18 |         Tasks: host.tasks,
-   |                     ^^^^^
-   |
-   = a platform is the set of effects its host exports; `parallel` returns only when the last task has finished, which freezes a page; a page's concurrency is its event loop, and the effect that reaches it lands with the servers
-   = fix: drop `Tasks` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS

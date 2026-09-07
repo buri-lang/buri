@@ -1206,10 +1206,11 @@ mod tests {
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(checked > 140, "only {checked} rows were read against a declaration");
-        // Twenty-nine until F6, and the nine `core/actor` rows are the jump:
-        // every one of them is a module function whose first parameter is the
-        // context, which is the second of the two shapes below.
-        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 38);
+        // Twenty-nine until F6, then the nine `core/actor` rows, then
+        // `core/tasks`'s six: every one of the fifteen is a module function
+        // whose first parameter is the context, which is the second of the two
+        // shapes below.
+        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 44);
     }
 
     /// The two shapes the column takes, by example, so that the indices are

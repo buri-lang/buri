@@ -7,7 +7,6 @@
 
 from "core/effect" import { Alloc, Clock, Stdout };
 from "core/io" import * as io;
-from "core/list" import * as list;
 from "core/time" import * as time;
 
 /// One connection's worth of work: read what is there, and stop when it is
@@ -31,7 +30,7 @@ export fn run<C: Alloc + Stdout>(ctx: C, frames: [Str]): () {
 }
 
 /// What the timer fires. It waits first, which is the whole of what a timer is.
-export fn sweep<C: Alloc + Clock + Stdout>(ctx: C, after: Int): () {
+export fn sweep<C: Clock + Stdout>(ctx: C, after: Int): () {
     let _ = time.sleepMs(ctx, after);
     let _ = io.println(ctx, "sessions expired at ${time.now(ctx).0}").ignore();
     ()
@@ -39,6 +38,6 @@ export fn sweep<C: Alloc + Clock + Stdout>(ctx: C, after: Int): () {
 
 /// The frames a connection is going to see. A stand-in for a socket, so that
 /// the case is about the scope rather than about the network.
-export fn open<C: Alloc>(ctx: C): [Str] {
+export fn open(): [Str] {
     ["a", "b"]
 }
