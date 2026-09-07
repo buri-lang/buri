@@ -1,0 +1,724 @@
+// core/str beyond the scalar — grapheme clusters, the four normalization forms,
+// and full case folding.
+//
+// The tables these read are generated at **Unicode 16.0** by
+// `cli/src/compiler/standard_library/unicode_tables.py`, so the two sets of
+// cases below are the two things worth asserting: the rules, named one at a
+// time, and the UCD's own vectors, sliced.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/str" import * as str;
+from "core/str" import { Normalization };
+from "core/testing/assert" import * as assert;
+
+// --- graphemes ------------------------------------------------------------------
+
+test "graphemes of ASCII is one piece per character" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("abc".graphemes(ctx), ["a", "b", "c"]);
+    assert.eq("a b".graphemes(ctx), ["a", " ", "b"]);
+}
+
+test "graphemes of the empty string has no pieces" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isEmpty("".graphemes(ctx));
+    assert.eq("".graphemeCount(), 0);
+}
+
+test "a combining mark stays with the letter it is on" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = "éa";
+    assert.eq(text.graphemes(ctx), ["é", "a"]);
+    assert.eq(text.graphemeCount(), 2);
+    assert.eq(text.len(), 3);
+}
+
+// GB3: a carriage return and a line feed are one cluster, and everything else
+// around them is not.
+//
+// The two are built with `fromChars` rather than written into a literal,
+// because the formatter stores a string as the characters it denotes and a
+// carriage return in a source file is worse than a line of setup.
+test "CR LF is one cluster" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let crlf = str.fromChars(ctx, ['\r', '\n']);
+    let lfcr = str.fromChars(ctx, ['\n', '\r']);
+    let crcr = str.fromChars(ctx, ['\r', '\r']);
+    let around = str.fromChars(ctx, ['a', '\r', '\n', 'b']);
+    assert.eq(crlf.graphemes(ctx), [crlf]);
+    assert.eq(crlf.graphemeCount(), 1);
+    assert.eq(around.graphemeCount(), 3);
+    assert.eq(lfcr.graphemeCount(), 2);
+    assert.eq(crcr.graphemeCount(), 2);
+}
+
+// GB11: an emoji, any number of extenders, a zero-width joiner and another
+// emoji are one cluster however long the chain.
+test "a zero-width joiner sequence is one cluster" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("👨‍👩‍👦".graphemeCount(), 1);
+    assert.eq("👍🏽".graphemeCount(), 1);
+    assert.eq("👨👩".graphemeCount(), 2);
+}
+
+// GB12 and GB13: regional indicators pair up, so a flag is one cluster and an
+// odd one left over is its own.
+test "regional indicators pair into flags" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("🇬🇧".graphemeCount(), 1);
+    assert.eq("🇬🇧🇫🇷".graphemeCount(), 2);
+    assert.eq("🇬🇧🇫".graphemeCount(), 2);
+    assert.eq("🇬".graphemeCount(), 1);
+}
+
+// GB9c, which arrived in Unicode 15.1: a consonant, a virama and a consonant
+// are one cluster.
+test "an Indic conjunct is one cluster" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("क्षि".graphemeCount(), 1);
+    assert.eq("कष".graphemeCount(), 2);
+}
+
+// GB6 to GB8: a Hangul syllable written as jamo is one cluster.
+test "Hangul jamo make one syllable" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("한".graphemeCount(), 1);
+    assert.eq("한".graphemeCount(), 1);
+    assert.eq("한글".graphemeCount(), 2);
+}
+
+test "graphemeCount agrees with graphemes" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = "á🇬🇧👨‍👩z";
+    assert.eq(text.graphemeCount(), text.graphemes(ctx).len());
+    assert.eq(text.graphemeCount(), 4);
+}
+
+// --- normalize --------------------------------------------------------------------
+
+test "Nfc composes and Nfd decomposes" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("é".normalize(ctx, .Nfc), "é");
+    assert.eq("é".normalize(ctx, .Nfd), "é");
+    assert.eq("é".normalize(ctx, .Nfc), "é");
+    assert.eq("é".normalize(ctx, .Nfd), "é");
+}
+
+test "text with nothing to normalize comes back as it was" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("abc".normalize(ctx, .Nfc), "abc");
+    assert.eq("abc".normalize(ctx, .Nfd), "abc");
+    assert.eq("abc".normalize(ctx, .Nfkc), "abc");
+    assert.eq("abc".normalize(ctx, .Nfkd), "abc");
+    assert.eq("".normalize(ctx, .Nfc), "");
+    assert.eq("".normalize(ctx, .Nfkd), "");
+}
+
+// The compatibility forms lose distinctions on purpose, and the canonical ones
+// keep them: that is the whole difference between the two pairs.
+test "the compatibility forms fold a ligature and a superscript" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("ﬁ".normalize(ctx, .Nfkc), "fi");
+    assert.eq("ﬁ".normalize(ctx, .Nfkd), "fi");
+    assert.eq("ﬁ".normalize(ctx, .Nfc), "ﬁ");
+    assert.eq("²".normalize(ctx, .Nfkc), "2");
+    assert.eq("²".normalize(ctx, .Nfc), "²");
+}
+
+// Canonical ordering: two marks with different combining classes come out in
+// class order whichever way round they were written.
+test "combining marks are reordered by class" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("q̣̇".normalize(ctx, .Nfd), "q̣̇");
+    assert.eq("q̣̇".normalize(ctx, .Nfd), "q̣̇");
+    assert.eq("q̣̇".normalize(ctx, .Nfc), "q̣̇");
+}
+
+test "Hangul composes and decomposes by arithmetic" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("한".normalize(ctx, .Nfd), "한");
+    assert.eq("한".normalize(ctx, .Nfc), "한");
+    assert.eq("가".normalize(ctx, .Nfd), "가");
+    assert.eq("가".normalize(ctx, .Nfc), "가");
+    assert.eq("한글".normalize(ctx, .Nfc), "한글");
+}
+
+// A composition exclusion is a character NFC will not put back together, and
+// U+0344 is one of the ones a naive implementation gets wrong.
+test "a composition exclusion is not recomposed" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("ẛ̣".normalize(ctx, .Nfc), "ẛ̣");
+    assert.eq("ẛ̣".normalize(ctx, .Nfd), "ẛ̣");
+    assert.eq("ẛ̣".normalize(ctx, .Nfkc), "ṩ");
+    assert.eq("ẛ̣".normalize(ctx, .Nfkd), "ṩ");
+}
+
+test "Normalization is a value that compares and renders" {
+    let form: Normalization = .Nfc;
+    assert.eq(form, .Nfc);
+    assert.notEq(form, .Nfd);
+}
+
+// --- caseFold ---------------------------------------------------------------------
+
+test "caseFold lowercases the ASCII letters" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("ABC".caseFold(ctx), "abc");
+    assert.eq("abc".caseFold(ctx), "abc");
+    assert.eq("A1b!".caseFold(ctx), "a1b!");
+    assert.eq("".caseFold(ctx), "");
+}
+
+// Full folding, so a folding may be longer than what it folded — which is the
+// whole difference from `equalsIgnoreCase`.
+test "caseFold expands where the folding is more than one scalar" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("Straße".caseFold(ctx), "strasse");
+    assert.eq("STRASSE".caseFold(ctx), "strasse");
+    assert.eq("ﬁ".caseFold(ctx), "fi");
+    assert.isFalse("straße".equalsIgnoreCase("strasse"));
+}
+
+test "caseFold brings both sigmas together" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("Σ".caseFold(ctx), "σ");
+    assert.eq("σ".caseFold(ctx), "σ");
+    assert.eq("ς".caseFold(ctx), "σ");
+}
+
+test "caseFold is idempotent" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let once = "Straße ΣΣ ﬁ".caseFold(ctx);
+    assert.eq(once.caseFold(ctx), once);
+}
+
+// --- The UCD's own break vectors ---------------------------------------------
+//
+// Every ninth line of `GraphemeBreakTest.txt` at Unicode 16.0, which is the
+// file `unicode_tables.py` names. The whole file passes; this is the slice
+// that is worth a suite's time, and it is a slice rather than a selection so
+// nothing flattering was picked.
+
+test "grapheme break vectors, 0 to 34" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("  ".graphemes(ctx), [" ", " "]);
+    assert.eq("  ".graphemeCount(), 2);
+    assert.eq(" ̈ਃ".graphemes(ctx), [" ̈ਃ"]);
+    assert.eq(" ̈ਃ".graphemeCount(), 1);
+    assert.eq(" 각".graphemes(ctx), [" ", "각"]);
+    assert.eq(" 각".graphemeCount(), 2);
+    assert.eq(" ̈क".graphemes(ctx), [" ̈", "क"]);
+    assert.eq(" ̈क".graphemeCount(), 2);
+    assert.eq(" ‍".graphemes(ctx), [" ‍"]);
+    assert.eq(" ‍".graphemeCount(), 1);
+    assert.eq("‌̈🇦".graphemes(ctx), ["‌̈", "🇦"]);
+    assert.eq("‌̈🇦".graphemeCount(), 2);
+    assert.eq("‌ᆨ".graphemes(ctx), ["‌", "ᆨ"]);
+    assert.eq("‌ᆨ".graphemeCount(), 2);
+    assert.eq("‌̈ऄ".graphemes(ctx), ["‌̈", "ऄ"]);
+    assert.eq("‌̈ऄ".graphemeCount(), 2);
+    assert.eq("‌ऀ".graphemes(ctx), ["‌ऀ"]);
+    assert.eq("‌ऀ".graphemeCount(), 1);
+    assert.eq("🇦̈ ".graphemes(ctx), ["🇦̈", " "]);
+    assert.eq("🇦̈ ".graphemeCount(), 2);
+    assert.eq("🇦ᄀ".graphemes(ctx), ["🇦", "ᄀ"]);
+    assert.eq("🇦ᄀ".graphemeCount(), 2);
+    assert.eq("🇦̈각".graphemes(ctx), ["🇦̈", "각"]);
+    assert.eq("🇦̈각".graphemeCount(), 2);
+    assert.eq("🇦⌚".graphemes(ctx), ["🇦", "⌚"]);
+    assert.eq("🇦⌚".graphemeCount(), 2);
+    assert.eq("🇦̈‍".graphemes(ctx), ["🇦̈‍"]);
+    assert.eq("🇦̈‍".graphemeCount(), 1);
+    assert.eq("؀؀".graphemes(ctx), ["؀؀"]);
+    assert.eq("؀؀".graphemeCount(), 1);
+    assert.eq("؀̈ᆨ".graphemes(ctx), ["؀̈", "ᆨ"]);
+    assert.eq("؀̈ᆨ".graphemeCount(), 2);
+    assert.eq("؀ൎ".graphemes(ctx), ["؀ൎ"]);
+    assert.eq("؀ൎ".graphemeCount(), 1);
+    assert.eq("؀̈ऀ".graphemes(ctx), ["؀̈ऀ"]);
+    assert.eq("؀̈ऀ".graphemeCount(), 1);
+    assert.eq("ਃ‌".graphemes(ctx), ["ਃ‌"]);
+    assert.eq("ਃ‌".graphemeCount(), 1);
+    assert.eq("ਃ̈ᄀ".graphemes(ctx), ["ਃ̈", "ᄀ"]);
+    assert.eq("ਃ̈ᄀ".graphemeCount(), 2);
+    assert.eq("ਃः".graphemes(ctx), ["ਃः"]);
+    assert.eq("ਃः".graphemeCount(), 1);
+    assert.eq("ਃ̈⌚".graphemes(ctx), ["ਃ̈", "⌚"]);
+    assert.eq("ਃ̈⌚".graphemeCount(), 2);
+    assert.eq("ਃ͸".graphemes(ctx), ["ਃ", "͸"]);
+    assert.eq("ਃ͸".graphemeCount(), 2);
+    assert.eq("ᄀ̈؀".graphemes(ctx), ["ᄀ̈", "؀"]);
+    assert.eq("ᄀ̈؀".graphemeCount(), 2);
+    assert.eq("ᄀ가".graphemes(ctx), ["ᄀ가"]);
+    assert.eq("ᄀ가".graphemeCount(), 1);
+    assert.eq("ᄀ̈ൎ".graphemes(ctx), ["ᄀ̈", "ൎ"]);
+    assert.eq("ᄀ̈ൎ".graphemeCount(), 2);
+    assert.eq("ᄀ्".graphemes(ctx), ["ᄀ्"]);
+    assert.eq("ᄀ्".graphemeCount(), 1);
+    assert.eq("ᅠ̈‌".graphemes(ctx), ["ᅠ̈‌"]);
+    assert.eq("ᅠ̈‌".graphemeCount(), 1);
+    assert.eq("ᅠᅠ".graphemes(ctx), ["ᅠᅠ"]);
+    assert.eq("ᅠᅠ".graphemeCount(), 1);
+    assert.eq("ᅠ̈ः".graphemes(ctx), ["ᅠ̈ः"]);
+    assert.eq("ᅠ̈ः".graphemeCount(), 1);
+    assert.eq("ᅠ̀".graphemes(ctx), ["ᅠ̀"]);
+    assert.eq("ᅠ̀".graphemeCount(), 1);
+    assert.eq("ᅠ̈͸".graphemes(ctx), ["ᅠ̈", "͸"]);
+    assert.eq("ᅠ̈͸".graphemeCount(), 2);
+    assert.eq("ᆨਃ".graphemes(ctx), ["ᆨਃ"]);
+    assert.eq("ᆨਃ".graphemeCount(), 1);
+    assert.eq("ᆨ̈가".graphemes(ctx), ["ᆨ̈", "가"]);
+    assert.eq("ᆨ̈가".graphemeCount(), 2);
+}
+
+test "grapheme break vectors, 34 to 68" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("ᆨक".graphemes(ctx), ["ᆨ", "क"]);
+    assert.eq("ᆨक".graphemeCount(), 2);
+    assert.eq("ᆨ्̈".graphemes(ctx), ["ᆨ्̈"]);
+    assert.eq("ᆨ्̈".graphemeCount(), 1);
+    assert.eq("가🇦".graphemes(ctx), ["가", "🇦"]);
+    assert.eq("가🇦".graphemeCount(), 2);
+    assert.eq("가̈ᅠ".graphemes(ctx), ["가̈", "ᅠ"]);
+    assert.eq("가̈ᅠ".graphemeCount(), 2);
+    assert.eq("가ऄ".graphemes(ctx), ["가", "ऄ"]);
+    assert.eq("가ऄ".graphemeCount(), 2);
+    assert.eq("가̈̀".graphemes(ctx), ["가̈̀"]);
+    assert.eq("가̈̀".graphemeCount(), 1);
+    assert.eq("각 ".graphemes(ctx), ["각", " "]);
+    assert.eq("각 ".graphemeCount(), 2);
+    assert.eq("각̈ਃ".graphemes(ctx), ["각̈ਃ"]);
+    assert.eq("각̈ਃ".graphemeCount(), 1);
+    assert.eq("각각".graphemes(ctx), ["각", "각"]);
+    assert.eq("각각".graphemeCount(), 2);
+    assert.eq("각̈क".graphemes(ctx), ["각̈", "क"]);
+    assert.eq("각̈क".graphemeCount(), 2);
+    assert.eq("각‍".graphemes(ctx), ["각‍"]);
+    assert.eq("각‍".graphemeCount(), 1);
+    assert.eq("ः̈🇦".graphemes(ctx), ["ः̈", "🇦"]);
+    assert.eq("ः̈🇦".graphemeCount(), 2);
+    assert.eq("ःᆨ".graphemes(ctx), ["ः", "ᆨ"]);
+    assert.eq("ःᆨ".graphemeCount(), 2);
+    assert.eq("ः̈ऄ".graphemes(ctx), ["ः̈", "ऄ"]);
+    assert.eq("ः̈ऄ".graphemeCount(), 2);
+    assert.eq("ःऀ".graphemes(ctx), ["ःऀ"]);
+    assert.eq("ःऀ".graphemeCount(), 1);
+    assert.eq("ऄ̈ ".graphemes(ctx), ["ऄ̈", " "]);
+    assert.eq("ऄ̈ ".graphemeCount(), 2);
+    assert.eq("ऄᄀ".graphemes(ctx), ["ऄ", "ᄀ"]);
+    assert.eq("ऄᄀ".graphemeCount(), 2);
+    assert.eq("ऄ̈각".graphemes(ctx), ["ऄ̈", "각"]);
+    assert.eq("ऄ̈각".graphemeCount(), 2);
+    assert.eq("ऄ⌚".graphemes(ctx), ["ऄ", "⌚"]);
+    assert.eq("ऄ⌚".graphemeCount(), 2);
+    assert.eq("ऄ̈‍".graphemes(ctx), ["ऄ̈‍"]);
+    assert.eq("ऄ̈‍".graphemeCount(), 1);
+    assert.eq("ൎ؀".graphemes(ctx), ["ൎ؀"]);
+    assert.eq("ൎ؀".graphemeCount(), 1);
+    assert.eq("ൎ̈ᆨ".graphemes(ctx), ["ൎ̈", "ᆨ"]);
+    assert.eq("ൎ̈ᆨ".graphemeCount(), 2);
+    assert.eq("ൎൎ".graphemes(ctx), ["ൎൎ"]);
+    assert.eq("ൎൎ".graphemeCount(), 1);
+    assert.eq("ൎ̈ऀ".graphemes(ctx), ["ൎ̈ऀ"]);
+    assert.eq("ൎ̈ऀ".graphemeCount(), 1);
+    assert.eq("क‌".graphemes(ctx), ["क‌"]);
+    assert.eq("क‌".graphemeCount(), 1);
+    assert.eq("क̈ᄀ".graphemes(ctx), ["क̈", "ᄀ"]);
+    assert.eq("क̈ᄀ".graphemeCount(), 2);
+    assert.eq("कः".graphemes(ctx), ["कः"]);
+    assert.eq("कः".graphemeCount(), 1);
+    assert.eq("क̈⌚".graphemes(ctx), ["क̈", "⌚"]);
+    assert.eq("क̈⌚".graphemeCount(), 2);
+    assert.eq("क͸".graphemes(ctx), ["क", "͸"]);
+    assert.eq("क͸".graphemeCount(), 2);
+    assert.eq("⌚̈؀".graphemes(ctx), ["⌚̈", "؀"]);
+    assert.eq("⌚̈؀".graphemeCount(), 2);
+    assert.eq("⌚가".graphemes(ctx), ["⌚", "가"]);
+    assert.eq("⌚가".graphemeCount(), 2);
+    assert.eq("⌚̈ൎ".graphemes(ctx), ["⌚̈", "ൎ"]);
+    assert.eq("⌚̈ൎ".graphemeCount(), 2);
+    assert.eq("⌚्".graphemes(ctx), ["⌚्"]);
+    assert.eq("⌚्".graphemeCount(), 1);
+    assert.eq("̀̈‌".graphemes(ctx), ["̀̈‌"]);
+    assert.eq("̀̈‌".graphemeCount(), 1);
+}
+
+test "grapheme break vectors, 68 to 93" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("̀ᅠ".graphemes(ctx), ["̀", "ᅠ"]);
+    assert.eq("̀ᅠ".graphemeCount(), 2);
+    assert.eq("̀̈ः".graphemes(ctx), ["̀̈ः"]);
+    assert.eq("̀̈ः".graphemeCount(), 1);
+    assert.eq("̀̀".graphemes(ctx), ["̀̀"]);
+    assert.eq("̀̀".graphemeCount(), 1);
+    assert.eq("̀̈͸".graphemes(ctx), ["̀̈", "͸"]);
+    assert.eq("̀̈͸".graphemeCount(), 2);
+    assert.eq("ऀਃ".graphemes(ctx), ["ऀਃ"]);
+    assert.eq("ऀਃ".graphemeCount(), 1);
+    assert.eq("ऀ̈가".graphemes(ctx), ["ऀ̈", "가"]);
+    assert.eq("ऀ̈가".graphemeCount(), 2);
+    assert.eq("ऀक".graphemes(ctx), ["ऀ", "क"]);
+    assert.eq("ऀक".graphemeCount(), 2);
+    assert.eq("ऀ्̈".graphemes(ctx), ["ऀ्̈"]);
+    assert.eq("ऀ्̈".graphemeCount(), 1);
+    assert.eq("्🇦".graphemes(ctx), ["्", "🇦"]);
+    assert.eq("्🇦".graphemeCount(), 2);
+    assert.eq("्̈ᅠ".graphemes(ctx), ["्̈", "ᅠ"]);
+    assert.eq("्̈ᅠ".graphemeCount(), 2);
+    assert.eq("्ऄ".graphemes(ctx), ["्", "ऄ"]);
+    assert.eq("्ऄ".graphemeCount(), 2);
+    assert.eq("्̈̀".graphemes(ctx), ["्̈̀"]);
+    assert.eq("्̈̀".graphemeCount(), 1);
+    assert.eq("‍ ".graphemes(ctx), ["‍", " "]);
+    assert.eq("‍ ".graphemeCount(), 2);
+    assert.eq("‍̈ਃ".graphemes(ctx), ["‍̈ਃ"]);
+    assert.eq("‍̈ਃ".graphemeCount(), 1);
+    assert.eq("‍각".graphemes(ctx), ["‍", "각"]);
+    assert.eq("‍각".graphemeCount(), 2);
+    assert.eq("‍̈क".graphemes(ctx), ["‍̈", "क"]);
+    assert.eq("‍̈क".graphemeCount(), 2);
+    assert.eq("‍‍".graphemes(ctx), ["‍‍"]);
+    assert.eq("‍‍".graphemeCount(), 1);
+    assert.eq("͸̈🇦".graphemes(ctx), ["͸̈", "🇦"]);
+    assert.eq("͸̈🇦".graphemeCount(), 2);
+    assert.eq("͸ᆨ".graphemes(ctx), ["͸", "ᆨ"]);
+    assert.eq("͸ᆨ".graphemeCount(), 2);
+    assert.eq("͸̈ऄ".graphemes(ctx), ["͸̈", "ऄ"]);
+    assert.eq("͸̈ऄ".graphemeCount(), 2);
+    assert.eq("͸ऀ".graphemes(ctx), ["͸ऀ"]);
+    assert.eq("͸ऀ".graphemeCount(), 1);
+    assert.eq(" ‍ن".graphemes(ctx), [" ‍", "ن"]);
+    assert.eq(" ‍ن".graphemeCount(), 2);
+    assert.eq("a🇦🇧🇨🇩b".graphemes(ctx), ["a", "🇦🇧", "🇨🇩", "b"]);
+    assert.eq("a🇦🇧🇨🇩b".graphemeCount(), 4);
+    assert.eq("🛑‍🛑".graphemes(ctx), ["🛑‍🛑"]);
+    assert.eq("🛑‍🛑".graphemeCount(), 1);
+    assert.eq("क़्‍त".graphemes(ctx), ["क़्‍त"]);
+    assert.eq("क़्‍त".graphemeCount(), 1);
+}
+
+// --- The UCD's own normalization vectors --------------------------------------
+//
+// Every 320th line of `NormalizationTest.txt`, the same way. Each row is one
+// source and the four forms it takes.
+
+test "normalization vectors, 0 to 20" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("Ḋ".normalize(ctx, .Nfc), "Ḋ");
+    assert.eq("Ḋ".normalize(ctx, .Nfd), "Ḋ");
+    assert.eq("Ḋ".normalize(ctx, .Nfkc), "Ḋ");
+    assert.eq("Ḋ".normalize(ctx, .Nfkd), "Ḋ");
+    assert.eq("ȫ".normalize(ctx, .Nfc), "ȫ");
+    assert.eq("ȫ".normalize(ctx, .Nfd), "ȫ");
+    assert.eq("ȫ".normalize(ctx, .Nfkc), "ȫ");
+    assert.eq("ȫ".normalize(ctx, .Nfkd), "ȫ");
+    assert.eq("Ḅ".normalize(ctx, .Nfc), "Ḅ");
+    assert.eq("Ḅ".normalize(ctx, .Nfd), "Ḅ");
+    assert.eq("Ḅ".normalize(ctx, .Nfkc), "Ḅ");
+    assert.eq("Ḅ".normalize(ctx, .Nfkd), "Ḅ");
+    assert.eq("ὖ".normalize(ctx, .Nfc), "ὖ");
+    assert.eq("ὖ".normalize(ctx, .Nfd), "ὖ");
+    assert.eq("ὖ".normalize(ctx, .Nfkc), "ὖ");
+    assert.eq("ὖ".normalize(ctx, .Nfkd), "ὖ");
+    assert.eq("ⅶ".normalize(ctx, .Nfc), "ⅶ");
+    assert.eq("ⅶ".normalize(ctx, .Nfd), "ⅶ");
+    assert.eq("ⅶ".normalize(ctx, .Nfkc), "vii");
+    assert.eq("ⅶ".normalize(ctx, .Nfkd), "vii");
+    assert.eq("⽮".normalize(ctx, .Nfc), "⽮");
+    assert.eq("⽮".normalize(ctx, .Nfd), "⽮");
+    assert.eq("⽮".normalize(ctx, .Nfkc), "矢");
+    assert.eq("⽮".normalize(ctx, .Nfkd), "矢");
+    assert.eq("㈪".normalize(ctx, .Nfc), "㈪");
+    assert.eq("㈪".normalize(ctx, .Nfd), "㈪");
+    assert.eq("㈪".normalize(ctx, .Nfkc), "(月)");
+    assert.eq("㈪".normalize(ctx, .Nfkd), "(月)");
+    assert.eq("㍳".normalize(ctx, .Nfc), "㍳");
+    assert.eq("㍳".normalize(ctx, .Nfd), "㍳");
+    assert.eq("㍳".normalize(ctx, .Nfkc), "AU");
+    assert.eq("㍳".normalize(ctx, .Nfkd), "AU");
+    assert.eq("겦".normalize(ctx, .Nfc), "겦");
+    assert.eq("겦".normalize(ctx, .Nfd), "겦");
+    assert.eq("겦".normalize(ctx, .Nfkc), "겦");
+    assert.eq("겦".normalize(ctx, .Nfkd), "겦");
+    assert.eq("귦".normalize(ctx, .Nfc), "귦");
+    assert.eq("귦".normalize(ctx, .Nfd), "귦");
+    assert.eq("귦".normalize(ctx, .Nfkc), "귦");
+    assert.eq("귦".normalize(ctx, .Nfkd), "귦");
+    assert.eq("꼦".normalize(ctx, .Nfc), "꼦");
+    assert.eq("꼦".normalize(ctx, .Nfd), "꼦");
+    assert.eq("꼦".normalize(ctx, .Nfkc), "꼦");
+    assert.eq("꼦".normalize(ctx, .Nfkd), "꼦");
+    assert.eq("끦".normalize(ctx, .Nfc), "끦");
+    assert.eq("끦".normalize(ctx, .Nfd), "끦");
+    assert.eq("끦".normalize(ctx, .Nfkc), "끦");
+    assert.eq("끦".normalize(ctx, .Nfkd), "끦");
+    assert.eq("놦".normalize(ctx, .Nfc), "놦");
+    assert.eq("놦".normalize(ctx, .Nfd), "놦");
+    assert.eq("놦".normalize(ctx, .Nfkc), "놦");
+    assert.eq("놦".normalize(ctx, .Nfkd), "놦");
+    assert.eq("닦".normalize(ctx, .Nfc), "닦");
+    assert.eq("닦".normalize(ctx, .Nfd), "닦");
+    assert.eq("닦".normalize(ctx, .Nfkc), "닦");
+    assert.eq("닦".normalize(ctx, .Nfkd), "닦");
+    assert.eq("됦".normalize(ctx, .Nfc), "됦");
+    assert.eq("됦".normalize(ctx, .Nfd), "됦");
+    assert.eq("됦".normalize(ctx, .Nfkc), "됦");
+    assert.eq("됦".normalize(ctx, .Nfkd), "됦");
+    assert.eq("땦".normalize(ctx, .Nfc), "땦");
+    assert.eq("땦".normalize(ctx, .Nfd), "땦");
+    assert.eq("땦".normalize(ctx, .Nfkc), "땦");
+    assert.eq("땦".normalize(ctx, .Nfkd), "땦");
+    assert.eq("뚦".normalize(ctx, .Nfc), "뚦");
+    assert.eq("뚦".normalize(ctx, .Nfd), "뚦");
+    assert.eq("뚦".normalize(ctx, .Nfkc), "뚦");
+    assert.eq("뚦".normalize(ctx, .Nfkd), "뚦");
+    assert.eq("럦".normalize(ctx, .Nfc), "럦");
+    assert.eq("럦".normalize(ctx, .Nfd), "럦");
+    assert.eq("럦".normalize(ctx, .Nfkc), "럦");
+    assert.eq("럦".normalize(ctx, .Nfkd), "럦");
+    assert.eq("뤦".normalize(ctx, .Nfc), "뤦");
+    assert.eq("뤦".normalize(ctx, .Nfd), "뤦");
+    assert.eq("뤦".normalize(ctx, .Nfkc), "뤦");
+    assert.eq("뤦".normalize(ctx, .Nfkd), "뤦");
+    assert.eq("멦".normalize(ctx, .Nfc), "멦");
+    assert.eq("멦".normalize(ctx, .Nfd), "멦");
+    assert.eq("멦".normalize(ctx, .Nfkc), "멦");
+    assert.eq("멦".normalize(ctx, .Nfkd), "멦");
+}
+
+test "normalization vectors, 20 to 40" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("뮦".normalize(ctx, .Nfc), "뮦");
+    assert.eq("뮦".normalize(ctx, .Nfd), "뮦");
+    assert.eq("뮦".normalize(ctx, .Nfkc), "뮦");
+    assert.eq("뮦".normalize(ctx, .Nfkd), "뮦");
+    assert.eq("볦".normalize(ctx, .Nfc), "볦");
+    assert.eq("볦".normalize(ctx, .Nfd), "볦");
+    assert.eq("볦".normalize(ctx, .Nfkc), "볦");
+    assert.eq("볦".normalize(ctx, .Nfkd), "볦");
+    assert.eq("븦".normalize(ctx, .Nfc), "븦");
+    assert.eq("븦".normalize(ctx, .Nfd), "븦");
+    assert.eq("븦".normalize(ctx, .Nfkc), "븦");
+    assert.eq("븦".normalize(ctx, .Nfkd), "븦");
+    assert.eq("뽦".normalize(ctx, .Nfc), "뽦");
+    assert.eq("뽦".normalize(ctx, .Nfd), "뽦");
+    assert.eq("뽦".normalize(ctx, .Nfkc), "뽦");
+    assert.eq("뽦".normalize(ctx, .Nfkd), "뽦");
+    assert.eq("삦".normalize(ctx, .Nfc), "삦");
+    assert.eq("삦".normalize(ctx, .Nfd), "삦");
+    assert.eq("삦".normalize(ctx, .Nfkc), "삦");
+    assert.eq("삦".normalize(ctx, .Nfkd), "삦");
+    assert.eq("쇦".normalize(ctx, .Nfc), "쇦");
+    assert.eq("쇦".normalize(ctx, .Nfd), "쇦");
+    assert.eq("쇦".normalize(ctx, .Nfkc), "쇦");
+    assert.eq("쇦".normalize(ctx, .Nfkd), "쇦");
+    assert.eq("쌦".normalize(ctx, .Nfc), "쌦");
+    assert.eq("쌦".normalize(ctx, .Nfd), "쌦");
+    assert.eq("쌦".normalize(ctx, .Nfkc), "쌦");
+    assert.eq("쌦".normalize(ctx, .Nfkd), "쌦");
+    assert.eq("쑦".normalize(ctx, .Nfc), "쑦");
+    assert.eq("쑦".normalize(ctx, .Nfd), "쑦");
+    assert.eq("쑦".normalize(ctx, .Nfkc), "쑦");
+    assert.eq("쑦".normalize(ctx, .Nfkd), "쑦");
+    assert.eq("얦".normalize(ctx, .Nfc), "얦");
+    assert.eq("얦".normalize(ctx, .Nfd), "얦");
+    assert.eq("얦".normalize(ctx, .Nfkc), "얦");
+    assert.eq("얦".normalize(ctx, .Nfkd), "얦");
+    assert.eq("웦".normalize(ctx, .Nfc), "웦");
+    assert.eq("웦".normalize(ctx, .Nfd), "웦");
+    assert.eq("웦".normalize(ctx, .Nfkc), "웦");
+    assert.eq("웦".normalize(ctx, .Nfkd), "웦");
+    assert.eq("젦".normalize(ctx, .Nfc), "젦");
+    assert.eq("젦".normalize(ctx, .Nfd), "젦");
+    assert.eq("젦".normalize(ctx, .Nfkc), "젦");
+    assert.eq("젦".normalize(ctx, .Nfkd), "젦");
+    assert.eq("쥦".normalize(ctx, .Nfc), "쥦");
+    assert.eq("쥦".normalize(ctx, .Nfd), "쥦");
+    assert.eq("쥦".normalize(ctx, .Nfkc), "쥦");
+    assert.eq("쥦".normalize(ctx, .Nfkd), "쥦");
+    assert.eq("쪦".normalize(ctx, .Nfc), "쪦");
+    assert.eq("쪦".normalize(ctx, .Nfd), "쪦");
+    assert.eq("쪦".normalize(ctx, .Nfkc), "쪦");
+    assert.eq("쪦".normalize(ctx, .Nfkd), "쪦");
+    assert.eq("쯦".normalize(ctx, .Nfc), "쯦");
+    assert.eq("쯦".normalize(ctx, .Nfd), "쯦");
+    assert.eq("쯦".normalize(ctx, .Nfkc), "쯦");
+    assert.eq("쯦".normalize(ctx, .Nfkd), "쯦");
+    assert.eq("촦".normalize(ctx, .Nfc), "촦");
+    assert.eq("촦".normalize(ctx, .Nfd), "촦");
+    assert.eq("촦".normalize(ctx, .Nfkc), "촦");
+    assert.eq("촦".normalize(ctx, .Nfkd), "촦");
+    assert.eq("칦".normalize(ctx, .Nfc), "칦");
+    assert.eq("칦".normalize(ctx, .Nfd), "칦");
+    assert.eq("칦".normalize(ctx, .Nfkc), "칦");
+    assert.eq("칦".normalize(ctx, .Nfkd), "칦");
+    assert.eq("쾦".normalize(ctx, .Nfc), "쾦");
+    assert.eq("쾦".normalize(ctx, .Nfd), "쾦");
+    assert.eq("쾦".normalize(ctx, .Nfkc), "쾦");
+    assert.eq("쾦".normalize(ctx, .Nfkd), "쾦");
+    assert.eq("탦".normalize(ctx, .Nfc), "탦");
+    assert.eq("탦".normalize(ctx, .Nfd), "탦");
+    assert.eq("탦".normalize(ctx, .Nfkc), "탦");
+    assert.eq("탦".normalize(ctx, .Nfkd), "탦");
+    assert.eq("툦".normalize(ctx, .Nfc), "툦");
+    assert.eq("툦".normalize(ctx, .Nfd), "툦");
+    assert.eq("툦".normalize(ctx, .Nfkc), "툦");
+    assert.eq("툦".normalize(ctx, .Nfkd), "툦");
+    assert.eq("퍦".normalize(ctx, .Nfc), "퍦");
+    assert.eq("퍦".normalize(ctx, .Nfd), "퍦");
+    assert.eq("퍦".normalize(ctx, .Nfkc), "퍦");
+    assert.eq("퍦".normalize(ctx, .Nfkd), "퍦");
+}
+
+test "normalization vectors, 40 to 60" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("풦".normalize(ctx, .Nfc), "풦");
+    assert.eq("풦".normalize(ctx, .Nfd), "풦");
+    assert.eq("풦".normalize(ctx, .Nfkc), "풦");
+    assert.eq("풦".normalize(ctx, .Nfkd), "풦");
+    assert.eq("헦".normalize(ctx, .Nfc), "헦");
+    assert.eq("헦".normalize(ctx, .Nfd), "헦");
+    assert.eq("헦".normalize(ctx, .Nfkc), "헦");
+    assert.eq("헦".normalize(ctx, .Nfkd), "헦");
+    assert.eq("휦".normalize(ctx, .Nfc), "휦");
+    assert.eq("휦".normalize(ctx, .Nfd), "휦");
+    assert.eq("휦".normalize(ctx, .Nfkc), "휦");
+    assert.eq("휦".normalize(ctx, .Nfkd), "휦");
+    assert.eq("蓼".normalize(ctx, .Nfc), "蓼");
+    assert.eq("蓼".normalize(ctx, .Nfd), "蓼");
+    assert.eq("蓼".normalize(ctx, .Nfkc), "蓼");
+    assert.eq("蓼".normalize(ctx, .Nfkd), "蓼");
+    assert.eq("כֿ".normalize(ctx, .Nfc), "כֿ");
+    assert.eq("כֿ".normalize(ctx, .Nfd), "כֿ");
+    assert.eq("כֿ".normalize(ctx, .Nfkc), "כֿ");
+    assert.eq("כֿ".normalize(ctx, .Nfkd), "כֿ");
+    assert.eq("ﲮ".normalize(ctx, .Nfc), "ﲮ");
+    assert.eq("ﲮ".normalize(ctx, .Nfd), "ﲮ");
+    assert.eq("ﲮ".normalize(ctx, .Nfkc), "سح");
+    assert.eq("ﲮ".normalize(ctx, .Nfkd), "سح");
+    assert.eq("﹖".normalize(ctx, .Nfc), "﹖");
+    assert.eq("﹖".normalize(ctx, .Nfd), "﹖");
+    assert.eq("﹖".normalize(ctx, .Nfkc), "?");
+    assert.eq("﹖".normalize(ctx, .Nfkd), "?");
+    assert.eq("ﾡ".normalize(ctx, .Nfc), "ﾡ");
+    assert.eq("ﾡ".normalize(ctx, .Nfd), "ﾡ");
+    assert.eq("ﾡ".normalize(ctx, .Nfkc), "ᄀ");
+    assert.eq("ﾡ".normalize(ctx, .Nfkd), "ᄀ");
+    assert.eq("𝑶".normalize(ctx, .Nfc), "𝑶");
+    assert.eq("𝑶".normalize(ctx, .Nfd), "𝑶");
+    assert.eq("𝑶".normalize(ctx, .Nfkc), "O");
+    assert.eq("𝑶".normalize(ctx, .Nfkd), "O");
+    assert.eq("𝗍".normalize(ctx, .Nfc), "𝗍");
+    assert.eq("𝗍".normalize(ctx, .Nfd), "𝗍");
+    assert.eq("𝗍".normalize(ctx, .Nfkc), "t");
+    assert.eq("𝗍".normalize(ctx, .Nfkd), "t");
+    assert.eq("𝜏".normalize(ctx, .Nfc), "𝜏");
+    assert.eq("𝜏".normalize(ctx, .Nfd), "𝜏");
+    assert.eq("𝜏".normalize(ctx, .Nfkc), "τ");
+    assert.eq("𝜏".normalize(ctx, .Nfkd), "τ");
+    assert.eq("𞸔".normalize(ctx, .Nfc), "𞸔");
+    assert.eq("𞸔".normalize(ctx, .Nfd), "𞸔");
+    assert.eq("𞸔".normalize(ctx, .Nfkc), "ش");
+    assert.eq("𞸔".normalize(ctx, .Nfkd), "ش");
+    assert.eq("𠨬".normalize(ctx, .Nfc), "𠨬");
+    assert.eq("𠨬".normalize(ctx, .Nfd), "𠨬");
+    assert.eq("𠨬".normalize(ctx, .Nfkc), "𠨬");
+    assert.eq("𠨬".normalize(ctx, .Nfkd), "𠨬");
+    assert.eq("䍙".normalize(ctx, .Nfc), "䍙");
+    assert.eq("䍙".normalize(ctx, .Nfd), "䍙");
+    assert.eq("䍙".normalize(ctx, .Nfkc), "䍙");
+    assert.eq("䍙".normalize(ctx, .Nfkd), "䍙");
+    assert.eq("à֮͋̕b".normalize(ctx, .Nfc), "à֮͋̕b");
+    assert.eq("à֮͋̕b".normalize(ctx, .Nfd), "à֮͋̕b");
+    assert.eq("à֮͋̕b".normalize(ctx, .Nfkc), "à֮͋̕b");
+    assert.eq("à֮͋̕b".normalize(ctx, .Nfkd), "à֮͋̕b");
+    assert.eq("à֮ܿ̕b".normalize(ctx, .Nfc), "à֮ܿ̕b");
+    assert.eq("à֮ܿ̕b".normalize(ctx, .Nfd), "à֮ܿ̕b");
+    assert.eq("à֮ܿ̕b".normalize(ctx, .Nfkc), "à֮ܿ̕b");
+    assert.eq("à֮ܿ̕b".normalize(ctx, .Nfkd), "à֮ܿ̕b");
+    assert.eq("aཱིྀུb".normalize(ctx, .Nfc), "aཱིྀུb");
+    assert.eq("aཱིྀུb".normalize(ctx, .Nfd), "aཱིྀུb");
+    assert.eq("aཱིྀུb".normalize(ctx, .Nfkc), "aཱིྀུb");
+    assert.eq("aཱིྀུb".normalize(ctx, .Nfkd), "aཱིྀུb");
+    assert.eq("à֮ᷳ̕b".normalize(ctx, .Nfc), "à֮ᷳ̕b");
+    assert.eq("à֮ᷳ̕b".normalize(ctx, .Nfd), "à֮ᷳ̕b");
+    assert.eq("à֮ᷳ̕b".normalize(ctx, .Nfkc), "à֮ᷳ̕b");
+    assert.eq("à֮ᷳ̕b".normalize(ctx, .Nfkd), "à֮ᷳ̕b");
+    assert.eq("a᷺̖𐨍֚b".normalize(ctx, .Nfc), "a᷺̖𐨍֚b");
+    assert.eq("a᷺̖𐨍֚b".normalize(ctx, .Nfd), "a᷺̖𐨍֚b");
+    assert.eq("a᷺̖𐨍֚b".normalize(ctx, .Nfkc), "a᷺̖𐨍֚b");
+    assert.eq("a᷺̖𐨍֚b".normalize(ctx, .Nfkd), "a᷺̖𐨍֚b");
+    assert.eq("à֮𞀍̕b".normalize(ctx, .Nfc), "à֮𞀍̕b");
+    assert.eq("à֮𞀍̕b".normalize(ctx, .Nfd), "à֮𞀍̕b");
+    assert.eq("à֮𞀍̕b".normalize(ctx, .Nfkc), "à֮𞀍̕b");
+    assert.eq("à֮𞀍̕b".normalize(ctx, .Nfkd), "à֮𞀍̕b");
+}
+
+test "normalization vectors, 60 to 63" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("Ǚ".normalize(ctx, .Nfc), "Ǚ");
+    assert.eq("Ǚ".normalize(ctx, .Nfd), "Ǚ");
+    assert.eq("Ǚ".normalize(ctx, .Nfkc), "Ǚ");
+    assert.eq("Ǚ".normalize(ctx, .Nfkd), "Ǚ");
+    assert.eq("Ὢ".normalize(ctx, .Nfc), "Ὢ");
+    assert.eq("Ὢ".normalize(ctx, .Nfd), "Ὢ");
+    assert.eq("Ὢ".normalize(ctx, .Nfkc), "Ὢ");
+    assert.eq("Ὢ".normalize(ctx, .Nfkd), "Ὢ");
+    assert.eq("ᾬ".normalize(ctx, .Nfc), "ᾬ");
+    assert.eq("ᾬ".normalize(ctx, .Nfd), "ᾬ");
+    assert.eq("ᾬ".normalize(ctx, .Nfkc), "ᾬ");
+    assert.eq("ᾬ".normalize(ctx, .Nfkd), "ᾬ");
+}
