@@ -746,6 +746,12 @@ const PACKAGES: &[Case] = &[
     // carries. All of it is string work over two structs and reaches no host,
     // which is why it is here rather than beside `semantics/http.buri`.
     included("http/messages.buri"),
+    // `core/net/tcp` against `core/host/testing`'s `tcp()` double, which opens
+    // no socket: seven runtime entries in both tables and a `[TcpCall]` coming
+    // back through one of them. The socket half is `e2e`'s
+    // `a_native_binary_speaks_over_a_socket_it_dialled`, which is a whole
+    // program against a real loopback peer.
+    included("tcp/stream.buri"),
     // `core/net/url` is the same: percent-encoding over `[Char]`, RFC 3986's
     // reference resolution over string views, and a six-field struct that
     // derives `Eq` and `Show`. No effect, and nothing on either backend to

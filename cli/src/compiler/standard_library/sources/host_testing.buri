@@ -113,7 +113,7 @@
 from "core/effect" import {
     Alloc, Clock, Connected, Entropy, Env, Frame, Header, IoError, Method, Net,
     NetError, Proc, Rand, Received, Region, Request, Response, ServeError, Sockets,
-    Stderr, Stdin, Stdout, Tasks, WebSocketClient,
+    Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
 };
 
 // The filesystem's two effects, declared in `core/fs` because their methods
@@ -1467,6 +1467,151 @@ export struct NetCall(Request);
 /// A `fetch(request)`, as a call.
 export fn fetch(request: Request): NetCall {
     NetCall(request)
+}
+
+// --- Tcp ----------------------------------------------------------------------
+
+/// A connection with nothing behind it: reads come off a script a test wrote,
+/// writes are recorded, and no socket is opened anywhere.
+///
+/// ```buri ignore why="a test source is the one place `core/host/testing` may be imported, and this file is not one"
+/// from "core/effect" import { Alloc, Tcp };
+/// from "core/host/testing" import { alloc, tcp };
+/// from "core/net/tcp" import * as stream;
+///
+/// export fn howMuchCameBack(): Int {
+///     let peer = tcp().bytes([80, 79, 78, 71]);
+///     let ctx = context {
+///         Alloc: alloc(),
+///         Tcp: peer,
+///     };
+///     match (stream.connect(ctx, "db.test", 6379)) {
+///         .Err(_e) => 0,
+///         .Ok(dialled) => {
+///             match (dialled.read(ctx, 4)) {
+///                 .Err(_e) => 0,
+///                 .Ok(got) => got.len(),
+///             }
+///         },
+///     }
+/// }
+/// ```
+///
+/// **A read takes a prefix.** A stream has no messages in it, so what a test
+/// writes down is octets and `read(limit)` answers up to `limit` of them; once
+/// the script has run out, every read answers the empty list, which is what the
+/// real effect answers when the far side has gone.
+///
+/// **A handle this double did not mint, or one it has been told to close, is
+/// `.Err(.NotFound)`** — the same promise `core/effect` makes about the real
+/// one.
+export struct TestTcp(I64);
+
+impl Tcp for TestTcp {
+    fn tcpConnect(self, host: Str, port: Int): Result<Int, IoError> {
+        .Ok(recordTcpConnect(self.0, host, port))
+    }
+
+    fn tcpRead(self, handle: Int, limit: Int): Result<[U8], IoError> {
+        match (recordTcpRead(self.0, handle, limit)) {
+            .None => .Err(.NotFound),
+            .Some(got) => .Ok(got),
+        }
+    }
+
+    fn tcpWrite(self, handle: Int, body: [U8]): Result<(), IoError> {
+        if (recordTcpWrite(self.0, handle, body)) { .Ok(()) } else { .Err(.NotFound) }
+    }
+
+    fn tcpClose(self, handle: Int): () {
+        recordTcpClose(self.0, handle)
+    }
+}
+
+/// A fresh connection: nothing scripted, nothing recorded.
+export fn tcp(): TestTcp {
+    TestTcp(newTcp())
+}
+
+impl TestTcp {
+    /// A **new** double whose reads draw from those octets.
+    ///
+    /// New rather than an edit, on `TestStdin.bytes`'s rule: a builder answers a
+    /// value, so a test that kept the receiver kept what it had.
+    export fn bytes(self, b: [U8]): TestTcp {
+        TestTcp(tcpStream(self.0, b))
+    }
+
+    /// Every call made through this double, in the order they completed.
+    export fn calls(self): [TcpCall] {
+        tcpCalls(self.0)
+    }
+}
+
+/// A fresh log, and the handle that names it.
+fn newTcp(): I64;
+
+/// A fresh log whose reads answer from those octets.
+fn tcpStream(handle: I64, b: [U8]): I64;
+
+/// The dial, recorded, and the stream handle it answers.
+fn recordTcpConnect(handle: I64, host: Str, port: Int): Int;
+
+/// The read, recorded, and up to `limit` octets off the script — or `.None` for
+/// a stream this double does not hold open.
+fn recordTcpRead(handle: I64, stream: Int, limit: Int): Option<[U8]>;
+
+/// The write, recorded. False is a stream this double does not hold open.
+fn recordTcpWrite(handle: I64, stream: Int, body: [U8]): Bool;
+
+/// The close, recorded, whether or not the stream was open.
+fn recordTcpClose(handle: I64, stream: Int): ();
+
+/// Every call through a handle's log.
+fn tcpCalls(handle: I64): [TcpCall];
+
+derive Eq, Show for TcpCall;
+/// One call made through a `TestTcp`.
+///
+/// One record for four operations, so a log reads as one list rather than four:
+/// the fields an operation does not use are empty. The four constructors below
+/// are what a test writes, and each is named after the method it records.
+export struct TcpCall {
+    name: Str,
+    host: Str,
+    port: Int,
+    stream: Int,
+    limit: Int,
+    body: [U8],
+}
+
+/// A `tcpConnect(host, port)`, as a call. The stream is the one it answered:
+/// the first dial through a double is 1, the second 2, and so on.
+export fn tcpConnect(host: Str, port: Int, stream: Int): TcpCall {
+    TcpCall {
+        name: "connect",
+        host: host,
+        port: port,
+        stream: stream,
+        limit: 0,
+        body: [],
+    }
+}
+
+/// A `tcpRead(stream, limit)`, as a call. `limit` is what the code under test
+/// asked for, not what it was given.
+export fn tcpRead(stream: Int, limit: Int): TcpCall {
+    TcpCall { name: "read", host: "", port: 0, stream: stream, limit: limit, body: [] }
+}
+
+/// A `tcpWrite(stream, body)`, as a call.
+export fn tcpWrite(stream: Int, body: [U8]): TcpCall {
+    TcpCall { name: "write", host: "", port: 0, stream: stream, limit: 0, body: body }
+}
+
+/// A `tcpClose(stream)`, as a call.
+export fn tcpClose(stream: Int): TcpCall {
+    TcpCall { name: "close", host: "", port: 0, stream: stream, limit: 0, body: [] }
 }
 
 derive Eq, Show for StdinCall;

@@ -529,6 +529,59 @@ export effect WebSocketClient {
     fn connectReceive(self, socket: Int): Result<Received, ServeError>;
 }
 
+/// Speaking a protocol nobody here has heard of.
+///
+/// `Net` is one request and one answer. `Listen` accepts connections. This is
+/// the one below both of them: a connection dialled out, bytes each way, and no
+/// opinion at all about what they mean. It is what a Redis client, a Postgres
+/// client or a line protocol is written out of.
+///
+/// **Every method names the noun it acts on**, on `Sockets`' rule: method
+/// lookup searches every effect a context binds, so a common verb here would
+/// take that verb away from every effect bound beside it.
+///
+/// **Granted on LINUX and MACOS**, beside `Listen`. A page and a worker have no
+/// sockets of their own — a browser can dial a WebSocket and nothing else, and
+/// that authority is `WebSocketClient`'s and already granted everywhere.
+///
+/// A handle that names no open stream counts as one that has already been
+/// closed, so a made-up handle and a spent one are deliberately alike:
+/// `tcpRead` and `tcpWrite` answer `.Err(.NotFound)` and `tcpClose` does
+/// nothing.
+///
+/// **The operations are declared rather than this being a marker effect**, on
+/// `Sockets`' rule again: anyone may write a type satisfying an effect
+/// (SPEC 10.9), and a hand-written `Tcp` that satisfied a marker would be a key
+/// to operations somebody else implemented.
+export effect Tcp {
+    /// Dials `host` on `port` and answers a handle for the stream.
+    ///
+    /// **Waits.** A name is resolved and a connection is made, both bounded —
+    /// a dial that could hang forever would hang the carrier it is on.
+    ///
+    /// `host` is a name or an address literal; an IPv6 literal is written
+    /// without brackets, because there is no URL around it to need them.
+    fn tcpConnect(self, host: Str, port: Int): Result<Int, IoError>;
+
+    /// **Waits** for at least one byte, and answers **at most** `limit` of
+    /// them.
+    ///
+    /// A short answer is the ordinary case and not an error: this is a stream,
+    /// so a reader that wants a whole message reads until it has one. The
+    /// empty list means the far side closed cleanly, which is the only way this
+    /// answers nothing without failing.
+    fn tcpRead(self, handle: Int, limit: Int): Result<[U8], IoError>;
+
+    /// **Waits** until every byte is written, or fails. There is no short
+    /// write: a caller that got `.Ok` knows the whole body went.
+    fn tcpWrite(self, handle: Int, body: [U8]): Result<(), IoError>;
+
+    /// Closes the stream. Anything unread is dropped, and closing a handle that
+    /// is already gone does nothing rather than failing — the far side may have
+    /// gone first, so "was it open" was never answerable here.
+    fn tcpClose(self, handle: Int): ();
+}
+
 derive Eq, Show for IoError;
 /// Declared here rather than in `core/fs` because the three stream effects above
 /// answer it too. `core/fs` re-exports it, so a program that only reads files

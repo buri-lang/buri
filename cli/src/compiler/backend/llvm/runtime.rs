@@ -352,6 +352,35 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
+    // `Tcp`'s four, from `cli/runtime/tcp.rs`. `self` is zero-sized and
+    // dropped; a host is a `Str` and so three parameters; a body is a `[U8]`
+    // and so two. All three fallible ones are `Ret::ResMsg` for
+    // `host.HostFs`'s reason — a socket meets failures `IoError` has no variant
+    // for — and `tcpClose` answers `()` and cannot fail at all.
+    Entry {
+        key: "host.HostTcp.tcpConnect",
+        symbol: "buri_rt_host_tcp_connect",
+        args: &[Arg::Dropped, Arg::Str, Arg::Scalar],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostTcp.tcpRead",
+        symbol: "buri_rt_host_tcp_read",
+        args: &[Arg::Dropped, Arg::Scalar, Arg::Scalar],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostTcp.tcpWrite",
+        symbol: "buri_rt_host_tcp_write",
+        args: &[Arg::Dropped, Arg::Scalar, Arg::List],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostTcp.tcpClose",
+        symbol: "buri_rt_host_tcp_close",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Void,
+    },
     Entry {
         key: "host.HostFs.writeFileBytes",
         symbol: "buri_rt_host_fs_write_file_bytes",
@@ -1663,6 +1692,53 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         key: "host_testing.netCalls",
         symbol: "buri_rt_host_testing_net_calls",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    // `tcp()`'s seven. `TestStdin`'s arrangement rather than `TestNet`'s: the
+    // handle names the script, the open streams and the log, so every one of
+    // these leads with it and none of them needs a plan.
+    Entry {
+        key: "host_testing.newTcp",
+        symbol: "buri_rt_host_testing_new_tcp",
+        args: &[],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.tcpStream",
+        symbol: "buri_rt_host_testing_tcp_stream",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.recordTcpConnect",
+        symbol: "buri_rt_host_testing_record_tcp_connect",
+        args: &[Arg::Scalar, Arg::Str, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.recordTcpRead",
+        symbol: "buri_rt_host_testing_record_tcp_read",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "host_testing.recordTcpWrite",
+        symbol: "buri_rt_host_testing_record_tcp_write",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::List],
+        // A `Bool`, and the archive answers a `u8` — `host.HostFs.fileExists`'s
+        // shape, and for its reason: the C boundary has no `i1`.
+        ret: Ret::Int(8),
+    },
+    Entry {
+        key: "host_testing.recordTcpClose",
+        symbol: "buri_rt_host_testing_record_tcp_close",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.tcpCalls",
+        symbol: "buri_rt_host_testing_tcp_calls",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },
