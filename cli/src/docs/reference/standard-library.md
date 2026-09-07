@@ -59,7 +59,8 @@ unordered, so it answers `.Equal` for a pair it could not order.
 [`core/proto`](../../compiler/standard_library/sources/proto.buri),
 [`core/buri/ast`](../../compiler/standard_library/sources/buri_ast.buri),
 [`core/codegen`](../../compiler/standard_library/sources/codegen.buri),
-[`std/codegen/proto/schema`](../../compiler/standard_library/sources/codegen_proto_schema.buri).
+[`std/codegen/proto/schema`](../../compiler/standard_library/sources/codegen_proto_schema.buri),
+[`std/codegen/proto`](../../compiler/standard_library/sources/codegen_proto.buri).
 
 - **`core/str`** — a `Str` measures in Unicode scalar values everywhere. `len`
   counts them, `charAt` and `slice` index by them, and `compare` orders by them.
@@ -176,6 +177,19 @@ unordered, so it answers `.Equal` for a pair it could not order.
   plus one `Int` per character: a span is measured in bytes and a `Str` in
   scalar values, so the offsets are computed once rather than per diagnostic.
   [The proto reference](./build/proto.md) is the mapping it feeds.
+
+- **`std/codegen/proto`** — the other half: the schema `std/codegen/proto/schema`
+  read, as a Buri module. `emit` is the generator `core/codegen`'s `run` takes,
+  and `generate` is one schema at a time. It builds `core/buri/ast` nodes rather
+  than text, and **every node carries the declaration behind it** — a struct its
+  `message`'s span, a field's name the span of the `.proto` field, a variant the
+  span of its value — which is what makes go-to-definition on a generated field
+  land on the schema line that produced it. Each message brings `defaultM`,
+  `encodeM`, `decodeM`, `encodeMJson`, `decodeMJson` and `decodeMJsonAt`, and
+  each enum four of its own. Costs one pass over the schema to build the type
+  table and one to write the tree; a type name resolves through an `OrdMap`, so
+  a schema of `n` declarations costs O(n log t) in the `t` types in scope.
+  [The proto reference](./build/proto.md) is the mapping, and it is a promise.
 
 ## Collections
 
