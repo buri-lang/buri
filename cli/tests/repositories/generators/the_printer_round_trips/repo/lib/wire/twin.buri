@@ -1,0 +1,99 @@
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+from "//lib/wire/helper.buri" export { helperTag };
+
+from "//lib/wire/helper.buri" import { helperTag };
+
+export type Size = Int;
+
+derive Eq, Show for Point;
+export struct Point {
+    export x: Int,
+    export y: Size,
+}
+
+export enum Shape {
+    Dot,
+    Line(Int),
+    Named { size: Size },
+}
+
+export trait Wide {
+    fn wide(self): Int;
+}
+
+impl Wide for Point {
+    fn wide(self): Int {
+        self.x + self.y
+    }
+}
+
+export let origin: Point = Point { x: 0, y: 0 };
+
+/// Every construct the printer can write, in one function.
+export fn probe<C: Alloc>(ctx: C, n: Int): Int {
+    let pair: (Int, Int) = (n, n + 1);
+    let items: [Int] = [1, 2, 3];
+    let nothing: () = ();
+    let ch: Char = 'q';
+    let text: Str = str.format(ctx, "n is ${n}");
+    let flags: Int = n & 3 | n ^ 1;
+    let negated: Int = -n;
+    let flipped: Int = ~n;
+    let no: Bool = !(n > 0);
+    let shape: Shape = if (n > 2) { .Line(n) } else { .Named { size: n } };
+    let point: Point = Point { ..origin, x: n };
+    let widened: Int = point.wide();
+    let mapped: [Int] = items.mapCtx(ctx, fn(_c, i) => i * 2);
+    let twice: fn(Int) => Int = fn(a: Int): Int => a * 2;
+    let byKind: Int = match (shape) {
+        .Dot => 0,
+        .Line(1) => 1,
+        .Line(_other) => 2,
+        .Named { size } => size,
+    };
+    let byLiteral: Int = match (n) {
+        0 => 10,
+        1 | 2 => 20,
+        _other => 30,
+    };
+    let byChar: Int = match (ch) {
+        'q' => 1,
+        _ => 0,
+    };
+    let byText: Int = match (text) {
+        "x" => 1,
+        _other => 0,
+    };
+    let byBool: Int = match (no) {
+        true => 1,
+        false => 0,
+    };
+    let byFloat: Int = match (1.5) {
+        1.5 => 1,
+        _other => 0,
+    };
+    let byUnit: Int = match (nothing) {
+        () => 1,
+    };
+    let byTuple: Int = match (pair) {
+        whole @ (_first, _second) => whole.0,
+    };
+    let byArray: Int = match (items) {
+        [first, ..] => first,
+        [] => 0,
+    };
+    let indexed: Int = items[2].withDefault(0);
+    let counted: Int = mapped.len() + list.empty<Int>().len();
+    let quotient: Int = n * 6 / 2 - n % 4;
+    let compared: Bool = n < 100 && n >= 0 || n <= 7;
+    let scored: Int = if (compared) { 1 } else { 0 };
+    let _ = twice(1);
+    let partOne: Int = n + helperTag + widened + byKind + byLiteral;
+    let partTwo: Int = byChar + byText + byBool + byFloat + byUnit;
+    let partThree: Int = byTuple + byArray + indexed + counted;
+    let partFour: Int = quotient + scored + flags + negated + flipped;
+    partOne + partTwo + (partThree + partFour) + pair.1
+}

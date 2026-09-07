@@ -12,6 +12,7 @@ from "core/actor" import { Actor, Address, Stepped };
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/host/testing" import { alloc, stdout, tasks };
 from "core/io" import * as io;
+from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 
 enum CounterMessage {
@@ -312,4 +313,206 @@ fn ticks<C: Alloc + Tasks>(
             stepped + ticks(ctx, address, left - 1)
         },
     }
+}
+
+// -----------------------------------------------------------------------------
+// The slot an answer nobody waited for goes into
+// -----------------------------------------------------------------------------
+//
+// `sendMessage` opens a reply slot per message and takes it once, whatever
+// happened: the actor was gone before the post, or the caller is a step of this
+// same actor and the drive found nothing to step with. Both leave a slot with
+// no answer in it, and **a take spends such a slot** — it goes back on the free
+// list and its generation moves, so the answer the loop writes afterwards lands
+// nowhere rather than in whoever holds the index by then.
+//
+// A slot that stayed open instead is two failures at once. It sits in the
+// runtime's table for the life of the process, and the answer a step writes
+// into it is a *block* nobody ever takes out — which is why every answer below
+// carries a string or a list this program grew rather than an `Int`.
+// `native::conformance` runs these blocks under `BURI_RT_HEAP_CHECK`, and that
+// is where an answer left in an abandoned slot is read back as a block nobody
+// gave back.
+
+derive Eq, Show for Carrying;
+enum Carrying {
+    Said(Str),
+    Listed([Int]),
+    Total(Int),
+}
+
+enum Ask<C> {
+    /// Call this, and fold what it said into the state.
+    Reenter(fn(C) => Int),
+    /// Answer with a string this program built.
+    Say(Str),
+    /// Answer with a list this program built.
+    List(Int),
+    Count,
+}
+
+/// A string this program grew, rather than one the compiler interned: a
+/// constant lives in the artifact's pool and is never a block anybody has to
+/// give back.
+fn grown<C: Alloc>(ctx: C, s: Str): Str {
+    s.concat(ctx, "")
+}
+
+/// An actor whose every answer carries a block.
+fn carrier<C: Alloc + Tasks>(): Actor<C, Int, Ask<C>, Carrying> {
+    Actor {
+        state: 0,
+        step: fn(c, seen, message) => {
+            match (message) {
+                .Reenter(f) => {
+                    let call = f;
+                    Stepped { state: seen + call(c), answer: .Total(seen) }
+                },
+                .Say(word) => {
+                    Stepped { state: seen + 1, answer: .Said(word.concat(c, "!")) }
+                },
+                .List(n) => {
+                    Stepped { state: seen + 1, answer: .Listed(list.range(c, 0, n)) }
+                },
+                .Count => Stepped { state: seen, answer: .Total(seen) },
+            }
+        },
+    }
+}
+
+/// Posts `left` messages that answer with a string, and counts how many were
+/// answered on the spot.
+fn saying<C: Alloc + Tasks>(
+    ctx: C,
+    address: Address<C, Int, Ask<C>, Carrying>,
+    left: Int,
+): Int {
+    match (left <= 0) {
+        true => 0,
+        false => {
+            let answered = match (address.sendMessage(ctx, .Say(grown(ctx, "late")))) {
+                .Ok(_said) => 1,
+                .Err(_gone) => 0,
+            };
+            answered + saying(ctx, address, left - 1)
+        },
+    }
+}
+
+test "an answer written into a slot its sender gave up on is given back" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, carrier());
+    let refused = counted.sendMessage(
+        ctx,
+        .Reenter(fn(c) => {
+            match (counted.sendMessage(c, .Say(grown(c, "late")))) {
+                .Ok(_said) => 1,
+                .Err(_gone) => 0,
+            }
+        }),
+    );
+    // The send from inside the step is refused, so its slot is taken with
+    // nothing in it.
+    assert.eq(refused, .Ok(.Total(0)));
+    // The message is not lost: the loop already running steps it, and the
+    // string it answers with goes into a slot nobody is holding.
+    assert.eq(counted.sendMessage(ctx, .Count), .Ok(.Total(1)));
+    assert.eq(counted.stop(ctx), .Ok(()));
+}
+
+test "an answer that is a list, written into a slot its sender gave up on, is given back" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, carrier());
+    let refused = counted.sendMessage(
+        ctx,
+        .Reenter(fn(c) => {
+            match (counted.sendMessage(c, .List(4))) {
+                .Ok(_listed) => 1,
+                .Err(_gone) => 0,
+            }
+        }),
+    );
+    assert.eq(refused, .Ok(.Total(0)));
+    assert.eq(counted.sendMessage(ctx, .Count), .Ok(.Total(1)));
+    assert.eq(counted.stop(ctx), .Ok(()));
+}
+
+test "every slot a step's sends gave up on comes back, twenty in a row" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    // Twenty slots opened and abandoned inside one step, then twenty answers
+    // written into them afterwards. A slot that did not come back is twenty
+    // table entries and twenty strings; the index each one is given back at is
+    // taken by the next send, which is what makes the generation the thing
+    // that keeps the late answers apart.
+    let counted = actor.start(ctx, carrier());
+    assert.eq(
+        counted.sendMessage(ctx, .Reenter(fn(c) => saying(c, counted, 20))),
+        .Ok(.Total(0)),
+    );
+    assert.eq(counted.sendMessage(ctx, .Count), .Ok(.Total(20)));
+    assert.eq(counted.stop(ctx), .Ok(()));
+}
+
+test "an ordinary send after twenty abandoned ones gets its own answer" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    // The reused index is the point. Every abandoned slot goes back on the
+    // free list, so the send below opens an index one of them was named by —
+    // and it has to come back with the answer to *this* message.
+    let counted = actor.start(ctx, carrier());
+    assert.eq(
+        counted.sendMessage(ctx, .Reenter(fn(c) => saying(c, counted, 20))),
+        .Ok(.Total(0)),
+    );
+    assert.eq(counted.sendMessage(ctx, .Say(grown(ctx, "mine"))), .Ok(.Said("mine!")));
+    assert.eq(counted.sendMessage(ctx, .Count), .Ok(.Total(21)));
+    assert.eq(counted.stop(ctx), .Ok(()));
+}
+
+/// Posts `left` messages into a mailbox that is closed, and counts the
+/// refusals.
+fn refused<C: Alloc + Tasks>(
+    ctx: C,
+    address: Address<C, Int, Ask<C>, Carrying>,
+    left: Int,
+): Int {
+    match (left <= 0) {
+        true => 0,
+        false => {
+            let gone = match (address.sendMessage(ctx, .Say(grown(ctx, "gone")))) {
+                .Ok(_said) => 0,
+                .Err(_stopped) => 1,
+            };
+            gone + refused(ctx, address, left - 1)
+        },
+    }
+}
+
+test "a slot opened for a message a closed mailbox refused comes back" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    // The other arm that abandons a slot, and the one a program reaches by
+    // accident: twenty sends to an actor that is already gone. Each opens a
+    // slot, is refused before it is posted, and takes the slot back — and the
+    // message it built is the caller's to release, because a closed mailbox
+    // does not take the block.
+    let counted = actor.start(ctx, carrier());
+    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.eq(refused(ctx, counted, 20), 20);
+    // And again, after twenty errors: nothing about the sequence is spent.
+    assert.eq(refused(ctx, counted, 20), 20);
+    assert.eq(counted.stop(ctx), .Err(.Stopped));
 }

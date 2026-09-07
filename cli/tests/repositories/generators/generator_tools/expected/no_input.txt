@@ -1,0 +1,33 @@
+error: gone.proto does not exist [no-such-source]
+ --> lib/wire/BUILD.buri:3:47
+  |
+3 |         { tool: "std/codegen/proto", inputs: ["gone.proto"] },
+  |                                               ^^^^^^^^^^^^
+  |
+  = every source is declared one path at a time; there are no globs
+  = fix: create the file, or remove it from `generators`
+error: "//lib/wire/point.proto" names a schema, and no `generators` entry in //lib/wire hands it to a tool [module-not-found]
+ --> lib/wire/lib.buri:1:6
+  |
+1 | from "//lib/wire/point.proto" export { defaultPoint, Point };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+

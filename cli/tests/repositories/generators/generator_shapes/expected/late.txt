@@ -1,0 +1,68 @@
+error: the generator produced no response [generator-failed]
+ --> lib/wire/BUILD.buri:7:9
+  |
+7 |         { tool: "//cmd/gen", inputs: ["mode.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = the generator exited with 1
+    the generator answered and then changed its mind
+  = fix: run the tool by hand and check it writes one line of JSON on standard output
+
+    The note says which way it went: the tool did not build, it exited non-zero,
+    a signal killed it, it wrote nothing, or what it wrote is not a response.
+
+      = the generator was killed by SIGSEGV (signal 11)
+        RangeError: Maximum call stack size exceeded.
+
+    A tool that was killed chose no status, so the note names the signal instead
+    — SIGSEGV for a crash or a stack it ran off the end of, SIGKILL for a
+    machine that ran out of memory. Whatever it put on standard error comes with
+    the note, the last four kilobytes of it, because what a program says last is
+    what says why it stopped.
+
+    A response is one line of JSON — the modules to load, and what the generator
+    has to say about its inputs:
+
+      {"modules":[{"name":"units","text":"export let width: Int = 3;\n","anchors":[]}],"diagnostics":[]}
+
+    The response is the last non-empty line of standard output, so a println of
+    your own above it costs nothing. core/codegen's run writes the line for you,
+    and a tool built on it reaches this page only when it never got as far as
+    answering.
+
+    A tool that is *slow* is not this page. Nothing puts a clock on a generator:
+    the build waits for as long as it runs, the way it waits for a compiler or a
+    linker. If a tool of yours never answers, stop the build and run it by hand.
+
+error: "//lib/wire/left" names no file (lib/wire/left.buri) [module-not-found]
+ --> lib/wire/lib.buri:1:6
+  |
+1 | from "//lib/wire/left" export { leftValue };
+  |      ^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+
+error: "//lib/wire/right" names no file (lib/wire/right.buri) [module-not-found]
+ --> lib/wire/lib.buri:5:6
+  |
+5 | from "//lib/wire/right" export { rightValue };
+  |      ^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search

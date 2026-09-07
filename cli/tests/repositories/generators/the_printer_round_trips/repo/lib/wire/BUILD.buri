@@ -1,0 +1,9 @@
+library {
+    sources: ["helper.buri", "twin.buri"]
+
+    generators: [
+        { tool: "//cmd/gen", inputs: [] },
+    ]
+
+    visibility: ["//visibility:public"]
+}

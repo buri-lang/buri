@@ -264,6 +264,12 @@ const PACKAGES: &[Case] = &[
     // every one of those entries is in both runtime tables, and the answers it
     // asserts are answers rather than timings.
     included("actor/counter.buri"),
+    // What a message, a state and an answer may carry: a block whose element
+    // occupies no bytes, a list, text outside the basic plane, a struct two
+    // deep, and one actor's address as another actor's state. In for the same
+    // reason, and with more of the boundary in it — each backend generates the
+    // release and the copy walk for the concrete `T` itself.
+    included("actor/payloads.buri"),
     // The same surface driven from inside `core/alloc::scoped`, which is where
     // the four values `core/actor` hands the runtime have to be copies made
     // outside every arena rather than blocks the scope is about to unmap. It is
@@ -282,6 +288,10 @@ const PACKAGES: &[Case] = &[
     // reason exactly — the entries are in both runtime tables, and every
     // assertion is a line of captured output rather than a timing.
     included("tasks/scope.buri"),
+    // The edges around that promise: what a body may answer, a scope inside a
+    // scope, a timer of no time and one a month long, and the three orders the
+    // double schedules a spawn in. Answers and captured lines throughout.
+    included("tasks/background.buri"),
     //
     // `core/buri/ast` and `core/codegen` are ordinary Buri over lists, strings
     // and tuples, with no host effect anywhere in them, so every assertion
