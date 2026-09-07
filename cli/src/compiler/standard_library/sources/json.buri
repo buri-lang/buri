@@ -7,21 +7,16 @@
 //! components, with no reflection and no macro anywhere. `encode` and `decode`
 //! are the two functions that use them.
 //!
-//! **An object is an ordered association list, not a map.** Three reasons, in
-//! order of weight. It round-trips: parse then stringify gives the key order
-//! back, which a hash map cannot promise. It needs no `Hash` bound, so a `Json`
-//! is comparable and renderable with nothing but `derive`. And JSON objects are
-//! small in practice. The cost is that `get` is O(n), which this says up front
-//! rather than leaving you to find out.
+//! **An object is an ordered association list, not a map.** So parse then
+//! stringify gives the key order back, and a `Json` needs no `Hash` bound to be
+//! comparable and renderable. The cost is that `get` is O(n).
 //!
 //! `parse` reads `\uXXXX`, surrogate pairs included. A lone surrogate is an
-//! error rather than a replacement character, for the same reason a bad UTF-8
-//! sequence is one in `core/bytes`.
+//! error rather than a replacement character.
 //!
-//! **Every number is a `Float`.** That is what JSON says a number is. A
+//! **Every number is a `Float`**, which is what JSON says a number is. A
 //! document holding an integer larger than 2^53 does not survive the round
-//! trip, and neither does one in any other JSON implementation backed by a
-//! double.
+//! trip.
 //!
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
@@ -70,7 +65,7 @@ export enum Json {
 
 derive Eq, Show for JsonError;
 /// What went wrong, and where. The position is an index into the characters of
-/// the input, so it is the same number whatever the encoding of the source.
+/// the input.
 export enum JsonError {
     /// A character that cannot begin, continue, or end the value being read.
     Unexpected(Int),
@@ -82,17 +77,13 @@ export enum JsonError {
     BadNumber(Int),
     /// A `\` followed by something that is not an escape.
     BadEscape(Int),
-    /// Nesting past `MAX_DEPTH`. Parsing is recursive and recursion here is not
-    /// in tail position, so without this a deep enough document is a crash
-    /// rather than an error.
+    /// Nesting past `MAX_DEPTH`.
     TooDeep(Int),
 }
 
-/// How deeply arrays and objects may nest.
-///
-/// A limit is not a nicety: `value` calls itself for each element, and those
-/// calls are not tail calls, so nothing eliminates the frames. 512 is far past
-/// any document a person writes and far short of any stack.
+/// How deeply arrays and objects may nest. `value` calls itself for each
+/// element and those calls are not tail calls, so a document deeper than this
+/// is an error rather than a crash.
 export let MAX_DEPTH: Int = 512;
 
 // -----------------------------------------------------------------------------
@@ -101,8 +92,7 @@ export let MAX_DEPTH: Int = 512;
 
 /// Parses one complete document.
 ///
-/// Trailing text is an error rather than a stopping point: a caller who asked
-/// for one value and got one value and a half should hear about it.
+/// Trailing text is an error rather than a stopping point.
 export fn parse<C: Alloc>(ctx: C, text: Str): Result<Json, JsonError> {
     let cs = text.chars(ctx);
     let start = skipSpace(cs, 0);
@@ -190,10 +180,8 @@ fn matches(cs: [Char], i: Int, word: Str, k: Int, n: Int): Bool {
 
 // --- Arrays and objects -------------------------------------------------------
 //
-// Both use an accumulator plus a recursive step rather than a loop, because
-// there are no loops (design/non-goals.md). The recursion is in tail position,
-// so it costs no stack — unlike the call into `value`, which is why `depth`
-// exists.
+// Both use an accumulator plus a recursive step in tail position, so it costs
+// no stack — unlike the call into `value`, which is why `depth` exists.
 
 fn array<C: Alloc>(
     ctx: C,
@@ -235,8 +223,7 @@ fn object<C: Alloc>(
             if (c == '}' && acc.len() == 0) {
                 .Ok((Json.Object(acc), i + 1))
             } else if (c != '"') {
-                // A key is a string. JSON admits no bare word, and accepting one would
-                // write documents this module could read and nothing else could.
+                // A key is a string: JSON admits no bare word.
                 .Err(.Unexpected(i))
             } else {
                 let (k, afterKey) = string(ctx, cs, i)?;
@@ -311,8 +298,7 @@ fn stringBody<C: Alloc>(
 fn unicodeEscape(cs: [Char], i: Int): Result<(Char, Int), JsonError> {
     let hi = hex4(cs, i + 2)?;
     if (hi < 55296 || hi > 56319) {
-        // Not a high surrogate. A *low* surrogate on its own is not a character
-        // either, and is refused for the same reason.
+        // Not a high surrogate. A lone low surrogate is refused here too.
         if (hi >= 56320 && hi <= 57343) {
             .Err(.BadEscape(i + 2))
         } else {
@@ -388,9 +374,8 @@ fn number<C: Alloc>(ctx: C, cs: [Char], i: Int): Result<(Json, Int), JsonError> 
     }
 }
 
-/// The extent of a number token. Deliberately generous — it takes every
-/// character a number could contain and lets `toFloat` be the judge, so there
-/// is one definition of what a number is rather than two that can disagree.
+/// The extent of a number token. It takes every character a number could
+/// contain and lets `toFloat` be the judge.
 fn numberEnd(cs: [Char], start: Int, i: Int): Int {
     match (cs.get(i)) {
         .None => i,
@@ -445,11 +430,8 @@ export fn stringify<C: Alloc>(ctx: C, v: Json): Str {
 
 /// A number, the way JSON writes one.
 ///
-/// `str.fromFloat` renders a whole number as `3.0`, because in Buri that is
-/// what distinguishes a `Float` from an `Int`. JSON has one number type and
-/// writes it `3`, so the trailing `.0` comes off — a string test rather than a
-/// conversion to `Int`, which would be fallible and would misrender everything
-/// past 2^53 rather than leaving it alone.
+/// `str.fromFloat` renders a whole number as `3.0`. JSON has one number type
+/// and writes it `3`, so the trailing `.0` comes off.
 fn numberText<C: Alloc>(ctx: C, x: Float): Str {
     let s = str.fromFloat(ctx, x);
     if (s.endsWith(".0")) { s.slice(0, s.len() - 2) } else { s }
@@ -473,8 +455,8 @@ fn escape<C: Alloc>(ctx: C, c: Char): Str {
     } else if (c == '\t') {
         "\\t"
     } else if (c.toU32().toI64() < 32) {
-        // JSON forbids a raw control character in a string; the four with short
-        // spellings are above, and `\u00XX` is the only way to write the rest.
+        // JSON forbids a raw control character in a string, and `\u00XX` is the
+        // only way to write the ones without a short spelling.
         let n = c.toU32().toI64();
         str.format(
             ctx,
@@ -562,59 +544,43 @@ impl Json {
 // -----------------------------------------------------------------------------
 //
 // `derive ToJson for Point;` and `derive FromJson for Point;` are folds over
-// the type's components, exactly as `derive Show` is. The compiler already
-// ships a *descriptor* of every type the structural operations reach — field
-// names, variant shapes, element types — and the runtime walks it. So this
-// costs no reflection, no macro, and no generated source: one walker for the
-// whole program rather than one encoder per type.
+// the type's components, exactly as `derive Show` is. The compiler ships a
+// *descriptor* of every type the structural operations reach — field names,
+// variant shapes, element types — and the runtime walks it, so this costs no
+// reflection, no macro, and no generated source.
 //
-// A type derives one of these only if every one of its components does. The
-// checker decides that the way it decides `derive Eq`: a component that reaches
-// back to the type being derived stops there rather than asking again, so a
-// recursive type — a tree, a rose, a list of itself — derives rather than hangs.
+// A type derives one of these only if every one of its components does. A
+// component that reaches back to the type being derived stops there, so a
+// recursive type derives rather than hangs.
 //
-// **The mapping**, written down here rather than left for you to find by
-// reading output:
+// **The mapping**:
 //
 //   * `Bool` is a JSON boolean; every integer and float type is a JSON number;
 //     `Str` is a string, and `Char` is a one-character string.
 //   * `()` is `null`.
-//   * `[T]` is an array, and so is a tuple: a tuple is positional data, and
-//     JSON's positional container is the array.
+//   * `[T]` is an array, and so is a tuple.
 //   * `Option<T>` is the encoding of `T`, or `null` for `.None`. JSON has one
 //     null, so `Option<Option<T>>` does not round-trip — `.Some(.None)` and
-//     `.None` both write `null` and both read back as `.None`. That is the
-//     price of the obvious encoding, and this says so rather than hiding it.
+//     `.None` both write `null` and both read back as `.None`.
 //   * A struct with named fields is an object keyed by those names, in
 //     declaration order.
 //   * A struct with positional fields is an array, in declaration order — a
-//     one-field struct included. Writing a newtype "transparently" as its one
-//     field would tie the document's shape to how many fields the type happens
-//     to have today, so adding a second field would silently change every
-//     document already written.
+//     one-field struct included.
 //   * An enum is **externally tagged**: a variant with no fields is its own
 //     name as a string, a variant with named fields is `{"Name": { ... }}`,
-//     and a variant with positional fields is `{"Name": [ ... ]}`. The
-//     alternative — `{"tag": "Name", ...}` — reserves a key, and a struct
-//     variant with a field called `tag` then collides with it silently.
-//     Externally tagged reserves nothing.
+//     and a variant with positional fields is `{"Name": [ ... ]}`.
 //
 // **You derive these two traits; you never write one by hand.** A derive stands
-// for the *shape*, which is what the descriptor carries — so a hand-written
-// `impl ToJson for Date` would run where something encodes a `Date` on its own,
-// and get walked straight past where an `Appointment` holding one is encoded,
-// which is worse than not having it. The compiler rejects an `impl` of either
-// rather than half-obeying it.
+// for the *shape*, which is what the descriptor carries, so the compiler
+// rejects an `impl` of either.
 //
-// **`Json` itself is neither**, for the same reason: the structural walk would
-// write `Json.Str("x")` as `{"Str": ["x"]}`, and a `Json` is already JSON. So a
-// type with a `Json` field does not derive these. Convert at the boundary
-// instead, which is a line of code a reader can see.
+// **`Json` itself is neither**: the structural walk would write `Json.Str("x")`
+// as `{"Str": ["x"]}`, and a `Json` is already JSON. So a type with a `Json`
+// field does not derive these. Convert at the boundary instead.
 
 /// Encoding a value as JSON. Derived, never written by hand — see above.
 ///
-/// Rendering allocates, so `toJson` names `Alloc` and nothing else, exactly as
-/// `Show.show` does.
+/// Rendering allocates, so `toJson` names `Alloc` and nothing else.
 export trait ToJson {
     fn toJson<C: Alloc>(self, ctx: C): Json;
 }
@@ -622,8 +588,7 @@ export trait ToJson {
 /// Decoding a value from JSON. Derived, never written by hand — see above.
 ///
 /// Its method takes no `self`: there is no value yet. So you reach it through
-/// `decode` rather than through a receiver, the way you reach `Bounded` through
-/// `num.maxValue`.
+/// `decode` rather than through a receiver.
 export trait FromJson {
     fn fromJson(value: Json): Result<Self, DecodeError>;
 }
@@ -632,8 +597,7 @@ derive Eq, Show for DecodeError;
 /// Why a document could not be read as the type asked for, and *where*.
 ///
 /// `path` writes `$` for the document itself, `.name` for a member and `[i]`
-/// for an element, so `$.center.x` and `$.tags[2]` name a place a reader can
-/// find in the text in front of them.
+/// for an element, so a failure names a place: `$.center.x`, `$.tags[2]`.
 export enum DecodeError {
     /// An object with no member of that name.
     Missing { path: Str },
@@ -690,10 +654,8 @@ export fn encode<T: ToJson, C: Alloc>(ctx: C, value: T): Json {
 
 /// Reads a `Json` as a `T`, or says where it stopped.
 ///
-/// **The type comes from the annotation.** `decode` is generic in both the type
-/// it reads and the context it allocates in, and a written type argument list
-/// has to name every argument — a context type has no name to write
-/// (SPEC 11.3), so there is nothing to put in the second slot. Write the type
-/// on the binding instead — `let point: Result<Point, DecodeError> =
-/// json.decode(ctx, doc);` — as the example on `encode` does.
+/// **The type comes from the annotation.** A written type argument list has to
+/// name every argument, and a context type has no name to write (SPEC 11.3).
+/// Write the type on the binding instead: `let point: Result<Point,
+/// DecodeError> = json.decode(ctx, doc);`.
 export fn decode<T: FromJson, C: Alloc>(ctx: C, value: Json): Result<T, DecodeError>;

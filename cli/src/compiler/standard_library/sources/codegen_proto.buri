@@ -4,9 +4,8 @@
 //! one module per schema in it. [`generate`] does the same work on one schema
 //! `std/codegen/proto/schema` has already read.
 //!
-//! The mapping is normative, and it is written down in
-//! `cli/src/docs/reference/build/proto.md` rather than left to be read off the
-//! output. In summary:
+//! The mapping is normative and written down in
+//! `cli/src/docs/reference/build/proto.md`. In summary:
 //!
 //! ```text
 //! message Person                  -> struct Person, derive Eq, Show
@@ -25,14 +24,8 @@
 //! land on `string name = 1;`. A node no declaration is behind — a binding
 //! inside a codec — takes `ast.nowhere()`.
 //!
-//! The codecs are *generated Buri* rather than a walk over a descriptor. The
-//! descriptor `derive ToJson` walks carries field names and variant shapes, and
-//! a protobuf message is made of field numbers and wire types, which it does
-//! not carry at all. What every schema shares lives in `core/proto`.
-//!
-//! Cost: one pass over the schema to build the type table and one to write the
-//! tree. A name is resolved through an `OrdMap`, so a lookup is O(log t) in the
-//! number of declared types and a schema of `n` declarations costs O(n log t).
+//! The codecs are *generated Buri* rather than a walk over a descriptor. What
+//! every schema shares lives in `core/proto`.
 
 from "core/buri/ast" import * as ast;
 from "core/codegen" import { Diagnostic, Request, Response };
@@ -101,9 +94,7 @@ let TAKEN: [Str] = [
 
 /// protoc's rule, exactly: drop each `_` and capitalise what follows it.
 ///
-/// Nothing else changes case, so a schema's `URL` stays `URL` and the JSON name
-/// this produces is the one protoc would put in the descriptor. Cost: O(n) in
-/// the name.
+/// Nothing else changes case, so a schema's `URL` stays `URL`.
 export fn camelCase<C: Alloc>(ctx: C, name: Str): Str {
     let seed: ([Char], Bool) = ([], false);
     let out = name
@@ -169,8 +160,7 @@ export struct Entry {
 /// The file a diagnostic names when it says where a type was declared.
 ///
 /// The module path for a type reached through an import, and the input's own
-/// path for one declared here — which is what a reader of the diagnostic can
-/// act on, because the module path is what an `import` in this file writes.
+/// path for one declared here.
 fn declaredIn(e: Entry): Str {
     match (e.inModule) {
         .Some(m) => m,
@@ -188,7 +178,7 @@ fn sameAs(a: Entry, b: Entry): Bool {
 /// could reasonably use to reach it.
 ///
 /// A name can be claimed twice, and the two ways that happens are not the same
-/// mistake — so neither is silently resolved by whichever file was read first:
+/// mistake:
 ///
 /// * a **fully-qualified** name claimed twice is a duplicate declaration, and
 ///   one of the two files has to change;
@@ -213,8 +203,7 @@ export fn emptyTable(): Table {
 }
 
 /// One key, for one entry. `qualified` says whether the key is the whole of a
-/// type's name or an abbreviation of it, which is what parts a duplicate
-/// declaration from ordinary ambiguity.
+/// type's name or an abbreviation of it.
 fn addKey<C: Alloc>(ctx: C, t: Table, key: Str, entry: Entry, qualified: Bool): Table {
     match (t.byName.get(key)) {
         .None => Table { ..t, byName: t.byName.insert(ctx, key, entry) },
@@ -349,12 +338,10 @@ export fn collect<C: Alloc>(
         )
 }
 
-/// proto's name resolution, narrowed to what a schema this small needs: a
-/// leading `.` is absolute, and everything else is tried from the innermost
-/// enclosing message outward.
-///
-/// Answers the key it matched as well as the entry, because whether the answer
-/// is trustworthy depends on which name found it.
+/// proto's name resolution: a leading `.` is absolute, and everything else is
+/// tried from the innermost enclosing message outward. It answers the key it
+/// matched as well as the entry, since trustworthiness depends on which name
+/// found it.
 export fn resolveName<C: Alloc>(
     ctx: C,
     t: Table,
@@ -426,10 +413,8 @@ export fn ambiguity(t: Table, key: Str): Option<[Entry]> {
 /// The variant an open enum keeps an unrecognised number in.
 ///
 /// Editions enums are OPEN by default, and an open enum's contract is that a
-/// value the schema does not know *survives*: it is part of the value, not an
-/// unknown field. The name gives way to a declared one rather than the other
-/// way round, because a schema is allowed to have a value called
-/// `Unrecognized` and its meaning wins.
+/// value the schema does not know *survives*. A schema may declare a value
+/// called `Unrecognized`, and its meaning wins over this one.
 export fn unrecognizedName<C: Alloc>(ctx: C, e: schema.Enum): Str {
     grow(ctx, e.values.mapCtx(ctx, fn(c, v) => escape(c, v.name)), "Unrecognized")
 }
@@ -497,8 +482,7 @@ export enum FieldType {
     Named(Entry),
 }
 
-/// The keyword a schema writes this scalar as. Every decision about a scalar
-/// asks this one question, so the fifteen variants are matched once.
+/// The keyword a schema writes this scalar as.
 fn scalarName(s: schema.Scalar): Str {
     match (s) {
         .Int32 => "int32",
@@ -626,11 +610,9 @@ fn isMessageField(f: ResolvedField): Bool {
 
 /// Whether the Buri field is an `Option`.
 ///
-/// Under editions this is the *default* for a singular field rather than the
-/// exception it was under proto3: `features.field_presence` is EXPLICIT unless
-/// something says otherwise, and a message field tracks presence whatever the
-/// feature says, because there is no "default message" for an absent one to
-/// mean.
+/// Under editions `features.field_presence` is EXPLICIT unless something says
+/// otherwise, so a singular field is an `Option` by default. A message field
+/// tracks presence whatever the feature says.
 fn isOptional(f: ResolvedField): Bool {
     let explicit = match (f.presence) {
         .Explicit => true,
@@ -944,8 +926,7 @@ fn enumItems<C: Alloc>(ctx: C, e: schema.Enum, scope: [Str]): [ast.Item] {
         .None => "UNSPECIFIED",
     };
     // A schema whose enum has no values is already an error; emitting one value
-    // keeps the module parseable, so the real diagnostic is the one a reader
-    // sees.
+    // keeps the module parseable.
     let values = if (e.values.isEmpty()) {
         [Valued { buri: zero, declared: zero, number: 0, origin: here }]
     } else {
@@ -1339,8 +1320,7 @@ fn writeRaw<C: Alloc>(
 }
 
 /// The test that decides whether a singular field is written at all. proto3
-/// omits a field holding its default, and that is what makes an encoding
-/// canonical rather than merely correct.
+/// omits a field holding its default.
 fn isDefaultTest<C: Alloc>(ctx: C, f: ResolvedField, value: ast.Expr): ast.Expr {
     match (f.ty) {
         .Scalar(s) => {
@@ -1494,10 +1474,9 @@ fn readOne(f: ResolvedField): ast.Expr {
 
 /// The raw reading turned into the field's own type.
 ///
-/// A 32-bit field truncates. The wire format has one integer encoding, so a
-/// `uint32` field can arrive carrying 2^33; protobuf reads the low 32 bits and
-/// every implementation agrees on that, so a decoder that kept the whole number
-/// would disagree with all of them.
+/// A 32-bit field truncates: the wire format has one integer encoding, so a
+/// `uint32` field can arrive carrying 2^33, and protobuf reads the low 32
+/// bits.
 fn adapt<C: Alloc>(ctx: C, f: ResolvedField, raw: ast.Expr): ast.Expr {
     match (f.ty) {
         .Scalar(s) => {
@@ -1651,8 +1630,8 @@ fn assignment<C: Alloc>(
 }
 
 /// Every header case one field answers to: the packed reading of a repeated
-/// numeric field, and the field itself. A writer may send either form of a
-/// packable repeated field, so a reader takes either.
+/// numeric field, and the field itself. A writer may send either form, so a
+/// reader takes both.
 fn fieldArms<C: Alloc>(
     ctx: C,
     name: Str,
@@ -2010,8 +1989,7 @@ fn jsonRead<C: Alloc>(
                 nsCall("proto", "asFloat32", [doc, path])
             } else {
                 // proto3 JSON rejects a value the field cannot hold rather than
-                // truncating it, which is what the binary format does — so the
-                // field's own range has to travel to the reader.
+                // truncating it, so the field's own range travels to the reader.
                 let bounds = jsonRange(s);
                 nsCall("proto", "asInt", [doc, path, intE(bounds.0), intE(bounds.1)])
             }
@@ -2032,8 +2010,8 @@ fn jsonRead<C: Alloc>(
 /// Looking a field up in an object.
 ///
 /// proto3 JSON *writes* the camelCase name and *accepts* either it or the name
-/// the schema wrote. A field whose schema name is already camel needs only the
-/// one lookup, and gets it.
+/// the schema wrote. A field whose schema name is already camel needs one
+/// lookup.
 fn memberCall(f: ResolvedField): ast.Expr {
     if (f.json == f.declared) {
         nsCall("proto", "member", [id("doc"), strE(f.json)])
@@ -2042,8 +2020,7 @@ fn memberCall(f: ResolvedField): ast.Expr {
     }
 }
 
-/// A oneof's cases, read in order: the first member present wins, which is what
-/// a document holding two of them means to every other implementation.
+/// A oneof's cases, read in order: the first member present wins.
 fn oneofJsonFn<C: Alloc>(ctx: C, o: ResolvedOneof): ast.Item {
     let seed = variantCall("Ok", [variantE("None")]);
     let body = o
@@ -2090,9 +2067,7 @@ fn oneofJsonFn<C: Alloc>(ctx: C, o: ResolvedOneof): ast.Item {
 
 /// The bindings one field contributes to `decodeMJsonAt`.
 ///
-/// Every binding is annotated: a `.None` arm has no type to infer from on its
-/// own, and the annotation is what a reader of the generated module wants
-/// anyway.
+/// Every binding is annotated: a `.None` arm has no type to infer from.
 fn fieldLets<C: Alloc>(ctx: C, f: ResolvedField): [ast.Stmt] {
     let at = nsCall("proto", "at", [id("ctx"), id("path"), strE(f.json)]);
     if (isRepeated(f)) {
@@ -2330,7 +2305,7 @@ fn duplicateDiagnostics<C: Alloc>(ctx: C, t: Table): [Diagnostic] {
 /// A written type, resolved against the file's declarations and its imports'.
 ///
 /// Two packages can both have a `Status`, and a short name that reaches both is
-/// not an answer — it is a coin toss decided by which file was read first.
+/// ambiguous rather than resolved by read order.
 fn resolveType<C: Alloc>(
     ctx: C,
     g: Gen,
@@ -2603,8 +2578,7 @@ export struct Generated {
 /// Turns one schema into one module.
 ///
 /// `deps` is the schema of every file this one may reach, with the module path
-/// its generated form has — a field's type may live in any of them. Cost: one
-/// pass to collect the table and one to write the tree.
+/// its generated form has.
 export fn generate<C: Alloc>(
     ctx: C,
     file: Str,
@@ -2679,9 +2653,9 @@ struct Resolved {
 /// carries.
 ///
 /// Its imports and not its siblings: a type is reachable from a file only when
-/// that file says so, which is what makes deleting an `import` change what
-/// resolves. `available` is keyed by module path, and so is the lookup, so an
-/// import written `./a.proto` and an input spelled `a.proto` are one key.
+/// that file says so. `available` is keyed by module path, and so is the lookup,
+/// so an import written `./a.proto` and an input spelled `a.proto` are one
+/// key.
 fn resolveImports<C: Alloc>(
     ctx: C,
     available: [(Str, schema.Schema)],
@@ -2720,8 +2694,7 @@ fn resolveImports<C: Alloc>(
 /// The generator's entry point: hand this to `core/codegen`'s `run`.
 ///
 /// Every input is read as a schema before any of them is generated, because a
-/// field's type may live in any of the others — but only in the ones the file
-/// imports, so the schemas are read together and resolved one at a time.
+/// field's type may live in any of the ones the file imports.
 export fn emit<C: Alloc>(ctx: C, request: Request): Response {
     let read = request
         .inputs

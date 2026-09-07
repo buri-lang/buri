@@ -3,51 +3,37 @@
 //! The collection `core/map` is not: keyed *and* ordered. Lookup, insert and
 //! remove are O(log n). `entries`, `keys` and `values` come out in key order,
 //! and `range` and `prefix` are scans that visit only what they answer rather
-//! than filters over the whole map. That is the whole reason to reach for this
-//! instead of a hash map. The reason to reach for a hash map instead is that
+//! than filters over the whole map. Reach for a hash map instead when
 //! expected-constant lookup beats logarithmic.
 //!
 //! **Why a B-tree, and why seven entries to a node.** Every write copies one
 //! root-to-leaf path and shares the rest of the tree, which is what makes an
 //! immutable collection affordable. A node holding at most `2t - 1` entries
-//! makes the tree about `log_t n` deep, so a write copies about `t / log t`
-//! times `log n` entries. That ratio is smallest at a tiny `t` and climbs very
-//! slowly, so what actually decides the arity is everything a node costs
-//! *besides* its entries. Here a node is a heap block the runtime
-//! reference-counts, and the expensive part is the allocation and the
-//! retain/release traffic along the copied path. One contiguous copy moves the
-//! entries inside a node, and that is the cheap part. Seven entries — minimum
-//! degree four, so three at the least outside the root — buys between a half
-//! and a third of a binary tree's depth, and so that fraction of its
-//! allocations, for roughly two to three times the entries moved. It is also
+//! makes the tree about `log_t n` deep, so what decides the arity is everything
+//! a node costs *besides* its entries: here a heap block the runtime
+//! reference-counts, plus retain/release traffic along the copied path. Seven
+//! entries — minimum degree four, so three at the least outside the root — buys
+//! between a half and a third of a binary tree's depth, and so that fraction of
+//! its allocations, for roughly two to three times the entries moved. It is also
 //! short enough that the linear scan within a node beats a binary search's
 //! branches.
 //!
 //! **`range` is half-open**: `start` is in, `end` is out, so adjacent ranges
-//! tile without overlapping and `range(ctx, k, k)` is empty. The parameters are
-//! `start` and `end` rather than `from` and `to` because `from` is a keyword,
-//! and because `list.range` already names its bounds that way.
+//! tile without overlapping and `range(ctx, k, k)` is empty.
 //!
 //! **`prefix` is `Str` only, and means a prefix of the key's scalar values.**
-//! It lives on `OrdMap<Str, V>` rather than on every key type, because "prefix"
-//! is a fact about strings and not about ordered values in general.
 //! `Str.compare` is lexicographic over Unicode scalar values and `startsWith`
-//! asks about the same units. Those two agreeing is what makes the matching
-//! keys one contiguous run: a key that is at least `p` and does not start with
-//! `p` must differ from `p` somewhere inside `p`, so it is greater than every
-//! key that does start with `p`. So `prefix` is a `range` whose upper end is a
-//! predicate rather than a key — it invents no successor string, and
-//! `prefix(ctx, "")` is every entry.
+//! asks about the same units, which is what makes the matching keys one
+//! contiguous run. So `prefix` is a `range` whose upper end is a predicate
+//! rather than a key — it invents no successor string, and `prefix(ctx, "")` is
+//! every entry.
 //!
 //! **A compound key is a struct with `derive Ord`.** Tuples have no methods, so
 //! a tuple is not `Ord`. A derived `Ord` compares fields in declaration order,
-//! which is exactly what a multi-column index wants: the three orderings a
-//! triple store keeps are three structs, each declaring subject, predicate and
-//! object in the order that index scans them.
+//! which is what a multi-column index wants.
 //!
-//! `equals` rather than `derive Eq`, for the same reason `core/map` provides
-//! one: two maps holding the same entries need not have the same tree, because
-//! the shape follows the order the keys arrived in.
+//! `equals` rather than `derive Eq`: two maps holding the same entries need not
+//! have the same tree, because the shape follows the order the keys arrived in.
 //!
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
@@ -81,14 +67,14 @@ from "core/list" import * as list;
 /// The module comment says why four.
 let MAX_ENTRIES: Int = 7;
 
-/// The fewest any node but the root may hold. Derived rather than written, so
-/// the two cannot drift: a split of `MAX_ENTRIES + 1` entries leaves this many
-/// on the short side, and a merge of two short nodes and a separator fits.
+/// The fewest any node but the root may hold. A split of `MAX_ENTRIES + 1`
+/// entries leaves this many on the short side, and a merge of two short nodes
+/// and a separator fits.
 let MIN_ENTRIES: Int = MAX_ENTRIES / 2;
 
 /// A node: its entries in key order, and either no children at all or exactly
-/// one more child than it has entries. The type cannot express that invariant,
-/// so `node` and the four functions that split, borrow and merge maintain it.
+/// one more child than it has entries. `node` and the functions that split,
+/// borrow and merge maintain that invariant, which the type cannot express.
 enum Node<K, V> {
     Leaf([(K, V)]),
     Branch([(K, V)], [Node<K, V>]),
@@ -103,8 +89,8 @@ export struct OrdMap<K, V> {
     export size: Int,
 }
 
-/// The empty map. Pure, for the same reason `map.empty` is: a context type has
-/// no name, so a `<K, V, C>` here could not be written at a call site.
+/// The empty map. Pure: a context type has no name, so a `<K, V, C>` here could
+/// not be written at a call site.
 export fn empty<K, V>(): OrdMap<K, V> {
     OrdMap { root: .Leaf(list.empty<(K, V)>()), size: 0 }
 }
@@ -114,8 +100,7 @@ export fn empty<K, V>(): OrdMap<K, V> {
 ///
 /// A free function rather than a method on `[T]`, because the answer is a map
 /// and `core/list` is the bottom of the dependency order. `core/map` has the
-/// same pair for an unordered answer. This is the one whose `entries` come out
-/// sorted, which is what a grouped report wants.
+/// same pair for an unordered answer.
 export fn groupBy<A, K: Ord, C: Alloc>(
     ctx: C,
     xs: [A],
@@ -158,9 +143,7 @@ export fn of<K: Ord, V, C: Alloc>(ctx: C, entries: [(K, V)]): OrdMap<K, V> {
 // Splicing
 //
 // Free functions over an unbounded `T` rather than lambdas, because a lambda
-// may not capture a value whose type could be a context, and `[(K, V)]` with an
-// unbounded `V` is such a type (SPEC 10.6). Everything these need arrives as a
-// parameter.
+// may not capture a value whose type could be a context (SPEC 10.6).
 // -----------------------------------------------------------------------------
 
 fn insertAt<T, C: Alloc>(ctx: C, xs: [T], at: Int, x: T): [T] {
@@ -204,8 +187,7 @@ fn childrenOf<K, V>(n: Node<K, V>): [Node<K, V>] {
 }
 
 /// A leaf when there are no children, a branch otherwise. Every node the tree
-/// builds comes from here, so "a branch with no children" is unbuildable in
-/// practice as well as meaningless.
+/// builds comes from here.
 fn node<K, V>(entries: [(K, V)], children: [Node<K, V>]): Node<K, V> {
     if (children.isEmpty()) { .Leaf(entries) } else { .Branch(entries, children) }
 }
@@ -214,8 +196,8 @@ fn node<K, V>(entries: [(K, V)], children: [Node<K, V>]): Node<K, V> {
 ///
 /// Linear from `at`, and recursive because a loop over an unbounded `V` would
 /// have to capture the list. A node holds at most `MAX_ENTRIES`, so this is a
-/// bounded scan, and the module comment says why a short one beats a binary
-/// search here.
+/// bounded scan; the module comment says why a short one beats a binary
+/// search.
 fn seek<K: Ord, V>(entries: [(K, V)], key: K, at: Int): (Int, Bool) {
     match (entries.get(at)) {
         .None => (at, false),
@@ -309,8 +291,7 @@ fn overfull<K, V, C: Alloc>(
 
 /// Answers the subtree after the insert, and whether the key was a new one.
 ///
-/// The `Bool` is what keeps `size` right without a second descent to ask
-/// whether the key was already there.
+/// The `Bool` keeps `size` right without a second descent.
 fn insertInto<K: Ord, V, C: Alloc>(
     ctx: C,
     n: Node<K, V>,
@@ -445,8 +426,7 @@ fn fixWithLeft<K: Ord, V, C: Alloc>(
             },
         }
     } else {
-        // At most `MIN_ENTRIES` on the left and one fewer than that on the right,
-        // plus the separator, which is at most `MAX_ENTRIES` — so the fused node
+        // At most `MIN_ENTRIES` each side plus the separator, so the fused node
         // is never overfull.
         let merged = node(
             leftEntries.push(ctx, separator).concat(ctx, entriesOf(child)),
@@ -500,10 +480,9 @@ fn fixWithRight<K: Ord, V, C: Alloc>(
 
 /// Answers the subtree after the removal, and whether a key actually went.
 ///
-/// A key found in a branch does not go where it sits. The entry before it in
-/// key order takes its place, and *that* one comes out of the subtree it came
-/// from, which is a leaf. So every removal ends up a removal from a leaf, and
-/// the rebalancing on the way back up is the only case left to handle.
+/// A key found in a branch does not go where it sits: the entry before it in
+/// key order takes its place, and *that* one comes out of a leaf. So every
+/// removal ends up a removal from a leaf.
 fn removeFrom<K: Ord, V, C: Alloc>(ctx: C, n: Node<K, V>, key: K): (Node<K, V>, Bool) {
     let entries = entriesOf(n);
     let children = childrenOf(n);
@@ -552,8 +531,8 @@ fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
 // Walking
 //
 // Each of these threads the answer through as an accumulator rather than
-// concatenating sublists, because a `push` onto a list nothing else holds
-// grows it in place (MEMORY.md §5.3), so the whole walk is linear.
+// concatenating sublists: a `push` onto a list nothing else holds grows it in
+// place (MEMORY.md §5.3), so the whole walk is linear.
 // -----------------------------------------------------------------------------
 
 fn walk<K, V, C: Alloc>(ctx: C, n: Node<K, V>, acc: [(K, V)]): [(K, V)] {
@@ -660,22 +639,20 @@ impl<K: Ord, V> OrdMap<K, V> {
 
     /// Stores `value` under `key`, replacing whatever was there.
     ///
-    /// The map you called it on is unchanged, and it keeps every node the new
-    /// one did not have to copy — which is one root-to-leaf path.
+    /// The map you called it on is unchanged, and the two share every node
+    /// outside the one root-to-leaf path this copied.
     export fn insert<C: Alloc>(self, ctx: C, key: K, value: V): OrdMap<K, V> {
         let (grown, added) = insertInto(ctx, self.root, key, value);
         let root = match (grown) {
             .Fit(one) => one,
-            // The tree gets taller only here, and by one level all at once — which is
-            // why every leaf is always the same distance from the root.
+            // The tree gets taller only here, and by one level all at once.
             .Split(left, mid, right) => .Branch([mid], [left, right]),
         };
         OrdMap { root: root, size: if (added) { self.size + 1 } else { self.size } }
     }
 
-    /// Removes `key`, if it is there. Removing what is absent is not an error:
-    /// the question a map answers is about membership, and the answer after this
-    /// call is the same either way.
+    /// Removes `key`, if it is there. Removing what is absent is not an
+    /// error.
     export fn remove<C: Alloc>(self, ctx: C, key: K): OrdMap<K, V> {
         let (next, gone) = removeFrom(ctx, self.root, key);
         if (gone) {
@@ -689,10 +666,9 @@ impl<K: Ord, V> OrdMap<K, V> {
     /// `key` — `.Some(v)` or `.None` — and what it answers is what gets stored
     /// afterwards, with `.None` meaning "not there".
     ///
-    /// The four cases a get-then-insert dance writes out by hand. A counter is
-    /// `alter(ctx, k, fn(n) => .Some(n.withDefault(0) + 1))`. Pruning an empty
-    /// inner collection is the branch that answers `.None`, which keeps a map
-    /// of maps from filling with empty ones.
+    /// A counter is `alter(ctx, k, fn(n) => .Some(n.withDefault(0) + 1))`.
+    /// Answering `.None` prunes, which keeps a map of maps from filling with
+    /// empty ones.
     ///
     /// ```buri run
     /// from "core/effect" import { Alloc, Stdout };
@@ -735,10 +711,8 @@ impl<K: Ord, V> OrdMap<K, V> {
 
     /// The same keys, every value put through `f`.
     ///
-    /// Nothing touches the keys, so the order cannot change — but this rebuilds
-    /// the tree rather than copying it node for node, which costs O(n log n)
-    /// rather than the O(n) a structural map would. It is still one call instead
-    /// of a fold that re-inserts every entry by hand.
+    /// Nothing touches the keys, so the order cannot change. It rebuilds the
+    /// tree rather than copying it node for node, so it costs O(n log n).
     export fn mapValues<W, C: Alloc>(self, ctx: C, f: fn(V) => W): OrdMap<K, W> {
         self
             .entries(ctx)
@@ -772,8 +746,7 @@ impl<K: Ord, V> OrdMap<K, V> {
     /// an endpoint share no entry.
     ///
     /// O(log n + m) in the m entries answered: the scan descends to `start` and
-    /// stops at the first key that is not below `end`, rather than visiting the
-    /// map.
+    /// stops at the first key that is not below `end`.
     export fn range<C: Alloc>(self, ctx: C, start: K, end: K): [(K, V)] {
         walkRange(ctx, self.root, start, end, list.empty<(K, V)>())
     }
@@ -799,7 +772,7 @@ impl<K: Ord, V> OrdMap<K, V> {
 
 impl<K: Ord, V: Eq> OrdMap<K, V> {
     /// Same entries, whatever order either was built in. `derive Eq` would
-    /// compare the trees, and two equal maps need not have the same one.
+    /// compare the trees, which two equal maps need not share.
     export fn equals<C: Alloc>(self, ctx: C, other: OrdMap<K, V>): Bool {
         if (self.size != other.size) {
             false
@@ -823,9 +796,8 @@ impl<V> OrdMap<Str, V> {
     /// The entries whose keys begin with `prefix`, in key order. The empty
     /// prefix answers every entry.
     ///
-    /// O(log n + m), like `range`, and for the same reason. The module comment
-    /// records why the matching keys are one contiguous run, so the scan stops
-    /// at the first key that does not match instead of testing the rest.
+    /// O(log n + m), like `range`. The matching keys are one contiguous run, so
+    /// the scan stops at the first key that does not match.
     export fn prefix<C: Alloc>(self, ctx: C, prefix: Str): [(Str, V)] {
         prefixFrom(ctx, self.root, prefix, list.empty<(Str, V)>())
     }

@@ -19,11 +19,6 @@
 //! out on one line. A generated line past 88 columns is therefore the one
 //! place `buri format` would still move the text.
 //!
-//! Cost: `print` walks the tree once and measures every piece it writes in
-//! UTF-8, because an anchor is a **byte** range and `Str.len` counts scalar
-//! values. That is O(n) in the output text and one array per piece measured.
-//! The anchors are sorted once at the end, O(a log a).
-//!
 //! ```buri run
 //! from "core/buri/ast" import * as ast;
 //! from "core/effect" import { Alloc, Stdout };
@@ -592,9 +587,8 @@ fn anchorOrder(a: Anchor, b: Anchor): Order {
 /// line nothing follows carries no trailing spaces.
 ///
 /// `owed` is where an `if`/`else if` chain keeps the links it has written and
-/// not yet anchored: every link of a chain ends where the chain does, so their
-/// ends are known only once the walk is over. [`elseChain`] owns it, empties
-/// it, and hands it back.
+/// not yet anchored: every link of a chain ends where the chain does.
+/// [`elseChain`] owns it, empties it, and hands it back.
 struct Out {
     pieces: [Str],
     at: Int,
@@ -609,8 +603,7 @@ fn raw<C: Alloc>(ctx: C, out: Out, text: Str): Out {
 }
 
 /// The UTF-8 length of `text`. An anchor is a byte range and `Str.len` counts
-/// scalar values, so a name outside ASCII would otherwise move every offset
-/// after it.
+/// scalar values.
 fn byteLen<C: Alloc>(ctx: C, text: Str): Int {
     bytes.toUtf8(ctx, text).len()
 }
@@ -825,8 +818,7 @@ fn printDecls<C: Alloc>(ctx: C, out: Out, items: [Item]): Out {
     ).0
 }
 
-/// An item nothing can name, for the array reads that cannot miss: `i` and `j`
-/// are indices of `items` by construction.
+/// An item nothing can name, for the array reads that cannot miss.
 fn placeholder(): Item {
     Item {
         kind: .Derive(DeriveDecl { traits: [], selfTy: unitType() }),
@@ -1146,8 +1138,7 @@ fn traitDecl<C: Alloc>(ctx: C, out: Out, d: TraitDecl): Out {
     }
 }
 
-/// A trait method is a signature: the grammar gives it no body, and neither
-/// does the formatter.
+/// A trait method is a signature: the grammar gives it no body.
 fn signatureOnly(m: FnDecl): FnDecl {
     FnDecl { ..m, body: [], exported: false, docs: [] }
 }
@@ -1551,11 +1542,8 @@ fn branch<C: Alloc>(ctx: C, out: Out, blocks: [Block], broken: Bool): Out {
 /// An `if`/`else if`/`else` chain, written link by link.
 ///
 /// **A chain is as long as whatever wrote it made it, so printing one may not
-/// spend stack on its length.** A generated protobuf decoder is one link per
-/// field of its message, and a printer that recursed into the `else` — which
-/// this one did — asked the JavaScript runtime for two frames a field. Two
-/// thousand fields wanted a megabyte of stack, and a runtime holding less
-/// printed nothing at all rather than refusing a schema it could not take. The
+/// spend stack on its length.** A generated decoder can be one link per field of
+/// a message, and recursing into the `else` would cost two frames a link. The
 /// links are walked instead, so what a chain costs is its text.
 fn ifChain<C: Alloc>(
     ctx: C,
@@ -1574,13 +1562,11 @@ fn ifChain<C: Alloc>(
 ///
 /// A link's anchor covers the whole of the rest of the chain — the `else if` a
 /// reader sees is a nested `if` in the tree — and nothing is written after a
-/// chain's last link, so every one of those ends at the same offset. The links
-/// are collected on the way through and anchored here, at the end the walk
-/// arrived at.
+/// chain's last link, so every one of those ends at the same offset.
 ///
-/// The pending links live on `Out` rather than in an accumulator beside it,
-/// because a chain inside a chain's branch has links of its own: this empties
-/// the seat before the walk and puts the outer chain's back afterwards.
+/// The pending links live on `Out`, because a chain inside a chain's branch has
+/// links of its own: this empties the seat before the walk and puts the outer
+/// chain's back afterwards.
 fn elseChain<C: Alloc>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): Out {
     let outer = out.owed;
     let walked = elseLinks(ctx, Out { ..out, owed: [] }, otherwise, broken);
@@ -1866,9 +1852,8 @@ fn branchForces(b: Block): Bool {
         || b.tail.any(fn(e) => forces(e))
 }
 
-/// The `else` tail of a chain, walked rather than recursed into, for the
-/// reason [`elseChain`] gives: a chain that breaks nowhere near its head is
-/// still a chain, and asking about one may not cost a frame per link.
+/// The `else` tail of a chain, walked rather than recursed into, for the reason
+/// [`elseChain`] gives.
 fn elseForces(otherwise: [Expr]): Bool {
     match (otherwise.first()) {
         .None => false,

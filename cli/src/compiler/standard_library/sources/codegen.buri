@@ -6,10 +6,9 @@
 //!
 //! **[`run`] hands your function a context bounded by `Alloc`, `Stdin` and
 //! `Stdout`.** Build `main`'s context out of those three, as below, and the
-//! clock and the filesystem are a type error inside it rather than a rule to
-//! remember: determinism by the effect system. Bind more than `run` needs and
-//! it is yours to answer for — what a generator writes has to be a function of
-//! what it was handed, and `--check-reproducible` is what asks.
+//! clock and the filesystem are a type error inside it. Bind more than `run`
+//! needs and it is yours to answer for — what a generator writes has to be a
+//! function of what it was handed, and `--check-reproducible` is what asks.
 //!
 //! **It sends text plus anchors, never the tree.** `run` calls
 //! `core/buri/ast`'s `print` on every module you return, so what reaches the
@@ -26,16 +25,11 @@
 //! ```
 //!
 //! Every offset is a plain non-negative integer, and an unset `note`, `fix` or
-//! `origin` is `null`. Both documents are read and written by hand against
-//! `core/json` rather than with `derive ToJson`: their shape is this
-//! protocol's, and it must not move when a derive does.
+//! `origin` is `null`.
 //!
 //! `run` answers `.Err(message)` when standard input holds no line, or holds a
 //! line that is not a request. Returning that from `main` is how a generator
 //! fails where you can see it.
-//!
-//! Cost: one parse of the request line, one `print` per module, and one pass
-//! over the response — O(n) in the text read plus the text written.
 //!
 //! ```buri run
 //! from "core/buri/ast" import * as ast;
@@ -285,7 +279,7 @@ fn textOrNull(text: Option<Str>): Json {
 }
 
 /// A byte offset. `stringify` writes a whole `Float` with no point and no
-/// exponent, which is the only number shape the other end of this wire reads.
+/// exponent, which is what the other end reads.
 fn offset(n: Int): Json {
     Json.Num(n.toF64())
 }
