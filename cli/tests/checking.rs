@@ -121,6 +121,13 @@ const FLOOR: usize = 250;
 /// on an optional field is no longer an error, so that case's mistake stays a
 /// syntax error. The direction is the only one elision can move a rate in — it
 /// removes an error and never adds one.
+///
+/// The numeric edge-case pass took it from 26.0% (258 of 993) to 25.5%
+/// (247 of 967) by growing `conformance/lib/random/test/gaussian.buri` past
+/// [`pinned::SEED_BYTES`]: at 7,148 bytes it is no longer a seed, so its
+/// twenty-six cases left the draw and nothing replaced them. Eleven of the
+/// twenty-six were cascades, which is why the rate moved at all — the same
+/// shape as the `fetch.buri` retirement above, and down rather than up.
 const CASCADE_CEILING: usize = 28;
 
 fn corpus_dir() -> PathBuf {
