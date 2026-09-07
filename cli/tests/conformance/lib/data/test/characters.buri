@@ -2,19 +2,70 @@
 //
 // `isPunctuation` and `isPrintable` read the General Category table
 // `unicode_tables.py` writes into `char.buri` at Unicode 16.0, so the cases
-// below are chosen to say which category is being asked about rather than to
-// sample it: a symbol that is not punctuation, a format character that is not a
-// control, an unassigned code point that is neither.
+// below say which category is being asked about rather than sampling it: a
+// symbol that is not punctuation, a format character that is not a control, an
+// unassigned code point that is neither.
 
 from "core/testing/assert" import * as assert;
+
+// The characters with no shape of their own, named once each.
+//
+// `buri format` stores a literal as the character it denotes rather than as the
+// escape somebody wrote, so `'\u{7f}'` in an assertion below would come back as
+// the byte — unreadable inline, and fine behind a name.
+
+/// U+007F DELETE, the last of the C0 controls.
+let DELETE: Char = '';
+
+/// U+0080 PADDING CHARACTER, the first of the C1 ones.
+let PADDING: Char = '';
+
+/// U+0085 NEXT LINE.
+let NEXT_LINE: Char = '';
+
+/// U+009F APPLICATION PROGRAM COMMAND, the last C1 one.
+let LAST_CONTROL: Char = '';
+
+/// U+00A0 NO-BREAK SPACE, General Category Zs.
+let NO_BREAK_SPACE: Char = ' ';
+
+/// U+0378, which Unicode has assigned nothing to.
+let UNASSIGNED: Char = '͸';
+
+/// U+07FF, the last scalar UTF-8 writes in two bytes.
+let LAST_TWO_BYTE: Char = '߿';
+
+/// U+0800, the first it writes in three.
+let FIRST_THREE_BYTE: Char = 'ࠀ';
+
+/// U+200D ZERO WIDTH JOINER, General Category Cf.
+let ZERO_WIDTH_JOINER: Char = '‍';
+
+/// U+2028 LINE SEPARATOR, General Category Zl.
+let LINE_SEPARATOR: Char = ' ';
+
+/// U+2029 PARAGRAPH SEPARATOR, General Category Zp.
+let PARAGRAPH_SEPARATOR: Char = ' ';
+
+/// U+E000, the first private-use character.
+let PRIVATE_USE: Char = '';
+
+/// U+FFFF, the last scalar UTF-8 writes in three bytes.
+let LAST_THREE_BYTE: Char = '￿';
+
+/// U+10000, the first it writes in four.
+let FIRST_FOUR_BYTE: Char = '𐀀';
+
+/// U+10FFFF, the last code point there is.
+let LAST_CODE_POINT: Char = '􏿿';
 
 // --- isAscii --------------------------------------------------------------------
 
 test "isAscii is the first 128 scalars" {
     assert.isTrue('a'.isAscii());
-    assert.isTrue('\u{0}'.isAscii());
-    assert.isTrue('\u{7f}'.isAscii());
-    assert.isFalse('\u{80}'.isAscii());
+    assert.isTrue('\0'.isAscii());
+    assert.isTrue(DELETE.isAscii());
+    assert.isFalse(PADDING.isAscii());
     assert.isFalse('é'.isAscii());
     assert.isFalse('😀'.isAscii());
 }
@@ -22,21 +73,22 @@ test "isAscii is the first 128 scalars" {
 // --- isControl ------------------------------------------------------------------
 
 test "isControl is the C0 and C1 blocks" {
-    assert.isTrue('\u{0}'.isControl());
+    assert.isTrue('\0'.isControl());
     assert.isTrue('\n'.isControl());
     assert.isTrue('\t'.isControl());
     assert.isTrue('\u{1f}'.isControl());
-    assert.isTrue('\u{7f}'.isControl());
-    assert.isTrue('\u{85}'.isControl());
-    assert.isTrue('\u{9f}'.isControl());
+    assert.isTrue(DELETE.isControl());
+    assert.isTrue(PADDING.isControl());
+    assert.isTrue(NEXT_LINE.isControl());
+    assert.isTrue(LAST_CONTROL.isControl());
 }
 
 test "isControl refuses everything outside them" {
     assert.isFalse(' '.isControl());
     assert.isFalse('a'.isControl());
-    assert.isFalse('\u{a0}'.isControl());
+    assert.isFalse(NO_BREAK_SPACE.isControl());
     // A zero-width joiner is a *format* character, not a control one.
-    assert.isFalse('\u{200d}'.isControl());
+    assert.isFalse(ZERO_WIDTH_JOINER.isControl());
     assert.isFalse('😀'.isControl());
 }
 
@@ -76,11 +128,11 @@ test "isPunctuation refuses letters, digits and whitespace" {
 
 test "isPunctuation reaches past the basic multilingual plane" {
     // U+10100 AEGEAN WORD SEPARATOR LINE, General Category Po.
-    assert.isTrue('\u{10100}'.isPunctuation());
+    assert.isTrue('𐄀'.isPunctuation());
     // U+3001 IDEOGRAPHIC COMMA.
     assert.isTrue('、'.isPunctuation());
-    // U+1F600, a symbol.
-    assert.isFalse('\u{1f600}'.isPunctuation());
+    // U+1F600, a symbol rather than punctuation.
+    assert.isFalse('😀'.isPunctuation());
 }
 
 // --- isPrintable ------------------------------------------------------------------
@@ -97,21 +149,19 @@ test "isPrintable accepts a visible character and the space" {
 test "isPrintable refuses controls, formats and the other separators" {
     assert.isFalse('\t'.isPrintable());
     assert.isFalse('\n'.isPrintable());
-    assert.isFalse('\u{0}'.isPrintable());
-    assert.isFalse('\u{7f}'.isPrintable());
-    // U+00A0 NO-BREAK SPACE is a separator, and only U+0020 is excused.
-    assert.isFalse('\u{a0}'.isPrintable());
-    // U+200D ZERO WIDTH JOINER is General Category Cf.
-    assert.isFalse('\u{200d}'.isPrintable());
-    // U+2028 LINE SEPARATOR is Zl.
-    assert.isFalse('\u{2028}'.isPrintable());
+    assert.isFalse('\0'.isPrintable());
+    assert.isFalse(DELETE.isPrintable());
+    // Only U+0020 is excused; every other separator is out.
+    assert.isFalse(NO_BREAK_SPACE.isPrintable());
+    assert.isFalse(ZERO_WIDTH_JOINER.isPrintable());
+    assert.isFalse(LINE_SEPARATOR.isPrintable());
+    assert.isFalse(PARAGRAPH_SEPARATOR.isPrintable());
 }
 
 test "isPrintable refuses an unassigned and a private-use code point" {
-    // U+0378 is unassigned, and U+E000 is the first private-use character.
-    assert.isFalse('\u{378}'.isPrintable());
-    assert.isFalse('\u{e000}'.isPrintable());
-    assert.isFalse('\u{10ffff}'.isPrintable());
+    assert.isFalse(UNASSIGNED.isPrintable());
+    assert.isFalse(PRIVATE_USE.isPrintable());
+    assert.isFalse(LAST_CODE_POINT.isPrintable());
 }
 
 // --- isNewline ---------------------------------------------------------------------
@@ -121,16 +171,16 @@ test "isNewline is the seven line terminators" {
     assert.isTrue('\u{b}'.isNewline());
     assert.isTrue('\u{c}'.isNewline());
     assert.isTrue('\r'.isNewline());
-    assert.isTrue('\u{85}'.isNewline());
-    assert.isTrue('\u{2028}'.isNewline());
-    assert.isTrue('\u{2029}'.isNewline());
+    assert.isTrue(NEXT_LINE.isNewline());
+    assert.isTrue(LINE_SEPARATOR.isNewline());
+    assert.isTrue(PARAGRAPH_SEPARATOR.isNewline());
 }
 
 // This is the distinction `isSpace` cannot make, which is why the method exists.
 test "isNewline refuses whitespace that does not end a line" {
     assert.isFalse(' '.isNewline());
     assert.isFalse('\t'.isNewline());
-    assert.isFalse('\u{a0}'.isNewline());
+    assert.isFalse(NO_BREAK_SPACE.isNewline());
     assert.isTrue('\t'.isSpace());
     assert.isTrue('\n'.isSpace());
     assert.isFalse('a'.isNewline());
@@ -140,15 +190,15 @@ test "isNewline refuses whitespace that does not end a line" {
 
 test "utf8Length is one to four bytes by code point" {
     assert.eq('a'.utf8Length(), 1);
-    assert.eq('\u{0}'.utf8Length(), 1);
-    assert.eq('\u{7f}'.utf8Length(), 1);
-    assert.eq('\u{80}'.utf8Length(), 2);
+    assert.eq('\0'.utf8Length(), 1);
+    assert.eq(DELETE.utf8Length(), 1);
+    assert.eq(PADDING.utf8Length(), 2);
     assert.eq('é'.utf8Length(), 2);
-    assert.eq('\u{7ff}'.utf8Length(), 2);
-    assert.eq('\u{800}'.utf8Length(), 3);
+    assert.eq(LAST_TWO_BYTE.utf8Length(), 2);
+    assert.eq(FIRST_THREE_BYTE.utf8Length(), 3);
     assert.eq('あ'.utf8Length(), 3);
-    assert.eq('\u{ffff}'.utf8Length(), 3);
-    assert.eq('\u{10000}'.utf8Length(), 4);
+    assert.eq(LAST_THREE_BYTE.utf8Length(), 3);
+    assert.eq(FIRST_FOUR_BYTE.utf8Length(), 4);
     assert.eq('😀'.utf8Length(), 4);
-    assert.eq('\u{10ffff}'.utf8Length(), 4);
+    assert.eq(LAST_CODE_POINT.utf8Length(), 4);
 }

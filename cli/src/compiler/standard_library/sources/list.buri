@@ -634,7 +634,7 @@ impl<T> [T] {
     ///         Stdout: host.stdout,
     ///     };
     ///     let groups = [1, 2, 3, 4, 5].chunks(ctx, 2);
-    ///     let last = groups.last().withDefault([]);
+    ///     let last: [Int] = groups.last().withDefault([]);
     ///     let _ = io.println(ctx, "${groups.len()} ${last.len()}").ignore();
     ///     .Ok(())
     /// }
@@ -766,11 +766,7 @@ fn partitionFrom<T, C: Alloc>(
 }
 
 fn clampIndex(index: Int, len: Int): Int {
-    if (index < 0) {
-        0
-    } else {
-        if (index > len) { len } else { index }
-    }
+    if (index < 0) { 0 } else { if (index > len) { len } else { index } }
 }
 
 // --- Searching a list that is already in order ---------------------------------
@@ -799,8 +795,8 @@ impl<T> [T] {
     ///     let xs = [10, 20, 30];
     ///     let hit = xs.binarySearchBy(fn(x) => x.compare(20));
     ///     let miss = xs.binarySearchBy(fn(x) => x.compare(25));
-    ///     let where = miss.withDefaultWith(fn(i) => i);
-    ///     let _ = io.println(ctx, "${hit.withDefault(-1)} ${where}").ignore();
+    ///     let goes = miss.withDefaultWith(fn(i) => i);
+    ///     let _ = io.println(ctx, "${hit.withDefault(-1)} ${goes}").ignore();
     ///     .Ok(())
     /// }
     /// ```
