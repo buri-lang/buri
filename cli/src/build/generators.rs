@@ -985,21 +985,87 @@ pub fn run_artifact(artifact: &std::path::Path, request: &Request) -> Result<Res
     let stderr = reading_err.join().unwrap_or_default();
     let status = child.wait().map_err(|e| e.to_string())?;
     if !status.success() {
-        let code = status.code().map(|c| c.to_string()).unwrap_or_else(|| "a signal".into());
-        return Err(match stderr.trim() {
-            "" => format!("the generator exited with {code}"),
-            said => format!("the generator exited with {code}\n{said}"),
-        });
+        return Err(said(&format!("the generator {}", how_it_ended(&status)), &stderr));
     }
     // One line out. Anything before it is the tool talking to a person, which
     // is not this protocol — the response is the last non-empty line.
     let Some(line) = stdout.lines().rev().find(|l| !l.trim().is_empty()) else {
-        return Err(match stderr.trim() {
-            "" => "the generator wrote nothing".to_string(),
-            said => format!("the generator wrote nothing\n{said}"),
-        });
+        return Err(said("the generator wrote nothing", &stderr));
     };
-    Response::decode(line).map_err(|e| format!("the generator's answer is not a response: {e}"))
+    Response::decode(line)
+        .map_err(|e| said(&format!("the generator's answer is not a response: {e}"), &stderr))
+}
+
+/// How much of what a tool put on standard error a note carries.
+///
+/// A generator that fills its pipe must not fill the page a person is reading,
+/// and a JavaScript runtime's stack trace is long: four kilobytes is a screen
+/// or two, which is enough to say what went wrong and short enough to read.
+const STDERR_TAIL: usize = 4096;
+
+/// How a generator's process ended, in the words the note carries.
+///
+/// **A tool with no exit status was killed, and which signal killed it is the
+/// diagnosis.** A crash and a stack overflow arrive as `SIGSEGV`; a runner that
+/// ran out of memory sends `SIGKILL`. "The generator produced no response" is
+/// the same sentence for all three, and a CI job that says only that leaves
+/// nothing to go on.
+fn how_it_ended(status: &std::process::ExitStatus) -> String {
+    if let Some(code) = status.code() {
+        return format!("exited with {code}");
+    }
+    #[cfg(unix)]
+    if let Some(signal) = std::os::unix::process::ExitStatusExt::signal(status) {
+        return match signal_name(signal) {
+            Some(name) => format!("was killed by {name} (signal {signal})"),
+            None => format!("was killed by signal {signal}"),
+        };
+    }
+    "ended without a status".to_string()
+}
+
+/// The name of a signal, for the numbers macOS and Linux agree on.
+///
+/// The two disagree about several — `SIGBUS` is 10 on one and 7 on the other —
+/// so the ones they disagree about are reported by number. A wrong name is
+/// worse than no name.
+fn signal_name(signal: i32) -> Option<&'static str> {
+    Some(match signal {
+        1 => "SIGHUP",
+        2 => "SIGINT",
+        3 => "SIGQUIT",
+        4 => "SIGILL",
+        5 => "SIGTRAP",
+        6 => "SIGABRT",
+        8 => "SIGFPE",
+        9 => "SIGKILL",
+        11 => "SIGSEGV",
+        13 => "SIGPIPE",
+        14 => "SIGALRM",
+        15 => "SIGTERM",
+        _other => return None,
+    })
+}
+
+/// A sentence, with what the tool put on standard error under it.
+///
+/// The **tail** of it, at most [`STDERR_TAIL`] bytes: what a program says last
+/// is what says why it stopped, and a runtime's stack trace buries its first
+/// line under a hundred frames.
+fn said(sentence: &str, stderr: &str) -> String {
+    let text = stderr.trim();
+    if text.is_empty() {
+        return sentence.to_string();
+    }
+    if text.len() <= STDERR_TAIL {
+        return format!("{sentence}\n{text}");
+    }
+    let skip = text.len().saturating_sub(STDERR_TAIL);
+    // Forward to the next character boundary, so a note is never cut through
+    // the middle of a character. `len()` is one, so the search always ends.
+    let cut = (skip..=text.len()).find(|&i| text.is_char_boundary(i)).unwrap_or(text.len());
+    let tail = text.get(cut..).unwrap_or_default();
+    format!("{sentence}\n(the first {cut} bytes of standard error are not shown)\n{tail}")
 }
 
 // ---------------------------------------------------------------------------
@@ -1409,6 +1475,71 @@ mod tests {
         ] {
             assert!(Response::decode(bad).is_err(), "`{bad}` decoded as a response");
         }
+    }
+
+    /// The failure that sent this suite looking: a generator killed by a
+    /// signal, whose note said "a signal" and nothing else. A crash, a stack
+    /// overflow and an out-of-memory kill are three different bugs and the
+    /// note has to tell them apart.
+    #[cfg(unix)]
+    #[test]
+    fn a_generator_killed_by_a_signal_is_named_with_its_signal() {
+        use std::os::unix::process::ExitStatusExt as _;
+        let crashed = std::process::ExitStatus::from_raw(11);
+        let note = said(&format!("the generator {}", how_it_ended(&crashed)), "");
+        assert_eq!(note, "the generator was killed by SIGSEGV (signal 11)");
+
+        let out_of_memory = std::process::ExitStatus::from_raw(9);
+        let note = said(&format!("the generator {}", how_it_ended(&out_of_memory)), "");
+        assert_eq!(note, "the generator was killed by SIGKILL (signal 9)");
+
+        // A number the two platforms disagree about goes unnamed rather than
+        // named wrongly.
+        let other = std::process::ExitStatus::from_raw(10);
+        assert_eq!(how_it_ended(&other), "was killed by signal 10");
+    }
+
+    /// What the tool said on the way down comes with the note, whichever way
+    /// it went down.
+    #[cfg(unix)]
+    #[test]
+    fn a_crashing_generator_is_reported_with_its_standard_error() {
+        use std::os::unix::process::ExitStatusExt as _;
+        let crashed = std::process::ExitStatus::from_raw(11);
+        let note = said(
+            &format!("the generator {}", how_it_ended(&crashed)),
+            "\nRangeError: Maximum call stack size exceeded.\n  at print\n",
+        );
+        assert_eq!(
+            note,
+            "the generator was killed by SIGSEGV (signal 11)\n\
+             RangeError: Maximum call stack size exceeded.\n  at print"
+        );
+
+        let refused = std::process::ExitStatus::from_raw(1 << 8);
+        assert_eq!(how_it_ended(&refused), "exited with 1");
+    }
+
+    /// A tool that fills its pipe may not fill the page. The **tail** is kept,
+    /// because what a program says last is what says why it stopped.
+    #[test]
+    fn a_flood_on_standard_error_is_cut_to_its_tail() {
+        let flood = format!("{}the last line", "x".repeat(20_000));
+        let note = said("the generator exited with 1", &flood);
+        assert!(note.len() < STDERR_TAIL + 200, "the note is bounded: {} bytes", note.len());
+        assert!(note.starts_with("the generator exited with 1\n"), "{note}");
+        assert!(note.ends_with("the last line"), "the tail is what is kept");
+        assert!(
+            note.contains("bytes of standard error are not shown"),
+            "the note says it was cut: {note}"
+        );
+
+        // Cut through a character rather than between two: the note is still
+        // text, and the character is not half-written.
+        let wide = "é".repeat(20_000);
+        let note = said("the generator exited with 1", &wide);
+        assert!(note.ends_with('é'), "the tail ends on a character");
+        assert!(note.chars().all(|c| c != '\u{fffd}'), "no character was cut in half");
     }
 
     #[test]
