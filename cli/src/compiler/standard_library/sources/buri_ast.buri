@@ -2733,6 +2733,11 @@ fn isPunctuation(c: Char): Bool {
 
 derive Eq, Show for ParseError;
 /// Why a source did not parse, and where.
+///
+/// `message` reads the way the compiler's own `unexpected-token` reads —
+/// `expected an identifier, found `=`` — and `span` is the byte range of the
+/// token it is about, so an editor can underline it. There is no `file`: it is
+/// the one [`parse`] was handed.
 export struct ParseError {
     export message: Str,
     export span: Span,
