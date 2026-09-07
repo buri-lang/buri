@@ -48,7 +48,10 @@
 from "core/bits" import * as bits;
 from "core/effect" import { Alloc, Rand };
 from "core/list" import * as list;
+from "core/math" import * as math;
 from "core/num" import * as num;
+from "core/ordmap" import * as ordmap;
+from "core/ordmap" import { OrdMap };
 
 /// Uniform in `[lo, hi)`. An empty range aborts: there is no value to return
 /// and no `Option` in the signature to say so.
@@ -231,5 +234,224 @@ fn gather<C: Alloc>(ctx: C, g: Gen, remaining: Int, acc: [U8]): ([U8], Gen) {
             .range(ctx, 0, take)
             .map(ctx, fn(i) => bits.shrU64(x, i * 8).wrapToU8());
         gather(ctx, next, remaining - take, acc.concat(ctx, chunk))
+    }
+}
+
+// --- Drawing from a list ----------------------------------------------------------
+//
+// The three the module header names, at both doors. Each `Gen` method is the
+// whole algorithm and each `Rand` function is that method over a generator the
+// effect seeds, so the two doors cannot drift apart.
+
+/// The items in a random order.
+///
+/// ```buri
+/// from "core/effect" import { Alloc, Rand };
+/// from "core/random" import * as random;
+///
+/// export fn deal<C: Alloc + Rand>(ctx: C, cards: [Str]): [Str] {
+///     random.shuffle(ctx, cards)
+/// }
+/// ```
+///
+/// Every permutation is equally likely. Fisher-Yates over an `OrdMap<Int, T>`,
+/// so it costs `O(n log n)` — a `[T]` has no `O(1)` write for the textbook
+/// array version to use.
+export fn shuffle<T, C: Alloc + Rand>(ctx: C, items: [T]): [T] {
+    let (out, _) = gen(ctx).nextShuffle(ctx, items);
+    out
+}
+
+/// One item, uniformly, or `.None` from an empty list.
+///
+/// ```buri
+/// from "core/effect" import { Rand };
+/// from "core/random" import * as random;
+///
+/// export fn greeting<C: Rand>(ctx: C, hellos: [Str]): Option<Str> {
+///     random.pick(ctx, hellos)
+/// }
+/// ```
+export fn pick<T, C: Rand>(ctx: C, items: [T]): Option<T> {
+    if (items.len() <= 0) { .None } else { items.get(ctx.nextInt(0, items.len())) }
+}
+
+/// `count` items, drawn without replacement and in a random order.
+///
+/// ```buri
+/// from "core/effect" import { Alloc, Rand };
+/// from "core/random" import * as random;
+///
+/// export fn threeOf<C: Alloc + Rand>(ctx: C, everything: [Int]): [Int] {
+///     random.sample(ctx, everything, 3)
+/// }
+/// ```
+///
+/// A `count` past the list's length gives the whole list, shuffled; a negative
+/// one gives nothing. `shuffle` and a `take`, so it costs `O(n log n)` in the
+/// length of the *list* rather than of the sample.
+export fn sample<T, C: Alloc + Rand>(ctx: C, items: [T], count: Int): [T] {
+    let (out, _) = gen(ctx).nextSample(ctx, items, count);
+    out
+}
+
+impl Gen {
+    /// `shuffle` from a seed: the items in a random order, and the next
+    /// generator.
+    ///
+    /// ```buri
+    /// from "core/effect" import { Alloc };
+    /// from "core/random" import * as random;
+    ///
+    /// export fn dealt<C: Alloc>(ctx: C, cards: [Str]): [Str] {
+    ///     let (hand, _) = random.seeded(1).nextShuffle(ctx, cards);
+    ///     hand
+    /// }
+    /// ```
+    ///
+    /// Fisher-Yates: walk from the last position down, swapping each with a
+    /// uniformly chosen position at or below it. Every permutation is equally
+    /// likely, and the same seed replays the same one on every backend.
+    ///
+    /// `O(n log n)`, because the positions live in an `OrdMap<Int, T>` — a
+    /// `[T]` has no write that costs less than a copy.
+    export fn nextShuffle<T, C: Alloc>(self, ctx: C, items: [T]): ([T], Gen) {
+        if (items.len() < 2) {
+            (items, self)
+        } else {
+            let numbered = ordmap.of(
+                ctx,
+                list.range(ctx, 0, items.len()).zip(ctx, items),
+            );
+            let (mixed, next) = yates(ctx, self, numbered, items.len() - 1);
+            (mixed.values(ctx), next)
+        }
+    }
+
+    /// `pick` from a seed: one item, uniformly, and the next generator.
+    ///
+    /// ```buri
+    /// from "core/random" import * as random;
+    ///
+    /// export fn oneOf(hellos: [Str]): Option<Str> {
+    ///     let (hello, _) = random.seeded(3).nextPick(hellos);
+    ///     hello
+    /// }
+    /// ```
+    ///
+    /// **An empty list answers `.None` and does not step the generator**, which
+    /// is `nextInt`'s rule for an empty range.
+    export fn nextPick<T>(self, items: [T]): (Option<T>, Gen) {
+        if (items.len() <= 0) {
+            (.None, self)
+        } else {
+            let (at, next) = self.nextInt(0, items.len());
+            (items.get(at), next)
+        }
+    }
+
+    /// `sample` from a seed: `count` items without replacement, and the next
+    /// generator.
+    ///
+    /// ```buri
+    /// from "core/effect" import { Alloc };
+    /// from "core/random" import * as random;
+    ///
+    /// export fn three<C: Alloc>(ctx: C, everything: [Int]): [Int] {
+    ///     let (some, _) = random.seeded(5).nextSample(ctx, everything, 3);
+    ///     some
+    /// }
+    /// ```
+    ///
+    /// A `count` past the list's length gives the whole list, shuffled; a
+    /// negative one gives nothing.
+    export fn nextSample<T, C: Alloc>(
+        self,
+        ctx: C,
+        items: [T],
+        count: Int,
+    ): ([T], Gen) {
+        let (mixed, next) = self.nextShuffle(ctx, items);
+        (mixed.take(ctx, count), next)
+    }
+
+    /// One draw from the standard normal distribution — mean zero, standard
+    /// deviation one — and the next generator.
+    ///
+    /// ```buri
+    /// from "core/random" import * as random;
+    ///
+    /// export fn noise(spread: Float): Float {
+    ///     let (z, _) = random.seeded(11).nextGaussian();
+    ///     z * spread
+    /// }
+    /// ```
+    ///
+    /// `mean + z * deviation` moves it anywhere else.
+    ///
+    /// **Marsaglia's polar method.** It draws a point in the square from `-1` to
+    /// `1`, throws it away unless it landed inside the unit circle, and scales
+    /// it by `sqrt(-2 ln s / s)`. About a fifth of the points are rejected, so a
+    /// draw costs a little over two uniforms on average — and a run of bad luck
+    /// costs more, which is why this is not a fixed number of steps.
+    ///
+    /// The method produces two independent normals at a time and this returns
+    /// the first. The second is discarded rather than cached: a `Gen` is a value
+    /// with nowhere to keep one, and caching it would make the sequence depend
+    /// on how many draws came before.
+    ///
+    /// It reaches `math.ln`, so it is one of the functions a native build
+    /// reports as a missing intrinsic — see `core/math`'s header.
+    export fn nextGaussian(self): (Float, Gen) {
+        polar(self)
+    }
+}
+
+/// Fisher-Yates, from the last position down.
+fn yates<T, C: Alloc>(
+    ctx: C,
+    g: Gen,
+    numbered: OrdMap<Int, T>,
+    at: Int,
+): (OrdMap<Int, T>, Gen) {
+    if (at <= 0) {
+        (numbered, g)
+    } else {
+        let (other, next) = g.nextInt(0, at + 1);
+        yates(ctx, next, exchange(ctx, numbered, at, other), at - 1)
+    }
+}
+
+/// Two positions traded. A key either position does not hold leaves the map
+/// alone, which cannot happen: both come from the range the map was built over.
+fn exchange<T, C: Alloc>(
+    ctx: C,
+    numbered: OrdMap<Int, T>,
+    here: Int,
+    there: Int,
+): OrdMap<Int, T> {
+    match (numbered.get(here)) {
+        .None => numbered,
+        .Some(a) => {
+            match (numbered.get(there)) {
+                .None => numbered,
+                .Some(b) => numbered.insert(ctx, here, b).insert(ctx, there, a),
+            }
+        },
+    }
+}
+
+/// One rejection round of the polar method. Tail-recursive, so a long run of
+/// rejected points costs one frame.
+fn polar(g: Gen): (Float, Gen) {
+    let (first, afterFirst) = g.nextFloat();
+    let (second, afterSecond) = afterFirst.nextFloat();
+    let u = 2.0 * first - 1.0;
+    let v = 2.0 * second - 1.0;
+    let radius = u * u + v * v;
+    if (radius >= 1.0 || radius == 0.0) {
+        polar(afterSecond)
+    } else {
+        (u * math.sqrt(-2.0 * math.ln(radius) / radius), afterSecond)
     }
 }

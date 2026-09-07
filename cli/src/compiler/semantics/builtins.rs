@@ -299,9 +299,18 @@ impl<'a> Checker<'a> {
         if p.is_integer() {
             if let Some(opt) = option {
                 let opt_self = Ty::Con(opt, vec![self_ty.clone()]);
-                for name in ["checkedAdd", "checkedSub", "checkedMul", "checkedDiv"] {
+                for name in
+                    ["checkedAdd", "checkedSub", "checkedMul", "checkedDiv", "checkedRemainder"]
+                {
                     checked.push(self.method(p, name, vec![self_ty.clone()], opt_self.clone()));
                 }
+                // The two whose shape is not "another `Self` alongside": a
+                // negation takes nothing, and an exponent counts
+                // multiplications rather than being one of the values
+                // multiplied, so it is an `Int` at every width.
+                checked.push(self.method(p, "checkedNegate", Vec::new(), opt_self.clone()));
+                let int_ty = self.tables.prim(Prim::I64);
+                checked.push(self.method(p, "checkedPower", vec![int_ty], opt_self));
             }
             for name in ["wrappingAdd", "wrappingSub", "wrappingMul"] {
                 wrapping.push(self.method(p, name, vec![self_ty.clone()], self_ty.clone()));

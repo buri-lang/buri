@@ -35,3 +35,147 @@ export fn shrU32(x: U32, n: Int): U32;
 export fn shlU64(x: U64, n: Int): U64;
 
 export fn shrU64(x: U64, n: Int): U64;
+
+// --- The unsigned widths ----------------------------------------------------------
+//
+// The shifts already come at these widths; these are the rest of the operations
+// a checksum, a hash or a wire format reaches for. Each is one machine
+// instruction, and each rotates or counts inside its **own** width — an eight-bit
+// rotate wraps at eight, not at sixty-four.
+
+/// `value` rotated left inside eight bits: the bits shifted off the top come
+/// back in at the bottom.
+///
+/// ```buri
+/// from "core/bits" import * as bits;
+///
+/// export fn spin(b: U8): U8 {
+///     bits.rotateLeftU8(b, 3)
+/// }
+/// ```
+///
+/// A `count` below zero or at or beyond eight aborts, exactly as `shlU8` does.
+export fn rotateLeftU8(value: U8, count: Int): U8;
+
+/// `rotateLeftU8` the other way.
+///
+/// ```buri
+/// from "core/bits" import * as bits;
+///
+/// export fn unspin(b: U8): U8 {
+///     bits.rotateRightU8(b, 3)
+/// }
+/// ```
+export fn rotateRightU8(value: U8, count: Int): U8;
+
+/// `value` rotated left inside thirty-two bits.
+///
+/// ```buri
+/// from "core/bits" import * as bits;
+///
+/// export fn mix(w: U32): U32 {
+///     bits.rotateLeftU32(w, 7)
+/// }
+/// ```
+///
+/// The rotate every 32-bit hash and block cipher is written out of. A `count`
+/// below zero or at or beyond thirty-two aborts.
+export fn rotateLeftU32(value: U32, count: Int): U32;
+
+/// `rotateLeftU32` the other way.
+///
+/// ```buri
+/// from "core/bits" import * as bits;
+///
+/// export fn unmix(w: U32): U32 {
+///     bits.rotateRightU32(w, 7)
+/// }
+/// ```
+export fn rotateRightU32(value: U32, count: Int): U32;
+
+/// `value` rotated left inside sixty-four bits.
+///
+/// ```buri
+/// from "core/bits" import * as bits;
+///
+/// export fn stir(w: U64): U64 {
+///     bits.rotateLeftU64(w, 17)
+/// }
+/// ```
+///
+/// `rotateLeft` is the same rotate over `Int`, which is the same sixty-four bits
+/// read as signed. A `count` below zero or at or beyond sixty-four aborts.
+export fn rotateLeftU64(value: U64, count: Int): U64;
+
+/// `rotateLeftU64` the other way.
+///
+/// ```buri
+/// from "core/bits" import * as bits;
+///
+/// export fn unstir(w: U64): U64 {
+///     bits.rotateRightU64(w, 17)
+/// }
+/// ```
+export fn rotateRightU64(value: U64, count: Int): U64;
+
+/// `value`'s four bytes in the opposite order.
+///
+/// ```buri
+/// from "core/bits" import * as bits;
+///
+/// export fn networkOrder(w: U32): U32 {
+///     bits.byteSwapU32(w)
+/// }
+/// ```
+///
+/// Its own inverse, and what turns a little-endian word into a big-endian one.
+/// `core/bytes` is the way to read and write whole numbers to a `[U8]`; this is
+/// for a word already in hand.
+export fn byteSwapU32(value: U32): U32;
+
+/// `value`'s eight bytes in the opposite order.
+///
+/// ```buri
+/// from "core/bits" import * as bits;
+///
+/// export fn networkOrderWide(w: U64): U64 {
+///     bits.byteSwapU64(w)
+/// }
+/// ```
+export fn byteSwapU64(value: U64): U64;
+
+/// How many of `value`'s sixty-four bits are set.
+///
+/// ```buri
+/// from "core/bits" import * as bits;
+///
+/// export fn weight(w: U64): Int {
+///     bits.popCountU64(w)
+/// }
+/// ```
+///
+/// `popCount` is the same count over `Int`; this one takes the unsigned word a
+/// hash or a bit set holds.
+export fn popCountU64(value: U64): Int;
+
+/// How many zero bits sit above `value`'s highest set bit. `64` for zero.
+///
+/// ```buri
+/// from "core/bits" import * as bits;
+///
+/// export fn width(w: U64): Int {
+///     64 - bits.leadingZerosU64(w)
+/// }
+/// ```
+export fn leadingZerosU64(value: U64): Int;
+
+/// How many zero bits sit below `value`'s lowest set bit. `64` for zero.
+///
+/// ```buri
+/// from "core/bits" import * as bits;
+///
+/// export fn lowestBit(w: U64): Int {
+///     bits.trailingZerosU64(w)
+/// }
+/// ```
+export fn trailingZerosU64(value: U64): Int;

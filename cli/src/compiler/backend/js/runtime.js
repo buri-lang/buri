@@ -1206,6 +1206,12 @@ function $big(x) {
   return BigInt(Math.trunc(x));
 }
 
+// `$big` for a value that may already be one: the `U64` entries below are handed
+// a `BigInt`, and `Math.trunc` throws on those.
+function $toBig(x) {
+  return typeof x === "bigint" ? x : BigInt(Math.trunc(x));
+}
+
 // --- Narrow unsigned bitwise ---------------------------------------------------------
 //
 // JavaScript's bitwise operators produce a *signed* 32-bit result, so
@@ -1292,6 +1298,69 @@ function $bits_shlU64(x, n) {
 }
 function $bits_shrU64(x, n) {
   return x >> $shiftCount(n, 64);
+}
+
+// The rotates at the three unsigned widths. Each wraps inside its **own** width,
+// so the count is checked against that width and the value is masked to it.
+// `x << k | x >> (w - k)` is the whole rotate; at `k === 0` the second shift is
+// by the full width, which a BigInt handles as a plain shift rather than as the
+// undefined behaviour a machine word would have.
+function $rotate(x, n, bits, left) {
+  const k = $shiftCount(n, bits);
+  const v = BigInt.asUintN(bits, $toBig(x));
+  const w = BigInt(bits);
+  const spun = left ? (v << k) | (v >> (w - k)) : (v >> k) | (v << (w - k));
+  return BigInt.asUintN(bits, spun);
+}
+
+function $bits_rotateLeftU8(x, n) {
+  return Number($rotate(x, n, 8, true));
+}
+function $bits_rotateRightU8(x, n) {
+  return Number($rotate(x, n, 8, false));
+}
+function $bits_rotateLeftU32(x, n) {
+  return Number($rotate(x, n, 32, true));
+}
+function $bits_rotateRightU32(x, n) {
+  return Number($rotate(x, n, 32, false));
+}
+function $bits_rotateLeftU64(x, n) {
+  return $rotate(x, n, 64, true);
+}
+function $bits_rotateRightU64(x, n) {
+  return $rotate(x, n, 64, false);
+}
+
+// The byte reversals. One byte at a time from the bottom, which is what a
+// `bswap` instruction does and what a BigInt can say without a typed array.
+function $swapBytes(x, bytes) {
+  let v = BigInt.asUintN(bytes * 8, $toBig(x));
+  let out = 0n;
+  for (let i = 0; i < bytes; i++) {
+    out = (out << 8n) | (v & 0xffn);
+    v >>= 8n;
+  }
+  return out;
+}
+
+function $bits_byteSwapU32(x) {
+  return Number($swapBytes(x, 4));
+}
+function $bits_byteSwapU64(x) {
+  return $swapBytes(x, 8);
+}
+
+// The three counts at `U64`, which is the same sixty-four bits `popCount`,
+// `leadingZeros` and `trailingZeros` read as signed.
+function $bits_popCountU64(x) {
+  return $bits_popCount(BigInt.asIntN(64, $toBig(x)));
+}
+function $bits_leadingZerosU64(x) {
+  return $bits_leadingZeros(BigInt.asIntN(64, $toBig(x)));
+}
+function $bits_trailingZerosU64(x) {
+  return $bits_trailingZeros(BigInt.asIntN(64, $toBig(x)));
 }
 
 // --- Conversions ---------------------------------------------------------------------
@@ -5500,6 +5569,40 @@ function $checkedInBig(v, lo, hi) {
 
 function $sat(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+// `x` to the `e`th, inside `[lo, hi]`, or `undefined`. The one member of
+// `Checked` that is a loop rather than an expression.
+//
+// Exponentiation by squaring, with the range tested after every multiplication,
+// so a `.Some` is the value the answer really is. A negative exponent is
+// `undefined`: the answer is a fraction, and an integer type holds none.
+//
+// The squaring is skipped on the last round, so `x.checkedPower(1)` never asks
+// whether `x * x` fits. Where a squaring *does* leave the range, the answer has
+// left it too — the exponent still has a bit above the one just folded in, and
+// the base is at least two in magnitude.
+function $checkedPow(x, e, lo, hi, big) {
+  // The exponent is an `Int`, which is a BigInt here, and its parity has to be
+  // read exactly: past 2^53 a double no longer knows whether it is even.
+  let n = $toBig(e);
+  if (n < 0n) return undefined;
+  const inside = (v) => v >= lo && v <= hi;
+  let acc = big ? 1n : 1;
+  let base = x;
+  while (n > 0n) {
+    if (n % 2n === 1n) {
+      acc = acc * base;
+      if (!inside(acc)) return undefined;
+    }
+    n = n / 2n;
+    if (n === 0n) break;
+    // A squaring that leaves the range takes the answer with it: there is a
+    // bit of the exponent left, and a base of 0, 1 or -1 never grows.
+    base = base * base;
+    if (!inside(base)) return undefined;
+  }
+  return big ? $checkedInBig(acc, lo, hi) : $checkedIn(acc, lo, hi);
 }
 
 // Turning a Template into a Str is the point at which interpolation

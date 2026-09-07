@@ -1,0 +1,439 @@
+// core/bigint — integers with no width.
+//
+// Every expected value here was computed somewhere else and written into the
+// file: known factorials, powers of two and three, and modular exponentiations.
+// A module whose whole claim is exactness has to be checked against arithmetic
+// it did not do itself.
+//
+// Ordinary Buri over `[Int]` with no host anywhere in it, so the assertions are
+// answers rather than anything a platform decides.
+
+from "core/bigint" import * as bigint;
+from "core/bigint" import { BigInt };
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/num" import * as num;
+from "core/order" import { Order };
+from "core/testing/assert" import * as assert;
+
+// --- of, zero and text -----------------------------------------------------------
+
+test "of and text round-trip every Int" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(0).text(ctx), "0");
+    assert.eq(bigint.of(1).text(ctx), "1");
+    assert.eq(bigint.of(-1).text(ctx), "-1");
+    assert.eq(bigint.of(1000000).text(ctx), "1000000");
+    assert.eq(bigint.of(-1000000).text(ctx), "-1000000");
+    assert.eq(bigint.of(16777216).text(ctx), "16777216");
+    assert.eq(bigint.of(num.maxValue<I64>()).text(ctx), "9223372036854775807");
+    assert.eq(bigint.of(num.minValue<I64>()).text(ctx), "-9223372036854775808");
+}
+
+test "zero has one shape, however it was reached" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(0), bigint.zero());
+    assert.eq(bigint.of(5).sub(ctx, bigint.of(5)), bigint.zero());
+    assert.eq(bigint.of(-5).add(ctx, bigint.of(5)), bigint.zero());
+    assert.eq(bigint.of(0).negate(), bigint.zero());
+    assert.isTrue(bigint.zero().isZero());
+    assert.isFalse(bigint.of(1).isZero());
+}
+
+test "text puts every seven-digit group back with its zeros" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The conversion moves seven digits at a time; a group of zeros in the
+    // middle is what a missing pad would lose.
+    assert.eq(
+        assert.some(bigint.parse(ctx, "10000000000000001")).text(ctx),
+        "10000000000000001",
+    );
+    assert.eq(assert.some(bigint.parse(ctx, "100000000")).text(ctx), "100000000");
+    assert.eq(assert.some(bigint.parse(ctx, "10000000")).text(ctx), "10000000");
+}
+
+// --- parse ------------------------------------------------------------------------
+
+test "parse reads the digits back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.parse(ctx, "0"), .Some(bigint.zero()));
+    assert.eq(bigint.parse(ctx, "-0"), .Some(bigint.zero()));
+    assert.eq(bigint.parse(ctx, "42"), .Some(bigint.of(42)));
+    assert.eq(bigint.parse(ctx, "-42"), .Some(bigint.of(-42)));
+    assert.eq(
+        assert.some(bigint.parse(ctx, "1267650600228229401496703205376")).text(ctx),
+        "1267650600228229401496703205376",
+    );
+}
+
+test "parse is strict" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.parse(ctx, ""), .None);
+    assert.eq(bigint.parse(ctx, "-"), .None);
+    assert.eq(bigint.parse(ctx, " 1"), .None);
+    assert.eq(bigint.parse(ctx, "1 "), .None);
+    assert.eq(bigint.parse(ctx, "1_000"), .None);
+    assert.eq(bigint.parse(ctx, "+1"), .None);
+    assert.eq(bigint.parse(ctx, "1.0"), .None);
+    assert.eq(bigint.parse(ctx, "0x10"), .None);
+    assert.eq(bigint.parse(ctx, "12-3"), .None);
+}
+
+// --- add and sub ------------------------------------------------------------------
+
+test "add and sub carry and borrow across limbs" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let big = assert.some(bigint.parse(ctx, "18446744073709551616"));
+    let one = bigint.of(1);
+    assert.eq(big.add(ctx, one).text(ctx), "18446744073709551617");
+    assert.eq(big.sub(ctx, one).text(ctx), "18446744073709551615");
+    assert.eq(bigint.of(999999999).add(ctx, bigint.of(1)).text(ctx), "1000000000");
+    assert.eq(bigint.of(1000000000).sub(ctx, bigint.of(1)).text(ctx), "999999999");
+}
+
+test "add crosses zero and keeps the right sign" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(5).add(ctx, bigint.of(-7)).text(ctx), "-2");
+    assert.eq(bigint.of(-5).add(ctx, bigint.of(7)).text(ctx), "2");
+    assert.eq(bigint.of(-5).add(ctx, bigint.of(-7)).text(ctx), "-12");
+    assert.eq(bigint.of(7).sub(ctx, bigint.of(-5)).text(ctx), "12");
+    assert.eq(bigint.of(-7).sub(ctx, bigint.of(-5)).text(ctx), "-2");
+}
+
+test "add is what an Int cannot do" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let top = bigint.of(num.maxValue<I64>());
+    assert.eq(top.add(ctx, bigint.of(1)).text(ctx), "9223372036854775808");
+    assert.eq(top.add(ctx, top).text(ctx), "18446744073709551614");
+    let bottom = bigint.of(num.minValue<I64>());
+    assert.eq(bottom.add(ctx, bottom).text(ctx), "-18446744073709551616");
+}
+
+test "adding and subtracting the same value gets back where it started" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = assert.some(bigint.parse(ctx, "123456789012345678901234567890"));
+    let b = assert.some(bigint.parse(ctx, "98765432109876543210"));
+    assert.eq(a.add(ctx, b).sub(ctx, b), a);
+    assert.eq(a.sub(ctx, b).add(ctx, b), a);
+    assert.eq(a.negate().negate(), a);
+}
+
+// --- mul ---------------------------------------------------------------------------
+
+test "mul matches the factorials it was checked against" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(factorial(ctx, 0).text(ctx), "1");
+    assert.eq(factorial(ctx, 1).text(ctx), "1");
+    assert.eq(factorial(ctx, 20).text(ctx), "2432902008176640000");
+    assert.eq(factorial(ctx, 25).text(ctx), "15511210043330985984000000");
+    assert.eq(factorial(ctx, 30).text(ctx), "265252859812191058636308480000000");
+    assert.eq(
+        factorial(ctx, 50).text(ctx),
+        "30414093201713378043612608166064768844377641568960512000000000000",
+    );
+}
+
+test "mul carries the sign and answers zero for a zero side" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(6).mul(ctx, bigint.of(7)).text(ctx), "42");
+    assert.eq(bigint.of(-6).mul(ctx, bigint.of(7)).text(ctx), "-42");
+    assert.eq(bigint.of(6).mul(ctx, bigint.of(-7)).text(ctx), "-42");
+    assert.eq(bigint.of(-6).mul(ctx, bigint.of(-7)).text(ctx), "42");
+    assert.eq(bigint.of(0).mul(ctx, bigint.of(-7)), bigint.zero());
+    assert.eq(bigint.of(-7).mul(ctx, bigint.zero()), bigint.zero());
+}
+
+test "mul is what an Int cannot do" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let top = bigint.of(num.maxValue<I64>());
+    assert.eq(top.mul(ctx, top).text(ctx), "85070591730234615847396907784232501249");
+    let ten = assert.some(bigint.parse(ctx, "10000000000000000000"));
+    assert.eq(ten.mul(ctx, ten).text(ctx), "100000000000000000000000000000000000000");
+}
+
+test "mul is commutative and distributes over add" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = assert.some(bigint.parse(ctx, "987654321987654321"));
+    let b = assert.some(bigint.parse(ctx, "123456789123456789"));
+    let c = bigint.of(-4242);
+    assert.eq(a.mul(ctx, b), b.mul(ctx, a));
+    assert.eq(a.mul(ctx, b.add(ctx, c)), a.mul(ctx, b).add(ctx, a.mul(ctx, c)));
+}
+
+// --- power --------------------------------------------------------------------------
+
+test "power matches the powers it was checked against" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(2).power(ctx, 0).text(ctx), "1");
+    assert.eq(bigint.of(2).power(ctx, 1).text(ctx), "2");
+    assert.eq(bigint.of(2).power(ctx, 64).text(ctx), "18446744073709551616");
+    assert.eq(
+        bigint.of(2).power(ctx, 100).text(ctx),
+        "1267650600228229401496703205376",
+    );
+    assert.eq(bigint.of(3).power(ctx, 40).text(ctx), "12157665459056928801");
+    assert.eq(
+        bigint.of(10).power(ctx, 40).text(ctx),
+        "10000000000000000000000000000000000000000",
+    );
+}
+
+test "power keeps the sign an odd exponent gives it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(-2).power(ctx, 3).text(ctx), "-8");
+    assert.eq(bigint.of(-2).power(ctx, 4).text(ctx), "16");
+    assert.eq(bigint.of(0).power(ctx, 0).text(ctx), "1");
+    assert.eq(bigint.of(0).power(ctx, 7), bigint.zero());
+}
+
+test "a negative exponent is the whole part of a fraction" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(2).power(ctx, -1), bigint.zero());
+    assert.eq(bigint.of(0).power(ctx, -1), bigint.zero());
+    assert.eq(bigint.of(1).power(ctx, -5).text(ctx), "1");
+    assert.eq(bigint.of(-1).power(ctx, -5).text(ctx), "-1");
+    assert.eq(bigint.of(-1).power(ctx, -4).text(ctx), "1");
+}
+
+test "power is repeated multiplication" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let base = bigint.of(12345);
+    assert.eq(base.power(ctx, 5), base.power(ctx, 4).mul(ctx, base));
+    assert.eq(base.power(ctx, 1), base);
+}
+
+// --- quotientRemainder ---------------------------------------------------------------
+
+test "quotientRemainder truncates toward zero, as Int's operators do" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(split(ctx, 7, 2), ("3", "1"));
+    assert.eq(split(ctx, -7, 2), ("-3", "-1"));
+    assert.eq(split(ctx, 7, -2), ("-3", "1"));
+    assert.eq(split(ctx, -7, -2), ("3", "-1"));
+    assert.eq(split(ctx, 6, 3), ("2", "0"));
+    assert.eq(split(ctx, 0, 3), ("0", "0"));
+    assert.eq(split(ctx, 2, 7), ("0", "2"));
+}
+
+test "quotientRemainder answers .None on a zero divisor" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(7).quotientRemainder(ctx, bigint.zero()), .None);
+    assert.eq(bigint.zero().quotientRemainder(ctx, bigint.zero()), .None);
+}
+
+test "quotientRemainder over many limbs" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = assert.some(bigint.parse(ctx, "10000000000000000000000000000000000000000"));
+    let (q, r) = assert.some(a.quotientRemainder(ctx, bigint.of(7)));
+    assert.eq(q.text(ctx), "1428571428571428571428571428571428571428");
+    assert.eq(r.text(ctx), "4");
+
+    let two = bigint.of(2).power(ctx, 100);
+    let three = bigint.of(3).power(ctx, 20);
+    let (q2, r2) = assert.some(two.quotientRemainder(ctx, three));
+    assert.eq(q2.text(ctx), "363558641556578823726");
+    assert.eq(r2.text(ctx), "1957707250");
+}
+
+test "the quotient times the divisor plus the remainder is the dividend" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = assert.some(bigint.parse(ctx, "-987654321098765432109876543210"));
+    let b = assert.some(bigint.parse(ctx, "123456789"));
+    let (q, r) = assert.some(a.quotientRemainder(ctx, b));
+    assert.eq(q.mul(ctx, b).add(ctx, r), a);
+}
+
+test "dividing a factorial by its own factors leaves nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let twenty = factorial(ctx, 20);
+    let nineteen = factorial(ctx, 19);
+    let (q, r) = assert.some(twenty.quotientRemainder(ctx, nineteen));
+    assert.eq(q.text(ctx), "20");
+    assert.isTrue(r.isZero());
+}
+
+// --- modularPower ---------------------------------------------------------------------
+
+test "modularPower matches the residues it was checked against" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(residue(ctx, 7, 128, 13), "3");
+    assert.eq(residue(ctx, 2, 1000, 1000000007), "688423210");
+    assert.eq(residue(ctx, 123456789, 987654321, 1000000007), "652541198");
+    assert.eq(residue(ctx, 5, 0, 7), "1");
+    assert.eq(residue(ctx, 5, 1, 7), "5");
+}
+
+test "modularPower answers a non-negative residue whatever the signs" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(residue(ctx, -3, 3, 7), "1");
+    assert.eq(residue(ctx, -3, 2, 7), "2");
+    assert.eq(residue(ctx, 3, 3, -7), "6");
+    assert.eq(residue(ctx, 5, 3, 1), "0");
+}
+
+test "modularPower answers zero where there is nothing to answer" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(bigint.of(5).modularPower(ctx, bigint.of(3), bigint.zero()).isZero());
+    assert.isTrue(bigint.of(5).modularPower(ctx, bigint.of(-1), bigint.of(7)).isZero());
+}
+
+test "modularPower agrees with power reduced afterwards" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = bigint.of(97);
+    let whole = bigint.of(6).power(ctx, 30);
+    let (_, r) = assert.some(whole.quotientRemainder(ctx, m));
+    assert.eq(bigint.of(6).modularPower(ctx, bigint.of(30), m), r);
+}
+
+// --- toInt ------------------------------------------------------------------------------
+
+test "toInt is exact at both ends" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(0).toInt(), .Ok(0));
+    assert.eq(bigint.of(-1).toInt(), .Ok(-1));
+    assert.eq(bigint.of(1234567890).toInt(), .Ok(1234567890));
+    assert.eq(bigint.of(num.maxValue<I64>()).toInt(), .Ok(num.maxValue<I64>()));
+    assert.eq(bigint.of(num.minValue<I64>()).toInt(), .Ok(num.minValue<I64>()));
+    assert.isTrue(
+        bigint.of(num.maxValue<I64>()).add(ctx, bigint.of(1)).toInt().isErr(),
+    );
+    assert.isTrue(
+        bigint.of(num.minValue<I64>()).sub(ctx, bigint.of(1)).toInt().isErr(),
+    );
+}
+
+test "toInt and of undo each other" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let values = [
+        0,
+        1,
+        -1,
+        16777215,
+        16777216,
+        16777217,
+        num.maxValue<I64>(),
+        num.minValue<I64>(),
+    ];
+    let broken = values.filter(ctx, fn(v) => bigint.of(v).toInt() != .Ok(v));
+    assert.isEmpty(broken);
+}
+
+// --- Eq, Ord and Hash ----------------------------------------------------------------
+
+test "equality is numeric because the shape is canonical" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(42), assert.some(bigint.parse(ctx, "42")));
+    assert.eq(bigint.of(-42), assert.some(bigint.parse(ctx, "-42")));
+    assert.notEq(bigint.of(42), bigint.of(-42));
+    assert.eq(bigint.of(1).mul(ctx, bigint.of(0)), bigint.zero());
+    assert.eq(bigint.of(2).power(ctx, 100), bigint.of(2).power(ctx, 100));
+}
+
+test "order is numeric and not the field order a derive would give" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(-5).compare(bigint.of(3)), Order.Less);
+    assert.eq(bigint.of(3).compare(bigint.of(-5)), Order.Greater);
+    assert.eq(bigint.of(3).compare(bigint.of(3)), Order.Equal);
+    assert.eq(bigint.of(-5).compare(bigint.of(-7)), Order.Greater);
+    assert.eq(bigint.zero().compare(bigint.of(-1)), Order.Greater);
+    assert.eq(
+        bigint.of(2).power(ctx, 100).compare(bigint.of(num.maxValue<I64>())),
+        Order.Greater,
+    );
+}
+
+test "sorting puts them in numeric order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let values = [
+        bigint.of(3),
+        bigint.of(-5),
+        bigint.zero(),
+        bigint.of(100),
+        bigint.of(-100),
+    ];
+    let sorted = values.sort(ctx).mapCtx(ctx, fn(c, v) => v.text(c));
+    assert.eq(sorted, ["-100", "-5", "0", "3", "100"]);
+}
+
+// --- helpers ---------------------------------------------------------------------------
+
+/// `n!`, built with `mul` alone.
+fn factorial<C: Alloc>(ctx: C, n: Int): BigInt {
+    list
+        .range(ctx, 1, n + 1)
+        .foldCtx(ctx, fn(c, acc, i) => acc.mul(c, bigint.of(i)), bigint.of(1))
+}
+
+/// A division, as the two numbers it answers.
+fn split<C: Alloc>(ctx: C, a: Int, b: Int): (Str, Str) {
+    let (q, r) = assert.some(bigint.of(a).quotientRemainder(ctx, bigint.of(b)));
+    (q.text(ctx), r.text(ctx))
+}
+
+/// One modular exponentiation, written out.
+fn residue<C: Alloc>(ctx: C, base: Int, exponent: Int, modulus: Int): Str {
+    bigint.of(base).modularPower(ctx, bigint.of(exponent), bigint.of(modulus)).text(ctx)
+}

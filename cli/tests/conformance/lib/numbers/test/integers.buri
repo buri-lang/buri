@@ -1095,3 +1095,285 @@ test "the minimum of each signed width is writable as a literal" {
     assert.eq(d, num.minValue<I64>());
     assert.eq(e, num.minValue<I128>());
 }
+
+// --- Checked's other three ------------------------------------------------------
+//
+// `checkedRemainder`, `checkedNegate` and `checkedPower`, at several widths for
+// the reason every other family here is: the answer has to be the same one at
+// each, and on JavaScript the widths up to 32 bits are a `number` and the rest
+// are a `BigInt`.
+
+test "checkedRemainder answers .None only on a zero divisor" {
+    assert.eq(7.checkedRemainder(3), .Some(1));
+    assert.eq((-7).checkedRemainder(3), .Some(-1));
+    assert.eq(7.checkedRemainder(-3), .Some(1));
+    assert.eq(6.checkedRemainder(3), .Some(0));
+    assert.eq(7.checkedRemainder(0), .None);
+    assert.eq(0.checkedRemainder(5), .Some(0));
+}
+
+test "checkedRemainder takes the dividend's sign, as % does" {
+    assert.eq((-7).checkedRemainder(3), .Some(-7 % 3));
+    assert.eq(7.checkedRemainder(-3), .Some(7 % -3));
+}
+
+test "the remainder that has no quotient still has an answer" {
+    // `minValue / -1` is `2^63`, which is `.None`; the matching remainder is
+    // `0`, which is a value of every width.
+    assert.eq(num.minValue<I64>().checkedDiv(-1), .None);
+    assert.eq(num.minValue<I64>().checkedRemainder(-1), .Some(0));
+    let small: I8 = -128;
+    assert.eq(small.checkedDiv(-1), .None);
+    assert.eq(small.checkedRemainder(-1), .Some(0));
+}
+
+test "checkedRemainder at the unsigned widths" {
+    let a: U8 = 200;
+    let b: U32 = 4294967295;
+    let c: U64 = 18446744073709551615;
+    assert.eq(a.checkedRemainder(7), .Some(4));
+    assert.eq(b.checkedRemainder(1000), .Some(295));
+    assert.eq(c.checkedRemainder(10), .Some(5));
+    assert.eq(a.checkedRemainder(0), .None);
+}
+
+test "checkedNegate answers .None at the one value with no negative" {
+    assert.eq(5.checkedNegate(), .Some(-5));
+    assert.eq((-5).checkedNegate(), .Some(5));
+    assert.eq(0.checkedNegate(), .Some(0));
+    assert.eq(num.maxValue<I64>().checkedNegate(), .Some(-9223372036854775807));
+    assert.eq(num.minValue<I64>().checkedNegate(), .None);
+}
+
+test "checkedNegate at the narrow signed widths" {
+    let a: I8 = -128;
+    let b: I8 = -127;
+    let c: I32 = -2147483648;
+    assert.eq(a.checkedNegate(), .None);
+    assert.eq(b.checkedNegate(), .Some(127));
+    assert.eq(c.checkedNegate(), .None);
+}
+
+test "an unsigned type has a negative for zero and for nothing else" {
+    let zero: U8 = 0;
+    let one: U8 = 1;
+    let wide: U64 = 7;
+    assert.eq(zero.checkedNegate(), .Some(0));
+    assert.eq(one.checkedNegate(), .None);
+    assert.eq(wide.checkedNegate(), .None);
+}
+
+test "checkedPower is the empty product at a zero exponent" {
+    assert.eq(0.checkedPower(0), .Some(1));
+    assert.eq(7.checkedPower(0), .Some(1));
+    assert.eq((-7).checkedPower(0), .Some(1));
+    let a: U8 = 3;
+    assert.eq(a.checkedPower(0), .Some(1));
+}
+
+test "checkedPower multiplies the base by itself" {
+    assert.eq(2.checkedPower(10), .Some(1024));
+    assert.eq(3.checkedPower(5), .Some(243));
+    assert.eq(10.checkedPower(18), .Some(1000000000000000000));
+    assert.eq((-2).checkedPower(3), .Some(-8));
+    assert.eq((-2).checkedPower(4), .Some(16));
+    assert.eq(1.checkedPower(9007199254740993), .Some(1));
+    assert.eq(0.checkedPower(5), .Some(0));
+}
+
+test "checkedPower answers .None past the type's own range" {
+    assert.eq(10.checkedPower(19), .None);
+    assert.eq(2.checkedPower(63), .None);
+    assert.eq(2.checkedPower(62), .Some(4611686018427387904));
+    let a: U8 = 2;
+    assert.eq(a.checkedPower(7), .Some(128));
+    assert.eq(a.checkedPower(8), .None);
+    let b: I8 = 2;
+    assert.eq(b.checkedPower(6), .Some(64));
+    assert.eq(b.checkedPower(7), .None);
+}
+
+test "checkedPower answers .None for a negative exponent" {
+    assert.eq(2.checkedPower(-1), .None);
+    assert.eq(1.checkedPower(-1), .None);
+    assert.eq(0.checkedPower(-1), .None);
+}
+
+test "checkedPower at the wide widths" {
+    let a: U64 = 3;
+    let b: U128 = 2;
+    let c: I128 = 10;
+    assert.eq(a.checkedPower(40), .Some(12157665459056928801));
+    assert.eq(a.checkedPower(41), .None);
+    assert.eq(b.checkedPower(127), .Some(170141183460469231731687303715884105728));
+    assert.eq(b.checkedPower(128), .None);
+    assert.eq(c.checkedPower(38), .Some(100000000000000000000000000000000000000));
+    assert.eq(c.checkedPower(39), .None);
+}
+
+test "checkedPower is checkedMul repeated" {
+    // The property that says the two agree: `x^n` is `x^(n-1) * x` wherever
+    // both fit.
+    assert.eq(7.checkedPower(5), 7.checkedPower(4).andThen(fn(v) => v.checkedMul(7)));
+    assert.eq(3.checkedPower(20), 3.checkedPower(19).andThen(fn(v) => v.checkedMul(3)));
+}
+
+// --- Integer arithmetic in core/num --------------------------------------------
+
+test "power is Option-valued exponentiation" {
+    assert.eq(num.power(2, 10), .Some(1024));
+    assert.eq(num.power(10, 0), .Some(1));
+    assert.eq(num.power(0, 0), .Some(1));
+    assert.eq(num.power(-3, 3), .Some(-27));
+    assert.eq(num.power(-3, 4), .Some(81));
+    assert.eq(num.power(10, 18), .Some(1000000000000000000));
+    assert.eq(num.power(10, 19), .None);
+    assert.eq(num.power(2, -1), .None);
+}
+
+test "power agrees with the Checked method it is written out of" {
+    assert.eq(num.power(7, 11), 7.checkedPower(11));
+    assert.eq(num.power(3037000500, 2), 3037000500.checkedPower(2));
+    assert.eq(num.power(2, 63), 2.checkedPower(63));
+}
+
+test "greatestCommonDivisor ignores sign and answers zero for two zeros" {
+    assert.eq(num.greatestCommonDivisor(12, 18), 6);
+    assert.eq(num.greatestCommonDivisor(-12, 18), 6);
+    assert.eq(num.greatestCommonDivisor(12, -18), 6);
+    assert.eq(num.greatestCommonDivisor(-12, -18), 6);
+    assert.eq(num.greatestCommonDivisor(0, 0), 0);
+    assert.eq(num.greatestCommonDivisor(0, 7), 7);
+    assert.eq(num.greatestCommonDivisor(7, 0), 7);
+    assert.eq(num.greatestCommonDivisor(17, 5), 1);
+    assert.eq(num.greatestCommonDivisor(270, 192), 6);
+}
+
+test "greatestCommonDivisor divides both, and nothing larger does" {
+    let g = num.greatestCommonDivisor(462, 1071);
+    assert.eq(g, 21);
+    assert.eq(462 % g, 0);
+    assert.eq(1071 % g, 0);
+}
+
+test "the two pairs whose divisor is not an Int answer that value anyway" {
+    // `|minValue|` is `2^63`, which no `Int` holds, so these two are the
+    // documented exception to the answer being non-negative.
+    assert.eq(num.greatestCommonDivisor(num.minValue<I64>(), 0), num.minValue<I64>());
+    assert.eq(num.greatestCommonDivisor(0, num.minValue<I64>()), num.minValue<I64>());
+    // With any other second argument the magnitude comes back down.
+    assert.eq(num.greatestCommonDivisor(num.minValue<I64>(), 2), 2);
+    assert.eq(num.greatestCommonDivisor(num.minValue<I64>(), -1), 1);
+}
+
+test "leastCommonMultiple is the smallest number both divide" {
+    assert.eq(num.leastCommonMultiple(4, 6), .Some(12));
+    assert.eq(num.leastCommonMultiple(21, 6), .Some(42));
+    assert.eq(num.leastCommonMultiple(-4, 6), .Some(12));
+    assert.eq(num.leastCommonMultiple(7, 7), .Some(7));
+    assert.eq(num.leastCommonMultiple(0, 5), .Some(0));
+    assert.eq(num.leastCommonMultiple(5, 0), .Some(0));
+    assert.eq(num.leastCommonMultiple(0, 0), .Some(0));
+}
+
+test "leastCommonMultiple answers .None when the multiple is not an Int" {
+    assert.eq(
+        num.leastCommonMultiple(num.maxValue<I64>(), num.maxValue<I64>() - 1),
+        .None,
+    );
+    assert.eq(num.leastCommonMultiple(4611686018427387904, 3), .None);
+}
+
+test "the product of the two is the product of the arguments" {
+    // `gcd(a, b) * lcm(a, b) == |a * b|`, on values small enough for the
+    // product to be an `Int`.
+    let a = 1071;
+    let b = 462;
+    let g = num.greatestCommonDivisor(a, b);
+    assert.eq(num.leastCommonMultiple(a, b).map(fn(l) => l * g), .Some(a * b));
+}
+
+test "divideEuclidean pairs with remEuclid at either sign of divisor" {
+    assert.eq(num.divideEuclidean(7, 2), 3);
+    assert.eq(num.divideEuclidean(-7, 2), -4);
+    assert.eq(num.divideEuclidean(7, -2), -3);
+    assert.eq(num.divideEuclidean(-7, -2), 4);
+    assert.eq(num.divideEuclidean(6, 3), 2);
+    assert.eq(num.divideEuclidean(0, 3), 0);
+}
+
+test "divideEuclidean times the divisor plus remEuclid is the dividend" {
+    assert.eq(num.divideEuclidean(-7, 2) * 2 + num.remEuclid(-7, 2), -7);
+    assert.eq(num.divideEuclidean(-7, -2) * -2 + num.remEuclid(-7, -2), -7);
+    assert.eq(num.divideEuclidean(7, -2) * -2 + num.remEuclid(7, -2), 7);
+    assert.eq(num.divideEuclidean(123, 7) * 7 + num.remEuclid(123, 7), 123);
+}
+
+test "divideCeiling rounds toward positive infinity" {
+    assert.eq(num.divideCeiling(7, 2), 4);
+    assert.eq(num.divideCeiling(6, 2), 3);
+    assert.eq(num.divideCeiling(-7, 2), -3);
+    assert.eq(num.divideCeiling(7, -2), -3);
+    assert.eq(num.divideCeiling(-7, -2), 4);
+    assert.eq(num.divideCeiling(0, 5), 0);
+    assert.eq(num.divideCeiling(1, 5), 1);
+}
+
+test "divideCeiling is never below the truncating quotient for a positive pair" {
+    assert.eq(num.divideCeiling(10, 3), 4);
+    assert.eq(num.divideCeiling(9, 3), 3);
+    assert.eq(num.divideCeiling(1, 1000000), 1);
+}
+
+test "quotientRemainder is / and % in one call" {
+    assert.eq(num.quotientRemainder(7, 2), (3, 1));
+    assert.eq(num.quotientRemainder(-7, 2), (-3, -1));
+    assert.eq(num.quotientRemainder(7, -2), (-3, 1));
+    assert.eq(num.quotientRemainder(-7, -2), (3, -1));
+    assert.eq(num.quotientRemainder(0, 5), (0, 0));
+    assert.eq(num.quotientRemainder(6, 3), (2, 0));
+}
+
+test "the quotient times the divisor plus the remainder is the dividend" {
+    let (q, r) = num.quotientRemainder(1234567, 89);
+    assert.eq(q * 89 + r, 1234567);
+}
+
+test "integerSquareRoot is exact where math.sqrt is not" {
+    assert.eq(num.integerSquareRoot(0), .Some(0));
+    assert.eq(num.integerSquareRoot(1), .Some(1));
+    assert.eq(num.integerSquareRoot(2), .Some(1));
+    assert.eq(num.integerSquareRoot(3), .Some(1));
+    assert.eq(num.integerSquareRoot(4), .Some(2));
+    assert.eq(num.integerSquareRoot(8), .Some(2));
+    assert.eq(num.integerSquareRoot(9), .Some(3));
+    assert.eq(num.integerSquareRoot(1000000), .Some(1000));
+    assert.eq(num.integerSquareRoot(-1), .None);
+    assert.eq(num.integerSquareRoot(-1000), .None);
+}
+
+test "integerSquareRoot at the top of the range" {
+    assert.eq(num.integerSquareRoot(num.maxValue<I64>()), .Some(3037000499));
+    assert.eq(num.integerSquareRoot(9223372030926249001), .Some(3037000499));
+    assert.eq(num.integerSquareRoot(4611686018427387904), .Some(2147483648));
+}
+
+test "the root squared is at or below the value, and one more is above it" {
+    let n = 987654321987;
+    match (num.integerSquareRoot(n)) {
+        .None => assert.isTrue(false),
+        .Some(r) => {
+            assert.isTrue(r * r <= n);
+            assert.isTrue((r + 1) * (r + 1) > n);
+        },
+    }
+}
+
+test "absoluteDifference has no sign to get wrong" {
+    assert.eq(num.absoluteDifference(7, 3), 4);
+    assert.eq(num.absoluteDifference(3, 7), 4);
+    assert.eq(num.absoluteDifference(-3, 7), 10);
+    assert.eq(num.absoluteDifference(-7, -3), 4);
+    assert.eq(num.absoluteDifference(5, 5), 0);
+    assert.eq(num.absoluteDifference(0, 0), 0);
+}

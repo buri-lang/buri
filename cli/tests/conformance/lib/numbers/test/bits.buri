@@ -288,3 +288,139 @@ test "the operators agree with popCount about how many bits there are" {
     let zero: Int = 0;
     assert.eq(bits.popCount(~zero), 64);
 }
+
+// --- The rotates at the three unsigned widths ------------------------------------------
+//
+// Each wraps inside its own width, so the bits that leave the top come back in
+// at the bottom of *that* width and not of sixty-four.
+
+test "rotateLeftU8 wraps inside the byte" {
+    assert.eq(bits.rotateLeftU8(1, 0), 1);
+    assert.eq(bits.rotateLeftU8(1, 1), 2);
+    assert.eq(bits.rotateLeftU8(1, 7), 128);
+    assert.eq(bits.rotateLeftU8(128, 1), 1);
+    assert.eq(bits.rotateLeftU8(129, 1), 3);
+    assert.eq(bits.rotateLeftU8(255, 3), 255);
+    assert.eq(bits.rotateLeftU8(0, 5), 0);
+}
+
+test "rotateRightU8 is rotateLeftU8's inverse" {
+    assert.eq(bits.rotateRightU8(1, 1), 128);
+    assert.eq(bits.rotateRightU8(2, 1), 1);
+    assert.eq(bits.rotateRightU8(3, 1), 129);
+    assert.eq(bits.rotateRightU8(bits.rotateLeftU8(203, 5), 5), 203);
+    assert.eq(bits.rotateRightU8(203, 0), 203);
+}
+
+test "rotateLeftU32 wraps inside thirty-two bits" {
+    assert.eq(bits.rotateLeftU32(1, 31), 2147483648);
+    assert.eq(bits.rotateLeftU32(2147483648, 1), 1);
+    assert.eq(bits.rotateLeftU32(1, 0), 1);
+    assert.eq(bits.rotateLeftU32(num.maxValue<U32>(), 13), 4294967295);
+    assert.eq(bits.rotateLeftU32(305419896, 8), 878082066);
+}
+
+test "rotateRightU32 is rotateLeftU32's inverse" {
+    assert.eq(bits.rotateRightU32(1, 1), 2147483648);
+    assert.eq(bits.rotateRightU32(878082066, 8), 305419896);
+    assert.eq(bits.rotateRightU32(bits.rotateLeftU32(3735928559, 17), 17), 3735928559);
+}
+
+test "rotateLeftU64 wraps inside sixty-four bits" {
+    let one: U64 = 1;
+    let top: U64 = 9223372036854775808;
+    assert.eq(bits.rotateLeftU64(one, 63), top);
+    assert.eq(bits.rotateLeftU64(top, 1), one);
+    assert.eq(bits.rotateLeftU64(one, 0), one);
+    assert.eq(bits.rotateLeftU64(num.maxValue<U64>(), 29), num.maxValue<U64>());
+}
+
+test "rotateRightU64 is rotateLeftU64's inverse" {
+    let sample: U64 = 1311768467463790320;
+    assert.eq(bits.rotateRightU64(bits.rotateLeftU64(sample, 41), 41), sample);
+    assert.eq(bits.rotateRightU64(sample, 0), sample);
+}
+
+test "a rotate at every width agrees with the shift pair it is written out of" {
+    // `x << n | x >> (w - n)`, spelled with the shifts this module already had.
+    let byte: U8 = 203;
+    assert.eq(bits.rotateLeftU8(byte, 3), bits.shlU8(byte, 3) | bits.shrU8(byte, 5));
+    let word: U32 = 3735928559;
+    assert.eq(
+        bits.rotateLeftU32(word, 11),
+        bits.shlU32(word, 11) | bits.shrU32(word, 21),
+    );
+    let wide: U64 = 1311768467463790320;
+    assert.eq(
+        bits.rotateLeftU64(wide, 20),
+        bits.shlU64(wide, 20) | bits.shrU64(wide, 44),
+    );
+}
+
+// --- byteSwap ----------------------------------------------------------------------
+
+test "byteSwapU32 reverses four bytes" {
+    assert.eq(bits.byteSwapU32(0), 0);
+    assert.eq(bits.byteSwapU32(1), 16777216);
+    assert.eq(bits.byteSwapU32(305419896), 2018915346);
+    assert.eq(bits.byteSwapU32(num.maxValue<U32>()), 4294967295);
+}
+
+test "byteSwapU32 is its own inverse" {
+    assert.eq(bits.byteSwapU32(bits.byteSwapU32(305419896)), 305419896);
+    assert.eq(bits.byteSwapU32(bits.byteSwapU32(1)), 1);
+}
+
+test "byteSwapU64 reverses eight bytes" {
+    let one: U64 = 1;
+    let top: U64 = 72057594037927936;
+    assert.eq(bits.byteSwapU64(0), 0);
+    assert.eq(bits.byteSwapU64(one), top);
+    assert.eq(bits.byteSwapU64(1311768467463790320), 17356517385562371090);
+    assert.eq(bits.byteSwapU64(num.maxValue<U64>()), num.maxValue<U64>());
+}
+
+test "byteSwapU64 is its own inverse" {
+    let sample: U64 = 1311768467463790320;
+    assert.eq(bits.byteSwapU64(bits.byteSwapU64(sample)), sample);
+}
+
+// --- The three counts at U64 -----------------------------------------------------
+
+test "popCountU64 counts the set bits" {
+    let zero: U64 = 0;
+    assert.eq(bits.popCountU64(zero), 0);
+    assert.eq(bits.popCountU64(1), 1);
+    assert.eq(bits.popCountU64(255), 8);
+    assert.eq(bits.popCountU64(num.maxValue<U64>()), 64);
+    assert.eq(bits.popCountU64(9223372036854775808), 1);
+}
+
+test "leadingZerosU64 counts from the top, and answers the width at zero" {
+    let zero: U64 = 0;
+    assert.eq(bits.leadingZerosU64(zero), 64);
+    assert.eq(bits.leadingZerosU64(1), 63);
+    assert.eq(bits.leadingZerosU64(255), 56);
+    assert.eq(bits.leadingZerosU64(9223372036854775808), 0);
+    assert.eq(bits.leadingZerosU64(num.maxValue<U64>()), 0);
+}
+
+test "trailingZerosU64 counts from the bottom, and answers the width at zero" {
+    let zero: U64 = 0;
+    assert.eq(bits.trailingZerosU64(zero), 64);
+    assert.eq(bits.trailingZerosU64(1), 0);
+    assert.eq(bits.trailingZerosU64(256), 8);
+    assert.eq(bits.trailingZerosU64(9223372036854775808), 63);
+    assert.eq(bits.trailingZerosU64(num.maxValue<U64>()), 0);
+}
+
+test "the U64 counts agree with the Int ones on the same sixty-four bits" {
+    // `U64` and `Int` are the same bits read two ways, so the counts match even
+    // where the value read as an `Int` is negative.
+    assert.eq(bits.popCountU64(num.maxValue<U64>()), bits.popCount(-1));
+    assert.eq(bits.leadingZerosU64(num.maxValue<U64>()), bits.leadingZeros(-1));
+    assert.eq(
+        bits.trailingZerosU64(9223372036854775808),
+        bits.trailingZeros(num.minValue<I64>()),
+    );
+}
