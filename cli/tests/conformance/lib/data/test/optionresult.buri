@@ -766,8 +766,14 @@ test "orElseCtx takes the context instead of capturing it" {
     };
     let bad: Result<Int, Str> = .Err("no");
     let ok: Result<Int, Str> = .Ok(2);
-    assert.eq(assert.err(bad.orElseCtx(ctx, fn(c, e) => .Err(str.format(c, "<${e}>")))), "<no>");
-    assert.eq(assert.ok(ok.orElseCtx(ctx, fn(c, e) => .Err(str.format(c, "<${e}>")))), 2);
+    assert.eq(
+        assert.err(bad.orElseCtx(ctx, fn(c, e) => .Err(str.format(c, "<${e}>")))),
+        "<no>",
+    );
+    assert.eq(
+        assert.ok(ok.orElseCtx(ctx, fn(c, e) => .Err(str.format(c, "<${e}>")))),
+        2,
+    );
 }
 
 test "withDefaultWith builds the fallback from the error" {

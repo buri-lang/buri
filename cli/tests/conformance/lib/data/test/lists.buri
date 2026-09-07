@@ -1795,11 +1795,9 @@ test "unfold builds a list from a seed" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let halves = list.unfold(
-        ctx,
-        8,
-        fn(n) => if (n == 0) { .None } else { .Some((n, n / 2)) },
-    );
+    let halves = list.unfold(ctx, 8, fn(n) => {
+        if (n == 0) { .None } else { .Some((n, n / 2)) }
+    });
     assert.eq(halves, [8, 4, 2, 1]);
 }
 
