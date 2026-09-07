@@ -1,0 +1,222 @@
+// core/heap — the pairing heap.
+//
+// The cases worth writing are the ones that make the structure work rather than
+// the interface. A pairing heap does not balance: `push` hangs a node off the
+// root and `pop` is the only thing that ever reshapes the tree, so the case
+// that matters is a long run of pushes followed by a drain — which is where the
+// two-pass merge either pays for itself or leaves a spine behind. Duplicates
+// matter too, because holding the same priority twice is the reason this is not
+// an `OrdSet`.
+
+from "core/effect" import { Alloc };
+from "core/heap" import * as heap;
+from "core/heap" import { Heap };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+
+// --- empty ---------------------------------------------------------------------
+
+test "an empty heap holds nothing" {
+    let h = heap.empty<Int>();
+    assert.eq(h.length(), 0);
+    assert.isTrue(h.isEmpty());
+    assert.isTrue(h.peek().isNone());
+}
+
+test "popping an empty heap is nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(heap.empty<Int>().pop(ctx).isNone());
+    assert.eq(heap.empty<Int>().toSortedList(ctx), []);
+    assert.eq(heap.of(ctx, list.empty<Int>()).length(), 0);
+}
+
+// --- push / peek / pop ----------------------------------------------------------
+
+test "peek answers the smallest, whatever order it arrived in" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let h = heap.empty<Int>().push(ctx, 30).push(ctx, 10).push(ctx, 20);
+    assert.eq(assert.some(h.peek()), 10);
+    assert.eq(h.length(), 3);
+    // The smallest arriving last is the same answer.
+    let later = heap.empty<Int>().push(ctx, 30).push(ctx, 20).push(ctx, 5);
+    assert.eq(assert.some(later.peek()), 5);
+}
+
+test "pop answers the smallest and the heap without it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let h = heap.of(ctx, [30, 10, 20]);
+    let (smallest, rest) = assert.some(h.pop(ctx));
+    assert.eq(smallest, 10);
+    assert.eq(rest.length(), 2);
+    assert.eq(assert.some(rest.peek()), 20);
+    // The heap it came from is untouched: a heap is a value.
+    assert.eq(h.length(), 3);
+    assert.eq(assert.some(h.peek()), 10);
+}
+
+test "a heap of one pops to the empty heap" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let (only, rest) = assert.some(heap.of(ctx, [7]).pop(ctx));
+    assert.eq(only, 7);
+    assert.eq(rest.length(), 0);
+    assert.isTrue(rest.isEmpty());
+    assert.isTrue(rest.peek().isNone());
+    assert.isTrue(rest.pop(ctx).isNone());
+}
+
+test "a heap holds duplicates, which is why it is not a set" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let h = heap.of(ctx, [5, 5, 5, 1]);
+    assert.eq(h.length(), 4);
+    assert.eq(h.toSortedList(ctx), [1, 5, 5, 5]);
+}
+
+test "negatives and a repeated smallest come out in order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let h = heap.of(ctx, [0, -3, 2, -3, 1]);
+    assert.eq(h.toSortedList(ctx), [-3, -3, 0, 1, 2]);
+}
+
+// --- merge -----------------------------------------------------------------------
+
+test "merge holds both sides" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = heap.of(ctx, [1, 5]);
+    let b = heap.of(ctx, [3, 7]);
+    let both = a.merge(ctx, b);
+    assert.eq(both.length(), 4);
+    assert.eq(assert.some(both.peek()), 1);
+    assert.eq(both.toSortedList(ctx), [1, 3, 5, 7]);
+    // Neither side moved.
+    assert.eq(a.length(), 2);
+    assert.eq(b.length(), 2);
+}
+
+test "merging with the empty heap answers the same elements" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = heap.of(ctx, [2, 4]);
+    assert.eq(a.merge(ctx, heap.empty<Int>()).toSortedList(ctx), [2, 4]);
+    assert.eq(heap.empty<Int>().merge(ctx, a).toSortedList(ctx), [2, 4]);
+    assert.isTrue(heap.empty<Int>().merge(ctx, heap.empty<Int>()).isEmpty());
+}
+
+test "merge keeps the duplicates both sides brought" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let both = heap.of(ctx, [1, 1]).merge(ctx, heap.of(ctx, [1]));
+    assert.eq(both.length(), 3);
+    assert.eq(both.toSortedList(ctx), [1, 1, 1]);
+}
+
+// --- toSortedList ------------------------------------------------------------------
+
+test "toSortedList is the elements smallest first" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(heap.of(ctx, [3, 1, 2]).toSortedList(ctx), [1, 2, 3]);
+    assert.eq(heap.of(ctx, [1]).toSortedList(ctx), [1]);
+    // It reads rather than consumes: the heap is a value.
+    let h = heap.of(ctx, [3, 1, 2]);
+    assert.eq(h.toSortedList(ctx), h.toSortedList(ctx));
+    assert.eq(h.length(), 3);
+}
+
+test "a heap of strings sorts by the string order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let h = heap.of(ctx, ["pear", "apple", "fig"]);
+    assert.eq(assert.some(h.peek()), "apple");
+    assert.eq(h.toSortedList(ctx), ["apple", "fig", "pear"]);
+}
+
+// The structure's own behaviour. A run of five hundred pushes leaves the root
+// holding five hundred children, and the first `pop` is the one that has to
+// meld all of them in pairs; the drain after it is what says the second pass
+// left a heap rather than a spine.
+test "five hundred pushes drain in order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let scattered = list.range(ctx, 0, 500).map(ctx, fn(i) => i * 251 % 500);
+    let h = scattered.foldCtx(
+        ctx,
+        fn(c, acc: Heap<Int>, x) => acc.push(c, x),
+        heap.empty<Int>(),
+    );
+    assert.eq(h.length(), 500);
+    assert.eq(h.toSortedList(ctx), list.range(ctx, 0, 500));
+}
+
+test "pushes and pops interleaved keep answering the smallest" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Push two, pop one, two hundred times over: the heap is reshaped by a pop
+    // and then grown again, which is the sequence a work queue actually runs.
+    let taken = churn(ctx, heap.empty<Int>(), 0, 200, list.empty<Int>());
+    // Round `i` pushes `1000 - 2i` and `999 - 2i` and pops the smallest, which
+    // is always the odd one it just pushed — the evens pile up behind it.
+    assert.eq(taken, list.range(ctx, 0, 200).map(ctx, fn(i) => 999 - i * 2));
+}
+
+/// Pushes `2n` and `2n + 1` in descending order and pops one, `rounds` times.
+fn churn<C: Alloc>(ctx: C, h: Heap<Int>, at: Int, rounds: Int, acc: [Int]): [Int] {
+    if (at >= rounds) {
+        acc
+    } else {
+        let grown = h.push(ctx, 1000 - at * 2).push(ctx, 1000 - at * 2 - 1);
+        match (grown.pop(ctx)) {
+            .None => acc,
+            .Some(taken) => {
+                let (x, rest) = taken;
+                churn(ctx, rest, at + 1, rounds, acc.push(ctx, x))
+            },
+        }
+    }
+}
+
+test "of and a fold of pushes build the same heap" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = list.range(ctx, 0, 200).map(ctx, fn(i) => i * 89 % 200);
+    let byOf = heap.of(ctx, xs);
+    let byPush = xs.foldCtx(
+        ctx,
+        fn(c, acc: Heap<Int>, x) => acc.push(c, x),
+        heap.empty<Int>(),
+    );
+    assert.eq(byOf.length(), byPush.length());
+    assert.eq(byOf.toSortedList(ctx), byPush.toSortedList(ctx));
+}
+
+test "a merged heap drains the same as one built from both lists" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let evens = list.range(ctx, 0, 150).map(ctx, fn(i) => i * 2);
+    let odds = list.range(ctx, 0, 150).map(ctx, fn(i) => i * 2 + 1);
+    let merged = heap.of(ctx, evens).merge(ctx, heap.of(ctx, odds));
+    assert.eq(merged.length(), 300);
+    assert.eq(merged.toSortedList(ctx), list.range(ctx, 0, 300));
+}

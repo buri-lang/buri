@@ -589,3 +589,277 @@ test "a set of strings scans by prefix" {
     assert.eq(s.prefix(ctx, ""), ["a", "ab", "abc", "ac", "b"]);
     assert.eq(s.prefix(ctx, "z").len(), 0);
 }
+
+// --- pop / popFirst / popLast ---------------------------------------------------
+
+test "pop answers the value and the map without it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap.of(ctx, [(1, "a"), (2, "b")]);
+    let (v, rest) = assert.some(m.pop(ctx, 1));
+    assert.eq(v, "a");
+    assert.eq(rest.keys(ctx), [2]);
+    assert.eq(m.len(), 2);
+    assert.isTrue(m.pop(ctx, 99).isNone());
+    assert.isTrue(ordmap.empty<Int, Str>().pop(ctx, 1).isNone());
+}
+
+test "popFirst and popLast take the ends" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap.of(ctx, [(30, "c"), (10, "a"), (20, "b")]);
+    let (first, withoutFirst) = assert.some(m.popFirst(ctx));
+    assert.eq(first, (10, "a"));
+    assert.eq(withoutFirst.keys(ctx), [20, 30]);
+    let (last, withoutLast) = assert.some(m.popLast(ctx));
+    assert.eq(last, (30, "c"));
+    assert.eq(withoutLast.keys(ctx), [10, 20]);
+    // The map they came from is untouched.
+    assert.eq(m.len(), 3);
+}
+
+test "popping the ends of an empty map is nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(ordmap.empty<Int, Str>().popFirst(ctx).isNone());
+    assert.isTrue(ordmap.empty<Int, Str>().popLast(ctx).isNone());
+}
+
+test "popping the last entry leaves the empty map" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = ordmap.of(ctx, [(5, "e")]);
+    let (entry, rest) = assert.some(one.popFirst(ctx));
+    assert.eq(entry, (5, "e"));
+    assert.eq(rest.len(), 0);
+    assert.isTrue(rest.isEmpty());
+    assert.isTrue(rest.popFirst(ctx).isNone());
+}
+
+// The one descent has to repair the tree on the way back up, which is the half
+// `first` followed by `remove` gets for free. Three hundred keys is deep enough
+// that the walk borrows from a sibling and merges two short nodes on the way,
+// and draining the whole map checks every step of it: the order that comes out,
+// the size, and that the value still travels with its key.
+test "draining with popFirst answers key order and keeps the tree honest" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let shuffled = list.range(ctx, 0, 300).map(ctx, fn(i) => i * 173 % 300);
+    let m = ordmap.of(ctx, shuffled.map(ctx, fn(k) => (k, k * 2)));
+    let drained = drainFirst(ctx, m, list.empty<Int>());
+    assert.eq(drained, list.range(ctx, 0, 300));
+}
+
+test "draining with popLast answers reverse key order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let shuffled = list.range(ctx, 0, 300).map(ctx, fn(i) => i * 173 % 300);
+    let m = ordmap.of(ctx, shuffled.map(ctx, fn(k) => (k, k * 2)));
+    let drained = drainLast(ctx, m, list.empty<Int>());
+    assert.eq(drained, list.range(ctx, 0, 300).reverse(ctx));
+}
+
+// `popFirst` is one descent and `first` then `remove` is two. Nothing in the
+// language can count the comparisons — see this package's `lib.buri` — so what
+// is asserted is that the two answer the same map at every one of three hundred
+// steps, which is the property the descent has to preserve.
+test "popFirst agrees with first and remove, all the way down" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let shuffled = list.range(ctx, 0, 300).map(ctx, fn(i) => i * 91 % 300);
+    let m = ordmap.of(ctx, shuffled.map(ctx, fn(k) => (k, k)));
+    assert.isTrue(popsAgree(ctx, m));
+}
+
+/// Every key, taken from the front one at a time.
+fn drainFirst<C: Alloc>(ctx: C, m: OrdMap<Int, Int>, acc: [Int]): [Int] {
+    match (m.popFirst(ctx)) {
+        .None => acc,
+        .Some(taken) => {
+            let (entry, rest) = taken;
+            let (k, v) = entry;
+            // The value travels with its key, so a descent that took the entry
+            // out of the wrong node shows up here rather than in the order.
+            let next = if (v == k * 2) { acc.push(ctx, k) } else { acc };
+            // The size drops by exactly one per step.
+            if (rest.len() == m.len() - 1) { drainFirst(ctx, rest, next) } else { acc }
+        },
+    }
+}
+
+/// Every key, taken from the back one at a time.
+fn drainLast<C: Alloc>(ctx: C, m: OrdMap<Int, Int>, acc: [Int]): [Int] {
+    match (m.popLast(ctx)) {
+        .None => acc,
+        .Some(taken) => {
+            let (entry, rest) = taken;
+            let (k, v) = entry;
+            let next = if (v == k * 2) { acc.push(ctx, k) } else { acc };
+            if (rest.len() == m.len() - 1) { drainLast(ctx, rest, next) } else { acc }
+        },
+    }
+}
+
+/// Whether `popFirst` and `first` followed by `remove` answer the same map, at
+/// every step down to empty.
+fn popsAgree<C: Alloc>(ctx: C, m: OrdMap<Int, Int>): Bool {
+    match (m.popFirst(ctx)) {
+        .None => m.isEmpty(),
+        .Some(taken) => {
+            let (entry, rest) = taken;
+            let (k, _v) = entry;
+            let byHand = match (m.first()) {
+                .None => m,
+                .Some(head) => {
+                    let (hk, _hv) = head;
+                    m.remove(ctx, hk)
+                },
+            };
+            let sameHead = m.first() == .Some(entry);
+            let sameRest = rest.equals(ctx, byHand);
+            let sameOrder = rest.entries(ctx) == byHand.entries(ctx);
+            let gone = !rest.has(k);
+            if (sameHead) {
+                if (sameRest) {
+                    if (sameOrder) {
+                        if (gone) { popsAgree(ctx, rest) } else { false }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        },
+    }
+}
+
+// --- floor / ceiling -------------------------------------------------------------
+
+test "floor and ceiling answer the nearest entry on each side" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let bands = ordmap.of(ctx, [(0, "cold"), (10, "mild"), (25, "hot")]);
+    assert.eq(assert.some(bands.floor(17)), (10, "mild"));
+    assert.eq(assert.some(bands.ceiling(17)), (25, "hot"));
+    // An exact key is its own floor and its own ceiling.
+    assert.eq(assert.some(bands.floor(10)), (10, "mild"));
+    assert.eq(assert.some(bands.ceiling(10)), (10, "mild"));
+}
+
+test "floor below everything and ceiling above everything are nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap.of(ctx, [(10, "a"), (20, "b")]);
+    assert.isTrue(m.floor(9).isNone());
+    assert.isTrue(m.ceiling(21).isNone());
+    assert.eq(assert.some(m.floor(10)), (10, "a"));
+    assert.eq(assert.some(m.ceiling(20)), (20, "b"));
+    assert.isTrue(ordmap.empty<Int, Str>().floor(0).isNone());
+    assert.isTrue(ordmap.empty<Int, Str>().ceiling(0).isNone());
+}
+
+// A tree of three hundred keys is several nodes deep, so the answer for a key
+// in a leaf comes from a candidate picked up on the way down — which is the
+// part a one-node implementation gets wrong.
+test "floor and ceiling agree with a scan over every key" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let evens = list.range(ctx, 0, 300).map(ctx, fn(i) => i * 2);
+    let m = ordmap.of(ctx, evens.map(ctx, fn(k) => (k, k)));
+    // Every odd key falls between two even ones, and every even key is its own
+    // answer on both sides.
+    let probes = list.range(ctx, 0, 598);
+    assert.isTrue(probes.all(fn(p) => floorIsRight(m, p)));
+    assert.isTrue(probes.all(fn(p) => ceilingIsRight(m, p)));
+    assert.isTrue(m.floor(-1).isNone());
+    assert.isTrue(m.ceiling(599).isNone());
+}
+
+/// The floor of `p` in a map of the even numbers: `p` rounded down.
+fn floorIsRight(m: OrdMap<Int, Int>, p: Int): Bool {
+    let wanted = p - p % 2;
+    m.floor(p) == .Some((wanted, wanted))
+}
+
+/// The ceiling of `p` in a map of the even numbers: `p` rounded up.
+fn ceilingIsRight(m: OrdMap<Int, Int>, p: Int): Bool {
+    let wanted = p + p % 2;
+    m.ceiling(p) == .Some((wanted, wanted))
+}
+
+// --- merge / mergeWith / filter / countBy -------------------------------------------
+
+test "merge is right-biased and keeps key order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = ordmap.of(ctx, [(1, "a"), (3, "c")]);
+    let b = ordmap.of(ctx, [(2, "B"), (3, "C")]);
+    let both = a.merge(ctx, b);
+    assert.eq(both.keys(ctx), [1, 2, 3]);
+    assert.eq(assert.some(both.get(3)), "C");
+    assert.isTrue(a.merge(ctx, ordmap.empty<Int, Str>()).equals(ctx, a));
+    assert.isTrue(ordmap.empty<Int, Str>().merge(ctx, a).equals(ctx, a));
+}
+
+test "mergeWith combines only the keys in both" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = ordmap.of(ctx, [(1, 2), (3, 1)]);
+    let b = ordmap.of(ctx, [(1, 3), (5, 5)]);
+    let total = a.mergeWith(ctx, b, fn(x, y) => x * 100 + y);
+    assert.eq(total.keys(ctx), [1, 3, 5]);
+    assert.eq(assert.some(total.get(1)), 203);
+    assert.eq(assert.some(total.get(3)), 1);
+    assert.eq(assert.some(total.get(5)), 5);
+}
+
+test "merging two hundred keys either way keeps them all" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let evens = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, i) => i % 2 == 0);
+    let odds = list.range(ctx, 0, 200).filterCtx(ctx, fn(_c, i) => i % 2 == 1);
+    let a = ordmap.of(ctx, evens.map(ctx, fn(i) => (i, i)));
+    let b = ordmap.of(ctx, odds.map(ctx, fn(i) => (i, i)));
+    assert.eq(a.merge(ctx, b).keys(ctx), list.range(ctx, 0, 200));
+    assert.eq(a.mergeWith(ctx, b, fn(x, _y) => x).len(), 200);
+}
+
+test "filter keeps what the predicate keeps, in order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap.of(ctx, [(1, "a"), (2, "bb"), (3, "c")]);
+    assert.eq(m.filter(ctx, fn(_k, v) => v.len() == 1).keys(ctx), [1, 3]);
+    assert.eq(m.filter(ctx, fn(k, _v) => k > 1).keys(ctx), [2, 3]);
+    assert.isTrue(m.filter(ctx, fn(_k, _v) => false).isEmpty());
+    assert.isTrue(m.filter(ctx, fn(_k, _v) => true).equals(ctx, m));
+    assert.isTrue(ordmap.empty<Int, Str>().filter(ctx, fn(_k, _v) => true).isEmpty());
+}
+
+test "countBy counts the elements under each key, in key order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let counts = ordmap.countBy(ctx, list.range(ctx, 0, 10), fn(n: Int) => n % 3);
+    assert.eq(counts.keys(ctx), [0, 1, 2]);
+    assert.eq(assert.some(counts.get(0)), 4);
+    assert.eq(assert.some(counts.get(1)), 3);
+    assert.eq(assert.some(counts.get(2)), 3);
+    assert.isTrue(ordmap.countBy(ctx, list.empty<Int>(), fn(n: Int) => n).isEmpty());
+}

@@ -37,6 +37,7 @@
 //! ```
 
 from "core/effect" import { Alloc };
+from "core/list" import * as list;
 from "core/ordmap" import * as ordmap;
 from "core/ordmap" import { OrdMap };
 
@@ -122,6 +123,50 @@ impl<T: Ord> OrdSet<T> {
         self.toList(ctx).all(fn(x) => theirs.has(x))
     }
 
+    /// Whether every member of `other` is also in `self`. `isSubsetOf` read
+    /// from the other end.
+    export fn isSupersetOf<C: Alloc>(self, ctx: C, other: OrdSet<T>): Bool {
+        other.isSubsetOf(ctx, self)
+    }
+
+    /// The members in exactly one of the two, in order.
+    export fn symmetricDifference<C: Alloc>(self, ctx: C, other: OrdSet<T>): OrdSet<T> {
+        self.difference(ctx, other).union(ctx, other.difference(ctx, self))
+    }
+
+    /// Whether the two share no member at all.
+    ///
+    /// **It builds no set**, where `intersect` then `isEmpty` allocates the
+    /// whole intersection to ask a yes-or-no question. It walks the smaller
+    /// side and stops at the first member the other one holds.
+    export fn isDisjointFrom<C: Alloc>(self, ctx: C, other: OrdSet<T>): Bool {
+        if (self.len() <= other.len()) {
+            let theirs = other;
+            self.toList(ctx).all(fn(x) => !theirs.has(x))
+        } else {
+            let mine = self;
+            other.toList(ctx).all(fn(x) => !mine.has(x))
+        }
+    }
+
+    /// The members `keep` answers true for, in order.
+    export fn filter<C: Alloc>(self, ctx: C, keep: fn(T) => Bool): OrdSet<T> {
+        of(ctx, self.toList(ctx).filterCtx(ctx, fn(_c, x) => keep(x)))
+    }
+
+    /// The largest member that is at most `item`. One descent, and pure —
+    /// `range` cannot answer it, because "nearest at or below" has only one
+    /// end.
+    export fn floor(self, item: T): Option<T> {
+        self.members.floor(item).map(fn(e) => memberOf(e))
+    }
+
+    /// The smallest member that is at least `item`. `floor` from the other
+    /// side.
+    export fn ceiling(self, item: T): Option<T> {
+        self.members.ceiling(item).map(fn(e) => memberOf(e))
+    }
+
     /// Same members, whatever order either was built in.
     export fn equals<C: Alloc>(self, ctx: C, other: OrdSet<T>): Bool {
         self.len() == other.len() && self.isSubsetOf(ctx, other)
@@ -134,4 +179,37 @@ impl OrdSet<Str> {
     export fn prefix<C: Alloc>(self, ctx: C, prefix: Str): [Str] {
         self.members.prefix(ctx, prefix).map(ctx, fn(e) => memberOf(e))
     }
+}
+
+/// The list with later duplicates dropped, the first of each kept and the order
+/// left alone.
+///
+/// `core/set`'s `distinct` over `Ord` rather than `Hash + Eq`: O(n log n)
+/// against that one's O(n), and still well under `core/list`'s `uniqueBy`,
+/// which asks about everything already kept and costs O(n²).
+export fn distinct<T: Ord, C: Alloc>(ctx: C, xs: [T]): [T] {
+    let (kept, _seen) = xs.foldCtx(
+        ctx,
+        fn(c, acc: ([T], OrdSet<T>), x) => {
+            let (out, seen) = acc;
+            if (seen.has(x)) { acc } else { (out.push(c, x), seen.insert(c, x)) }
+        },
+        (list.empty<T>(), empty<T>()),
+    );
+    kept
+}
+
+/// [`distinct`] over a key: the first element answering each key is kept, and
+/// the rest go. One `key` call per element.
+export fn distinctBy<A, K: Ord, C: Alloc>(ctx: C, xs: [A], key: fn(A) => K): [A] {
+    let (kept, _seen) = xs.foldCtx(
+        ctx,
+        fn(c, acc: ([A], OrdSet<K>), x) => {
+            let (out, seen) = acc;
+            let k = key(x);
+            if (seen.has(k)) { acc } else { (out.push(c, x), seen.insert(c, k)) }
+        },
+        (list.empty<A>(), empty<K>()),
+    );
+    kept
 }

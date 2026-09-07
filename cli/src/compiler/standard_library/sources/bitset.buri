@@ -42,6 +42,10 @@ from "core/list" import * as list;
 /// The number of bits one word holds. Not exported: it is the layout.
 let WORD: Int = 32;
 
+/// Every bit of one word. `Int` is 64 bits wide, so 2^32 - 1 is an ordinary
+/// positive number here and none of the shifts below can go negative.
+let FULL: Int = bits.shl(1, WORD) - 1;
+
 /// The words, low bits first, and how many bits the set was created to hold.
 ///
 /// You cannot derive `capacity` from `words.len()`: a set of 33 bits and a set
@@ -80,10 +84,88 @@ fn hasIn(words: [Int], capacity: Int, index: Int): Bool {
     }
 }
 
+/// The first set bit at or after `start`, skipping an empty word whole.
+///
+/// A free function for `hasIn`'s reason, and word-at-a-time so that a sparse
+/// set costs one step per *word* rather than one per bit.
+fn scanFrom(words: [Int], capacity: Int, start: Int): Option<Int> {
+    if (start >= capacity) {
+        .None
+    } else if (start < 0) {
+        scanFrom(words, capacity, 0)
+    } else {
+        let at = start / WORD;
+        let rest = bits.shr(words.get(at).withDefault(0), start % WORD);
+        if (rest == 0) {
+            scanFrom(words, capacity, (at + 1) * WORD)
+        } else {
+            let found = start + bits.trailingZeros(rest);
+            if (found >= capacity) { .None } else { .Some(found) }
+        }
+    }
+}
+
+/// The bits of word `at` that are below `capacity`. The last word of a set
+/// whose capacity is not a multiple of 32 is only partly live, and a bit above
+/// the capacity must stay clear however the words are combined.
+fn liveMask(capacity: Int, at: Int): Int {
+    let rest = capacity - at * WORD;
+    if (rest >= WORD) { FULL } else if (rest <= 0) { 0 } else { bits.shl(1, rest) - 1 }
+}
+
+/// The bits of word `at` that lie in the half-open range `[low, high)`.
+fn rangeMask(low: Int, high: Int, at: Int): Int {
+    let base = at * WORD;
+    let lower = if (low - base < 0) { 0 } else { low - base };
+    let upper = if (high - base > WORD) { WORD } else { high - base };
+    if (lower >= upper) { 0 } else { bits.shl(1, upper) - bits.shl(1, lower) }
+}
+
 impl BitSet {
     /// Whether bit `index` is set. Out of range is false rather than an error.
     export fn has(self, index: Int): Bool {
         hasIn(self.words, self.capacity, index)
+    }
+
+    /// The lowest set bit, or `.None` when nothing is set.
+    ///
+    /// Pure, and O(n/32) at worst rather than `toList`'s O(n) — it reads words
+    /// and stops at the first that is not zero.
+    ///
+    /// ```buri run
+    /// from "core/bitset" import * as bitset;
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/str" import * as str;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let free = bitset.of(ctx, 1024, [900, 17, 400]);
+    ///     // Walk the set bits without allocating a list of all of them.
+    ///     let first = free.firstSet().withDefault(-1);
+    ///     let next = free.nextSet(first).withDefault(-1);
+    ///     let a = str.fromInt(ctx, first);
+    ///     let b = str.fromInt(ctx, next);
+    ///     let _ = io.println(ctx, "${a} then ${b}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// 17 then 400
+    /// ```
+    export fn firstSet(self): Option<Int> {
+        scanFrom(self.words, self.capacity, 0)
+    }
+
+    /// The lowest set bit strictly above `after`. With `firstSet` this walks a
+    /// set one member at a time, which is what `toList` costs a whole list for.
+    export fn nextSet(self, after: Int): Option<Int> {
+        scanFrom(self.words, self.capacity, after + 1)
     }
 
     export fn set<C: Alloc>(self, ctx: C, index: Int): BitSet {
@@ -117,6 +199,63 @@ impl BitSet {
                 .map(ctx, fn(j) => {
                     let w = words.get(j).withDefault(0);
                     if (j == target) { w & ~mask } else { w }
+                });
+            BitSet { words: next, capacity: capacity }
+        }
+    }
+
+    /// Sets bit `index` if it is clear and clears it if it is set. Out of
+    /// range answers the set unchanged, the same as `set` and `clear` do.
+    export fn toggle<C: Alloc>(self, ctx: C, index: Int): BitSet {
+        let words = self.words;
+        let capacity = self.capacity;
+        if (index < 0 || index >= capacity) {
+            self
+        } else {
+            let target = index / WORD;
+            let mask = bits.shl(1, index % WORD);
+            let next = list
+                .range(ctx, 0, words.len())
+                .map(ctx, fn(j) => {
+                    let w = words.get(j).withDefault(0);
+                    if (j == target) { w ^ mask } else { w }
+                });
+            BitSet { words: next, capacity: capacity }
+        }
+    }
+
+    /// Every index below the capacity that this set does not hold.
+    ///
+    /// Word-at-a-time, so it costs O(n/32). A bit above the capacity stays
+    /// clear: the set is defined over `[0, capacity)` and nothing outside it
+    /// is a member either way.
+    export fn complement<C: Alloc>(self, ctx: C): BitSet {
+        let words = self.words;
+        let capacity = self.capacity;
+        let next = list
+            .range(ctx, 0, words.len())
+            .map(ctx, fn(j) => ~words.get(j).withDefault(0) & liveMask(capacity, j));
+        BitSet { words: next, capacity: capacity }
+    }
+
+    /// Sets every bit from `start` up to but not including `end`.
+    ///
+    /// Half-open, like `ordmap.range`, and clamped to the capacity at both
+    /// ends: a range that starts below zero or runs past the capacity sets the
+    /// part that fits and no more. O(n/32), because it fills whole words rather
+    /// than looping over the indices.
+    export fn setRange<C: Alloc>(self, ctx: C, start: Int, end: Int): BitSet {
+        let words = self.words;
+        let capacity = self.capacity;
+        let low = if (start < 0) { 0 } else { start };
+        let high = if (end > capacity) { capacity } else { end };
+        if (low >= high) {
+            self
+        } else {
+            let next = list
+                .range(ctx, 0, words.len())
+                .map(ctx, fn(j) => {
+                    words.get(j).withDefault(0) | rangeMask(low, high, j)
                 });
             BitSet { words: next, capacity: capacity }
         }

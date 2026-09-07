@@ -2,3 +2,15 @@
 // exported name of the collection modules — which the `stdlib` suite cannot,
 // because it stops after type checking and a body-less declaration with no
 // runtime function behind it passes that silently.
+//
+// **There is no comparison counter here, and there cannot be one.** A count
+// needs somewhere to live, Buri has no mutation, and a lambda may not capture a
+// context (SPEC 10.6) — so the only counter-outside-the-value in the language
+// is `core/alloc`'s handle. Hanging one on a key and charging it from
+// `Ord.compare` does compile, and it does not work: `compare` and `hash` take
+// no context, so they are pure by signature and the compiler is free to drop a
+// redundant call, which it does — differently in different shapes of the same
+// program. A test built on that would report a number that moved when the
+// optimizer moved. So the cost claims are pinned by what a *value* can show:
+// the answer, the order, and agreement with the naive computation over inputs
+// large enough to have gone down every path.
