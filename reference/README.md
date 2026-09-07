@@ -1,14 +1,14 @@
 # Reference papers
 
 Every paper consulted while building the Buri toolchain. Each row links a copy
-the author, arXiv, or an institutional repository publishes, so nothing here sits
+the author, arXiv, or an institutional repository publishes, so nothing sits
 behind a paywall. This is a reading list, not a library: the papers are other
 people's work, so we link them rather than re-host them.
 
 Cite these from the code and the design docs by author and title, then point at
-this file — the way `cli/src/formatting.rs` and `design/native/MEMORY.md` already
-do. A reader can search for an author and a title. A path into this directory
-would rot instead.
+this file — the way `cli/src/formatting.rs` and `design/native/MEMORY.md` do. A
+reader can search for an author and a title; a path into this directory would
+rot instead.
 
 ## Papers
 

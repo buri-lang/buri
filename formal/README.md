@@ -13,12 +13,12 @@ results are
 * `checked_never_stuck` — a closed core term the algorithmic checker accepts never
   reaches a state that is neither a value nor able to step.
 
-The second consumes the first. `match` progress is exactly where a type safety
-proof needs "some arm fires", and that is the job the exhaustiveness theorem does.
+The second consumes the first: `match` progress is exactly where a type safety
+proof needs "some arm fires".
 
-**Purity and inference remain unstarted.** [Finding 4](./findings/README.md), the
-hole that made the purity theorem false, is closed by a language decision. So
-Stage 5 is worth starting now, but nobody has started it here.
+**Purity and inference remain unstarted.** [Finding 4](./findings/README.md),
+the hole that made the purity theorem false, is closed by a language decision,
+so Stage 5 is worth starting.
 
 **Nothing here is on the path to building a `buri` binary.** `formal/` is not a
 Cargo workspace member and the toolchain never invokes Lake. The two meet in one
@@ -37,25 +37,23 @@ lake env lean --run Vectors.lean  # regenerates vectors/exhaustiveness.txt
 cd ../cli && cargo test --test vectors lean::
 ```
 
-`lean-toolchain` pins the toolchain (Lean 4.33.0) and `elan` reads that file,
-which is how Lean projects pin. `elan` fetches a toolchain tarball on first use,
-which is weaker than the hermeticity standard `cli/` holds itself to. That is a
-deliberate trade, and it only passes because this directory is a developer
+`lean-toolchain` pins Lean 4.33.0 and `elan` reads that file. `elan` fetches a
+toolchain tarball on first use, which is weaker than the hermeticity standard
+`cli/` holds itself to, and only passes because this directory is a developer
 artefact rather than part of the build.
 
-**No Mathlib, and no dependencies at all** — the same policy, for the same
-reason, as `cli/Cargo.toml`'s empty `[dependencies]`. Everything here is core
-Lean: `List`, `Nat`, `omega`. Mathlib would buy `Finset`, but modelling a
-context's bindings as a *set* would silently paper over the duplicate-binding
-rule (SPEC §14 rule 33). And `List` + `Nodup` is what the Rust
-`Vec<(TraitId, Ty)>` actually is.
+**No Mathlib, and no dependencies at all** — the same policy as
+`cli/Cargo.toml`'s empty `[dependencies]`. Everything here is core Lean: `List`,
+`Nat`, `omega`. Mathlib would buy `Finset`, but modelling a context's bindings
+as a *set* would paper over the duplicate-binding rule (SPEC §14 rule 33), and
+`List` + `Nodup` is what the Rust `Vec<(TraitId, Ty)>` actually is.
 
 ## What is proved
 
 Lean machine-checks everything below, and it depends on nothing but Lean's three
-standard axioms (`propext`, `Quot.sound`, `Classical.choice`). `Audit.lean` checks
-that for 57 results. It is the formal analogue of `language/conformance.rs`'s
-canary: a proof development you cannot catch cheating is not evidence.
+standard axioms (`propext`, `Quot.sound`, `Classical.choice`). `Audit.lean`
+checks that for 57 results: a proof development you cannot catch cheating is not
+evidence.
 
 ### The headline
 
@@ -74,10 +72,10 @@ theorem checked_never_stuck (hP : Program.WellFormed S P)
     Expr.IsValue e' ∨ ∃ e'', Step S P e' e''
 ```
 
-The exhaustiveness hypotheses are exactly what the compiler establishes before
-it calls the algorithm: `lower` sizes an array constructor by its sub-pattern
-count, `limit` is `max(length_limit) + 1`, and the compiled arms are rest-free
-and respect constructor arities. `Expr.check` establishes all four itself, in
+The exhaustiveness hypotheses are what the compiler establishes before it calls
+the algorithm: `lower` sizes an array constructor by its sub-pattern count,
+`limit` is `max(length_limit) + 1`, and the compiled arms are rest-free and
+respect constructor arities. `Expr.check` establishes all four itself, in
 `armsOk`.
 
 ### Exhaustiveness
@@ -110,9 +108,9 @@ and respect constructor arities. `Expr.check` establishes all four itself, in
 
 ### Five arguments worth reading
 
-**Termination.** `Ctx::useful` is not structurally recursive, for two reasons. The
+**Termination.** `Ctx::useful` is not structurally recursive: the
 wildcard-with-complete-constructor-set branch replaces one `_` by `arity` fresh
-`_`s, so the pattern vector *grows*. And `specialize` and `default_matrix`
+`_`s, so the pattern vector *grows*, and `specialize` and `default_matrix`
 distribute over an or-headed row, so the matrix *gains rows*. The measure is
 lexicographic — `(matrix weight + vector weight, vector length)` — where a row's
 weight is the **product** of its columns' weights and
@@ -120,11 +118,11 @@ weight is the **product** of its columns' weights and
     weight(_) = 1     weight(c(p₁..pₙ)) = 1 + ∏ weight(pᵢ)     weight(p₁|..|pₙ) = 1 + Σ weight(pᵢ)
 
 A product, not a sum, because distributing an alternation *copies the rest of
-the row*. Only a measure that multiplies through the tail sees that
-`Σ weight(aᵢ) < weight(a₁|..|aₙ)` dominates the duplication. The interesting
-branch is still the complete one: the vector's weight does not change, so the
-matrix has to shrink instead. It does, because completeness forces some row to
-be headed by something other than a wildcard. **The algorithm terminates
+the row*, and only a measure that multiplies through the tail sees that
+`Σ weight(aᵢ) < weight(a₁|..|aₙ)` dominates the duplication. In the complete
+branch the vector's weight does not change, so the matrix has to shrink instead
+— and it does, because completeness forces some row to be headed by something
+other than a wildcard. **The algorithm terminates
 precisely because it only expands a wildcard when the matrix has already paid
 for the expansion.**
 
@@ -133,86 +131,77 @@ for the expansion.**
 universe where arrays are bounded. That is sound because `limit` is one more
 than the longest length any arm mentions, so no arm can tell an array of length
 `limit` from a longer one — `Pattern.matches_truncate`. The `+ 1` does real
-work. Without it, a match on `[]`, `[_]`, `[_, _]` would have `limit = 2`, all
-three constructors would be present, the set would look complete, and length-3
-arrays would slip through.
+work: without it a match on `[]`, `[_]`, `[_, _]` would have `limit = 2`, the
+set would look complete, and length-3 arrays would slip through.
 
-**Two side conditions that are not bookkeeping.** `specializeRow_matches` carries
-`subpatterns.length ≤ arity` and rest-freeness, both clauses of
-`Pattern.WellFormed`. `specializeRow` pads *and truncates*. Padding is harmless,
-truncation is not: `matchesAll` would reject a pattern carrying more sub-patterns
-than its constructor has fields, but truncation makes it accepted, and the matrix
-gains coverage it never had. `lower` never builds one, and the hypothesis records
-that this is load-bearing rather than incidental.
+**Two side conditions that are not bookkeeping.** `specializeRow_matches`
+carries `subpatterns.length ≤ arity` and rest-freeness, both clauses of
+`Pattern.WellFormed`, because `specializeRow` pads *and truncates*. Padding is
+harmless; truncation is not. `matchesAll` would reject a pattern carrying more
+sub-patterns than its constructor has fields, but truncation makes it accepted
+and the matrix gains coverage it never had. `lower` never builds one.
 
 **A wildcard is a binder.** The core language reuses `Pattern` verbatim, in its
 *lowered* form, where `lower` has already erased `PatKind::Bind` to
 `Pat::Wild`. So `Pattern.wildcard` binds the value it matches, and a pattern
 binds one variable per wildcard, left to right. That over-approximates Buri
-faithfully, where `x` binds and `_` does not, because a body may ignore a
-binding. It buys one thing: `exhaustive_correct_unbounded` applies to the core
-language *directly*, rather than through an erasure between two pattern types.
-`Pattern.bind_isSome` is the one lemma joining them, and it is eleven lines.
+faithfully, because a body may ignore a binding, and it buys one thing:
+`exhaustive_correct_unbounded` applies to the core language *directly* rather
+than through an erasure between two pattern types. `Pattern.bind_isSome` is the
+one lemma joining them.
 
 **Substitution needs no shifting.** Terms are de Bruijn and the only thing
 anyone ever substitutes is a **closed** value, so `Expr.subst` carries a depth
-and never lifts. This development contains no lifting lemma at all. Part of
-that is hygiene, part is the language: Buri has no type-variable *binders*
-either — generics instantiate positionally against `Ty.param n` — so
-`substitute` is a plain fold with no capture-avoidance obligation. That is the
-most expensive part of a typical mechanisation, and Buri's design removes it.
+and never lifts. This development contains no lifting lemma at all. Buri has no
+type-variable *binders* either — generics instantiate positionally against
+`Ty.param n` — so `substitute` is a plain fold with no capture-avoidance
+obligation, which is the most expensive part of a typical mechanisation.
 
 ## The bridge to the implementation
 
-A proof about a *model* is worth whatever the model's fidelity is worth, and
-only a test keeps the two from drifting. So the Lean algorithm is executable,
-and it runs against the real checker.
+A proof about a *model* is worth whatever the model's fidelity is worth, so the
+Lean algorithm is executable and runs against the real checker.
 
 **How it works.** `Vectors.lean` fixes a prelude of Buri declarations and,
 beside it, the `Signature` that mirrors them. For each of eight scrutinee types
 it holds a pattern pool where every entry carries *both* the Lean `Pattern` and
-the Buri surface syntax that lowers to it. That pairing is the only place the
-two can drift, and it is a table rather than a translation. It then enumerates
-every ordered selection of one, two or three distinct pool entries, runs
-`isExhaustive` and the per-arm reachability loop on each, and writes
-`(program, verdict)` lines to `vectors/exhaustiveness.txt`.
+the Buri surface syntax that lowers to it — a table rather than a translation,
+and the only place the two can drift. It then enumerates every ordered selection
+of one, two or three distinct pool entries, runs `isExhaustive` and the per-arm
+reachability loop on each, and writes `(program, verdict)` lines to
+`vectors/exhaustiveness.txt`.
 
-`cli/tests/vectors/lean.rs` reads that file, assembles the vectors into modules of
-64 functions, compiles each module through `driver::analyze_snippet` — the same
-entry point the documentation harness uses — and attributes every
-`match-not-exhaustive` and `unreachable-arm` diagnostic back to its vector and arm
-by byte range. Any *other* diagnostic fails the test, because it means the pattern
-pool and the surface syntax have drifted.
+`cli/tests/vectors/lean.rs` reads that file, assembles the vectors into modules
+of 64 functions, compiles each through `driver::analyze_snippet`, and attributes
+every `match-not-exhaustive` and `unreachable-arm` diagnostic back to its vector
+and arm by byte range. Any *other* diagnostic fails the test: it means the
+pattern pool and the surface syntax have drifted.
 
 **Coverage.** 907 vectors over `Bool`, `Int`, a three-variant enum, an
 `Option`-shaped enum, a two-field variant, a struct, a pair, and `[Bool]`,
 including nested alternations, array rest patterns, and or-patterns at the top
-of a column. 658 exhaustive, 249 not. It runs in about two seconds, and the
+of a column — 658 exhaustive, 249 not. It runs in about two seconds, and the
 vectors are checked in, so the Rust suite never needs Lean.
 
 **It can fail.** `the_bridge_can_detect_a_disagreement` drives two `match`
-statements whose answers are not in doubt through the same observation path and
-asserts it sees them, so an agreement result is never vacuous.
+statements whose answers are not in doubt through the same observation path, so
+an agreement result is never vacuous.
 `the_corpus_covers_the_nested_alternation` asserts the corpus still contains the
-shape [finding 6](./findings/README.md) was about, so a future edit to the pool
-cannot quietly drop it.
+shape [finding 6](./findings/README.md) was about.
 
 **What it does not do.** It compares verdicts, not diagnostic text — the reject
-corpus's exact-output goldens are the right tool for that, and they exist. It does
-not exercise the core type checker either: `Expr.infer` has no surface syntax to
-compile against, because the model's `Expr` is the *post-inference* form. Bridging
-that would need an elaborator from Buri source to `Expr`, or a serialisation of
-`typed::Expr` the Rust side does not have.
+corpus's exact-output goldens are the tool for that. It does not exercise the
+core type checker either: the model's `Expr` is the *post-inference* form, so
+`Expr.infer` has no surface syntax to compile against, and bridging that would
+need an elaborator from Buri source to `Expr`.
 
 ## What is not proved
 
 **`useful_sound`**, the converse direction ("no false positives"): that the
 compiler reports a non-exhaustive match only when a value really is uncovered.
 
-[Finding 6](./findings/README.md) used to be the answer: the theorem was false,
-because a nested alternation made the checker reject an exhaustive match.
-`exhaustiveness.rs` fixes that, and the model here is of the fixed algorithm, so
-that obstacle is gone. Two remain, and the first is sharper than the old one:
+[Finding 6](./findings/README.md) used to make the theorem false, and
+`exhaustiveness.rs` fixes it. Two obstacles remain:
 
 * **`Pattern.WellFormed` is too weak.** It never says the head constructor
   *belongs to* the type, and it cannot, because for a nullary constructor the
@@ -232,26 +221,25 @@ that obstacle is gone. Two remain, and the first is sharper than the old one:
 **The type-substitution lemma on typing derivations.** `Program.WellFormed`
 states that a declared function's body checks *at every instantiation* of its
 generics. The natural statement would quantify over the generic signature and
-derive the instantiated one. That derivation is an assumption here, not a
+derive the instantiated one; that derivation is an assumption here rather than a
 theorem. The obstacle is the semantic premises: exhaustiveness at `t` does not
 obviously give exhaustiveness at `substitute targs t`, since the two range over
 different sets of values.
 
 **Checker completeness.** Only `infer_sound` is proved. The checker is
-deliberately conservative in one place: `Pattern.uniformBindersB` demands that
-or-pattern alternatives bind *nothing*, where the declarative rule only demands
-they bind the *same* things. `.Some(true | false)` passes; a hypothetical
-`.Some(x) | .Other(x)` would not, and Buri would accept it.
+conservative in one place: `Pattern.uniformBindersB` demands that or-pattern
+alternatives bind *nothing*, where the declarative rule only demands they bind
+the *same* things. `.Some(true | false)` passes; `.Some(x) | .Other(x)` would
+not, and Buri would accept it.
 
 **Inference.** `Ty::Var`, `unify`, `default_numerics`, trait obligations. The
 model's `Expr` is the post-inference form, so the Rust checker's two directions
-collapse into one. The modelling decisions below still hold: `Ty::Var` is
-algorithmic and belongs to the inference stage rather than the declarative system.
-Still unstarted.
+collapse into one, and `Ty::Var` is algorithmic — it belongs to the inference
+stage rather than the declarative system. Unstarted.
 
 **Purity.** Nobody has written Lean for it. [Finding 4](./findings/README.md) —
-the reason the theorem as stated was false — is resolved by a language
-decision, so it is worth starting.
+the reason the theorem as stated was false — is resolved by a language decision,
+so it is worth starting.
 
 **Errors, guards, and intrinsics.** The operational semantics has no aborts
 (SPEC §6.9 makes one observable, which is a purity concern rather than a safety
@@ -263,15 +251,14 @@ no builtins (`semantics/builtins.rs` is axioms in any model of this kind).
 
 Three constructors of Rust's `Ty` (`semantics/types.rs`) are deliberately absent:
 
-* **`Ty::Error` is excluded.** `unify` returns `Ok` for `(Error, _)`
-  (`semantics/types.rs`), `satisfies` returns `true`
-  (`semantics/inference.rs`), and `implements` returns `true`
-  (`semantics/types.rs`) — a declarative system holding such a type derives
-  *everything* at it. It is an error-recovery artefact whose contract ("a
-  diagnostic was already reported here") is not a typing property. No argument
-  licenses the exclusion. What would is a Rust-side invariant nobody has
-  written yet: *if the checker reports no diagnostics, no `Ty::Error` survives
-  in any body.* Until that test exists, this is an assumption.
+* **`Ty::Error` is excluded.** `unify` returns `Ok` for `(Error, _)`,
+  `satisfies` returns `true` and `implements` returns `true`
+  (`semantics/types.rs`, `semantics/inference.rs`) — a declarative system
+  holding such a type derives *everything* at it. It is an error-recovery
+  artefact whose contract ("a diagnostic was already reported here") is not a
+  typing property. What would license the exclusion is a Rust-side invariant
+  nobody has written yet: *if the checker reports no diagnostics, no `Ty::Error`
+  survives in any body.* Until that test exists, this is an assumption.
 * **`Ty::SelfTy` is eliminated at elaboration**, matching what
   `types::substitute(&ty, &args, self_ty)` already does. Same caveat, same
   missing test.
@@ -285,11 +272,11 @@ Primitives are *not* a separate constructor, because in Rust a primitive is a
 Four decisions about the core language:
 
 * **Every data form is one node.** `variant`, `struct`, `tuple`, `unit`,
-  `bool`, a literal and an array literal are all `Expr.node k args`. Those are
-  exactly the forms the pattern algorithm sees as a `Constructor` with fields,
-  so keeping them one node makes `Expr.erase` a one-liner, gives `match` a
-  single canonical-forms lemma, and collapses seven near-identical congruence
-  rules in the operational semantics into one.
+  `bool`, a literal and an array literal are all `Expr.node k args` — exactly
+  the forms the pattern algorithm sees as a `Constructor` with fields. Keeping
+  them one node makes `Expr.erase` a one-liner, gives `match` a single
+  canonical-forms lemma, and collapses seven near-identical congruence rules
+  into one.
 * **`match` and `let` carry semantic premises.** The typing rules require
   "every value of the scrutinee's type is matched by some arm", not
   "`isExhaustive` returned true". That makes progress immediate, and it gives
@@ -298,10 +285,9 @@ Four decisions about the core language:
 * **`Expr` is post-inference.** See "What is not proved".
 * **The model tracks the *fixed* algorithm.** `specialize`, `default_matrix`
   and `head_ctors` distribute over an or-headed row, matching
-  `exhaustiveness.rs` after the [finding 6](./findings/README.md) fix. One
-  consequence: or-freeness is nowhere a hypothesis any more, and
-  `specializeRow_matches` is a biconditional where the old, dropping version
-  needed a side condition for the forward direction.
+  `exhaustiveness.rs` after the [finding 6](./findings/README.md) fix. So
+  or-freeness is nowhere a hypothesis, and `specializeRow_matches` is a
+  biconditional.
 
 ## Blind spots
 
@@ -312,8 +298,7 @@ What this exercise will not catch, whatever else gets proved:
   substitution, `?` desugaring, and the role-based context-construction rules.
   Going through the reject corpus, **roughly 50 of the 83 cases test rules that
   live entirely in that gap**. Only about 15 are core-typing rules a model like
-  this one can adjudicate, and those 15 are what `Core/` aims at. That ratio is
-  the most important honest number here.
+  this one can adjudicate, and those 15 are what `Core/` aims at.
 * **`middle/monomorphize.rs`.** A pre-monomorphisation proof cannot see a type
   error reintroduced during monomorphisation.
 * **`backend/js/generate.rs` / `backend/js/javascript.rs`.** The largest
@@ -323,22 +308,17 @@ What this exercise will not catch, whatever else gets proved:
   the JS backend does not implement.
 * **Intrinsics.** `semantics/builtins.rs` is axioms in any model of this kind.
 * **Diagnostics.** These theorems say an error occurs, never *which* one. The
-  reject corpus's exact-output goldens are the right tool, and they already
-  exist.
+  reject corpus's exact-output goldens are the tool for that.
 
 ## Findings
 
 `findings/` holds the Stage 0 results: hand-written Buri programs that check
-predictions made by reading the checker. Six entries, none still open. Three
-are fixed in the checker or the spec, one was fixed in the spec without ever
-being run, one was resolved by a language decision, and one is latent and
-pinned by a build-time assertion so it cannot become reachable unnoticed.
+predictions made by reading the checker. Six entries, none still open.
 [`findings/README.md`](./findings/README.md) is the table.
 
-Mechanising the algorithm turned up finding 6, rather than reading it. The Lean
+Mechanising the algorithm turned up finding 6 rather than reading it: the Lean
 model needed a well-formedness invariant, and the question "does `expand`
-actually establish this?" had the answer *no*. That is the argument for doing
-Stage 0 before Stage 5, and for mechanising at all.
+actually establish this?" had the answer *no*.
 
 ## Layout
 
