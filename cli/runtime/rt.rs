@@ -4389,8 +4389,192 @@ mod tests {
                     buri_rt_actor_reply_put(handle, held.ptr, held.len, &raw mut number),
                     0
                 );
+                // The scope table is the same rule, one table over.
+                assert_eq!(
+                    buri_rt_tasks_scope_push(handle, held.ptr, held.len, &raw mut number),
+                    0
+                );
+                assert_eq!(buri_rt_tasks_scope_task_at(handle, 0, &raw mut list), 0);
+                assert_eq!(buri_rt_tasks_scope_enter(handle), 0);
+                assert_eq!(buri_rt_tasks_scope_leave(handle), 0);
             }
+            // The round is the one entry that answers a block on every path, so
+            // it is asked for on its own and released here.
+            let mut round = nothing();
+            // SAFETY: a writable, aligned destination.
+            unsafe { buri_rt_tasks_scope_round(handle, &raw mut round) };
+            assert_eq!(round.len, 0, "a scope that is not there cut a round");
+            drop_ref(&round);
         }
         drop_ref(&held);
+    }
+
+    // --- the scope table ------------------------------------------------------
+    //
+    // `core/tasks`'s six entries, driven the way the module drives them. The
+    // scheduling itself is Buri's — the runtime queues a task, hands it back and
+    // never enters one — so what these cases ask is the queue's own questions:
+    // what comes back, in what order, how many times, and who is allowed to be
+    // the drain.
+
+    /// A scope is a queue: the tasks come back in the order they were spawned,
+    /// each of them once, and the round after them is empty.
+    #[test]
+    fn a_scope_hands_its_tasks_back_in_the_order_they_were_spawned() {
+        let scope = buri_rt_tasks_scope_open();
+        for mark in 1..=3u64 {
+            let task = carried(mark);
+            let mut waiting = 0i64;
+            // SAFETY: a live one-element block, and a writable `i64`.
+            let ok =
+                unsafe { buri_rt_tasks_scope_push(scope, task.ptr, task.len, &raw mut waiting) };
+            assert_eq!(ok, crate::BURI_OK);
+            assert_eq!(waiting, mark as i64, "the answer is the number waiting");
+            drop_ref(&task);
+        }
+
+        let mut round = nothing();
+        // SAFETY: a writable, aligned destination.
+        unsafe { buri_rt_tasks_scope_round(scope, &raw mut round) };
+        assert_eq!(round.len, 3, "three spawns are a round of three");
+        // SAFETY: the block just handed back holds three `i64`s.
+        assert_eq!(unsafe { i64s(&round, 3) }, vec![0, 1, 2], "a round is 0..n");
+        drop_ref(&round);
+
+        for mark in 1..=3u64 {
+            let mut out = nothing();
+            let at = (mark - 1) as i64;
+            // SAFETY: a writable, aligned destination.
+            let ok = unsafe { buri_rt_tasks_scope_task_at(scope, at, &raw mut out) };
+            assert_eq!(ok, crate::BURI_OK);
+            // SAFETY: the block the runtime handed back, still counted here.
+            assert_eq!(unsafe { mark_of(&out) }, mark, "out of order");
+            drop_ref(&out);
+            // And once: the reference `scopePush` took was given away above, so
+            // a second take answering the block would be a task run twice.
+            let mut twice = nothing();
+            // SAFETY: a writable, aligned destination.
+            assert_eq!(unsafe { buri_rt_tasks_scope_task_at(scope, at, &raw mut twice) }, 0);
+        }
+
+        // An index past the round is nothing, not a fault.
+        let mut past = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_tasks_scope_task_at(scope, 3, &raw mut past) }, 0);
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_tasks_scope_task_at(scope, -1, &raw mut past) }, 0);
+
+        // Everything waiting went into the round, so the next one ends the
+        // drain.
+        let mut after = nothing();
+        // SAFETY: a writable, aligned destination.
+        unsafe { buri_rt_tasks_scope_round(scope, &raw mut after) };
+        assert_eq!(after.len, 0, "a scope with nothing in it cut a round anyway");
+        drop_ref(&after);
+    }
+
+    /// A scope nothing was spawned into cuts an empty round, which is what ends
+    /// `core/tasks::draining` before it runs anything at all.
+    #[test]
+    fn a_scope_that_was_never_spawned_into_cuts_an_empty_round() {
+        let scope = buri_rt_tasks_scope_open();
+        let mut round = nothing();
+        // SAFETY: a writable, aligned destination.
+        unsafe { buri_rt_tasks_scope_round(scope, &raw mut round) };
+        assert_eq!(round.len, 0);
+        drop_ref(&round);
+    }
+
+    /// A task queued while a round is running is the *next* round, which is what
+    /// makes "a task spawned by a task is waited for" true.
+    #[test]
+    fn a_task_spawned_during_a_round_is_the_next_round() {
+        let scope = buri_rt_tasks_scope_open();
+        let first = carried(11);
+        let mut waiting = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        unsafe { buri_rt_tasks_scope_push(scope, first.ptr, first.len, &raw mut waiting) };
+        drop_ref(&first);
+
+        let mut round = nothing();
+        // SAFETY: a writable, aligned destination.
+        unsafe { buri_rt_tasks_scope_round(scope, &raw mut round) };
+        assert_eq!(round.len, 1);
+        drop_ref(&round);
+
+        // The round is cut and its one task is still in it: this is the moment
+        // a running task spawns.
+        let second = carried(22);
+        // SAFETY: a live one-element block, and a writable `i64`.
+        unsafe { buri_rt_tasks_scope_push(scope, second.ptr, second.len, &raw mut waiting) };
+        assert_eq!(waiting, 1, "the new task is waiting, not in the round");
+        drop_ref(&second);
+
+        let mut held = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(
+            unsafe { buri_rt_tasks_scope_task_at(scope, 0, &raw mut held) },
+            crate::BURI_OK
+        );
+        // SAFETY: the block the runtime handed back, still counted here.
+        assert_eq!(unsafe { mark_of(&held) }, 11, "the round kept its own task");
+        drop_ref(&held);
+
+        let mut next = nothing();
+        // SAFETY: a writable, aligned destination.
+        unsafe { buri_rt_tasks_scope_round(scope, &raw mut next) };
+        assert_eq!(next.len, 1, "the task spawned during the round was left behind");
+        drop_ref(&next);
+        let mut late = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(
+            unsafe { buri_rt_tasks_scope_task_at(scope, 0, &raw mut late) },
+            crate::BURI_OK
+        );
+        // SAFETY: the block the runtime handed back, still counted here.
+        assert_eq!(unsafe { mark_of(&late) }, 22);
+        drop_ref(&late);
+    }
+
+    /// **One drain at a time, and leaving says whether to take it back.**
+    ///
+    /// `scopeOpen` answers a scope whose opener is already the drain, which is
+    /// what keeps a `spawn` inside a body from running its task before the body
+    /// has finished. `scopeLeave` answers whether anything arrived while the
+    /// drain was being given up — the one race `core/tasks` has, and the reason
+    /// `resting` exists.
+    #[test]
+    fn a_scope_has_one_drain_and_says_when_to_take_it_back() {
+        let scope = buri_rt_tasks_scope_open();
+        // The opener is the drain, so a second caller is not.
+        assert_eq!(buri_rt_tasks_scope_enter(scope), 0);
+        // Nothing arrived, so nothing to come back for.
+        assert_eq!(buri_rt_tasks_scope_leave(scope), 0);
+        // And now there is no drain, so the next caller becomes it.
+        assert_eq!(buri_rt_tasks_scope_enter(scope), 1);
+        assert_eq!(buri_rt_tasks_scope_enter(scope), 0);
+
+        let task = carried(7);
+        let mut waiting = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        unsafe { buri_rt_tasks_scope_push(scope, task.ptr, task.len, &raw mut waiting) };
+        drop_ref(&task);
+        // Something is waiting, so the drain is given up *and* asked back.
+        assert_eq!(buri_rt_tasks_scope_leave(scope), 1);
+
+        // Clear it, so nothing is left holding a reference.
+        assert_eq!(buri_rt_tasks_scope_enter(scope), 1);
+        let mut round = nothing();
+        // SAFETY: a writable, aligned destination.
+        unsafe { buri_rt_tasks_scope_round(scope, &raw mut round) };
+        drop_ref(&round);
+        let mut held = nothing();
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(
+            unsafe { buri_rt_tasks_scope_task_at(scope, 0, &raw mut held) },
+            crate::BURI_OK
+        );
+        drop_ref(&held);
+        assert_eq!(buri_rt_tasks_scope_leave(scope), 0);
     }
 }

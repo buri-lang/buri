@@ -1,12 +1,15 @@
-// The three claims about `tasks()` that no passing block can make about itself.
+// The four claims about `tasks()` that no passing block can make about itself.
 //
 // A block that survives cannot say "the body ran a sixth time", because the
-// sixth run is the one it is in; and neither half of the fault plan leaves a
-// block alive to assert on — a fault that fires ends it, and a fault that never
-// fires fails it on the way out.
+// sixth run is the one it is in; neither half of the fault plan leaves a block
+// alive to assert on — a fault that fires ends it, and a fault that never fires
+// fails it on the way out; and the block that asks for a seventh task's worth of
+// orders is refused before it runs, so it never reaches an assertion at all.
 
 from "core/effect" import { Alloc, Tasks };
 from "core/host/testing" import { alloc, task, tasks };
+from "core/tasks" import * as tasks;
+from "core/tasks" import { Scope };
 from "core/testing/assert" import * as assert;
 from "//lib/fan" import { labelled };
 
@@ -40,4 +43,31 @@ test "a fault whose task is never reached fails the test" {
         Tasks: scheduler,
     };
     assert.eq(labelled(ctx, [1, 2]), [1, 102]);
+}
+
+test "everyOrder over seven spawned tasks is refused" {
+    let scheduler = tasks().everyOrder();
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: scheduler,
+    };
+    // Seven tasks are 5040 runs of this block, so `everyOrder` refuses rather
+    // than starting them. A scope's round goes through `Tasks.parallel` like
+    // any other fan-out, so it is the same ceiling — and the refusal is the
+    // fourth claim no passing block can make about itself, because the block
+    // that reaches it does not come back.
+    let _ = tasks.scope(ctx, fn(c, here) => spawnEach(c, here, 7));
+    assert.eq(scheduler.runs(), 1);
+}
+
+/// Spawns `left` tasks, which do nothing: what is under test is how many there
+/// are, not what they say.
+fn spawnEach<C: Alloc + Tasks>(ctx: C, here: Scope, left: Int): () {
+    match (left <= 0) {
+        true => (),
+        false => {
+            let _ = tasks.spawn(ctx, here, fn(c) => ());
+            spawnEach(ctx, here, left - 1)
+        },
+    }
 }

@@ -1,0 +1,7 @@
+edition = "2026";
+
+package wire.v1;
+
+message Point {
+  int32 x = 1;
+}

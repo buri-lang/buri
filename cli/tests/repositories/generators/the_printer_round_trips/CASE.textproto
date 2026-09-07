@@ -1,0 +1,28 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the printer's whole round trip: a generator builds a module out of `core/buri/ast` nodes, `core/codegen` prints it, the compiler parses and checks the text, and the program that runs it gets the same answers as the byte-identical module a person wrote by hand"
+
+# `probe` is the same function twice — once printed out of a tree, once written
+# by hand — and the program calls both. Two arguments rather than one, because a
+# construct the printer dropped might still agree on a single input.
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "same.txt"
+}
+
+# The edit that makes it fire. One operator in the hand-written half, and the
+# two stop agreeing — which is what says the program was reading both modules
+# rather than one of them twice.
+edit {
+  file: "lib/wire/twin.buri"
+  replace: "let negated: Int = -n;"
+  with: "let negated: Int = ~n;"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "differ.txt"
+}

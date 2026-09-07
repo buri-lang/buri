@@ -1,0 +1,44 @@
+// CRASH: division by zero
+//
+// An abort inside a task somebody *spawned*, which is the other half of
+// `task_step_aborts.buri`. `core/tasks` says stopping is cooperative and that
+// "an abort in this language is a write to standard error and an exit (SPEC
+// 6.9), not something a second task can survive" — this is that sentence as a
+// program.
+//
+// It is a different path from `parallel`'s: the closure crossed into the
+// runtime as a value, came back out through `scopeTaskAt`, and is entered by
+// `core/tasks::running` several frames below the drain. A scope that caught the
+// abort, or one whose drain went on to the next round, would end this program
+// with the line below it printed and a zero status.
+//
+// The line above the abort was printed by the body, so what the message
+// interrupts is a program that was already running rather than one that never
+// started.
+from "core/effect" import { Alloc, Env, Stdout, Tasks };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+
+fn ratio(a: Int, b: Int): Int { a / b }
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Env: host.env,
+    Tasks: host.tasks,
+  };
+  // A zero the compiler cannot fold: the process was given no arguments.
+  let zero = env.args(ctx).len();
+  let _ = tasks.scope(ctx, fn(c, here) => {
+    let _ = tasks.spawn(c, here, fn(c2) => {
+      let _ = io.println(c2, "${ratio(12, zero)}").ignore();
+      ()
+    });
+    io.println(c, "the body finished").ignore()
+  });
+  let _ = io.println(ctx, "the scope returned").ignore();
+  .Ok(())
+}

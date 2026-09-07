@@ -31,6 +31,7 @@ from "core/actor" import { Actor, Stepped, Stopped };
 from "core/effect" import { Alloc, Tasks };
 from "core/host/testing" import { alloc, tasks };
 from "core/list" import * as list;
+from "core/tasks" import * as tasks;
 from "core/testing/assert" import * as assert;
 
 enum Note {
@@ -280,4 +281,221 @@ test "a step that does not wait still answers" {
     assert.eq([1, 2, 3].mapCtxStep(ctx, fn(c, x) => x * 2), [2, 4, 6]);
     assert.eq([1, 2, 3, 4].filterCtx(ctx, fn(c, x) => x % 2 == 0), [2, 4]);
     assert.eq([1, 2, 3].foldCtx(ctx, fn(c, acc: Int, x) => acc + x, 0), 6);
+}
+
+// --- a step that waits on only some of the elements ---------------------------
+//
+// The column is per instantiation, not per element, so a step that waits on one
+// element out of three still makes the whole call a waiting one — and the two
+// arms of the step have to agree about what they answer either way. A backend
+// that awaited only where it saw a wait would answer a promise for the other
+// elements, and `1 + a promise` is not an error on JavaScript.
+
+test "mapCtx waits for a step that waits on one element only" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    let doubled = [1, 2, 3].mapCtx(ctx, fn(c, x) => {
+        match (x == 2) {
+            true => noted(heard.sendMessage(c, .Saw(x))),
+            false => x * 2,
+        }
+    });
+    assert.eq(doubled, [2, 4, 6]);
+    // One message, so only the element that took the waiting arm reached the
+    // actor.
+    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 2);
+    let _ = heard.stop(ctx).ignore();
+}
+
+test "filterCtx waits for a predicate that waits on one element only" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    let kept = [1, 2, 3, 4].filterCtx(ctx, fn(c, x) => {
+        match (x % 2 == 0) {
+            true => noted(heard.sendMessage(c, .Saw(x))) > 0,
+            false => false,
+        }
+    });
+    assert.eq(kept, [2, 4]);
+    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 24);
+    let _ = heard.stop(ctx).ignore();
+}
+
+test "foldCtx waits for a step that waits on the last element only" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    let total = [1, 2, 3].foldCtx(
+        ctx,
+        fn(c, acc: Int, x) => {
+            match (x == 3) {
+                true => acc + noted(heard.sendMessage(c, .Saw(x))),
+                false => acc + x,
+            }
+        },
+        0,
+    );
+    assert.eq(total, 9);
+    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 3);
+    let _ = heard.stop(ctx).ignore();
+}
+
+// --- one combinator, two instantiations, one of them waiting ------------------
+//
+// The answer is per instantiation, which means per element type, so one program
+// with a waiting `mapCtx` over `Int` and a plain one over `Str` is one program
+// asking the question twice. Both have to be right, and the plain one has to
+// stay plain — a `mapCtx` made `async` because another `mapCtx` waits is the
+// half of this rule that `language::golden_javascript`'s
+// `a_combinator_awaits_its_step_only_when_the_step_waits` reads off the emitted
+// code; what is asserted here is that both still answer.
+
+test "a waiting mapCtx and a plain one in one program both answer" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    let waited = [1, 2, 3].mapCtx(ctx, fn(c, x) => {
+        noted(heard.sendMessage(c, .Saw(x)))
+    });
+    let plain = ["a", "b"].mapCtx(ctx, fn(c, s) => s.concat(c, "!"));
+    assert.eq(waited, [2, 4, 6]);
+    assert.eq(plain, ["a!", "b!"]);
+    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
+    let _ = heard.stop(ctx).ignore();
+}
+
+test "a plain fold inside a waiting map still answers" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    let out = [1, 2].mapCtx(ctx, fn(c, x) => {
+        // The inner fold's step never waits, so it keeps the plain loop while
+        // the map around it does not.
+        let base = [1, 2, 3].foldCtx(c, fn(d, acc: Int, y) => acc + y, 0);
+        base + noted(heard.sendMessage(c, .Saw(x)))
+    });
+    assert.eq(out, [8, 10]);
+    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 12);
+    let _ = heard.stop(ctx).ignore();
+}
+
+// --- a wait at every level ----------------------------------------------------
+//
+// `a waiting step nested two combinators deep still runs`, above, waits at the
+// inner level only. These wait at *both*, which is the case where an outer
+// combinator that failed to await would drop the whole inner call rather than
+// one element of it — and the state reads the order back, so a run that
+// interleaved would say so.
+
+test "a wait at every level of two nested combinators still runs in order" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    let out = [[1, 2], [3]].mapCtx(ctx, fn(c, xs: [Int]) => {
+        let inner = xs.mapCtx(c, fn(d, x) => noted(heard.sendMessage(d, .Saw(x))));
+        // And the outer step waits too, after its own inner loop has finished.
+        inner.len() + noted(heard.sendMessage(c, .Saw(9)))
+    });
+    assert.eq(out, [20, 19]);
+    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 12939);
+    let _ = heard.stop(ctx).ignore();
+}
+
+test "a wait at every level of three nested combinators still runs" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    let out = [[[1]], [[2]]].mapCtx(ctx, fn(c, rows: [[Int]]) => {
+        rows
+            .mapCtx(c, fn(d, xs: [Int]) => {
+                xs.foldCtx(
+                    d,
+                    fn(e, acc: Int, x) => acc + noted(heard.sendMessage(e, .Saw(x))),
+                    0,
+                )
+            })
+            .foldCtx(c, fn(d, acc: Int, n) => acc + n, 0)
+    });
+    assert.eq(out, [2, 4]);
+    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 12);
+    let _ = heard.stop(ctx).ignore();
+}
+
+test "a waiting mapCtxStep inside a waiting mapCtx still runs" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    let out = [[1], [2]].mapCtx(ctx, fn(c, xs: [Int]) => {
+        xs.mapCtxStep(c, fn(d, x) => noted(heard.sendMessage(d, .Saw(x)))).len()
+            + noted(heard.sendMessage(c, .Saw(8)))
+    });
+    assert.eq(out, [17, 17]);
+    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 1828);
+    let _ = heard.stop(ctx).ignore();
+}
+
+// --- the sixth family: a step handed to a scheduler ---------------------------
+//
+// `Tasks.parallel` is a `ctx_step_key` too — it hands its step the caller's
+// whole context — so a step that asks an actor has to be waited for there as
+// well. It is not one of the five above: the runtime's `parallel` waits for its
+// own reason (`middle::rc::suspends`) rather than for its step's, and this is
+// what says the two answers compose.
+
+test "a waiting step under Tasks.parallel runs before parallel answers" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    let out = tasks.parallel(ctx, [1, 2, 3], fn(c, i, x) => {
+        noted(heard.sendMessage(c, .Saw(x))) + i
+    });
+    assert.eq(out, [2, 5, 8]);
+    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 123);
+    let _ = heard.stop(ctx).ignore();
+}
+
+test "a waiting mapCtx inside a parallel step runs before parallel answers" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let heard = actor.start(ctx, recorder());
+    let out = tasks.parallel(ctx, [1, 2], fn(c, i, x) => {
+        [x, x].mapCtx(c, fn(d, y) => noted(heard.sendMessage(d, .Saw(y)))).len()
+    });
+    assert.eq(out, [2, 2]);
+    assert.eq(heardSoFar(heard.sendMessage(ctx, .Read)), 1122);
+    let _ = heard.stop(ctx).ignore();
+}
+
+// --- and the step that never waits, once more ---------------------------------
+
+test "a combinator whose step never waits answers over the empty list too" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(list.empty<Int>().mapCtx(ctx, fn(c, x) => x * 2), list.empty<Int>());
+    assert.eq(list.empty<Int>().mapCtxStep(ctx, fn(c, x) => x * 2), list.empty<Int>());
+    assert.eq(list.empty<Int>().filterCtx(ctx, fn(c, x) => true), list.empty<Int>());
+    assert.eq(list.empty<Int>().foldCtx(ctx, fn(c, acc: Int, x) => acc + x, 7), 7);
 }
