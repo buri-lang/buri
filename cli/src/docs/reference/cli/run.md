@@ -10,7 +10,17 @@ error names them and you pick.
 A binary with several outputs runs the host's own platform where this toolchain
 can build for it, and a page or a script otherwise. It never runs a
 `CLOUDFLARE_WORKER` output: a worker is called by its platform, once per
-request, so there is nothing to start.
+request, so there is nothing to start. A binary that declares a page and a
+worker runs the page, and one that declares a worker and nothing else is
+refused:
+
+```text
+$ buri run //cmd/worker
+error: //cmd/worker declares no output this toolchain can run
+  = declared: cloudflare-worker
+  = a worker is called by its platform, once per request, so there is nothing to start
+  = fix: build it with `buri build //cmd/worker`, and let the platform call it
+```
 
 ## Authority
 

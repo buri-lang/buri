@@ -7,9 +7,12 @@
 //   - `http.html` says what the body is.
 //
 // The page's half — `resume`, `state`, `path` and `route` — needs a document
-// the browser parsed and an address bar over it, and neither exists here. It is
-// asserted where it can be: `language::a_website_is_rendered_by_its_worker_and
-// _resumed_by_its_page` drives a built artifact with both.
+// the browser parsed and an address bar over it, and neither exists here. A
+// resume renders the tree against the markup that arrived, so what it wants is
+// exactly the markup below, parsed. It is asserted where that can be had:
+// `language::a_website_is_rendered_by_its_worker_and_resumed_by_its_page`
+// drives a built artifact against a document holding what the worker sent, and
+// presses the button.
 
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };

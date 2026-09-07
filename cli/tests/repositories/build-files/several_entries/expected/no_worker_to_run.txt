@@ -1,0 +1,4 @@
+error: //cmd/worker declares no output this toolchain can run
+  = declared: cloudflare-worker
+  = a worker is called by its platform, once per request, so there is nothing to start
+  = fix: build it with `buri build //cmd/worker`, and let the platform call it
