@@ -15,6 +15,7 @@ from "core/host/testing" import { alloc, clock, entropy };
 from "core/list" import * as list;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
+from "core/time" import * as time;
 from "core/uuid" import * as uuid;
 from "core/uuid" import { Uuid };
 
@@ -243,4 +244,155 @@ test "two identifiers compare and order" {
     assert.gt(big, small);
     // Order is octet order, so the octets and the text agree about it.
     assert.isTrue(small.0.compare(big.0) == Order.Less);
+}
+
+// --- the two fields RFC 9562 fixes, in the octets ------------------------------------
+
+test "the version and the variant are octets, not just characters" {
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock().at(1_755_265_500_000),
+        Entropy: entropy(),
+    };
+    // Octet 6's high nibble is the version and octet 8's top two bits are `10`,
+    // which is the variant. Read off the octets, because that is what a wire
+    // format takes and the text is a rendering of it.
+    let four = uuid.version4(ctx);
+    assert.eq(octet(four, 6) / 16, 4);
+    assert.eq(octet(four, 8) / 64, 2);
+    let seven = uuid.version7(ctx);
+    assert.eq(octet(seven, 6) / 16, 7);
+    assert.eq(octet(seven, 8) / 64, 2);
+    // Sixteen octets and no more, from either generator.
+    assert.len(four.0, 16);
+    assert.len(seven.0, 16);
+    // The nil identifier has neither field, which is why no generator makes it.
+    assert.eq(octet(uuid.zero(), 6) / 16, 0);
+    assert.eq(octet(uuid.zero(), 8) / 64, 0);
+}
+
+/// One octet as a number.
+fn octet(id: Uuid, at: Int): Int {
+    id.0.get(at).withDefault(0).toI64()
+}
+
+test "every identifier a run of either generator makes carries both fields" {
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock().at(1_755_265_500_000),
+        Entropy: entropy(),
+    };
+    let fours = list.range(ctx, 0, 16).mapCtx(ctx, fn(c, _i) => uuid.version4(c));
+    let sevens = list.range(ctx, 0, 16).mapCtx(ctx, fn(c, _i) => uuid.version7(c));
+    assert.isTrue(
+        fours.all(fn(id) => octet(id, 6) / 16 == 4 && octet(id, 8) / 64 == 2),
+    );
+    assert.isTrue(
+        sevens.all(fn(id) => octet(id, 6) / 16 == 7 && octet(id, 8) / 64 == 2),
+    );
+    // Thirty-two draws off one generator, and no two of them the same.
+    let all = fours.concat(ctx, sevens);
+    assert.eq(all.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 32);
+}
+
+// --- what one millisecond buys, and what it does not ------------------------------------
+
+test "identifiers made inside one millisecond share their timestamp and nothing else" {
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock().at(1_755_265_500_000),
+        Entropy: entropy(),
+    };
+    let ids = list.range(ctx, 0, 8).mapCtx(ctx, fn(c, _i) => uuid.version7(c));
+    let first = assert.some(ids.first());
+    // The clock never moved, so the first six octets — the forty-eight bits of
+    // Unix milliseconds — are the same in all eight.
+    let stamps = ids.mapCtx(ctx, fn(c, id) => id.0.take(c, 6));
+    assert.eq(stamps, list.repeat(ctx, first.0.take(ctx, 6), 8));
+    // Only the random tail separates them, which RFC 9562 says is all one
+    // millisecond promises: they are distinct, and they are *not* in order.
+    assert.eq(ids.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 8);
+    assert.isFalse(ids.isSortedBy(fn(a, b) => a.compare(b)));
+}
+
+test "identifiers made in different milliseconds come out in order" {
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock().at(1_755_265_500_000),
+        Entropy: entropy(),
+    };
+    // A millisecond between each pair, which is the resolution the timestamp
+    // has. Ten of them, so the ordering is a run rather than one comparison.
+    let ids = list
+        .range(ctx, 0, 10)
+        .mapCtx(ctx, fn(c, _i) => {
+            let _ = time.sleep(c, time.millis(1));
+            uuid.version7(c)
+        });
+    assert.isTrue(ids.isSortedBy(fn(a, b) => a.compare(b)));
+    assert.eq(ids.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 10);
+    // The canonical spelling sorts the same way the octets do, which is what
+    // makes one usable as a key in a text column too.
+    let texts = ids.mapCtx(ctx, fn(c, id) => id.text(c));
+    assert.isTrue(texts.isSortedBy(fn(a, b) => a.compare(b)));
+    // And every one of them still reads back.
+    let read = ids.mapCtx(ctx, fn(c, id) => uuid.parse(id.text(c)) == .Some(id));
+    assert.isTrue(read.all(fn(ok) => ok));
+}
+
+test "an identifier made a long way apart in time still orders" {
+    let early = context {
+        Alloc: alloc(),
+        Clock: clock(),
+        Entropy: entropy(),
+    };
+    let late = context {
+        Alloc: alloc(),
+        Clock: clock().at(281_474_976_710_655),
+        Entropy: entropy(),
+    };
+    // The epoch, and the last millisecond forty-eight bits can count to.
+    let first = uuid.version7(early);
+    let last = uuid.version7(late);
+    assert.eq(first.0.take(early, 6), [0, 0, 0, 0, 0, 0]);
+    assert.eq(last.0.take(late, 6), [255, 255, 255, 255, 255, 255]);
+    assert.lt(first, last);
+    assert.gt(last, first);
+}
+
+// --- more spellings that are not the one --------------------------------------------
+
+test "the shape is thirty-six characters and four hyphens, in that arrangement" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Mixed case is fine; anything else about the arrangement is not.
+    assert.eq(
+        assert.some(uuid.parse("550E8400-e29b-41D4-a716-446655440000")).text(ctx),
+        CANONICAL,
+    );
+    // The URN form at its own full length, and the braced form at its.
+    assert.none(uuid.parse("urn:uuid:550e8400-e29b-41d4-a716-446655440000"));
+    assert.none(uuid.parse("{550e8400-e29b-41d4-a716-44665544000}"));
+    // Thirty-six characters with the hyphens moved, one group at a time.
+    assert.none(uuid.parse("550e84-00e29b-41d4-a716-4466554400000"));
+    assert.none(uuid.parse("550e8400-e29-b41d4-a716-446655440000"));
+    assert.none(uuid.parse("550e8400-e29b-41d-4a716-446655440000"));
+    assert.none(uuid.parse("550e8400-e29b-41d4-a71-6446655440000"));
+    // Thirty-six characters with a hyphen where a hex digit belongs and a hex
+    // digit where a hyphen belongs.
+    assert.none(uuid.parse("550e8400-e29b-41d4-a716-4466-5544000f"));
+    // Whitespace either side is not trimmed: one spelling in.
+    assert.none(uuid.parse(" 550e8400-e29b-41d4-a716-446655440000"));
+    assert.none(uuid.parse("550e8400-e29b-41d4-a716-446655440000 "));
+    // Every count of octets but sixteen is refused, at both ends of it.
+    assert.none(uuid.fromBytes([0]));
+    assert.none(uuid.fromBytes(list.repeat(ctx, 0, 32)));
+    assert.none(uuid.fromBytes(list.repeat(ctx, 255, 15)));
+    assert.none(uuid.fromBytes(list.repeat(ctx, 255, 17)));
+    // And sixteen of the widest octet is the identifier of all ones.
+    assert.eq(
+        assert.some(uuid.fromBytes(list.repeat(ctx, 255, 16))).text(ctx),
+        "ffffffff-ffff-ffff-ffff-ffffffffffff",
+    );
 }

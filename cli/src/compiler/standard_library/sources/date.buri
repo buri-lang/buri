@@ -382,6 +382,9 @@ export fn plus(i: Instant, d: Duration): Instant {
 // -----------------------------------------------------------------------------
 
 /// `2026-08-15`. Allocating, because it builds a string.
+///
+/// A year before zero writes a leading minus, which `parseDate` does not read:
+/// the calendar goes back further than the format does.
 export fn formatDate<C: Alloc>(ctx: C, d: Date): Str {
     let y = pad(ctx, d.year, 4);
     let m = pad(ctx, d.month, 2);

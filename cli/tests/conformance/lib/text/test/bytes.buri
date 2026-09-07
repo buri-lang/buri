@@ -10,6 +10,7 @@ from "core/bytes" import { DecodeError, Utf8Error };
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 
 // --- UTF-8 ----------------------------------------------------------------------
@@ -559,4 +560,229 @@ test "reading sixteen bits past the end is .None rather than a short number" {
     assert.eq(bytes.toU16BigEndian(list.empty<U8>(), 0), .None);
     // An offset reads from where it points.
     assert.eq(bytes.toU16BigEndian([9, 1, 2], 1), .Some(258));
+}
+
+// --- base64url, length by length ---------------------------------------------------
+
+/// Twelve octets whose base64 lands on the two characters the alphabets spell
+/// differently, so every prefix of it is a case where `-` and `_` matter.
+let SAMPLE: [U8] = [251, 239, 190, 0, 255, 1, 128, 127, 64, 200, 15, 240];
+
+test "base64url writes every length from nothing to twelve octets" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let written = list
+        .range(ctx, 0, 13)
+        .mapCtx(ctx, fn(c, n) => bytes.toBase64Url(c, SAMPLE.take(c, n)));
+    assert.eq(written, [
+        "",
+        "-w",
+        "--8",
+        "----",
+        "----AA",
+        "----AP8",
+        "----AP8B",
+        "----AP8BgA",
+        "----AP8BgH8",
+        "----AP8BgH9A",
+        "----AP8BgH9AyA",
+        "----AP8BgH9AyA8",
+        "----AP8BgH9AyA_w",
+    ]);
+    // Three octets to four characters, and no `=` at any remainder.
+    let widths = written.map(ctx, fn(text) => text.len());
+    assert.eq(widths, [0, 2, 3, 4, 6, 7, 8, 10, 11, 12, 14, 15, 16]);
+    assert.isTrue(written.all(fn(text) => !text.contains("=")));
+}
+
+test "base64url reads every length back, padded or not" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let ok = list
+        .range(ctx, 0, 13)
+        .mapCtx(ctx, fn(c, n) => {
+            let raw = SAMPLE.take(c, n);
+            let unpadded = bytes.toBase64Url(c, raw);
+            // The padded spelling of the same thing: `=` up to a group of four.
+            let short = unpadded.len() % 4;
+            let padded = if (short == 0) {
+                unpadded
+            } else {
+                unpadded.concat(c, "=".repeat(c, 4 - short))
+            };
+            bytes.fromBase64Url(c, unpadded) == .Ok(raw)
+                && bytes.fromBase64Url(c, padded) == .Ok(raw)
+        });
+    assert.isTrue(ok.all(fn(good) => good));
+}
+
+test "base64url refuses every character outside its alphabet" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The two the standard alphabet has and this one does not, at the front and
+    // in the middle.
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "+---")), DecodeError(0));
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "--+-")), DecodeError(2));
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "--/-")), DecodeError(2));
+    // Whitespace is not skipped: this reads one spelling.
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "-- 8")), DecodeError(2));
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "-\n-8")), DecodeError(1));
+    // A character outside ASCII entirely.
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "-é-8")), DecodeError(1));
+    // Padding is only ever the last one or two characters.
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "-=-8")), DecodeError(1));
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "=---")), DecodeError(0));
+    // And one character past a group of four is a length no base64 has, which
+    // is reported at the end of the input rather than at a character.
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "-")), DecodeError(1));
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "-----")), DecodeError(5));
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "---------")), DecodeError(9));
+}
+
+// --- searching over octets that repeat -----------------------------------------------
+
+test "a needle that overlaps itself is found at every start it has" {
+    // Three ones hold two overlapping pairs, and the scan answers the first.
+    assert.eq(bytes.indexOf([1, 1, 1], [1, 1]), .Some(0));
+    assert.eq(bytes.indexOfFrom([1, 1, 1], [1, 1], 1), .Some(1));
+    assert.eq(bytes.indexOfFrom([1, 1, 1], [1, 1], 2), .None);
+    // `aaa` inside `aaaaa` starts at 0, 1 and 2.
+    assert.eq(bytes.indexOfFrom([1, 1, 1, 1, 1], [1, 1, 1], 0), .Some(0));
+    assert.eq(bytes.indexOfFrom([1, 1, 1, 1, 1], [1, 1, 1], 1), .Some(1));
+    assert.eq(bytes.indexOfFrom([1, 1, 1, 1, 1], [1, 1, 1], 2), .Some(2));
+    assert.eq(bytes.indexOfFrom([1, 1, 1, 1, 1], [1, 1, 1], 3), .None);
+    // A needle exactly as long as the haystack fits at 0 and nowhere else.
+    assert.eq(bytes.indexOf([1, 2, 3], [1, 2, 3]), .Some(0));
+    assert.eq(bytes.indexOfFrom([1, 2, 3], [1, 2, 3], 1), .None);
+    // One octet longer than the haystack never fits, wherever it starts.
+    assert.eq(bytes.indexOf([1, 2, 3], [1, 2, 3, 4]), .None);
+    assert.eq(bytes.indexOfFrom([1, 2, 3], [1, 2, 3, 4], 0), .None);
+    // `split` cuts past each match rather than inside it, so overlapping
+    // occurrences give the pieces between the ones it took.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bytes.split(ctx, [1, 1, 1, 1], [1, 1]), [
+        list.empty<U8>(),
+        list.empty<U8>(),
+        list.empty<U8>(),
+    ]);
+    assert.eq(bytes.split(ctx, [1, 1, 1], [1, 1]), [list.empty<U8>(), [1]]);
+}
+
+// --- every shape of octet that is not UTF-8 ---------------------------------------
+
+/// U+FFFD, which is what a sequence that is not one becomes.
+let BAD: Str = "�";
+
+test "the widest and narrowest sequence of every width decodes whole" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The first and last code point each width encodes, which is where the
+    // narrowed second-byte ranges that reject an overlong sit.
+    let edges: [[U8]] = [
+        [0x00],
+        [0x7f],
+        [0xc2, 0x80],
+        [0xdf, 0xbf],
+        [0xe0, 0xa0, 0x80],
+        [0xed, 0x9f, 0xbf],
+        [0xee, 0x80, 0x80],
+        [0xef, 0xbf, 0xbf],
+        [0xf0, 0x90, 0x80, 0x80],
+        [0xf4, 0x8f, 0xbf, 0xbf],
+    ];
+    let lengths = edges.mapCtx(ctx, fn(c, raw) => bytes.fromUtf8Lossy(c, raw).len());
+    assert.eq(lengths, list.repeat(ctx, 1, 10));
+    // None of them replaced anything, so lossy and strict agree on all ten.
+    let same = edges.mapCtx(ctx, fn(c, raw) => {
+        bytes.fromUtf8Lossy(c, raw) == assert.ok(bytes.fromUtf8(c, raw))
+    });
+    assert.isTrue(same.all(fn(ok) => ok));
+}
+
+test "an overlong encoding replaces one character per byte" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // A lead byte that can only ever begin an overlong leads nothing at all, so
+    // it and each byte after it replace on their own.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xc0, 0x80]), str.format(ctx, "${BAD}${BAD}"));
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xc1, 0xbf]), str.format(ctx, "${BAD}${BAD}"));
+    // The three- and four-byte overlongs are caught by the narrowed range for
+    // the *second* byte, before a code point is ever assembled.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xe0, 0x80, 0xaf]).len(), 3);
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xe0, 0x9f, 0xbf]).len(), 3);
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xf0, 0x80, 0x80, 0xaf]).len(), 4);
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xf0, 0x8f, 0xbf, 0xbf]).len(), 4);
+    // And `fromUtf8` refuses every one of them rather than reading a character.
+    let overlongs: [[U8]] = [
+        [0xc0, 0x80],
+        [0xc1, 0xbf],
+        [0xe0, 0x80, 0xaf],
+        [0xe0, 0x9f, 0xbf],
+        [0xf0, 0x80, 0x80, 0xaf],
+        [0xf0, 0x8f, 0xbf, 0xbf],
+    ];
+    assert.isTrue(
+        overlongs
+            .mapCtx(ctx, fn(c, raw) => bytes.fromUtf8(c, raw).isErr())
+            .all(fn(bad) => bad),
+    );
+}
+
+test "a surrogate and a code point past the end each replace" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The whole surrogate range: `ed` may lead, but not with a second byte
+    // above `9f`.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xed, 0xa0, 0x80]).len(), 3);
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xed, 0xbf, 0xbf]).len(), 3);
+    // A surrogate *pair* written as two sequences is six replacements, not one
+    // character.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xed, 0xa0, 0xbd, 0xed, 0xb8, 0x80]).len(), 6);
+    // One past U+10FFFF, caught by `f4`'s narrowed second byte.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xf4, 0x90, 0x80, 0x80]).len(), 4);
+    // And the lead bytes that lead nothing at all.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xf5, 0x80, 0x80, 0x80]).len(), 4);
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xf8]), BAD);
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xfe]), BAD);
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xff]), BAD);
+    // A run of continuation bytes with nothing leading them.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0x80, 0x80, 0x80]).len(), 3);
+    assert.eq(bytes.fromUtf8Lossy(ctx, [0xbf]), BAD);
+}
+
+test "a sequence cut short costs one replacement wherever it was cut" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Every truncation of a two-, three- and four-byte sequence, at the end of
+    // the input: one maximal subpart, so one replacement each.
+    let cut: [[U8]] = [
+        [0xc2],
+        [0xe2],
+        [0xe2, 0x82],
+        [0xf0],
+        [0xf0, 0x9f],
+        [0xf0, 0x9f, 0x98],
+    ];
+    let lengths = cut.mapCtx(ctx, fn(c, raw) => bytes.fromUtf8Lossy(c, raw).len());
+    assert.eq(lengths, list.repeat(ctx, 1, 6));
+    // The same cuts with a plain letter after them: one replacement, then the
+    // letter, because the byte that ended the subpart is read on its own terms.
+    let followed = cut.mapCtx(ctx, fn(c, raw) => {
+        bytes.fromUtf8Lossy(c, raw.push(c, 0x41))
+    });
+    assert.eq(followed, list.repeat(ctx, str.format(ctx, "${BAD}A"), 6));
+    // And a good character on either side of a bad one survives.
+    assert.eq(
+        bytes.fromUtf8Lossy(ctx, [0x41, 0xe2, 0x82, 0x42]),
+        str.format(ctx, "A${BAD}B"),
+    );
 }

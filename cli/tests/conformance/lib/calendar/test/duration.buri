@@ -11,6 +11,7 @@
 
 from "core/effect" import { Alloc, Clock };
 from "core/host/testing" import { alloc, clock };
+from "core/list" import * as list;
 from "core/math" import * as math;
 from "core/num" import * as num;
 from "core/testing/assert" import * as assert;
@@ -340,4 +341,73 @@ test "a clock the test moves by hand moves the monotonic reading too" {
     assert.eq(time.now(ctx).0, 1_000);
     assert.eq(time.monotonic(ctx).0, 1_000_000_000);
     assert.eq(time.elapsed(ctx, Monotonic(0)), time.seconds(1));
+}
+
+test "a run of readings off one clock never goes backwards" {
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock(),
+    };
+    // Thirty readings, with a sleep of nothing between some pairs and a longer
+    // one between others. A reading taken with no time in between is the same
+    // reading, which is allowed; one that is *earlier* is not.
+    let readings = list
+        .range(ctx, 0, 30)
+        .mapCtx(ctx, fn(c, i) => {
+            let _ = time.sleep(c, time.millis(i % 3));
+            time.monotonic(c)
+        });
+    assert.isTrue(readings.isSortedBy(fn(a, b) => a.compare(b)));
+    // The double moves by exactly what it was told to, so the whole run is
+    // checkable rather than merely ordered.
+    assert.eq(assert.some(readings.first()), Monotonic(0));
+    assert.eq(assert.some(readings.last()), Monotonic(30_000_000));
+    // And the difference between the ends is the sum of the sleeps.
+    assert.eq(
+        assert.some(readings.last()).duration(assert.some(readings.first())),
+        time.millis(30),
+    );
+}
+
+test "elapsed measures from a reading taken before the work, not after" {
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock().at(1_000),
+    };
+    let started = time.monotonic(ctx);
+    let _ = time.sleep(ctx, time.millis(40));
+    let middle = time.elapsed(ctx, started);
+    let _ = time.sleep(ctx, time.millis(60));
+    // The same starting reading, measured twice: the second answer is the
+    // longer one, and the difference is the second sleep.
+    assert.eq(middle, time.millis(40));
+    assert.eq(time.elapsed(ctx, started), time.millis(100));
+    assert.eq(time.elapsed(ctx, started).sub(middle), time.millis(60));
+    // A reading from the future measures backwards rather than saturating at
+    // nothing, which is what makes `duration` usable in either order.
+    let ahead = Monotonic(time.monotonic(ctx).0 + 5_000_000);
+    assert.eq(time.elapsed(ctx, ahead), time.millis(0 - 5));
+    assert.isTrue(time.elapsed(ctx, ahead).isNegative());
+}
+
+test "dividing a length by a negative count turns it round" {
+    assert.eq(time.seconds(6).divide(0 - 2), time.seconds(0 - 3));
+    assert.eq(time.seconds(0 - 6).divide(0 - 2), time.seconds(3));
+    assert.eq(time.seconds(6).divide(0 - 1), time.seconds(0 - 6));
+    // Truncation is toward zero on both sides of it.
+    assert.eq(time.nanos(0 - 7).divide(0 - 2), time.nanos(3));
+    // A divisor larger than the length leaves nothing.
+    assert.eq(time.seconds(1).divide(0 - 2_000_000_000), time.ZERO);
+    assert.eq(time.ZERO.divide(0 - 5), time.ZERO);
+}
+
+test "a ratio against no time at all has a sign" {
+    // +/- infinity, depending on which way the length points, and a NaN only
+    // where there is no length on either side.
+    assert.isTrue(time.seconds(1).ratio(time.ZERO) > 0.0);
+    assert.isTrue(time.seconds(0 - 1).ratio(time.ZERO) < 0.0);
+    assert.isTrue(math.isInfinite(time.seconds(0 - 1).ratio(time.ZERO)));
+    assert.isTrue(math.isNan(time.ZERO.ratio(time.ZERO)));
+    // No time at all goes into a length no times at all.
+    assert.approxEq(time.ZERO.ratio(time.seconds(3)), 0.0, 1e-9);
 }

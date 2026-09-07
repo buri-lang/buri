@@ -229,3 +229,125 @@ test "a SHA-1 digest is twenty bytes, and the three functions differ" {
     assert.notEq(crypto.sha1(ctx, message), crypto.sha256(ctx, message));
     assert.notEq(crypto.sha512(ctx, message), crypto.sha256(ctx, message));
 }
+
+// --- the rest of the NIST and RFC vectors --------------------------------------------
+
+test "the two multi-block NIST messages" {
+    // FIPS 180-4's appendix writes one message per width: 896 bits for the
+    // 1024-bit block and 448 for the 512-bit one, so neither lands on a
+    // boundary.
+    assert.eq(
+        hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+        "204a8fc6dda82f0a0ced7beb8e08a41657c16ef468b228a8279be331a703c33596fd15c13b1b07f9aa1d3bea57789ca031ad85c7a71dd70354ec631238ca3445",
+    );
+    assert.eq(
+        hex(
+            "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
+        ),
+        "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909",
+    );
+}
+
+test "the million-character message" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // FIPS 180-4's long vector: a million `a`s, which is 7813 blocks and the
+    // only one of these that says the block loop still terminates correctly a
+    // long way in. The length in the padding is 8,000,000 bits.
+    assert.eq(
+        hex("a".repeat(ctx, 1_000_000)),
+        "e718483d0ce769644e2e42c7bc15b4638e1f98b13b2044285632a803afa973ebde0ff244877ea60a4cb0432ce577c31beb009c5c2c49aa2e4eadb217ad8cc09b",
+    );
+    assert.eq(
+        sha1Hex("a".repeat(ctx, 1_000_000)),
+        "34aa973cd4c4daa4f61eeb2bdbad27316534016f",
+    );
+}
+
+test "the rest of the SHA-1 vectors RFC 3174 names" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        sha1Hex(
+            "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
+        ),
+        "a49b2446a02c645bf419f995b67091253a04a259",
+    );
+    // RFC 3174's fourth test: the same 64-byte block ten times over.
+    assert.eq(
+        sha1Hex(
+            "0123456701234567012345670123456701234567012345670123456701234567".repeat(
+                ctx,
+                10,
+            ),
+        ),
+        "dea356a2cddd90c7a7ecedc5ebb563934f460452",
+    );
+}
+
+test "RFC 4231 case 4: a key of every value from 1 to 25" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let key = list.range(ctx, 1, 26).map(ctx, fn(n) => n.wrapToU8());
+    let message = list.repeat(ctx, 205, 50);
+    assert.eq(
+        mac(key, message),
+        "b0ba465637458c6990e5a8c5f61d4af7e576d97ff94b872de76f8050361ee3dba91ca5c11aa25eb4d679275cc5788063a5f19741120c4f2de2adebeb10a298dd",
+    );
+}
+
+test "RFC 4231 case 5: the digest a truncating caller would cut down" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The RFC truncates this one to 128 bits. Nothing here truncates, so the
+    // whole digest is what is pinned — and its first sixteen bytes are the
+    // RFC's answer.
+    let key = list.repeat(ctx, 12, 20);
+    let message = bytes.toUtf8(ctx, "Test With Truncation");
+    assert.eq(
+        mac(key, message),
+        "415fad6271580a531d4179bc891d87a650188707922a4fbb36663a1eb16da008711c5b50ddd0fc235084eb9d3364a1454fb2ef67cd1d29fe6773068ea266e96b",
+    );
+    assert.eq(
+        crypto.hmacSha512(ctx, key, message).0.take(ctx, 16),
+        assert.ok(bytes.fromHex(ctx, "415fad6271580a531d4179bc891d87a6")),
+    );
+}
+
+test "RFC 4231 case 7: a key and a message both longer than the block" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let key = list.repeat(ctx, 170, 131);
+    let message = bytes.toUtf8(
+        ctx,
+        "This is a test using a larger than block-size key and a larger than block-size data. The key needs to be hashed before being used by the HMAC algorithm.",
+    );
+    assert.eq(
+        mac(key, message),
+        "e37b6a775dc87dbaa4dfa9f96e5e3ffddebd71f8867289865df5a32d20cdc944b6022cac3c4982b10d5eeb55c3e4de15134676fb6de0446065c97440fa8c6a58",
+    );
+}
+
+test "a key of exactly the block width is neither padded nor hashed" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // 128 bytes is the block, so this is the boundary the "longer than the
+    // block gets hashed first" rule turns on. A key one byte longer is a
+    // different key and has to give a different digest.
+    let exact = list.repeat(ctx, 170, 128);
+    let over = list.repeat(ctx, 170, 129);
+    let message = bytes.toUtf8(ctx, "boundary");
+    assert.notEq(mac(exact, message), mac(over, message));
+    // And the one that gets hashed is the same as passing the digest as the
+    // key, which is what the rule says happens.
+    assert.eq(mac(over, message), mac(crypto.sha512(ctx, over).0, message));
+    // A key of 64 bytes is short here and would be exact for SHA-256, which is
+    // the mistake carrying the constant over would make.
+    assert.notEq(mac(list.repeat(ctx, 170, 64), message), mac(exact, message));
+}

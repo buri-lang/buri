@@ -11,6 +11,8 @@ from "core/date" import * as date;
 from "core/date" import { Date, DateTime, Time, Zoned };
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 from "core/time" import { Instant };
 
@@ -297,4 +299,382 @@ test "an HTTP date that is not one is refused" {
     assert.none(date.parseHttpDate(ctx, "Sun, 06 Nov 94 08:49:37 GMT"));
     assert.none(date.parseHttpDate(ctx, ""));
     assert.none(date.parseHttpDate(ctx, "2026-08-15T13:45:00Z"));
+}
+
+// --- the edges of the RFC 3339 grammar ---------------------------------------------
+
+test "every offset the grammar admits, and every one it does not" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Zero, written four ways. `-00:00` means "offset unknown" in RFC 3339 and
+    // this reads it as zero like the rest, because a `Zoned` has nowhere to
+    // keep the distinction.
+    assert.eq(offsetOf(ctx, "2026-08-15T13:45:00Z"), .Some(0));
+    assert.eq(offsetOf(ctx, "2026-08-15T13:45:00z"), .Some(0));
+    assert.eq(offsetOf(ctx, "2026-08-15T13:45:00+00:00"), .Some(0));
+    assert.eq(offsetOf(ctx, "2026-08-15T13:45:00-00:00"), .Some(0));
+    // The widest offsets a two-digit hour and minute can spell.
+    assert.eq(offsetOf(ctx, "2026-08-15T13:45:00+23:59"), .Some(1439));
+    assert.eq(offsetOf(ctx, "2026-08-15T13:45:00-23:59"), .Some(0 - 1439));
+    assert.eq(offsetOf(ctx, "2026-08-15T13:45:00+00:01"), .Some(1));
+    assert.eq(offsetOf(ctx, "2026-08-15T13:45:00-00:01"), .Some(0 - 1));
+    // One past each end of each field.
+    assert.none(date.parseZoned(ctx, "2026-08-15T13:45:00+24:00"));
+    assert.none(date.parseZoned(ctx, "2026-08-15T13:45:00-24:00"));
+    assert.none(date.parseZoned(ctx, "2026-08-15T13:45:00+00:60"));
+    // And every spelling of an offset that is not `+HH:MM`.
+    assert.none(date.parseZoned(ctx, "2026-08-15T13:45:00+0200"));
+    assert.none(date.parseZoned(ctx, "2026-08-15T13:45:00+02"));
+    assert.none(date.parseZoned(ctx, "2026-08-15T13:45:00+02:0"));
+    assert.none(date.parseZoned(ctx, "2026-08-15T13:45:00 +02:00"));
+    assert.none(date.parseZoned(ctx, "2026-08-15T13:45:00Z+02:00"));
+}
+
+test "a fraction of a second of every length, in a whole timestamp" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let fractions = [
+        ".1",
+        ".12",
+        ".123",
+        ".1234",
+        ".12345",
+        ".123456",
+        ".1234567",
+        ".12345678",
+        ".123456789",
+    ];
+    let expected: [Option<Int>] = [
+        .Some(100),
+        .Some(120),
+        .Some(123),
+        .Some(123),
+        .Some(123),
+        .Some(123),
+        .Some(123),
+        .Some(123),
+        .Some(123),
+    ];
+    let read = fractions.mapCtx(ctx, fn(c, fraction) => {
+        let text = str.format(c, "2026-08-15T13:45:00${fraction}Z");
+        date.parseDateTime(c, text).map(fn(dt) => dt.time.milli)
+    });
+    assert.eq(read, expected);
+    // The same lengths with an offset on the end, where the fraction is no
+    // longer the last thing in the text.
+    let offset = fractions.mapCtx(ctx, fn(c, fraction) => {
+        let text = str.format(c, "2026-08-15T15:45:00${fraction}+02:00");
+        date.parseZoned(c, text).map(fn(z) => z.at.time.milli)
+    });
+    assert.eq(offset, expected);
+    // A point with nothing after it is not a fraction.
+    assert.none(date.parseDateTime(ctx, "2026-08-15T13:45:00.Z"));
+    assert.none(date.parseDateTime(ctx, "2026-08-15T13:45:00.+02:00"));
+}
+
+test "a leap second is refused wherever a time of day is read" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // 23:59:60 is a real moment and `Time` has nowhere to put it, so every door
+    // into this module turns it away rather than guessing at midnight.
+    assert.none(date.parseTime(ctx, "23:59:60"));
+    assert.none(date.parseDateTime(ctx, "2016-12-31T23:59:60Z"));
+    assert.none(date.parseZoned(ctx, "2016-12-31T23:59:60Z"));
+    assert.none(date.parseZoned(ctx, "2017-01-01T01:59:60+02:00"));
+    assert.none(date.parseHttpDate(ctx, "Sat, 31 Dec 2016 23:59:60 GMT"));
+    assert.none(date.parseHttpDate(ctx, "Saturday, 31-Dec-16 23:59:60 GMT"));
+    assert.none(date.parseHttpDate(ctx, "Sat Dec 31 23:59:60 2016"));
+    // 59 either side of it is a second the clock has.
+    assert.isTrue(date.parseDateTime(ctx, "2016-12-31T23:59:59Z").isSome());
+}
+
+test "the 29th of February exists in a leap year and in no other" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(date.parseDate(ctx, "2024-02-29").isSome());
+    assert.isTrue(date.parseDate(ctx, "2000-02-29").isSome());
+    assert.none(date.parseDate(ctx, "2023-02-29"));
+    // 1900 is divisible by 100 and not by 400, so it is not a leap year.
+    assert.none(date.parseDate(ctx, "1900-02-29"));
+    assert.none(date.parseDate(ctx, "2024-02-30"));
+    // The same rule through every other reader.
+    assert.isTrue(date.parseDateTime(ctx, "2024-02-29T12:00:00Z").isSome());
+    assert.none(date.parseDateTime(ctx, "2023-02-29T12:00:00Z"));
+    assert.none(date.parseZoned(ctx, "1900-02-29T12:00:00+02:00"));
+    assert.isTrue(date.parseHttpDate(ctx, "Thu, 29 Feb 2024 12:00:00 GMT").isSome());
+    assert.none(date.parseHttpDate(ctx, "Wed, 29 Feb 2023 12:00:00 GMT"));
+    // And the leap day writes and reads back like any other day.
+    let leapDay = DateTime { date: day(2024, 2, 29), time: clock(23, 59, 59, 999) };
+    assert.eq(date.formatDateTime(ctx, leapDay), "2024-02-29T23:59:59.999Z");
+    assert.eq(
+        assert.some(date.parseDateTime(ctx, "2024-02-29T23:59:59.999Z")),
+        leapDay,
+    );
+}
+
+test "the first and last year four digits can spell" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(date.formatDate(ctx, day(0, 1, 1)), "0000-01-01");
+    assert.eq(date.formatDate(ctx, day(9999, 12, 31)), "9999-12-31");
+    assert.eq(assert.some(date.parseDate(ctx, "0000-01-01")), day(0, 1, 1));
+    assert.eq(assert.some(date.parseDate(ctx, "9999-12-31")), day(9999, 12, 31));
+    // Year zero is a leap year: it is divisible by 400.
+    assert.eq(assert.some(date.parseDate(ctx, "0000-02-29")), day(0, 2, 29));
+    let firstMoment = DateTime { date: day(0, 1, 1), time: clock(0, 0, 0, 0) };
+    let lastMoment = DateTime { date: day(9999, 12, 31), time: clock(23, 59, 59, 999) };
+    assert.eq(date.formatDateTime(ctx, firstMoment), "0000-01-01T00:00:00.000Z");
+    assert.eq(date.formatDateTime(ctx, lastMoment), "9999-12-31T23:59:59.999Z");
+    assert.eq(
+        assert.some(date.parseDateTime(ctx, "0000-01-01T00:00:00.000Z")),
+        firstMoment,
+    );
+    assert.eq(
+        assert.some(date.parseDateTime(ctx, "9999-12-31T23:59:59.999Z")),
+        lastMoment,
+    );
+}
+
+test "a year outside four digits writes, and only the wide end reads back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // A `Date` takes any year, and `pad` widens rather than truncating, so a
+    // five-digit year writes five digits — and reads back, because nothing in
+    // the grammar counts them.
+    let far = day(10_000, 1, 1);
+    assert.eq(date.formatDate(ctx, far), "10000-01-01");
+    assert.eq(assert.some(date.parseDate(ctx, "10000-01-01")), far);
+    // A year before zero writes a leading minus, and that is one hyphen more
+    // than the reader admits. RFC 3339 has no such year.
+    let ancient = day(1, 1, 1).addDays(0 - 1);
+    assert.eq(ancient.year, 0);
+    let older = day(1, 1, 1).addDays(0 - 400);
+    assert.eq(older.year, 0 - 1);
+    assert.eq(date.formatDate(ctx, older), "-0001-11-28");
+    assert.none(date.parseDate(ctx, "-0001-11-28"));
+    assert.none(date.parseDateTime(ctx, "-0001-11-28T00:00:00Z"));
+}
+
+test "every timestamp formatDateTime writes reads back as itself" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let moments = [
+        DateTime { date: day(1970, 1, 1), time: clock(0, 0, 0, 0) },
+        DateTime { date: day(1969, 12, 31), time: clock(23, 59, 59, 999) },
+        DateTime { date: day(0, 1, 1), time: clock(0, 0, 0, 1) },
+        DateTime { date: day(9999, 12, 31), time: clock(23, 59, 59, 999) },
+        DateTime { date: day(2024, 2, 29), time: clock(12, 0, 0, 0) },
+        DateTime { date: day(2023, 2, 28), time: clock(0, 0, 1, 10) },
+        DateTime { date: day(2026, 8, 15), time: clock(13, 45, 0, 123) },
+        DateTime { date: day(2026, 12, 31), time: clock(23, 59, 59, 0) },
+        DateTime { date: day(1, 1, 1), time: clock(1, 1, 1, 1) },
+        DateTime { date: day(2000, 2, 29), time: clock(23, 0, 0, 900) },
+    ];
+    let same = moments.mapCtx(ctx, fn(c, moment) => {
+        date.parseDateTime(c, date.formatDateTime(c, moment)) == .Some(moment)
+    });
+    assert.isTrue(same.all(fn(ok) => ok));
+    // And the text is a fixed width, so nothing above depended on a short one.
+    let widths = moments.mapCtx(ctx, fn(c, moment) => {
+        date.formatDateTime(c, moment).len()
+    });
+    assert.eq(widths, list.repeat(ctx, 24, 10));
+}
+
+// --- the edges of the three HTTP date spellings ---------------------------------------
+
+test "a single-digit day is asctime's alone" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let moment = DateTime { date: day(1994, 11, 6), time: clock(8, 49, 37, 0) };
+    // asctime pads to two columns with a space, and the reader treats a run of
+    // spaces as one separator, so both spellings read.
+    assert.eq(assert.some(date.parseHttpDate(ctx, "Sun Nov  6 08:49:37 1994")), moment);
+    assert.eq(assert.some(date.parseHttpDate(ctx, "Sun Nov 6 08:49:37 1994")), moment);
+    // The other two forms fix the width at two digits.
+    assert.none(date.parseHttpDate(ctx, "Sun, 6 Nov 1994 08:49:37 GMT"));
+    assert.none(date.parseHttpDate(ctx, "Sunday, 6-Nov-94 08:49:37 GMT"));
+    // And three digits is not a day in any of them.
+    assert.none(date.parseHttpDate(ctx, "Sun Nov 006 08:49:37 1994"));
+    assert.none(date.parseHttpDate(ctx, "Sun, 006 Nov 1994 08:49:37 GMT"));
+}
+
+test "every month and weekday name RFC 9110 fixes" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let months = list
+        .range(ctx, 1, 13)
+        .mapCtx(ctx, fn(c, month) => {
+            date.formatHttpDate(c, date.midnight(day(1994, month, 1)))
+        });
+    assert.eq(months, [
+        "Sat, 01 Jan 1994 00:00:00 GMT",
+        "Tue, 01 Feb 1994 00:00:00 GMT",
+        "Tue, 01 Mar 1994 00:00:00 GMT",
+        "Fri, 01 Apr 1994 00:00:00 GMT",
+        "Sun, 01 May 1994 00:00:00 GMT",
+        "Wed, 01 Jun 1994 00:00:00 GMT",
+        "Fri, 01 Jul 1994 00:00:00 GMT",
+        "Mon, 01 Aug 1994 00:00:00 GMT",
+        "Thu, 01 Sep 1994 00:00:00 GMT",
+        "Sat, 01 Oct 1994 00:00:00 GMT",
+        "Tue, 01 Nov 1994 00:00:00 GMT",
+        "Thu, 01 Dec 1994 00:00:00 GMT",
+    ]);
+    // Seven consecutive days, which is every weekday abbreviation once.
+    let week = list
+        .range(ctx, 0, 7)
+        .mapCtx(ctx, fn(c, offset) => {
+            let moment = DateTime {
+                date: day(1994, 11, 6).addDays(offset),
+                time: clock(8, 49, 37, 0),
+            };
+            date.formatHttpDate(c, moment)
+        });
+    assert.eq(week, [
+        "Sun, 06 Nov 1994 08:49:37 GMT",
+        "Mon, 07 Nov 1994 08:49:37 GMT",
+        "Tue, 08 Nov 1994 08:49:37 GMT",
+        "Wed, 09 Nov 1994 08:49:37 GMT",
+        "Thu, 10 Nov 1994 08:49:37 GMT",
+        "Fri, 11 Nov 1994 08:49:37 GMT",
+        "Sat, 12 Nov 1994 08:49:37 GMT",
+    ]);
+    // And all twelve month names read back in all three spellings.
+    let spellings = list
+        .range(ctx, 1, 13)
+        .flatMapCtx(ctx, fn(c, month) => {
+            let moment = date.midnight(day(1994, month, 12));
+            let imf = date.formatHttpDate(c, moment);
+            let name = imf.slice(8, 11);
+            [
+                date.parseHttpDate(c, imf),
+                date.parseHttpDate(
+                    c,
+                    str.format(c, "Xxxday, 12-${name}-94 00:00:00 GMT"),
+                ),
+                date.parseHttpDate(c, str.format(c, "Xxx ${name} 12 00:00:00 1994")),
+            ]
+        });
+    assert.eq(spellings.filter(ctx, fn(read) => read.isNone()).len(), 0);
+}
+
+test "a month name in the wrong case or spelling is not a month" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // RFC 9110's grammar writes exactly these three letters, so the reader is
+    // case-sensitive and does not take a longer name.
+    assert.none(date.parseHttpDate(ctx, "Sun, 06 NOV 1994 08:49:37 GMT"));
+    assert.none(date.parseHttpDate(ctx, "Sun, 06 November 1994 08:49:37 GMT"));
+    assert.none(date.parseHttpDate(ctx, "Sun, 06 Nov. 1994 08:49:37 GMT"));
+    // The weekday, though, is redundant with the date and is not checked — a
+    // header whose two halves disagree is still a date.
+    let moment = DateTime { date: day(1994, 11, 6), time: clock(8, 49, 37, 0) };
+    assert.eq(
+        assert.some(date.parseHttpDate(ctx, "Mon, 06 Nov 1994 08:49:37 GMT")),
+        moment,
+    );
+    assert.eq(assert.some(date.parseHttpDate(ctx, "Xxx Nov  6 08:49:37 1994")), moment);
+    // But it is still a field, and one letter is too short for the two forms
+    // that put a comma after it.
+    assert.none(date.parseHttpDate(ctx, ", 06 Nov 1994 08:49:37 GMT"));
+    assert.none(date.parseHttpDate(ctx, "S, 06 Nov 1994 08:49:37 GMT"));
+}
+
+/// A `Zoned`'s offset, or nothing where the text is not one. Written out here
+/// rather than in the test, because a closure cannot take a context.
+fn offsetOf<C: Alloc>(ctx: C, text: Str): Option<Int> {
+    date.parseZoned(ctx, text).map(fn(z) => z.offsetMinutes)
+}
+
+test "formatZoned writes back every offset parseZoned reads" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let offsets = [0, 1, 0 - 1, 120, 0 - 330, 1439, 0 - 1439];
+    let written = offsets.mapCtx(ctx, fn(c, minutes) => {
+        date.formatZoned(c, Zoned {
+            at: DateTime { date: day(2026, 8, 15), time: clock(13, 45, 0, 0) },
+            offsetMinutes: minutes,
+        })
+    });
+    assert.eq(written, [
+        "2026-08-15T13:45:00.000Z",
+        "2026-08-15T13:45:00.000+00:01",
+        "2026-08-15T13:45:00.000-00:01",
+        "2026-08-15T13:45:00.000+02:00",
+        "2026-08-15T13:45:00.000-05:30",
+        "2026-08-15T13:45:00.000+23:59",
+        "2026-08-15T13:45:00.000-23:59",
+    ]);
+    // And each of them reads back to the offset it was written from.
+    let read = written.mapCtx(ctx, fn(c, text) => {
+        date.parseZoned(c, text).map(fn(z) => z.offsetMinutes)
+    });
+    let expected: [Option<Int>] = [
+        .Some(0),
+        .Some(1),
+        .Some(0 - 1),
+        .Some(120),
+        .Some(0 - 330),
+        .Some(1439),
+        .Some(0 - 1439),
+    ];
+    assert.eq(read, expected);
+}
+
+test "an offset at either extreme still names one moment" {
+    // Almost a day either way, so the two civil dates are two days apart and
+    // the instant is one moment.
+    let moment = Instant(1_755_265_500_000);
+    let east = date.zoned(moment, 1439);
+    let west = date.zoned(moment, 0 - 1439);
+    assert.eq(date.zonedToInstant(east), moment);
+    assert.eq(date.zonedToInstant(west), moment);
+    assert.eq(east.at.date, day(2025, 8, 16));
+    assert.eq(west.at.date, day(2025, 8, 14));
+    assert.eq(east.at.date.daysUntil(west.at.date), 0 - 2);
+    // And an offset of no minutes at all is the civil time itself.
+    assert.eq(date.zoned(moment, 0).at, date.fromInstant(moment));
+}
+
+test "an HTTP date from before the epoch" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The weekday comes off a day count that is negative here, which is the
+    // one place the name and the date could come apart.
+    let landing = DateTime { date: day(1969, 7, 20), time: clock(20, 17, 40, 0) };
+    assert.eq(date.formatHttpDate(ctx, landing), "Sun, 20 Jul 1969 20:17:40 GMT");
+    assert.eq(
+        assert.some(date.parseHttpDate(ctx, "Sun, 20 Jul 1969 20:17:40 GMT")),
+        landing,
+    );
+    // The RFC 850 form's two-digit year cannot reach it: 69 reads as 1969, and
+    // anything earlier has nowhere to go.
+    assert.eq(
+        assert.some(date.parseHttpDate(ctx, "Sunday, 20-Jul-69 20:17:40 GMT")),
+        landing,
+    );
+    // asctime, though, carries all four digits.
+    assert.eq(
+        assert.some(date.parseHttpDate(ctx, "Sun Jul 20 20:17:40 1969")),
+        landing,
+    );
+    let earlier = DateTime { date: day(1900, 1, 1), time: clock(0, 0, 0, 0) };
+    assert.eq(date.formatHttpDate(ctx, earlier), "Mon, 01 Jan 1900 00:00:00 GMT");
+    assert.eq(
+        assert.some(date.parseHttpDate(ctx, "Mon Jan  1 00:00:00 1900")),
+        earlier,
+    );
 }
