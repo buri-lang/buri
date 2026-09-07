@@ -86,7 +86,7 @@ fn no_two_functions_in_one_program_share_a_symbol() {
             .workspace
             .targets()
             .into_iter()
-            .map(|target| Unit { target: Some(target), platform: None, with_tests: true })
+            .map(|target| Unit { target: Some(target), platform: None, entry: None, with_tests: true })
             .collect();
 
         // One target at a time, and then all of them at once — the batched
@@ -125,7 +125,7 @@ fn a_context_constructor_is_named_by_the_module_that_declares_it() {
         .workspace
         .targets()
         .into_iter()
-        .map(|target| Unit { target: Some(target), platform: None, with_tests: true })
+        .map(|target| Unit { target: Some(target), platform: None, entry: None, with_tests: true })
         .collect();
     let program = program_of(&mut open, &units).expect("the case repository does not compile");
 

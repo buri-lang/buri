@@ -11,4 +11,4 @@ error: `WINDOWS` is not a platform [unknown-bare-word]
 3 |         { platform: WINDOWS },
   |                     ^^^^^^^
   |
-  = fix: the platforms are LINUX, MACOS, JS, WEB
+  = fix: the platforms are LINUX, MACOS, JS, WEB, CLOUDFLARE_WORKER
