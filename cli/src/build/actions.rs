@@ -296,6 +296,7 @@ pub fn action_key(
 ) -> ActionKey {
     let mut k = KeyBuilder::new(action, flags.mode);
     k.platform(output.platform(), output.arch());
+    k.entry(output.entry_name());
     // Which backend will produce the bytes, and the identity of everything
     // outside the program that they depend on. The toolchain version does not
     // catch the second: `llvm-sys` links against whatever `llvm-config` found
@@ -381,6 +382,7 @@ fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
 fn compile_key(session: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Compile, flags.mode);
     k.platform(output.platform(), output.arch());
+    k.entry(output.entry_name());
     contribute(session, target, &mut k);
     k.finish()
 }
@@ -416,6 +418,7 @@ pub fn proto_sources(session: &Session, target: TargetId) -> Vec<String> {
 fn proto_key(session: &Session, target: TargetId, output: &Output, flags: &Flags) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Proto, flags.mode);
     k.platform(output.platform(), output.arch());
+    k.entry(output.entry_name());
     let package = session.workspace.package(target.package);
     let schemas = proto_sources(session, target);
     k.rule_identity(&package.label(), "proto", &schemas);
@@ -704,6 +707,7 @@ pub fn codegen_key(
 ) -> ActionKey {
     let mut k = KeyBuilder::new(Action::Codegen, flags.mode);
     k.platform(output.platform(), output.arch());
+    k.entry(output.entry_name());
     k.backend(backend_name, backend_identity);
     k.input("prefix", unit_prefix.as_bytes());
     k.input("ir", ir_hash.as_bytes());

@@ -1,0 +1,75 @@
+.buri/out/web/cmd/site/site.mjs (N bytes, cached)
+error: //cmd/site exports no `handle` [entry-not-found]
+ --> cmd/site/BUILD.buri:4:47
+  |
+4 |         { platform: CLOUDFLARE_WORKER  entry: "handle" },
+  |                                               ^^^^^^^^
+  |
+  = `main.buri` exports: fetch, main
+  = fix: export `handle` from its `main.buri`, or point this output at a function it does export
+
+    What to do
+    ──────────
+
+    Export the function the output names, or name one the binary already
+    exports.
+
+      from "core/effect" import { Request, Response };
+
+      export fn main(): Result<(), Str> {
+          .Ok(())
+      }
+
+      export fn fetch(request: Request): Response {
+          Response { status: 200, headers: [], body: [] }
+      }
+
+      binary {
+          outputs: [
+              { platform: WEB },
+              { platform: CLOUDFLARE_WORKER, entry: "fetch" },
+          ]
+      }
+
+    Why
+    ───
+
+    An outputs entry names the function that artifact starts at. The name is
+    written in the build file and the function is written in main.buri, so the
+    two can disagree. This is where they are compared.
+
+    The page lists what main.buri does export, because the mistake is almost
+    always a spelling.
+
+    An output that names no entry enters through main, and a binary with no main
+    gets no-main instead. Those are different mistakes: one binary has not
+    written its entry point, the other wrote the name twice and spelled it
+    differently once.
+
+error: a context may not be constructed here [context-not-allowed]
+  --> cmd/site/main.buri:26:15
+   |
+26 |     let ctx = context { Alloc: host.alloc };
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = only in an entry's body, in a test source, or in a test-only module — and never inside a lambda, since a closure that could mint authority would make the capture rule meaningless
+   = fix: build it in the entry and pass it down as a `ctx` parameter, or make this a test source, where a context may be built per test
+
+     What to do
+     ──────────
+
+     Build it in the entry and pass it down as a ctx parameter, or make this a
+     test source.
+
+     Why
+     ───
+
+     Three places may mint authority: an entry's body, a test source, and a
+     test-only module. A lambda is not one of them. A closure able to build a
+     context could hand one to a caller that never named an effect, which is
+     what the capture rule prevents.
+
+     An entry is a function an outputs entry names — main unless the build file
+     says otherwise. A binary with a page and a worker in it has two, and each
+     builds its own.
+

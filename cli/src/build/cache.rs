@@ -459,6 +459,18 @@ impl KeyBuilder {
         self.hasher.text(arch.map(|a| a.proto()).unwrap_or("-"));
     }
 
+    /// The function an output enters through.
+    ///
+    /// In every key an `Output` reaches, beside the platform and for the same
+    /// reason: two outputs of one binary compile the same sources to different
+    /// bytes when they enter at different functions, because the entry is the
+    /// root dead-code elimination walks from and the body the platform check is
+    /// asked on behalf of. Leaving it out served one entry's artifact for the
+    /// other's key.
+    pub fn entry(&mut self, name: &str) {
+        self.hasher.text(name);
+    }
+
     /// The label, the rule kind, and the ordered source paths.
     pub fn rule_identity(&mut self, label: &str, kind: &str, sources: &[String]) {
         self.hasher.text(label);
