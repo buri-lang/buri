@@ -1,0 +1,947 @@
+//! core/compression — DEFLATE, and gzip over it.
+//!
+//! A `Content-Encoding: gzip` body is the common case at both ends of
+//! `core/net`, and nobody wants to write DEFLATE at the call site.
+//!
+//! ```buri run
+//! from "core/bytes" import * as bytes;
+//! from "core/compression" import * as compression;
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let raw = bytes.toUtf8(ctx, "ha ha ha ha ha ha ha ha ha ha ha ha!");
+//!     let back = compression.gunzip(ctx, compression.gzip(ctx, raw)).withDefault([]);
+//!     let _ = io.println(ctx, "${raw.len()} in, ${back.len()} back").ignore();
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! 35 in, 35 back
+//! ```
+//!
+//! ## What it reads, and what it writes
+//!
+//! [`inflate`] reads **all of RFC 1951**: stored blocks, fixed-Huffman blocks
+//! and dynamic-Huffman blocks, any number of them. So it reads what zlib, gzip
+//! and every web server produce.
+//!
+//! [`deflate`] writes **one fixed-Huffman block**, over a greedy LZ77 match
+//! finder with a 32 KiB window. No dynamic tree, so the output is a few percent
+//! larger than `gzip -9` on text and identical in kind — every reader takes it.
+//! The match finder is deterministic: the same bytes always give the same bytes,
+//! on every backend, because there is no time budget anywhere in it.
+//!
+//! ## What it costs
+//!
+//! Compressing is O(n log n) for the match index and O(n) for the emit, with a
+//! chain of at most 16 candidates per position. Decompressing is O(n) in the
+//! output. Both build the answer with `push`, so neither copies the whole buffer
+//! per byte.
+//!
+//! The tables are RFC 1951 §3.2.5's own: 29 lengths and 30 distances, as base
+//! and extra-bit pairs, 118 `Int`s in all. There is no Huffman table and no
+//! CRC table — the fixed tree is arithmetic and the CRC is a bit at a time,
+//! which is `core/hash`'s decision for `crc32c` and made here for its reason.
+
+from "core/bits" import * as bits;
+from "core/bytes" import * as bytes;
+from "core/bytes" import { DecodeError };
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+
+from "core/bytes" export { DecodeError };
+
+// --- The public four ----------------------------------------------------------
+
+/// A raw DEFLATE stream — RFC 1951, no header and no checksum.
+///
+/// ```buri
+/// from "core/compression" import * as compression;
+/// from "core/effect" import { Alloc };
+///
+/// export fn packed<C: Alloc>(ctx: C, raw: [U8]): [U8] {
+///     compression.deflate(ctx, raw)
+/// }
+/// ```
+///
+/// One fixed-Huffman block, always the last one. The empty input is a
+/// three-bit stream rather than nothing at all, because a reader has to be told
+/// where the data ends.
+export fn deflate<C: Alloc>(ctx: C, raw: [U8]): [U8] {
+    let started = putBits(ctx, list.empty<U8>(), 0, 0, 3, 3);
+    let body = emitting(ctx, raw, chains(ctx, raw), 0, started.0, started.1, started.2);
+    let ended = putCode(ctx, body.0, body.1, body.2, 0, 7);
+    finish(ctx, ended.0, ended.1, ended.2)
+}
+
+/// The bytes a DEFLATE stream stands for.
+///
+/// ```buri
+/// from "core/bytes" import { DecodeError };
+/// from "core/compression" import * as compression;
+/// from "core/effect" import { Alloc };
+///
+/// export fn unpacked<C: Alloc>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
+///     compression.inflate(ctx, body)
+/// }
+/// ```
+///
+/// `.Err` carries the **input** offset the reader stopped at: a stream that ran
+/// out, a block type that does not exist, a Huffman tree that claims more codes
+/// than its lengths allow, or a match that copies from before the start.
+export fn inflate<C: Alloc>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
+    let done = inflating(ctx, body, Cursor { at: 0, bit: 0, error: NONE }, list.empty<U8>());
+    if (done.0.error >= 0) { .Err(DecodeError(done.0.error)) } else { .Ok(done.1) }
+}
+
+/// A gzip member — RFC 1952 — around one [`deflate`] stream.
+///
+/// ```buri
+/// from "core/compression" import * as compression;
+/// from "core/effect" import { Alloc };
+///
+/// export fn wrapped<C: Alloc>(ctx: C, raw: [U8]): [U8] {
+///     compression.gzip(ctx, raw)
+/// }
+/// ```
+///
+/// The header carries no modification time, no name and no operating system, so
+/// the same bytes always give the same bytes. The trailer is the CRC-32 of the
+/// input and its length modulo 2^32, both little-endian.
+export fn gzip<C: Alloc>(ctx: C, raw: [U8]): [U8] {
+    let head: [U8] = [31, 139, 8, 0, 0, 0, 0, 0, 0, 255];
+    head
+        .concat(ctx, deflate(ctx, raw))
+        .concat(ctx, bytes.fromU32Le(crc32(raw)))
+        .concat(ctx, bytes.fromU32Le(raw.len().wrapToU32()))
+}
+
+/// The bytes a gzip member stands for, with its checksum and its length
+/// checked.
+///
+/// ```buri
+/// from "core/bytes" import { DecodeError };
+/// from "core/compression" import * as compression;
+/// from "core/effect" import { Alloc };
+///
+/// export fn unwrapped<C: Alloc>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
+///     compression.gunzip(ctx, body)
+/// }
+/// ```
+///
+/// Reads the optional extra field, file name, comment and header checksum, and
+/// skips all four. **The trailer is the last eight bytes**, so this reads one
+/// member: two members concatenated check the first member's output against the
+/// second one's trailer and fail.
+///
+/// `.Err` carries the input offset that failed — a bad magic number, a
+/// compression method that is not DEFLATE, a truncated header, whatever
+/// [`inflate`] refused, or a trailer that does not match what came out.
+export fn gunzip<C: Alloc>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
+    match (memberStart(body)) {
+        .Err(e) => .Err(e),
+        .Ok(start) => {
+            let done = inflating(
+                ctx,
+                body,
+                Cursor { at: start, bit: 0, error: NONE },
+                list.empty<U8>(),
+            );
+            let end = if (done.0.bit == 0) { done.0.at } else { done.0.at + 1 };
+            if (done.0.error >= 0) {
+                .Err(DecodeError(done.0.error))
+            } else {
+                checked(body, end, done.1)
+            }
+        },
+    }
+}
+
+// --- Where a gzip member's data starts ----------------------------------------
+
+/// The offset of the first DEFLATE byte, past a header of whatever length the
+/// flags give it.
+fn memberStart(body: [U8]): Result<Int, DecodeError> {
+    if (body.len() < 18) {
+        .Err(DecodeError(0))
+    } else if (byteAt(body, 0) != 31 || byteAt(body, 1) != 139) {
+        .Err(DecodeError(0))
+    } else if (byteAt(body, 2) != 8) {
+        .Err(DecodeError(2))
+    } else {
+        let flags = byteAt(body, 3);
+        let afterExtra = if (flags & 4 == 4) {
+            10 + 2 + byteAt(body, 10) + byteAt(body, 11) * 256
+        } else {
+            10
+        };
+        let afterName = if (flags & 8 == 8) {
+            zeroAfter(body, afterExtra)
+        } else {
+            afterExtra
+        };
+        let afterComment = if (flags & 16 == 16) {
+            zeroAfter(body, afterName)
+        } else {
+            afterName
+        };
+        let start = if (flags & 2 == 2) { afterComment + 2 } else { afterComment };
+        if (start < 0 || start + 8 > body.len()) {
+            .Err(DecodeError(3))
+        } else {
+            .Ok(start)
+        }
+    }
+}
+
+/// One past the next zero byte at or after `at`, or one past the end when there
+/// is none — which the length check in [`memberStart`] then refuses.
+fn zeroAfter(body: [U8], at: Int): Int {
+    match (body.get(at)) {
+        .None => body.len() + 1,
+        .Some(b) => if (b == 0) { at + 1 } else { zeroAfter(body, at + 1) },
+    }
+}
+
+/// The trailer — the last eight bytes — against what came out of the stream.
+fn checked(body: [U8], end: Int, out: [U8]): Result<[U8], DecodeError> {
+    let trailer = body.len() - 8;
+    if (end > trailer) {
+        .Err(DecodeError(end))
+    } else {
+        match ((bytes.toU32Le(body, trailer), bytes.toU32Le(body, trailer + 4))) {
+            (.Some(sum), .Some(size)) => {
+                if (sum != crc32(out)) {
+                    .Err(DecodeError(trailer))
+                } else if (size != out.len().wrapToU32()) {
+                    .Err(DecodeError(trailer + 4))
+                } else {
+                    .Ok(out)
+                }
+            },
+            _ => .Err(DecodeError(trailer)),
+        }
+    }
+}
+
+// --- CRC-32, the gzip one -----------------------------------------------------
+//
+// The reflected `0xEDB88320` polynomial, initialised and finalised with all
+// ones. Not `core/hash`'s `crc32c`: that is Castagnoli's polynomial, and gzip
+// predates it by twenty years.
+
+let CRC32_POLY: U32 = 0xedb88320;
+
+let ALL_ONES: U32 = 0xffffffff;
+
+fn crc32(b: [U8]): U32 {
+    b.fold(fn(crc, octet) => crc32Byte(crc ^ octet.toU32(), 8), ALL_ONES) ^ ALL_ONES
+}
+
+fn crc32Byte(crc: U32, left: Int): U32 {
+    if (left == 0) {
+        crc
+    } else {
+        let shifted = bits.shrU32(crc, 1);
+        let next = if (crc & 1 == 1) { shifted ^ CRC32_POLY } else { shifted };
+        crc32Byte(next, left - 1)
+    }
+}
+
+// --- RFC 1951 §3.2.5 ----------------------------------------------------------
+
+/// The first length symbols 257 to 285 stand for.
+let LENGTH_BASE: [Int] = [
+    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67,
+    83, 99, 115, 131, 163, 195, 227, 258,
+];
+
+/// How many extra bits each of them reads.
+let LENGTH_EXTRA: [Int] = [
+    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5,
+    5, 5, 5, 0,
+];
+
+/// The first distance codes 0 to 29 stand for.
+let DISTANCE_BASE: [Int] = [
+    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513,
+    769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
+];
+
+/// How many extra bits each distance code reads.
+let DISTANCE_EXTRA: [Int] = [
+    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10,
+    11, 11, 12, 12, 13, 13,
+];
+
+/// The order RFC 1951 §3.2.7 writes a dynamic block's code lengths in.
+let LENGTH_ORDER: [Int] = [
+    16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+];
+
+/// How far back a match may reach, and how long one may be.
+let WINDOW: Int = 32768;
+
+let MIN_MATCH: Int = 3;
+
+let MAX_MATCH: Int = 258;
+
+/// How many candidates one position tries before taking what it has. A count
+/// rather than a time budget: a deadline would make the output depend on how
+/// busy the machine was.
+let CHAIN: Int = 16;
+
+/// The sentinel for "no earlier position", and for "no error yet".
+let NONE: Int = -1;
+
+// --- Writing bits -------------------------------------------------------------
+//
+// DEFLATE packs its own fields low bit first and its Huffman codes high bit
+// first, so both are here and no caller has to remember which. The three parts
+// of the writer travel as three values rather than as a struct, because the
+// accumulator has to reach `push` with nothing else holding it — that is what
+// makes appending amortized O(1) rather than a copy of the whole output.
+
+/// A plain field: the low bit goes out first.
+fn putBits<C: Alloc>(
+    ctx: C,
+    out: [U8],
+    held: Int,
+    count: Int,
+    value: Int,
+    width: Int,
+): ([U8], Int, Int) {
+    let mask = bits.shl(1, width) - 1;
+    draining(ctx, out, held | bits.shl(value & mask, count), count + width)
+}
+
+/// A Huffman code: the high bit goes out first.
+fn putCode<C: Alloc>(
+    ctx: C,
+    out: [U8],
+    held: Int,
+    count: Int,
+    code: Int,
+    width: Int,
+): ([U8], Int, Int) {
+    if (width == 0) {
+        (out, held, count)
+    } else {
+        let one = putBits(ctx, out, held, count, bits.shr(code, width - 1), 1);
+        putCode(ctx, one.0, one.1, one.2, code, width - 1)
+    }
+}
+
+fn draining<C: Alloc>(ctx: C, out: [U8], held: Int, count: Int): ([U8], Int, Int) {
+    if (count < 8) {
+        (out, held, count)
+    } else {
+        draining(ctx, out.push(ctx, (held & 255).wrapToU8()), bits.shr(held, 8), count - 8)
+    }
+}
+
+/// The last partial byte, padded with zeroes.
+fn finish<C: Alloc>(ctx: C, out: [U8], held: Int, count: Int): [U8] {
+    if (count > 0) { out.push(ctx, (held & 255).wrapToU8()) } else { out }
+}
+
+/// The fixed literal/length tree of RFC 1951 §3.2.6, as `(code, width)`.
+fn fixedCode(symbol: Int): (Int, Int) {
+    if (symbol <= 143) {
+        (48 + symbol, 8)
+    } else if (symbol <= 255) {
+        (400 + symbol - 144, 9)
+    } else if (symbol <= 279) {
+        (symbol - 256, 7)
+    } else {
+        (192 + symbol - 280, 8)
+    }
+}
+
+// --- The match index ----------------------------------------------------------
+//
+// A hash chain needs a table it can overwrite, and a Buri list is a value. What
+// stands in for it is a sort: every position keyed by the three bytes at it,
+// sorted, and each position's predecessor read off its neighbour. The sort is
+// stable, so equal keys keep ascending position order and the neighbour to the
+// left is always the nearest earlier match. That is a chain, exactly, and it is
+// exact rather than hashed — the key is the three bytes themselves.
+
+/// For each position, the nearest earlier one starting with the same three
+/// bytes, or [`NONE`].
+fn chains<C: Alloc>(ctx: C, raw: [U8]): [Int] {
+    let n = raw.len();
+    let m = if (n >= MIN_MATCH) { n - 2 } else { 0 };
+    let keys = list.range(ctx, 0, m).map(ctx, fn(i) => keyAt(raw, i));
+    let order = list
+        .range(ctx, 0, m)
+        .sortBy(ctx, fn(a, b) => at(keys, a).compare(at(keys, b)));
+    list
+        .range(ctx, 0, m)
+        .map(ctx, fn(j) => (at(order, j), earlier(keys, order, j)))
+        .sortBy(ctx, fn(a, b) => a.0.compare(b.0))
+        .map(ctx, fn(pair) => pair.1)
+}
+
+/// The position before `j` in sorted order, when it starts with the same three
+/// bytes.
+fn earlier(keys: [Int], order: [Int], j: Int): Int {
+    if (j == 0) {
+        NONE
+    } else if (at(keys, at(order, j - 1)) == at(keys, at(order, j))) {
+        at(order, j - 1)
+    } else {
+        NONE
+    }
+}
+
+/// The three bytes at `i`, as one number. Exact, so two positions share a key
+/// only when they really do begin alike.
+fn keyAt(raw: [U8], i: Int): Int {
+    byteAt(raw, i) * 65536 + byteAt(raw, i + 1) * 256 + byteAt(raw, i + 2)
+}
+
+fn byteAt(raw: [U8], i: Int): Int {
+    raw.get(i).withDefault(0).toI64()
+}
+
+fn at(xs: [Int], i: Int): Int {
+    xs.get(i).withDefault(NONE)
+}
+
+// --- Emitting -----------------------------------------------------------------
+
+/// One symbol at a time until the input runs out. A self tail call, so a
+/// megabyte costs one frame.
+fn emitting<C: Alloc>(
+    ctx: C,
+    raw: [U8],
+    prev: [Int],
+    start: Int,
+    out: [U8],
+    held: Int,
+    count: Int,
+): ([U8], Int, Int) {
+    if (start >= raw.len()) {
+        (out, held, count)
+    } else {
+        let limit = smaller(MAX_MATCH, raw.len() - start);
+        let found = if (limit < MIN_MATCH) {
+            (0, 0)
+        } else {
+            longest(raw, prev, start, at(prev, start), CHAIN, 0, 0, limit)
+        };
+        if (found.0 >= MIN_MATCH) {
+            let written = backRef(ctx, out, held, count, found.0, found.1);
+            emitting(ctx, raw, prev, start + found.0, written.0, written.1, written.2)
+        } else {
+            let code = fixedCode(byteAt(raw, start));
+            let written = putCode(ctx, out, held, count, code.0, code.1);
+            emitting(ctx, raw, prev, start + 1, written.0, written.1, written.2)
+        }
+    }
+}
+
+/// One length-and-distance pair, as its four fields.
+fn backRef<C: Alloc>(
+    ctx: C,
+    out: [U8],
+    held: Int,
+    count: Int,
+    length: Int,
+    distance: Int,
+): ([U8], Int, Int) {
+    let index = indexFor(LENGTH_BASE, length);
+    let symbol = fixedCode(257 + index);
+    let one = putCode(ctx, out, held, count, symbol.0, symbol.1);
+    let two = putBits(
+        ctx,
+        one.0,
+        one.1,
+        one.2,
+        length - at(LENGTH_BASE, index),
+        at(LENGTH_EXTRA, index),
+    );
+    let which = indexFor(DISTANCE_BASE, distance);
+    let three = putCode(ctx, two.0, two.1, two.2, which, 5);
+    putBits(
+        ctx,
+        three.0,
+        three.1,
+        three.2,
+        distance - at(DISTANCE_BASE, which),
+        at(DISTANCE_EXTRA, which),
+    )
+}
+
+/// The last entry of an ascending table whose base is at or below `value`.
+fn indexFor(table: [Int], value: Int): Int {
+    scanning(table, value, 0, 0)
+}
+
+fn scanning(table: [Int], value: Int, i: Int, best: Int): Int {
+    if (i >= table.len()) {
+        best
+    } else if (at(table, i) <= value) {
+        scanning(table, value, i + 1, i)
+    } else {
+        best
+    }
+}
+
+/// The longest match at `start`, walking the chain newest first for at most
+/// [`CHAIN`] steps. `(0, 0)` for none.
+fn longest(
+    raw: [U8],
+    prev: [Int],
+    start: Int,
+    candidate: Int,
+    steps: Int,
+    bestLength: Int,
+    bestDistance: Int,
+    limit: Int,
+): (Int, Int) {
+    if (candidate < 0 || steps <= 0 || start - candidate > WINDOW) {
+        (bestLength, bestDistance)
+    } else {
+        let length = common(raw, candidate, start, 0, limit);
+        if (length > bestLength) {
+            if (length == limit) {
+                (length, start - candidate)
+            } else {
+                longest(
+                    raw,
+                    prev,
+                    start,
+                    at(prev, candidate),
+                    steps - 1,
+                    length,
+                    start - candidate,
+                    limit,
+                )
+            }
+        } else {
+            longest(
+                raw,
+                prev,
+                start,
+                at(prev, candidate),
+                steps - 1,
+                bestLength,
+                bestDistance,
+                limit,
+            )
+        }
+    }
+}
+
+fn common(raw: [U8], a: Int, b: Int, n: Int, limit: Int): Int {
+    if (n >= limit || raw.get(a + n) != raw.get(b + n)) {
+        n
+    } else {
+        common(raw, a, b, n + 1, limit)
+    }
+}
+
+fn smaller(a: Int, b: Int): Int {
+    if (a < b) { a } else { b }
+}
+
+// --- Reading ------------------------------------------------------------------
+
+/// Where the reader is, and where it stopped. `error` is [`NONE`] until
+/// something goes wrong and the offending input offset afterwards, and every
+/// step below is a no-op once it is set.
+struct Cursor {
+    at: Int,
+    bit: Int,
+    error: Int,
+}
+
+fn failed(c: Cursor): Cursor {
+    if (c.error >= 0) { c } else { Cursor { ..c, error: c.at } }
+}
+
+/// One bit, low bit of the byte first.
+fn takeBit(data: [U8], c: Cursor): (Int, Cursor) {
+    if (c.error >= 0) {
+        (0, c)
+    } else {
+        match (data.get(c.at)) {
+            .None => (0, failed(c)),
+            .Some(byte) => {
+                let value = bits.shr(byte.toI64(), c.bit) & 1;
+                if (c.bit == 7) {
+                    (value, Cursor { ..c, at: c.at + 1, bit: 0 })
+                } else {
+                    (value, Cursor { ..c, bit: c.bit + 1 })
+                }
+            },
+        }
+    }
+}
+
+/// `width` bits as a number, the first one read being the low one.
+fn takeBits(data: [U8], c: Cursor, width: Int): (Int, Cursor) {
+    gathering(data, c, width, 0, 0)
+}
+
+fn gathering(data: [U8], c: Cursor, width: Int, i: Int, acc: Int): (Int, Cursor) {
+    if (i >= width || c.error >= 0) {
+        (acc, c)
+    } else {
+        let step = takeBit(data, c);
+        gathering(data, step.1, width, i + 1, acc | bits.shl(step.0, i))
+    }
+}
+
+/// A canonical Huffman code, as its per-length counts and its symbols in
+/// `(length, symbol)` order. That is zlib's `puff` shape: decoding walks one
+/// bit at a time and needs no tree.
+struct Huffman {
+    counts: [Int],
+    symbols: [Int],
+    ok: Bool,
+}
+
+/// The code those lengths describe. `ok` is false for an over-subscribed set —
+/// more codes claimed at some length than the lengths above it leave room for —
+/// which is corruption rather than a legal incomplete tree.
+fn huffmanOf<C: Alloc>(ctx: C, lengths: [Int]): Huffman {
+    let counts = list
+        .range(ctx, 0, 16)
+        .map(ctx, fn(len) => if (len == 0) { 0 } else { lengths.count(fn(l) => l == len) });
+    let symbols = list
+        .range(ctx, 0, lengths.len())
+        .filter(ctx, fn(sym) => at(lengths, sym) > 0)
+        .sortBy(ctx, fn(a, b) => at(lengths, a).compare(at(lengths, b)));
+    Huffman { counts: counts, symbols: symbols, ok: room(counts, 1, 1) }
+}
+
+fn room(counts: [Int], len: Int, left: Int): Bool {
+    if (len > 15) {
+        true
+    } else {
+        let remaining = left * 2 - at(counts, len);
+        if (remaining < 0) { false } else { room(counts, len + 1, remaining) }
+    }
+}
+
+/// One symbol, a bit at a time.
+fn takeSymbol(data: [U8], c: Cursor, h: Huffman): (Int, Cursor) {
+    stepping(data, c, h, 1, 0, 0, 0)
+}
+
+fn stepping(
+    data: [U8],
+    c: Cursor,
+    h: Huffman,
+    len: Int,
+    code: Int,
+    first: Int,
+    index: Int,
+): (Int, Cursor) {
+    if (len > 15 || c.error >= 0) {
+        (0, failed(c))
+    } else {
+        let step = takeBit(data, c);
+        if (step.1.error >= 0) {
+            (0, step.1)
+        } else {
+            let here = code | step.0;
+            let count = at(h.counts, len);
+            if (here - count < first) {
+                (at(h.symbols, index + here - first), step.1)
+            } else {
+                stepping(
+                    data,
+                    step.1,
+                    h,
+                    len + 1,
+                    bits.shl(here, 1),
+                    bits.shl(first + count, 1),
+                    index + count,
+                )
+            }
+        }
+    }
+}
+
+/// Block after block until the one marked last.
+fn inflating<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
+    let last = takeBits(data, c, 1);
+    let kind = takeBits(data, last.1, 2);
+    if (kind.1.error >= 0) {
+        (kind.1, out)
+    } else {
+        let block = if (kind.0 == 0) {
+            storedBlock(ctx, data, kind.1, out)
+        } else if (kind.0 == 1) {
+            fixedBlock(ctx, data, kind.1, out)
+        } else if (kind.0 == 2) {
+            dynamicBlock(ctx, data, kind.1, out)
+        } else {
+            (failed(kind.1), out)
+        };
+        if (block.0.error >= 0 || last.0 == 1) {
+            block
+        } else {
+            inflating(ctx, data, block.0, block.1)
+        }
+    }
+}
+
+/// A stored block: to the next byte boundary, then a length, its complement,
+/// and that many bytes as they are.
+fn storedBlock<C: Alloc>(
+    ctx: C,
+    data: [U8],
+    c: Cursor,
+    out: [U8],
+): (Cursor, [U8]) {
+    let aligned = if (c.bit == 0) { c } else { Cursor { ..c, at: c.at + 1, bit: 0 } };
+    let len = takeBits(data, aligned, 16);
+    let nlen = takeBits(data, len.1, 16);
+    if (nlen.1.error >= 0) {
+        (nlen.1, out)
+    } else if (len.0 + nlen.0 != 65535) {
+        (failed(nlen.1), out)
+    } else {
+        storedBytes(ctx, data, nlen.1, out, len.0)
+    }
+}
+
+fn storedBytes<C: Alloc>(
+    ctx: C,
+    data: [U8],
+    c: Cursor,
+    out: [U8],
+    left: Int,
+): (Cursor, [U8]) {
+    if (left <= 0) {
+        (c, out)
+    } else {
+        match (data.get(c.at)) {
+            .None => (failed(c), out),
+            .Some(b) => storedBytes(
+                ctx,
+                data,
+                Cursor { ..c, at: c.at + 1 },
+                out.push(ctx, b),
+                left - 1,
+            ),
+        }
+    }
+}
+
+fn fixedBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
+    let literals = huffmanOf(
+        ctx,
+        list
+            .range(ctx, 0, 288)
+            .map(
+                ctx,
+                fn(i) => if (i <= 143) {
+                    8
+                } else if (i <= 255) {
+                    9
+                } else if (i <= 279) {
+                    7
+                } else {
+                    8
+                },
+            ),
+    );
+    let distances = huffmanOf(ctx, list.repeat(ctx, 5, 30));
+    pairs(ctx, data, c, out, literals, distances)
+}
+
+/// A dynamic block: the two trees are written into the stream ahead of the
+/// data, themselves compressed by a third.
+fn dynamicBlock<C: Alloc>(
+    ctx: C,
+    data: [U8],
+    c: Cursor,
+    out: [U8],
+): (Cursor, [U8]) {
+    let hlit = takeBits(data, c, 5);
+    let hdist = takeBits(data, hlit.1, 5);
+    let hclen = takeBits(data, hdist.1, 4);
+    let literalCount = hlit.0 + 257;
+    let distanceCount = hdist.0 + 1;
+    if (hclen.1.error >= 0) {
+        (hclen.1, out)
+    } else if (literalCount > 286 || distanceCount > 30) {
+        (failed(hclen.1), out)
+    } else {
+        let read = threeBits(ctx, data, hclen.1, hclen.0 + 4, list.empty<Int>());
+        let coder = huffmanOf(ctx, ordered(ctx, read.0));
+        if (read.1.error >= 0 || !coder.ok) {
+            (failed(read.1), out)
+        } else {
+            let lengths = runLengths(
+                ctx,
+                data,
+                read.1,
+                coder,
+                literalCount + distanceCount,
+                list.empty<Int>(),
+            );
+            let literals = huffmanOf(ctx, lengths.0.take(ctx, literalCount));
+            let distances = huffmanOf(
+                ctx,
+                lengths.0.drop(ctx, literalCount).take(ctx, distanceCount),
+            );
+            if (lengths.1.error >= 0 || !literals.ok || !distances.ok) {
+                (failed(lengths.1), out)
+            } else {
+                pairs(ctx, data, lengths.1, out, literals, distances)
+            }
+        }
+    }
+}
+
+/// `n` three-bit values, in the order the stream writes them.
+fn threeBits<C: Alloc>(
+    ctx: C,
+    data: [U8],
+    c: Cursor,
+    n: Int,
+    acc: [Int],
+): ([Int], Cursor) {
+    if (n <= 0 || c.error >= 0) {
+        (acc, c)
+    } else {
+        let step = takeBits(data, c, 3);
+        threeBits(ctx, data, step.1, n - 1, acc.push(ctx, step.0))
+    }
+}
+
+/// The nineteen code lengths, put back into symbol order from the order RFC
+/// 1951 §3.2.7 writes them in.
+fn ordered<C: Alloc>(ctx: C, read: [Int]): [Int] {
+    list
+        .range(ctx, 0, 19)
+        .map(ctx, fn(i) => (at(LENGTH_ORDER, i), read.get(i).withDefault(0)))
+        .sortBy(ctx, fn(a, b) => a.0.compare(b.0))
+        .map(ctx, fn(pair) => pair.1)
+}
+
+/// `want` code lengths, with the three repeat symbols expanded.
+fn runLengths<C: Alloc>(
+    ctx: C,
+    data: [U8],
+    c: Cursor,
+    coder: Huffman,
+    want: Int,
+    acc: [Int],
+): ([Int], Cursor) {
+    if (acc.len() >= want || c.error >= 0) {
+        (acc, c)
+    } else {
+        let symbol = takeSymbol(data, c, coder);
+        if (symbol.1.error >= 0) {
+            (acc, symbol.1)
+        } else if (symbol.0 < 16) {
+            runLengths(ctx, data, symbol.1, coder, want, acc.push(ctx, symbol.0))
+        } else if (symbol.0 == 16) {
+            let more = takeBits(data, symbol.1, 2);
+            match (acc.last()) {
+                .None => (acc, failed(more.1)),
+                .Some(previous) => runLengths(
+                    ctx,
+                    data,
+                    more.1,
+                    coder,
+                    want,
+                    acc.concat(ctx, list.repeat(ctx, previous, more.0 + 3)),
+                ),
+            }
+        } else if (symbol.0 == 17) {
+            let more = takeBits(data, symbol.1, 3);
+            runLengths(
+                ctx,
+                data,
+                more.1,
+                coder,
+                want,
+                acc.concat(ctx, list.repeat(ctx, 0, more.0 + 3)),
+            )
+        } else if (symbol.0 == 18) {
+            let more = takeBits(data, symbol.1, 7);
+            runLengths(
+                ctx,
+                data,
+                more.1,
+                coder,
+                want,
+                acc.concat(ctx, list.repeat(ctx, 0, more.0 + 11)),
+            )
+        } else {
+            (acc, failed(symbol.1))
+        }
+    }
+}
+
+/// The body of a compressed block: literals and back-references until the
+/// end-of-block symbol.
+fn pairs<C: Alloc>(
+    ctx: C,
+    data: [U8],
+    c: Cursor,
+    out: [U8],
+    literals: Huffman,
+    distances: Huffman,
+): (Cursor, [U8]) {
+    let symbol = takeSymbol(data, c, literals);
+    if (symbol.1.error >= 0) {
+        (symbol.1, out)
+    } else if (symbol.0 < 256) {
+        pairs(ctx, data, symbol.1, out.push(ctx, symbol.0.wrapToU8()), literals, distances)
+    } else if (symbol.0 == 256) {
+        (symbol.1, out)
+    } else if (symbol.0 > 285) {
+        (failed(symbol.1), out)
+    } else {
+        let index = symbol.0 - 257;
+        let extra = takeBits(data, symbol.1, at(LENGTH_EXTRA, index));
+        let length = at(LENGTH_BASE, index) + extra.0;
+        let which = takeSymbol(data, extra.1, distances);
+        if (which.1.error >= 0 || which.0 > 29) {
+            (failed(which.1), out)
+        } else {
+            let more = takeBits(data, which.1, at(DISTANCE_EXTRA, which.0));
+            let distance = at(DISTANCE_BASE, which.0) + more.0;
+            if (more.1.error >= 0 || distance <= 0 || distance > out.len()) {
+                (failed(more.1), out)
+            } else {
+                pairs(
+                    ctx,
+                    data,
+                    more.1,
+                    copyBack(ctx, out, distance, length),
+                    literals,
+                    distances,
+                )
+            }
+        }
+    }
+}
+
+/// `length` bytes copied from `distance` back, one at a time — the source may
+/// overlap the destination, which is how DEFLATE spells a run.
+fn copyBack<C: Alloc>(ctx: C, out: [U8], distance: Int, length: Int): [U8] {
+    if (length <= 0) {
+        out
+    } else {
+        let b = out.get(out.len() - distance).withDefault(0);
+        copyBack(ctx, out.push(ctx, b), distance, length - 1)
+    }
+}
