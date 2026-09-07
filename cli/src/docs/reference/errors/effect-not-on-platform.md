@@ -55,6 +55,11 @@ says who grants an effect now, not when the rest will fill — and it can widen
 too: `Sockets` was granted with `Listen` and only with it, until
 `WebSocketClient` let a page get a socket without accepting one.
 
+`Tasks` shows the other direction. It landed granted by nobody, then on the
+three platforms that are not a page, and now on all four — one edit to one row
+each time, and nothing to change in a program already written against the
+signature.
+
 ## A program that provokes it
 
 ```buri fail code=effect-not-on-platform platform=JS

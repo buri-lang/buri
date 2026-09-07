@@ -374,6 +374,12 @@ pub fn net_intrinsic(key: &str) -> bool {
     if key.starts_with("actor.") {
         return true;
     }
+    // `core/tasks`'s six scope entries, for the same reason and in the same
+    // file. They wait on nothing themselves, but they live in `rt.rs` and
+    // `rt.rs` is behind the feature in full.
+    if key.starts_with("tasks.scope") {
+        return true;
+    }
     let Some(rest) = key.strip_prefix("host.") else { return false };
     let Some((effect, _operation)) = rest.split_once('.') else { return false };
     matches!(effect, "HostListen" | "HostSockets" | "HostTasks" | "HostWebSocketClient")

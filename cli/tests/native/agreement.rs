@@ -3296,6 +3296,63 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// A scope returns when its body and every task spawned into it have finished,
+/// on every backend — and a task spawned *after* it returned still runs.
+///
+/// The whole of `core/tasks`'s background half in one program, and every line
+/// of the answer is an order rather than a timing: one task per round, so the
+/// output is the same whether the round ran on a carrier of its own, inside a
+/// `Promise.all`, or one after another on the calling carrier. That is the
+/// point — the scope's promise is what agrees across the three, and the overlap
+/// is deliberately not asserted anywhere.
+///
+/// Three claims, in the order they are printed. `task` is after `before` and
+/// before `after`, so the scope waited. `nested` is inside the same window, so
+/// a task spawned by a task is waited for too. `late` is after `after`, spawned
+/// through a `Scope` a lambda captured once the body had already returned —
+/// which is the page's shape, written here because native is where the runtime
+/// tables are, and the semantics are one rule on every platform.
+#[test]
+fn a_spawned_task_runs_before_its_scope_returns_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.scope",
+        r#"
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let _ = io.println(ctx, "before").ignore();
+  let later = tasks.scope(ctx, fn(c, here) => {
+    let _ = tasks.spawn(c, here, fn(c2) => {
+      let _ = io.println(c2, "task").ignore();
+      let _ = tasks.spawn(c2, here, fn(c3) => {
+        let _ = io.println(c3, "nested").ignore();
+        ()
+      });
+      ()
+    });
+    fn(c4) => {
+      let _ = tasks.spawn(c4, here, fn(c5) => {
+        let _ = io.println(c5, "late").ignore();
+        ()
+      });
+      ()
+    }
+  });
+  let _ = io.println(ctx, "after").ignore();
+  let fire = later;
+  let _ = fire(ctx);
+  .Ok(())
+}
+"#,
+        "before\ntask\nnested\nafter\nlate\n",
+    );
+}
+
 /// A task that aborts stops the program, with the same message and the same
 /// status on every backend — and with what was printed before it flushed.
 ///

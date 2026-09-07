@@ -729,6 +729,52 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped, Arg::Scalar],
         ret: Ret::Sum,
     },
+    // -- core/tasks's scopes (F8) --------------------------------------------
+    //
+    // The nine above read a second time, and for the same reasons: `Arg::List`
+    // at the one carrier, because a spawned task crosses as a one-element
+    // `[Carried<fn(C) => ()>]` and this runtime moves the block without ever
+    // looking inside it; `Arg::Dropped` at argument 0, because these are
+    // module functions with the authority in a `C: Tasks` bound.
+    //
+    // `scopeRound` is `Ret::Out`: a `[Int]` through the destination's own
+    // slot, with no `Arg::Elems` because the element type is fixed.
+    Entry {
+        key: "tasks.scopeOpen",
+        symbol: "buri_rt_tasks_scope_open",
+        args: &[Arg::Dropped],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "tasks.scopePush",
+        symbol: "buri_rt_tasks_scope_push",
+        args: &[Arg::Dropped, Arg::Scalar, Arg::List],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "tasks.scopeRound",
+        symbol: "buri_rt_tasks_scope_round",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "tasks.scopeTaskAt",
+        symbol: "buri_rt_tasks_scope_task_at",
+        args: &[Arg::Dropped, Arg::Scalar, Arg::Scalar],
+        ret: Ret::Sum,
+    },
+    Entry {
+        key: "tasks.scopeEnter",
+        symbol: "buri_rt_tasks_scope_enter",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "tasks.scopeLeave",
+        symbol: "buri_rt_tasks_scope_leave",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
     // -- core/str, the pure half (`cli/runtime/text.rs`) ---------------------
     //
     // Every one of these takes `self` as a full `Str`: the `base` is passed

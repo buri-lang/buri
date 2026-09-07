@@ -1,0 +1,87 @@
+// The application half: one scope, a long-lived loop and a timer in it, and a
+// handler that spawns after the body has returned.
+
+from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/host/testing" import { alloc, clock, stdout, tasks };
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/testing/assert" import * as assert;
+from "//lib/page" import { open, run, sweep };
+
+test "a scope waits for the socket loop and the timer it was given" {
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock(),
+        Stdout: out,
+        Tasks: tasks(),
+    };
+    let _ = tasks.scope(ctx, fn(c, here) => {
+        let _ = tasks.spawn(c, here, fn(c2) => run(c2, open()));
+        let _ = tasks.spawn(c, here, fn(c2) => sweep(c2, 5 * 60 * 1000));
+        let _ = io.println(c, "mounted").ignore();
+        ()
+    });
+    assert.eq(
+        out.captured(),
+        "mounted\nframe a\nframe b\nsocket closed\nsessions expired at 300000\n",
+    );
+}
+
+test "a handler spawns into the scope the page handed it" {
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock(),
+        Stdout: out,
+        Tasks: tasks(),
+    };
+    // The body answers a handler holding the scope. `Scope` is inert, so a
+    // lambda may capture one, and that is what makes this shape writable.
+    let onClick = tasks.scope(ctx, fn(c, here) => {
+        fn(c2) => {
+            let _ = tasks.spawn(c2, here, fn(c3) => run(c3, ["late"]));
+            ()
+        }
+    });
+    assert.eq(out.captured(), "");
+    let fire = onClick;
+    let _ = fire(ctx);
+    assert.eq(out.captured(), "frame late\nsocket closed\n");
+}
+
+test "the double chooses the order two spawned tasks run in" {
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock(),
+        Stdout: out,
+        Tasks: tasks().seed(1),
+    };
+    let _ = tasks.scope(ctx, fn(c, here) => {
+        let _ = tasks.spawn(c, here, fn(c2) => run(c2, ["a"]));
+        let _ = tasks.spawn(c, here, fn(c2) => run(c2, ["b"]));
+        ()
+    });
+    // Seed one of two orders is the swap, and the scope answers the same way
+    // either way: everything spawned has finished.
+    assert.eq(out.captured(), "frame b\nsocket closed\nframe a\nsocket closed\n");
+}
+
+test "a task spawned by a task is inside the same scope" {
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock(),
+        Stdout: out,
+        Tasks: tasks(),
+    };
+    let _ = tasks.scope(ctx, fn(c, here) => {
+        let _ = tasks.spawn(c, here, fn(c2) => {
+            let _ = tasks.spawn(c2, here, fn(c3) => run(c3, ["nested"]));
+            run(c2, [])
+        });
+        ()
+    });
+    assert.eq(out.captured(), "socket closed\nframe nested\nsocket closed\n");
+}
