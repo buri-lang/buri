@@ -387,6 +387,16 @@ const PACKAGES: &[Case] = &[
     // backend, so the file is worth running where the lifted body reads it out
     // of an environment as well as where it does not.
     included("memory/captures.buri"),
+    // What a `let` gives back. A destructuring pattern hands each position it
+    // names to a binding and used to leave the ones it skips with no name at
+    // all — and `middle::rc` releases a value through a name, so nothing
+    // released those. On the reference backend the file only says the answers
+    // are right, because a leaked block changes no answer; **this** is the
+    // side the file is written for, where the heap check reads the skipped
+    // position back as a block nobody gave back. It is the reproduction of the
+    // thirteen `proto_schema/refusals.buri` leaked, and it is the reason
+    // `KNOWN_LEAKS` is empty again.
+    included("memory/discards.buri"),
     // It was excluded for `list.fold` until the backend grew the loop
     // over a closure, and
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what
@@ -923,24 +933,22 @@ fn run(name: &str, source: &str) -> Option<(i32, String, String, usize)> {
 /// **It is empty**, and the sentence above is why that is worth writing down
 /// rather than deleting: every corpus file comes back with an empty heap, so
 /// the loop below asserts it of all of them and this table is the place a new
-/// finding goes while it is being worked on. The last rows went with three
-/// defects in `middle::rc`, none of which was in the file the row named — a
-/// `?` that left the function without releasing what an enclosing construct
-/// would have released after it, a `let _ = …` that bound nothing and so
-/// released nothing, and a `..base` update that threw away the reference the
-/// base held for the field it replaced.
-const KNOWN_LEAKS: &[(&str, u64, &str)] = &[(
-    "proto_schema/refusals.buri",
-    13,
-    "13 blocks and 14 bytes, against an empty heap from `reading.buri` beside \
-     it. The file is the refusal half of the `.proto` reader, so what it does \
-     that its sibling does not is build diagnostics: a `codegen.Diagnostic` \
-     with `Option<Str>` in `note` and `fix`, thirty-odd times, most of them \
-     discarded by the 32-diagnostic cap. That is the shape to look at, and it \
-     is an under-decrement between `middle::rc` and the runtime rather than \
-     anything the file asks for. Not diagnosed further here: it arrived with \
-     the module and wants its own change.",
-)];
+/// finding goes while it is being worked on. Four defects in `middle::rc` have
+/// emptied it, and not one of them was in the file whose row named it — a `?`
+/// that left the function without releasing what an enclosing construct would
+/// have released after it, a `let _ = …` that bound nothing and so released
+/// nothing, a `..base` update that threw away the reference the base held for
+/// the field it replaced, and a destructuring `let` that left the positions
+/// its pattern skipped with no name for anything to release them by.
+///
+/// The last of those is the row that was here: `proto_schema/refusals.buri`,
+/// thirteen blocks and fourteen bytes, every one of them a token the `.proto`
+/// reader stepped over with `let (q, _) = nextToken(ctx, p)`. The row read the
+/// shape as a `codegen.Diagnostic` the 32-diagnostic cap discarded, which the
+/// trace says it never was: the surviving blocks are one and two bytes of
+/// `{`, `=`, `;` and the odd word. `rc::name_discards` is the fix and
+/// `memory/discards.buri` is the reproduction.
+const KNOWN_LEAKS: &[(&str, u64, &str)] = &[];
 
 /// What the ledger says a file leaks, or zero.
 fn allowed_leak(path: &str) -> u64 {
