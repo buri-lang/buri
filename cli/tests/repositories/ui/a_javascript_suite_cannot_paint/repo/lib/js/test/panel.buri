@@ -1,0 +1,34 @@
+// One snapshot, and one graph assertion beside it. The graph runs on both
+// backends and the painter runs on one, so the two together say where the line
+// is drawn.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/signal" import { signal };
+from "ui/testing" import { headless, observer, snapshot };
+
+test "a signal reads back what was written, whichever backend runs it" {
+    let ctx = context {
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let n = signal(ctx, 1);
+    let _ = n.set(ctx, 7);
+    assert.eq(n.get(ctx), 7);
+}
+
+test "the panel" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "panel",
+        ui.column([.Padding(.Px(16))], [ui.heading(2, .Const("panel"))]),
+        .Hover,
+    );
+}

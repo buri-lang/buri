@@ -1,0 +1,11 @@
+FAIL //lib/broken  test/names.buri  "a name with a path separator in it"
+  a snapshot name may not contain a path separator or `..`
+  --> lib/broken/test/names.buri:10:1
+FAIL //lib/broken  test/names.buri  "a name that is empty"
+  a snapshot name may not be empty
+  --> lib/broken/test/names.buri:18:1
+FAIL //lib/broken  test/names.buri  "a name that could climb out of the directory"
+  a snapshot name may not contain a path separator or `..`
+  --> lib/broken/test/names.buri:26:1
+
+4 passed, 3 failed, 0 skipped (0.0s)

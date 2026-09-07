@@ -1,0 +1,69 @@
+// One tree, five pictures. The state a snapshot names applies to every element
+// in it, so a badge that paints differently in each of the five states is five
+// goldens that have to differ from one another.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/testing" import { headless, snapshot };
+
+/// A box with something to say in every state a `State` can name.
+fn badge<C>(): Node<C> {
+    ui.column([.Padding(.Px(24)), .Gap(.Px(8))], [
+        ui.stack(
+            [
+                .Padding(.Px(20)),
+                .Background(.Rgb(230, 230, 230)),
+                .On(.Hover, [.Background(.Rgb(220, 40, 40))]),
+                .On(.Focus, [.Background(.Rgb(40, 180, 40))]),
+                .On(.Active, [.Background(.Rgb(40, 40, 220))]),
+                .On(.Disabled, [.Background(.Rgb(120, 120, 120)), .Opacity(0.4)]),
+                .On(.Checked, [.Background(.Rgb(230, 210, 40)), .BorderWidth(.Px(6))]),
+            ],
+            [ui.text(.Const("badge"))],
+        ),
+        ui.text(.Const("beside it")),
+    ])
+}
+
+test "hovered" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "state-hover", badge(), .Hover);
+}
+
+test "focused" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "state-focus", badge(), .Focus);
+}
+
+test "pressed" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "state-active", badge(), .Active);
+}
+
+test "refusing input" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "state-disabled", badge(), .Disabled);
+}
+
+test "on" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "state-checked", badge(), .Checked);
+}

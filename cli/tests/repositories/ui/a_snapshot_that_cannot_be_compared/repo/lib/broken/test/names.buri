@@ -1,0 +1,32 @@
+// A snapshot names a file in the package's own `test/__snapshots__`, and
+// nothing else. Three ways a name is not one, and the sentence each gets.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+
+test "a name with a path separator in it" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "elsewhere/card", ui.text(.Const("Ada")), .Hover);
+}
+
+test "a name that is empty" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "", ui.text(.Const("Ada")), .Hover);
+}
+
+test "a name that could climb out of the directory" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "..", ui.text(.Const("Ada")), .Hover);
+}

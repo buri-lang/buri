@@ -1,0 +1,5 @@
+FAIL //lib/js  test/panel.buri  "the panel"
+  the snapshot "panel" was not painted: snapshots run natively, and this suite is JS
+  --> lib/js/test/panel.buri:23:1
+
+1 passed, 1 failed, 0 skipped (0.0s)

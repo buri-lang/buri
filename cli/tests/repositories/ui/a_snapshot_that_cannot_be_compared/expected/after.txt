@@ -1,0 +1,14 @@
+FAIL //lib/broken  test/names.buri  "a name with a path separator in it"
+  a snapshot name may not contain a path separator or `..`
+  --> lib/broken/test/names.buri:10:1
+FAIL //lib/broken  test/names.buri  "a name that is empty"
+  a snapshot name may not be empty
+  --> lib/broken/test/names.buri:18:1
+FAIL //lib/broken  test/names.buri  "a name that could climb out of the directory"
+  a snapshot name may not contain a path separator or `..`
+  --> lib/broken/test/names.buri:26:1
+FAIL //lib/broken  test/goldens.buri  "one name, and this block painted first"
+  the snapshot "shared" changed: see test/__snapshots__/shared.diff.png
+  --> lib/broken/test/goldens.buri:30:1
+
+3 passed, 4 failed, 0 skipped (0.0s)
