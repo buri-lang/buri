@@ -273,13 +273,28 @@ unordered, so it answers `.Equal` for a pair it could not order.
   width, so it breaks only what the formatter always breaks and puts everything
   else on one line.
 
-  `tokenize(ctx, source)` is the door the other way, for a generator that has to
-  look at source it did not write. It answers every token in order — comments
-  included, whitespace dropped — each carrying its kind, the raw slice under it,
-  and the byte range that slice covers. Nothing is refused: an unterminated
-  string is a token running to the end of the source, so what a mistake *means*
-  is a question this does not answer. It costs O(n) in the source, and one
-  `[Char]` of it.
+  `parse(ctx, file, source)` is the door the other way, for a generator that has
+  to look at source it did not write. It answers a `Module` whose every node
+  carries an `Origin` naming `file` and the bytes it came from, or **every**
+  declaration it could not read — a failed declaration is skipped whole and the
+  walk resumes at the next one, so three mistakes in three functions are three
+  errors. Each `ParseError` is a message in the compiler's own wording and the
+  span of the token it is about. What comes back from `print` afterwards is not
+  the text that went in — `print` has no page width, drops `//` comments, sorts
+  the leading import run and moves a `derive` onto its declaration — but it is
+  the same program, which `language::round_trip` asserts by rewriting the whole
+  conformance repository through the pair and running it.
+
+  `tokenize(ctx, source)` is the lexer under `parse`, for a tool that wants the
+  tokens and no tree. It answers every token in order — comments included,
+  whitespace dropped — each carrying its kind, the raw slice under it, and the
+  byte range that slice covers. Nothing is refused: an unterminated string is a
+  token running to the end of the source, so what a mistake *means* is a
+  question only `parse` answers.
+
+  Both are **written in Buri rather than borrowed from the compiler**, because a
+  generator is linked as JavaScript and the toolchain's own parser is Rust. Both
+  cost O(n) in the source, and one `[Char]` of it.
 
 - **`core/codegen`** — the protocol a generator speaks. `run` reads one JSON
   line from `Stdin`, hands your function the `Request`, and writes the

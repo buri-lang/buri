@@ -326,6 +326,11 @@ const PACKAGES: &[Case] = &[
         "the same 448-byte element, over a whole printed module",
     ),
     excluded(
+        "buri_ast/parsing.buri",
+        "the same 448-byte element: `parse` builds the declarations \
+             `buri_ast/items.buri` builds by hand",
+    ),
+    excluded(
         "generators/wire.buri",
         "it prints a module, so it carries the 448-byte `ast.Item` too, and \
              `core/json`'s unescaping reaches `num.U32.toChar`, which this \

@@ -20,6 +20,7 @@ cli/tests/
     conformance.rs        the conformance repository, the reject corpus
     standard_library.rs   core/* against itself
     corpus.rs             every source in the repository, as a corpus
+    round_trip.rs         the conformance corpus through `core/buri/ast`
     golden_javascript.rs  what the JavaScript backend emits
   build/     main.rs    THE BUILD SYSTEM, driven as a user drives it
     repositories.rs       one repository per build-system rule
@@ -62,6 +63,9 @@ cli/tests/
                         gates that say the toolchain did not degrade
 
   conformance/          a Buri repository: `test/` blocks on language semantics
+  ast_round_trip/       a Buri repository of one binary: the driver
+                        `language::round_trip` runs, which rewrites a corpus
+                        through `core/buri/ast`'s `parse` and `print`
   reject/               programs that must not compile, with their diagnostics
   crash/                programs that compile, then abort, saying why
   example/              the worked monorepo, and the largest Buri here to read
