@@ -22,7 +22,9 @@
 //! whose name git owns — a directory that is already a git repository has one,
 //! and refusing over it would make `buri init` useless exactly where people
 //! start. Entries are line-keyed and order-independent, so the build's entries
-//! are appended below whatever the user wrote, and nothing of theirs moves.
+//! are appended below whatever the user wrote, and nothing of theirs moves. A
+//! file that already covers the build is reported as `kept` and not written at
+//! all, which is what makes a second run over one a no-op rather than an edit.
 //!
 //! A `REPO.buri` *above* the target is refused for a different reason, and it
 //! is the one that bites hardest. Nesting one is not a collision — no file is
@@ -158,9 +160,9 @@ pub fn generate(root: &Path) -> Result<Vec<(Outcome, PathBuf)>, String> {
                 .map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
         }
         if file.path == IGNORE_FILE && path.exists() {
-            if merge_ignore(&path, file.text)? {
-                done.push((Outcome::Updated, path));
-            }
+            let outcome =
+                if merge_ignore(&path, file.text)? { Outcome::Updated } else { Outcome::Kept };
+            done.push((outcome, path));
             continue;
         }
         std::fs::write(&path, file.text)
@@ -177,7 +179,8 @@ pub fn generate(root: &Path) -> Result<Vec<(Outcome, PathBuf)>, String> {
 /// Appends whatever the scaffold's ignore file has that `path` does not,
 /// leaving every line the user wrote where it stands. Says whether anything
 /// was appended: a `.gitignore` that already ignores everything the build
-/// writes is left byte-for-byte alone, so re-running is not an edit.
+/// writes is left byte-for-byte alone and reported as `kept`, so re-running is
+/// not an edit.
 ///
 /// Lines are matched whole and trimmed — `out` is `out` however it is
 /// indented, but it is not `out/`, and a near-miss is appended rather than
@@ -382,8 +385,10 @@ mod tests {
     }
 
     /// A `.gitignore` that already ignores everything the build writes is left
-    /// byte-for-byte alone — no duplicate entries, no report line, and the
-    /// lines it already has count however they are indented.
+    /// byte-for-byte alone — no duplicate entries, and the lines it already
+    /// has count however they are indented. It is still reported, as `kept`:
+    /// a run that says nothing about a file it read leaves the reader to
+    /// guess whether it looked.
     #[test]
     fn a_gitignore_already_covering_the_build_is_untouched() {
         let root = scratch("gitignore-covered");
@@ -398,8 +403,9 @@ mod tests {
             "nothing to add means nothing is touched, trailing newline included"
         );
         assert!(
-            !done.iter().any(|(_, at)| *at == root.join(IGNORE_FILE)),
-            "an untouched file is not reported"
+            done.iter()
+                .any(|(outcome, at)| *outcome == Outcome::Kept && *at == root.join(IGNORE_FILE)),
+            "an untouched file is reported as kept, so the run says it looked"
         );
         std::fs::remove_dir_all(&root).unwrap();
     }
