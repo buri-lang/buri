@@ -808,6 +808,64 @@ fn the_hang_cap_kills_a_tree_that_is_only_sleeping() {
     assert!(!alive.success(), "the cap fired and left process {id} running");
 }
 
+/// **And a tree that never stops working is killed by the ceiling.**
+///
+/// The rule above cannot reach this one, and says so: a program looping for
+/// ever is runnable at every look, which is precisely what the cap reads as
+/// working. The suites here leave that to the job's `timeout-minutes`, but
+/// `fuzz.rs` cannot — its minimiser deletes a token and writes a program that
+/// loops, and "this input loops" is a finding that suite has to record — so it
+/// passes `watch` a ceiling on processor time. This is that ceiling, fired at a
+/// real spinning process.
+///
+/// **Bounded by construction rather than by hope.** The shell counts to five
+/// million and stops, which is about six seconds of processor time on this
+/// machine and cannot be less: a ceiling that never fired would be a `watch`
+/// that returns `Ok` and a failing assertion here, never a test that hangs. And
+/// the ceiling is two hundred milliseconds against a spinner that cannot finish
+/// without spending thirty times that, so which way this goes is not a race —
+/// on a starved machine the loop simply takes longer to spend the same work.
+#[test]
+fn the_hang_cap_kills_a_runaway_that_spins() {
+    use std::time::{Duration, Instant};
+
+    let started = Instant::now();
+    let mut child = silently("i=0; while [ \"$i\" -lt 5000000 ]; do i=$((i+1)); done");
+    let id = child.id();
+    let killed = match hang::watch(
+        &mut child,
+        "a runaway",
+        Duration::from_secs(60),
+        Some(Duration::from_millis(200)),
+    ) {
+        Err(killed) => killed,
+        Ok(status) => panic!(
+            "the shell counted to five million and exited {status} in {:?}, so the ceiling never \
+             fired: a program that only ever works is one nothing here would stop",
+            started.elapsed()
+        ),
+    };
+
+    let said = killed.verdict();
+    assert!(
+        said.contains("processor time") && said.contains("a runaway"),
+        "the ceiling fired and did not say what it killed or on what evidence: {said:?}"
+    );
+    assert!(
+        said.contains("past a ceiling of"),
+        "a runaway was reported as something other than a runaway, which sends its reader \
+         looking for a deadlock in a program that was spinning: {said:?}"
+    );
+    let alive = std::process::Command::new("kill")
+        .args(["-0", &id.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("`kill` is on PATH");
+    assert!(!alive.success(), "the ceiling fired and left process {id} running");
+    println!("a runaway was killed after {:?}: {said}", started.elapsed());
+}
+
 /// One shell running `script`, with both pipes closed.
 fn silently(script: &str) -> std::process::Child {
     std::process::Command::new("sh")
