@@ -72,12 +72,37 @@ meets, so an inner one is not a root. It is a stray build file inside somebody
 else's repository, and their next `buri build //...` fails on it.
 
 Any other collision stops it too, and stops it before it writes the first byte,
-so a refusal never leaves half a repository behind. There is one exception. A
-`.gitignore` already at the target does not stop the run, because git owns that
-name: `git init` before `buri init` is the ordinary way to start. Ignore entries
-are line-keyed and order-independent, so the command appends the build's entries
-below whatever is already written. Every existing line stays exactly where it
-was, an entry the file already has is not repeated, and a `.gitignore` that
-already ignores everything the build writes is left byte-for-byte alone. The one
-namespace the command shares is `.agent/skills/buri-*`, which belongs to `add
-skills` and follows its rules.
+so a refusal never leaves half a repository behind.
+
+```text
+error: `./apps/hello/main.buri` already exists; `buri init` never writes over a file
+```
+
+## Except your `.gitignore`
+
+`git init` before `buri init` is the ordinary way to start, and git owns that
+name — so a `.gitignore` already at the target is merged into rather than
+refused:
+
+```text
+wrote REPO.buri
+updated .gitignore
+```
+
+Entries are matched a whole line at a time, trailing spaces and all, so order
+does not matter and your comments do not either. Every line you wrote stays
+where it was, and only the entries the build needs and the file lacks are
+appended below them. An entry already there is never repeated.
+
+A file that already ignores everything the build writes is left byte for byte
+alone, and the run says so:
+
+```text
+kept .gitignore
+```
+
+So the merge never runs twice: whatever `buri init` appended the first time is
+what stops it appending again.
+
+The one other namespace the command shares is `.agent/skills/buri-*`, which
+belongs to `add skills` and follows its rules.
