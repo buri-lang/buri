@@ -34,8 +34,8 @@
 /// `cli/runtime/lib.rs` §2 rule 1: every parameter is a scalar leaf, flattened
 /// in declaration order. A `Str` is three parameters and a `[T]` is two.
 ///
-/// Most variants consume one Buri argument and emit its leaves. [`Arg::Stride`]
-/// and [`Arg::Retain`] consume **no** Buri argument at all: they are §2 rule
+/// Most variants consume one Buri argument and emit its leaves. [`Arg::Stride`],
+/// [`Arg::Retain`] and [`Arg::Release`] consume **no** Buri argument at all: they are §2 rule
 /// 4's "a generic parameter is a pointer and a stride", where the two extra
 /// words come from `middle::layout` and from the backend's own glue rather than
 /// from the call. That is why this is a description of the *C* parameter list
@@ -73,6 +73,14 @@ pub enum Arg {
     /// counted pointers (`cli/runtime/list.rs`'s header). Consumes no Buri
     /// argument.
     Retain,
+    /// The per-value **release** glue, or null where the type holds no counted
+    /// pointers. Consumes no Buri argument.
+    ///
+    /// [`Arg::Retain`]'s mirror, and it appears on exactly the rows the other
+    /// table marks `Extra::Owned`: the ones whose value the runtime *keeps*
+    /// and later writes over. Nothing in `core/list` does, which is why the
+    /// retain travelled alone for as long as the graph was not here.
+    Release,
     // -- the closure trampoline ---------------------------------------------
     /// A **runtime-driven step**: four parameters, from one Buri closure
     /// argument (`backend/intrinsic_keys.rs`'s `step_call`).
@@ -106,7 +114,7 @@ impl Arg {
             Arg::Step => 4,
             Arg::Str => 3,
             Arg::Bytes | Arg::List | Arg::Elems => 2,
-            Arg::Scalar | Arg::Spilled | Arg::Stride | Arg::Retain => 1,
+            Arg::Scalar | Arg::Spilled | Arg::Stride | Arg::Retain | Arg::Release => 1,
             Arg::Dropped => 0,
         }
     }
@@ -114,7 +122,7 @@ impl Arg {
     /// Whether this shape takes the next Buri argument. The two shapes the
     /// backend supplies for itself do not.
     pub fn consumes(self) -> bool {
-        !matches!(self, Arg::Stride | Arg::Retain)
+        !matches!(self, Arg::Stride | Arg::Retain | Arg::Release)
     }
 }
 
@@ -1845,10 +1853,25 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
         ret: Ret::Out,
     },
+    // The one row in either table with a release beside its retain: a cell
+    // keeps the bytes it was written, so the write that replaces them is the
+    // one call in this archive that has a reference to give back.
+    Entry {
+        key: "ui_testing.observer",
+        symbol: "buri_rt_ui_testing_observer",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.Observer.read",
+        symbol: "buri_rt_ui_testing_observer_read",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
+        ret: Ret::Out,
+    },
     Entry {
         key: "ui_testing.Headless.write",
         symbol: "buri_rt_ui_testing_headless_write",
-        args: &[Arg::Scalar, Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain],
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain, Arg::Release],
         ret: Ret::Void,
     },
     Entry {
@@ -2275,7 +2298,7 @@ mod tests {
         ] {
             assert!(shape.consumes(), "{shape:?}");
         }
-        for shape in [Arg::Stride, Arg::Retain] {
+        for shape in [Arg::Stride, Arg::Retain, Arg::Release] {
             assert!(!shape.consumes(), "{shape:?}");
             assert_eq!(shape.leaves(), 1);
         }
@@ -2292,6 +2315,11 @@ mod tests {
             let strides = e.args.iter().filter(|a| **a == Arg::Stride).count();
             let retains = e.args.iter().filter(|a| **a == Arg::Retain).count();
             assert_eq!(strides, retains, "{}", e.key);
+            // A release never travels alone: it is the retain's mirror over
+            // the same type, so a row with one and no stride would be a glue
+            // for a `T` this call never said the width of.
+            let releases = e.args.iter().filter(|a| **a == Arg::Release).count();
+            assert!(releases <= retains, "{}", e.key);
             // A row may name its `T` in the **result** rather than in an
             // argument, and then there is no `Arg::Elems` and no `Arg::Spilled`
             // to see: `ui_effect.Scope.read` and `ui_testing.Headless.read` are
@@ -2301,7 +2329,12 @@ mod tests {
             // as strong as it was, since a row with a stride and no mark
             // anywhere still fails.
             let by_result = runtime_table::entry(e.key)
-                .is_some_and(|shared| shared.extra == runtime_table::Extra::Element);
+                .is_some_and(|shared| {
+                    matches!(
+                        shared.extra,
+                        runtime_table::Extra::Element | runtime_table::Extra::Owned
+                    )
+                });
             let generic =
                 e.args.iter().any(|a| matches!(a, Arg::Elems | Arg::Spilled)) || by_result;
             // [`Arg::Step`] carries **both** of its strides itself, because a
@@ -2382,9 +2415,15 @@ mod tests {
         let mut checked = 0usize;
         for shared in runtime_table::ENTRIES {
             let Some(here) = ENTRIES.iter().find(|e| e.key == shared.key) else { continue };
-            if shared.extra != Extra::Element {
+            if !matches!(shared.extra, Extra::Element | Extra::Owned) {
                 continue;
             }
+            assert_eq!(
+                here.args.iter().filter(|a| **a == Arg::Release).count(),
+                usize::from(shared.extra == Extra::Owned),
+                "{}: the two tables disagree about whether the runtime keeps this value",
+                shared.key
+            );
             assert_eq!(
                 here.args.iter().filter(|a| **a == Arg::Stride).count(),
                 1,

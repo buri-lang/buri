@@ -21,7 +21,9 @@
 //! Both backends generate the retain glue the same way they already generate
 //! the release glue (`stencil/glue.rs`'s `Helper::Elems`,
 //! `llvm/emit.rs::release_elems_glue`), so this is a symmetric addition rather
-//! than a new mechanism.
+//! than a new mechanism. [`Release`] is that same release, reaching the C
+//! boundary as a parameter for the one caller that needs it: a store the
+//! runtime keeps and later writes over.
 //!
 //! The pair is appended **after** the flattened Buri arguments and before the
 //! out-pointer, uniformly across every entry in this file, so the emitter is one
@@ -52,6 +54,16 @@ use crate::BURI_OK;
 /// The per-element retain: increfs the counted pointers inside one element, in
 /// place. Null where the element type holds none.
 pub type Retain = Option<unsafe extern "C" fn(*mut u8)>;
+
+/// The per-value release: decrefs the counted pointers inside one value, in
+/// place. Null where the type holds none.
+///
+/// The same C shape as [`Retain`] and a name of its own, because the two are
+/// never interchangeable: one takes a reference and the other gives one back.
+/// **Nothing in this file takes one.** A `core/list` entry holds no value past
+/// the call it was made in, so it has nothing to give back; `ui.rs`'s graph
+/// does, and that is the one caller (`runtime_table.rs`'s `Extra::Owned`).
+pub type Release = Option<unsafe extern "C" fn(*mut u8)>;
 
 /// The discriminant `list.get` answers for an index outside the list.
 /// `.None` is `Option`'s only non-success arm; see `text.rs`'s `BURI_ABSENT`.
