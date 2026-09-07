@@ -8,7 +8,9 @@
 //! same idea get different names: `splitOnce` returns two slices and is pure;
 //! `split` returns `[Str]` and allocates.
 
+from "core/char" import * as char;
 from "core/effect" import { Alloc };
+from "core/list" import * as list;
 from "core/order" import { Order };
 
 // --- Pure ---------------------------------------------------------------------
@@ -188,6 +190,588 @@ impl Str {
 /// allocates. Constructing the `Template` itself allocates nothing, which is
 /// why `io.println(ctx, "hi ${name}")` needs only `Stdout`.
 export fn format<C: Alloc>(ctx: C, template: Template): Str;
+
+// --- Prefixes, suffixes, and searching from the right --------------------------
+
+impl Str {
+    /// The rest of the string once `prefix` is off the front, or `.None` when
+    /// it was never there. `s.stripPrefix(p).withDefault(s)` is the
+    /// trim-if-present form.
+    ///
+    /// Pure, because both answers are views into `self`.
+    export fn stripPrefix(self, prefix: Str): Option<Str> {
+        if (self.startsWith(prefix)) {
+            .Some(self.slice(prefix.len(), self.len()))
+        } else {
+            .None
+        }
+    }
+
+    /// `stripPrefix` at the other end.
+    export fn stripSuffix(self, suffix: Str): Option<Str> {
+        if (self.endsWith(suffix)) {
+            .Some(self.slice(0, self.len() - suffix.len()))
+        } else {
+            .None
+        }
+    }
+
+    /// The index of the *last* occurrence of `needle`, in scalars.
+    ///
+    /// The empty needle is found at the end, which is where the last empty
+    /// slice is.
+    export fn lastIndexOf(self, needle: Str): Option<Int> {
+        lastMatch(self, needle, self.len() - needle.len())
+    }
+
+    /// `splitOnce` at the last separator rather than the first — the split a
+    /// file extension or a fully qualified name wants.
+    export fn splitOnceFromEnd(self, separator: Str): Option<(Str, Str)> {
+        match (self.lastIndexOf(separator)) {
+            .None => .None,
+            .Some(at) => {
+                .Some((
+                    self.slice(0, at),
+                    self.slice(at + separator.len(), self.len()),
+                ))
+            },
+        }
+    }
+
+    /// `indexOf`, starting the search at `start` rather than at zero. The
+    /// answer is still an index into the whole string.
+    ///
+    /// The parameter is `start` and not `from`, because `from` opens an import.
+    export fn indexOfFrom(self, needle: Str, start: Int): Option<Int> {
+        let at = if (start < 0) { 0 } else { start };
+        self.slice(at, self.len()).indexOf(needle).map(fn(found) => found + at)
+    }
+
+    /// How many times `needle` occurs, without overlaps: `"aaaa".count("aa")` is
+    /// two, not three. An empty needle occurs nowhere.
+    export fn count(self, needle: Str): Int {
+        if (needle.isEmpty()) { 0 } else { countFrom(self, needle, 0, 0) }
+    }
+}
+
+fn lastMatch(text: Str, needle: Str, at: Int): Option<Int> {
+    if (at < 0) {
+        .None
+    } else if (text.slice(at, at + needle.len()) == needle) {
+        .Some(at)
+    } else {
+        lastMatch(text, needle, at - 1)
+    }
+}
+
+fn countFrom(text: Str, needle: Str, at: Int, seen: Int): Int {
+    match (text.indexOfFrom(needle, at)) {
+        .None => seen,
+        .Some(found) => countFrom(text, needle, found + needle.len(), seen + 1),
+    }
+}
+
+// --- Trimming a set of characters ----------------------------------------------
+
+impl Str {
+    /// `trim`, but you say which characters to remove rather than taking
+    /// whitespace. Pure: the answer is a view.
+    export fn trimAny(self, chars: Str): Str {
+        self.trimStartAny(chars).trimEndAny(chars)
+    }
+
+    /// `trimAny` at the front only.
+    export fn trimStartAny(self, chars: Str): Str {
+        self.slice(leadingAny(self, chars, 0), self.len())
+    }
+
+    /// `trimAny` at the end only.
+    export fn trimEndAny(self, chars: Str): Str {
+        self.slice(0, trailingAny(self, chars, self.len()))
+    }
+
+    /// The first index at which one of `chars` occurs.
+    export fn indexOfAny(self, chars: Str): Option<Int> {
+        self.indexWhere(fn(c) => holds(chars, c, 0))
+    }
+
+    /// The first index at which the predicate accepts the scalar there.
+    ///
+    /// Pure, where `chars(ctx).findIndex(...)` costs a whole `[Char]`.
+    export fn indexWhere(self, predicate: fn(Char) => Bool): Option<Int> {
+        whereFrom(self, predicate, 0)
+    }
+
+    /// Whether the string is empty or nothing but whitespace.
+    export fn isBlank(self): Bool {
+        self.trim().isEmpty()
+    }
+}
+
+/// Whether `c` is one of `chars`.
+fn holds(chars: Str, c: Char, at: Int): Bool {
+    match (chars.charAt(at)) {
+        .None => false,
+        .Some(x) => x == c || holds(chars, c, at + 1),
+    }
+}
+
+fn leadingAny(text: Str, chars: Str, at: Int): Int {
+    match (text.charAt(at)) {
+        .None => at,
+        .Some(c) => if (holds(chars, c, 0)) { leadingAny(text, chars, at + 1) } else { at },
+    }
+}
+
+fn trailingAny(text: Str, chars: Str, at: Int): Int {
+    if (at <= 0) {
+        0
+    } else {
+        match (text.charAt(at - 1)) {
+            .None => at,
+            .Some(c) => {
+                if (holds(chars, c, 0)) { trailingAny(text, chars, at - 1) } else { at }
+            },
+        }
+    }
+}
+
+fn whereFrom(text: Str, predicate: fn(Char) => Bool, at: Int): Option<Int> {
+    match (text.charAt(at)) {
+        .None => .None,
+        .Some(c) => {
+            if (predicate(c)) { .Some(at) } else { whereFrom(text, predicate, at + 1) }
+        },
+    }
+}
+
+// --- Case, without a locale ------------------------------------------------------
+
+impl Str {
+    /// Whether the two strings are equal once each scalar is lowercased.
+    ///
+    /// **Simple** case folding, one scalar at a time, so it is a comparison and
+    /// not a collation: `"ß"` and `"SS"` are different lengths and this says
+    /// no. `caseFold` is the full folding that says yes.
+    export fn equalsIgnoreCase(self, other: Str): Bool {
+        self.len() == other.len() && sameFolded(self, other, 0)
+    }
+
+    /// `startsWith` under the same simple folding `equalsIgnoreCase` uses.
+    export fn startsWithIgnoreCase(self, prefix: Str): Bool {
+        self.len() >= prefix.len() && sameFolded(self.slice(0, prefix.len()), prefix, 0)
+    }
+}
+
+fn sameFolded(a: Str, b: Str, at: Int): Bool {
+    match ((a.charAt(at), b.charAt(at))) {
+        (.None, .None) => true,
+        (.Some(x), .Some(y)) => x.toLower() == y.toLower() && sameFolded(a, b, at + 1),
+        _ => false,
+    }
+}
+
+// --- Building new text ------------------------------------------------------------
+
+impl Str {
+    /// `split`, stopping once `limit` pieces exist — the last one holds the
+    /// whole of the rest, separators and all.
+    ///
+    /// A `limit` of zero or less has no pieces at all.
+    export fn splitLimit<C: Alloc>(self, ctx: C, separator: Str, limit: Int): [Str] {
+        if (limit <= 0) {
+            list.empty<Str>()
+        } else {
+            limitedFrom(ctx, self, separator, limit, list.empty<Str>())
+        }
+    }
+
+    /// `replace` for the first occurrence only. An empty needle changes
+    /// nothing, which is `replace`'s rule too.
+    export fn replaceFirst<C: Alloc>(self, ctx: C, needle: Str, replacement: Str): Str {
+        if (needle.isEmpty()) {
+            self
+        } else {
+            match (self.splitOnce(needle)) {
+                .None => self,
+                .Some(halves) => halves.0.concat(ctx, replacement).concat(ctx, halves.1),
+            }
+        }
+    }
+
+    /// The scalars in the opposite order.
+    ///
+    /// Scalars, not graphemes: reversing `"e\u{301}"` puts the accent first and
+    /// it lands on whatever follows. Reverse `graphemes(ctx)` instead when the
+    /// answer has to look like the input backwards.
+    export fn reverse<C: Alloc>(self, ctx: C): Str {
+        fromChars(ctx, self.chars(ctx).reverse(ctx))
+    }
+
+    /// The whitespace-separated words, with the empty pieces dropped — so
+    /// leading, trailing and repeated whitespace makes no empty word.
+    ///
+    /// Whitespace is `char.isSpace`, which is the set JavaScript's `\s`
+    /// matches.
+    export fn words<C: Alloc>(self, ctx: C): [Str] {
+        wordsFrom(ctx, self, 0, list.empty<Str>())
+    }
+
+    /// How many bytes this string takes in UTF-8, which is what `core/bytes`'
+    /// `toUtf8` produces and what a `Content-Length` counts.
+    ///
+    /// `len` counts scalars, so the two agree only for ASCII.
+    export fn utf8Length(self): Int {
+        utf8From(self, 0, 0)
+    }
+
+    /// How many UTF-16 code units this string takes — the unit a language
+    /// server's positions and JavaScript's own `.length` are measured in.
+    ///
+    /// One per scalar below U+10000 and two above, so it differs from `len`
+    /// exactly where an astral character appears.
+    export fn utf16Length(self): Int {
+        utf16From(self, 0, 0)
+    }
+
+    /// The common leading whitespace removed from every line.
+    ///
+    /// A blank line counts for nothing when the margin is measured, and comes
+    /// back empty. Lines are split and rejoined on `\n`, the way `lines` cuts
+    /// them.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let _ = io.println(ctx, "    one\n      two".dedent(ctx)).ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// one
+    ///   two
+    /// ```
+    export fn dedent<C: Alloc>(self, ctx: C): Str {
+        let rows = self.lines(ctx);
+        let margin = rows.fold(
+            fn(best: Int, row) => {
+                if (row.isBlank()) {
+                    best
+                } else {
+                    let indented = leadingAny(row, " \t", 0);
+                    if (best < 0 || indented < best) { indented } else { best }
+                }
+            },
+            -1,
+        );
+        let cut = if (margin < 0) { 0 } else { margin };
+        rows
+            .map(ctx, fn(row) => if (row.isBlank()) { "" } else { row.slice(cut, row.len()) })
+            .join(ctx, "\n")
+    }
+
+    /// `prefix` in front of every line that has anything on it. An empty line
+    /// stays empty, so no trailing whitespace is invented.
+    export fn indent<C: Alloc>(self, ctx: C, prefix: Str): Str {
+        self.lines(ctx)
+            .mapCtx(
+                ctx,
+                fn(c, row) => if (row.isEmpty()) { row } else { prefix.concat(c, row) },
+            )
+            .join(ctx, "\n")
+    }
+
+    /// The words, greedily packed into lines of at most `width` scalars.
+    ///
+    /// Whitespace in the input is not kept: this is `words` and a fill, so
+    /// every gap comes back as one space. A word longer than `width` gets a
+    /// line of its own and overflows it rather than being cut, and a `width` of
+    /// zero or less is one word per line.
+    export fn wrap<C: Alloc>(self, ctx: C, width: Int): [Str] {
+        wrapFrom(ctx, self.words(ctx), width, 0, "", list.empty<Str>())
+    }
+}
+
+fn limitedFrom<C: Alloc>(
+    ctx: C,
+    rest: Str,
+    separator: Str,
+    left: Int,
+    acc: [Str],
+): [Str] {
+    if (left <= 1) {
+        acc.push(ctx, rest)
+    } else {
+        match (rest.splitOnce(separator)) {
+            .None => acc.push(ctx, rest),
+            .Some(halves) => {
+                limitedFrom(ctx, halves.1, separator, left - 1, acc.push(ctx, halves.0))
+            },
+        }
+    }
+}
+
+fn wordsFrom<C: Alloc>(ctx: C, text: Str, at: Int, acc: [Str]): [Str] {
+    let start = spanSpace(text, at);
+    if (start >= text.len()) {
+        acc
+    } else {
+        let end = spanWord(text, start);
+        wordsFrom(ctx, text, end, acc.push(ctx, text.slice(start, end)))
+    }
+}
+
+fn spanSpace(text: Str, at: Int): Int {
+    match (text.charAt(at)) {
+        .None => at,
+        .Some(c) => if (c.isSpace()) { spanSpace(text, at + 1) } else { at },
+    }
+}
+
+fn spanWord(text: Str, at: Int): Int {
+    match (text.charAt(at)) {
+        .None => at,
+        .Some(c) => if (c.isSpace()) { at } else { spanWord(text, at + 1) },
+    }
+}
+
+fn utf8From(text: Str, at: Int, acc: Int): Int {
+    match (text.charAt(at)) {
+        .None => acc,
+        .Some(c) => utf8From(text, at + 1, acc + c.utf8Length()),
+    }
+}
+
+fn utf16From(text: Str, at: Int, acc: Int): Int {
+    match (text.charAt(at)) {
+        .None => acc,
+        .Some(c) => {
+            let units = if (c.toU32().toI64() >= 0x10000) { 2 } else { 1 };
+            utf16From(text, at + 1, acc + units)
+        },
+    }
+}
+
+fn wrapFrom<C: Alloc>(
+    ctx: C,
+    words: [Str],
+    width: Int,
+    at: Int,
+    line: Str,
+    acc: [Str],
+): [Str] {
+    match (words.get(at)) {
+        .None => if (line.isEmpty()) { acc } else { acc.push(ctx, line) },
+        .Some(word) => {
+            if (line.isEmpty()) {
+                wrapFrom(ctx, words, width, at + 1, word, acc)
+            } else if (line.len() + 1 + word.len() <= width) {
+                let joined = line.concat(ctx, " ").concat(ctx, word);
+                wrapFrom(ctx, words, width, at + 1, joined, acc)
+            } else {
+                wrapFrom(ctx, words, width, at + 1, word, acc.push(ctx, line))
+            }
+        },
+    }
+}
+
+// --- Numbers as text ---------------------------------------------------------------
+
+/// `fromInt` with `separator` between every group of three digits, counting
+/// from the right. A negative number keeps its `-` and groups the rest.
+///
+/// ```buri run
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/str" import * as str;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let _ = io.println(ctx, str.fromIntGrouped(ctx, -1234567, ",")).ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// -1,234,567
+/// ```
+export fn fromIntGrouped<C: Alloc>(ctx: C, value: Int, separator: Str): Str {
+    let text = fromInt(ctx, value);
+    let negative = text.startsWith("-");
+    let digits = if (negative) { text.slice(1, text.len()) } else { text };
+    let grouped = groupedFrom(ctx, digits, separator, 0, "");
+    if (negative) { "-".concat(ctx, grouped) } else { grouped }
+}
+
+fn groupedFrom<C: Alloc>(ctx: C, digits: Str, separator: Str, at: Int, acc: Str): Str {
+    if (at >= digits.len()) {
+        acc
+    } else {
+        let first = digits.len() % 3;
+        let take = if (at > 0) {
+            3
+        } else if (first == 0) {
+            3
+        } else {
+            first
+        };
+        let piece = digits.slice(at, at + take);
+        let joined = if (at == 0) {
+            piece
+        } else {
+            acc.concat(ctx, separator).concat(ctx, piece)
+        };
+        groupedFrom(ctx, digits, separator, at + take, joined)
+    }
+}
+
+/// `fromFloat` with a fixed number of digits after the point. A negative
+/// `decimals` counts as zero, and asking for more digits than the value has
+/// pads with zeros.
+///
+/// It rounds the **shortest decimal that reads back as this `Float`** — what
+/// `fromFloat` writes — half away from zero. So `2.675` comes out as `2.68`,
+/// where C's `printf` says `2.67` because the stored value is a hair under.
+/// Both are defensible; this one gives the same answer on every backend and
+/// rounds the number you wrote down.
+///
+/// `NaN`, `inf` and `-inf` come back as themselves.
+///
+/// ```buri run
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/str" import * as str;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let _ = io.println(ctx, str.fromFloatFixed(ctx, 3.14159, 2)).ignore();
+///     let _ = io.println(ctx, str.fromFloatFixed(ctx, 2.0, 3)).ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// 3.14
+/// 2.000
+/// ```
+export fn fromFloatFixed<C: Alloc>(ctx: C, value: Float, decimals: Int): Str {
+    let places = if (decimals < 0) { 0 } else { decimals };
+    let shown = fromFloat(ctx, value);
+    let negative = shown.startsWith("-");
+    let body = if (negative) { shown.slice(1, shown.len()) } else { shown };
+    if (body.indexWhere(fn(c) => c.isDigit()).isNone()) {
+        shown
+    } else {
+        let parsed = significand(ctx, body);
+        let keep = parsed.1 + places;
+        let rounded = roundTo(ctx, parsed.0, keep);
+        let point = if (rounded.len() > keep) { parsed.1 + 1 } else { parsed.1 };
+        let text = renderFixed(ctx, rounded, point, places);
+        if (negative) { "-".concat(ctx, text) } else { text }
+    }
+}
+
+/// A plain or exponent-notation decimal as its digits and where the point sits:
+/// the value is `0.<digits>` times ten to the second field.
+fn significand<C: Alloc>(ctx: C, text: Str): (Str, Int) {
+    let marker = text.indexOfAny("eE");
+    let mantissa = match (marker) {
+        .None => text,
+        .Some(at) => text.slice(0, at),
+    };
+    let exponent = match (marker) {
+        .None => 0,
+        .Some(at) => text.slice(at + 1, text.len()).toInt().withDefault(0),
+    };
+    let dot = mantissa.indexOf(".");
+    let whole = match (dot) {
+        .None => mantissa,
+        .Some(at) => mantissa.slice(0, at),
+    };
+    let fraction = match (dot) {
+        .None => "",
+        .Some(at) => mantissa.slice(at + 1, mantissa.len()),
+    };
+    (whole.concat(ctx, fraction), whole.len() + exponent)
+}
+
+/// `digits` cut to `keep` of them, rounded half up on the first one dropped.
+/// A carry off the front makes the answer one longer than `keep`.
+fn roundTo<C: Alloc>(ctx: C, digits: Str, keep: Int): Str {
+    if (keep >= digits.len()) {
+        digits
+    } else {
+        let head = if (keep <= 0) { "" } else { digits.slice(0, keep) };
+        let at = if (keep < 0) { 0 } else { keep };
+        let up = match (digits.charAt(at)) {
+            .None => false,
+            .Some(c) => c >= '5',
+        };
+        if (up && keep >= 0) { carry(ctx, head, head.len() - 1) } else { head }
+    }
+}
+
+/// `digits` with one added to its last digit, carrying leftwards.
+fn carry<C: Alloc>(ctx: C, digits: Str, at: Int): Str {
+    if (at < 0) {
+        "1".concat(ctx, digits)
+    } else {
+        let value = digits.charAt(at).andThen(fn(c) => c.toDigit(10)).withDefault(0);
+        if (value == 9) {
+            carry(ctx, writeAt(ctx, digits, at, '0'), at - 1)
+        } else {
+            match (char.fromDigit(value + 1, 10)) {
+                .None => digits,
+                .Some(c) => writeAt(ctx, digits, at, c),
+            }
+        }
+    }
+}
+
+fn writeAt<C: Alloc>(ctx: C, text: Str, at: Int, c: Char): Str {
+    text.slice(0, at)
+        .concat(ctx, fromChars(ctx, [c]))
+        .concat(ctx, text.slice(at + 1, text.len()))
+}
+
+/// `0.<digits>` times ten to the `point`, as a plain decimal with `places`
+/// digits after the point.
+fn renderFixed<C: Alloc>(ctx: C, digits: Str, point: Int, places: Int): Str {
+    let whole = if (point <= 0) {
+        "0"
+    } else {
+        digits.slice(0, point).padEnd(ctx, point, '0')
+    };
+    if (places <= 0) {
+        whole
+    } else {
+        let zeros = if (point < 0) {
+            "0".repeat(ctx, if (-point > places) { places } else { -point })
+        } else {
+            ""
+        };
+        let head = if (point < 0) { 0 } else { point };
+        let rest = digits.slice(head, head + places - zeros.len());
+        let after = zeros.concat(ctx, rest).padEnd(ctx, places, '0');
+        whole.concat(ctx, ".").concat(ctx, after)
+    }
+}
 
 // --- Generated Unicode tables (Unicode 16.0) ---------------------------
 //
