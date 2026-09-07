@@ -1,0 +1,22 @@
+# The JavaScript host, driven the way a person drives it.
+#
+# `buri run` builds one binary for the host and runs it outside the sandbox,
+# with the real filesystem, the real environment and a real process table. That
+# is the only tier that can ask node what `lstat`, `realpath`, `copyFile`,
+# `process.cwd`, `process.env` and `child_process.spawn` answer — the
+# conformance corpus runs the same calls against an in-memory double, and
+# `native::e2e` asks Linux or macOS instead.
+#
+# Every line the program prints is a kind, a length, a name or a refusal, so the
+# golden holds no path from the machine that recorded it.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "the JavaScript host answers the filesystem, the environment and a child process the way the doubles and the native host do"
+
+run {
+  args: ["run", "//cmd/host"]
+  exit: 0
+  golden: "host.txt"
+}
