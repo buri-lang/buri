@@ -184,6 +184,213 @@ impl<K: Hash + Eq, V> Map<K, V> {
             })
     }
 
+    /// Insert, replace or remove in one call. `update` gets what is stored
+    /// under `key` — `.Some(v)` or `.None` — and what it answers is what gets
+    /// stored afterwards, with `.None` meaning "not there".
+    ///
+    /// A counter is `alter(ctx, k, fn(n) => .Some(n.withDefault(0) + 1))`.
+    /// `core/ordmap` has the same method with the same meaning.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/map" import * as map;
+    /// from "core/str" import * as str;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let counts = map.of(ctx, [("a", 1)]);
+    ///     // One call whether or not the key is there, and one that removes.
+    ///     let bumped = counts
+    ///         .alter(ctx, "a", fn(n) => .Some(n.withDefault(0) + 1))
+    ///         .alter(ctx, "b", fn(n) => .Some(n.withDefault(0) + 1))
+    ///         .alter(ctx, "a", fn(_n) => .None);
+    ///     let keys = bumped.keys(ctx).join(ctx, " ");
+    ///     let b = str.fromInt(ctx, bumped.get("b").withDefault(0));
+    ///     let _ = io.println(ctx, "${keys}=${b}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// b=1
+    /// ```
+    export fn alter<C: Alloc>(
+        self,
+        ctx: C,
+        key: K,
+        update: fn(Option<V>) => Option<V>,
+    ): Map<K, V> {
+        match (update(self.get(key))) {
+            .Some(v) => self.insert(ctx, key, v),
+            .None => self.remove(ctx, key),
+        }
+    }
+
+    /// The same keys, every value put through `transform`.
+    ///
+    /// It rebuilds the map rather than copying the buckets, so it costs one
+    /// insert per entry. The iteration order is still unspecified.
+    export fn mapValues<W, C: Alloc>(self, ctx: C, transform: fn(V) => W): Map<K, W> {
+        self
+            .entries(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: Map<K, W>, e) => {
+                    let (k, v) = e;
+                    acc.insert(c, k, transform(v))
+                },
+                empty<K, W>(),
+            )
+    }
+
+    /// The same keys, each value `transform` keeps. A `.None` drops the entry,
+    /// so this is `mapValues` and `filter` in one pass.
+    export fn filterMapValues<W, C: Alloc>(
+        self,
+        ctx: C,
+        transform: fn(V) => Option<W>,
+    ): Map<K, W> {
+        self
+            .entries(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: Map<K, W>, e) => {
+                    let (k, v) = e;
+                    match (transform(v)) {
+                        .None => acc,
+                        .Some(w) => acc.insert(c, k, w),
+                    }
+                },
+                empty<K, W>(),
+            )
+    }
+
+    /// Both maps' entries, `other`'s winning where a key is in both.
+    ///
+    /// Right-biased on purpose: `defaults.merge(ctx, overrides)` reads the way
+    /// it is used. Reach for `mergeWith` when a collision is not a replacement.
+    export fn merge<C: Alloc>(self, ctx: C, other: Map<K, V>): Map<K, V> {
+        other
+            .entries(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: Map<K, V>, e) => {
+                    let (k, v) = e;
+                    acc.insert(c, k, v)
+                },
+                self,
+            )
+    }
+
+    /// Both maps' entries, with `combine(mine, theirs)` deciding a key that is
+    /// in both. `combine` is called only for those keys.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/map" import * as map;
+    /// from "core/str" import * as str;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let monday = map.of(ctx, [("ana", 2), ("bo", 1)]);
+    ///     let tuesday = map.of(ctx, [("ana", 3), ("cy", 5)]);
+    ///     let total = monday.mergeWith(ctx, tuesday, fn(a, b) => a + b);
+    ///     let ana = str.fromInt(ctx, total.get("ana").withDefault(0));
+    ///     let cy = str.fromInt(ctx, total.get("cy").withDefault(0));
+    ///     let _ = io.println(ctx, "ana=${ana} cy=${cy}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// ana=5 cy=5
+    /// ```
+    export fn mergeWith<C: Alloc>(
+        self,
+        ctx: C,
+        other: Map<K, V>,
+        combine: fn(V, V) => V,
+    ): Map<K, V> {
+        other
+            .entries(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: Map<K, V>, e) => {
+                    let (k, v) = e;
+                    match (acc.get(k)) {
+                        .None => acc.insert(c, k, v),
+                        .Some(mine) => acc.insert(c, k, combine(mine, v)),
+                    }
+                },
+                self,
+            )
+    }
+
+    /// The entries `keep` answers true for.
+    export fn filter<C: Alloc>(self, ctx: C, keep: fn(K, V) => Bool): Map<K, V> {
+        self
+            .entries(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: Map<K, V>, e) => {
+                    let (k, v) = e;
+                    if (keep(k, v)) { acc.insert(c, k, v) } else { acc }
+                },
+                empty<K, V>(),
+            )
+    }
+
+    /// The value under `key` and the map without it, or `.None` when the key is
+    /// not there. Taking an entry out and using it is one call rather than a
+    /// `get` beside a `remove`.
+    export fn pop<C: Alloc>(self, ctx: C, key: K): Option<(V, Map<K, V>)> {
+        match (self.get(key)) {
+            .None => .None,
+            .Some(v) => .Some((v, self.remove(ctx, key))),
+        }
+    }
+
+    /// Only the entries whose keys are in `keys`. A key that is not in the map
+    /// is skipped rather than an error.
+    export fn takeKeys<C: Alloc>(self, ctx: C, keys: [K]): Map<K, V> {
+        let wanted = of(ctx, keys.map(ctx, fn(k) => (k, ())));
+        self
+            .entries(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: Map<K, V>, e) => {
+                    let (k, v) = e;
+                    if (wanted.has(k)) { acc.insert(c, k, v) } else { acc }
+                },
+                empty<K, V>(),
+            )
+    }
+
+    /// Everything but the entries whose keys are in `keys`.
+    export fn dropKeys<C: Alloc>(self, ctx: C, keys: [K]): Map<K, V> {
+        let unwanted = of(ctx, keys.map(ctx, fn(k) => (k, ())));
+        self
+            .entries(ctx)
+            .foldCtx(
+                ctx,
+                fn(c, acc: Map<K, V>, e) => {
+                    let (k, v) = e;
+                    if (unwanted.has(k)) { acc } else { acc.insert(c, k, v) }
+                },
+                empty<K, V>(),
+            )
+    }
+
     /// Twice the buckets, everything rehashed. `insert` calls it once the entries
     /// outgrow the load factor, so the association lists stay short and lookup
     /// stays expected-constant.
@@ -301,4 +508,51 @@ impl<K: Hash + Eq, V: Eq> Map<K, V> {
                 })
         }
     }
+}
+
+/// How many elements answer each key. One pass over the list, so it costs what
+/// `groupBy` costs without building the groups.
+///
+/// ```buri run
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/map" import * as map;
+/// from "core/str" import * as str;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let words = ["ant", "bee", "ape", "bat"];
+///     let counts = map.countBy(ctx, words, fn(w: Str) => w.slice(0, 1));
+///     let a = str.fromInt(ctx, counts.get("a").withDefault(0));
+///     let _ = io.println(ctx, "a: ${a}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// a: 2
+/// ```
+export fn countBy<A, K: Hash + Eq, C: Alloc>(
+    ctx: C,
+    xs: [A],
+    key: fn(A) => K,
+): Map<K, Int> {
+    xs.foldCtx(
+        ctx,
+        fn(c, acc: Map<K, Int>, x) => {
+            let k = key(x);
+            acc.insert(c, k, acc.get(k).withDefault(0) + 1)
+        },
+        empty<K, Int>(),
+    )
+}
+
+/// How many times each element appears. `countBy` with the element as its own
+/// key, which is the histogram every word count wants.
+export fn frequencies<T: Hash + Eq, C: Alloc>(ctx: C, xs: [T]): Map<T, Int> {
+    countBy(ctx, xs, fn(x: T) => x)
 }

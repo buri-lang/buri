@@ -7,6 +7,8 @@ library {
             "test/bitset.buri",
             "test/map.buri",
             "test/ordmap.buri",
+            "test/sets.buri",
+            "test/heap.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`
