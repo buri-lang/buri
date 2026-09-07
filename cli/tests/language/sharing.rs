@@ -12,7 +12,10 @@
 //!  * **Aliasing.** Every case where two names reach one list is in the
 //!    conformance corpus (`conformance/lib/data/test/lists.buri`, "aliasing"),
 //!    where both backends run it and the answers have to match.
-//!  * **Cost.** Growing a list in a loop is linear. Asserted as a ratio rather
+//!  * **Cost.** Growing a list in a loop is linear — whether the list is the
+//!    last field its record's literal writes or not, and `core/buri/ast`'s
+//!    printer, which the build runs for every `.proto` in a repository, is
+//!    linear because of it. Asserted as a ratio rather
 //!    than a time, between the same *total* number of pushes taken in runs of
 //!    ten thousand and in runs of a hundred thousand: linear work makes those
 //!    equal, and the copying they replaced makes the second ten times the
@@ -497,6 +500,168 @@ fn growing_a_list_beside_another_field_is_linear() {
          {ratio:.1} times the same work in runs of ten thousand, where linear \
          growth scores about 1 and copying scores about 10. The pairs, as \
          `<ten-thousand ms> <hundred-thousand ms>`: {}",
+        measured.len(),
+        measured
+            .iter()
+            .map(|p| format!("{}/{}", p.small, p.large))
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
+}
+
+/// `core/buri/ast`'s printer, over a message-shaped module.
+///
+/// One `export struct` of `n` fields, each carrying an origin, printed and
+/// measured — which is a `.proto` message with `n` fields and the thing the
+/// build runs for every schema in a repository. The two sizes print the same
+/// **total** number of fields, so linear growth makes them cost the same.
+const PRINT: &str = r#"
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Alloc, Clock, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/time" import * as time;
+
+struct Timing { millis: Int, printed: Int }
+
+fn fields<C: Alloc>(ctx: C, i: Int, n: Int, acc: [ast.FieldDecl]): [ast.FieldDecl] {
+  if (i >= n) {
+    acc
+  } else {
+    fields(
+      ctx,
+      i + 1,
+      n,
+      acc.push(
+        ctx,
+        ast.FieldDecl {
+          name: ast.Name { text: "field", origin: ast.nowhere() },
+          ty: ast.Type {
+            kind: .Named(ast.Name { text: "Int", origin: ast.nowhere() }, []),
+            origin: ast.nowhere(),
+          },
+          exported: true,
+          docs: [],
+          origin: ast.origin("wide.proto", i, i + 1),
+        },
+      ),
+    )
+  }
+}
+
+/// `export struct Wide { export field: Int, ... }`, `n` fields wide.
+fn wide<C: Alloc>(ctx: C, n: Int): ast.Module {
+  ast.Module {
+    items: [
+      ast.Item {
+        kind: .Struct(ast.StructDecl {
+          name: ast.Name { text: "Wide", origin: ast.nowhere() },
+          generics: [],
+          body: .Record(fields(ctx, 0, n, list.empty<ast.FieldDecl>())),
+          exported: true,
+          docs: [],
+        }),
+        origin: ast.origin("wide.proto", 0, 4),
+      },
+    ],
+    docs: [],
+  }
+}
+
+fn runs<C: Alloc>(ctx: C, k: Int, count: Int, tree: ast.Module, acc: Int): Int {
+  if (k >= count) {
+    acc
+  } else {
+    runs(ctx, k + 1, count, tree, acc + ast.print(ctx, tree).text.len())
+  }
+}
+
+/// One size, timed: `count` prints of an `n`-field module. The tree is built
+/// before the clock starts, because what is measured is the printer.
+fn timed<C: Alloc + Clock>(ctx: C, count: Int, n: Int): Timing {
+  let tree = wide(ctx, n);
+  let started = time.now(ctx);
+  let written = runs(ctx, 0, count, tree, 0);
+  let took = time.since(ctx, started);
+  let _ = written;
+  Timing { millis: took.millis(), printed: count * n }
+}
+
+fn say<C: Alloc + Stdout>(ctx: C, small: Timing, large: Timing): () {
+  io.println(
+    ctx,
+    "${small.millis} ${large.millis} ${small.printed} ${large.printed}",
+  ).ignore()
+}
+
+fn pairs<C: Alloc + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
+  if (k >= count) {
+    ()
+  } else {
+    let _ = if (k % 2 == 0) {
+      let small = timed(ctx, SMALL_RUNS, SMALL_SIZE);
+      let large = timed(ctx, LARGE_RUNS, LARGE_SIZE);
+      say(ctx, small, large)
+    } else {
+      let large = timed(ctx, LARGE_RUNS, LARGE_SIZE);
+      let small = timed(ctx, SMALL_RUNS, SMALL_SIZE);
+      say(ctx, small, large)
+    };
+    pairs(ctx, k + 1, count)
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let _ = pairs(ctx, 0, PAIRS);
+  .Ok(())
+}
+"#;
+
+/// The printer the build runs for every `.proto` in a repository is linear in
+/// the module it prints.
+///
+/// This is the claim the two above are worth having. `core/buri/ast`'s printer
+/// threads an `Out` — the pieces written so far, and the offset the next one
+/// starts at — through every function of the walk, and every token it writes
+/// goes through `raw`, whose one functional update is the shape
+/// [`growing_a_list_beside_another_field_is_linear`] is about. Printing a
+/// four-hundred-field message took 56 seconds and an eight-hundred-field one
+/// five minutes; it is 26 milliseconds for twenty-five thousand fields now.
+///
+/// Measured as a ratio for the same reason, and against the same bound: ten
+/// thousand fields printed in runs of a hundred and in runs of a thousand,
+/// where linear growth scores about 1 and a quadratic printer scores about 10.
+#[test]
+fn printing_a_module_is_linear_in_its_size() {
+    let scratch = Scratch::repo("js-sharing-printer");
+    let source = PRINT
+        .replace("PAIRS", &PAIRS.to_string())
+        .replace("SMALL_RUNS", "100")
+        .replace("SMALL_SIZE", "100")
+        .replace("LARGE_RUNS", "10")
+        .replace("LARGE_SIZE", "1_000");
+    scratch.write("cmd/print/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/print/main.buri", &source);
+    scratch.run(&["build", "//cmd/print", "--force"]).ok();
+
+    let measured = pairs(&scratch, "cmd/print", "10000");
+    let ratio = median_ratio(&measured);
+
+    let mut short: Vec<u64> = measured.iter().map(|p| p.small).collect();
+    short.sort_unstable();
+    let typical = short[short.len() / 2];
+    assert!(
+        typical >= 5,
+        "the typical repetition took {typical} ms, which a whole-millisecond clock \
+         cannot resolve; raise the runs per repetition"
+    );
+    assert!(
+        ratio <= 4.0,
+        "the printer is not linear: over {} pairs of ten thousand printed fields, \
+         the median run in modules of a thousand cost {ratio:.1} times the same \
+         work in modules of a hundred. The pairs, as `<hundred ms> <thousand ms>`: {}",
         measured.len(),
         measured
             .iter()

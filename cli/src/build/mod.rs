@@ -8,10 +8,12 @@
 //! `regenerate` writes back the fields of a build file that merely restate the
 //! sources.
 //!
-//! `protoschema` and `protogen` are the other direction: a `.proto` file in a
-//! package is read as a schema and *becomes* a Buri module, so that
+//! `generators` is the other direction: a rule may declare a program the build
+//! runs, and what the program answers *becomes* a Buri module, so that
 //! `from "//proto/person.proto" import { Person };` resolves to types and
-//! codecs that no one had to write down twice.
+//! codecs that no one had to write down twice. The `.proto` generator is one
+//! of those programs — `std/codegen/proto`, written in Buri — and not a path
+//! of its own.
 //!
 //! `link` is the last action in the graph for a native artifact: the C driver
 //! the objects are handed to, the `.buri/link/<key>/` directory they are
@@ -36,8 +38,6 @@ pub mod link;
 /// runtime archive was built against. Bytes and accessors only — the flags and
 /// the staging are `link`'s.
 pub mod musl;
-pub mod protogen;
-pub mod protoschema;
 pub mod regenerate;
 pub mod session;
 /// The loaded state of one repository, kept between the questions asked of

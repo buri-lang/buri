@@ -815,119 +815,90 @@ pub fn tool_target(workspace: &Workspace, tool: &str) -> Option<TargetId> {
 /// measuring the work.
 const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// The program a toolchain generator *is*.
+///
+/// `std/codegen/proto` is the whole of the list, and there is nothing in here
+/// a user could not have written: `core/codegen`'s `run`, over the `emit` the
+/// standard library exports. What the build runs is this, compiled to
+/// JavaScript and handed a request on standard input — the same protocol, the
+/// same subprocess, the same deadline a `//label` tool gets.
+const GENERATOR_MAIN_NAME: &str = "toolchain-generator-main";
+
+const PROTO_MAIN: &str = r#"from "core/codegen" import * as codegen;
+from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/host" import * as host;
+from "std/codegen/proto" import * as proto;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdin: host.stdin,
+        Stdout: host.stdout,
+    };
+    codegen.run(ctx, fn(c, request) => proto.emit(c, request))
+}
+"#;
+
 /// Runs the toolchain generator named `tool`.
 ///
-/// `std/codegen/proto` is the whole of the list, and today it is this
-/// toolchain's own `.proto` reader and printer wrapped to answer the protocol:
-/// same schema parser, same generator, same diagnostics, no subprocess.
+/// One path, not two. A generator this toolchain ships goes through
+/// [`run_artifact`] exactly as a repository tool does, so what proves the
+/// protocol is the `.proto` generator itself rather than a wrapper written to
+/// look like one.
+pub fn run_toolchain(
+    session: &Session,
+    tool: &str,
+    request: &Request,
+    flags: &Flags,
+) -> Result<Response, String> {
+    let artifact = toolchain_artifact(session, tool, flags)?;
+    run_artifact(&artifact, request)
+}
+
+/// The `.mjs` a toolchain generator is compiled to, built once and kept.
 ///
-/// The Buri port of both halves is the standard library's `std/codegen/proto`
-/// and `std/codegen/proto/schema`, and it does not run here yet for one reason:
-/// `core/buri/ast`'s printer is quadratic in the size of the module it prints.
-/// `Out` threads a growing `[Str]` through every function of the walk, and the
-/// JavaScript backend pushes into such a list in place only while nothing else
-/// can still see it — which a value passed to one function and read again after
-/// is not. Printing a four-hundred-field message takes 56 seconds and an
-/// eight-hundred-field one five minutes, against 8 milliseconds to build the
-/// tree. The reader and the emitter are right and are tested; the printer under
-/// them is what has to get faster first.
-pub fn run_toolchain(tool: &str, request: &Request) -> Result<Response, String> {
+/// The file's name is its action key, which already carries the toolchain
+/// version, so a new toolchain writes a new file rather than reading a stale
+/// one — and `buri clean`, which drops `.buri`, drops this with everything
+/// else. Written through a temporary and renamed, because two builds in one
+/// repository may reach this at the same moment and a half-written module is
+/// worse than a second compile.
+fn toolchain_artifact(
+    session: &Session,
+    tool: &str,
+    flags: &Flags,
+) -> Result<std::path::PathBuf, String> {
     if tool != PROTO_TOOL {
         return Err(format!(
             "`{tool}` is not a generator this toolchain ships; `{PROTO_TOOL}` is the only one"
         ));
     }
-    let mut modules = Vec::new();
-    let mut diagnostics = Vec::new();
-    // Every input is read as a schema before any of them is generated: a
-    // field's type may live in one of the others. The file id is the index into
-    // this list, so a diagnostic whose span points into an imported schema is
-    // reported against *that* file rather than the one being generated.
-    let mut schemas: Vec<(String, crate::build::protoschema::Schema)> = Vec::new();
-    for (i, (path, text)) in request.inputs.iter().enumerate() {
-        let parsed = crate::build::protoschema::parse(text, file_id(i));
-        for d in parsed.errors {
-            diagnostics.push(reported(request, &d));
-        }
-        schemas.push((path.clone(), parsed.schema));
+    let source = PROTO_MAIN;
+    let mut k = KeyBuilder::new(Action::Generate, flags.mode);
+    k.platform(Platform::Js, None);
+    k.rule_identity(tool, "toolchain-generator", &[]);
+    k.input("main.buri", source.as_bytes());
+    let key = k.finish();
+    let dir = session.root.join(".buri/out/toolchain");
+    let path = dir.join(format!("{}.mjs", key.as_str()));
+    if path.is_file() {
+        return Ok(path);
     }
-    // What the declaring rule's dependencies own, under the module path an
-    // `import` writes for it.
-    let mut available: Vec<(String, crate::build::protoschema::Schema)> = Vec::new();
-    for (i, (path, text)) in request.dependencies.iter().enumerate() {
-        let parsed =
-            crate::build::protoschema::parse(text, file_id(request.inputs.len().saturating_add(i)));
-        available.push((crate::build::protogen::import_module_path(path), parsed.schema));
-    }
-    for (path, schema) in &schemas {
-        available.push((crate::build::protogen::import_module_path(path), schema.clone()));
-    }
-
-    for (path, schema) in &schemas {
-        // Its imports and not its siblings: a type is reachable from a file
-        // only when that file says so, which is what makes deleting an
-        // `import` change what resolves.
-        let mut deps: Vec<(String, crate::build::protoschema::Schema)> = Vec::new();
-        let mut errors = crate::diagnostics::Diagnostics::new();
-        for import in &schema.imports {
-            let wanted = crate::build::protogen::import_module_path(&import.path);
-            match available.iter().find(|(name, _)| *name == wanted) {
-                Some((name, found)) => deps.push((name.clone(), found.clone())),
-                None => errors
-                    .items
-                    .push(crate::build::protogen::unresolved_import(import.span, &import.path)),
-            }
-        }
-        let generated = crate::build::protogen::generate(path, schema, &deps, &mut errors.items);
-        for d in &errors.items {
-            diagnostics.push(reported(request, d));
-        }
-        let name = path.rsplit_once('/').map(|(_, n)| n).unwrap_or(path);
-        modules.push(GeneratedModule {
-            name: name.to_string(),
-            text: generated.source,
-            // The Rust generator does not record where each declaration came
-            // from. `std/codegen/proto` in Buri does, and this wrapper goes
-            // away with it.
-            anchors: Vec::new(),
-        });
-    }
-    Ok(Response { modules, diagnostics })
-}
-
-/// The file id one input of a request is parsed under: its position in the
-/// request, inputs first and then dependencies. Private to this function —
-/// nothing outside it resolves one against a source map.
-fn file_id(index: usize) -> crate::diagnostics::FileId {
-    crate::diagnostics::FileId(index as u32)
-}
-
-/// One of this toolchain's own diagnostics, as a protocol one.
-///
-/// The origin is the request entry the span's file id names, so a diagnostic
-/// raised while generating one schema and pointing into another lands in the
-/// one it points at.
-fn reported(request: &Request, d: &crate::diagnostics::Diagnostic) -> Diagnostic {
-    let named = |id: crate::diagnostics::FileId| -> Option<&str> {
-        let i = id.0 as usize;
-        match request.inputs.get(i) {
-            Some((path, _)) => Some(path.as_str()),
-            None => request
-                .dependencies
-                .get(i.saturating_sub(request.inputs.len()))
-                .map(|(p, _)| p.as_str()),
-        }
-    };
-    Diagnostic {
-        code: d.code.clone().unwrap_or_else(|| "proto-schema".to_string()),
-        message: d.message.clone(),
-        note: d.notes.first().cloned(),
-        fix: d.fix.clone(),
-        origin: (!d.span.is_none()).then(|| named(d.span.file)).flatten().map(|file| Origin {
-            file: file.to_string(),
-            span: (d.span.start as usize, d.span.end as usize),
-        }),
-    }
+    // Not the tool's own name: the snippet is loaded as a module beside the
+    // standard library, and a module path already taken is one it would shadow.
+    let mut map = crate::diagnostics::SourceMap::new();
+    let js = crate::compiler::driver::compile_snippet_js(None, &mut map, GENERATOR_MAIN_NAME, source)
+        .map_err(
+        |d| match d.items.first() {
+            Some(first) => format!("`{tool}` does not compile: {}", map.render(first, false)),
+            None => format!("`{tool}` does not compile"),
+        },
+    )?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let staged = dir.join(format!("{}.mjs.{}", key.as_str(), std::process::id()));
+    std::fs::write(&staged, js.as_bytes()).map_err(|e| format!("{}: {e}", staged.display()))?;
+    std::fs::rename(&staged, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(path)
 }
 
 /// Runs a built `.mjs` generator under the JavaScript runtime, one line in and
@@ -1195,7 +1166,7 @@ fn answer(
         }
     }
     let response = match tool.strip_prefix("//") {
-        None => run_toolchain(tool, &entry.request)?,
+        None => run_toolchain(session, tool, &entry.request, flags)?,
         Some(_) => {
             let Some(tool_target) = tool_target(workspace, tool) else {
                 return Err(format!("`{tool}` names no binary target in this repository"));
