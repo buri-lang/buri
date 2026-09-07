@@ -288,3 +288,95 @@ test "an unterminated string or comment runs to the end of the source" {
     assert.eq(texts(ctx, "/* abc"), ["/* abc"]);
     assert.eq(texts(ctx, "\"a\${b"), ["\"a\${", "b"]);
 }
+
+// --- every class the enum has -----------------------------------------------------
+
+test "one source produces every kind of token there is" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let source = "//! m\n/// d\n// l\n/* b */\nlet x = 1 1.5 \"s\" 'c' \"a\${x}b\${x}c\" #";
+    assert.eq(kinds(ctx, source), [
+        TokenKind.ModuleDoc,
+        TokenKind.DocComment,
+        TokenKind.LineComment,
+        TokenKind.BlockComment,
+        TokenKind.Keyword,
+        TokenKind.Identifier,
+        TokenKind.Punctuation,
+        TokenKind.Int,
+        TokenKind.Float,
+        TokenKind.Str,
+        TokenKind.Char,
+        TokenKind.TemplateHead,
+        TokenKind.Identifier,
+        TokenKind.TemplateSpan,
+        TokenKind.Identifier,
+        TokenKind.TemplateTail,
+        TokenKind.Unknown,
+    ]);
+}
+
+// --- a file that is nothing but comments -------------------------------------------
+
+test "a file of only comments is its comments" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(kinds(ctx, "// one\n// two\n"), [
+        TokenKind.LineComment,
+        TokenKind.LineComment,
+    ]);
+    assert.eq(texts(ctx, "// one\n// two\n"), ["// one", "// two"]);
+    assert.eq(kinds(ctx, "//! only a module doc"), [TokenKind.ModuleDoc]);
+    assert.eq(kinds(ctx, "/* a */ /* b */"), [
+        TokenKind.BlockComment,
+        TokenKind.BlockComment,
+    ]);
+    // A comment runs to the end of its line and no further.
+    assert.eq(texts(ctx, "// one\nx"), ["// one", "x"]);
+}
+
+test "a comment on the last line with no newline after it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(kinds(ctx, "// one"), [TokenKind.LineComment]);
+    assert.eq(kinds(ctx, "/// one"), [TokenKind.DocComment]);
+}
+
+// --- what does not end, once more ----------------------------------------------------
+
+test "a character literal that never closes" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(kinds(ctx, "'a"), [TokenKind.Char]);
+    assert.eq(texts(ctx, "'a"), ["'a"]);
+    assert.eq(texts(ctx, "'"), ["'"]);
+    assert.eq(texts(ctx, "'\\"), ["'\\"]);
+}
+
+test "a block comment that never closes takes the nesting with it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(texts(ctx, "/* a /* b */"), ["/* a /* b */"]);
+    assert.eq(kinds(ctx, "/*"), [TokenKind.BlockComment]);
+}
+
+test "a string whose last character is an escape" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(texts(ctx, "\"a\\"), ["\"a\\"]);
+}
+
+test "an unterminated token still carries a span inside the source" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let tokens = ast.tokenize(ctx, "x \"abc");
+    assert.eq(tokens.len(), 2);
+    assert.eq(assert.some(tokens.get(1)).span, Span { start: 2, end: 6 });
+}
