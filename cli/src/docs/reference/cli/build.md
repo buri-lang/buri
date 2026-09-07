@@ -14,8 +14,7 @@ A build reports the lint catalogue too, where `REPO.buri` asks it to. Set
 `lint { check_during_build: true }` and the build runs the checks `buri lint`
 runs over the targets it is building, reporting them beside the compiler's own
 diagnostics. Add `fail_on_finding: true` and a finding becomes an error that
-stops the build. Both default to false, which gives you a build that says
-nothing the compiler did not say.
+stops the build. Both default to false.
 
 Turn the first one on because this is the command you actually run, and a
 structural finding costs least to act on while the shape it is about is still
@@ -23,10 +22,9 @@ being made. [`repo-config.md`](../build/repo-config.md#lint) documents both
 fields.
 
 A rule the same block turns off in
-[`rules`](../build/repo-config.md#rules) is not reported here either, so "does
-this rule run" has one answer wherever the catalogue runs from. A build under a
-smaller catalogue prints which rules were turned off, so a quiet build is never
-quiet for a reason nothing on the screen gives.
+[`rules`](../build/repo-config.md#rules) is not reported here either. A build
+under a smaller catalogue prints which rules were turned off, so a quiet build
+is never quiet for a reason nothing on the screen gives.
 
 ## Caching
 
