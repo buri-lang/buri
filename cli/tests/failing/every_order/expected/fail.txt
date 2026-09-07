@@ -3,12 +3,15 @@ FAIL //lib/fan  test/fan.buri  "everyOrder reaches the sixth order of three task
     actual:   false
     expected: true
   the tasks completed in the order 2, 1, 0, order 6 of 6 — replay it with `tasks().seed(5)`
-  --> lib/fan/test/fan.buri:13:1
+  --> lib/fan/test/fan.buri:16:1
 FAIL //lib/fan  test/fan.buri  "a fault ends the block at the task it names"
   a task was failed by the plan: task(1): upstream went away
-  --> lib/fan/test/fan.buri:26:1
+  --> lib/fan/test/fan.buri:29:1
 FAIL //lib/fan  test/fan.buri  "a fault whose task is never reached fails the test"
   a fault was planned and never happened: task(4) fails "never reached"
-  --> lib/fan/test/fan.buri:36:1
+  --> lib/fan/test/fan.buri:39:1
+FAIL //lib/fan  test/fan.buri  "everyOrder over seven spawned tasks is refused"
+  everyOrder over 7 tasks is more runs of this block than a suite can finish: a fan-out that wide is anyOrder's question
+  --> lib/fan/test/fan.buri:48:1
 
-0 passed, 3 failed, 0 skipped (0.0s)
+0 passed, 4 failed, 0 skipped (0.0s)

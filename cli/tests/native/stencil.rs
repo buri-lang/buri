@@ -1821,6 +1821,7 @@ fn compile_corpus(path: &str) -> Compiled {
 /// excludes, each with its reason written beside it there.
 const CORPUS_COMPILES: &[&str] = &[
     "actor/counter.buri",
+    "actor/payloads.buri",
     "actor/scoped.buri",
     "calendar/date.buri",
     "calendar/duration.buri",
@@ -1869,6 +1870,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "semantics/http.buri",
     "semantics/traits.buri",
     "semantics/variance.buri",
+    "tasks/background.buri",
     "tasks/scope.buri",
     "text/bytes.buri",
     "text/hex.buri",
