@@ -662,13 +662,14 @@ a scope to a handler that spawns later. A library cannot spawn: it exposes a
 a loop ends by finding its socket closed or by asking an actor whether to carry
 on, because there is no way to unwind a task from outside it.
 
-Both carry `Alloc` beside `Tasks`, because `spawn` copies the task out of
-whatever arena it was written in and a scope drains its rounds through
-`parallel`. Rounds are why the platform table above covers a spawned task too,
-and why a spawned task that never ends starves the ones behind it under `buri
-run`: they are waiting for a round that never finishes. A task spawned *after*
-the body returned runs on the task that spawned it, which is what lets a page's
-handler spawn once `main` has gone.
+Both carry `Alloc` beside `Tasks`: `spawn` copies the task out of whatever arena
+it was written in, and a scope drains its rounds through `parallel`.
+
+Rounds are why the platform table above covers a spawned task too. They are also
+why a task that never ends starves the ones behind it under `buri run`: the
+round they wait for never finishes. And a task spawned *after* the body returned
+runs on the task that spawned it, which is what lets a page's handler spawn once
+`main` has gone.
 
 `core/actor` is the other half of concurrency: state that outlives one call,
 behind a mailbox. An actor is a *value*, an initial state and a
