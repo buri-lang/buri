@@ -2,7 +2,7 @@
 error: //cmd/site exports no `handle` [entry-not-found]
  --> cmd/site/BUILD.buri:4:47
   |
-4 |         { platform: CLOUDFLARE_WORKER  entry: "handle" },
+4 |         { platform: CLOUDFLARE_WORKER, entry: "handle" },
   |                                               ^^^^^^^^
   |
   = `main.buri` exports: fetch, main
@@ -49,8 +49,8 @@ error: //cmd/site exports no `handle` [entry-not-found]
 error: a context may not be constructed here [context-not-allowed]
   --> cmd/site/main.buri:26:15
    |
-26 |     let ctx = context { Alloc: host.alloc };
-   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+26 |     let ctx = context {
+   |               ^^^^^^^^^
    |
    = only in an entry's body, in a test source, or in a test-only module — and never inside a lambda, since a closure that could mint authority would make the capture rule meaningless
    = fix: build it in the entry and pass it down as a `ctx` parameter, or make this a test source, where a context may be built per test
