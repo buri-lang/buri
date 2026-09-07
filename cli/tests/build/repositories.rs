@@ -191,13 +191,14 @@ fn concurrency_and_memory() {
 /// JavaScript answer at all — there is no painter there. So the only tier that
 /// can ask this question is the one that links a real binary and runs it.
 ///
-/// Four cases, and each is one axis of the feature: the whole lifecycle over
-/// one picture, the range of every axis a snapshot has over fourteen, every way
-/// a comparison cannot be made, and the invocation — `buri test` with no target
-/// at all — that puts two packages' suites in one binary.
+/// Five cases, and each is one axis of the feature: the whole lifecycle over
+/// one picture; the range of every axis a snapshot has over fourteen; every way
+/// a comparison cannot be made; the invocation — `buri test` with no target at
+/// all — that puts two packages' suites in one binary; and the platform, where
+/// a `platforms: [JS]` suite runs the graph and is refused the picture.
 #[test]
 fn snapshots() {
-    run_corpus(&tests_dir().join("repositories/ui"), "ui", 4);
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 5);
 }
 
 /// The language server. Each case is a recorded session: requests in, decoded
