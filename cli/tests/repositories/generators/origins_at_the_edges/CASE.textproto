@@ -1,0 +1,39 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an origin is a byte range in a file the generator was handed, and the ends of that range are where a caret is easiest to get wrong: the first byte, the last one, a span that begins where the file ends, one well past it, and one naming a file this repository does not have"
+
+# Two lines. The five carets below are the whole of the case.
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "two_lines.txt"
+}
+
+# One byte and no newline, where the first byte and the last byte are the same
+# byte and every span past the end starts at 1.
+edit {
+  file: "cmd/app/units.txt"
+  replace: "count 7\nwidth 3\n"
+  with: "x"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "one_byte.txt"
+}
+
+# Nothing at all: an empty file has no byte to point at, so every one of the
+# five spans is the same empty span at offset zero.
+edit {
+  file: "cmd/app/units.txt"
+  replace: "x"
+  with: ""
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "empty.txt"
+}
