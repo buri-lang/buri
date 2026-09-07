@@ -143,6 +143,7 @@ joining; the template supplies the backticks.
 | `{candidates}` | The schemas that could claim an ambiguous proto type name, sorted and joined with `, or `. |
 | `{character}` | The character the lexer could not start a token with, as the source wrote it. |
 | `{choices}` | The finished list of the bare words a build-file field accepts. |
+| `{code}` | The code a generator asked to report under, which this toolchain has no page for. |
 | `{code_point}` | That character's scalar value, in the lexer's own `{:04X}` form. |
 | `{construct}` | The proto construct the reader refuses, by name (`service`). |
 | `{container}` | `` a `Result` `` or `` an `Option` ``. Used twice in the one sentence. |
@@ -180,6 +181,7 @@ joining; the template supplies the backticks.
 | `{literal}` | The literal exactly as the source wrote it — prefix, underscores and sign included. |
 | `{marker}` | Which marker a comment carries: `TODO`, `FIXME` or `HACK`. |
 | `{matched}` | How many values a pattern matched, where `{expected}` is how many the variant holds. |
+| `{message}` | A whole finished sentence somebody else wrote — today, a generator's own. |
 | `{method}` | The method looked up in, or supplied to, a type or a trait. |
 | `{methods}` | The `diagnostics::names` enumeration of the methods an `impl` is missing. |
 | `{module}` | The module path two `import` statements both name, unquoted — the template supplies the backticks. |
@@ -194,7 +196,7 @@ joining; the template supplies the backticks.
 | `{package}` | The label of the package the build-graph rule is reported against. |
 | `{package_path}` | A package's path from the repository root, with no leading `//` — every use already prefixes it. |
 | `{parent_package}` | The package that holds the colliding module. |
-| `{path}` | The module path an import wrote, or the schema path an `import` line spells. |
+| `{path}` | The module path an import wrote, the schema path an `import` line spells, or the labels a generator's tool reaches its own target through, joined with ` -> `. |
 | `{platform}` | The platform, spelled as the sentence wants it — `Platform::slug()` (`js`, `linux`) in prose, `Platform::proto()` (`JS`) where the sentence quotes a build file. |
 | `{platform_in_build_file}` | `Platform::proto()` — the spelling `test.platforms` uses (`JS`, `LINUX`). Two placeholders rather than one because the sentence and the build file disagree about case. |
 | `{platforms}` | The platforms a host effect is *not* allowed on, named inside the sentence — `Platform::sentence_phrase`, which writes the article and the plural (`the WEB platform`, `the MACOS and JS platforms`). |
@@ -222,6 +224,7 @@ joining; the template supplies the backticks.
 | `{to}` | The error type the function returns. |
 | `{to_package_path}` | The dependency's package path, for the `BUILD.buri` to edit. |
 | `{to_target}` | The label of the dependency that is not visible. |
+| `{tool}` | A `generators` entry's `tool`, exactly as the build file wrote it. |
 | `{trait}` | The trait, or the effect, the diagnostic is about — without backticks, which the templates carry. |
 | `{type}` | The rendered type, without backticks. |
 | `{user}` | Whoever needs the dependency: the importing file's path at the import site, the package's label at the resolution site. |
