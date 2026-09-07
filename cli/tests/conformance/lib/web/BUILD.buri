@@ -1,0 +1,14 @@
+library {
+    sources: []
+
+    test {
+        sources: ["test/document.buri"]
+
+        # JS only, for `lib/ui`'s reason and one more. The document a tree
+        # renders into is a runtime intrinsic and no native backend has one; and
+        # a website is a JavaScript artifact by construction — the two platforms
+        # it is built for are WEB and CLOUDFLARE_WORKER. `native::conformance`
+        # records the file as excluded, with that reason.
+        platforms: [JS]
+    }
+}
