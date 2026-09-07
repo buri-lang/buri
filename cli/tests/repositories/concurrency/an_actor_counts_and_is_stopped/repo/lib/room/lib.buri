@@ -1,3 +1,3 @@
 // The package's whole public surface.
 
-from "//lib/room/counter.buri" export { counter, CounterMessage };
+from "//lib/room/counter.buri" export { counter, CounterAnswer, CounterMessage };

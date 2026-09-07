@@ -214,7 +214,7 @@
 //!
 //! ```buri
 //! from "core/actor" import * as actor;
-//! from "core/actor" import { Actor, Reply };
+//! from "core/actor" import { Actor, Stepped };
 //! from "core/effect" import { Alloc, Listen, Sockets, Tasks };
 //! from "core/host" import * as host;
 //! from "core/net/http" import * as http;
@@ -223,19 +223,14 @@
 //!
 //! enum Counting {
 //!     Increment,
-//!     Get(Reply<Int>),
 //! }
 //!
-//! fn counter<C: Alloc + Tasks>(): Actor<C, Int, Counting> {
+//! fn counter<C: Alloc + Tasks>(): Actor<C, Int, Counting, Int> {
 //!     Actor {
 //!         state: 0,
 //!         step: fn(c, count, message) => {
 //!             match (message) {
-//!                 .Increment => count + 1,
-//!                 .Get(reply) => {
-//!                     let _answered = reply.answer(c, count);
-//!                     count
-//!                 },
+//!                 .Increment => Stepped { state: count + 1, answer: count + 1 },
 //!             }
 //!         },
 //!     }
@@ -256,8 +251,7 @@
 //!                 path: "/socket",
 //!                 onOpen: fn(c, _socket, _request) => actor.start(c, counter()),
 //!                 onMessage: fn(c, socket, counted, _message) => {
-//!                     let _posted = counted.send(c, .Increment);
-//!                     let count = counted.ask(c, fn(reply) => .Get(reply)).withDefault(0);
+//!                     let count = counted.sendMessage(c, .Increment).withDefault(0);
 //!                     let said = str.format(c, "messages so far: ${count}");
 //!                     let _sent = socket.send(c, .Text(said));
 //!                     counted

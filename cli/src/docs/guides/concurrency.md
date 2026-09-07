@@ -63,30 +63,33 @@ All three answer the same list, which is the point of fixing the order.
 
 ## An actor is a value
 
-An actor is an initial state and a step, and the enum it steps over is its
-protocol. Nothing else about it is addressable: the state is reachable only
-through the messages the enum declares.
+An actor is an initial state and a step, and two enums are its protocol: one for
+what you may send, one for what comes back. Nothing else about it is
+addressable, so the state is reachable only through the messages the enum
+declares.
 
 ```buri name=books
-from "core/actor" import { Actor, Reply };
+from "core/actor" import { Actor, Stepped };
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/io" import * as io;
 
 enum Ledger {
     Record(Int),
-    Total(Reply<Int>),
+    Total,
 }
 
-fn ledger<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Ledger> {
+enum Entered {
+    Recorded,
+    Cents(Int),
+}
+
+fn ledger<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Ledger, Entered> {
     Actor {
         state: 0,
         step: fn(c, total, message) => {
             match (message) {
-                .Record(cents) => total + cents,
-                .Total(reply) => {
-                    let _ = reply.answer(c, total).ignore();
-                    total
-                },
+                .Record(cents) => Stepped { state: total + cents, answer: .Recorded },
+                .Total => Stepped { state: total, answer: .Cents(total) },
             }
         },
         onStop: .Some(fn(c, total) => {
@@ -97,16 +100,17 @@ fn ledger<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Ledger> {
 }
 ```
 
-A variant carrying no `Reply` is a `send`. One carrying a `Reply<R>` is an `ask`
-that yields an `R`. So the pairing between a request and its answer is declared
-exactly once, in the enum. `onStop` is an `Option` a literal may leave out, and
+The step answers a `Stepped`: the state the next message sees, and the answer
+this one gets. A message nobody needs an answer to answers a variant that says
+so — `.Recorded` — so the pairing between a request and its answer is written
+once, in the two enums. `onStop` is an `Option` a literal may leave out, and
 leaving it out means no hook at all.
 
-The mailbox holds sixty-four messages and is not configurable. A `send` that
-finds it full runs the actor down before it answers, so the bound limits how
-much work may wait, never how much may arrive.
+The mailbox holds sixty-four messages and is not configurable. A send runs the
+mailbox down before it answers, so the bound is what limits how much work may
+wait for a driver busy somewhere else.
 
-## `send`, `ask`, and `stop`
+## `sendMessage` and `stop`
 
 ```buri run use=books
 from "core/actor" import * as actor;
@@ -119,12 +123,16 @@ export fn main(): Result<(), Str> {
         Tasks: host.tasks,
     };
     let books = actor.start(ctx, ledger());
-    let _ = books.send(ctx, .Record(450)).ignore();
-    let _ = books.send(ctx, .Record(1905)).ignore();
-    let running = books.ask(ctx, fn(reply) => .Total(reply)).withDefault(0);
+    let _ = books.sendMessage(ctx, .Record(450)).ignore();
+    let _ = books.sendMessage(ctx, .Record(1905)).ignore();
+    let running = match (books.sendMessage(ctx, .Total)) {
+        .Ok(.Cents(n)) => n,
+        .Ok(_other) => 0,
+        .Err(_gone) => 0,
+    };
     let _ = io.println(ctx, "running total ${running}").ignore();
     let _ = books.stop(ctx).ignore();
-    let after = books.send(ctx, .Record(1));
+    let after = books.sendMessage(ctx, .Record(1));
     let _ = io.println(ctx, "after stop: ${after.isErr()}").ignore();
     .Ok(())
 }
@@ -140,19 +148,16 @@ after stop: true
 It holds no context, so a lambda may capture one, and that is what lets an
 address be a request handler's shared state, or another actor's.
 
-`ask` takes the *constructor*, `fn(reply) => .Total(reply)` rather than
-`.Total`, because the compiler checks a bare variant name against the type it is
-used at, and there it is used at a function type. `stop` closes the mailbox,
-discards what is still in it, and runs `onStop` once with the final state. Every
-`send`, `ask` and second `stop` after that answers `.Err(.Stopped)`, which is
-the one way an actor operation fails.
+`stop` closes the mailbox, discards what is still in it, and runs `onStop` once
+with the final state. Every `sendMessage` and second `stop` after that answers
+`.Err(.Stopped)`, which is the one way an actor operation fails.
 
-**The actor steps on the task that drives it.** `send` posts and returns. `ask`
-posts and then runs the mailbox down until its reply is there. `stop` closes and
-then runs the hook. That is a scheduling decision rather than a semantic one:
-one sender's messages arrive in order, the actor steps each message exactly
-once, and `ask` sees the state its own message left. But it does mean an actor
-is not yet a way to get work done in the background.
+**The actor steps on the task that drives it.** `sendMessage` posts, runs the
+mailbox down until its own answer is there, and hands that answer back. `stop`
+closes and then runs the hook. That is a scheduling decision rather than a
+semantic one: one sender's messages arrive in order, the actor steps each
+message exactly once, and a send sees the state its own message left. But it
+does mean an actor is not yet a way to get work done in the background.
 
 ## Why the state goes behind a mailbox
 
@@ -171,9 +176,9 @@ handler holds an address, not a counter.
 
 ## Effects bound what a step may do
 
-`Actor<C, S, M>`'s `C` is the caller's context, exactly as `parallel`'s is. So a
-step may do anything the code around it could — allocate, print, read a clock,
-ask another actor — and nothing more. `ledger` above says
+`Actor<C, S, M, R>`'s `C` is the caller's context, exactly as `parallel`'s is.
+So a step may do anything the code around it could — allocate, print, read a
+clock, ask another actor — and nothing more. `ledger` above says
 `C: Alloc + Stdout + Tasks` because its `onStop` prints. One whose hook did not
 print would not name `Stdout`, and nothing a caller binds could add it.
 
@@ -198,7 +203,7 @@ test "a recorded amount is added to the running total" {
         Tasks: tasks(),
     };
     let step = ledger().step;
-    assert.eq(step(ctx, 450, .Record(1905)), 2355);
+    assert.eq(step(ctx, 450, .Record(1905)).state, 2355);
 }
 ```
 

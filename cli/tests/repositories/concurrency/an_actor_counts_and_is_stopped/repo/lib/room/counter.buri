@@ -1,6 +1,6 @@
 // A counter, as `core/actor`'s own module header writes one.
 
-from "core/actor" import { Actor, Reply };
+from "core/actor" import { Actor, Stepped };
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/io" import * as io;
 
@@ -9,12 +9,18 @@ export enum CounterMessage {
     /// Multiplies before it adds, so the *order* the messages arrived in is
     /// visible in the answer rather than only their number.
     Add(Int),
-    Get(Reply<Int>),
+    Get,
+}
+
+derive Eq, Show for CounterAnswer;
+export enum CounterAnswer {
+    Done,
+    Count(Int),
 }
 
 export fn counter<C: Alloc + Stdout + Tasks>(
     initial: Int,
-): Actor<C, Int, CounterMessage> {
+): Actor<C, Int, CounterMessage, CounterAnswer> {
     Actor {
         state: initial,
         onStop: .Some(fn(c, count) => {
@@ -23,12 +29,9 @@ export fn counter<C: Alloc + Stdout + Tasks>(
         }),
         step: fn(c, count, message) => {
             match (message) {
-                .Increment => count + 1,
-                .Add(n) => count * 10 + n,
-                .Get(reply) => {
-                    let _ = reply.answer(c, count).ignore();
-                    count
-                },
+                .Increment => Stepped { state: count + 1, answer: .Done },
+                .Add(n) => Stepped { state: count * 10 + n, answer: .Done },
+                .Get => Stepped { state: count, answer: .Count(count) },
             }
         },
     }

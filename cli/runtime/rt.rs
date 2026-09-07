@@ -1304,10 +1304,10 @@ pub unsafe extern "C" fn buri_rt_host_tasks_parallel(
 
 /// How many messages wait in a mailbox that asked for no number.
 ///
-/// It is **also** written in `core/actor` as `MAILBOX`, and the two must agree:
-/// the bound is enforced from both sides — this file refuses to take a message
-/// past it, and `core/actor::send` runs the mailbox down when it reaches it —
-/// so a bound only one side knew would be a bound the other could not respect.
+/// It is **also** written in `core/actor` as `MAILBOX`, and the two must agree.
+/// This file is what enforces the bound — a post past it waits — and the module
+/// is what quotes the number to a reader, so a number that could drift from
+/// this one is a claim nobody can check.
 /// `the_default_mailbox_is_the_one_core_actor_names` is that agreement as a
 /// test.
 pub const MAILBOX: i64 = 64;
@@ -1392,21 +1392,21 @@ fn actors() -> MutexGuard<'static, Vec<Mailbox>> {
     }
 }
 
-/// One `ask`'s answer, on its way back.
+/// One message's answer, on its way back.
 enum Answer {
     /// Opened by `replyOpen` and not yet answered.
     Waiting,
     /// Answered and not yet read.
     Ready(Held),
-    /// Read. A second `replyTake` answers `.None` from here, which is what
-    /// makes an answer arrive once.
+    /// Taken, answered or not. The generation moved at the same moment, so no
+    /// handle names this slot until `replyOpen` hands the index out again.
     Spent,
 }
 
 /// The reply slots, and the generation of each, beside the free list.
 ///
 /// **Reused, unlike an actor's slot, and the generation is why that is safe.**
-/// A server answering a million `ask`s opens a million reply slots, so a table
+/// A server answering a million messages opens a million reply slots, so a table
 /// that only grew would be a leak proportional to the program's uptime. A
 /// handle is `generation << 20 | index`, so a stale one — held past the answer
 /// it named — finds a generation that has moved on and is `.None` rather than
@@ -1474,10 +1474,10 @@ pub unsafe extern "C" fn buri_rt_actor_mailbox_open(ptr: *mut u8, len: u64, boun
 /// Thirty seconds, the same number `http.rs`, `tls.rs` and `net.rs` carry, and
 /// for the reason `net.rs` states as the rule: **every wait is bounded except
 /// the one a server is for**, and neither of these is one a server is for. It
-/// is not a number a correct program reaches — `core/actor::send` runs the
-/// mailbox down at the bound, so a single-task program never waits here at all
-/// — so it is priced as "long enough that reaching it is a bug" rather than as
-/// a latency budget.
+/// is not a number a correct program reaches — `core/actor::sendMessage` runs
+/// the mailbox down before it answers, so a single-task program never waits
+/// here at all — so it is priced as "long enough that reaching it is a bug"
+/// rather than as a latency budget.
 ///
 /// What expiry *means* is stated at each of the two callers, because the two
 /// answers differ and neither is a new variant: a program that wants to tell a
@@ -1521,9 +1521,9 @@ fn at(table: &mut [Mailbox], handle: i64) -> Option<&mut Mailbox> {
 /// waiting, or `.None` for a closed mailbox.
 ///
 /// **Waits while the mailbox is full**, on the permit `mailboxPop` gives back.
-/// `core/actor::send` runs the mailbox down after every post that reaches the
-/// bound, so a single-task program never reaches this wait; a second task
-/// posting into an actor somebody else drives is what does.
+/// `core/actor::sendMessage` runs the mailbox down after every post, so a
+/// single-task program never reaches this wait; a second task posting into an
+/// actor somebody else drives is what does.
 ///
 /// # Safety
 /// `ptr` is null or a live `[Carried<M>]` block the caller owns; `out` is
@@ -1562,9 +1562,9 @@ unsafe fn push_within(
     // `mailboxPop`, which takes the same lock.
     //
     // **Bounded**, which is [`ACTOR_DEADLINE`]'s row. `.None` is the answer to
-    // both endings, and it is the same `.Err(.Stopped)` `core/actor::send`
-    // renders for a closed mailbox — so a `send` that waited out the deadline
-    // is reported as a stop rather than as a deadlock. That is the honest limit
+    // both endings, and it is the same `.Err(.Stopped)`
+    // `core/actor::sendMessage` renders for a closed mailbox — so a post that
+    // waited out the deadline is reported as a stop rather than as a deadlock. That is the honest limit
     // of what can be said without a variant `core/actor` does not have, and it
     // is the right way round: the block is not taken, so the caller's own
     // release frees it, and a sender told "stopped" stops rather than retrying
@@ -1746,6 +1746,11 @@ fn reply_at(slots: &mut [(u64, Answer)], handle: i64) -> Option<&mut Answer> {
 
 /// `actor.replyPut(ctx, handle, value) -> Option<Int>` — the answer, once.
 ///
+/// `.None` for a slot already filled, and for one already taken: a step that
+/// answers a message whose sender gave up writes nothing, because the index it
+/// names may belong to somebody else's ask by now. The block is not taken on
+/// either path, so the caller still owns it.
+///
 /// # Safety
 /// `ptr` is null or a live `[Carried<R>]` block the caller owns; `out` is
 /// writable and aligned for an `i64`.
@@ -1768,7 +1773,14 @@ pub unsafe extern "C" fn buri_rt_actor_reply_put(
 }
 
 /// `actor.replyTake(ctx, handle) -> Option<[Carried<R>]>` — the answer, once,
-/// and the slot back for the next `ask`.
+/// and the slot back either way.
+///
+/// **A take spends the slot even when there was nothing in it.** One
+/// `sendMessage` opens one slot and takes it once, so a take that found no
+/// answer is a sender giving up rather than a sender that will come back — and
+/// a slot left `Waiting` would sit in the table for the life of the process.
+/// The generation moves with it, which is what stops a `replyPut` that arrives
+/// afterwards from writing into whatever ask the index now belongs to.
 ///
 /// # Safety
 /// `out` is writable and aligned for a [`BuriList`].
@@ -1777,21 +1789,15 @@ pub unsafe extern "C" fn buri_rt_actor_reply_take(handle: i64, out: *mut BuriLis
     let mut table = replies();
     let Some(slot) = reply_at(&mut table.slots, handle) else { return 0 };
     let held = match std::mem::replace(slot, Answer::Spent) {
-        Answer::Ready(held) => held,
-        // Put back exactly what was there. An unanswered slot stays
-        // unanswered — a `replyPut` still to come is the ordinary case, and
-        // spending it here would lose the answer — and a spent one stays
-        // spent.
-        other => {
-            *slot = other;
-            return 0;
-        }
+        Answer::Ready(held) => Some(held),
+        Answer::Waiting | Answer::Spent => None,
     };
     // The slot is free for reuse, at the next generation, so the handle just
     // spent names nothing from here on.
     let index = (handle as u64 & REPLY_INDEX_MASK) as usize;
     table.slots[index].0 = table.slots[index].0.wrapping_add(1);
     table.free.push(index);
+    let Some(held) = held else { return 0 };
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(held.give()) };
     crate::BURI_OK
@@ -1818,6 +1824,19 @@ mod tests {
 
     fn alone() -> MutexGuard<'static, ()> {
         match ONE_AT_A_TIME.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// The reply table is global too, and the two cases below ask what the
+    /// *table* did rather than only what one handle answered — which index came
+    /// back, and who got it next. So they take this first, and they are the only
+    /// cases in the crate that open a reply slot.
+    static ONE_REPLY_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    fn replying_alone() -> MutexGuard<'static, ()> {
+        match ONE_REPLY_AT_A_TIME.lock() {
             Ok(g) => g,
             Err(poisoned) => poisoned.into_inner(),
         }
@@ -3584,8 +3603,8 @@ mod tests {
     /// **A bounded mailbox actually blocks.**
     ///
     /// The acceptance case for the bound, and it is here rather than in Buri
-    /// because `core/actor::send` deliberately never reaches this wait — it
-    /// runs the mailbox down when a post fills it, so a single-task program
+    /// because `core/actor::sendMessage` deliberately never reaches this wait —
+    /// it runs the mailbox down before it answers, so a single-task program
     /// cannot see it. What can is a second carrier posting into an actor
     /// somebody else drives, which is what this drives directly.
     ///
@@ -3892,12 +3911,9 @@ mod tests {
     /// generation — so the handle that was just spent names nothing.
     #[test]
     fn a_reply_is_answered_once_and_its_handle_expires() {
+        let _alone = replying_alone();
         let slot = buri_rt_actor_reply_open();
         let mut out = nothing();
-        // Nothing there yet, and the read that found nothing does not spend it.
-        // SAFETY: a writable, aligned destination.
-        assert_eq!(unsafe { buri_rt_actor_reply_take(slot, &raw mut out) }, 0);
-
         let value = carried(42);
         let mut ack = 0i64;
         // SAFETY: a live one-element block, and a writable `i64`.
@@ -3943,6 +3959,60 @@ mod tests {
         // SAFETY: a writable, aligned destination.
         assert_eq!(unsafe { buri_rt_actor_reply_take(fresh, &raw mut back) }, crate::BURI_OK);
         drop_ref(&back);
+    }
+
+    /// **A slot nobody answered comes back too, and the handle that named it
+    /// stops naming anything.**
+    ///
+    /// One `sendMessage` opens one slot and takes it once, so a take that found
+    /// no answer is a sender giving up rather than a sender that will come
+    /// back. A slot left `Waiting` sat in the table for the life of the
+    /// process, which is one leaked entry per message an actor never got to.
+    /// And the step that finally runs afterwards must not write into whatever
+    /// ask the index belongs to by then, which is what the generation does.
+    #[test]
+    fn a_slot_nobody_answered_comes_back_and_its_handle_expires() {
+        let _alone = replying_alone();
+        let slot = buri_rt_actor_reply_open();
+        let mut out = nothing();
+        // Nothing in it, and the take says so — but it spends the slot.
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_reply_take(slot, &raw mut out) }, 0);
+
+        // The index is back: the next open takes it, at a handle of its own.
+        let fresh = buri_rt_actor_reply_open();
+        assert_eq!(
+            fresh & (REPLY_INDEX_MASK as i64),
+            slot & (REPLY_INDEX_MASK as i64),
+            "the abandoned slot was not given back"
+        );
+        assert_ne!(fresh, slot, "a reused slot answers a new handle");
+
+        // The late answer names nothing, so the ask that owns the index now
+        // keeps waiting rather than reading somebody else's value.
+        let late = carried(7);
+        let mut ack = 0i64;
+        // SAFETY: a live one-element block, and a writable `i64`.
+        assert_eq!(
+            unsafe { buri_rt_actor_reply_put(slot, late.ptr, late.len, &raw mut ack) },
+            0,
+            "a late answer landed in a slot that had already been given back"
+        );
+        drop_ref(&late);
+
+        // And the fresh handle still works.
+        let value = carried(9);
+        // SAFETY: a live one-element block, and a writable `i64`.
+        assert_eq!(
+            unsafe { buri_rt_actor_reply_put(fresh, value.ptr, value.len, &raw mut ack) },
+            crate::BURI_OK
+        );
+        drop_ref(&value);
+        // SAFETY: a writable, aligned destination.
+        assert_eq!(unsafe { buri_rt_actor_reply_take(fresh, &raw mut out) }, crate::BURI_OK);
+        // SAFETY: the block the runtime handed back, still counted here.
+        assert_eq!(unsafe { mark_of(&out) }, 9);
+        drop_ref(&out);
     }
 
     /// A handle that names nothing answers `.None` from every entry rather

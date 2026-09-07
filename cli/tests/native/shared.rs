@@ -1260,7 +1260,7 @@ pub fn conformance_corpus() -> PathBuf {
 pub fn counting_socket_server() -> String {
     format!(
         r#"from "core/actor" import * as actor;
-from "core/actor" import {{ Actor, Reply }};
+from "core/actor" import {{ Actor, Stepped }};
 from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -1270,19 +1270,14 @@ from "core/str" import * as str;
 
 enum Counting {{
   Increment,
-  Get(Reply<Int>),
 }}
 
-fn counter<C: Alloc + Tasks>(): Actor<C, Int, Counting> {{
+fn counter<C: Alloc + Tasks>(): Actor<C, Int, Counting, Int> {{
   Actor {{
     state: 0,
     step: fn(c, count, message) => {{
       match (message) {{
-        .Increment => count + 1,
-        .Get(reply) => {{
-          let _answered = reply.answer(c, count);
-          count
-        }},
+        .Increment => Stepped {{ state: count + 1, answer: count + 1 }},
       }}
     }},
   }}
@@ -1305,8 +1300,7 @@ export fn main(): Result<(), Str> {{
       path: "/socket",
       onOpen: fn(c, _socket, _request) => actor.start(c, counter()),
       onMessage: fn(c, socket, counted, _message) => {{
-        let _posted = counted.send(c, .Increment);
-        let count = counted.ask(c, fn(reply) => .Get(reply)).withDefault(0);
+        let count = counted.sendMessage(c, .Increment).withDefault(0);
         let said = str.format(c, "messages so far: ${{count}}");
         let _sent = socket.send(c, .Text(said));
         counted
@@ -1346,21 +1340,14 @@ export fn main(): Result<(), Str> {{
 ///
 /// F6 wrote that "a socket hook that `send`s into an actor is the *driver* of
 /// that actor for the duration of its own call, so a broadcast happens when
-/// somebody publishes". The first half is right and the second is not, and the
-/// reason is in `core/actor`'s `send`: it posts and returns, and it drives the
-/// mailbox down only when the post found it **crowded**. So a room driven by
-/// `send` alone steps nothing until something else drives it — `ask`, `stop`,
-/// or a sixty-fourth message — and a broadcast that used the note's literal
-/// spelling would arrive when the server shut down. That is F6's own stated
-/// cost ("an actor does not run *between* the calls that drive it") reaching
-/// its first caller, and it is not a bug in either module.
+/// somebody publishes". Both halves are true now: `sendMessage` posts, runs the
+/// mailbox down, and answers what the step answered, so the publish happens
+/// inside the hook that asked for it.
 ///
-/// So `Publish` carries a `Reply<Int>` and the hook **asks**: the answer is how
-/// many sockets the message was pushed to, the ask is what runs the mailbox
-/// down, and the publisher gets a receipt instead of a promise. Everything else
-/// is the note's — an actor holding `[Socket]`, sent to from a socket hook,
-/// pushing to sockets its own worker does not own. The day an actor gets a task
-/// of its own, `send` is the spelling again and nothing else here moves.
+/// The answer is how many sockets the message was pushed to, so the publisher
+/// gets a receipt instead of a promise. Everything else is the note's — an actor
+/// holding `[Socket]`, sent to from a socket hook, pushing to sockets its own
+/// worker does not own.
 ///
 /// It needs two sockets open at once, so it needs two workers, so it is an
 /// LLVM row rather than a pair: the frame-threaded backend runs a `parallel`
@@ -1369,7 +1356,7 @@ export fn main(): Result<(), Str> {{
 pub fn broadcasting_socket_server(members: usize) -> String {
     format!(
         r#"from "core/actor" import * as actor;
-from "core/actor" import {{ Actor, Reply }};
+from "core/actor" import {{ Actor, Stepped }};
 from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
@@ -1380,24 +1367,29 @@ from "core/net/server" import {{ Message, Socket }};
 enum Room {{
   Joined(Socket),
   Left(Socket),
-  Publish(Message, Reply<Int>),
+  Publish(Message),
 }}
 
-fn room<C: Alloc + Sockets + Tasks>(): Actor<C, [Socket], Room> {{
+fn room<C: Alloc + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {{
   Actor {{
     state: [],
     step: fn(c, members, message) => {{
       match (message) {{
-        .Joined(socket) => members.push(c, socket),
-        .Left(socket) => members.filter(c, fn(m) => m != socket),
-        .Publish(m, reply) => {{
+        .Joined(socket) => {{
+          let joined = members.push(c, socket);
+          Stepped {{ state: joined, answer: joined.len() }}
+        }},
+        .Left(socket) => {{
+          let left = members.filter(c, fn(m) => m != socket);
+          Stepped {{ state: left, answer: left.len() }}
+        }},
+        .Publish(m) => {{
           let _pushed = members.foldCtx(
             c,
             fn(inner, _sofar, socket) => socket.send(inner, m),
             (),
           );
-          let _answered = reply.answer(c, members.len());
-          members
+          Stepped {{ state: members, answer: members.len() }}
         }},
       }}
     }},
@@ -1421,18 +1413,16 @@ export fn main(): Result<(), Str> {{
     websocket: .Some(server.WebSocket {{
       path: "/socket",
       onOpen: fn(c, socket, _request) => {{
-        let _joined = members.send(c, .Joined(socket));
+        let _joined = members.sendMessage(c, .Joined(socket));
         socket
       }},
       onMessage: fn(c, _socket, mine, message) => {{
-        let reached = members
-          .ask(c, fn(reply) => .Publish(message, reply))
-          .withDefault(0);
+        let reached = members.sendMessage(c, .Publish(message)).withDefault(0);
         let _said = io.println(c, "published to ${{reached}}").ignore();
         mine
       }},
       onClose: fn(c, _socket, mine, _reason) => {{
-        let _left = members.send(c, .Left(mine));
+        let _left = members.sendMessage(c, .Left(mine));
         ()
       }},
     }}),

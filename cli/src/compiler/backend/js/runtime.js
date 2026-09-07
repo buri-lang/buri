@@ -2236,7 +2236,7 @@ function $host_HostProc_exitWith(self, code) {
 //
 // The mailbox, the state and the reply slots. Nine functions, and between them
 // they are the same table `cli/runtime/rt.rs` holds — one queue per actor, one
-// state beside it, one baton that says who may step it, and a slot per `ask`.
+// state beside it, one baton that says who may step it, and a slot per message.
 //
 // Everything crosses as a one-element list, which is what makes the native
 // half possible at all (a `[T]` is two words whatever `T` is) and costs nothing
@@ -2324,7 +2324,7 @@ function $actor_statePut(c, handle, state) {
 }
 
 // The reply slots, reused behind a generation, exactly as the native table
-// reuses them: a server answering a million `ask`s would otherwise grow a
+// reuses them: a server answering a million messages would otherwise grow a
 // table for the length of its uptime, and a stale handle must name nothing
 // rather than somebody else's answer.
 const $replies = { slots: [], free: [] };
@@ -2359,15 +2359,20 @@ function $actor_replyPut(c, handle, value) {
   return $some(0n);
 }
 
+// A take spends the slot even when there was nothing in it: one `sendMessage`
+// opens one slot and takes it once, so an empty take is a sender giving up and
+// the slot goes back either way. The generation moves with it, so a `replyPut`
+// that arrives afterwards writes nothing.
 function $actor_replyTake(c, handle) {
   const slot = $replyAt(handle);
-  if (slot === undefined || slot.state !== 1) return undefined;
+  if (slot === undefined) return undefined;
+  const answered = slot.state === 1;
   const value = slot.value;
   slot.state = 2;
   slot.value = undefined;
   slot.generation = slot.generation + 1n;
   $replies.free.push(Number(handle & $REPLY_INDEX_MASK));
-  return $some(value);
+  return answered ? $some(value) : undefined;
 }
 
 // --- The reactive graph -----------------------------------------------------
