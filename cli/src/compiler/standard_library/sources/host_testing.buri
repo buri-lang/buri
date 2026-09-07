@@ -119,6 +119,13 @@
 //! assertion about every order rather than about one. A seed is the order's own
 //! number, so a failure names a line that replays it.
 //!
+//! **It covers `scope` and `spawn` too, and needs no second builder to.** A
+//! scope collects what was spawned and runs a round of it through
+//! `Tasks.parallel`, so the order the double chooses for a `parallel` is the
+//! order the spawned tasks run in, and `calls()` reports them the way it reports
+//! any others. Nothing here waits on real time either: a task that sleeps sleeps
+//! on `clock()`, which moves a counter.
+//!
 //! ## `arguments`, and the name that had to move to make room for it
 //!
 //! Every builder here is spelled exactly as the design note writes it, and
@@ -1421,6 +1428,11 @@ impl NetCall {
 /// per completion order. Nothing here is concurrent — a double that raced would be
 /// the thing it exists to remove — so a task runs to completion before the next
 /// one starts, and `calls()` reports them in that order.
+///
+/// **A task `core/tasks`'s `spawn` queued is one of them.** A scope runs a round
+/// of what was spawned through `Tasks.parallel`, so this is the double that
+/// decides which spawned task goes first, and a test of background work writes
+/// that order down instead of hoping for it.
 ///
 /// ## The seed is the order's own number
 ///
