@@ -270,6 +270,13 @@ const PACKAGES: &[Case] = &[
     // a *native* case in the way `memory/copyout.buri` is: on JavaScript the
     // assertions are answers, and here they are answers plus the pages.
     included("actor/scoped.buri"),
+    // `core/lazy`, whose whole claim on a native build is that it does
+    // nothing: `middle::chunks` replaces every `load(f)` with `f` where there
+    // is no second file to fetch. So this is the file that says the identity
+    // holds here — a divergence would be the JavaScript run and this one
+    // disagreeing about what `load` answers, which is exactly what a
+    // conformance corpus is for.
+    included("lazy/load.buri"),
     // `core/tasks`'s background half, through the six runtime entries that
     // hold a spawned task by its two words. In for `actor/counter.buri`'s
     // reason exactly — the entries are in both runtime tables, and every

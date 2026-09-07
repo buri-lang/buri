@@ -104,16 +104,24 @@
 //!
 //! `Client` has a `url` and no header list. A browser's `WebSocket` cannot send
 //! request headers at all — that is the platform's rule and not this module's —
-//! so a header list here would be a field that worked on two platforms out of
-//! four. A program that has to authenticate puts the token in the query string,
-//! which is what every browser client does, and reads what it was given back off
-//! the response in `onOpen`.
+//! so a header list here would be a field that worked on the two native
+//! platforms and nowhere else. A program that has to authenticate puts the token
+//! in the query string, which is what every browser client does, and reads what
+//! it was given back off the response in `onOpen`.
 //!
-//! ## On a page
+//! ## On a page, and in a worker
 //!
 //! `connect` follows `ui.mount`: it suspends without holding the event loop, so
 //! a page that mounted an interface and then dialled a socket goes on rendering
-//! while the socket is idle. A pushed frame wakes it exactly as a click does.
+//! while the socket is idle. A pushed frame wakes it exactly as a click does. A
+//! worker dials the same way while it is answering a request.
+//!
+//! What differs there is who writes the handshake. On `LINUX` and `MACOS` this
+//! runtime writes it and checks every clause of the answer. Everywhere else the
+//! platform's own `WebSocket` does, so how strictly a bad `101` is refused is
+//! that engine's decision, and `Connected.headers` carries what the engine
+//! exposes — the negotiated subprotocol and extensions — rather than the head
+//! the server sent.
 
 from "core/effect" import {
     Connected, Received, Response, ServeError, Sockets, WebSocketClient,

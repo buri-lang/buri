@@ -579,7 +579,7 @@ export effect Listen {
 /// socket now and only one of them is a server's. `listenUpgrade` mints one on
 /// `LINUX` and `MACOS`; `WebSocketClient.connectSocket` mints one everywhere, a
 /// page included. So this effect is granted wherever *either* half is, which
-/// today is all four platforms. It used to be granted with `Listen` and only
+/// today is every one of them. It used to be granted with `Listen` and only
 /// with it, and the sentence that read "a page neither accepts connections nor
 /// holds one to push on" was true right up until a page could dial one.
 ///
@@ -629,7 +629,7 @@ export effect Sockets {
 /// minted here is the same inert handle a server's is, so `socket.send` and
 /// `socket.close` are the same two methods over the same effect, and a client
 /// that pushes says `C: WebSocketClient + Sockets` where it is written. That is
-/// why `Sockets` is granted on all four platforms now and this one is too: the
+/// why `Sockets` is granted on every platform now and this one is too: the
 /// authority to write on a socket is worth having wherever a socket can be
 /// obtained, and a page can obtain one by dialling even though it can never
 /// accept one.
@@ -639,10 +639,11 @@ export effect Sockets {
 /// bound beside this one shares, and `receive` was the word `Listen` already
 /// declined to take.
 ///
-/// **Granted on LINUX, MACOS, JS and WEB** — every platform. Dialling out is
-/// what a page does; it is holding a port open that a page cannot do. On WEB
-/// the two methods suspend without holding the event loop, which is the same
-/// thing that let `Net.fetch` onto a page.
+/// **Granted on LINUX, MACOS, JS, WEB and CLOUDFLARE_WORKER** — every platform.
+/// Dialling out is what a page does; it is holding a port open that a page
+/// cannot do, and a worker is in the same position. On WEB and
+/// CLOUDFLARE_WORKER the two methods suspend without holding the event loop,
+/// which is the same thing that let `Net.fetch` onto a page.
 export effect WebSocketClient {
     /// Dials `url` and completes the opening handshake, answering the socket and
     /// the response that opened it.
@@ -655,6 +656,13 @@ export effect WebSocketClient {
     /// answered something other than `101`, and a handshake whose
     /// `sec-websocket-accept` did not check out are `.Err(.Transport)` with a
     /// sentence saying which.
+    ///
+    /// **On LINUX and MACOS this runtime writes the handshake and checks every
+    /// clause of the answer itself.** Everywhere else the platform's own
+    /// `WebSocket` owns it, and how strictly it checks is that engine's
+    /// decision — `node` refuses a `101` that signs another handshake's key and
+    /// `bun` accepts it. A page never sees the key it sent, so there is nothing
+    /// here to check it with.
     ///
     /// **Headers and a subprotocol are not arguments here.** A program that
     /// wants either builds the URL and reads the answer: `Connected` carries the

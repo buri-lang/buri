@@ -666,6 +666,523 @@ await say(new Request("https://example.com/", { method: "PUT", body: "ignored" }
     );
 }
 
+/// **When a `core/lazy` chunk is fetched**, asked of a running artifact.
+///
+/// `build::repositories`' `lazy_chunks` case reads the split off the two files
+/// a build wrote. What it cannot see is the half the feature exists for: that
+/// the chunk is not fetched by a request that never reaches the `load`. This is
+/// the driver-module pattern
+/// [`a_worker_answers_the_platforms_request_with_the_platforms_response`] uses,
+/// for the same reason — a worker is called per request, so one process can
+/// take two paths through one artifact.
+///
+/// **The chunk file is deleted between the two runs**, which is the only
+/// evidence that cannot be faked by a program that merely did not print. A run
+/// with no chunk on disk answers `/` and fails `/heavy`; with the chunk there,
+/// both answer. An artifact that fetched its chunks at start-up would fail the
+/// first run's `/` as well, and one that fetched nothing would pass `/heavy`
+/// without the file.
+#[test]
+fn a_chunk_is_fetched_only_where_the_program_asks_for_it() {
+    let scratch = Scratch::repo("lazy-when-fetched");
+    scratch.write(
+        "cmd/site/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        "cmd/site/main.buri",
+        r#"
+from "core/effect" import { Alloc, Request, Response };
+from "core/host" import * as host;
+from "core/lazy" import * as lazy;
+from "core/net/http" import * as http;
+from "core/str" import * as str;
+
+fn onlyTheChunkReachesThis<C: Alloc>(ctx: C, path: Str): Str {
+  str.format(ctx, "heavy ${path}")
+}
+
+fn heavy<C: Alloc>(ctx: C, path: Str): Str {
+  onlyTheChunkReachesThis(ctx, path)
+}
+
+export fn fetch(request: Request): Response {
+  let ctx = context { Alloc: host.alloc };
+  match (request.path()) {
+    "/heavy" => http.text(ctx, lazy.load(heavy)(ctx, request.path())),
+    other => http.text(ctx, other),
+  }
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/site"]).ok();
+
+    let artifact = scratch.path(".buri/out/cloudflare-worker/cmd/site/fetch.mjs");
+    let chunk = artifact.with_file_name("fetch.0.mjs");
+    let held = std::fs::read(&chunk).expect("the build wrote a chunk beside the module");
+
+    let driver = scratch.write(
+        "drive.mjs",
+        r#"
+import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
+
+const say = async (path) => {
+  try {
+    const answer = await worker.fetch(new Request("https://example.com" + path));
+    console.log(await answer.text());
+  } catch (e) {
+    console.log("no chunk");
+  }
+};
+
+await say("/home");
+await say("/heavy");
+"#,
+    );
+
+    let run = || {
+        let out = Command::new(js_runtime())
+            .arg(&driver)
+            .output()
+            .expect("the javascript runtime runs");
+        String::from_utf8_lossy(&out.stdout).to_string()
+    };
+
+    std::fs::remove_file(&chunk).expect("the chunk is removable");
+    assert_eq!(
+        run(),
+        "/home\nno chunk\n",
+        "a request that never reaches the `load` needs no chunk, and one that does needs it"
+    );
+
+    std::fs::write(&chunk, &held).expect("the chunk goes back");
+    assert_eq!(run(), "/home\nheavy /heavy\n", "and with the chunk there, both answer");
+}
+
+/// A page that mounts an interface and then dials a socket, driven by the
+/// browser's own half.
+///
+/// **The claim the proposal makes about WEB, and the only tier that can check
+/// it.** `connect` follows `ui.mount`: it suspends without holding the event
+/// loop, so a page that mounted an interface and then dialled goes on running
+/// while the socket is idle. Nothing about that is visible in a table of
+/// generated code, and no `buri` command runs a page — so this is the platform's
+/// own side of it, a `WebSocket` double whose events arrive on timers.
+///
+/// **The double's log is the evidence, and it is ordered by construction.** The
+/// dial schedules everything that follows it, each on its own delay — a tick at
+/// 10ms, the open at 20, a tick at 30, a message at 40, a tick at 50, the close
+/// at 60 — so the order is the engine's timer queue rather than a race with
+/// however long this host took to load the artifact. What the log then shows is
+/// the page's own `send` sitting *between two ticks*: the hook ran and the event
+/// loop had its other work back before the next one. A `connect` that held the
+/// loop could not produce that log at all; it could not even reach the open,
+/// because the timer that delivers it would never run.
+///
+/// The URL is the second half of the row. `wss://` reaches the constructor
+/// unchanged, so the scheme a program wrote is the scheme the platform dialled.
+#[test]
+fn a_page_mounts_an_interface_and_then_dials_a_socket() {
+    let scratch = Scratch::repo("page-dials");
+    scratch.write(
+        "cmd/page/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: WEB, entry: \"main\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        "cmd/page/main.buri",
+        r#"
+from "core/effect" import { Alloc, Sockets, Stdout, WebSocketClient };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Sockets: host.sockets,
+    Stdout: host.stdout,
+    Ui: host.ui,
+    WebSocketClient: host.websocketClient,
+  };
+  match (ui.mount(ctx, ui.region(.Main, [], [ui.heading(1, .Const("live"))]), [])) {
+    .Err(why) => .Err(why),
+    .Ok(_mounted) => {
+      let _said = io.println(ctx, "mounted").ignore();
+      match (websocket.connect(ctx, feed())) {
+        .Err(e) => .Err(e.detail),
+        .Ok(reason) => {
+          let _ended = io.println(ctx, "page ended ${reason}").ignore();
+          .Ok(())
+        },
+      }
+    },
+  }
+}
+
+fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(): Client<C, Int> {
+  Client {
+    url: "wss://example.test/feed",
+    onOpen: fn(c, socket, response) => {
+      let _said = io.println(c, "page opened ${response.status}").ignore();
+      let _sent = socket.send(c, .Text("subscribe"));
+      0
+    },
+    onMessage: fn(c, _socket, seen, message) => {
+      match (message) {
+        .Text(text) => {
+          let _said = io.println(c, "page heard ${text}").ignore();
+          seen + 1
+        },
+        .Binary(_data) => seen,
+      }
+    },
+    onClose: fn(c, _socket, seen, reason) => {
+      io.println(c, "page closed after ${seen} ${reason}").ignore()
+    },
+  }
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/page"]).ok();
+
+    let driver = scratch.write(
+        "drive.mjs",
+        r#"
+// The browser's `WebSocket`, as much of it as a page uses, with a log of its
+// own. Every event arrives on a timer, so the page is awaiting a promise the
+// event loop has to reach — a `connect` that held the loop would never see one.
+//
+// The whole schedule is set up inside the constructor, so the log is ordered
+// relative to *the dial* rather than to however long this engine took to load
+// the artifact. Timers scheduled together fire in delay order, so the sequence
+// below is the sequence, on a loaded machine as much as an idle one.
+const log = [];
+let ticks = 0;
+const tick = () => log.push(`tick ${(ticks += 1)}`);
+globalThis.WebSocket = class {
+  constructor(url) {
+    log.push(`dialled ${url}`);
+    this.protocol = "feed.v1";
+    this.extensions = "";
+    setTimeout(tick, 10);
+    setTimeout(() => this.onopen({}), 20);
+    setTimeout(tick, 30);
+    setTimeout(() => this.onmessage({ data: "one" }), 40);
+    setTimeout(tick, 50);
+    setTimeout(() => this.onclose({ code: 1000, wasClean: true }), 60);
+  }
+  send(data) {
+    log.push(`sent ${data}`);
+  }
+  close(code) {
+    log.push(`closed ${code}`);
+  }
+};
+
+await import("./.buri/out/web/cmd/page/main.mjs");
+console.log(log.join("\n"));
+"#,
+    );
+
+    let out = Command::new(js_runtime())
+        .arg(&driver)
+        .output()
+        .expect("the javascript runtime runs");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "the page did not finish:\n{stdout}{stderr}");
+
+    for line in [
+        "mounted",
+        "page opened 101",
+        "page heard one",
+        "page closed after 1 .Normal",
+        "page ended .Normal",
+    ] {
+        assert!(stdout.contains(line), "the page never said `{line}`:\n{stdout}{stderr}");
+    }
+    // The double's own log, in full. The `sent subscribe` between tick 1 and
+    // tick 2 is the whole claim: the page's `onOpen` ran and the event loop had
+    // the next timer before the socket was done. Nothing calls `close`, because
+    // the far side is what ended this socket.
+    let seen = "dialled wss://example.test/feed\n\
+                tick 1\n\
+                sent subscribe\n\
+                tick 2\n\
+                tick 3";
+    assert!(
+        stdout.contains(seen),
+        "the page held the event loop, or dialled something else:\n{stdout}{stderr}"
+    );
+}
+
+/// A one-shot server that answers one connection with `answer`, or a port with
+/// nothing behind it when `answer` is empty.
+///
+/// Two of the ways a dial fails, as listeners a test holds: a port nobody is on,
+/// and a server that answers something other than `101`. Neither is a handshake
+/// a Buri server can be made to write, so the far side has to be written here.
+fn one_answer(answer: &'static str) -> (u16, Option<std::thread::JoinHandle<()>>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
+    let port = listener.local_addr().expect("the bound port").port();
+    if answer.is_empty() {
+        // Bound, read back, and dropped: a port this machine really did hand
+        // out a moment ago, which is a stronger arrangement than picking a
+        // number and hoping nothing holds it.
+        return (port, None);
+    }
+    let serving = std::thread::spawn(move || {
+        let patience = std::time::Duration::from_secs(20);
+        let Ok((mut socket, _from)) = listener.accept() else { return };
+        let _read = socket.set_read_timeout(Some(patience));
+        let _written = socket.set_write_timeout(Some(patience));
+        let mut head: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 512];
+        while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+            match socket.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+            }
+        }
+        let _sent = socket.write_all(answer.as_bytes());
+        let _flushed = socket.flush();
+    });
+    (port, Some(serving))
+}
+
+/// **A dial that cannot open is `.Transport` on the JavaScript backend too, and
+/// against real sockets.**
+///
+/// `agreement.rs` pins the refusal that needs no server — a scheme no platform
+/// speaks — through every pipeline at once. These two need one: a port nobody
+/// holds, and a server that answers `404` rather than switching protocols. The
+/// natives run the same two as linked programs in `native::e2e`; this is them
+/// through `node`'s or `bun`'s own `WebSocket`, which is the client a page and a
+/// worker dial with too.
+///
+/// **A fact about the attempt is `.Transport`; a fact about the platform is
+/// `.Unsupported`.** A browser reports both of these the same way — an `error`
+/// before the socket opened — and what a program can act on is that the socket
+/// never opened, which the silent hooks are the other half of.
+///
+/// **The third native refusal is deliberately not here.** A `101` signing
+/// another handshake's key is refused by `node` and opened by `bun`, because the
+/// check belongs to the engine's own `WebSocket` and not to anything this
+/// runtime writes: a page never sees the key it sent. `design/native/
+/// DECISIONS.md` carries that as a row rather than this file carrying it as an
+/// assertion two engines disagree about.
+#[test]
+fn a_javascript_client_is_refused_when_a_dial_cannot_open() {
+    let scratch = Scratch::repo("js-dial-refused");
+    scratch.write(
+        "cmd/dial/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: JS, entry: \"main\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        "cmd/dial/main.buri",
+        r#"
+from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Env: host.env,
+    Sockets: host.sockets,
+    Stdout: host.stdout,
+    WebSocketClient: host.websocketClient,
+  };
+  // Three calls rather than a `mapCtx`: a lambda that suspends is not a thing a
+  // list combinator awaits today, and what this row is about is the answer each
+  // dial gives.
+  let ports = env.args(ctx);
+  let _nobody = dialling(ctx, ports.get(0).withDefault("0"));
+  let _not101 = dialling(ctx, ports.get(1).withDefault("0"));
+  .Ok(())
+}
+
+/// One dial, and the one line it is worth. `errorText` is the constant per
+/// variant, so what varies between the three is the cause and nothing else.
+fn dialling<C: Alloc + Sockets + Stdout + WebSocketClient>(ctx: C, port: Str): () {
+  let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
+  match (websocket.connect(ctx, silent(url))) {
+    .Err(e) => {
+      let _said = io.println(ctx, "refused ${e.cause}").ignore();
+      ()
+    },
+    .Ok(reason) => {
+      let _said = io.println(ctx, "opened, and ended ${reason}").ignore();
+      ()
+    },
+  }
+}
+
+/// Hooks that would announce themselves if they ran. None of them does.
+fn silent<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str): Client<C, Int> {
+  Client {
+    url: url,
+    onOpen: fn(c, _socket, _response) => {
+      let _said = io.println(c, "a hook ran").ignore();
+      0
+    },
+    onMessage: fn(_c, _socket, seen, _message) => seen + 1,
+    onClose: fn(c, _socket, _seen, _reason) => io.println(c, "a hook ran").ignore(),
+  }
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/dial"]).ok();
+
+    let (nobody, none) = one_answer("");
+    assert!(none.is_none(), "a port with nothing behind it has no server thread");
+    let (not_101, answering) =
+        one_answer("HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n");
+
+    let out = Command::new(js_runtime())
+        .arg(scratch.path(".buri/out/js/cmd/dial/main.mjs"))
+        .arg(nobody.to_string())
+        .arg(not_101.to_string())
+        .output()
+        .expect("the javascript runtime runs");
+    for server in [answering].into_iter().flatten() {
+        server.join().expect("the one-shot server finished");
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "the client did not finish:\n{stdout}{stderr}");
+    assert_eq!(
+        stdout,
+        "refused .Transport\nrefused .Transport\n",
+        "a dial that could not open answered something else, or a hook ran:\n{stderr}"
+    );
+}
+
+/// A worker that dials a socket while answering a request.
+///
+/// `WebSocketClient` and `Sockets` are granted on `CLOUDFLARE_WORKER` like every
+/// other platform, and this is what that grant buys: a worker handed a request
+/// dials somebody else's socket, reads what comes back, and answers with it.
+///
+/// The driver is the platform's half — the worker's default export, a real
+/// `Request`, a real `Response` — with the same `WebSocket` double the page row
+/// uses. A worker parks on the dial exactly as a page does, which is what
+/// `$fetchEntry` awaiting the entry is for.
+#[test]
+fn a_worker_dials_a_socket_while_it_answers_a_request() {
+    let scratch = Scratch::repo("worker-dials");
+    scratch.write(
+        "cmd/relay/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        "cmd/relay/main.buri",
+        r#"
+from "core/effect" import { Alloc, Request, Response, Sockets, WebSocketClient };
+from "core/host" import * as host;
+from "core/net/http" import * as http;
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+from "core/str" import * as str;
+
+export fn fetch(request: Request): Response {
+  let ctx = context {
+    Alloc: host.alloc,
+    Sockets: host.sockets,
+    WebSocketClient: host.websocketClient,
+  };
+  match (websocket.connect(ctx, relaying(request.path()))) {
+    .Err(e) => http.text(ctx, str.format(ctx, "no socket: ${e.detail}")),
+    .Ok(reason) => http.text(ctx, str.format(ctx, "ended ${reason}")),
+  }
+}
+
+/// The three hooks, over a socket a worker dialled.
+///
+/// A worker has nowhere to print, so what the far side said reaches the world
+/// the only way it can: `onMessage` pushes it back on the socket, and the
+/// double's own log is where the test reads it.
+fn relaying<C: Alloc + Sockets + WebSocketClient>(path: Str): Client<C, Int> {
+  Client {
+    url: "wss://example.test/relay",
+    onOpen: fn(c, socket, _response) => {
+      let _sent = socket.send(c, .Text(str.format(c, "asking ${path}")));
+      0
+    },
+    onMessage: fn(c, socket, seen, message) => {
+      match (message) {
+        .Text(text) => {
+          let _sent = socket.send(c, .Text(str.format(c, "heard ${text}")));
+          seen + 1
+        },
+        .Binary(_data) => seen,
+      }
+    },
+    onClose: fn(_c, _socket, _seen, _reason) => (),
+  }
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/relay"]).ok();
+
+    let driver = scratch.write(
+        "drive.mjs",
+        r#"
+import worker from "./.buri/out/cloudflare-worker/cmd/relay/fetch.mjs";
+
+const log = [];
+let live = null;
+globalThis.WebSocket = class {
+  constructor(url) {
+    log.push(`dialled ${url}`);
+    this.protocol = "";
+    this.extensions = "";
+    live = this;
+    // The whole exchange, on timers: the worker parks on each step, so nothing
+    // here runs unless the event loop is free.
+    setTimeout(() => live.onopen({}), 5);
+    setTimeout(() => live.onmessage({ data: "pong" }), 15);
+    setTimeout(() => live.onclose({ code: 1000, wasClean: true }), 25);
+  }
+  send(data) {
+    log.push(`sent ${data}`);
+  }
+  close(code) {
+    log.push(`closed ${code}`);
+  }
+};
+
+const answer = await worker.fetch(new Request("https://example.com/rooms/9"));
+console.log(`${answer.status} ${await answer.text()}`);
+console.log(log.join("\n"));
+"#,
+    );
+
+    let out = Command::new(js_runtime())
+        .arg(&driver)
+        .output()
+        .expect("the javascript runtime runs");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "the worker did not answer:\n{stdout}{stderr}");
+    assert_eq!(
+        stdout,
+        "200 ended .Normal\n\
+         dialled wss://example.test/relay\n\
+         sent asking /rooms/9\n\
+         sent heard pong\n",
+        "a worker did not dial, or lost what it heard:\n{stderr}"
+    );
+}
+
 /// A website, both halves, driven the way the two platforms drive them.
 ///
 /// **The top of what a website can be asked.** The repository is
@@ -676,54 +1193,469 @@ await say(new Request("https://example.com/", { method: "PUT", body: "ignored" }
 /// `fetch` handed a real `Request`, and the page's `main` imported on top of a
 /// document that already holds what the worker sent.
 ///
-/// Three claims, and the driver prints one line for each so a wrong answer
-/// names which:
+/// The document double parses that markup the way a browser does — one run of
+/// text per run, however many the tree that wrote it had — and counts every
+/// node it is asked to make. So "the page resumed on the markup" is a number
+/// and a comparison rather than an impression.
+///
+/// Four claims, and the driver prints a line for each so a wrong answer names
+/// which:
 ///
 ///  * the worker answers HTML, with the tree rendered into it and the state it
 ///    rendered from beside it;
-///  * the page picks that state up, and the address bar it is at;
-///  * and it re-renders nothing — the markup the worker sent is the markup the
-///    reader is still looking at, and the document was never touched.
+///  * the page picks that state up, and the address it is at;
+///  * it builds nothing — the markup after the resume is the markup that
+///    arrived, node for node;
+///  * and the button works. A press writes the signal the page made and the
+///    label the *server* wrote changes, which is the whole of what resuming is
+///    for.
+///
+/// Then the failure beside it: the same page resumed at an address the server
+/// did not render, so the tree and the markup disagree. It answers `.Err`, and
+/// the artifact exits 1 with the sentence.
 #[test]
 fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     let site = tests_dir().join("repositories/concurrency/website/repo");
     let scratch = Scratch::copy_of("website", &site);
     scratch.run(&["build", "//cmd/site"]).ok();
 
-    // The document double is the browser's half: a body that already holds the
-    // worker's markup, the state script the worker embedded, and an address.
-    // Every way of changing a document counts what it was asked to do, so
-    // "nothing was re-rendered" is a number rather than an impression.
-    let driver = scratch.write(
-        "drive.mjs",
-        r#"
+    let driver = scratch.write("drive.mjs", WEBSITE_DRIVER);
+    let drive = |at: &str| {
+        let out = Command::new(js_runtime())
+            .arg(&driver)
+            .arg(at)
+            .output()
+            .expect("the javascript runtime runs");
+        (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    };
+
+    let (code, stdout, stderr) = drive("/");
+    assert_eq!(code, 0, "the website did not answer:\n{stdout}{stderr}");
+
+    let sent = "<main><h1>Buri</h1>visitors: 3\
+                <button type=\"button\">say thanks</button></main>\
+                <script id=\"buri-state\" type=\"application/json\">\
+                {\"title\":\"Buri\",\"visitors\":3}</script>";
+    let pressed = sent.replace(">say thanks<", ">thanks<");
+    assert_eq!(
+        stdout,
+        format!(
+            "200 text/html; charset=utf-8\n\
+             {sent}\n\
+             resumed / {{\"title\":\"Buri\",\"visitors\":3}}\n\
+             made 0 elements and 0 runs of text\n\
+             {sent}\n\
+             {pressed}\n"
+        ),
+        "the website lost a half:\n{stderr}"
+    );
+
+    // The failure. `/about` is a page the server did not send, so the tree the
+    // page builds is not the markup in front of it.
+    let (code, stdout, stderr) = drive("/about");
+    assert_eq!(code, 1, "a resume onto markup it does not match must fail:\n{stdout}{stderr}");
+    assert!(
+        stderr.contains("this page is not the markup the server sent"),
+        "and it must say so: {stderr}"
+    );
+}
+
+/// The browser's half of
+/// [`a_website_is_rendered_by_its_worker_and_resumed_by_its_page`]: a document
+/// holding what the worker sent, and the handful of operations the runtime asks
+/// of one.
+const WEBSITE_DRIVER: &str = r##"
 import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
 
+const at = process.argv[2];
 const answer = await worker.fetch(new Request("https://example.com/"));
 const document_ = await answer.text();
+const sent = document_.split("<body>")[1].split("</body>")[0];
 console.log(`${answer.status} ${answer.headers.get("content-type")}`);
-console.log(document_.split("<body>")[1].split("</body>")[0]);
+console.log(sent);
 
-const body = document_.split("<body>")[1].split("</body>")[0];
-const embedded = body.split('type="application/json">')[1].split("</script>")[0];
+// Everything this document is asked to build, counted.
+const made = { elements: 0, text: 0 };
 
-let touched = 0;
-const touch = () => (touched++, {});
-globalThis.document = {
-  body: { markup: body, appendChild: touch, insertBefore: touch, removeChild: touch },
-  head: { appendChild: touch },
-  getElementById: (id) => (id === "buri-state" ? { textContent: embedded } : null),
-  createElement: touch,
-  createTextNode: touch,
-  createComment: touch,
+function node(nodeType, nodeName) {
+  return {
+    nodeType,
+    nodeName,
+    childNodes: [],
+    parentNode: null,
+    listeners: {},
+    attributes: {},
+    data: "",
+    className: "",
+    style: { cssText: "", setProperty() {} },
+    get firstChild() {
+      return this.childNodes.length > 0 ? this.childNodes[0] : null;
+    },
+    get nextSibling() {
+      const parent = this.parentNode;
+      if (parent === null) return null;
+      const where = parent.childNodes.indexOf(this);
+      return where + 1 < parent.childNodes.length ? parent.childNodes[where + 1] : null;
+    },
+    get textContent() {
+      if (this.nodeType === 3) return this.data;
+      return this.childNodes.map((c) => c.textContent).join("");
+    },
+    insertBefore(child, before) {
+      if (child.parentNode !== null) child.parentNode.removeChild(child);
+      child.parentNode = this;
+      const where = before === null ? this.childNodes.length : this.childNodes.indexOf(before);
+      this.childNodes.splice(where, 0, child);
+      return child;
+    },
+    appendChild(child) {
+      return this.insertBefore(child, null);
+    },
+    removeChild(child) {
+      const where = this.childNodes.indexOf(child);
+      if (where >= 0) this.childNodes.splice(where, 1);
+      child.parentNode = null;
+      return child;
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+    addEventListener(type, handler) {
+      this.listeners[type] = handler;
+    },
+    splitText(where) {
+      const tail = node(3, "#text");
+      tail.data = this.data.slice(where);
+      this.data = this.data.slice(0, where);
+      this.parentNode.insertBefore(tail, this.nextSibling);
+      return tail;
+    },
+  };
+}
+
+const unescaped = (t) =>
+  t.split("&lt;").join("<").split("&gt;").join(">").split("&quot;").join('"').split("&amp;").join("&");
+const escaped = (t) => t.split("&").join("&amp;").split("<").join("&lt;").split(">").join("&gt;");
+
+// The markup, parsed the way a browser parses it: one run of text per run,
+// whatever the tree that wrote it did.
+function parse(html, into) {
+  const stack = [into];
+  const text = (data) => {
+    if (data === "") return;
+    const run = node(3, "#text");
+    run.data = unescaped(data);
+    stack[stack.length - 1].appendChild(run);
+  };
+  let read = 0;
+  while (read < html.length) {
+    const lt = html.indexOf("<", read);
+    if (lt < 0) {
+      text(html.slice(read));
+      break;
+    }
+    text(html.slice(read, lt));
+    const gt = html.indexOf(">", lt);
+    const tag = html.slice(lt + 1, gt);
+    read = gt + 1;
+    if (tag.startsWith("/")) {
+      stack.pop();
+      continue;
+    }
+    const name = tag.split(/[ /]/)[0];
+    const element = node(1, name.toUpperCase());
+    for (const found of tag.slice(name.length).matchAll(/([a-zA-Z-]+)="([^"]*)"/g)) {
+      element.attributes[found[1]] = unescaped(found[2]);
+    }
+    stack[stack.length - 1].appendChild(element);
+    if (name === "script") {
+      const close = html.indexOf("</script>", read);
+      const held = node(3, "#text");
+      held.data = html.slice(read, close);
+      element.appendChild(held);
+      read = close + "</script>".length;
+      continue;
+    }
+    if (!tag.endsWith("/")) stack.push(element);
+  }
+}
+
+// What a reader is looking at. Markers are the runtime's own bookkeeping and a
+// browser shows none of them, so neither does this.
+function markup(n) {
+  if (n.nodeType === 8) return "";
+  if (n.nodeType === 3) return escaped(n.data);
+  const name = n.nodeName.toLowerCase();
+  let out = "<" + name;
+  for (const key of Object.keys(n.attributes)) out += ` ${key}="${n.attributes[key]}"`;
+  if (n.className !== "") out += ` class="${n.className}"`;
+  let inner = "";
+  for (const child of n.childNodes) inner += markup(child);
+  return inner === "" ? out + " />" : `${out}>${inner}</${name}>`;
+}
+
+const body = node(1, "BODY");
+parse(sent, body);
+const showing = () => body.childNodes.map(markup).join("");
+
+const findFirst = (n, name) => {
+  if (n.nodeType === 1 && n.nodeName === name) return n;
+  for (const child of n.childNodes) {
+    const found = findFirst(child, name);
+    if (found !== null) return found;
+  }
+  return null;
 };
-globalThis.location = { pathname: "/about" };
+
+globalThis.document = {
+  body,
+  getElementById(id) {
+    const walk = (n) => {
+      if (n.nodeType === 1 && n.attributes.id === id) return n;
+      for (const child of n.childNodes) {
+        const found = walk(child);
+        if (found !== null) return found;
+      }
+      return null;
+    };
+    return walk(body);
+  },
+  createElement(name) {
+    made.elements++;
+    return node(1, name.toUpperCase());
+  },
+  createTextNode(data) {
+    made.text++;
+    const run = node(3, "#text");
+    run.data = data;
+    return run;
+  },
+  createComment() {
+    return node(8, "#comment");
+  },
+};
+globalThis.location = { pathname: at };
 
 await import("./.buri/out/web/cmd/site/main.mjs");
 
-console.log(`touched ${touched}`);
-console.log(document.body.markup);
+console.log(`made ${made.elements} elements and ${made.text} runs of text`);
+console.log(showing());
+
+// The press the server could not have handled.
+const button = findFirst(body, "BUTTON");
+button.listeners.click({ preventDefault() {}, target: button });
+console.log(showing());
+"##;
+
+/// **A page spawns after `main` returned**, and a worker spawns inside its
+/// `fetch` — the two platforms `core/tasks` reached when `Tasks` was granted
+/// everywhere.
+///
+/// The conformance corpus says what a scope promises and says it on the
+/// reference backend; the repository case beside it says what a person gets
+/// from `buri test`. Neither can ask the question a page asks, because a page's
+/// interesting spawn happens *after* `main` has returned — from a handler the
+/// mounted tree is holding — and no `buri` command runs a page. So this is the
+/// platform's own side of it, driven from one JavaScript module: a document
+/// double the tree mounts into, a click fired at the button it registered, and
+/// the worker's `fetch` called the way a worker runtime calls one.
+///
+/// Five claims, one printed line each:
+///
+///  * the worker's scope waits for the task it spawned, and answers after it;
+///  * the page mounts and `main` returns, with nothing spawned yet;
+///  * a click spawns into the `Scope` the handler captured, and the task runs —
+///    which is the shape `design/native/DECISIONS.md`'s "a scope stays open for
+///    the life of the program" row is about;
+///  * and the timer inside that task **waited**: the wall clock moved by at
+///    least the sleep, so `clock.sleepMillis` is a wait on a page rather than a
+///    number the runtime pretends to have honoured.
+#[test]
+fn a_page_spawns_from_a_handler_after_main_returned() {
+    let scratch = Scratch::repo("web-spawn");
+    scratch.write(
+        "cmd/page/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: WEB, entry: \"main\" },\n        \
+         { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        "cmd/page/main.buri",
+        r#"
+from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc, Clock, Request, Response, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/tasks" import * as tasks;
+from "core/tasks" import { Scope };
+from "core/time" import * as time;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import * as signal;
+from "ui/signal" import { Signal };
+
+/// The page: a button that opens a socket later, and the line the socket
+/// writes when it does.
+///
+/// The handler captures the scope and the cell, which is what `Scope` being
+/// inert buys — neither carries a context, so a lambda may hold both.
+fn page<C: Alloc + Clock + Tasks + Ui>(ctx: C, here: Scope, status: Signal<Str>): Node<C> {
+    ui.column([], [
+        ui.button(.Const("open"), fn(c, event) => {
+            let _ = tasks.spawn(c, here, fn(c2) => {
+                let _ = time.sleepMs(c2, 20);
+                let _ = status.set(c2, "the socket opened");
+                ()
+            });
+            ()
+        }),
+        ui.text(.Cell(status)),
+    ])
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    let status = signal.signal(ctx, "waiting");
+    tasks.scope(ctx, fn(c, here) => {
+        let _ = io.println(c, "mounted").ignore();
+        ui.mount(c, page(c, here, status), [])
+    })
+}
+
+/// The worker's half: one request, answered after the work spawned into the
+/// scope has finished.
+///
+/// The line is written as bytes rather than printed, because a worker's
+/// process does not end when `fetch` does and a buffered line would still be
+/// waiting when the platform read the answer.
+export fn fetch(request: Request): Response {
+    let ctx = context {
+        Alloc: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let _ = tasks.scope(ctx, fn(c, here) => {
+        let _ = tasks.spawn(c, here, fn(c2) => {
+            let _ = time.sleepMs(c2, 20);
+            let _ = io.writeBytes(c2, bytes.toUtf8(c2, "the worker's task ran\n")).ignore();
+            ()
+        });
+        ()
+    });
+    http.text(ctx, "served")
+}
 "#,
+    );
+    scratch.run(&["build", "//cmd/page"]).ok();
+
+    // The document is the browser's half, and the smallest one the renderer
+    // works against: three constructors, the four moves a tree makes, and a
+    // place to hang a listener. `$shim` is deliberately absent — this is the
+    // real-document path, the one a browser runs.
+    let driver = scratch.write(
+        "drive.mjs",
+        r##"
+class Element_ {
+  constructor(name) {
+    this.nodeName = name;
+    this.childNodes = [];
+    this.parentNode = null;
+    this.listeners = {};
+    this.attributes = {};
+    this.className = "";
+    this.data = "";
+    this.textContent = "";
+    this.style = { cssText: "", setProperty() {} };
+  }
+  get nextSibling() {
+    const parent = this.parentNode;
+    if (parent === null) return null;
+    const at = parent.childNodes.indexOf(this);
+    return at < 0 || at + 1 >= parent.childNodes.length ? null : parent.childNodes[at + 1];
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = value;
+  }
+  addEventListener(type, handler) {
+    this.listeners[type] = handler;
+  }
+  appendChild(node) {
+    return this.insertBefore(node, null);
+  }
+  insertBefore(node, before) {
+    if (node.parentNode !== null) node.parentNode.removeChild(node);
+    node.parentNode = this;
+    const at =
+      before === null || before === undefined
+        ? this.childNodes.length
+        : this.childNodes.indexOf(before);
+    this.childNodes.splice(at, 0, node);
+    return node;
+  }
+  removeChild(node) {
+    const at = this.childNodes.indexOf(node);
+    if (at >= 0) this.childNodes.splice(at, 1);
+    node.parentNode = null;
+    return node;
+  }
+}
+
+const text_ = (node) =>
+  node.childNodes.length === 0 ? node.data : node.childNodes.map(text_).join("");
+const find_ = (node, wanted) => {
+  if (node.listeners[wanted] !== undefined) return node;
+  for (const child of node.childNodes) {
+    const hit = find_(child, wanted);
+    if (hit !== null) return hit;
+  }
+  return null;
+};
+
+globalThis.document = {
+  body: new Element_("body"),
+  head: new Element_("head"),
+  createElement: (name) => new Element_(name),
+  createTextNode: (data) => Object.assign(new Element_("#text"), { data }),
+  createComment: () => new Element_("#comment"),
+  getElementById: () => null,
+};
+
+// The worker first, called the way its platform calls it.
+const worker = await import("./.buri/out/cloudflare-worker/cmd/page/fetch.mjs");
+const answer = await worker.default.fetch(new Request("https://example.com/"));
+console.log(`${answer.status} ${await answer.text()}`);
+
+// Then the page, on top of the document above. `main` mounts and returns.
+await import("./.buri/out/web/cmd/page/main.mjs");
+console.log(`before the click: ${text_(document.body)}`);
+
+// The click. Nothing waits for the handler — a listener answers at once and
+// the task it spawned is the event loop's, which is the whole claim.
+const started = Date.now();
+find_(document.body, "click").listeners.click({});
+
+// Polled rather than slept for: the wait ends when the page says so, and the
+// deadline is there to fail rather than to hang.
+const deadline = started + 30000;
+while (text_(document.body).indexOf("the socket opened") < 0 && Date.now() < deadline) {
+  await new Promise((wake) => setTimeout(wake, 5));
+}
+console.log(`after the click: ${text_(document.body)}`);
+console.log(`the timer waited: ${Date.now() - started >= 20}`);
+"##,
     );
 
     let out = Command::new(js_runtime())
@@ -732,20 +1664,15 @@ console.log(document.body.markup);
         .expect("the javascript runtime runs");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success(), "the website did not answer:\n{stdout}{stderr}");
-
-    let sent = "<main><h1>Buri</h1>visitors: 3</main>\
-                <script id=\"buri-state\" type=\"application/json\">\
-                {\"title\":\"Buri\",\"visitors\":3}</script>";
+    assert!(out.status.success(), "the page did not answer:\n{stdout}{stderr}");
     assert_eq!(
         stdout,
-        format!(
-            "200 text/html; charset=utf-8\n\
-             {sent}\n\
-             resumed /about {{\"title\":\"Buri\",\"visitors\":3}}\n\
-             touched 0\n\
-             {sent}\n"
-        ),
-        "the website lost a half:\n{stderr}"
+        "the worker's task ran\n\
+         200 served\n\
+         mounted\n\
+         before the click: openwaiting\n\
+         after the click: openthe socket opened\n\
+         the timer waited: true\n",
+        "a spawn on a page or in a worker did not run:\n{stderr}"
     );
 }

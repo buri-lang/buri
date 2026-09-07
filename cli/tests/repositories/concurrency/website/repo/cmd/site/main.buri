@@ -3,16 +3,18 @@
 from "core/effect" import { Alloc, Request, Response, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-from "core/json" import { ToJson };
+from "core/json" import * as json;
+from "core/json" import { FromJson, ToJson };
 from "core/net/http" import * as http;
 from "core/str" import * as str;
-from "ui/effect" import { Location, Ui, Watch };
+from "ui/effect" import { Event, Location, Ui, Watch };
 from "ui/node" import * as ui;
 from "ui/node" import { Node };
 from "ui/prop" import { Prop };
+from "ui/signal" import { signal };
 from "ui/web" import * as web;
 
-derive ToJson for Site;
+derive FromJson, ToJson for Site;
 /// What the page is rendered from. The worker sends it with the document, and
 /// the page reads it back out.
 struct Site {
@@ -26,20 +28,34 @@ fn site(): Site {
 
 /// The whole site, as one function of the path.
 ///
-/// The text is rendered here, where there is a context: the closure below gets
-/// a `Scope`, which reads the graph and allocates nothing.
-fn page<C: Alloc>(ctx: C, path: Prop<Str>, state: Site): Node<C> {
-    let visitors = str.format(ctx, "visitors: ${state.visitors}");
-    ui.computed(fn(scope) => at(path.read(scope), state.title, visitors))
+/// The label and the handler are parameters because they are the halves only a
+/// page has: the worker passes a constant and a handler that does nothing, and
+/// the page passes a signal and one that writes it. Everything else is the same
+/// tree on both sides, which is what makes the markup match.
+fn page<C>(
+    path: Prop<Str>,
+    title: Str,
+    visitors: Str,
+    label: Prop<Str>,
+    onPress: fn(C, Event) => (),
+): Node<C> {
+    ui.computed(fn(scope) => at(path.read(scope), title, visitors, label, onPress))
 }
 
 /// Routing: an ordinary match on the path.
-fn at<C>(path: Str, title: Str, visitors: Str): Node<C> {
+fn at<C>(
+    path: Str,
+    title: Str,
+    visitors: Str,
+    label: Prop<Str>,
+    onPress: fn(C, Event) => (),
+): Node<C> {
     match (path) {
         "/" => {
             ui.region(.Main, [], [
                 ui.heading(1, .Const(title)),
                 ui.text(.Const(visitors)),
+                ui.button(label, onPress),
             ])
         },
         "/about" => ui.region(.Main, [], [ui.heading(1, .Const("About"))]),
@@ -55,11 +71,25 @@ export fn main(): Result<(), Str> {
         Watch: host.watch,
         Location: host.location,
     };
-    match (web.resume(ctx)) {
+    // The state the worker sent, read back before anything is built: the tree
+    // the page resumes with is the tree the worker rendered, and this is what
+    // it was rendered from.
+    let sent = web.state(ctx).withDefault("null");
+    let state = json
+        .decode(ctx, json.parse(ctx, sent).withDefault(.Null))
+        .withDefault(Site { title: "no state", visitors: 0 });
+    let thanks = signal(ctx, "say thanks");
+    let tree = page(
+        web.route(ctx),
+        state.title,
+        str.format(ctx, "visitors: ${state.visitors}"),
+        .Cell(thanks),
+        fn(c, _event) => thanks.set(c, "thanks"),
+    );
+    match (web.resume(ctx, tree)) {
         .Err(why) => .Err(why),
         .Ok(_) => {
-            let picked = web.state(ctx).withDefault("none");
-            match (io.println(ctx, "resumed ${web.path(ctx)} ${picked}")) {
+            match (io.println(ctx, "resumed ${web.path(ctx)} ${sent}")) {
                 .Ok(_written) => .Ok(()),
                 .Err(_e) => .Err("the page has nowhere to print"),
             }
@@ -76,7 +106,15 @@ export fn fetch(request: Request): Response {
         ctx,
         web.shell(
             ctx,
-            web.render(page(ctx, .Const(request.path()), state)),
+            web.render(
+                page(
+                    .Const(request.path()),
+                    state.title,
+                    str.format(ctx, "visitors: ${state.visitors}"),
+                    .Const("say thanks"),
+                    fn(_ctx, _event) => (),
+                ),
+            ),
             state.toJson(ctx),
         ),
     )

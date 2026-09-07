@@ -631,17 +631,22 @@ function $list_get(xs, i) {
 }
 
 // A higher-order runtime function marks what it hands to a callback: the
-// element belongs to `xs`, and the seed still belongs to whoever passed it.
-// Everything after the first iteration is the callback's own fresh result, so
-// an accumulator threaded through a fold is marked once and never again.
+// element belongs to `xs`, so a callback that keeps one keeps a second name
+// for it.
+//
+// The **seed does not**, and that is a decision rather than an omission. A
+// fold's accumulator parameter is owned (`middle/rc.rs`'s `TAKEN_BY`), so a
+// caller still holding what it seeded the fold with has already marked it, and
+// marking again here would cost the first step a copy of the whole
+// accumulator. Once per fold reads as a constant until the fold is inside a
+// walk, and then it is one copy of everything built so far per step of the
+// walk.
 function $list_fold(xs, f, acc) {
-  acc = $share(acc);
   for (let i = 0; i < xs.length; i++) acc = f(acc, $share(xs[i]));
   return acc;
 }
 
 function $list_foldCtx(xs, c, f, acc) {
-  acc = $share(acc);
   for (let i = 0; i < xs.length; i++) acc = f(c, acc, $share(xs[i]));
   return acc;
 }
@@ -649,7 +654,7 @@ function $list_foldCtx(xs, c, f, acc) {
 // Stops at the first .Err, which is how a fallible fold is written without an
 // early exit.
 function $list_foldResult(xs, f, acc) {
-  let cur = [0, $share(acc)];
+  let cur = [0, acc];
   for (let i = 0; i < xs.length; i++) {
     cur = f(cur[1], $share(xs[i]));
     if (cur[0] !== 0) return cur;
@@ -658,7 +663,7 @@ function $list_foldResult(xs, f, acc) {
 }
 
 function $list_foldResultCtx(xs, c, f, acc) {
-  let cur = [0, $share(acc)];
+  let cur = [0, acc];
   for (let i = 0; i < xs.length; i++) {
     cur = f(c, cur[1], $share(xs[i]));
     if (cur[0] !== 0) return cur;
@@ -3627,13 +3632,130 @@ function $tree_bind(prop, apply) {
   );
 }
 
+// --- Resuming what a server rendered ------------------------------------------
+//
+// `ops` while a resume runs, and null the rest of the time. Everything under it
+// is named in `$ui_web_resume` and nowhere else, so a program that mounts drops
+// all of it and keeps the comparisons.
+
+const $adopt = { ops: null, at: new Map() };
+
+// One renderer. A resume runs `$tree_render`, the walk a mount runs, and what
+// changes is where a node comes from: the two constructors answer with the node
+// already sitting in the document instead of making one. So the page registers
+// every computation and every listener a fresh mount would — the button works —
+// and the markup the reader is looking at is the markup that arrived.
+//
+// `$adopt.at` is the node each parent has left to offer. A parent is entered
+// once, because the renderer walks a tree, so a map keyed by the parent is the
+// whole of the bookkeeping.
+function $adopt_first(parent) {
+  if (parent.$shim) return parent.children.length > 0 ? parent.children[0] : null;
+  return parent.firstChild;
+}
+
+// The node this parent has to offer now, or null where it has run out.
+function $adopt_at(parent) {
+  if (!$adopt.at.has(parent)) $adopt.at.set(parent, $adopt_first(parent));
+  return $adopt.at.get(parent);
+}
+
+// 0 an element, 1 a run of text, 2 a marker — the substitute's own three kinds,
+// which a real document spells as node types.
+function $adopt_kind(node) {
+  if (node.$shim) return node.kind;
+  return node.nodeType === 1 ? 0 : node.nodeType === 3 ? 1 : 2;
+}
+
+function $adopt_name(node) {
+  return node.$shim ? node.name : node.nodeName.toLowerCase();
+}
+
+// The node the server wrote where the renderer wants one. Anything else is the
+// page and the server disagreeing about what the tree is, and a resume that
+// guessed would leave the reader looking at both answers — so it stops here and
+// `resume` answers `.Err` naming what it wanted and what was there.
+function $adopt_claim(parent, kind, name) {
+  const node = $adopt_at(parent);
+  if (node !== null && $adopt_kind(node) === kind && (kind !== 0 || $adopt_name(node) === name)) {
+    $adopt.at.set(parent, $dom_next(parent, node));
+    return node;
+  }
+  const wanted = kind === 1 ? "a run of text" : "<" + name + ">";
+  const found =
+    node === null
+      ? "nothing left"
+      : $adopt_kind(node) === 1
+        ? "a run of text"
+        : "<" + $adopt_name(node) + ">";
+  throw { $resume: "this page is not the markup the server sent: wanted " + wanted + ", found " + found };
+}
+
+// A browser parses two runs of text into one node, so a tree with two beside
+// each other has to take its own back. What is left over becomes the node this
+// parent offers next, which is exactly what the run after this one asks for.
+function $adopt_split(parent, node, value) {
+  if (node.data.length <= value.length || node.data.slice(0, value.length) !== value) return;
+  if (!node.$shim) {
+    $adopt.at.set(parent, node.splitText(value.length));
+    return;
+  }
+  const rest = $dom_data($dom_make(1, ""), node.data.slice(value.length));
+  $dom_insert(parent, rest, $adopt_at(parent));
+  $adopt.at.set(parent, rest);
+}
+
+// What the tree did not account for. Everything a server wrote came out of the
+// tree, so a node left over inside one is the same disagreement a missing node
+// is, found from the other end — a page whose tree stops early would otherwise
+// leave the rest of the markup on screen and dead. The body is the exception:
+// `shell` puts the state script in it, and that is the server's own furniture
+// rather than part of any tree.
+function $adopt_leftovers(body) {
+  for (const entry of $adopt.at) {
+    if (entry[0] !== body && entry[1] !== null) {
+      return (
+        "this page is not the markup the server sent: <" +
+        $adopt_name(entry[0]) +
+        "> holds more than the tree does"
+      );
+    }
+  }
+  return null;
+}
+
+// A marker the server did not write, inserted where the walk has reached rather
+// than at the anchor a fresh render would use.
+function $tree_mark(parent, anchor) {
+  const marker = $dom_marker(parent);
+  $dom_insert(parent, marker, $adopt.ops === null ? anchor : $adopt.ops.at(parent));
+  return marker;
+}
+
 function $tree_element(parent, name, anchor) {
+  if ($adopt.ops !== null) return $adopt.ops.claim(parent, 0, name);
   const element = $dom_element(parent, name);
   $dom_insert(parent, element, anchor);
   return element;
 }
 
 function $tree_text(prop, parent, anchor) {
+  if ($adopt.ops !== null) {
+    // The run of text the server wrote may be several of these — a browser
+    // parses one node however many the tree has — so the first value says how
+    // much of it belongs here and `split` leaves the rest for the next run.
+    const ops = $adopt.ops;
+    const adopted = ops.claim(parent, 1, "");
+    let first = true;
+    $tree_bind(prop, (value) => {
+      if (first) {
+        first = false;
+        ops.split(parent, adopted, value);
+      }
+      $dom_data(adopted, value);
+    });
+    return;
+  }
   const node = $dom_text(parent, "");
   $dom_insert(parent, node, anchor);
   $tree_bind(prop, (value) => $dom_data(node, value));
@@ -3649,12 +3771,19 @@ function $tree_children(ctx, element, styles, children) {
 // what `build` answers now. Everything the run created belongs to the run, so
 // the computations inside a subtree are disposed with the subtree.
 function $tree_dynamic(ctx, parent, anchor, build) {
-  const start = $dom_marker(parent);
-  $dom_insert(parent, start, anchor);
-  const end = $dom_marker(parent);
-  $dom_insert(parent, end, anchor);
+  const start = $tree_mark(parent, anchor);
+  // A region being adopted does not know where it ends until the markup for it
+  // has been walked, so that marker goes in after the first run.
+  let adopting = $adopt.ops !== null;
+  const end = adopting ? $dom_marker(parent) : $tree_mark(parent, anchor);
   $ui_run(
     $ui_cell(2, undefined, (scope) => {
+      if (adopting) {
+        adopting = false;
+        $tree_render(ctx, build(scope), parent, end);
+        $dom_insert(parent, end, $adopt.ops.at(parent));
+        return 0;
+      }
       for (const node of $dom_between(parent, start, end)) $dom_remove(node);
       $tree_render(ctx, build(scope), parent, end);
       return 0;
@@ -3668,15 +3797,15 @@ function $tree_dynamic(ctx, parent, anchor, build) {
 // is already subscribed to the list, and what a row read while it was being
 // built is not a reason to rebuild the list.
 function $tree_row(ctx, parent, anchor, owner, key, index, rowAt) {
-  const start = $dom_marker(parent);
-  $dom_insert(parent, start, anchor);
-  const end = $dom_marker(parent);
-  $dom_insert(parent, end, anchor);
+  const start = $tree_mark(parent, anchor);
+  const adopting = $adopt.ops !== null;
+  const end = adopting ? $dom_marker(parent) : $tree_mark(parent, anchor);
   const rowOwner = $ui_under(owner, () => $ui_cell(3, undefined, null));
   $ui_under(rowOwner, () => {
     $tree_render(ctx, rowAt(ctx, [rowOwner], index), parent, end);
     return 0;
   });
+  if (adopting) $dom_insert(parent, end, $adopt.ops.at(parent));
   return { key, start, end, owner: rowOwner };
 }
 
@@ -3701,6 +3830,15 @@ function $tree_move(parent, row, anchor) {
 // that is what keyed means, and it is what keeps the focus, the scroll
 // position and the computations inside a row alive across a reorder.
 function $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt) {
+  // A resume walks forwards, so the rows the server wrote are taken in order.
+  // Nothing moves on that pass: every row is already where it belongs.
+  if ($adopt.ops !== null) {
+    const adopted = [];
+    for (let i = 0; i < keys.length; i++) {
+      adopted.push($tree_row(ctx, parent, end, owner, keys[i], i, rowAt));
+    }
+    return adopted;
+  }
   const byKey = new Map();
   for (const row of rows) byKey.set(row.key, row);
   const next = new Array(keys.length);
@@ -3726,10 +3864,9 @@ function $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt) {
 }
 
 function $tree_each(ctx, parent, anchor, count, keyAt, rowAt) {
-  const start = $dom_marker(parent);
-  $dom_insert(parent, start, anchor);
-  const end = $dom_marker(parent);
-  $dom_insert(parent, end, anchor);
+  const start = $tree_mark(parent, anchor);
+  let adopting = $adopt.ops !== null;
+  const end = adopting ? $dom_marker(parent) : $tree_mark(parent, anchor);
   // The rows hang off this rather than off the computation below, because that
   // computation re-runs and a row must survive it.
   const owner = $ui_cell(3, undefined, null);
@@ -3750,6 +3887,10 @@ function $tree_each(ctx, parent, anchor, count, keyAt, rowAt) {
         keys.push(key);
       }
       rows = $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt);
+      if (adopting) {
+        adopting = false;
+        $dom_insert(parent, end, $adopt.ops.at(parent));
+      }
       return 0;
     }),
   );
@@ -4725,11 +4866,17 @@ function $tplanned(self, index) {
 // this double is where the difference bites hardest: `self` is a `TestTasks`
 // slot index, so a step handed it in place of a context read a scheduler
 // handle as whatever effect it asked for.
-function $host_testing_TestTasks_parallel(self, ctx, xs, f) {
+// Each step is **awaited**, which is what "runs to completion before the next
+// one starts" means for a step that waits. A spawned task is run through here
+// (`core/tasks::running`), and a task that sleeps, dials a socket or asks an
+// actor suspends part-way; without the await this returned a list of promises
+// and the rest of every such task ran after the test had finished asserting.
+// `middle::rc::suspends` carries the key so that a caller waits for this too.
+async function $host_testing_TestTasks_parallel(self, ctx, xs, f) {
   const out = new Array(xs.length);
   for (const index of $torder(self, xs.length)) {
     $tplanned(self, index);
-    out[index] = f(ctx, BigInt(index), $share(xs[index]));
+    out[index] = await f(ctx, BigInt(index), $share(xs[index]));
     $slot(self).log.push(BigInt(index));
   }
   return $own(out);
@@ -4840,8 +4987,8 @@ function $host_testing_TestSockets_socketClose(self, socket, code, reason) {
   return 0;
 }
 
-// A WebSocket client with a script instead of a network: it connects once,
-// delivers the messages it was handed in order, and then closes normally.
+// A WebSocket client with a script instead of a network: every time it dials
+// it delivers the messages it was handed, in order, and then closes normally.
 //
 // **It writes through the `sockets()` double it was built on** rather than
 // minting a socket of its own kind, and that is why it is that double's own
@@ -4878,8 +5025,14 @@ function $host_testing_TestWebSocketClient_connectSocket(self, url) {
     return $err([$SERVE_UNSUPPORTED, said]);
   }
   // The same mint `socketsOpen` uses, on the double this client was handed.
+  // Every dial starts the script again: `connect` returns when a socket closes
+  // and reconnecting is a loop around it, so a double that delivered its
+  // messages once would answer the second dial with a socket that was already
+  // spent.
   const socket = $tmint({ owner: s.owner, open: true });
   s.socket = Number(socket);
+  s.at = 0;
+  s.gone = false;
   return $ok([socket, 101n, [], []]);
 }
 
@@ -5281,6 +5434,33 @@ function $str_format(c, t) {
   return t;
 }
 
+// --- Lazily loaded chunks ------------------------------------------------------
+
+// One promise per chunk, so a second `load` of the same one is a hit rather
+// than a second request.
+let $lazyChunks = [];
+
+// Chunk `n` of this artifact, which sits beside it as `<artifact>.<n>.mjs`.
+// The name is derived from `import.meta.url` rather than written into the
+// artifact, so nothing here records where the build ran or what the output
+// directory was called.
+//
+// `env` is a thunk answering everything the chunk borrows from this module.
+// The chunk is handed them rather than importing them back, because this
+// module is still evaluating — a chunk is fetched from inside a call this
+// module's own top-level `await` is waiting on, and a cycle there is a program
+// that never finishes starting.
+function $lazy(n, env) {
+  if (!$lazyChunks[n]) {
+    const here = import.meta.url;
+    $lazyChunks[n] = import(here.slice(0, here.length - 4) + "." + n + ".mjs").then(function (m) {
+      m.$bind(env());
+      return m;
+    });
+  }
+  return $lazyChunks[n];
+}
+
 // --- A website ----------------------------------------------------------------
 //
 // `ui/web`: the tree rendered to HTML on a worker, and what the page does with
@@ -5288,9 +5468,8 @@ function $str_format(c, t) {
 // is the one `mount` uses, pointed at the substitute document — so what a
 // worker writes is what the page would have built.
 
-// The page's side of `resume`, and the address bar's cell. Both are per
-// artifact: a page resumes once, and there is one address bar.
-const $ui_web = { state: undefined, location: -1 };
+// The address bar's cell, made once: there is one address bar.
+const $ui_web = { location: -1 };
 
 function $ui_web_stylesheet() {
   return $ui_sheet;
@@ -5322,17 +5501,36 @@ function $ui_web_embedded() {
   return holder.textContent;
 }
 
-function $ui_web_resume(ctx) {
+function $ui_web_resume(ctx, root) {
   const body = $dom_body();
   if (!body) return $err("there is nowhere to resume: this platform has no document");
-  // Nothing is rendered and nothing is removed: the markup the server sent is
-  // the markup the reader keeps looking at.
-  $ui_web.state = $ui_web_embedded();
+  // The tree is rendered against the document the server sent: every element
+  // and every run of text is the one already there, and what the walk adds is
+  // the listeners and the computations. Nothing is created and nothing is
+  // removed, so the reader keeps looking at the markup that arrived.
+  $adopt.ops = { claim: $adopt_claim, at: $adopt_at, split: $adopt_split };
+  $adopt.at = new Map();
+  try {
+    $tree_render(ctx, root, body, null);
+    const over = $adopt_leftovers(body);
+    if (over !== null) return $err(over);
+  } catch (e) {
+    // A tree that does not match the markup, and nothing else: anything this
+    // did not throw itself belongs to the program.
+    if (e === null || typeof e !== "object" || e.$resume === undefined) throw e;
+    return $err(e.$resume);
+  } finally {
+    $adopt.ops = null;
+    $adopt.at = new Map();
+  }
   return $ok(0);
 }
 
 function $ui_web_state(ctx) {
-  return $ui_web.state;
+  // Read off the document rather than remembered from a resume, because the
+  // state is what a page builds its tree out of and the tree is what it
+  // resumes with.
+  return $ui_web_embedded();
 }
 
 // The address bar, as one cell of the graph. Made on first ask, so a page that

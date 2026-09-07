@@ -6,6 +6,8 @@
 // The point is that the answers are the same on every backend, and they are
 // answers rather than timings: a message is stepped exactly once, one sender's
 // messages arrive in the order it sent them, a send sees the state the sends
-// before it left, `onStop` runs once with the final state, and everything after
-// `stop` is `.Err(.Stopped)`. Nothing here asserts *when* an actor runs, which
-// is the platform's business and is where `core/tasks` draws the same line.
+// before it left, `onStop` runs once with the final state, a send made from
+// inside a step is `.Err(.Stopped)` and its message is stepped afterwards, and
+// everything after `stop` is `.Err(.Stopped)`. Nothing here asserts *when* an
+// actor runs, which is the platform's business and is where `core/tasks` draws
+// the same line.
