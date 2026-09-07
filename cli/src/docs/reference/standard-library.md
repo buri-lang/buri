@@ -476,12 +476,33 @@ match arm using it could not produce a value.
 [Tasks and actors](../guides/concurrency.md) is the concurrency model
 underneath. What follows is the map.
 
-`core/proc` is the thinnest of them. `proc.exit(ctx, code)` is `Proc`'s one
-operation.
+`core/proc` carries two authorities. `proc.exit(ctx, code)` is `Proc`'s one
+operation. `Spawn` is the other, and it is the largest authority a context can
+hold: a program that can run `sh` can do anything its user can, so it is its own
+effect and its own grant rather than a second method on `Proc`.
+`proc.command(program, arguments)` builds a `Command`, `proc.run(ctx, command)`
+runs it and waits, and `proc.which(ctx, program)` is where `PATH` says a program
+is. **The exit code is not an error**: a child that ran and failed is `.Ok` with
+a non-zero `code`, and `.Err` is for a child that never ran. Nothing is a shell,
+so a value with a space or a `;` in it is one argument and never a second
+command. `run` reads both streams while the child runs, so a child that writes
+more than a pipe holds does not deadlock.
 
 `core/env` and `core/cli` are the two halves of a command line. `env.args(ctx)`
 is the raw `[Str]`. Both hosts drop the program's own name, so there is no
 `argv[0]`, and you have to *tell* a help page what to call the program.
+`env.all(ctx)` is every variable as `(name, value)` pairs, in the platform's own
+order. `env.currentDirectory(ctx)` is where the process is,
+`env.temporaryDirectory(ctx)` and `env.homeDirectory(ctx)` are `TMPDIR` and
+`HOME` as paths — `HOME` answers `.None` where nothing set it rather than
+guessing `/root` — and `env.operatingSystem(ctx)` is `"linux"` or `"macos"`.
+
+`core/io` is the three standard streams. `readAll(ctx)` and `readAllBytes(ctx)`
+are what a filter wants: everything left on standard input, in one call rather
+than a `readLine` recursion. `readAll` answers the lines joined by a single
+`\n`, so a trailing newline does not survive; `readAllBytes` changes nothing at
+all. A stream is lines or octets and never both, so a program uses one of them.
+Both return at end of input and not before.
 
 `core/cli` is the opinionated half. A `Cli<C>` carries the name, the version,
 the global `Flag`s and a list of `Command<C>`s. A command carries its own flags,
@@ -597,16 +618,33 @@ like a click. A worker dials the same way while it answers a request.
 headers. A token or a subprotocol goes in the URL, which is what every browser
 client does, and what came back is on the response in `onOpen`.
 
-`core/fs` is the one module that declares its own effects, and it declares
-**two**. `FsRead` is four methods and `FsWrite` is eight. Reading and writing
+`core/fs` declares its own effects, and it declares **two**. `FsRead` is seven
+methods and `FsWrite` is nine. Reading and writing
 are two grants rather than two spellings of one: a program that reads its
 configuration has not thereby earned the right to delete it. `core/fs`
 re-exports `Path`, so `from "core/fs" import { FsRead, Path }` is one import.
-Beyond the wrappers over those twelve methods it has two operations of its own.
+
+Beyond the wrappers over those sixteen methods it has operations of its own.
 `readBytesIfExists` folds
 `.NotFound` into `.None` in a single call, rather than the two an `exists` and a
 read would take. `writeAtomic` is the write-sync-rename-sync sequence a
-crash-safe checkpoint needs, written once.
+crash-safe checkpoint needs, written once. `metadata` says what a path is, how
+many octets it holds and when it last changed — **without following a symbolic
+link**, which is what makes `EntryKind.Symlink` reachable and what keeps `walk`
+out of a loop; `isFile` and `isDirectory` are that question asked one way.
+`listDirectoryEntries` is `listDir` with each name's kind beside it, so a
+program that recurses does not write the loop, and `walk` is that recursion:
+every path under a root, depth first, a directory before what is inside it, the
+whole tree in memory. `removeTree` is the recursive delete `removeDir` refuses
+to be, written out of those three. `copy` writes one file's contents over
+another and is **not** atomic — `rename` is the only thing that is.
+`readRange` is a window into a large file, an octet offset and a count, so the
+head of a log costs the head. `canonicalize` resolves every link and every `..`,
+which is the one question `core/path` cannot answer. And
+`makeTemporaryDirectory` makes a directory under `TMPDIR` named for a prefix and
+sixteen hex characters of the operating system's own entropy — `Entropy` rather
+than `Rand`, because a predictable name in a shared directory is one somebody
+else can create first.
 
 `core/path` says where a file *is*, as a type. Every `Path` has been through
 `path.of(ctx, text)`, so every one is spelled the one way: `"logs//app/"` and
@@ -616,12 +654,22 @@ interpolation built with a separator too many opens nothing and comes back
 drops empty and `.` components and a trailing separator, and deliberately does
 **not** resolve `..`. Where `a` is a symbolic link, `a/../b` and `b` name two
 different files, so `..` stays a component and the filesystem decides what it
-means. `parent`, `fileName`, `stem`, `extension` and `isAbsolute` are views and
-take no context. `of`, `join`, `withSuffix` and `components` build something new
-and name `Alloc`. `join` never substitutes an absolute argument for the
-receiver, so `path.of(ctx, "/srv").join(ctx, "/etc")` is `/srv/etc`. The other
+means. `parent`, `fileName`, `stem`, `extension`, `isAbsolute`, `startsWith` and
+`matchesGlob` are views and take no context. `of`, `join`, `joinPath`,
+`withSuffix`, `withExtension`, `withoutExtension`, `relativeTo` and `components`
+build something new and name `Alloc`. `join` never substitutes an absolute
+argument for the receiver, so `path.of(ctx, "/srv").join(ctx, "/etc")` is
+`/srv/etc`, and `joinPath` is the same call for a `Path`. The other
 behaviour is how a program that joined a user's string onto its own directory
 ends up reading `/etc/passwd`.
+
+`startsWith` is component-wise, so `/srv/ab` does not start with `/srv/a`, and
+`relativeTo` writes a path from a directory above it or answers `.None` — it
+never invents `..`, for the reason normalizing never removes one. `withSuffix`
+appends to the whole name and `withExtension` replaces the extension, which are
+two different jobs: `data.db` and `data.log` want two different temporaries, and
+`app.log` becomes `app.gz`. `matchesGlob` is `*`, `?`, `[abc]`, `[a-z]` and
+`[!abc]` inside one component, and `**` across any number of them.
 
 `core/tasks` has two shapes. `parallel(ctx, items, f)` runs `f` over every item
 and answers the results **in the items' order**, whatever order the work

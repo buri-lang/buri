@@ -120,15 +120,15 @@ from "core/effect" import {
 // name a `Path`.
 from "core/fs" import { FsRead, FsWrite, Metadata };
 
-// And `Spawn`, which `core/proc` declares for the same reason: it answers that
-// module's own `Output`.
-from "core/proc" import { Output, Spawn };
-
 // The one module above `core/effect` this one imports, and it is the surface
 // rather than the authority: `Socket` and `Message` are inert data that
 // `core/net/server` declares.
 from "core/net/server" import { Message, Socket };
 from "core/path" import { Path };
+
+// And `Spawn`, which `core/proc` declares for the same reason: it answers that
+// module's own `Output`.
+from "core/proc" import { Output, Spawn };
 
 // --- Alloc --------------------------------------------------------------------
 

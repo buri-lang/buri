@@ -409,7 +409,9 @@ export fn sync<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
 ///     };
 ///     let here = fs.metadata(ctx, path.of(ctx, "."));
 ///     let kind = match (here) {
-///         .Ok(info) => if (info.kind == .Directory) { "directory" } else { "something else" },
+///         .Ok(info) => {
+///             if (info.kind == .Directory) { "directory" } else { "something else" }
+///         },
 ///         .Err(_e) => "gone",
 ///     };
 ///     let _ = io.println(ctx, "${kind}").ignore();
@@ -522,7 +524,11 @@ fn walkedEntries<C: Alloc + FsRead>(
             let (name, kind) = entry;
             let child = at.join(ctx, name);
             let grown = sofar.push(ctx, child);
-            let deeper = if (kind == .Directory) { walked(ctx, child, grown)? } else { grown };
+            let deeper = if (kind == .Directory) {
+                walked(ctx, child, grown)?
+            } else {
+                grown
+            };
             walkedEntries(ctx, at, entries, index + 1, deeper)
         },
     }
@@ -593,7 +599,10 @@ export fn copy<C: FsRead + FsWrite>(
 /// `.Err(.NotFound)` where the path names nothing, as `remove` is. The first
 /// failure stops the walk, so a partly removed tree is a real outcome and the
 /// error names what stopped it.
-export fn removeTree<C: Alloc + FsRead + FsWrite>(ctx: C, path: Path): Result<(), IoError> {
+export fn removeTree<C: Alloc + FsRead + FsWrite>(
+    ctx: C,
+    path: Path,
+): Result<(), IoError> {
     let info = ctx.metadata(path)?;
     if (info.kind == .Directory) {
         let entries = listDirectoryEntries(ctx, path)?;
@@ -634,7 +643,9 @@ export fn makeTemporaryDirectory<C: Alloc + Entropy + Env + FsWrite>(
     prefix: Str,
 ): Result<Path, IoError> {
     let stamp = crypto.token(ctx, 8);
-    let at = env.temporaryDirectory(ctx).join(ctx, str.format(ctx, "${prefix}${stamp}"));
+    let at = env
+        .temporaryDirectory(ctx)
+        .join(ctx, str.format(ctx, "${prefix}${stamp}"));
     let _made = ctx.makeDir(at)?;
     .Ok(at)
 }

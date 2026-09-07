@@ -242,7 +242,6 @@ test "the result of withSuffix is normalized like anything else" {
     );
 }
 
-
 // -----------------------------------------------------------------------------
 // Containment, and writing a path from another
 // -----------------------------------------------------------------------------
@@ -316,7 +315,10 @@ test "an empty extension drops the one that was there" {
     };
     assert.eq(extended(ctx, "a/b.log", ""), .Some("a/b"));
     assert.eq(path.of(ctx, "a/b.log").withoutExtension(ctx).text(), "a/b");
-    assert.eq(path.of(ctx, "a/report.tar.gz").withoutExtension(ctx).text(), "a/report.tar");
+    assert.eq(
+        path.of(ctx, "a/report.tar.gz").withoutExtension(ctx).text(),
+        "a/report.tar",
+    );
     assert.eq(path.of(ctx, "README").withoutExtension(ctx).text(), "README");
 }
 
