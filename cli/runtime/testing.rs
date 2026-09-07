@@ -188,10 +188,22 @@ enum Slot {
     /// socket and writing on one are two authorities, and this is the two
     /// doubles arranged the same way.
     ///
-    /// `socket` is `None` until `connectSocket` mints one. `next` is the
-    /// position in `script`, and a `next` past its end is a socket that has
-    /// already been told it is closed.
-    Client { owner: i64, socket: Option<i64>, script: Vec<Scripted>, next: usize },
+    /// `socket` is `None` until `connectSocket` mints one, `next` is the
+    /// position in `script`, and `gone` is set once the close has been
+    /// answered.
+    ///
+    /// `gone` is a flag rather than a question asked of the socket, because the
+    /// two states a reader has to tell apart are "the program closed this and
+    /// has not been told yet" and "this socket has been told". Both are a
+    /// socket the `sockets()` double will no longer write for, and only the
+    /// first of them still owes a `.Closed`.
+    Client {
+        owner: i64,
+        socket: Option<i64>,
+        script: Vec<Scripted>,
+        next: usize,
+        gone: bool,
+    },
 }
 
 /// One message a `websocketClient` will deliver, in the flat shape
@@ -2032,7 +2044,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_sockets_dialling(
 ) -> i64 {
     // SAFETY: forwarded.
     let script = unsafe { script_of(ptr, len) };
-    install(Slot::Client { owner: sockets, socket: None, script, next: 0 })
+    install(Slot::Client { owner: sockets, socket: None, script, next: 0, gone: false })
 }
 
 /// Whether a URL is one this double will pretend to dial.
@@ -2110,13 +2122,28 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
     out: *mut BuriReceived,
     err: *mut BuriServeError,
 ) -> i32 {
-    let owner = with(handle, -1, |slot| match slot {
-        Slot::Client { owner, socket: held, .. } if *held == Some(socket) => *owner,
-        _ => -1,
+    // Whose socket this is, and whether the close has already been answered on
+    // it. `-1` is "not this client's socket", which a made-up handle and
+    // another client's both reach.
+    let (owner, gone) = with(handle, (-1, true), |slot| match slot {
+        Slot::Client { owner, socket: held, gone, .. } if *held == Some(socket) => {
+            (*owner, *gone)
+        }
+        _ => (-1, true),
     });
-    // The socket has to be one this client minted *and* one the program has not
-    // closed. Read outside the `with` below, for the reentrancy reason above.
-    let open = owner >= 0 && writable(owner, socket);
+    if gone {
+        // SAFETY: the caller promises a writable destination.
+        unsafe {
+            err.write(BuriServeError {
+                cause: SERVE_CLOSED,
+                detail: str_of("this socket has already closed"),
+            })
+        };
+        return 0;
+    }
+    // Whether the program has closed the socket out from under the script.
+    // Asked outside the `with` below, for the reentrancy reason above.
+    let open = writable(owner, socket);
     let next = with(handle, None, |slot| match slot {
         Slot::Client { script, next, .. } => {
             if !open || *next >= script.len() {
@@ -2131,18 +2158,19 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_web_socket_client_connect_rec
     });
     let Some((frame, text, data)) = next else {
         // The script has run out, or the program closed the socket. Either way
-        // this socket is finished: it is closed on the double that owns it, so
-        // a later send is dropped, and a second `connectReceive` is `.Err`.
-        if !open {
-            // SAFETY: the caller promises a writable destination.
-            unsafe {
-                err.write(BuriServeError {
-                    cause: SERVE_CLOSED,
-                    detail: str_of("this socket has already closed"),
-                })
-            };
-            return 0;
-        }
+        // this socket is finished, and the close is answered **once**: the
+        // socket is closed on the double that owns it so a later send is
+        // dropped, `gone` goes up, and the next `connectReceive` is `.Err`.
+        //
+        // A program that closed the socket itself is told the same thing rather
+        // than getting the error straight away, because `core/net/websocket`
+        // runs `onClose` off this answer — and a client whose `onMessage`
+        // hung up would otherwise reach that hook as `.Abnormal`.
+        with(handle, (), |slot| {
+            if let Slot::Client { gone, .. } = slot {
+                *gone = true;
+            }
+        });
         buri_rt_host_testing_test_sockets_socket_close(
             owner,
             socket,

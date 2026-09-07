@@ -2091,3 +2091,273 @@ fn a_discarded_binding_releases_what_it_discarded() {
     unless_ready!();
     heap_is_clean("e2e-discarded-bindings", &discarded_bindings(), &["kept 50000"]);
 }
+
+// ---------------------------------------------------------------------------
+// A Buri client against a Buri server
+// ---------------------------------------------------------------------------
+//
+// Every socket row above is a *Buri server* answering a hand-written client,
+// because until now that was the only client there was. `core/net/websocket`
+// is the other end, so these two rows are the first in this file where both
+// sides of the wire are programs this toolchain built: one binds a port and
+// upgrades, the other dials it, and neither of them is `shared::Talking`.
+//
+// That is worth its own pair of rows rather than a variant of the ones above.
+// The handshake a client writes and the handshake a server answers are two
+// different pieces of code that have never met — `Talking` was written to what
+// the acceptor does, so a mistake shared by both would have been invisible in
+// it — and RFC 6455 masks a client's frames and not a server's, so a client is
+// not a server with the arguments swapped.
+
+/// A server that upgrades one connection at `/socket`, echoes what it is sent,
+/// and stops.
+///
+/// `requestLimit: .Some(1)` is what makes it end on its own: the upgrade spends
+/// the limit, the socket runs to its close on that worker, and the next accept
+/// answers `.Closed`. So the row waits for a process to exit rather than
+/// signalling one.
+fn echoing_socket_server() -> String {
+    format!(
+        r#"from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/net/server" import * as server;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {{
+    let ctx = context {{
+        Alloc: host.alloc,
+        Listen: host.listen,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    }};
+    let plan = server.Server {{
+        port: 0,
+        onRequest: fn(_c, _request) => http.status(404),
+        requestLimit: .Some(1),
+        idleTimeoutMillis: .Some(20000),
+        websocket: .Some(server.WebSocket {{
+            path: "/socket",
+            onOpen: fn(c, _socket, _request) => {{
+                let _said = io.println(c, "server opened").ignore();
+                0
+            }},
+            onMessage: fn(c, socket, seen, message) => {{
+                match (message) {{
+                    .Text(text) => {{
+                        let said = str.format(c, "echo ${{text}}");
+                        let _sent = socket.send(c, .Text(said));
+                        seen + 1
+                    }},
+                    .Binary(_data) => seen,
+                }}
+            }},
+            onClose: fn(c, _socket, seen, _reason) => {{
+                let _said = io.println(c, "server closed after ${{seen}}").ignore();
+                ()
+            }},
+        }}),
+    }};
+    match (server.bind(ctx, plan)) {{
+        .Err(e) => .Err(server.errorText(e)),
+        .Ok(listener) => {{
+{padding}
+            let _announced = io.println(ctx, "port ${{listener.port}} ${{pad}}").ignore();
+            match (server.run(ctx, listener, plan)) {{
+                .Err(e) => .Err(server.errorText(e)),
+                .Ok(_ok) => {{
+                    let _done = io.println(ctx, "served").ignore();
+                    .Ok(())
+                }},
+            }}
+        }},
+    }}
+}}
+"#,
+        padding = padding(),
+    )
+}
+
+/// The client half: dial the port on the command line, say one thing, print
+/// what came back, close, and print how the socket ended.
+///
+/// It takes the port as an argument rather than baking one in, for the reason
+/// every row in this file binds `port: 0`: a test that picks a port races the
+/// pick against the bind.
+///
+/// `Env` is in the context and `Listen` is not, which is the shape of the claim
+/// — this program has no authority to accept anything, and it does not need
+/// one to hold a socket.
+fn dialling_client() -> String {
+    String::from(
+        r#"from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Env: host.env,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        WebSocketClient: host.websocketClient,
+    };
+    let port = env.args(ctx).first().withDefault("0");
+    let dialled = websocket.connect(ctx, Client {
+        url: str.format(ctx, "ws://127.0.0.1:${port}/socket"),
+        onOpen: fn(c, socket, response) => {
+            let _said = io.println(c, "client opened ${response.status}").ignore();
+            let _sent = socket.send(c, .Text("hi"));
+            0
+        },
+        onMessage: fn(c, socket, seen, message) => {
+            match (message) {
+                .Text(text) => {
+                    let _said = io.println(c, "client heard ${text}").ignore();
+                    let _closed = socket.close(c, .Normal);
+                    seen + 1
+                },
+                .Binary(_data) => seen,
+            }
+        },
+        onClose: fn(c, _socket, seen, reason) => {
+            let _said = io.println(c, "client closed after ${seen} ${reason}").ignore();
+            ()
+        },
+    });
+    match (dialled) {
+        .Err(e) => {
+            let _said = io.println(ctx, "client refused: ${websocket.errorText(e)}").ignore();
+            .Ok(())
+        },
+        .Ok(reason) => {
+            let _said = io.println(ctx, "client ended ${reason}").ignore();
+            .Ok(())
+        },
+    }
+}
+"#,
+    )
+}
+
+/// Runs a linked client with one argument, under the heap check every program
+/// this domain runs answers.
+fn dialled_client(binary: &std::path::Path, port: u16) -> crate::shared::Ran {
+    crate::shared::ran_command(
+        std::process::Command::new(binary)
+            .arg(port.to_string())
+            .env("BURI_RT_HEAP_CHECK", "1"),
+    )
+}
+
+/// **A Buri client and a Buri server carry a message both ways over a real
+/// socket.**
+///
+/// Two processes, two binaries this toolchain built, one loopback port and no
+/// hand-written framing anywhere in the row. Both ends are asserted, and each
+/// says something the other cannot:
+///
+/// * the **client** prints the `101` it was handed, the echo it read back, and
+///   the `.Normal` it closed with — so `connect` ran all three hooks, the
+///   response reached `onOpen`, and the close reason survived the round trip;
+/// * the **server** prints that its own `onOpen` ran and that its `onClose`
+///   saw the one message — so what the client sent was framed the way this
+///   acceptor reads a client's frames, mask and all.
+///
+/// The server ends on its own: its request limit is one, the upgrade spends it,
+/// and the accept after the socket closes answers `.Closed`.
+#[test]
+fn a_buri_client_and_a_buri_server_carry_a_message_both_ways() {
+    unless_ready!();
+    let server = built("e2e-client-server", &echoing_socket_server());
+    let client = built("e2e-client-dial", &dialling_client());
+    let running = crate::shared::announced(&server);
+    let port = running.2;
+    let said = dialled_client(&client, port);
+    let out = crate::shared::finished(running);
+    assert_eq!(
+        said.status, 0,
+        "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
+        said.status, said.stdout, said.stderr
+    );
+    for line in ["client opened 101", "client heard echo hi", "client ended .Normal"] {
+        assert!(
+            said.stdout.contains(line),
+            "the client never said `{line}`.\nit said:\n{}\nthe server said:\n{}",
+            said.stdout,
+            out.stdout
+        );
+    }
+    assert!(
+        said.stdout.contains("client closed after 1 .Normal"),
+        "the client's close hook did not run with the state its message left.\nit said:\n{}",
+        said.stdout
+    );
+    assert!(
+        out.stdout.contains("server opened"),
+        "the server never upgraded the client's request.\nit said:\n{}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains("server closed after 1"),
+        "the server did not read exactly the one message the client sent.\nit said:\n{}",
+        out.stdout
+    );
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
+}
+
+/// **A client that dials a port nobody holds says so, and the hooks never
+/// run.**
+///
+/// The signature failure beside the row above, and the reason `connect` answers
+/// a `Result` at all: everything after the handshake is an `.Ok` carrying a
+/// close reason, so the only thing an `.Err` can mean is that there was never a
+/// socket. The evidence is both halves — the refusal is printed, and no hook
+/// printed anything.
+///
+/// The port is one the operating system just gave back. `announced` starts the
+/// server, `finished` waits for it to exit, and the port it held is then a port
+/// with nothing behind it — which is a stronger arrangement than picking a
+/// number and hoping, because a number nobody bound may be bound by anything on
+/// a shared machine.
+#[test]
+fn a_client_that_dials_a_port_nobody_holds_says_so() {
+    unless_ready!();
+    let server = built("e2e-client-server", &echoing_socket_server());
+    let client = built("e2e-client-dial", &dialling_client());
+    // A port this machine really did hand out a moment ago, and then took back.
+    let running = crate::shared::announced(&server);
+    let port = running.2;
+    let mut child = running.0;
+    crate::shared::signalling(&child, crate::shared::SIGTERM);
+    let _stopped = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let _reader = running.1.join();
+
+    let said = dialled_client(&client, port);
+    assert_eq!(
+        said.status, 0,
+        "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
+        said.status, said.stdout, said.stderr
+    );
+    assert!(
+        said.stdout.contains("client refused:"),
+        "dialling a port nobody holds did not answer `.Err`.\nthe client said:\n{}",
+        said.stdout
+    );
+    assert!(
+        !said.stdout.contains("client opened"),
+        "`onOpen` ran for a socket that never opened.\nthe client said:\n{}",
+        said.stdout
+    );
+    assert!(
+        !said.stdout.contains("client closed"),
+        "`onClose` ran for a socket that never opened.\nthe client said:\n{}",
+        said.stdout
+    );
+}
