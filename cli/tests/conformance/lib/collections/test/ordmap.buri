@@ -863,3 +863,146 @@ test "countBy counts the elements under each key, in key order" {
     assert.eq(assert.some(counts.get(2)), 3);
     assert.isTrue(ordmap.countBy(ctx, list.empty<Int>(), fn(n: Int) => n).isEmpty());
 }
+
+// --- Where the combiner does not run ------------------------------------------------
+
+/// Fails the test it is called from. `mergeWith` may only reach for it where a
+/// key is in both maps, so a green case is a combiner that stayed put.
+fn neverCombined(_a: Int, _b: Int): Int {
+    assert.isTrue(false);
+    0
+}
+
+test "an ordered mergeWith over disjoint keys never combines anything" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = ordmap.of(ctx, [(1, 1), (3, 3)]);
+    let b = ordmap.of(ctx, [(2, 2), (4, 4)]);
+    let both = a.mergeWith(ctx, b, neverCombined);
+    assert.eq(both.keys(ctx), [1, 2, 3, 4]);
+    assert.eq(assert.some(both.get(4)), 4);
+}
+
+test "an ordered mergeWith with the empty map on either side combines nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = ordmap.of(ctx, [(1, 1)]);
+    let none = ordmap.empty<Int, Int>();
+    assert.isTrue(m.mergeWith(ctx, none, neverCombined).equals(ctx, m));
+    assert.isTrue(none.mergeWith(ctx, m, neverCombined).equals(ctx, m));
+    assert.isTrue(none.mergeWith(ctx, none, neverCombined).isEmpty());
+}
+
+// --- popFirst and popLast, drained to nothing and back ------------------------------
+
+test "popFirst and popLast on a map of one answer it and the empty map" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = ordmap.of(ctx, [(5, "e")]);
+    let (first, without) = assert.some(one.popFirst(ctx));
+    assert.eq(first, (5, "e"));
+    assert.isTrue(without.isEmpty());
+    let (last, rest) = assert.some(one.popLast(ctx));
+    assert.eq(last, (5, "e"));
+    assert.isTrue(rest.isEmpty());
+    // Neither moved the map they were called on.
+    assert.eq(one.len(), 1);
+    // And on the empty map both are nothing, whichever end is asked.
+    let none = ordmap.empty<Int, Str>();
+    assert.isTrue(none.popFirst(ctx).isNone());
+    assert.isTrue(none.popLast(ctx).isNone());
+}
+
+// Popping from both ends at once meets in the middle, which is what says the
+// two are reading the same tree rather than two copies of one end.
+test "draining from both ends meets in the middle" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = scattered(ctx, 200);
+    let taken = fromBothEnds(ctx, m, list.empty<Int>());
+    // Every key came out exactly once: smallest, largest, next smallest, and so
+    // on, so the answer is the key order folded in half.
+    assert.eq(taken.sort(ctx), list.range(ctx, 0, 200));
+    assert.eq(taken.len(), 200);
+    assert.eq(taken.get(0), .Some(0));
+    assert.eq(taken.get(1), .Some(199));
+    assert.eq(taken.get(2), .Some(1));
+}
+
+/// Takes the smallest key, then the largest, until nothing is left.
+fn fromBothEnds<C: Alloc>(ctx: C, m: OrdMap<Int, Int>, acc: [Int]): [Int] {
+    match (m.popFirst(ctx)) {
+        .None => acc,
+        .Some((low, withoutLow)) => {
+            match (withoutLow.popLast(ctx)) {
+                .None => acc.push(ctx, low.0),
+                .Some((high, rest)) => {
+                    fromBothEnds(ctx, rest, acc.push(ctx, low.0).push(ctx, high.0))
+                },
+            }
+        },
+    }
+}
+
+// --- floor and ceiling on a map of one, and either side of its only key -------------
+
+test "floor and ceiling on a map of one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = ordmap.of(ctx, [(10, "a")]);
+    assert.eq(assert.some(one.floor(10)), (10, "a"));
+    assert.eq(assert.some(one.ceiling(10)), (10, "a"));
+    assert.eq(assert.some(one.floor(11)), (10, "a"));
+    assert.eq(assert.some(one.ceiling(9)), (10, "a"));
+    assert.isTrue(one.floor(9).isNone());
+    assert.isTrue(one.ceiling(11).isNone());
+}
+
+// The keys either side of the ends of a large map, where a candidate picked up
+// on the way down is the only thing that can answer.
+test "floor and ceiling one past each end of a large map" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = scattered(ctx, 300);
+    assert.eq(assert.some(m.floor(0)), (0, 0));
+    assert.eq(assert.some(m.ceiling(0)), (0, 0));
+    assert.eq(assert.some(m.floor(299)), (299, 598));
+    assert.eq(assert.some(m.ceiling(299)), (299, 598));
+    assert.isTrue(m.floor(-1).isNone());
+    assert.isTrue(m.ceiling(300).isNone());
+    assert.eq(assert.some(m.floor(300)), (299, 598));
+    assert.eq(assert.some(m.ceiling(-1)), (0, 0));
+}
+
+// --- filter and countBy at the sizes -------------------------------------------------
+
+test "an ordered filter on a map of one, and on one that keeps everything" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = ordmap.of(ctx, [(1, "a")]);
+    assert.isTrue(one.filter(ctx, fn(_k, _v) => true).equals(ctx, one));
+    assert.isTrue(one.filter(ctx, fn(_k, _v) => false).isEmpty());
+    assert.isTrue(ordmap.empty<Int, Str>().filter(ctx, fn(_k, _v) => true).isEmpty());
+    let m = scattered(ctx, 200);
+    assert.eq(m.filter(ctx, fn(k, _v) => k % 2 == 0).len(), 100);
+    assert.eq(m.filter(ctx, fn(k, _v) => k % 2 == 0).keys(ctx).get(0), .Some(0));
+}
+
+test "an ordered countBy over one element and over three hundred" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = ordmap.countBy(ctx, ["ant"], fn(w: Str) => w.len());
+    assert.eq(one.keys(ctx), [3]);
+    assert.eq(assert.some(one.get(3)), 1);
+    let many = ordmap.countBy(ctx, list.range(ctx, 0, 900), fn(i: Int) => i % 300);
+    assert.eq(many.keys(ctx), list.range(ctx, 0, 300));
+    assert.isTrue(list.range(ctx, 0, 300).all(fn(k) => many.get(k) == .Some(3)));
+}

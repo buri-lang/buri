@@ -13,6 +13,8 @@ from "core/heap" import * as heap;
 from "core/heap" import { Heap };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
+from "core/order" import { Eq, Ord, Order, Show };
+from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
 
 // --- empty ---------------------------------------------------------------------
@@ -219,4 +221,150 @@ test "a merged heap drains the same as one built from both lists" {
     let merged = heap.of(ctx, evens).merge(ctx, heap.of(ctx, odds));
     assert.eq(merged.length(), 300);
     assert.eq(merged.toSortedList(ctx), list.range(ctx, 0, 300));
+}
+
+// --- A type with its own Ord ------------------------------------------------------
+//
+// `peek` and `pop` answer the least element *by `Ord`*, and the module's own
+// header names the way to a largest-first queue: key the elements by a type
+// whose `compare` flips. If the heap ever compared anything but the type's own
+// `Ord`, every assertion below would come out backwards.
+
+/// An `Int` that sorts backwards, so a heap of these drains largest first.
+struct Highest(export Int);
+
+impl Eq for Highest {
+    fn eq(self, other: Highest): Bool {
+        self.0 == other.0
+    }
+}
+
+impl Ord for Highest {
+    fn compare(self, other: Highest): Order {
+        if (self.0 < other.0) {
+            Order.Greater
+        } else if (self.0 > other.0) {
+            Order.Less
+        } else {
+            Order.Equal
+        }
+    }
+}
+
+impl Show for Highest {
+    fn show<C: Alloc>(self, ctx: C): Str {
+        str.format(ctx, "Highest(${self.0})")
+    }
+}
+
+derive Eq, Ord, Show for Job;
+/// Two fields, so the derived order breaks a tie on the second one and a drain
+/// is one list rather than a set of them.
+struct Job {
+    priority: Int,
+    name: Str,
+}
+
+test "a heap takes the type's own Ord, so a flipped one drains largest first" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let h = heap.of(ctx, [Highest(3), Highest(9), Highest(1)]);
+    assert.eq(assert.some(h.peek()), Highest(9));
+    assert.eq(h.toSortedList(ctx), [Highest(9), Highest(3), Highest(1)]);
+    // And through `push` rather than `of`, which is the other way in.
+    let built = heap
+        .empty<Highest>()
+        .push(ctx, Highest(3))
+        .push(ctx, Highest(9))
+        .push(ctx, Highest(1));
+    assert.eq(built.toSortedList(ctx), [Highest(9), Highest(3), Highest(1)]);
+}
+
+test "a heap of a derived Ord orders by the fields in declaration order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let jobs = [
+        Job { priority: 2, name: "b" },
+        Job { priority: 1, name: "z" },
+        Job { priority: 2, name: "a" },
+        Job { priority: 1, name: "a" },
+    ];
+    let h = heap.of(ctx, jobs);
+    assert.eq(assert.some(h.peek()), Job { priority: 1, name: "a" });
+    assert.eq(h.toSortedList(ctx), [
+        Job { priority: 1, name: "a" },
+        Job { priority: 1, name: "z" },
+        Job { priority: 2, name: "a" },
+        Job { priority: 2, name: "b" },
+    ]);
+}
+
+// Two elements the order calls equal are two elements, not one — which is the
+// difference from an `OrdSet` and the reason a heap exists.
+test "a heap keeps elements a custom Ord calls equal" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let h = heap.of(ctx, [Highest(5), Highest(5), Highest(5)]);
+    assert.eq(h.length(), 3);
+    assert.eq(h.toSortedList(ctx).len(), 3);
+    let (_first, rest) = assert.some(h.pop(ctx));
+    assert.eq(rest.length(), 2);
+}
+
+// --- The sizes ----------------------------------------------------------------------
+
+test "a heap of one, through every verb it has" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = heap.of(ctx, [7]);
+    assert.eq(one.length(), 1);
+    assert.isFalse(one.isEmpty());
+    assert.eq(assert.some(one.peek()), 7);
+    assert.eq(one.toSortedList(ctx), [7]);
+    let (only, rest) = assert.some(one.pop(ctx));
+    assert.eq(only, 7);
+    assert.isTrue(rest.isEmpty());
+    assert.isTrue(rest.peek().isNone());
+    // Merging one with nothing, either way round.
+    assert.eq(one.merge(ctx, heap.empty<Int>()).toSortedList(ctx), [7]);
+    assert.eq(heap.empty<Int>().merge(ctx, one).toSortedList(ctx), [7]);
+    assert.eq(one.push(ctx, 3).toSortedList(ctx), [3, 7]);
+}
+
+test "merging two empty heaps is empty, and merging is not destructive" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let none = heap.empty<Int>();
+    assert.isTrue(none.merge(ctx, none).isEmpty());
+    let a = heap.of(ctx, [1, 3]);
+    let b = heap.of(ctx, [2, 4]);
+    assert.eq(a.merge(ctx, b).toSortedList(ctx), [1, 2, 3, 4]);
+    // Both sides are still what they were.
+    assert.eq(a.toSortedList(ctx), [1, 3]);
+    assert.eq(b.toSortedList(ctx), [2, 4]);
+    // And the same merge the other way round is the same heap.
+    assert.eq(b.merge(ctx, a).toSortedList(ctx), [1, 2, 3, 4]);
+}
+
+// A run of merges rather than a run of pushes: the other way a pairing heap can
+// end up with a long spine.
+test "a thousand elements arriving as merged heaps still drain in order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let scattered = list.range(ctx, 0, 1000).map(ctx, fn(i) => i * 7919 % 1000);
+    let merged = scattered
+        .chunks(ctx, 8)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Heap<Int>, piece) => acc.merge(c, heap.of(c, piece)),
+            heap.empty<Int>(),
+        );
+    assert.eq(merged.length(), 1000);
+    assert.eq(merged.toSortedList(ctx), scattered.sort(ctx));
 }

@@ -256,3 +256,122 @@ test "distinctBy agrees with uniqueBy over a key" {
     assert.eq(byHash.len(), 137);
     assert.eq(ordset.distinctBy(ctx, xs, key), byComparison);
 }
+
+// --- The empty set, on both sides of every relation ---------------------------------
+
+// Nothing is shared with the empty set, everything contains it, and it contains
+// only itself. Each of the four is the negative twin of a case above.
+test "the empty set on both sides of isDisjointFrom and isSupersetOf" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = set.of(ctx, [1, 2]);
+    let none = set.empty<Int>();
+    assert.isTrue(a.isDisjointFrom(ctx, none));
+    assert.isTrue(none.isDisjointFrom(ctx, a));
+    assert.isTrue(none.isDisjointFrom(ctx, none));
+    assert.isTrue(a.isSupersetOf(ctx, none));
+    assert.isFalse(none.isSupersetOf(ctx, a));
+    assert.isTrue(none.isSupersetOf(ctx, none));
+    // A set is a superset of itself and is not disjoint from itself.
+    assert.isTrue(a.isSupersetOf(ctx, a));
+    assert.isFalse(a.isDisjointFrom(ctx, a));
+    // One member each, sharing it or not.
+    assert.isTrue(set.of(ctx, [1]).isDisjointFrom(ctx, set.of(ctx, [2])));
+    assert.isFalse(set.of(ctx, [1]).isDisjointFrom(ctx, set.of(ctx, [1])));
+}
+
+test "the empty ordered set on both sides of the same two" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = ordset.of(ctx, [1, 2]);
+    let none = ordset.empty<Int>();
+    assert.isTrue(a.isDisjointFrom(ctx, none));
+    assert.isTrue(none.isDisjointFrom(ctx, a));
+    assert.isTrue(a.isSupersetOf(ctx, none));
+    assert.isFalse(none.isSupersetOf(ctx, a));
+    assert.isTrue(a.isSupersetOf(ctx, a));
+    assert.isTrue(none.symmetricDifference(ctx, a).equals(ctx, a));
+    assert.isTrue(none.symmetricDifference(ctx, none).isEmpty());
+}
+
+test "filter on a set of one, on the empty set, and over a large one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = set.of(ctx, [1]);
+    assert.isTrue(one.filter(ctx, fn(_x) => true).equals(ctx, one));
+    assert.isTrue(one.filter(ctx, fn(_x) => false).isEmpty());
+    assert.isTrue(set.empty<Int>().filter(ctx, fn(_x) => true).isEmpty());
+    let big = set.of(ctx, list.range(ctx, 0, 300));
+    assert.eq(big.filter(ctx, fn(x) => x % 3 == 0).len(), 100);
+    // The ordered one keeps its order through a filter.
+    let ordered = ordset.of(ctx, list.range(ctx, 0, 300));
+    assert.eq(ordered.filter(ctx, fn(x) => x % 100 == 0).toList(ctx), [0, 100, 200]);
+    assert.isTrue(ordset.of(ctx, [1]).filter(ctx, fn(_x) => false).isEmpty());
+}
+
+// A superset relation that only just holds and only just fails, over a set big
+// enough that a wrong answer could not be a coincidence.
+test "isSupersetOf and isDisjointFrom at the boundary over three hundred members" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let all = set.of(ctx, list.range(ctx, 0, 300));
+    let most = set.of(ctx, list.range(ctx, 0, 299));
+    assert.isTrue(all.isSupersetOf(ctx, most));
+    assert.isFalse(most.isSupersetOf(ctx, all));
+    // One member outside is enough to break it.
+    let strayed = set.of(ctx, list.range(ctx, 0, 299)).insert(ctx, 1000);
+    assert.isFalse(all.isSupersetOf(ctx, strayed));
+    // Disjoint until one member is shared.
+    let above = set.of(ctx, list.range(ctx, 300, 600));
+    assert.isTrue(all.isDisjointFrom(ctx, above));
+    assert.isFalse(all.isDisjointFrom(ctx, above.insert(ctx, 299)));
+}
+
+// `symmetricDifference` on one member each, which is where a set that dropped
+// the right-hand side would still look right on the sizes above.
+test "symmetricDifference over singletons and over three hundred members" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        set
+            .of(ctx, [1])
+            .symmetricDifference(ctx, set.of(ctx, [2]))
+            .toList(ctx)
+            .sort(ctx),
+        [1, 2],
+    );
+    assert.isTrue(
+        set.of(ctx, [1]).symmetricDifference(ctx, set.of(ctx, [1])).isEmpty(),
+    );
+    let low = set.of(ctx, list.range(ctx, 0, 300));
+    let high = set.of(ctx, list.range(ctx, 150, 450));
+    let only = low.symmetricDifference(ctx, high);
+    assert.eq(only.len(), 300);
+    assert.isTrue(only.has(0));
+    assert.isFalse(only.has(200));
+    assert.isTrue(only.has(449));
+    // Which is the union without the intersection, the other way to the answer.
+    let byHand = low.union(ctx, high).difference(ctx, low.intersect(ctx, high));
+    assert.isTrue(only.equals(ctx, byHand));
+}
+
+test "distinct and distinctBy over a list of one and a list of the same thing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(set.distinct(ctx, ["only"]), ["only"]);
+    assert.eq(set.distinctBy(ctx, ["only"], fn(w: Str) => w.len()), ["only"]);
+    assert.eq(ordset.distinct(ctx, ["only"]), ["only"]);
+    assert.eq(ordset.distinctBy(ctx, ["only"], fn(w: Str) => w.len()), ["only"]);
+    // A thousand copies of one element is one element, through all four.
+    let same = list.repeat(ctx, 7, 1000);
+    assert.eq(set.distinct(ctx, same), [7]);
+    assert.eq(ordset.distinct(ctx, same), [7]);
+    assert.eq(set.distinctBy(ctx, same, fn(n: Int) => n), [7]);
+    assert.eq(ordset.distinctBy(ctx, same, fn(n: Int) => n), [7]);
+}
