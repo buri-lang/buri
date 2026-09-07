@@ -4,10 +4,10 @@ The design notes state the problem and offer two answers: "the language has no
 mutation and no destructors, so native either ships a GC or does escape
 analysis with an arena per `Alloc` scope."
 
-Both are wrong, and the reasons are specific enough to write down before
-saying what is right instead. The answer is **non-atomic reference counting
-with static elision and in-place reuse**, over a size-class allocator, with
-`Alloc` as a *defined* accounting model rather than a measurement.
+Both are wrong, and §3 and §4 say why. The answer is **non-atomic reference
+counting with static elision and in-place reuse**, over a size-class
+allocator, with `Alloc` as a *defined* accounting model rather than a
+measurement.
 
 ## 1. What the language gives us
 
@@ -32,10 +32,8 @@ before the construction. So every reference in a value points to a value that
 already existed, and "already existed" is a strict partial order. A cycle
 would need a value pointing at something constructed after it, which requires
 either assignment after construction (there is none) or a recursive binding
-whose right-hand side is a value referring to the binding itself.
-
-The second one is the hazard, so it is worth checking rather than asserting.
-It cannot happen:
+whose right-hand side refers to the binding itself. That second one is the
+hazard, and it cannot happen:
 
 - **Recursive *types* are not recursive *values*.**
   `enum Rose { Node([Rose]) }` is fine; every `Rose` is built from `Rose`s
@@ -58,19 +56,18 @@ because dropping to zero means unreachable, complete because there is no cycle
 left over for a collector to find. Refcounting in a language with mutation is
 a memory leak with extra steps; in this language it is a complete collector.
 
-The lemma is worth defending with tests rather than only with an argument, and
-two things do it from opposite ends. `cli/tests/conformance/lib/memory/` runs
-on every backend and pins the cost model §7.1 defines, so the charge a program
-is told about is the same integer natively and on JavaScript. The leak half
-lives in `cli/tests/native/stencil.rs`, because no `test` block can assert it
-from inside the language — `buri_rt_heap_stats` is not reachable from Buri and
-should not be. `nothing_is_leaked` and `the_glue_balances` link a probe
-against the runtime, run a program over the shapes that would break the lemma
-(a `Str` in a struct, a `Str` in an enum payload, a closure environment
-carrying its own release function, a `[Str]` whose elements are released by
-the block's own glue, a boxed field), and assert **zero live blocks at exit**
-with a nonzero total. A future language feature that introduces a cycle fails
-there rather than in production.
+Two test suites defend the lemma from opposite ends.
+`cli/tests/conformance/lib/memory/` runs on every backend and pins the cost
+model §7.1 defines. The leak half lives in `cli/tests/native/stencil.rs`,
+because no `test` block can assert it from inside the language —
+`buri_rt_heap_stats` is not reachable from Buri and should not be.
+`nothing_is_leaked` and `the_glue_balances` link a probe against the runtime,
+run a program over the shapes that would break the lemma (a `Str` in a struct,
+a `Str` in an enum payload, a closure environment carrying its own release
+function, a `[Str]` whose elements are released by the block's own glue, a
+boxed field), and assert **zero live blocks at exit** with a nonzero total. A
+future language feature that introduces a cycle fails there rather than in
+production.
 
 There is no "runtime built with leak checking on" to arrange. `buri_rt_alloc`
 and `buri_rt_free` always keep the four counters `buri_rt_heap_stats` reports,
@@ -78,9 +75,6 @@ because a relaxed add beside a `malloc` is not a cost anybody can measure, and
 a diagnostic that only exists in a special build is a diagnostic nobody runs.
 Marking a block immortal (`buri_rt_make_immortal`) removes it from the live
 count, so a leak check does not report every string literal.
-`cli/tests/native/runtime.rs` asserts the property on a corpus of one, from C;
-`cli/tests/native/stencil.rs`'s leak tests are the same assertion over
-compiled Buri programs.
 
 ## 3. Why not a tracing GC
 
@@ -107,16 +101,13 @@ happen. There are two ways to have that in LLVM, and both are excluded:
   wrong kind of nondeterminism to introduce.
 
 A third cost applies to both: a collector has to be told about every pointer
-the *runtime* holds too, which means 203 runtime functions each growing a
-rooting discipline.
+the *runtime* holds too, so 203 runtime functions each grow a rooting
+discipline.
 
 ## 4. Why not an arena per `Alloc` scope
 
-This is the one the design notes hope for, and the honest answer is that the
-effect system does not carry the information it would need.
-
-**`Alloc` says a function allocates. It does not say when the allocation
-dies.**
+The effect system does not carry the information it would need. **`Alloc` says
+a function allocates. It does not say when the allocation dies.**
 
 An arena needs a scope: a point at which everything allocated since some
 earlier point becomes unreachable, all at once. Look for one:
@@ -213,13 +204,10 @@ arm is out of line. `design/PERFORMANCE.md` carries the measured cost.
 #### Who sets the bit
 
 **A program that can reach a task boundary marks every block it allocates. A
-program that cannot marks none.** That is the whole policy, and the asymmetry
-in §5.5 is the argument for it: an over-set bit costs a copy, an under-set one
-is a silent aliasing bug, and there is no trade to make between an
-optimisation that occasionally does not fire and one that is occasionally
-wrong.
+program that cannot marks none.** §5.5's asymmetry is the argument: an
+over-set bit costs a copy, an under-set one is a silent aliasing bug.
 
-Three pieces, and each is in the one place that can hold it:
+Three pieces, each in the one place that can hold it:
 
 - **`middle::rc::crosses_tasks`** asks the whole post-monomorphization program
   whether any intrinsic it can reach hands a value to another carrier — the
@@ -235,27 +223,22 @@ Three pieces, and each is in the one place that can hold it:
   out of one process-wide word. One relaxed load and one `or` per allocation,
   on a word written at most once in a program's life.
 
-**Why the whole program and not the value.** `middle::rc::sharing` computes
-where a second *reference* comes into existence, which reads like the same
-question and is not: that is a question about sites, and the mark is a
-question about the transitive closure of a heap. A `[Str]` handed to a step is
-a block whose *elements* the step counts; a `Str` inside a closure's
-environment is a block two carriers count. So a per-value mark has to be a
-deep, type-directed walk of everything reachable from the call's arguments —
-`Helper::Walk`'s shape, which G5's `Helper::Copy` has since generalised
-(§7.2.1) — and a *shallow* one is exactly the under-set the asymmetry forbids.
-The program-wide answer is sound by construction rather than by audit: a value
+**Why the whole program and not the value.** A per-value mark has to be a
+deep, type-directed walk of everything reachable from the call's arguments — a
+`[Str]` handed to a step is a block whose *elements* the step counts, and a
+`Str` inside a closure's environment is a block two carriers count — and a
+*shallow* walk is exactly the under-set the asymmetry forbids. The
+program-wide answer is sound by construction rather than by audit: a value
 that reaches a carrier by a route the compiler cannot see — a block the
 runtime built itself, a `Str` from `host.rs`, whatever an FFI hands in one day
 — is marked anyway, because the *allocator* is what marks. What it costs is
 atomic reference counting throughout a program that uses `core/tasks`, which
-is the price §5.4 puts on threads rather than a price this shape adds.
-Narrowing it later is an optimisation over an answer that is already correct.
+is the price §5.4 puts on threads. Narrowing it later is an optimisation over
+an answer that is already correct.
 
-**Silence is the safe answer, at both ends.** The runtime's fan-out is gated
-on the same latch as well as on the frames one, so an artifact that failed to
-make the call runs its tasks one after another — slow, and never two carriers
-counting an unmarked block.
+The runtime's fan-out is gated on the same latch as well as on the frames one,
+so an artifact that failed to make the call runs its tasks one after another —
+slow, and never two carriers counting an unmarked block.
 
 Two properties of the count survive the fork, and preserving them is why the
 mark is a bit of `cap` and not of `rc`:
@@ -267,14 +250,12 @@ mark is a bit of `cap` and not of `rc`:
   program.
 - **The `rc == 1` uniqueness test** (§5.3) is not forked, and has a second
   half instead: **a marked block is never unique.** The count alone was right
-  while exactly one carrier ran Buri code, on the argument that a thread
-  holding no reference cannot make a second one. That argument has a premise —
-  that the caller holds the reference it is testing — and a *borrowed*
-  parameter does not. A step of a `Tasks.parallel` reading `rc == 1` off its
-  closure's list is one of several carriers reading the same `1`. So
-  `buri_rt_unique_cap` answers `None` for a marked block whatever the count:
-  the caller allocates and copies, and what an over-set mark costs is that
-  copy.
+  while exactly one carrier ran Buri code, on the premise that the caller
+  holds the reference it is testing — and a *borrowed* parameter does not. A
+  step of a `Tasks.parallel` reading `rc == 1` off its closure's list is one of
+  several carriers reading the same `1`. So `buri_rt_unique_cap` answers
+  `None` for a marked block whatever the count: the caller allocates and
+  copies, and what an over-set mark costs is that copy.
 
 `decref`'s atomic arm reads the count *before* the subtraction and frees on
 `1`, rather than reading the count and then subtracting: two threads that each
@@ -292,9 +273,7 @@ counted the same way as one reached from emitted code.
 Naive reference counting increments on every parameter pass and decrements on
 every scope exit, and it is slow. The fix is the one Koka's Perceus and Lean
 4's runtime both use, and this language fits it better than either, because it
-has no mutation at all. The algorithm's full details are in the paper —
-Reinking, Xie, de Moura and Leijen, *Perceus: Garbage Free Reference Counting
-with Reuse*, linked from
+has no mutation at all. The paper is linked from
 [../../reference/README.md](../../reference/README.md).
 
 `middle::rc` computes, per parameter, whether the callee **owns** or
@@ -308,10 +287,10 @@ with Reuse*, linked from
 
 The analysis is a fixpoint over the call graph, which is exact
 (`monomorphize.rs`), so the answer is a fact rather than the conservative
-approximation a language with dynamic dispatch would get. `xs.fold(f, init)`,
-`xs.any(pred)`, `s.startsWith(p)`, `s.indexOf(n)`, `xs.len()`: every pure,
-non-constructing operation in the standard library borrows everything, and
-therefore touches no reference count at all.
+approximation a language with dynamic dispatch would get. Every pure,
+non-constructing operation in the standard library — `xs.fold(f, init)`,
+`xs.any(pred)`, `s.startsWith(p)`, `s.indexOf(n)`, `xs.len()` — borrows
+everything and touches no reference count at all.
 
 On top of that, three local rules:
 
@@ -335,25 +314,19 @@ On top of that, three local rules:
 The other half of Perceus, and the reason an immutable language can be fast.
 
 When a value is uniquely owned — `rc == 1` — nothing in the program can tell
-the difference between building a new value and writing into the old one. That
-is the whole of it, and everything below is which operations take the
-opportunity.
-
-A runtime `rc == 1` test guards reuse, and it is one compare against a header
-word the operation was going to load anyway. When the test fails, the fallback
-is allocate-and-copy, which is what would have happened unconditionally
-without the feature.
+the difference between building a new value and writing into the old one. The
+runtime test guarding reuse is one compare against a header word the operation
+was going to load anyway, and when it fails the fallback is allocate-and-copy,
+which is what would have happened unconditionally without the feature.
 
 #### What has landed, and where each fast path lives
 
-The blocks in this implementation are not where a reader of the paragraph
-above would guess, so the list is worth having explicitly. A struct, a tuple,
-an enum and a closure record are **register or stack** values — `MakeStruct`
-is a frame range in the debug backend and an LLVM aggregate in the release one
-— and the only counted heap blocks are a `Str`'s bytes, a `[T]`'s elements, a
-closure *environment*, and the box a recursive field goes behind
-(VALUE-MODEL.md §5.2). So the two operations worth optimizing are the two that
-build the first two, and both are done:
+A struct, a tuple, an enum and a closure record are **register or stack**
+values — `MakeStruct` is a frame range in the debug backend and an LLVM
+aggregate in the release one — and the only counted heap blocks are a `Str`'s
+bytes, a `[T]`'s elements, a closure *environment*, and the box a recursive
+field goes behind (VALUE-MODEL.md §5.2). So the two operations worth
+optimizing are the two that build the first two, and both are done:
 
 - **`[T]` append — `cli/runtime/list.rs`'s `append_dest`, behind `list.push`
   and `list.concat`.** Both are runtime calls on both backends
@@ -379,9 +352,7 @@ build the first two, and both are done:
   about the count and not about where the code lives**: whichever backend
   compiled it, a chain of *n* appends onto a uniquely-owned string allocates
   O(log n) times, and `core/alloc`'s `count` and `total` say the same numbers
-  in a debug build as in a release one. That the copy-and-patch backend once
-  always allocated was a divergence in an observable, and it is fixed rather
-  than documented (CODEGEN-STENCIL.md §5.0.1).
+  in a debug build as in a release one (CODEGEN-STENCIL.md §5.0.1).
 
 **Why the in-place write is unobservable.** `rc == 1` means exactly one live
 value refers to the block. Every operation that produces a *new* view of a
@@ -396,12 +367,11 @@ argument to make.
 
 Which means a *wrong* count here is not merely a leak or a use-after-free: it
 is a licence to overwrite something live. Writing the fast paths turned up two
-places where `middle::rc` got the count wrong, both fixed with the code above
-and both with a regression test beside them. They are worth naming because
-they are the shape the next one will have. A local scrutinized by **two**
-consuming `match`es was dropped by each of them, because the first one erased
-it from the liveness the second computed. And a **borrowed local handed to a
-construct beside a sibling holding its last mention** — `f(s, g(s))`, or
+places where `middle::rc` got the count wrong, and they are worth naming
+because they are the shape the next one will have. A local scrutinized by
+**two** consuming `match`es was dropped by each of them, because the first one
+erased it from the liveness the second computed. And a **borrowed local handed
+to a construct beside a sibling holding its last mention** — `f(s, g(s))`, or
 `"${s} … ${s.len()}"` — was dropped after the sibling, while the construct was
 still holding uncounted words copied out of it. Neither was visible to the
 balance checker, which counts operations rather than orders them; both were
@@ -414,27 +384,24 @@ so it gets an exact allocation and no speculative capacity. The floor is
 runtime — two constants for two crates that never link against each other, and
 a disagreement between them costs a reallocation rather than an answer.
 
-*What* is doubled differs between the two payloads, and deliberately. A `[T]`
+*What* is doubled differs between the two payloads, deliberately. A `[T]`
 append doubles the **old capacity** (`buri_rt_grown_capacity`); a `Str`
 concatenation doubles the **result**, `max(n * 2, floor)`. Both are amortized
-O(1), and the reason they are not unified is the paragraph above: a `Str`'s
-growth is written in three places, and the three have to allocate the same
-number of times or `core/alloc` reports a different total for the same program
-depending on which backend compiled it.
+O(1). They are not unified because a `Str`'s growth is written in three
+places, and the three have to allocate the same number of times.
 
 #### What is excluded, and why
 
 - **A counted element type — `[Str]`, `[(Str, Int)]` — takes neither the
-  in-place path nor the over-allocation.** Two reasons, both correctness
-  rather than caution. Writing at index `len` would drop whatever reference
-  that slot already held without a `decref`, because a slot past the end of
-  one descriptor may hold an element a *longer*, now-dead descriptor put
-  there. And the generated release glue for a `[T]` block walks
-  **`cap / stride`** elements (`stencil/glue.rs`'s `Elems`, `llvm/emit.rs`'s
-  `Job::ReleaseElems`), so spare capacity would have the drop walk slots
-  nothing ever wrote. Lifting it means adding a per-element *release* glue
-  beside the `retain` this ABI already passes, and making that walk follow the
-  element count rather than the capacity. That is the growth path, and it is a
+  in-place path nor the over-allocation.** Two correctness reasons. Writing at
+  index `len` would drop whatever reference that slot already held without a
+  `decref`, because a slot past the end of one descriptor may hold an element
+  a *longer*, now-dead descriptor put there. And the generated release glue
+  for a `[T]` block walks **`cap / stride`** elements (`stencil/glue.rs`'s
+  `Elems`, `llvm/emit.rs`'s `Job::ReleaseElems`), so spare capacity would have
+  the drop walk slots nothing ever wrote. Lifting it means adding a
+  per-element *release* glue beside the `retain` this ABI already passes, and
+  making that walk follow the element count rather than the capacity — a
   change in both backends rather than in the runtime.
 - **Aggregate-cell reuse — the `S { ..old, field: new }` that Perceus is
   famous for — has no cell to reuse.** `middle::rc` computes the pairing
@@ -451,13 +418,12 @@ depending on which backend compiled it.
 
   compiles to a frame range and a store, not to a heap cell and a `decref`.
   The native suite's `a_struct_update_loop_allocates_nothing_per_iteration` is
-  the measurement rather than the claim: a thousand struct updates allocate
-  exactly as many blocks as ten. Emitting the conditional form — an `rc == 1`
-  branch, a write, and an allocate-and-`decref` on the other side — would be
-  two backends' worth of new IR to save an allocation that is not happening.
-  The pairing therefore stays analysis, and the *test* that would notice a
-  layout change promoting aggregates to the heap is the thing that had to
-  exist.
+  the measurement: a thousand struct updates allocate exactly as many blocks
+  as ten. Emitting the conditional form — an `rc == 1` branch, a write, and an
+  allocate-and-`decref` on the other side — would be two backends' worth of
+  new IR to save an allocation that is not happening. The pairing therefore
+  stays analysis, and that test is what would notice a layout change promoting
+  aggregates to the heap.
 - **Cross-block reuse** — pairing a dying value with a construction in a
   different basic block — is a known extension and is not in v1. So is reuse
   across a function boundary.
@@ -467,24 +433,18 @@ depending on which backend compiled it.
   the layout table agreeing about two unrelated types, and a layout change
   would then silently change which programs mutate.
 
-**The sanctioned direction, named so nobody has to re-derive it.** The
-performance story for this design is Roc's, and Roc is the existence proof
-that it works for a pure language shipped to users rather than only in a
-paper. Roc is Perceus-style reference counted, with no tracing collector, and
-its speed comes from **opportunistic in-place mutation at refcount 1** —
-mutate when there is a single owner, share persistently otherwise — with as
-much of the ownership decided statically as the compiler can manage, so the
+**The sanctioned direction.** The performance story for this design is Roc's,
+and Roc is the existence proof that it works for a pure language shipped to
+users rather than only in a paper: Perceus-style reference counted, no tracing
+collector, speed from **opportunistic in-place mutation at refcount 1**, with
+as much of the ownership decided statically as the compiler can manage so the
 runtime `rc == 1` test is skipped where the answer is already known. Koka
-calls the paradigm this enables *functional but in-place*: an algorithm
-written as a pure fold that compiles to the in-place loop its mutable twin
-would have been.
+calls the paradigm this enables *functional but in-place*.
 
-That is what §5.3's reuse *is*, and saying so pins the direction of every
-future optimization here. The order of work is: more static ownership (fewer
-`rc == 1` tests, not faster ones), then cross-block reuse, then reuse across a
-function boundary. What is explicitly **not** on the path is adding a tracing
-collector beside the counts to catch what they miss (§3 gives the reason), or
-making the counts atomic before the language has threads (§5.4).
+The order of work is: more static ownership (fewer `rc == 1` tests, not faster
+ones), then cross-block reuse, then reuse across a function boundary. What is
+explicitly **not** on the path is a tracing collector beside the counts (§3),
+or atomic counts before the language has threads (§5.4).
 
 - Reinking, Xie, de Moura and Leijen, *Perceus: Garbage Free Reference Counting
   with Reuse*, PLDI 2021 — the algorithm, and the FBIP framing.
@@ -499,21 +459,17 @@ Single-threaded, no locks, no atomics.
 **v1 is `malloc`-backed and has no size classes.** `buri_rt_alloc(payload)` is
 one allocation of `16 + payload` bytes at 16-byte alignment with the header
 written, and `buri_rt_free` returns it — a call, not an open-coded sequence.
-The rest of this section is the growth path, and separating the two is
-deliberate rather than a shortcut: everything *observable* about allocation is
-settled either way. The header is the same 16 bytes, `cap` means the same
-thing, the in-place reuse test in §5.3 reads the same field, and the `Alloc`
-cost model in §7 is **defined** rather than measured, so not one number a
-program can see moves when the free lists land. That makes the allocator
-replaceable under a green test suite instead of something that has to be
-co-developed with two backends.
+The rest of this section is the growth path, and the separation is deliberate:
+everything *observable* about allocation is settled either way. The header is
+the same 16 bytes, `cap` means the same thing, §5.3's in-place reuse test
+reads the same field, and §7's cost model is **defined** rather than measured,
+so not one number a program can see moves when the free lists land. That makes
+the allocator replaceable under a green test suite.
 
-What it costs until then, stated so it is not discovered: an allocation is a
-`malloc` call rather than six inline instructions, which is the difference
-between roughly twenty cycles and roughly five on the fast path. That is a
-real number and it is the right one to pay first, because a size-class
-allocator that is wrong is a heap corruption and a `malloc` that is slow is a
-profile.
+What it costs until then: an allocation is a `malloc` call rather than six
+inline instructions, roughly twenty cycles against roughly five on the fast
+path. That is the right one to pay first, because a size-class allocator that
+is wrong is a heap corruption and a `malloc` that is slow is a profile.
 
 **`cap` is the block's usable capacity, not the value's length**, and §5.3's
 doubling is why it is now routinely larger. A `[T]`'s element count is in its
@@ -522,17 +478,16 @@ know how long it is. `cap` is read by `buri_rt_free`, to recover the layout
 the block was made with, and by §5.3's headroom test. Two consequences are
 worth naming before they are met. The heap accounting (`buri_rt_heap_stats`)
 counts capacity, so `live_bytes` after a build loop is up to twice the bytes
-the values hold — it measures `malloc`, and the `Alloc` charge in §7 is a
-definition over the *types*, so nothing a program can observe moves. And the
-release glue for a `[T]` block walks `cap / stride` elements, which is why
-§5.3's fast paths are restricted to element types that hold no counted
-references: spare capacity and a capacity-driven drop walk cannot both be
-right.
+the values hold — it measures `malloc`, and §7's charge is a definition over
+the *types*, so nothing a program can observe moves. And the release glue for
+a `[T]` block walks `cap / stride` elements, which is why §5.3's fast paths
+are restricted to element types that hold no counted references: spare
+capacity and a capacity-driven drop walk cannot both be right.
 
 When the size-class allocator lands it will round a request up to its class,
-so `cap` will exceed the request even without §5.3. That is the same property,
-and `buri_rt_grown_capacity` should then round to a class rather than double,
-which makes the doubling free: the block was going to be that big anyway.
+so `cap` will exceed the request even without §5.3, and
+`buri_rt_grown_capacity` should then round to a class rather than double —
+which makes the doubling free.
 
 The growth path, in full:
 
@@ -552,15 +507,11 @@ The growth path, in full:
   involvement.
 
 Non-atomic counts and a lock-free-because-single-threaded allocator both
-depend on the language having no threads (§1). If threads are ever added, this
-is the cost: reference operations become atomic, and the allocator grows
-per-thread caches. That is a real cost — atomic RC is roughly 2-3× the
-uncontended cost of non-atomic — and any future concurrency proposal should
-price it in rather than discover it. Writing it here is how it gets priced.
-
-**Both halves of that sentence are now in the tree, and neither has been paid
-yet.** The first is §5.1's fork, which is two instructions until something
-sets the bit. The second is this:
+depend on the language having no threads (§1). If threads are ever added, the
+cost is: reference operations become atomic — roughly 2-3× the uncontended
+cost of non-atomic — and the allocator grows per-thread caches. Both halves
+are now in the tree and neither has been paid. The first is §5.1's fork, two
+instructions until something sets the bit. The second is this:
 
 **The per-thread caches.** A free list per thread in front of `malloc`, keyed
 on the **exact** payload size for payloads up to 256 bytes, with a byte budget
@@ -568,19 +519,15 @@ per thread that is one process-wide number divided by the carrier count. Three
 decisions in that sentence:
 
 - **Exact sizes, not size classes.** A class allocator rounds a request up, so
-  `cap` comes back larger than the payload asked for — which the paragraph
-  above anticipates and §5.3 forbids for one case: the release glue of a `[T]`
-  walks `cap / stride` elements, so spare capacity in a block of counted
-  elements is a walk over slots nothing wrote. `buri_rt_grown_capacity` is
-  allowed to overshoot only because the fast paths that use it are restricted
-  to element types holding no references, and a cache is under no such
-  restriction — every block in the program passes through it. Keying on the
-  exact size gives a cache with *no* semantic footprint: `cap` is what it
-  always was, `layout_for` recovers the layout the block was made with, and
-  the drop walk counts what it always counted. When the size-class allocator
-  of the growth path lands, it is the thing that decides `cap`, and this cache
-  becomes its per-thread front end rather than a second answer to the same
-  question.
+  `cap` comes back larger than the payload asked for, and the release glue of
+  a `[T]` would then walk slots nothing wrote.
+  `buri_rt_grown_capacity` may overshoot only because the fast paths using it
+  are restricted to element types holding no references; a cache is under no
+  such restriction, since every block in the program passes through it. Keying
+  on the exact size gives a cache with *no* semantic footprint. When the
+  size-class allocator of the growth path lands, it is the thing that decides
+  `cap`, and this cache becomes its per-thread front end rather than a second
+  answer to the same question.
 - **256 bytes.** Where this language's allocation histogram is: a short
   `Str`'s bytes, a fixed-size aggregate, a list below the first few doublings
   of the growth floor. A block above it is rare enough that a `malloc` per
@@ -588,8 +535,7 @@ decisions in that sentence:
 - **A budget divided by the carriers, not multiplied by them.** The budget is
   stated for the process and split, so the cache's total footprint is a
   property of the program rather than of how wide the carrier pool is: sixteen
-  carriers get a sixteenth each rather than sixteen times the memory. That is
-  the "sized for carrier count" this section asked for.
+  carriers get a sixteenth each rather than sixteen times the memory.
 
 The block's own header carries the free list's link — `rc` holds the next
 block's pointer while it is dead — so the lists cost one head per size per
@@ -605,17 +551,13 @@ measuring the compiler's elision rather than this file's hit rate.
 
 ### 5.5 The same opportunity in JavaScript, without a count
 
-Everything above is the native branch. JavaScript is garbage collected, so
-`rc` did not run for it at all, and `$list_push` was `xs.slice()` and a `push`
-— O(n) per call, and O(n²) for the loop that is the most ordinary thing a
-program does with a list. The same functional update that costs a bump pointer
-natively cost a full copy per iteration on the backend that defines the
-language.
+JavaScript is garbage collected, so `rc` did not run for it at all, and
+`$list_push` was `xs.slice()` and a `push` — O(n) per call, and O(n²) for the
+loop that is the most ordinary thing a program does with a list.
 
-The opportunity is §5.3's, exactly: *when nothing else can see the list, write
-into it.* What is missing is the thing §5.3 asks — `rc == 1` — because a
-garbage collector is precisely the machinery that does not maintain a count.
-So the question is what to put in its place.
+The opportunity is §5.3's exactly: *when nothing else can see the list, write
+into it.* What is missing is `rc == 1`, because a garbage collector is
+precisely the machinery that does not maintain a count.
 
 #### A sticky bit, not a count
 
@@ -624,8 +566,8 @@ two values in its life: `true` when it is made, `false` the first time a
 second reference to it comes into existence. Nothing ever puts it back. The
 fast path is `xs.$u === true`.
 
-A count would be better information and is not available. The two halves of a
-count fail for different reasons, and it is worth separating them:
+A count would be better information and is not available. Its two halves fail
+for different reasons:
 
 - **The increments are cheap and static.** Where a second reference comes into
   existence is a question about the *tree*, and `middle::rc` already answers
@@ -635,22 +577,18 @@ count fail for different reasons, and it is worth separating them:
 - **The decrements are the problem.** A decrement has to fire at the *exact*
   moment a reference goes away, and the whole point of a garbage collector is
   that the program does not say when that is. A closure that captures a list
-  keeps it as long as the closure lives, and the closure's life is the
-  engine's business. A list handed to a host function is somewhere this
-  compiler cannot follow. To emit correct decrements we would have to
-  reconstruct the liveness the collector exists to hide — and a decrement we
-  get wrong does not leak, it frees, which here means *writes into a list
+  keeps it as long as the closure lives; a list handed to a host function is
+  somewhere this compiler cannot follow. Emitting correct decrements means
+  reconstructing the liveness the collector exists to hide — and a decrement
+  we get wrong does not leak, it frees, which here means *writes into a list
   somebody is still reading*.
 
 So the asymmetry decides it. **An over-set bit costs one copy.** A shared list
 that nobody actually shares any more is copied once; the copy is fresh, so it
 carries `$u === true`, and every operation after that writes through. A loop
-therefore pays at most one copy per *sharing event* rather than one per
-iteration, which is the same asymptotics as the count with a worse constant on
-a case that is rare. **An under-counted reference is a silent aliasing bug**:
-two names for a list, one of them written through, and a wrong answer with no
-crash to find it by. Between an optimisation that occasionally does not fire
-and one that is occasionally wrong, there is no trade to make.
+pays at most one copy per *sharing event* rather than one per iteration.
+**An under-counted reference is a silent aliasing bug**: two names for a list,
+one of them written through, and a wrong answer with no crash to find it by.
 
 #### Absence means *not ours*
 
@@ -658,9 +596,9 @@ The bit proves uniqueness positively. `xs.$u === true` is the whole test, and
 `$own` in `runtime.js` writes the property and nothing else does. Everything
 this backend did not allocate — a host array, an array from an interop
 boundary, anything a future FFI hands in — carries no `$u`, so it reads as
-shared and is copied. That is the safe direction by construction rather than
-by audit: a new way for a foreign array to arrive is safe on the day it lands,
-because the only way to become writable is to have been allocated here.
+shared and is copied. A new way for a foreign array to arrive is therefore
+safe on the day it lands, because the only way to become writable is to have
+been allocated here.
 
 The mirror of that rule is that marking must not write on a foreign object
 either. A list this backend made is marked by clearing its own `$u`; anything
@@ -672,9 +610,9 @@ sharing decides is what a field read out of it inherits.
 
 #### The projection rule
 
-Which is the last piece, and it is Perceus's drop specialisation with the
-answer deferred. `state = State { ..state, items: state.items.push(x) }` is
-the record-accumulator fold, and it has to stay in place or the whole exercise
+Perceus's drop specialisation with the answer deferred.
+`state = State { ..state, items: state.items.push(x) }` is the
+record-accumulator fold, and it has to stay in place or the exercise just
 moves the quadratic from the list to the struct around it. The field
 `state.items` is a second reference to a list the struct still holds —
 *unless* this expression is the last use of `state`, in which case the struct
@@ -713,35 +651,32 @@ hold a counted allocation", which a `Str` and a function value both answer yes
 to. The sharing question is "can this value reach a **list**", because a list
 is the only thing anything writes into — a `Str` is an immutable JavaScript
 string and a function value is a closure. `Syntactic::for_lists` is the same
-walk with different leaves, and the difference is visible in the output: a
-`Point { x: Int, y: Int }` and a `Result<Int, Str>` carry no marks at all.
+walk with different leaves: a `Point { x: Int, y: Int }` and a
+`Result<Int, Str>` carry no marks at all.
 
-The two questions also have opposite safe directions, which is why they are
-not one function with a flag threaded through. A type the native walk cannot
-answer gets no operations and leaks; a type this walk cannot answer gets
-marked, because the failure on this side is an aliased list nobody copied. A
-recursive type is the same story from the other end: the native walk says
-`Yes` at its depth bound because a type that reaches itself is behind a
-pointer and therefore counted, while "reaches a list" is a least fixed point,
-and an expression tree that reaches only itself and an `Int` reaches no list
-at all.
+The two questions have opposite safe directions, which is why they are not one
+function with a flag threaded through. A type the native walk cannot answer
+gets no operations and leaks; a type this walk cannot answer gets marked,
+because the failure on this side is an aliased list nobody copied. A recursive
+type is the same story from the other end: the native walk says `Yes` at its
+depth bound because a type that reaches itself is behind a pointer and
+therefore counted, while "reaches a list" is a least fixed point, and an
+expression tree that reaches only itself and an `Int` reaches no list at all.
 
 #### What it costs
 
-The bit is a named property on a JavaScript array. That is the one thing worth
-measuring rather than reasoning about, so it was measured against the
+The bit is a named property on a JavaScript array, measured against the
 alternative — a wrapper object `{ a, u }` with the list inside it — on both
 engines the suite runs under. Element reads, which outnumber everything else,
 are identical across the marked array, the bare array and the wrapper (0.54 /
 0.55 / 0.54 ms per million on JavaScriptCore; 0.99 / 1.00 / 1.01 on V8), and
 mixing marked and unmarked lists through one call site costs nothing
 measurable either — an array's elements do not live in its property backing
-store, so the named property does not move them. Growing is a wash. The
-wrapper's only edge is in stamping itself, and against that it would put a
-dereference on every list access in the compiler and the runtime, and would
-need wrapping and unwrapping at every host boundary — the boundary whose whole
-property is that a foreign array is recognisable by carrying nothing. The
-named property wins.
+store. Growing is a wash. The wrapper's only edge is in stamping itself, and
+against that it would put a dereference on every list access in the compiler
+and the runtime, and would need wrapping and unwrapping at every host boundary
+— the boundary whose whole property is that a foreign array is recognisable by
+carrying nothing.
 
 Two million pushes cost the same whether they are two hundred runs of ten
 thousand or twenty runs of a hundred thousand, which is what linear means and
@@ -763,18 +698,15 @@ are:
   rather than fixable — a copying `slice` would have to name `Alloc`, which is
   a language change — and `core/str` now says so where `slice` is declared.
 
-  **Ruled on, and closed.** This was carried as a language question because
-  the two alternatives — copying above a ratio, or copying on a proven
-  retention — change `slice`'s and `splitOnce`'s signatures or the middle
-  end's obligations. The ruling is **neither**: slicing keeps the parent, and
-  *how* a view's storage is managed is an implementation detail of the
-  runtime, not a property of the language. `slice` promises a view, `Alloc` is
-  where allocation is named, and neither promise mentions reference counts. So
-  the strategy underneath — Perceus today, with or without the compaction pass
-  in §5.3's known extensions — can change under a green suite without a SPEC
+  **Ruled on, and closed.** The two alternatives — copying above a ratio, or
+  copying on a proven retention — change `slice`'s and `splitOnce`'s
+  signatures or the middle end's obligations. The ruling is **neither**:
+  slicing keeps the parent, and *how* a view's storage is managed is an
+  implementation detail of the runtime. `slice` promises a view, `Alloc` is
+  where allocation is named, and neither promise mentions reference counts, so
+  the strategy underneath can change under a green suite without a SPEC
   amendment, exactly as §5.4's allocator can. What is *not* free to change is
-  `slice` being pure, and that is why the language question was worth asking
-  before the answer was written down.
+  `slice` being pure.
 
 - **A count on every heap value even where nothing shares.** Elision removes
   most of the traffic and none of the 16 bytes.
@@ -784,20 +716,16 @@ it is not available. This is the trade, taken deliberately.
 
 ## 7. `Alloc`, natively: a defined cost model
 
-The important half is settled before any of the code: **a byte-exact cost
-model has to be *defined*, not measured**, or the numbers are not reproducible
-across backends and every test that asserts one is flaky. That decides
-everything below.
+**A byte-exact cost model has to be *defined*, not measured**, or the numbers
+are not reproducible across backends and every test that asserts one is
+flaky. That decides everything below.
 
-It is also what made the allocator types real, and the history is worth one
-paragraph, because it is the argument anybody proposing to widen them has to
-beat. `GeneralPurpose`, `Arena` and `FixedBuffer` were deliberately deferred
-while the only backend had a garbage collector, on the grounds that a count
-would be synthetic. **What made them real was not the native backend but this
-model**: the charge for an operation is computed from the types rather than
-measured, so the same program charges the same number on both backends by
-construction, and a count is not a JavaScript fact that a native run would
-contradict.
+It is also what made the allocator types real. `GeneralPurpose`, `Arena` and
+`FixedBuffer` were deferred while the only backend had a garbage collector, on
+the grounds that a count would be synthetic. **What made them real was not the
+native backend but this model**: the charge is computed from the types rather
+than measured, so the same program charges the same number on both backends by
+construction.
 
 ### 7.1 The model
 
@@ -834,15 +762,12 @@ Two rows deserve their reasons:
   the optimizer improves is not a number a test can assert.
 
 Making it a definition also makes it a **commitment**: a change to any row is
-a breaking change to observable behaviour, which is what a defined model buys
-and what it costs. It goes in `core/effect`'s own source next to the `Alloc`
-declaration, where a reader of the effect meets it — and it is there now, as a
-table above `effect Alloc`. `middle::layout`'s `charge_list`, `charge_str`,
-`charge_closure_env`, `charge_allocate` and `CHARGE_VIEW` are the same rows as
-code, and `core/alloc`'s `strBytes`, `listBytes` and `closureBytes` are them
-again as something a program can call. Three spellings of one definition is
-two too many to change silently, which is exactly what "commitment" is
-supposed to mean.
+a breaking change to observable behaviour. The table sits above
+`effect Alloc` in `core/effect`'s own source. `middle::layout`'s
+`charge_list`, `charge_str`, `charge_closure_env`, `charge_allocate` and
+`CHARGE_VIEW` are the same rows as code, and `core/alloc`'s `strBytes`,
+`listBytes` and `closureBytes` are them again as something a program can call.
+Three spellings of one definition is two too many to change silently.
 
 ### 7.2 The three allocator types
 
@@ -857,11 +782,9 @@ allocators.
   **As built, the total is not *in* the type.** Buri has no mutation, so a
   running total cannot live in the struct that reports it. `GeneralPurpose` is
   a handle into a counter table in `memory.rs`, exactly as
-  `core/host/testing`'s captured stdout is a handle. The type still *exposes*
-  the total — `gp.stats()` — which is what this row meant; where it lives is
-  the part that had to change. One consequence is worth stating because a
-  program can see it: a copy of an allocator shares its counter, because the
-  handle is the identity.
+  `core/host/testing`'s captured stdout is a handle. The type still exposes
+  the total through `gp.stats()`. One consequence a program can see: a copy of
+  an allocator shares its counter, because the handle is the identity.
 - **`FixedBuffer(n)`** — a budget of *n* bytes. Exceeding it **aborts**. That
   is forced, and it is the right answer: `allocate` returns `Region`, not
   `Result<Region, _>` (`effect.buri`), so there is no value to report failure
@@ -870,17 +793,14 @@ allocators.
   exceeding a `FixedBuffer` is `$abort("allocation budget exhausted")`, with
   the budget and the request in the message.
 - **`Arena`** — in v1, `GeneralPurpose` with its own separate counter. It does
-  *not* free in bulk, and pretending otherwise would be the "synthetic number
-  rather than a measurement" the JavaScript backend was rightly criticised
-  for.
+  *not* free in bulk.
 
   What would make `Arena` real is a language construct that bounds a context's
   lifetime — a scoped context, such that everything allocated under it is
   unreachable at the end of the scope. That is a language proposal, not a
-  backend feature, and it is worth naming precisely so nobody attempts the
-  backend half first: without it, an arena in this language has no scope to
-  end at (§4). Until a scope exists, what an `Arena` is *for* is attribution —
-  an arena per phase, answering "how much did parsing charge?" without
+  backend feature: without it, an arena in this language has no scope to end
+  at (§4). Until a scope exists, what an `Arena` is *for* is attribution — an
+  arena per phase, answering "how much did parsing charge?" without
   subtracting two totals.
 
 #### 7.2.1 Amendment: the scope exists, and holds the values too
@@ -901,26 +821,24 @@ bigger than a block. `arenaRelease` `munmap`s every block when `body` returns.
 reserved pages **and** gave them back" is one assertion rather than two
 half-ones.
 
-**The values are in it too, and this is the paragraph that changed.** The
-slice that added the arena (G4) held it to *charges*, for the reason §7.3.1
-gives: the native ABI drops the context argument from every runtime call, so
-the operation that builds a list cannot be **told** which allocator asked for
-it. The answer is not to tell it. `scoped` calls `buri_rt_alloc_arena_enter`
-before `body` and `buri_rt_alloc_arena_leave` after, and for that dynamic
-extent — on that carrier — `buri_rt_alloc` serves out of the arena and stamps
-`CAP_ARENA` (bit 62 of `cap`) into the header. `buri_rt_free` reads that bit,
-does the accounting and returns; the pages go back in one `munmap`.
+**The values are in it too.** The native ABI drops the context argument from
+every runtime call (§7.3.1), so the operation that builds a list cannot be
+**told** which allocator asked for it. The answer is not to tell it. `scoped`
+calls `buri_rt_alloc_arena_enter` before `body` and `buri_rt_alloc_arena_leave`
+after, and for that dynamic extent — on that carrier — `buri_rt_alloc` serves
+out of the arena and stamps `CAP_ARENA` (bit 62 of `cap`) into the header.
+`buri_rt_free` reads that bit, does the accounting and returns; the pages go
+back in one `munmap`.
 
 That is an *over*-approximation of "charged to the `Scoped`": every allocation
 in the extent is the scope's, whoever asked. It is the safe end of §5.5's
-asymmetry. A block that should have been on the heap and is in the arena
-leaves with the answer or dies with the scope, which is correct and
-occasionally costs a copy; a block that should have been in the arena and is
-on the heap is also correct and merely misses the optimisation. The active
-arena is a **thread-local**, and `rt.rs`'s carrier loop saves and restores it
-around a stack switch, so it belongs to the *task* rather than to the thread
-the task is on this turn — which is what makes a scope per request safe, and
-what makes a task started inside a scope allocate on the platform heap.
+asymmetry — a block that should have been on the heap and is in the arena
+leaves with the answer or dies with the scope, and occasionally costs a copy.
+The active arena is a **thread-local**, and `rt.rs`'s carrier loop saves and
+restores it around a stack switch, so it belongs to the *task* rather than to
+the thread the task is on this turn — which is what makes a scope per request
+safe, and what makes a task started inside a scope allocate on the platform
+heap.
 
 **What makes the bulk free sound is the copy at the boundary.** Exactly one
 value leaves a scope — `body`'s answer — and `core/alloc::copyOut` deep-copies
@@ -934,14 +852,13 @@ the walk reaches a block through are the whole of the runtime's half —
 the path increments a count, so the answer's blocks are fresh and uniquely
 owned and the source's counts do not move.
 
-The **invariant** the arrangement rests on is one sentence, and it is
-checkable: *a value's lifetime never exceeds the dynamic extent it was created
-in, except by being the answer — and the answer is copied.* Buri has no
-mutable global state and no way to stash a value where a scope cannot see it,
-and the runtime's own tables (`testing.rs`, `net.rs`) keep Rust copies rather
-than Buri blocks. The alternative reading — keep every arena alive for ever in
-case something escaped — was rejected in G4 and stays rejected: an arena that
-is never released is not an arena.
+The **invariant** the arrangement rests on is one sentence: *a value's
+lifetime never exceeds the dynamic extent it was created in, except by being
+the answer — and the answer is copied.* Buri has no mutable global state and
+no way to stash a value where a scope cannot see it, and the runtime's own
+tables (`testing.rs`, `net.rs`) keep Rust copies rather than Buri blocks. The
+alternative — keep every arena alive for ever in case something escaped — is
+rejected: an arena that is never released is not an arena.
 
 A **closure** costs one word for this. `Ty::Fn` does not record what was
 captured, so the environment block has always carried its own release function
@@ -969,16 +886,11 @@ intrinsics receive it. The accounting costs exactly the programs that ask for
 accounting.
 
 No reserved context slot is needed either: the JavaScript backend reads the
-context's own binding and a native backend knows the layout statically, so
-neither has to scan a slot for one. That is now stronger than it sounds —
-natively there is no scan and no cache because there is no context value to
-scan.
+context's own binding and a native backend knows the layout statically.
 
 #### 7.3.1 Amendment: the hook is there and the *charge* is not
 
-`core/alloc` shipped and this section's last paragraph did not survive
-contact. The correction matters, because that paragraph reads as "the
-accounting is nearly free" and it is not.
+The paragraph above reads as "the accounting is nearly free", and it is not.
 
 **A context argument is dropped from every `buri_rt_*` call, whatever it
 weighs** (`stencil/runtime.rs`, `llvm/runtime.rs`). That is not an oversight
@@ -994,18 +906,16 @@ unrelated reason: the charge for a `[T]` is `16 + n * stride(T)`, and an
 untyped runtime does not have `stride(T)`.
 
 So what an allocator is told about is **`allocate(ctx, n)` and nothing else**,
-identically on both backends. Every other row of §7.1 is still a charge — the
-model is a definition, and a definition does not need a reporter to be true —
-but nothing counts it. `core/alloc`'s module comment states that boundary
-where a user meets it, and `cli/tests/conformance/lib/memory/` pins it on both
-backends.
+identically on both backends. Every other row of §7.1 is still a charge — a
+definition does not need a reporter to be true — but nothing counts it.
+`core/alloc`'s module comment states that boundary where a user meets it, and
+`cli/tests/conformance/lib/memory/` pins it on both backends.
 
-Closing the gap is a wave of its own, and the shape of it is now clear enough
-to price. The charge has to be computed where the *type* is known, which is
-the call site, and applied where the *length* is known, which is inside the
-runtime function. That is either a middle-end pass that emits a charge beside
-each allocating call (needing a length expression per intrinsic) or a widened
-ABI that passes the charge and the counter handle into the runtime (needing
-every `buri_rt_*` producer to take two more arguments). Both are two-backend
-changes, and doing one backend alone breaks the one property the module has:
-that the numbers agree.
+Closing the gap is a wave of its own. The charge has to be computed where the
+*type* is known, which is the call site, and applied where the *length* is
+known, which is inside the runtime function. That is either a middle-end pass
+that emits a charge beside each allocating call (needing a length expression
+per intrinsic) or a widened ABI that passes the charge and the counter handle
+into the runtime (needing every `buri_rt_*` producer to take two more
+arguments). Both are two-backend changes, and doing one backend alone breaks
+the one property the module has: that the numbers agree.
