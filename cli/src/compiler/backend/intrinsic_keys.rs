@@ -66,8 +66,8 @@ pub fn lazy_chunk_of(key: &str) -> Option<usize> {
 /// The `core/bits` operations, asked ahead of emission.
 ///
 /// The unsigned-width family is spelled out rather than derived from a suffix,
-/// because `core/bits` declares exactly these six (`bits.buri:24-29`) and a
-/// rule that accepted `shlU16` would claim something that does not exist.
+/// because `core/bits` declares exactly these and a rule that accepted
+/// `shlU16` would claim something that does not exist.
 pub fn bits_op(key: &str) -> bool {
     matches!(
         key,
@@ -85,6 +85,17 @@ pub fn bits_op(key: &str) -> bool {
             | "bits.shrU32"
             | "bits.shlU64"
             | "bits.shrU64"
+            | "bits.rotateLeftU8"
+            | "bits.rotateRightU8"
+            | "bits.rotateLeftU32"
+            | "bits.rotateRightU32"
+            | "bits.rotateLeftU64"
+            | "bits.rotateRightU64"
+            | "bits.byteSwapU32"
+            | "bits.byteSwapU64"
+            | "bits.popCountU64"
+            | "bits.leadingZerosU64"
+            | "bits.trailingZerosU64"
     )
 }
 

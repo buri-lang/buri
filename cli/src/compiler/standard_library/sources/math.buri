@@ -84,3 +84,464 @@ export let NEG_INFINITY: Float = -1.0 / 0.0;
 /// and `NAN <= NAN` are all `false`. `isNan(x)` asks what `x != x` asks in other
 /// languages.
 export let NAN: Float = 0.0 / 0.0;
+
+// --- Three more constants ---------------------------------------------------------
+
+/// The gap between `1.0` and the next `Float` above it, `2^-52`.
+///
+/// The usual scale for a relative tolerance: two doubles that agree to the last
+/// bit differ by at most this fraction of their size.
+export let EPSILON: Float = 2.220446049250313e-16;
+
+/// The smallest positive `Float` with full precision, `2^-1022`. Below it are
+/// the subnormals, which trade mantissa bits for range.
+export let MIN_POSITIVE: Float = 2.2250738585072014e-308;
+
+/// A whole turn in radians, `2 * PI`. Angles are usually fractions of a turn,
+/// and `TAU / 4` says a right angle where `PI / 2` says half of half a circle.
+export let TAU: Float = 6.283185307179586;
+
+/// `ln(2)`, which the two inverse hyperbolic functions need where their
+/// argument is large enough that `x + sqrt(x*x - 1)` is just `2x`.
+let LN2: Float = 0.6931471805599453;
+
+// --- Exact, on every backend ------------------------------------------------------
+//
+// Everything down to `logBase` is built out of `+`, `-`, `*`, `/`, `sqrt` and
+// the comparisons, all of which IEEE 754 fixes exactly. So each answers the
+// same bits on every backend, and each runs wherever Buri does.
+
+/// `sqrt(x*x + y*y)`, the length of a right triangle's hypotenuse, computed so
+/// that a large `x` does not overflow on the way.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn distance(dx: Float, dy: Float): Float {
+///     math.hypotenuse(dx, dy)
+/// }
+/// ```
+///
+/// An infinite side gives infinity even when the other is `NaN`, which is what
+/// IEEE 754 asks for: the answer is already known.
+///
+/// Accurate to about two units in the last place. The scaling costs a division
+/// and a multiply that the naive form does not.
+export fn hypotenuse(x: Float, y: Float): Float {
+    let a = absFloat(x);
+    let b = absFloat(y);
+    if (isInfinite(a) || isInfinite(b)) {
+        INFINITY
+    } else {
+        let big = if (a > b) { a } else { b };
+        let small = if (a > b) { b } else { a };
+        if (big == 0.0) {
+            // Both zero, and dividing would ask `0 / 0`.
+            big
+        } else {
+            let ratio = small / big;
+            big * sqrt(1.0 + ratio * ratio)
+        }
+    }
+}
+
+/// `magnitude` wearing `sign`'s sign, negative zero included.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn towards(size: Float, direction: Float): Float {
+///     math.copySign(size, direction)
+/// }
+/// ```
+///
+/// A `NaN` `sign` counts as positive: Buri's `NaN` carries no sign, because a
+/// payload is not part of its value.
+export fn copySign(magnitude: Float, sign: Float): Float {
+    let size = absFloat(magnitude);
+    if (isBelowZero(sign)) { -size } else { size }
+}
+
+/// Whether a `Float` is on the negative side of zero, `-0.0` included.
+///
+/// `x < 0.0` is false at `-0.0`, so the sign is read off `1.0 / x`, which is
+/// negative infinity there and positive infinity at `0.0`.
+fn isBelowZero(x: Float): Bool {
+    if (x < 0.0) { true } else if (x > 0.0 || isNan(x)) { false } else { 1.0 / x < 0.0 }
+}
+
+/// Degrees as radians.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn quarterTurn(): Float {
+///     math.toRadians(90.0)
+/// }
+/// ```
+export fn toRadians(degrees: Float): Float {
+    degrees * PI / 180.0
+}
+
+/// Radians as degrees.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn asDegrees(angle: Float): Float {
+///     math.toDegrees(angle)
+/// }
+/// ```
+export fn toDegrees(radians: Float): Float {
+    radians * 180.0 / PI
+}
+
+/// `x` rounded to the nearest whole number, with a tie going to the even one.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn nearest(x: Float): Float {
+///     math.roundEven(x)
+/// }
+/// ```
+///
+/// **This is the rounding a sum of money wants**, and `round` is not: `round`
+/// sends every tie the same way, so a column of them drifts upward. This one
+/// sends half of them each way, which is what IEEE 754 does by default and what
+/// accountants call banker's rounding. `roundEven(0.5)` is `0` and
+/// `roundEven(1.5)` is `2`.
+///
+/// The sign survives: `roundEven(-0.4)` is `-0.0`.
+export fn roundEven(x: Float): Float {
+    let whole = trunc(x);
+    let part = absFloat(x - whole);
+    if (part < 0.5) {
+        whole
+    } else if (part > 0.5) {
+        whole + copySign(1.0, x)
+    } else if (whole % 2.0 == 0.0) {
+        whole
+    } else {
+        whole + copySign(1.0, x)
+    }
+}
+
+/// `x` rounded to `decimals` places after the point, ties to even.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn cents(amount: Float): Float {
+///     math.roundTo(amount, 2)
+/// }
+/// ```
+///
+/// A negative `decimals` rounds above the point, so `roundTo(1234.0, -2)` is
+/// `1200.0`.
+///
+/// **It rounds the double, not the decimal you typed.** `2.675` is really
+/// `2.67499999999999982...`, so `roundTo(2.675, 2)` is `2.67`. Money that must
+/// round the way it reads wants `core/decimal`, whose value *is* the digits.
+///
+/// `x` non-finite, or a `decimals` so large that scaling would overflow,
+/// answers `x` unchanged — there is nothing left to round away.
+export fn roundTo(x: Float, decimals: Int): Float {
+    let scale = tenTo(decimals);
+    let scaled = x * scale;
+    if (!isFinite(scaled) || scale == 0.0 || isInfinite(scale)) {
+        x
+    } else {
+        roundEven(scaled) / scale
+    }
+}
+
+/// `10^n`, by repeated multiplication. `n` past a double's range gives `0.0` or
+/// infinity, which `roundTo` reads as "nothing to do".
+fn tenTo(n: Int): Float {
+    if (n < 0) { 1.0 / tenUp(0 - n, 1.0) } else { tenUp(n, 1.0) }
+}
+
+fn tenUp(n: Int, acc: Float): Float {
+    if (n <= 0 || isInfinite(acc)) { acc } else { tenUp(n - 1, acc * 10.0) }
+}
+
+/// Whether two numbers are within `tolerance` of each other, measured as a
+/// plain difference.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn settled(before: Float, after: Float): Bool {
+///     math.isCloseAbsolute(before, after, 1.0e-9)
+/// }
+/// ```
+///
+/// The tolerance's own sign is ignored. Equal values are close whatever the
+/// tolerance, so two infinities of the same sign are close, and so are two
+/// `NaN`s — Buri's `==` is reflexive everywhere, and this agrees with it.
+///
+/// A fixed tolerance stops meaning anything once the numbers are large. Use
+/// `isCloseRelative` there.
+export fn isCloseAbsolute(a: Float, b: Float, tolerance: Float): Bool {
+    a == b || absFloat(a - b) <= absFloat(tolerance)
+}
+
+/// Whether two numbers are within `tolerance` of each other, measured as a
+/// fraction of the larger.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn agrees(a: Float, b: Float): Bool {
+///     math.isCloseRelative(a, b, 16.0 * math.EPSILON)
+/// }
+/// ```
+///
+/// `isCloseRelative(a, b, EPSILON)` asks whether the two are within a bit or so
+/// of each other at their own scale.
+///
+/// The equality shortcut is `isCloseAbsolute`'s, so a pair of zeros is close and
+/// so is a pair of infinities. A zero against anything else is not, whatever the
+/// tolerance — nothing is a fraction of nothing.
+export fn isCloseRelative(a: Float, b: Float, tolerance: Float): Bool {
+    let scale = if (absFloat(a) > absFloat(b)) { absFloat(a) } else { absFloat(b) };
+    a == b || absFloat(a - b) <= absFloat(tolerance) * scale
+}
+
+// --- Built on `exp` and `ln` -------------------------------------------------------
+//
+// Everything below reaches one of the thirteen transcendentals, whose answers
+// IEEE 754 does not fix. That is the *existing* gap this module's header and
+// `cli/runtime/math.rs` describe, and these inherit it exactly: they run on the
+// JavaScript backend, and a native build reports `math.exp` or `math.ln` through
+// `missing_intrinsics` the same way a direct call to either does. Nothing here
+// adds a second implementation for a backend to disagree with — the whole family
+// still has one body.
+
+/// `exp(x) - 1`, without the digits that subtracting one from a number near
+/// `1.0` throws away.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn growth(rate: Float): Float {
+///     math.expMinusOne(rate)
+/// }
+/// ```
+///
+/// `expMinusOne(1.0e-16)` is `1.0e-16`, where `exp(1.0e-16) - 1.0` is `0.0`.
+///
+/// Kahan's identity: `(u - 1) * x / ln(u)` where `u` is `exp(x)`. The two
+/// roundings cancel, so it is good to about a unit in the last place across the
+/// whole range.
+export fn expMinusOne(x: Float): Float {
+    let u = exp(x);
+    if (u == 1.0) {
+        // Every bit of the answer is `x` itself down here.
+        x
+    } else if (u - 1.0 == -1.0) {
+        -1.0
+    } else {
+        (u - 1.0) * x / ln(u)
+    }
+}
+
+/// `ln(1 + x)`, without the digits that adding one to a small number throws
+/// away.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn logGrowth(rate: Float): Float {
+///     math.lnOnePlus(rate)
+/// }
+/// ```
+///
+/// `lnOnePlus(1.0e-16)` is `1.0e-16`, where `ln(1.0 + 1.0e-16)` is `0.0`.
+///
+/// Kahan's identity again, the other way round: `ln(u) * x / (u - 1)` where `u`
+/// is `1 + x`.
+export fn lnOnePlus(x: Float): Float {
+    let u = 1.0 + x;
+    if (u == 1.0) { x } else { ln(u) * x / (u - 1.0) }
+}
+
+/// The logarithm of `x` in any base: `ln(x) / ln(base)`.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn digits(n: Float): Float {
+///     math.logBase(n, 10.0)
+/// }
+/// ```
+///
+/// `log2` and `log10` are the two the platform computes directly and are more
+/// accurate than this at those bases. Reach for this one where the base is data.
+export fn logBase(x: Float, base: Float): Float {
+    ln(x) / ln(base)
+}
+
+/// The hyperbolic sine, `(e^x - e^-x) / 2`.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn catenary(x: Float): Float {
+///     math.sinh(x)
+/// }
+/// ```
+///
+/// Odd, so the sign of `x` is the sign of the answer and `sinh(-0.0)` is
+/// `-0.0`. It overflows to infinity past about `710.5`.
+export fn sinh(x: Float): Float {
+    let a = absFloat(x);
+    if (a < 1.0) {
+        // `(t + t / (t + 1)) / 2` where `t` is `e^a - 1`: the same value, with
+        // no cancellation as `a` approaches zero.
+        let t = expMinusOne(a);
+        copySign(0.5 * (t + t / (t + 1.0)), x)
+    } else if (a <= 709.0) {
+        let e = exp(a);
+        copySign(0.5 * (e - 1.0 / e), x)
+    } else {
+        // `e^a` alone would overflow where `e^a / 2` still fits, so the halving
+        // happens between the two factors.
+        let half = exp(a * 0.5);
+        copySign(half * 0.5 * half, x)
+    }
+}
+
+/// The hyperbolic cosine, `(e^x + e^-x) / 2`.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn hanging(x: Float): Float {
+///     math.cosh(x)
+/// }
+/// ```
+///
+/// Even, so `cosh(-x)` is `cosh(x)`, and never below `1.0`. It overflows to
+/// infinity past about `710.5`.
+export fn cosh(x: Float): Float {
+    let a = absFloat(x);
+    if (a < 0.5) {
+        // `1 + t*t / (2 * (1 + t))` where `t` is `e^a - 1`, which keeps the
+        // leading `1` exact instead of adding two halves that nearly cancel.
+        let t = expMinusOne(a);
+        1.0 + t * t / (2.0 * (1.0 + t))
+    } else if (a <= 709.0) {
+        let e = exp(a);
+        0.5 * (e + 1.0 / e)
+    } else {
+        let half = exp(a * 0.5);
+        half * 0.5 * half
+    }
+}
+
+/// The hyperbolic tangent, `sinh(x) / cosh(x)`.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn squash(x: Float): Float {
+///     math.tanh(x)
+/// }
+/// ```
+///
+/// Odd, and always between `-1.0` and `1.0`. Past `22.0` the answer is `1.0` to
+/// the last bit, so it is answered directly rather than computed.
+export fn tanh(x: Float): Float {
+    let a = absFloat(x);
+    if (a > 22.0) {
+        copySign(1.0, x)
+    } else {
+        // `t / (t + 2)` where `t` is `e^(2a) - 1`. At `a == 0` that is `0 / 2`,
+        // so the zero keeps its sign with no special case.
+        let t = expMinusOne(2.0 * a);
+        copySign(t / (t + 2.0), x)
+    }
+}
+
+/// The inverse hyperbolic sine, `ln(x + sqrt(x*x + 1))`.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn unsquashSinh(y: Float): Float {
+///     math.asinh(y)
+/// }
+/// ```
+///
+/// Defined for every `Float`, and odd. Written in three pieces so that neither
+/// `x*x` overflowing nor `x + sqrt(...)` cancelling can reach the answer.
+export fn asinh(x: Float): Float {
+    let a = absFloat(x);
+    let size = if (a >= 1.0e10) {
+        // `sqrt(a*a + 1)` is `a`, so the argument is `2a` and `a*a` never
+        // has to be computed.
+        ln(a) + LN2
+    } else if (a > 1.0) {
+        ln(2.0 * a + 1.0 / (sqrt(a * a + 1.0) + a))
+    } else {
+        lnOnePlus(a + a * a / (1.0 + sqrt(a * a + 1.0)))
+    };
+    copySign(size, x)
+}
+
+/// The inverse hyperbolic cosine, `ln(x + sqrt(x*x - 1))`.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn unsquashCosh(y: Float): Float {
+///     math.acosh(y)
+/// }
+/// ```
+///
+/// `NaN` below `1.0`, which is where the answer would be imaginary. `acosh(1.0)`
+/// is exactly `0.0`.
+export fn acosh(x: Float): Float {
+    if (x < 1.0) {
+        NAN
+    } else if (x == 1.0) {
+        0.0
+    } else if (x >= 1.0e10) {
+        ln(x) + LN2
+    } else if (x > 2.0) {
+        ln(2.0 * x - 1.0 / (x + sqrt(x * x - 1.0)))
+    } else {
+        let t = x - 1.0;
+        lnOnePlus(t + sqrt(2.0 * t + t * t))
+    }
+}
+
+/// The inverse hyperbolic tangent, `ln((1 + x) / (1 - x)) / 2`.
+///
+/// ```buri
+/// from "core/math" import * as math;
+///
+/// export fn unsquash(y: Float): Float {
+///     math.atanh(y)
+/// }
+/// ```
+///
+/// `NaN` outside `-1.0` to `1.0`, and an infinity of the matching sign at each
+/// end. Odd, so `atanh(-0.0)` is `-0.0`.
+export fn atanh(x: Float): Float {
+    let a = absFloat(x);
+    if (a > 1.0) {
+        NAN
+    } else if (a == 1.0) {
+        copySign(INFINITY, x)
+    } else {
+        let size = if (a < 0.5) {
+            0.5 * lnOnePlus(2.0 * a + 2.0 * a * a / (1.0 - a))
+        } else {
+            0.5 * lnOnePlus(2.0 * a / (1.0 - a))
+        };
+        copySign(size, x)
+    }
+}

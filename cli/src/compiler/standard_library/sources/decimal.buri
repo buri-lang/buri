@@ -1,0 +1,468 @@
+//! core/decimal — money, and everything else counted in tenths.
+//!
+//! Money in a `Float` is a bug: `0.1 + 0.2` is `0.30000000000000004`, because a
+//! tenth is not a binary fraction. Money in `Int` cents is a convention every
+//! program re-invents and half of them get the rounding wrong. A `Decimal` is
+//! an `Int` of units and a scale that says where the point goes, so the value
+//! *is* the digits you wrote.
+//!
+//! ```buri run
+//! from "core/decimal" import * as decimal;
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let a = decimal.of(10, 1);
+//!     let b = decimal.of(20, 2);
+//!     let sum = a.add(b).withDefault(decimal.of(0, 0));
+//!     let _ = io.println(ctx, sum.text(ctx)).ignore();
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! 1.2
+//! ```
+//!
+//! **Every arithmetic method answers an `Option`.** The units are an `Int` and
+//! overflow is undefined (SPEC 6.2), so `.None` is how this type says the answer
+//! does not fit. It is the same promise `Checked` makes: `.Some(v)` is always
+//! the exact value.
+//!
+//! **Exact, and never rounds on its own.** `add`, `sub` and `mul` keep every
+//! digit; `roundTo` is the only thing here that throws one away, and it rounds
+//! ties to even — banker's rounding, the rule a column of money wants, because
+//! it sends half the ties each way instead of drifting upward.
+//!
+//! This is not `core/bigint` with a point: the units are one `Int`, which is
+//! about nineteen significant digits. That covers money, percentages and
+//! measurements. A ledger that needs more wants `core/bigint`.
+//!
+//! # The canonical form
+//!
+//! `units` never ends in a zero the scale could absorb, and `scale` is never
+//! negative — so `of(100, 2)` and `of(1, 0)` are the same value and the same
+//! bits. That is what lets `Eq` and `Hash` be derived: the representation is the
+//! number. `of` and `parse` are what establish it, so build a `Decimal` through
+//! one of them rather than writing the literal out.
+
+from "core/char" import * as char;
+from "core/effect" import { Alloc };
+from "core/math" import * as math;
+from "core/num" import * as num;
+from "core/order" import { Eq, Hash, Ord, Order, Show };
+from "core/str" import * as str;
+
+derive Eq, Hash for Decimal;
+/// A number as its digits: `units` scaled down by `scale` powers of ten, so
+/// `of(1999, 2)` is `19.99`.
+///
+/// The fields are exported because a stored decimal is those two numbers, and a
+/// row in a database holds them. Read them freely; build through `of`, which is
+/// what puts the value in the canonical form `Eq` and `Hash` depend on.
+export struct Decimal {
+    export units: Int,
+    export scale: Int,
+}
+
+/// Numeric order, which a derived one would not be: `units` sorts before
+/// `scale` in the declaration, and `of(1, 0)` would come out below `of(5, 1)` —
+/// `1` below `0.5`.
+///
+/// Exact, and it cannot overflow: only the *smaller* scale is raised, and a
+/// value that will not fit at the larger one is the larger magnitude by that
+/// very fact, which its own sign turns into an answer.
+impl Ord for Decimal {
+    fn compare(self, other: Decimal): Order {
+        if (self.scale >= other.scale) {
+            match (scaleUp(other.units, self.scale - other.scale)) {
+                .Some(b) => self.units.compare(b),
+                .None => if (other.units < 0) { Order.Greater } else { Order.Less },
+            }
+        } else {
+            match (scaleUp(self.units, other.scale - self.scale)) {
+                .Some(a) => a.compare(other.units),
+                .None => if (self.units < 0) { Order.Less } else { Order.Greater },
+            }
+        }
+    }
+}
+
+impl Show for Decimal {
+    fn show<C: Alloc>(self, ctx: C): Str {
+        self.text(ctx)
+    }
+}
+
+/// `units` with the point `scale` digits from the right.
+///
+/// ```buri
+/// from "core/decimal" import * as decimal;
+///
+/// export fn price(): decimal.Decimal {
+///     decimal.of(1999, 2)
+/// }
+/// ```
+///
+/// **A negative `scale` is read as zero.** The scale counts digits *after* the
+/// point, so there is no such thing as a negative one: `of(5, -2)` is `5`.
+/// Multiply by `of(100, 0)` where you wanted `500`.
+export fn of(units: Int, scale: Int): Decimal {
+    canonical(units, num.max(scale, 0))
+}
+
+/// The number this text spells, or `.None` when it does not spell one.
+///
+/// ```buri
+/// from "core/decimal" import * as decimal;
+///
+/// export fn read(text: Str): Option<decimal.Decimal> {
+///     decimal.parse(text)
+/// }
+/// ```
+///
+/// Strict, and `str.toInt`'s strictness with a point added: an optional leading
+/// `-`, digits, at most one `.`, and a digit on each side of it if it is there.
+/// No spaces, no separators, no exponent, no leading `+`.
+///
+/// The scale comes from the text, so `"1.50"` parses to `of(150, 2)` — which is
+/// `of(15, 1)` once canonical, and prints as `1.5`.
+///
+/// `.None` also covers a number with more digits than an `Int` holds.
+export fn parse(text: Str): Option<Decimal> {
+    let negative = text.startsWith("-");
+    let start = if (negative) { 1 } else { 0 };
+    if (text.len() <= start) {
+        .None
+    } else {
+        // Accumulated below zero, so that `minValue`'s digits parse and
+        // `maxValue + 1` is not mistaken for it.
+        scan(text, start, 0, -1, 0).andThen(fn(found) => {
+            let (below, places) = found;
+            if (negative) {
+                .Some(canonical(below, places))
+            } else {
+                0.checkedSub(below).map(fn(above) => canonical(above, places))
+            }
+        })
+    }
+}
+
+impl Decimal {
+    /// The sum, or `.None` when it does not fit.
+    ///
+    /// ```buri
+    /// from "core/decimal" import * as decimal;
+    ///
+    /// export fn plus(a: decimal.Decimal, b: decimal.Decimal): Option<decimal.Decimal> {
+    ///     a.add(b)
+    /// }
+    /// ```
+    ///
+    /// Both sides are raised to the larger scale first, so nothing is rounded:
+    /// `of(1, 0).add(of(1, 2))` is `1.01` and not `1`.
+    export fn add(self, other: Decimal): Option<Decimal> {
+        together(self, other, true)
+    }
+
+    /// The difference, or `.None` when it does not fit.
+    ///
+    /// ```buri
+    /// from "core/decimal" import * as decimal;
+    ///
+    /// export fn minus(a: decimal.Decimal, b: decimal.Decimal): Option<decimal.Decimal> {
+    ///     a.sub(b)
+    /// }
+    /// ```
+    ///
+    /// `add`'s rule about scales, and its rule about `.None`.
+    export fn sub(self, other: Decimal): Option<Decimal> {
+        together(self, other, false)
+    }
+
+    /// The product, or `.None` when it does not fit.
+    ///
+    /// ```buri
+    /// from "core/decimal" import * as decimal;
+    ///
+    /// export fn times(a: decimal.Decimal, b: decimal.Decimal): Option<decimal.Decimal> {
+    ///     a.mul(b)
+    /// }
+    /// ```
+    ///
+    /// The scales add, so `0.5 * 0.5` is `0.25` — every digit of the true
+    /// product, which is why a chain of them wants a `roundTo` at the end.
+    export fn mul(self, other: Decimal): Option<Decimal> {
+        self
+            .units
+            .checkedMul(other.units)
+            .andThen(fn(u) => {
+                self.scale.checkedAdd(other.scale).map(fn(s) => canonical(u, s))
+            })
+    }
+
+    /// The same number at `scale` digits after the point, with ties going to the
+    /// even digit.
+    ///
+    /// ```buri
+    /// from "core/decimal" import * as decimal;
+    ///
+    /// export fn toCents(amount: decimal.Decimal): decimal.Decimal {
+    ///     amount.roundTo(2)
+    /// }
+    /// ```
+    ///
+    /// **Banker's rounding.** `of(25, 2).roundTo(1)` is `0.2` and
+    /// `of(35, 2).roundTo(1)` is `0.4`: each tie goes to the even neighbour, so
+    /// a column of them does not drift. Everything that is not a tie goes to the
+    /// nearer number, as you would expect.
+    ///
+    /// A `scale` at or above this one changes nothing — there is nothing left to
+    /// drop — and a negative one is read as zero.
+    ///
+    /// This is the only method here that loses a digit, and it never fails: the
+    /// answer is always smaller than what it came from.
+    export fn roundTo(self, scale: Int): Decimal {
+        let target = num.max(scale, 0);
+        if (target >= self.scale) {
+            self
+        } else {
+            canonical(dropDigits(self.units, self.scale - target), target)
+        }
+    }
+
+    /// The nearest `Float`.
+    ///
+    /// ```buri
+    /// from "core/decimal" import * as decimal;
+    ///
+    /// export fn asFloat(a: decimal.Decimal): Float {
+    ///     a.toFloat()
+    /// }
+    /// ```
+    ///
+    /// **This is the conversion that loses the point of the type**, so it is
+    /// here for the places that need a double — a chart axis, a rate, a
+    /// physical quantity — and not for arithmetic. `of(1, 1).toFloat()` is
+    /// `0.1`, which is not a tenth.
+    ///
+    /// A scale past a double's range gives `0.0`.
+    export fn toFloat(self): Float {
+        self.units.toF64() / tenAsFloat(self.scale, 1.0)
+    }
+
+    /// The digits, with a point when the scale asks for one.
+    ///
+    /// ```buri
+    /// from "core/decimal" import * as decimal;
+    /// from "core/effect" import { Alloc };
+    ///
+    /// export fn written<C: Alloc>(ctx: C, a: decimal.Decimal): Str {
+    ///     a.text(ctx)
+    /// }
+    /// ```
+    ///
+    /// Exactly `scale` digits after the point, and at least one before it, so
+    /// `of(5, 2)` prints `0.05`. `parse` reads back what this writes, and the
+    /// two round-trip: the canonical form has no trailing zero to lose.
+    export fn text<C: Alloc>(self, ctx: C): Str {
+        if (self.scale <= 0) {
+            str.fromInt(ctx, self.units)
+        } else {
+            // Counted from below zero, because `minValue`'s magnitude is not an
+            // `Int` and its digits still are.
+            let below = if (self.units < 0) { self.units } else { 0 - self.units };
+            let digits = str
+                .fromChars(ctx, countDown(ctx, below, []))
+                .padStart(ctx, self.scale + 1, '0');
+            let whole = digits.slice(0, digits.len() - self.scale);
+            let fraction = digits.slice(digits.len() - self.scale, digits.len());
+            let sign = if (self.units < 0) { "-" } else { "" };
+            str.format(ctx, "${sign}${whole}.${fraction}")
+        }
+    }
+
+    /// The same number with the other sign, or `.None` at the one value whose
+    /// negation is not an `Int`.
+    ///
+    /// ```buri
+    /// from "core/decimal" import * as decimal;
+    ///
+    /// export fn flipped(a: decimal.Decimal): Option<decimal.Decimal> {
+    ///     a.negate()
+    /// }
+    /// ```
+    export fn negate(self): Option<Decimal> {
+        0.checkedSub(self.units).map(fn(u) => canonical(u, self.scale))
+    }
+
+    /// Whether this is zero.
+    ///
+    /// ```buri
+    /// from "core/decimal" import * as decimal;
+    ///
+    /// export fn nothing(a: decimal.Decimal): Bool {
+    ///     a.isZero()
+    /// }
+    /// ```
+    export fn isZero(self): Bool {
+        self.units == 0
+    }
+}
+
+// --- The canonical form, and the arithmetic under it -------------------------------
+
+/// Trailing zeros absorbed into the scale, and zero given the one shape it has.
+fn canonical(units: Int, scale: Int): Decimal {
+    if (units == 0) {
+        Decimal { units: 0, scale: 0 }
+    } else if (scale > 0 && units % 10 == 0) {
+        canonical(units / 10, scale - 1)
+    } else {
+        Decimal { units: units, scale: scale }
+    }
+}
+
+/// `add` and `sub`, which differ only in the operation at the common scale.
+fn together(a: Decimal, b: Decimal, adding: Bool): Option<Decimal> {
+    let scale = num.max(a.scale, b.scale);
+    scaleUp(a.units, scale - a.scale).andThen(fn(left) => {
+        scaleUp(b.units, scale - b.scale).andThen(fn(right) => {
+            let sum = if (adding) {
+                left.checkedAdd(right)
+            } else {
+                left.checkedSub(right)
+            };
+            sum.map(fn(v) => canonical(v, scale))
+        })
+    })
+}
+
+/// `units * 10^by`, or `.None` when that is not an `Int`.
+///
+/// Zero short-circuits, because a scale far past `Int`'s range would otherwise
+/// multiply zero by ten a great many times to reach zero.
+fn scaleUp(units: Int, by: Int): Option<Int> {
+    if (units == 0 || by <= 0) {
+        .Some(units)
+    } else {
+        match (units.checkedMul(10)) {
+            .None => .None,
+            .Some(v) => scaleUp(v, by - 1),
+        }
+    }
+}
+
+/// `units` with its last `drop` digits removed, rounded to nearest with ties to
+/// even.
+fn dropDigits(units: Int, drop: Int): Int {
+    match (tenTo(drop)) {
+        .Some(divisor) => nearest(units / divisor, units % divisor, divisor),
+        .None => {
+            match (tenTo(drop - 1)) {
+                // `10^drop` is past `Int`, so every quotient is zero and only the
+                // halfway test can lift it. `5 * 10^(drop - 1)` still fits at
+                // `drop == 19`, and past that nothing does.
+                .Some(tenth) => {
+                    match (tenth.checkedMul(5)) {
+                        .None => 0,
+                        .Some(half) => pastHalf(units, half),
+                    }
+                },
+                .None => 0,
+            }
+        },
+    }
+}
+
+/// The quotient nudged by the remainder: away from zero above a half, toward the
+/// even neighbour exactly at one.
+fn nearest(quotient: Int, remainder: Int, divisor: Int): Int {
+    let size = if (remainder < 0) { 0 - remainder } else { remainder };
+    let step = if (remainder < 0) { -1 } else { 1 };
+    let doubled = size * 2;
+    if (doubled > divisor) {
+        quotient + step
+    } else if (doubled < divisor) {
+        quotient
+    } else if (quotient % 2 == 0) {
+        quotient
+    } else {
+        quotient + step
+    }
+}
+
+/// The one digit a quotient of zero can round to. A value exactly at the half
+/// stays at zero, which is the even neighbour.
+fn pastHalf(units: Int, half: Int): Int {
+    if (units > half) { 1 } else if (units < 0 - half) { -1 } else { 0 }
+}
+
+/// `10^n` as an `Int`, or `.None` past the range. Tail-recursive, and it gives
+/// up after nineteen steps whatever `n` is.
+fn tenTo(n: Int): Option<Int> {
+    tenUp(n, 1)
+}
+
+fn tenUp(n: Int, acc: Int): Option<Int> {
+    if (n <= 0) {
+        .Some(acc)
+    } else {
+        match (acc.checkedMul(10)) {
+            .None => .None,
+            .Some(v) => tenUp(n - 1, v),
+        }
+    }
+}
+
+/// `10^n` as a `Float`, stopping at infinity rather than looping.
+fn tenAsFloat(n: Int, acc: Float): Float {
+    if (n <= 0 || math.isInfinite(acc)) { acc } else { tenAsFloat(n - 1, acc * 10.0) }
+}
+
+/// The text, digit by digit, with the sign already decided and the accumulator
+/// at or below zero.
+fn scan(text: Str, at: Int, acc: Int, places: Int, digits: Int): Option<(Int, Int)> {
+    match (text.charAt(at)) {
+        .None => {
+            // A point with nothing after it is not a number, and neither is a
+            // sign with nothing after it.
+            if (digits <= 0 || places == 0) {
+                .None
+            } else {
+                .Some((acc, num.max(places, 0)))
+            }
+        },
+        .Some(c) => {
+            if (c == '.') {
+                if (places >= 0) { .None } else { scan(text, at + 1, acc, 0, digits) }
+            } else {
+                match (c.toDigit(10)) {
+                    .None => .None,
+                    .Some(d) => {
+                        match (acc.checkedMul(10).andThen(fn(m) => m.checkedSub(d))) {
+                            .None => .None,
+                            .Some(next) => {
+                                let after = if (places < 0) { -1 } else { places + 1 };
+                                scan(text, at + 1, next, after, digits + 1)
+                            },
+                        }
+                    },
+                }
+            }
+        },
+    }
+}
+
+/// The digits of a number at or below zero, most significant first.
+fn countDown<C: Alloc>(ctx: C, n: Int, acc: [Char]): [Char] {
+    let digit = char.fromDigit(0 - n % 10, 10).withDefault('0');
+    let rest = n / 10;
+    let next = [digit].concat(ctx, acc);
+    if (rest == 0) { next } else { countDown(ctx, rest, next) }
+}
