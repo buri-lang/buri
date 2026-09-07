@@ -2108,9 +2108,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 // A bare `T` with no `Ty` behind it answers the stride and
                 // nothing else: it is a scalar, and a scalar holds no counted
                 // pointer, so the retain beside it is null.
-                if element.is_none()
-                    && let Some((stride, glue_ty)) = elements.bare.clone()
-                {
+                let bare = if element.is_none() { elements.bare.clone() } else { None };
+                if let Some((stride, glue_ty)) = bare {
                     match mode {
                         runtime::Arg::Stride => argv
                             .push(self.ctx.i64_type().const_int(u64::from(stride), false).into()),

@@ -2259,4 +2259,50 @@ mod tests {
         }
         assert!(checked > 20, "only {checked} contexts were checked against both tables");
     }
+
+    /// The two tables agree about the **generic pair** as well: a key the other
+    /// table marks `Extra::Element` carries exactly one [`Arg::Stride`] and one
+    /// [`Arg::Retain`] here, and a key it marks `Entry::by_ref` spills that
+    /// argument here.
+    ///
+    /// It is the same claim as the row above, one column over, and it exists
+    /// because nothing else asks it. `ui/effect`'s graph is where the two
+    /// tables could most easily drift: those keys name their `T` in a bare
+    /// argument or in the result rather than as a `[T]`'s element, so each
+    /// backend had to widen its own "which type is `T`" answer, and two
+    /// widenings that disagreed would be a stride from one type and a retain
+    /// from another — a call that links, runs, and frees the wrong block.
+    #[test]
+    fn an_entry_carries_the_generic_pair_the_other_table_asks_for() {
+        use crate::compiler::backend::runtime_table::{self, Extra};
+        let mut checked = 0usize;
+        for shared in runtime_table::ENTRIES {
+            let Some(here) = ENTRIES.iter().find(|e| e.key == shared.key) else { continue };
+            if shared.extra != Extra::Element {
+                continue;
+            }
+            assert_eq!(
+                here.args.iter().filter(|a| **a == Arg::Stride).count(),
+                1,
+                "{}: the other table asks for a stride and this one carries none, or two",
+                shared.key
+            );
+            assert_eq!(
+                here.args.iter().filter(|a| **a == Arg::Retain).count(),
+                1,
+                "{}: the other table asks for a retain and this one carries none, or two",
+                shared.key
+            );
+            if let Some(at) = shared.by_ref {
+                assert_eq!(
+                    here.args.get(at),
+                    Some(&Arg::Spilled),
+                    "{}: argument {at} crosses by address and this table does not spill it",
+                    shared.key
+                );
+            }
+            checked += 1;
+        }
+        assert!(checked > 20, "only {checked} generic entries were checked against both tables");
+    }
 }
