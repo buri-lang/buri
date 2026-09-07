@@ -13,8 +13,14 @@
 #    would do for real. The report is where the reason the test wrote comes back.
 #  * **A fault whose task is never reached fails the test**, which is E6's
 #    post-condition (`buri_rt_test_leave`) at the third double.
+#  * **`everyOrder` refuses above six tasks.** Seven are 5040 runs of a block,
+#    and the refusal says so and names `anyOrder` instead. A block that is
+#    refused never reaches its own assertion, so this report is the only place
+#    the sentence can be read — and the fan-out is a scope's round rather than a
+#    `parallel`, because a spawned task is scheduled by the same double and the
+#    ceiling had better be the same one.
 #
-# D6's order line is in this golden now, and it is a fourth claim: the run that
+# D6's order line is in this golden now, and it is a fifth claim: the run that
 # failed was the **sixth of six**, which is the same fact the first block asserts
 # read off the report instead of out of the body. The two fault blocks schedule
 # in program order and say nothing, which is the elision — there is nothing about
@@ -24,7 +30,7 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "everyOrder reruns the body, and a task the plan fails ends the block"
+doc: "everyOrder reruns the body, refuses a seventh task, and a task the plan fails ends the block"
 
 run {
   args: ["test", "//lib/fan", "--force", "--output=js"]

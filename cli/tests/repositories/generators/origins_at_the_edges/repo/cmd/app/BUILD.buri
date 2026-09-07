@@ -1,0 +1,9 @@
+binary {
+    generators: [
+        { tool: "//cmd/gen", inputs: ["units.txt"] },
+    ]
+
+    outputs: [
+        { platform: JS },
+    ]
+}

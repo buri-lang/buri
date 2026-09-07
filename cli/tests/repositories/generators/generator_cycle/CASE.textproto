@@ -21,3 +21,33 @@ run {
   exit: 1
   golden: "cycle.txt"
 }
+
+# The fix the diagnostic names, taken: a third library, which the tool may
+# depend on because nothing generated is in it.
+edit {
+  file: "cmd/gen/BUILD.buri"
+  replace: "binary {\n    dependencies: [\"//lib/wire\"]\n\n"
+  with: "binary {\n    dependencies: [\"//lib/helper\"]\n\n"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "third_library.txt"
+}
+
+# ...and the way that fix goes wrong. The third library depends back on the
+# target whose generator runs the tool, so the cycle is two hops rather than
+# one — and it is answered off the graph, before anything is built, with both
+# hops in the path.
+edit {
+  file: "lib/helper/BUILD.buri"
+  replace: "library {\n"
+  with: "library {\n    dependencies: [\"//lib/wire\"]\n\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "two_hops.txt"
+}

@@ -195,6 +195,177 @@ fn two_checkouts_of_one_tree_build_identical_bytes() {
     one.run(&["build", "//cmd/web", "--check-reproducible", "--release"]).ok();
 }
 
+/// A repository whose only source is written by a generator, for the two rows
+/// below.
+///
+/// The tool's `main` binds `FsRead` and `FsWrite` as well as the three
+/// `codegen.run` needs, which the language allows — a bound is a floor and not
+/// a ceiling — and `marked` is the switch that turns the extra two into an
+/// answer that depends on what has happened before. So one repository states
+/// both halves: a generator is reproducible, and one that is not is caught.
+fn generated_only(name: &str, marked: bool) -> Scratch {
+    let scratch = Scratch::repo(name);
+    scratch.write(
+        "lib/wire/BUILD.buri",
+        "library {\n    generators: [{ tool: \"//cmd/gen\", inputs: [\"units.txt\"] }]\n\n    \
+         visibility: [\"//visibility:public\"]\n}\n",
+    );
+    scratch.write("lib/wire/units.txt", "3\n");
+    scratch.write("lib/wire/lib.buri", "from \"//lib/wire/units\" export { width };\n");
+    scratch
+        .write("cmd/gen/BUILD.buri", "binary {\n    outputs: [{ platform: JS }]\n}\n");
+    scratch.write("cmd/gen/main.buri", &generator(marked));
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }]\n}\n",
+    );
+    scratch.write(
+        "cmd/app/main.buri",
+        "from \"core/effect\" import { Alloc, Stdout };\n\
+         from \"core/host\" import * as host;\n\
+         from \"core/io\" import * as io;\n\
+         from \"//lib/wire\" import { width };\n\n\
+         export fn main(): Result<(), Str> {\n  \
+         let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  \
+         let _ = io.println(ctx, \"width=${width}\").ignore();\n  \
+         .Ok(())\n\
+         }\n",
+    );
+    scratch
+}
+
+/// The tool [`generated_only`] runs.
+///
+/// With `marked`, the number it writes is one more the second time it runs,
+/// because it leaves a file behind and looks for it. That is the smallest
+/// possible generator whose answer is not a function of its request, and it is
+/// deliberate rather than random: a test that relied on two clocks or two
+/// random numbers differing would be a test that usually passes.
+fn generator(marked: bool) -> String {
+    let extra = match marked {
+        false => String::new(),
+        true => "  let tally = fs.readText(ctx, path.of(ctx, \"tally.txt\")).withDefault(\"\");\n  \
+                 let _ = fs\n    .writeText(ctx, path.of(ctx, \"tally.txt\"), tally.concat(ctx, \"x\"))\n    \
+                 .ignore();\n  let n = n0 + tally.len();\n"
+            .to_string(),
+    };
+    let plain = match marked {
+        false => "  let n = n0;\n".to_string(),
+        true => String::new(),
+    };
+    format!(
+        r#"from "core/effect" import {{ Alloc, Stdin, Stdout }};
+from "core/fs" import * as fs;
+from "core/fs" import {{ FsRead, FsWrite }};
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import {{ Json }};
+from "core/list" import * as list;
+from "core/path" import * as path;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {{
+  let ctx = context {{
+    Alloc: host.alloc,
+    FsRead: host.fs,
+    FsWrite: host.fs,
+    Stdin: host.stdin,
+    Stdout: host.stdout,
+  }};
+  let line = io.readLine(ctx).okOr("no request")?;
+  let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
+  let n0 = firstInput(request).withDefault("0").trim().toInt().withDefault(0);
+{extra}{plain}  let source = str.format(ctx, "export let width: Int = ${{n}};\n");
+  let unit: Json = .Object([
+    ("name", .Str("units")),
+    ("text", .Str(source)),
+    ("anchors", .Array(list.empty())),
+  ]);
+  let response: Json = .Object([
+    ("modules", .Array([unit])),
+    ("diagnostics", .Array(list.empty())),
+  ]);
+  let _ = io.println(ctx, "${{json.stringify(ctx, response)}}").ignore();
+  .Ok(())
+}}
+
+fn firstInput(request: Json): Option<Str> {{
+  let inputs = match (request) {{
+    .Object(fields) => fields.find(fn(f) => f.0 == "inputs").map(fn(f) => f.1),
+    _ => .None,
+  }};
+  let items = match (inputs.withDefault(.Null)) {{
+    .Array(xs) => xs,
+    _ => list.empty(),
+  }};
+  let pair = match (items.get(0).withDefault(.Null)) {{
+    .Array(xs) => xs,
+    _ => list.empty(),
+  }};
+  match (pair.get(1).withDefault(.Null)) {{
+    .Str(s) => .Some(s),
+    _ => .None,
+  }}
+}}
+"#
+    )
+}
+
+/// **Two clean checkouts of a repository whose code is generated produce the
+/// same bytes, and `--check-reproducible` says so about either of them.**
+///
+/// `two_checkouts_of_one_tree_build_identical_bytes` asks this of the worked
+/// monorepo, which declares no generator, so the one action whose output comes
+/// out of a *user's program* was outside every reproducibility claim in the
+/// suite. Two directories rather than one built twice, for that test's reason:
+/// a path that leaked into a generated module would leak differently in each.
+#[test]
+fn two_checkouts_of_a_generated_tree_build_identical_bytes() {
+    let one = generated_only("reproducible-generated-one", false);
+    let two = generated_only("reproducible-generated-two", false);
+    assert_ne!(one.root, two.root);
+
+    one.run(&["run", "//cmd/app"]).ok().says("width=3");
+    two.run(&["run", "//cmd/app"]).ok().says("width=3");
+
+    let a = std::fs::read(one.artifact("cmd/app")).expect("the first artifact");
+    let b = std::fs::read(two.artifact("cmd/app")).expect("the second artifact");
+    assert!(!a.is_empty(), "the artifact is empty, so the comparison proves nothing");
+    assert_eq!(
+        buri::build::actions::first_difference(&a, &b),
+        None,
+        "two checkouts of one generated tree produced different artifacts"
+    );
+
+    one.run(&["build", "//cmd/app", "--check-reproducible"]).ok();
+}
+
+/// ...and the negative twin: a generator whose answer is not a function of its
+/// request is caught by the same flag.
+///
+/// `core/codegen`'s `run` bounds what it hands `generate` to `Alloc + Stdin +
+/// Stdout`, and `cli/tests/reject/generator_reaches_beyond_its_context` is the
+/// half of that a type error covers. A bound is a *floor*, though: a `main`
+/// that binds the disk as well hands `generate` the disk, and nothing at
+/// compile time says otherwise. This is the check that does — the one
+/// `build/generators.md` sends a reader to.
+#[test]
+fn a_generator_whose_answer_is_not_a_function_of_its_request_is_caught() {
+    let scratch = generated_only("reproducible-generated-drift", true);
+    // It builds, and the first answer is the honest one: nothing here is
+    // refused, which is why the flag has to be what asks.
+    scratch.run(&["run", "//cmd/app"]).ok().says("width=");
+
+    let run = scratch.run(&["build", "//cmd/app", "--check-reproducible"]);
+    assert_ne!(
+        run.code, 0,
+        "a generator that answers differently the second time passed --check-reproducible:\n{}",
+        run.all()
+    );
+    run.says("differs between two builds of the same tree");
+}
+
 // ---------------------------------------------------------------------------
 // Concurrency
 // ---------------------------------------------------------------------------
