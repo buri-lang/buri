@@ -1228,19 +1228,34 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         fields.iter().map(|f| self.reprs.boxes(&owner, f)).collect()
     }
 
-    /// A **boxed** field's value: one block holding the field's bytes, and the
-    /// pointer that goes where the field would have been.
+    /// The same question of **one variant's** payload fields, with the size and
+    /// alignment of each so that a boxed one can be allocated and read back.
     ///
-    /// `stencil/emit.rs`'s `box_into` is the same three steps, and
-    /// `repr.rs`'s `Site::Boxed` is what releases and copies what this builds.
-    fn box_value(
+    /// A recursive enum is where this is the whole answer: `enum Chain { End,
+    /// Link(Box) }` whose `Box` names `Chain` back keeps its payload behind an
+    /// indirection, so the variant's slot in the blob is one pointer and not
+    /// the payload's own words.
+    fn boxed_payload(&mut self, id: ir::TypeId, variant: usize) -> Vec<(bool, u32, u32)> {
+        let owner = self.program.type_info(id).ty.clone();
+        let fields = crate::compiler::semantics::types::variant_types(self.tables, &owner, variant);
+        fields
+            .iter()
+            .map(|f| {
+                let boxed = self.reprs.boxes(&owner, f);
+                let layout = self.reprs.of_ty(f).layout.clone();
+                (boxed, layout.size, layout.align)
+            })
+            .collect()
+    }
+
+    /// One value in a block of its own, and the pointer that stands for it.
+    fn block_of(
         &mut self,
-        code: &ir::Code,
-        field: ir::ValueId,
+        size: u32,
+        align: u32,
         slots: &[Slot],
         pieces: &[BasicValueEnum<'ctx>],
     ) -> PointerValue<'ctx> {
-        let (_, size, align) = self.dest_shape(code, field);
         let alloc = self.rt_alloc();
         let bytes = self.ctx.i64_type().const_int(u64::from(size.max(1)), false);
         let block = match self.builder.build_call(alloc, &[bytes.into()], "box") {
@@ -1255,6 +1270,22 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         };
         self.store_slots(block, slots, align, pieces);
         block
+    }
+
+    /// A **boxed** field's value: one block holding the field's bytes, and the
+    /// pointer that goes where the field would have been.
+    ///
+    /// `stencil/emit.rs`'s `box_into` is the same three steps, and
+    /// `repr.rs`'s `Site::Boxed` is what releases and copies what this builds.
+    fn box_value(
+        &mut self,
+        code: &ir::Code,
+        field: ir::ValueId,
+        slots: &[Slot],
+        pieces: &[BasicValueEnum<'ctx>],
+    ) -> PointerValue<'ctx> {
+        let (_, size, align) = self.dest_shape(code, field);
+        self.block_of(size, align, slots, pieces)
     }
 
     fn get_field(
@@ -1448,7 +1479,26 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let bytes = size.saturating_sub(payload);
                 let blob_ty = repr::blob_type(self.ctx, bytes);
                 let mut blob: IntValue<'ctx> = blob_ty.const_zero();
+                // A **boxed** payload field is one pointer in the blob, not its
+                // own words: the block holds the value and the variant holds
+                // the block. `enum Chain { End, Link(Box) }` whose `Box` names
+                // `Chain` back is the shape.
+                let boxes = self.boxed_payload(id, variant);
+                let mut owned: Vec<(Vec<Slot>, Vec<BasicValueEnum<'ctx>>)> =
+                    Vec::with_capacity(fields.len());
                 for (i, (fs, pieces)) in fields.iter().enumerate() {
+                    match boxes.get(i).copied() {
+                        Some((true, size, align)) => {
+                            let block = self.block_of(size, align, fs, pieces);
+                            owned.push((
+                                vec![Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) }],
+                                vec![block.into()],
+                            ));
+                        }
+                        _ => owned.push((fs.clone(), pieces.clone())),
+                    }
+                }
+                for (i, (fs, pieces)) in owned.iter().enumerate() {
                     let Some(at) = offsets.get(i).copied() else { continue };
                     let within = at.saturating_sub(payload);
                     for (slot, piece) in fs.iter().zip(pieces) {
@@ -1489,7 +1539,14 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let Some(enum_repr) = enum_repr else { return };
         let whole = self.get(state, agg);
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
-        let value = self.payload_of(&slots, &enum_repr, &offsets, index, &want, whole);
+        let boxed = self
+            .boxed_payload(id, variant)
+            .get(index)
+            .copied()
+            .map_or(false, |(boxed, _, _)| boxed);
+        let (_, _, align) = self.dest_shape(code, dest);
+        let value =
+            self.payload_of(&slots, &enum_repr, &offsets, index, &want, whole, boxed, align);
         self.set(state, dest, value);
     }
 
@@ -1506,6 +1563,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         index: usize,
         want: &[Slot],
         whole: BasicValueEnum<'ctx>,
+        boxed: bool,
+        align: u32,
     ) -> BasicValueEnum<'ctx> {
         match *enum_repr {
             // A payload area of no bytes has no fields to project; the result
@@ -1519,8 +1578,12 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     return repr::assemble(self.ctx, &self.builder, want, &[]);
                 };
                 let within = offsets.get(index).copied().unwrap_or(0).saturating_sub(payload);
-                let mut taken = Vec::with_capacity(want.len());
-                for slot in want {
+                // A boxed field is a pointer in the blob, and the value is the
+                // bytes it names — [`Unit::build_variant`]'s other half.
+                let ptr_slot = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) };
+                let read = if boxed { std::slice::from_ref(&ptr_slot) } else { want };
+                let mut taken = Vec::with_capacity(read.len());
+                for slot in read {
                     let shift =
                         u64::from(within.saturating_add(slot.offset)).saturating_mul(8);
                     let moved = self
@@ -1538,6 +1601,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         .build_int_truncate_or_bit_cast(moved, narrow, "pay.cut")
                         .unwrap_or(moved);
                     taken.push(repr::slot_from_bits(self.ctx, &self.builder, *slot, cut));
+                }
+                if boxed {
+                    let Some(BasicValueEnum::PointerValue(block)) = taken.first().copied() else {
+                        return repr::assemble(self.ctx, &self.builder, want, &[]);
+                    };
+                    let loaded = self.load_slots(block, want, align);
+                    return repr::assemble(self.ctx, &self.builder, want, &loaded);
                 }
                 repr::assemble(self.ctx, &self.builder, want, &taken)
             }
@@ -6802,7 +6872,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let _ = self.builder.build_unconditional_branch(join);
 
         self.builder.position_at_end(carry);
-        let next = self.payload_of(&slots, &enum_repr, &ok_offsets, 0, &acc_slots, stepped);
+        // The `Result` a `foldResult` step answers is `core/result`'s own and
+        // is not recursive, so its payload is never boxed.
+        let next =
+            self.payload_of(&slots, &enum_repr, &ok_offsets, 0, &acc_slots, stepped, false, 8);
         self.close_loop(&l, Some(next));
 
         // Exhausted: `.Ok(acc)`, which is the `cur` a loop that never ran also
