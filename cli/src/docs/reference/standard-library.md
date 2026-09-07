@@ -765,9 +765,7 @@ property costs one draw rather than a hundred.
 [Tasks and actors](../guides/concurrency.md) is the concurrency model
 underneath. What follows is the map.
 
-`core/process` is the thinnest of them. `process.exit(ctx, code)` is `Proc`'s
-one operation.
-`core/proc` carries two authorities. `process.exit(ctx, code)` is `Proc`'s one
+`core/process` carries two authorities. `process.exit(ctx, code)` is `Proc`'s one
 operation. `Spawn` is the other, and it is the largest authority a context can
 hold: a program that can run `sh` can do anything its user can, so it is its own
 effect and its own grant rather than a second method on `Proc`.
@@ -786,7 +784,9 @@ is the raw `[Str]`. Both hosts drop the program's own name, so there is no
 order. `env.currentDirectory(ctx)` is where the process is,
 `env.temporaryDirectory(ctx)` and `env.homeDirectory(ctx)` are `TMPDIR` and
 `HOME` as paths — `HOME` answers `.None` where nothing set it rather than
-guessing `/root` — and `env.operatingSystem(ctx)` is `"linux"` or `"macos"`.
+guessing `/root`, and `HOME=` is one of those: an empty variable is how a
+scrubbed environment says it has no answer — and `env.operatingSystem(ctx)` is
+`"linux"` or `"macos"`.
 
 `core/io` is the three standard streams. `readAll(ctx)` and `readAllBytes(ctx)`
 are what a filter wants: everything left on standard input, in one call rather
@@ -979,7 +979,9 @@ never invents `..`, for the reason normalizing never removes one. `withSuffix`
 appends to the whole name and `withExtension` replaces the extension, which are
 two different jobs: `data.db` and `data.log` want two different temporaries, and
 `app.log` becomes `app.gz`. `matchesGlob` is `*`, `?`, `[abc]`, `[a-z]` and
-`[!abc]` inside one component, and `**` across any number of them.
+`[!abc]` inside one component, and `**` across any number of them. Nothing else
+is special and there is no escape, so a name that really holds a `*` is compared
+with `==` rather than matched.
 
 `core/tasks` has two shapes. `parallel(ctx, items, f)` runs `f` over every item
 and answers the results **in the items' order**, whatever order the work
