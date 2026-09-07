@@ -117,7 +117,11 @@ fn gatheredBytes<C: Alloc + Stdin>(ctx: C, sofar: [[U8]]): [[U8]] {
     match (ctx.readBytes(CHUNK)) {
         .None => sofar,
         .Some(chunk) => {
-            if (chunk.len() == 0) { sofar } else { gatheredBytes(ctx, sofar.push(ctx, chunk)) }
+            if (chunk.len() == 0) {
+                sofar
+            } else {
+                gatheredBytes(ctx, sofar.push(ctx, chunk))
+            }
         },
     }
 }

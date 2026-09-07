@@ -77,7 +77,9 @@ test "an unreadable path reads as false rather than as an error" {
     // A fault is the only way to make a path that is there refuse to answer,
     // and `isFile` has nowhere to put the refusal — which the doc comment says
     // and this is.
-    let files = disk().files([("a", "A")]).faults([metadata("a").fails(.PermissionDenied)]);
+    let files = disk()
+        .files([("a", "A")])
+        .faults([metadata("a").fails(.PermissionDenied)]);
     let ctx = context {
         Alloc: alloc(),
         FsRead: files,
@@ -98,7 +100,11 @@ test "a listing says what each entry is" {
     };
     assert.ok(fs.makeDir(ctx, path.of(ctx, "src/net")));
     let entries = assert.ok(fs.listDirectoryEntries(ctx, path.of(ctx, "src")));
-    assert.eq(entries, [("lib.buri", .File), ("main.buri", .File), ("net", .Directory)]);
+    assert.eq(entries, [
+        ("lib.buri", .File),
+        ("main.buri", .File),
+        ("net", .Directory),
+    ]);
 }
 
 test "an empty directory lists nothing" {
@@ -142,7 +148,9 @@ test "walking an empty tree finds nothing" {
 }
 
 test "a walk stops at the first entry it cannot read" {
-    let files = disk().files([("t/a.txt", "a")]).faults([metadata("t/a.txt").fails(.PermissionDenied)]);
+    let files = disk()
+        .files([("t/a.txt", "a")])
+        .faults([metadata("t/a.txt").fails(.PermissionDenied)]);
     let ctx = context {
         Alloc: alloc(),
         FsRead: files,
@@ -254,7 +262,10 @@ test "canonicalize answers the path the filesystem holds" {
         Alloc: alloc(),
         FsRead: files,
     };
-    assert.eq(assert.ok(fs.canonicalize(ctx, path.of(ctx, "a/b"))), path.of(ctx, "a/b"));
+    assert.eq(
+        assert.ok(fs.canonicalize(ctx, path.of(ctx, "a/b"))),
+        path.of(ctx, "a/b"),
+    );
     assert.eq(assert.err(fs.canonicalize(ctx, path.of(ctx, "gone"))), .NotFound);
 }
 
@@ -304,20 +315,27 @@ test "the four new methods are calls the log reports" {
     let _ = assert.ok(fs.readRange(ctx, path.of(ctx, "a"), 0, 1));
     let _ = assert.ok(fs.canonicalize(ctx, path.of(ctx, "a")));
     assert.ok(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b")));
-    assert.eq(
-        files.calls(),
-        [metadata("a"), readRange("a"), realPath("a"), copyFile("a", "b")],
-    );
+    assert.eq(files.calls(), [
+        metadata("a"),
+        readRange("a"),
+        realPath("a"),
+        copyFile("a", "b"),
+    ]);
 }
 
 test "a fault fires on the method it names" {
-    let files = disk().files([("a", "A")]).faults([copyFile("a", "b").fails(.ReadOnly)]);
+    let files = disk()
+        .files([("a", "A")])
+        .faults([copyFile("a", "b").fails(.ReadOnly)]);
     let ctx = context {
         Alloc: alloc(),
         FsRead: files,
         FsWrite: files,
     };
-    assert.eq(assert.err(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b"))), .ReadOnly);
+    assert.eq(
+        assert.err(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
+        .ReadOnly,
+    );
     // The plan failed the call, so nothing was written and the call is still
     // one the log has.
     assert.eq(files.snapshot(), [("a", "A")]);

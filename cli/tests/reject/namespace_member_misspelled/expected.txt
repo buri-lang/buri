@@ -4,7 +4,7 @@ error: "core/fs" has no member `readTxt` [no-such-member]
 10 |   let _ = fs.readTxt(ctx, filepath.of(ctx, "wal"));
    |              ^^^^^^^
    |
-   = the module exports 18 names
+   = the module exports 31 names
    = did you mean `readText`?
    = fix: correct the member name, or check `buri docs core/fs`
 
