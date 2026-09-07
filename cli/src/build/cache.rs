@@ -59,7 +59,8 @@ pub enum Action {
     /// Running one rule's generators. Keyed on the platform, the rule's
     /// identity, the tool, and the contents of every declared input — which is
     /// the whole of what the modules a generator hands back depend on, because
-    /// a generator names `Stdin` and `Stdout` and nothing else.
+    /// `core/codegen`'s `run` gives the generating function `Stdin`, `Stdout`
+    /// and an allocator, and a tool that reaches past those does not compile.
     ///
     /// The one action whose program this toolchain did not write. See
     /// [`crate::build::generators`].

@@ -4,7 +4,7 @@ warning: lib/wire/spare.txt belongs to no library or binary, so nothing builds i
 1 | library {
   | ^
   |
-  = fix: add it to the library's or the binary's `generators`, or delete it — `buri gen //lib/wire` does this automatically
+  = fix: add it to the library's or the binary's `generators`, or delete it — `buri gen` leaves `generators` alone, so write the entry by hand
 
     Nothing in the project imports this file. No production code, no test, no
     entry point reaches it. Every reader who opens it has to work out whether it

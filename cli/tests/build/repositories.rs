@@ -63,9 +63,13 @@ fn graph_queries() {
 /// otherwise refuses: the constructs that are out of scope, and the files that
 /// are not schemas at all. The sixth is `google.protobuf.Any`, which is a
 /// message like any other here and is resolved by name rather than recognised.
+/// The seventh is the platforms: one schema behind a `LINUX`, a `MACOS`, a
+/// `JS`, a `WEB` and a `CLOUDFLARE_WORKER` output, because a generated module
+/// is compiled once per platform and each of those is a compile that can fail
+/// on its own.
 #[test]
 fn proto_schemas() {
-    run_corpus(&tests_dir().join("repositories/proto"), "proto", 6);
+    run_corpus(&tests_dir().join("repositories/proto"), "proto", 7);
 }
 
 /// BUILD-FILES.md's `generators`: a program the build runs, whose output
