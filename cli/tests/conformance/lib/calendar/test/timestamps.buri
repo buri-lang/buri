@@ -596,3 +596,85 @@ test "a month name in the wrong case or spelling is not a month" {
 fn offsetOf<C: Alloc>(ctx: C, text: Str): Option<Int> {
     date.parseZoned(ctx, text).map(fn(z) => z.offsetMinutes)
 }
+
+test "formatZoned writes back every offset parseZoned reads" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let offsets = [0, 1, 0 - 1, 120, 0 - 330, 1439, 0 - 1439];
+    let written = offsets.mapCtx(ctx, fn(c, minutes) => {
+        date.formatZoned(c, Zoned {
+            at: DateTime { date: day(2026, 8, 15), time: clock(13, 45, 0, 0) },
+            offsetMinutes: minutes,
+        })
+    });
+    assert.eq(written, [
+        "2026-08-15T13:45:00.000Z",
+        "2026-08-15T13:45:00.000+00:01",
+        "2026-08-15T13:45:00.000-00:01",
+        "2026-08-15T13:45:00.000+02:00",
+        "2026-08-15T13:45:00.000-05:30",
+        "2026-08-15T13:45:00.000+23:59",
+        "2026-08-15T13:45:00.000-23:59",
+    ]);
+    // And each of them reads back to the offset it was written from.
+    let read = written.mapCtx(ctx, fn(c, text) => {
+        date.parseZoned(c, text).map(fn(z) => z.offsetMinutes)
+    });
+    let expected: [Option<Int>] = [
+        .Some(0),
+        .Some(1),
+        .Some(0 - 1),
+        .Some(120),
+        .Some(0 - 330),
+        .Some(1439),
+        .Some(0 - 1439),
+    ];
+    assert.eq(read, expected);
+}
+
+test "an offset at either extreme still names one moment" {
+    // Almost a day either way, so the two civil dates are two days apart and
+    // the instant is one moment.
+    let moment = Instant(1_755_265_500_000);
+    let east = date.zoned(moment, 1439);
+    let west = date.zoned(moment, 0 - 1439);
+    assert.eq(date.zonedToInstant(east), moment);
+    assert.eq(date.zonedToInstant(west), moment);
+    assert.eq(east.at.date, day(2025, 8, 16));
+    assert.eq(west.at.date, day(2025, 8, 14));
+    assert.eq(east.at.date.daysUntil(west.at.date), 0 - 2);
+    // And an offset of no minutes at all is the civil time itself.
+    assert.eq(date.zoned(moment, 0).at, date.fromInstant(moment));
+}
+
+test "an HTTP date from before the epoch" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The weekday comes off a day count that is negative here, which is the
+    // one place the name and the date could come apart.
+    let landing = DateTime { date: day(1969, 7, 20), time: clock(20, 17, 40, 0) };
+    assert.eq(date.formatHttpDate(ctx, landing), "Sun, 20 Jul 1969 20:17:40 GMT");
+    assert.eq(
+        assert.some(date.parseHttpDate(ctx, "Sun, 20 Jul 1969 20:17:40 GMT")),
+        landing,
+    );
+    // The RFC 850 form's two-digit year cannot reach it: 69 reads as 1969, and
+    // anything earlier has nowhere to go.
+    assert.eq(
+        assert.some(date.parseHttpDate(ctx, "Sunday, 20-Jul-69 20:17:40 GMT")),
+        landing,
+    );
+    // asctime, though, carries all four digits.
+    assert.eq(
+        assert.some(date.parseHttpDate(ctx, "Sun Jul 20 20:17:40 1969")),
+        landing,
+    );
+    let earlier = DateTime { date: day(1900, 1, 1), time: clock(0, 0, 0, 0) };
+    assert.eq(date.formatHttpDate(ctx, earlier), "Mon, 01 Jan 1900 00:00:00 GMT");
+    assert.eq(
+        assert.some(date.parseHttpDate(ctx, "Mon Jan  1 00:00:00 1900")),
+        earlier,
+    );
+}
