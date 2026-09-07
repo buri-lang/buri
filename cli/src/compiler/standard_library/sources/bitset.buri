@@ -7,15 +7,8 @@
 //! non-negative number smaller than 2^32 and none of that arises.
 //!
 //! **What this costs.** A `BitSet` is a value, like everything else, so `set`
-//! copies the word array: O(n/32), not O(1). That is the price of a persistent
-//! bit set, and better said plainly than left to imply the O(1) a mutable one
-//! would have. Against `[Bool]` it buys a factor of 32 in space, plus whole-word
-//! `union`, `intersect` and `difference`.
-//!
-//! **Why the work sits in free functions and the methods delegate.** A lambda
-//! may not capture `self` (SPEC 10.6), and every operation here is a `map` or a
-//! `filter` over the words. Binding the fields first and passing them to a plain
-//! function lets the lambda close over an `[Int]` rather than over a receiver.
+//! copies the word array: O(n/32), not O(1). Against `[Bool]` it buys a factor of
+//! 32 in space, plus whole-word `union`, `intersect` and `difference`.
 //!
 //! ```buri run
 //! from "core/bitset" import * as bitset;
@@ -46,8 +39,7 @@ from "core/bits" import * as bits;
 from "core/effect" import { Alloc };
 from "core/list" import * as list;
 
-/// The number of bits one word holds. Not exported: it is the layout, and a
-/// caller who depended on it would be depending on the wrong thing.
+/// The number of bits one word holds. Not exported: it is the layout.
 let WORD: Int = 32;
 
 /// The words, low bits first, and how many bits the set was created to hold.
@@ -77,8 +69,9 @@ export fn of<C: Alloc>(ctx: C, capacity: Int, indices: [Int]): BitSet {
     indices.foldCtx(ctx, fn(c, acc, i) => acc.set(c, i), empty(ctx, capacity))
 }
 
-/// Membership, against the fields rather than the receiver — see the module
-/// comment on why the work lives out here.
+/// Membership, against the fields rather than the receiver: a lambda may not
+/// capture `self` (SPEC 10.6), so the work lives out here and closes over an
+/// `[Int]` instead.
 fn hasIn(words: [Int], capacity: Int, index: Int): Bool {
     if (index < 0 || index >= capacity) {
         false
@@ -88,8 +81,7 @@ fn hasIn(words: [Int], capacity: Int, index: Int): Bool {
 }
 
 impl BitSet {
-    /// Whether bit `index` is set. Out of range is false rather than an error:
-    /// a set is a question about membership, and nothing outside it is a member.
+    /// Whether bit `index` is set. Out of range is false rather than an error.
     export fn has(self, index: Int): Bool {
         hasIn(self.words, self.capacity, index)
     }
@@ -139,8 +131,7 @@ impl BitSet {
         self.count() == 0
     }
 
-    /// The indices that are set, ascending. The one way to look at the whole
-    /// set, and what a rendering would be defined in terms of.
+    /// The indices that are set, ascending.
     export fn toList<C: Alloc>(self, ctx: C): [Int] {
         let words = self.words;
         let capacity = self.capacity;

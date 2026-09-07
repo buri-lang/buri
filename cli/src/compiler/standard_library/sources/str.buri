@@ -56,13 +56,11 @@ impl Str {
     /// `OrdMap<Str, _>`'s key order all answer this order, because every one of
     /// them reaches this method through `Ord`.
     ///
-    /// Worth stating, because there are two other orders to guess at and they
-    /// disagree above the basic multilingual plane. This is *not* UTF-16
-    /// code-unit order, which is what JavaScript's `<` on a string gives. An
-    /// astral scalar is written there as a surrogate pair beginning at U+D800,
-    /// so JavaScript puts every astral character below every character in
-    /// U+E000..U+FFFF. Buri says the opposite, on both backends, and agrees with
-    /// Rust's `str::cmp`, Go's `<` and Python's `<`:
+    /// This is *not* UTF-16 code-unit order, which is what JavaScript's `<` on a
+    /// string gives. An astral scalar is written there as a surrogate pair
+    /// beginning at U+D800, so JavaScript puts every astral character below every
+    /// character in U+E000..U+FFFF. Buri says the opposite, on both backends, and
+    /// agrees with Rust's `str::cmp`, Go's `<` and Python's `<`:
     ///
     /// ```buri run
     /// from "core/effect" import { Stdout };
@@ -87,10 +85,9 @@ impl Str {
     /// true
     /// ```
     ///
-    /// There is no locale-aware or case-insensitive comparison here, and there is
-    /// not meant to be: collation is a table and a set of options, not a total
-    /// order a `<` can carry. Fold with `toLower` first for a case-insensitive
-    /// ordering.
+    /// There is no locale-aware or case-insensitive comparison here: collation is
+    /// a table and a set of options, not a total order a `<` can carry. Fold with
+    /// `toLower` first for a case-insensitive ordering.
     export fn compare(self, other: Str): Order;
 
     export fn toInt(self): Option<Int>;
@@ -104,8 +101,7 @@ impl Str {
     ///
     /// `.None` covers all three ways this has no answer: a radix outside the
     /// range, a character that is not a digit of it, and a value outside `Int`.
-    /// So `.Some(v)` promises `v` is the number that was written down, which is
-    /// the promise a parser that wrapped or saturated could not make.
+    /// So `.Some(v)` promises `v` is the number that was written down.
     export fn toRadix(self, radix: Int): Option<Int> {
         if (radix < 2 || radix > 36) {
             .None
@@ -116,9 +112,8 @@ impl Str {
                 .None
             } else {
                 // Accumulates downwards, so the magnitude never has to fit:
-                // `Int` reaches one further below zero, and negating at the end
-                // is where the one value that does not fit answers `.None`
-                // rather than wrapping.
+                // `Int` reaches one further below zero, and the negation at the
+                // end answers `.None` rather than wrapping.
                 let magnitude = digitsOf(self, radix, first, 0);
                 let zero: Int = 0;
                 if (negative) {
@@ -133,8 +128,7 @@ impl Str {
     export fn toFloat(self): Option<Float>;
 }
 
-/// The digits of `text` from `at`, folded negative. Pure: `charAt` is a read,
-/// and nothing here builds a string.
+/// The digits of `text` from `at`, folded negative.
 fn digitsOf(text: Str, radix: Int, at: Int, acc: Int): Option<Int> {
     match (text.charAt(at)) {
         .None => .Some(acc),

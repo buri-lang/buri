@@ -14,26 +14,21 @@
 //!   - a failure ends that test and no other. The runner reports the file, the
 //!     line, and both values.
 //!
-//! The set is wide on purpose, and the report is why. `isTrue(xs.contains(x))`
-//! gives a passing test's `true` and a failing test's "expected true, got
-//! false", which names neither the list nor the element. Every assertion here
-//! names the two values it compared, so reaching for the narrowest one that fits
-//! is what makes a failure readable.
+//! The set is wide because every assertion names the two values it compared.
+//! `isTrue(xs.contains(x))` reports "expected true, got false", which names
+//! neither the list nor the element, so reach for the narrowest assertion that
+//! fits.
 //!
-//! There is no `fail`. It answered `()` rather than a bottom type, so a match arm
-//! that used it could not produce a value and a test had to fabricate a dummy one
-//! to type-check. A test that has to fail asserts on the value it has: a verdict
-//! rendered as a `Str`, or the `Option` itself.
+//! There is no `fail`. A test that has to fail asserts on the value it has: a
+//! verdict rendered as a `Str`, or the `Option` itself.
 
 from "core/order" import { Eq };
 
 /// Fails unless `a == b`. Requires `Eq`, and nothing else.
 ///
 /// The comparison goes through `Eq`, so a hand-written implementation decides
-/// what equal means here exactly as it does everywhere else. The runner
-/// *renders* a failure structurally, walking the type rather than calling
-/// `Show`, so there is no `Show` bound to satisfy. A type is assertable as soon
-/// as it is comparable.
+/// what equal means. The runner renders a failure structurally rather than
+/// calling `Show`, so a type is assertable as soon as it is comparable.
 export fn eq<T: Eq>(actual: T, expected: T): () {
     report(actual == expected, "eq", actual, expected)
 }
@@ -50,12 +45,9 @@ export fn isFalse(actual: Bool): () {
     report(actual == false, "isFalse", actual, false)
 }
 
-/// Fails unless `needle` is one of `haystack`'s elements.
-///
-/// `isTrue(xs.contains(x))` is the same check with the report thrown away:
-/// "expected true, got false" says nothing about which list or which element.
-/// This one names both. The whole list goes on the `actual` line, and the
-/// missing element goes on the `expected` line as a one-element list.
+/// Fails unless `needle` is one of `haystack`'s elements. The whole list goes on
+/// the `actual` line, and the missing element goes on the `expected` line as a
+/// one-element list.
 export fn contains<T: Eq>(haystack: [T], needle: T): () {
     report(haystack.contains(needle), "contains", haystack, [needle])
 }
@@ -65,11 +57,8 @@ export fn isEmpty<T>(xs: [T]): () {
     report(xs.isEmpty(), "isEmpty", xs, [])
 }
 
-/// Fails when `xs` is empty.
-///
-/// The one assertion here with a sentence rather than a diff, because it can
-/// only fail at one value: the empty list. A report with `actual: []` against
-/// `expected: []` would be two ways of writing the same thing.
+/// Fails when `xs` is empty. The one assertion here that reports a sentence
+/// rather than a diff, because it can only fail at one value.
 export fn notEmpty<T>(xs: [T]): () {
     if (xs.isEmpty()) {
         failWith("assert.notEmpty failed: the list is empty")
@@ -78,8 +67,8 @@ export fn notEmpty<T>(xs: [T]): () {
     }
 }
 
-/// Fails unless `xs` holds exactly `expected` elements. The report compares
-/// the two lengths, which is the question that was asked.
+/// Fails unless `xs` holds exactly `expected` elements. The report compares the
+/// two lengths.
 export fn len<T>(xs: [T], expected: Int): () {
     report(xs.len() == expected, "len", xs.len(), expected)
 }
@@ -107,10 +96,9 @@ export fn le<T: Ord>(actual: T, bound: T): () {
 
 /// Fails unless `actual` and `expected` are within `tolerance` of each other.
 ///
-/// The tolerance is absolute, and it is a parameter rather than a constant this
-/// module picks: how close counts as close enough is a fact about the
-/// computation, not about floating point. A `NaN` on either side fails, since it
-/// is within nothing.
+/// The tolerance is absolute, and a parameter rather than a constant: how close
+/// counts as close enough is a fact about the computation. A `NaN` on either side
+/// fails, since it is within nothing.
 export fn approxEq(actual: Float, expected: Float, tolerance: Float): () {
     // `math.absFloat` would do, but would make every test source that imports
     // this one load `core/math`. A `NaN` on either side makes `>` false, so the
@@ -137,9 +125,7 @@ export fn err<T, E>(r: Result<T, E>): E {
 }
 
 /// The report shows the `Option` itself, so a failure reads `actual: .None`
-/// against `expected: .Some` — both in the syntax you write the value in. Passing
-/// the word "none" instead would be indistinguishable from a test whose value
-/// really was `.Some("none")`.
+/// against `expected: .Some` — both in the syntax you write the value in.
 export fn some<T>(o: Option<T>): T {
     match (o) {
         .Some(v) => v,

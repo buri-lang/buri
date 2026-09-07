@@ -8,13 +8,8 @@
 //! it — O(n) once, then O(1) for the n elements that follow, so amortized O(1)
 //! either way.
 //!
-//! This is the *immutable* deque, and Buri has nothing but immutable values
-//! (SPEC 8.1), so it is the natural shape here rather than a compromise. A
-//! ring buffer would need mutation to be worth anything.
-//!
 //! Everything that grows the queue names `Alloc`, and everything that only looks
-//! at it does not. That is the split SPEC 10.5 draws, made visible in the
-//! signatures.
+//! at it does not — the split SPEC 10.5 draws.
 //!
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
@@ -53,10 +48,9 @@ from "core/list" import * as list;
 /// The head reversed, and the tail in order. See the module comment: the
 /// reversal is what makes both ends an append.
 ///
-/// The fields stay private: the two lists implement a sequence, they are not the
-/// sequence itself, and two different pairs can stand for the same queue.
-/// `derive Eq` would compare the representation rather than the contents, so
-/// equality is `equals` below instead.
+/// The fields stay private, because two different pairs can stand for the same
+/// queue. `derive Eq` would compare the representation, so equality is `equals`
+/// below instead.
 export struct Queue<T> {
     front: [T],
     back: [T],
@@ -69,9 +63,8 @@ export fn empty<T>(): Queue<T> {
 
 /// A queue holding the elements of a list, front first.
 ///
-/// They all go in `back`, in order, which is what `push`ing each of them in turn
-/// would have produced, and it costs no reversal to build. Pure: the list already
-/// exists, and this borrows it rather than copying it.
+/// They all go in `back`, in order, which is what `push`ing each in turn would
+/// have produced. Pure: this borrows the list rather than copying it.
 export fn of<T>(items: [T]): Queue<T> {
     Queue { front: list.empty<T>(), back: items }
 }
@@ -112,9 +105,6 @@ impl<T> Queue<T> {
     }
 
     /// Removes the first element, returning it and the rest.
-    ///
-    /// One value rather than two calls, because `peek` and a separate `drop`
-    /// would let the two disagree about which element they meant.
     export fn pop<C: Alloc>(self, ctx: C): Option<(T, Queue<T>)> {
         match (self.front.last()) {
             .Some(v) => {
@@ -154,8 +144,8 @@ impl<T> Queue<T> {
         }
     }
 
-    /// The elements, front first. The one way to look at the whole queue, and
-    /// what `Show` and `equals` are defined in terms of.
+    /// The elements, front first. What `Show` and `equals` are defined in terms
+    /// of.
     export fn toList<C: Alloc>(self, ctx: C): [T] {
         self.front.reverse(ctx).concat(ctx, self.back)
     }
@@ -163,8 +153,7 @@ impl<T> Queue<T> {
 
 impl<T: Eq> Queue<T> {
     /// Two queues are equal when they hold the same elements in the same order,
-    /// whatever split between front and back they happen to have. This is why
-    /// `Queue` does not `derive Eq`: the derived one would compare the split.
+    /// whatever split between front and back they happen to have.
     export fn equals<C: Alloc>(self, ctx: C, other: Queue<T>): Bool {
         let a = self.toList(ctx);
         let b = other.toList(ctx);
