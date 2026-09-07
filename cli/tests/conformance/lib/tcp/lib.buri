@@ -1,0 +1,12 @@
+// The `core/net/tcp` conformance package.
+//
+// Every case here runs against `core/host/testing`'s `tcp()` double, so the
+// suite opens no socket: what it asserts is the module's own arithmetic — that
+// `connect` wraps a handle, that `read` takes a prefix, that a closed stream is
+// gone — and the log the double keeps of what the code under test did.
+//
+// The other half is `native::e2e`'s
+// `a_native_binary_speaks_over_a_socket_it_dialled`, which is a whole program
+// against a real loopback peer. Neither replaces the other: this one says the
+// module means what it says, and that one says the runtime is really connected
+// to it.

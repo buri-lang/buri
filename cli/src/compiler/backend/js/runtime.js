@@ -5471,6 +5471,68 @@ function $host_testing_netCalls(h) {
   });
 }
 
+// `tcp()` — a connection with nothing behind it.
+//
+// A slot is the octets a read draws from, how far through them it has got, the
+// streams this double has minted and not closed, and the log. A `TcpCall` is
+// its six fields in order, and a stream handle is an `Int`, so it crosses as a
+// `BigInt` — which is why `open` is compared with `includes` on `BigInt`s
+// rather than with numbers.
+function $host_testing_newTcp() {
+  return $tmint({ stream: [], taken: 0, open: [], calls: [] });
+}
+
+// A **new** double answering reads from those octets, on `TestStdin.bytes`'s
+// rule: a builder answers a value, so a test that kept the receiver kept what
+// it had.
+function $host_testing_tcpStream(h, b) {
+  return $tmint({ stream: b.slice(), taken: 0, open: [], calls: [] });
+}
+
+// Handles start at one and only go up: a spent one that came back would let a
+// test write to a stream it had closed and see it recorded against a live one.
+function $host_testing_recordTcpConnect(h, host, port) {
+  const slot = $tslot(h);
+  const stream = BigInt(slot.calls.filter((c) => c[0] === "connect").length + 1);
+  slot.calls.push(["connect", host, port, stream, 0n, []]);
+  slot.open.push(stream);
+  return stream;
+}
+
+// `.None` — `undefined` — is a stream this double does not hold open, which the
+// Buri body turns into `.Err(.NotFound)`. An empty answer is the script having
+// run out, which is the far side closing.
+function $host_testing_recordTcpRead(h, stream, limit) {
+  const slot = $tslot(h);
+  if (!slot.open.includes(stream)) return undefined;
+  slot.calls.push(["read", "", 0n, stream, limit, []]);
+  const want = Number(limit) > 0 ? Number(limit) : 0;
+  const end = Math.min(slot.stream.length, slot.taken + want);
+  const piece = slot.stream.slice(slot.taken, end);
+  slot.taken = end;
+  return $some(piece);
+}
+
+function $host_testing_recordTcpWrite(h, stream, body) {
+  const slot = $tslot(h);
+  if (!slot.open.includes(stream)) return false;
+  slot.calls.push(["write", "", 0n, stream, 0n, body.slice()]);
+  return true;
+}
+
+// Recorded whether or not the stream was open: what a test asserts is what the
+// code under test did, and closing something twice is a thing a program can do.
+function $host_testing_recordTcpClose(h, stream) {
+  const slot = $tslot(h);
+  slot.calls.push(["close", "", 0n, stream, 0n, []]);
+  slot.open = slot.open.filter((s) => s !== stream);
+  return 0;
+}
+
+function $host_testing_tcpCalls(h) {
+  return $tslot(h).calls.map((c) => c.slice());
+}
+
 // The read-back, without the effect: the same answer `readFile` gives, and no
 // `Fs` bound needed to ask it.
 function $host_testing_fsRead(h, p) {

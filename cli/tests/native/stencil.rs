@@ -1974,6 +1974,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "tasks/background.buri",
     "streams/io.buri",
     "tasks/scope.buri",
+    "tcp/stream.buri",
     "text/bytes.buri",
     "text/hex.buri",
     "text/path.buri",
