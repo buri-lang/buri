@@ -564,6 +564,14 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostFs.fileExists", "buri_rt_host_fs_file_exists", Ret::Scalar),
     e("host.HostClock.nowMillis", "buri_rt_host_clock_now_millis", Ret::Scalar),
     e("host.HostClock.sleepMillis", "buri_rt_host_clock_sleep_millis", Ret::Void),
+    // A reading off a clock that only goes forward, in nanoseconds. `Ret::Scalar`
+    // like `nowMillis` and for the same reason: one `i64` out, nothing in but the
+    // dropped `self`.
+    e(
+        "host.HostClock.monotonicNanoseconds",
+        "buri_rt_host_clock_monotonic_nanoseconds",
+        Ret::Scalar,
+    ),
     e("host.HostRand.nextInt", "buri_rt_host_rand_next_int", Ret::Scalar),
     e("host.HostRand.nextFloat", "buri_rt_host_rand_next_float", Ret::Scalar),
     // The one row here whose symbol may not be in the archive: it is behind the
@@ -986,6 +994,11 @@ pub const ENTRIES: &[Entry] = &[
         "host_testing.TestClock.sleepMillis",
         "buri_rt_host_testing_test_clock_sleep_millis",
         Ret::Void,
+    ),
+    e(
+        "host_testing.TestClock.monotonicNanoseconds",
+        "buri_rt_host_testing_test_clock_monotonic_nanoseconds",
+        Ret::Scalar,
     ),
     e("host_testing.rand", "buri_rt_host_testing_rand", Ret::Out),
     e("host_testing.TestRand.seed", "buri_rt_host_testing_test_rand_seed", Ret::Out),

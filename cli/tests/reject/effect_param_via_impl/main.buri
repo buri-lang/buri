@@ -22,6 +22,9 @@ impl Clock for Ticker {
   fn sleepMillis(self, millis: Int): () {
     ()
   }
+  fn monotonicNanoseconds(self): I64 {
+    0
+  }
 }
 
 fn sneaky(s: Ticker): I64 {

@@ -148,6 +148,10 @@ pub const MODULES: &[StdModule] = &[
     m("core/bytes", include_str!("sources/bytes.buri")),
     m("core/hash", include_str!("sources/hash.buri")),
     m("core/crypto", include_str!("sources/crypto.buri")),
+    // Above `core/crypto` rather than beside `core/bytes`: `version4` is
+    // sixteen octets from `randomBytes`, so the module that mints one sits on
+    // the module that owns `Entropy`'s door.
+    m("core/uuid", include_str!("sources/uuid.buri")),
     m("core/math", include_str!("sources/math.buri")),
     m("core/simd", include_str!("sources/simd.buri")),
     m("core/bits", include_str!("sources/bits.buri")),
@@ -707,6 +711,7 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Net", "fetch", "core/net/http", "http.send(ctx, request)"),
     w("Clock", "nowMillis", "core/time", "time.now(ctx)"),
     w("Clock", "sleepMillis", "core/time", "time.sleepMs(ctx, millis)"),
+    w("Clock", "monotonicNanoseconds", "core/time", "time.monotonic(ctx)"),
     w("Rand", "nextInt", "core/random", "random.int(ctx, lo, hi)"),
     w("Rand", "nextFloat", "core/random", "random.float(ctx)"),
     // `core/crypto` rather than `core/random`, which is the whole argument
