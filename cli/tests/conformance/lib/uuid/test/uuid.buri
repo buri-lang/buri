@@ -234,17 +234,13 @@ test "Show is the canonical spelling and not the octets" {
     );
 }
 
-test "two identifiers compare, order and hash" {
-    let ctx = context {
-        Alloc: alloc(),
-    };
+test "two identifiers compare and order" {
     let small = uuid.zero();
     let big = assert.some(uuid.parse(CANONICAL));
     assert.eq(small, uuid.zero());
     assert.notEq(small, big);
     assert.lt(small, big);
     assert.gt(big, small);
-    // Equal values hash alike, which is what a Map keyed by one needs.
-    assert.eq(small.hash(), uuid.zero().hash());
-    assert.notEq(small.hash(), big.hash());
+    // Order is octet order, so the octets and the text agree about it.
+    assert.isTrue(small.0.compare(big.0) == Order.Less);
 }

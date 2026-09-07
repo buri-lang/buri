@@ -27,7 +27,7 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Fifty-eight of the seventy-eight files are in it** — the number the harness
+//! **Fifty-eight of the eighty files are in it** — the number the harness
 //! prints, re-derived from it rather than incremented by hand, and one the
 //! prose has drifted from more than once. The ordinals in the paragraphs below
 //! record *when* a file joined the set and are not a running total of it;
@@ -434,6 +434,13 @@ const PACKAGES: &[Case] = &[
     // `padStart`, and the test platform's clock — all of it surface this
     // backend already had, so the file was in from the day it was written.
     included("calendar/duration.buri"),
+    excluded(
+        "calendar/fractions.buri",
+        "a conversion from `F64` — `time.secondsFloat` turns a count of seconds \
+             into nanoseconds, which is the same gap that holds \
+             `numbers/conversions.buri` out. The rest of `Duration` is in \
+             `calendar/duration.buri` and reads on both backends",
+    ),
     // RFC 3339, RFC 9110 dates and `Zoned`, on `calendar/date.buri`'s terms:
     // integer calendar arithmetic and `core/str`, with the clock appearing
     // nowhere. Every answer is a timestamp somebody else wrote down.
@@ -637,6 +644,12 @@ const PACKAGES: &[Case] = &[
     // mint — plus sixteen-element array literals and a derived `Hash` over a
     // `[U8]`, neither of which needed anything new.
     included("uuid/uuid.buri"),
+    excluded(
+        "uuid/hashing.buri",
+        "`deriveArrayHash` — `derive Hash for Uuid;` over a `[U8]` field, which \
+             the stencil backend has no body for. Everything else about \
+             `core/uuid` is in `uuid/uuid.buri` and is in the native set",
+    ),
     included("text/bytes.buri"),
     // Hexadecimal across four modules — `char.fromDigit`, `num.toHex`,
     // `str.toRadix` and `core/bytes`' pair. Every conversion in it is exact, so

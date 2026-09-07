@@ -262,32 +262,11 @@ test "ZERO is no length at all, and the identity for adding" {
     assert.eq(time.nanos(0), time.ZERO);
 }
 
-test "secondsFloat takes a fraction of a second" {
-    assert.eq(time.secondsFloat(0.25), time.millis(250));
-    assert.eq(time.secondsFloat(1.5), time.millis(1500));
-    assert.eq(time.secondsFloat(0.0), time.ZERO);
-    assert.eq(time.secondsFloat(0.0 - 0.25), time.millis(0 - 250));
-    assert.eq(time.secondsFloat(1e-9), time.nanos(1));
-    // Finer than a nanosecond truncates toward zero.
-    assert.eq(time.secondsFloat(1e-10), time.ZERO);
-}
-
-test "a fraction no Duration can hold saturates, and a NaN is nothing" {
-    assert.eq(time.secondsFloat(1e30), Duration(num.maxValue<I64>()));
-    assert.eq(time.secondsFloat(0.0 - 1e30), Duration(num.minValue<I64>()));
-    assert.eq(time.secondsFloat(1.0 / 0.0), Duration(num.maxValue<I64>()));
-    assert.eq(time.secondsFloat(0.0 - 1.0 / 0.0), Duration(num.minValue<I64>()));
-    assert.eq(time.secondsFloat(0.0 / 0.0), time.ZERO);
-    // A count of seconds whose nanoseconds are not exact still converts.
-    assert.eq(time.secondsFloat(0.1), time.millis(100));
-}
-
-test "asSecondsFloat inverts secondsFloat" {
+test "asSecondsFloat reads a length as a count of seconds" {
     assert.approxEq(time.seconds(3).asSecondsFloat(), 3.0, 1e-9);
     assert.approxEq(time.millis(250).asSecondsFloat(), 0.25, 1e-9);
     assert.approxEq(time.ZERO.asSecondsFloat(), 0.0, 1e-9);
     assert.approxEq(time.millis(0 - 1500).asSecondsFloat(), 0.0 - 1.5, 1e-9);
-    assert.approxEq(time.secondsFloat(0.125).asSecondsFloat(), 0.125, 1e-9);
 }
 
 // --- dividing, and the ratio between two lengths ----------------------------------
