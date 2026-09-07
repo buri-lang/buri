@@ -2,21 +2,26 @@ FAIL //lib/props  test/props.buri  "a draw under a hundred is under fifty"
   assert.none failed
     actual:   .Some(Counterexample { seed: 4354685564936845354, case: 79 })
     expected: .None
-  --> lib/props/test/props.buri:10:1
+  --> lib/props/test/props.buri:12:1
 FAIL //lib/props  test/props.buri  "nothing is ever drawn"
   assert.none failed
     actual:   .Some(Counterexample { seed: 0, case: 35 })
     expected: .None
-  --> lib/props/test/props.buri:14:1
+  --> lib/props/test/props.buri:16:1
 FAIL //lib/props  test/props.buri  "a drawn list is empty"
   assert.none failed
     actual:   .Some(Counterexample { seed: 4354685564936845354, case: [7, 4, 3, 5] })
     expected: .None
-  --> lib/props/test/props.buri:18:1
+  --> lib/props/test/props.buri:20:1
 FAIL //lib/props  test/props.buri  "a drawn list is sorted already"
   assert.none failed
     actual:   .Some(Counterexample { seed: 4354685564936845354, case: [7, 4, 3, 5] })
     expected: .None
-  --> lib/props/test/props.buri:27:1
+  --> lib/props/test/props.buri:29:1
+FAIL //lib/props  test/props.buri  "a draw under a hundred is never the hundredth one"
+  assert.none failed
+    actual:   .Some(Counterexample { seed: 3419378616714001439, case: 94 })
+    expected: .None
+  --> lib/props/test/props.buri:38:1
 
-0 passed, 4 failed, 0 skipped (0.0s)
+0 passed, 5 failed, 0 skipped (0.0s)

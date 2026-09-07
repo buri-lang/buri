@@ -1,6 +1,8 @@
-// Four properties that do not hold, one per shape `core/testing/check` can
+// Five properties that do not hold, one per shape `core/testing/check` can
 // report: a scalar case, a list case, a property that fails on the very first
-// draw, and one that holds for a while first.
+// draw, one that holds for a while first, and one that holds for ninety-nine
+// draws and breaks on the hundredth — which is what says the runner draws every
+// case it promised rather than stopping early.
 
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
@@ -31,4 +33,11 @@ test "a drawn list is sorted already" {
     check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 9), 4), fn(_c, xs) => {
         xs.isSortedBy(fn(a, b) => a.compare(b))
     });
+}
+
+test "a draw under a hundred is never the hundredth one" {
+    // 94 is what the hundredth draw from the fixed first seed gives, and it is
+    // drawn only there — so this property holds for the first ninety-nine cases
+    // and fails on the last.
+    check.forAll(check.int(0, 100), fn(n) => n != 94);
 }
