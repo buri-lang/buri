@@ -159,11 +159,19 @@ pub fn command_query(args: &arguments::Args) -> i32 {
                 // becomes is compiled into the artifact — so a question about
                 // what a target is made of has to name it.
                 all.extend(lib.proto_sources.iter().map(|x| x.value.clone()));
+                // A generator's input is a source of this target too: what the
+                // generator makes of it is compiled into the artifact.
+                all.extend(
+                    lib.generators.iter().flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
+                );
             }
             if let Some(bin) = &p.build.binary {
                 all.push("main.buri".to_string());
                 all.extend(bin.sources.iter().map(|x| x.value.clone()));
                 all.extend(bin.proto_sources.iter().map(|x| x.value.clone()));
+                all.extend(
+                    bin.generators.iter().flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
+                );
             }
             all.sort();
             for a in all {

@@ -61,7 +61,7 @@ const SWEEP: Duration = Duration::from_millis(150);
 ///
 ///   * every path `actions::contribute` enumerates for every member of the
 ///     target's closure — the rule's entry point, its `sources`, its
-///     `proto_sources`, and its `testing/` sources;
+///     `proto_sources`, its generators' `inputs`, and its `testing/` sources;
 ///   * every path `actions::test_key` enumerates — the suite's `sources` and
 ///     the closure of every library its `test { dependencies }` and
 ///     `testing { dependencies }` name;
@@ -130,6 +130,9 @@ fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<Path
                 for x in lib.sources.iter().chain(&lib.proto_sources) {
                     out.insert(dir.join(&x.value));
                 }
+                for x in lib.generators.iter().flat_map(|g| g.inputs.iter()) {
+                    out.insert(dir.join(&x.value));
+                }
                 if let Some(testing) = &lib.testing {
                     out.insert(dir.join("testing/lib.buri"));
                     for x in &testing.sources {
@@ -142,6 +145,9 @@ fn declared_sources(session: &Session, member: TargetId, out: &mut BTreeSet<Path
             out.insert(dir.join("main.buri"));
             if let Some(bin) = &package.build.binary {
                 for x in bin.sources.iter().chain(&bin.proto_sources) {
+                    out.insert(dir.join(&x.value));
+                }
+                for x in bin.generators.iter().flat_map(|g| g.inputs.iter()) {
                     out.insert(dir.join(&x.value));
                 }
             }

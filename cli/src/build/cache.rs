@@ -62,6 +62,14 @@ pub enum Action {
     /// because the modules they become import each other and that import is
     /// subject to the library boundary like any other.
     Proto,
+    /// Running one rule's generators. Keyed on the platform, the rule's
+    /// identity, the tool, and the contents of every declared input — which is
+    /// the whole of what the modules a generator hands back depend on, because
+    /// a generator names `Stdin` and `Stdout` and nothing else.
+    ///
+    /// The one action whose program this toolchain did not write. See
+    /// [`crate::build::generators`].
+    Generate,
     Compile,
     /// Turning one codegen unit's lowered IR into object bytes. One action per
     /// unit, where a unit is the set of monomorphized functions whose
@@ -91,6 +99,7 @@ impl Action {
     pub fn name(self) -> &'static str {
         match self {
             Action::Proto => "proto",
+            Action::Generate => "generate",
             Action::Compile => "compile",
             Action::Codegen => "codegen",
             Action::Link => "link",

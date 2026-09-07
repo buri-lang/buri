@@ -90,6 +90,14 @@ pub struct Workspace {
     pub root: PathBuf,
     pub repo: RepoConfig,
     pub packages: Vec<Package>,
+    /// What this repository's generators produced.
+    ///
+    /// Empty when the graph is loaded and filled by
+    /// [`crate::build::generators::prepare`], because generating needs to build
+    /// and spawn a tool and loading the graph cannot. It hangs here because the
+    /// workspace is the one thing already threaded to the compiler's loader, so
+    /// every command and the language server read one answer.
+    pub generated: crate::build::generators::Store,
     by_path: HashMap<String, PackageId>,
     /// Package paths longest-first, for resolving a module path to the package
     /// that contains it.
@@ -248,6 +256,18 @@ pub enum ModuleKind {
     /// `Internal` in every way that matters, and the separate kind exists so
     /// the loader knows to *generate* it rather than read it.
     Proto,
+    /// `//pkg/whatever` — a module a `generators` entry produced. Also
+    /// `Internal` in every way that matters, and also a separate kind so the
+    /// loader knows to take its text from
+    /// [`crate::build::generators::Store`] rather than from disk.
+    ///
+    /// A separate kind from [`ModuleKind::Proto`] rather than a widening of it,
+    /// because the two answer different questions. A `Proto` module has a file
+    /// behind it and its name is that file's; a `Generated` one has no file at
+    /// all, and its name is whatever the generator called it — so every reader
+    /// that resolves a `Proto` module back to bytes on disk would be wrong
+    /// about this one.
+    Generated,
 }
 
 /// Where a module path resolves to.
@@ -392,7 +412,14 @@ impl Workspace {
         sorted_paths.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then(a.0.cmp(&b.0)));
 
         let workspace =
-            Workspace { root: root.to_path_buf(), repo, packages, by_path, sorted_paths };
+            Workspace {
+                root: root.to_path_buf(),
+                repo,
+                packages,
+                by_path,
+                sorted_paths,
+                generated: crate::build::generators::Store::default(),
+            };
         Ok(workspace)
     }
 
@@ -696,6 +723,23 @@ impl Workspace {
             };
 
             let package = self.package(*id);
+            // A module a generator produced has no file, so it is answered
+            // before anything asks the disk about one. Its name is whatever the
+            // generator called it, which is why this is a lookup rather than a
+            // rule about the spelling.
+            let generated = package.module_path(remainder);
+            if !remainder.is_empty() && self.generated.holds(&generated) {
+                return Ok(ModuleLocation::InPackage(PackageModule {
+                    path: generated,
+                    kind: ModuleKind::Generated,
+                    package: *id,
+                    // The path the module *would* have, so a reader that wants
+                    // somewhere to point has somewhere. Nothing is there, and
+                    // every reader that opens a file checks first.
+                    file: package.dir.join(remainder),
+                    rel: self.rel_of(&package.dir.join(remainder)),
+                }));
+            }
             // What is left of the path after the package's own name is either
             // a file inside that package, letter for letter, or nothing at all
             // — and nothing at all is the module form, which names the
