@@ -636,11 +636,22 @@ false:
    borrows and `append_dest` tests the count; here there is no count, so the
    receiver must be owned and a caller that keeps the list duplicates it. That
    duplication is the mark.
-2. **A lambda's body is scanned.** `middle::closures` does not run on this
-   branch — an arrow function closing over its scope is what the engine wants
-   — so there is no lifted function carrying a plan of its own. Its parameters
-   are owned, and the runtime functions that call one mark every element they
-   hand over, which is the convention that makes that true.
+2. **A lambda's body is scanned, and it owns only what it binds.**
+   `middle::closures` does not run on this branch — an arrow function closing
+   over its scope is what the engine wants — so there is no lifted function
+   carrying a plan of its own. Its parameters are owned, and the runtime
+   functions that call one mark every element they hand over, which is the
+   convention that makes that true. Its **captures are not**. Liveness in the
+   enclosing scope says whether that scope reads a capture again; the body
+   runs once per call, so a capture always has a next reader. Scanning the
+   body against the enclosing `owned` set read `xs` as dying at the closure
+   that captured it, emitted no mark, and let `$list_slice` truncate `xs` in
+   place on the first call —
+   `mapCtx(fn(c, i) => xs.slice(c, 0, i).len())` answered `0, 0, 0` where the
+   answer is `0, 1, 2`. `Scan::enter_lambda` narrows the set to the body's own
+   `let` bindings and parameters, which is what leaves the `foldCtx`
+   accumulator writing through. `cli/tests/conformance/lib/memory/test/captures.buri`
+   is one case per in-place operation.
 3. **The base of a functional update is not a duplication.** The projections
    the update reads out of the base keep it live across its own siblings,
    which the generic scan reads as a second reference. True of a count; false
