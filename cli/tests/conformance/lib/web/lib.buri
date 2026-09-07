@@ -1,0 +1,3 @@
+// The website package. Everything it asserts lives in `test/`; the library
+// itself has no exports, because what is under test is `ui/web` — the tree a
+// worker renders to HTML, and the document it embeds its state in.

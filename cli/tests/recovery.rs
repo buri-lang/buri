@@ -454,7 +454,18 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // inside one leaves a second reading the grammar accepts and the
         // checker then has something to say about. 448 of 1773 is 25.3%, and
         // twenty-six is that rounded up.
-        ("a syntax error stays a syntax error", "swap-adjacent") => 26,
+        // Re-read a sixth time when `ui/web` landed, with
+        // `cli/tests/conformance/lib/web/` beside it. Same reason and same
+        // evidence: no parsing, semantics or middle-end file is in that merge —
+        // it is a standard-library module, an effect declaration and JavaScript
+        // runtime functions — and the population grew by a file that is dense
+        // in what this row measures. A website assertion is a call inside a
+        // call inside an assertion (`assert.eq(web.render(tree()), "...")`, and
+        // a `match` on a `splitOnce` inside a `match` on another), so swapping
+        // two adjacent tokens in one leaves a program the grammar reads
+        // differently and the checker then has an honest opinion about. 485 of
+        // 1857 is 26.1%, and twenty-seven is that rounded up.
+        ("a syntax error stays a syntax error", "swap-adjacent") => 27,
 
         // Every row not named above, and every row of an invariant R2 owns.
         (_, _) => 0,

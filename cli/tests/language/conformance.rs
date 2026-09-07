@@ -758,3 +758,87 @@ await say("/heavy");
     std::fs::write(&chunk, &held).expect("the chunk goes back");
     assert_eq!(run(), "/home\nheavy /heavy\n", "and with the chunk there, both answer");
 }
+
+/// A website, both halves, driven the way the two platforms drive them.
+///
+/// **The top of what a website can be asked.** The repository is
+/// `repositories/concurrency/website`, and the case beside it builds it and
+/// reads the artifacts; what no `buri` command can do is *run* either half — a
+/// worker is called by its platform, and a page needs a document. So this is
+/// the platform's own side of both, in one JavaScript module: the worker's
+/// `fetch` handed a real `Request`, and the page's `main` imported on top of a
+/// document that already holds what the worker sent.
+///
+/// Three claims, and the driver prints one line for each so a wrong answer
+/// names which:
+///
+///  * the worker answers HTML, with the tree rendered into it and the state it
+///    rendered from beside it;
+///  * the page picks that state up, and the address bar it is at;
+///  * and it re-renders nothing — the markup the worker sent is the markup the
+///    reader is still looking at, and the document was never touched.
+#[test]
+fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
+    let site = tests_dir().join("repositories/concurrency/website/repo");
+    let scratch = Scratch::copy_of("website", &site);
+    scratch.run(&["build", "//cmd/site"]).ok();
+
+    // The document double is the browser's half: a body that already holds the
+    // worker's markup, the state script the worker embedded, and an address.
+    // Every way of changing a document counts what it was asked to do, so
+    // "nothing was re-rendered" is a number rather than an impression.
+    let driver = scratch.write(
+        "drive.mjs",
+        r#"
+import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
+
+const answer = await worker.fetch(new Request("https://example.com/"));
+const document_ = await answer.text();
+console.log(`${answer.status} ${answer.headers.get("content-type")}`);
+console.log(document_.split("<body>")[1].split("</body>")[0]);
+
+const body = document_.split("<body>")[1].split("</body>")[0];
+const embedded = body.split('type="application/json">')[1].split("</script>")[0];
+
+let touched = 0;
+const touch = () => (touched++, {});
+globalThis.document = {
+  body: { markup: body, appendChild: touch, insertBefore: touch, removeChild: touch },
+  head: { appendChild: touch },
+  getElementById: (id) => (id === "buri-state" ? { textContent: embedded } : null),
+  createElement: touch,
+  createTextNode: touch,
+  createComment: touch,
+};
+globalThis.location = { pathname: "/about" };
+
+await import("./.buri/out/web/cmd/site/main.mjs");
+
+console.log(`touched ${touched}`);
+console.log(document.body.markup);
+"#,
+    );
+
+    let out = Command::new(js_runtime())
+        .arg(&driver)
+        .output()
+        .expect("the javascript runtime runs");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "the website did not answer:\n{stdout}{stderr}");
+
+    let sent = "<main><h1>Buri</h1>visitors: 3</main>\
+                <script id=\"buri-state\" type=\"application/json\">\
+                {\"title\":\"Buri\",\"visitors\":3}</script>";
+    assert_eq!(
+        stdout,
+        format!(
+            "200 text/html; charset=utf-8\n\
+             {sent}\n\
+             resumed /about {{\"title\":\"Buri\",\"visitors\":3}}\n\
+             touched 0\n\
+             {sent}\n"
+        ),
+        "the website lost a half:\n{stderr}"
+    );
+}
