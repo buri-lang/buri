@@ -564,8 +564,8 @@ test "reading sixteen bits past the end is .None rather than a short number" {
 
 // --- base64url, length by length ---------------------------------------------------
 
-/// Twelve octets with a `+`, a `/` and a zero among them, so every prefix of it
-/// exercises a place the two alphabets differ.
+/// Twelve octets whose base64 lands on the two characters the alphabets spell
+/// differently, so every prefix of it is a case where `-` and `_` matter.
 let SAMPLE: [U8] = [251, 239, 190, 0, 255, 1, 128, 127, 64, 200, 15, 240];
 
 test "base64url writes every length from nothing to twelve octets" {
