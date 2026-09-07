@@ -73,6 +73,9 @@ cli/tests/
     concurrency/          …and one per concurrency-and-servers claim: actors,
                           scopes, arenas, the sockets double, imports, a
                           print's Result
+    platform/             …and the host a program is handed on node: the
+                          filesystem, the environment and a child process,
+                          through `buri run`
   golden_javascript/    one construct per case, with the code it emits
   formatting/           an `input.buri` and the one `expected.buri` allowed
     generated/          the same, a thousand of them, written by the mutator

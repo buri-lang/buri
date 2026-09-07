@@ -204,6 +204,24 @@ fn concurrency_and_memory() {
     run_corpus(&tests_dir().join("repositories/concurrency"), "concurrency", 7);
 }
 
+/// The host a program is handed, on the platform this toolchain does not build
+/// binaries for: node.
+///
+/// Everything `core/fs`, `core/env` and `core/process` reach has three
+/// answers — `core/host/testing`'s doubles in the conformance corpus, a real
+/// Linux or macOS in `native::e2e`, and node's own `fs`, `process` and
+/// `child_process` here. The third one had no test at all, and a runtime
+/// function nothing calls is a runtime function nobody notices going wrong.
+///
+/// A repository case rather than a conformance one, for
+/// `concurrency_and_memory`'s reason and one more: a conformance block binds a
+/// double, and the whole claim here is about the host that is *not* a double.
+/// `buri run` is the command that hands a program the real one.
+#[test]
+fn the_host_on_node() {
+    run_corpus(&tests_dir().join("repositories/platform"), "platform", 1);
+}
+
 /// Visual snapshots: a tree painted to a PNG and compared byte for byte.
 ///
 /// A group of its own rather than a case under `testing/`, because what it

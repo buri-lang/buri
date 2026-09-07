@@ -187,7 +187,9 @@ fn flattened<C: Alloc>(ctx: C, pairs: [(Str, Str)], index: Int, sofar: [Str]): [
 /// that.
 ///
 /// A `program` with a `/` in it names a file directly and `PATH` is not
-/// consulted, which is what a shell does.
+/// consulted, which is what a shell does. An empty entry in `PATH` — and `PATH=`
+/// itself, which is one — means the directory the process is standing in, which
+/// is also what a shell does.
 ///
 /// **It asks whether the name resolves, not whether it can be executed.** That
 /// is `fs.exists`, so a directory with the right name answers `.Some`. The

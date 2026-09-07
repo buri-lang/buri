@@ -1731,18 +1731,20 @@ fn a_native_binary_touches_files_and_reads_its_own_arguments() {
 /// `removeTree` at the end, which is the other half — and the assertion the
 /// double cannot make, because a flat map has no directory to leave behind.
 ///
-/// The one thing here that needs the *harness* is the symbolic link: nothing in
-/// `core/fs` creates one, and `metadata` not following one is the decision
-/// `EntryKind` exists for. So the row makes the link and the program reports
-/// what the filesystem said it was.
+/// Five things here need the *harness*, and every one of them is something
+/// `core/fs` cannot make: a symbolic link, a link that points at nothing, a
+/// chain of two, a directory holding a link to its own parent, and a directory
+/// this process may not read. `metadata` not following a link is the decision
+/// `EntryKind` exists for, and a walk that followed one would not come back.
 fn real_tree() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Entropy, Env, Stdout };
+        r#"from "core/effect" import { Alloc, Entropy, Env, IoError, Stdout };
 from "core/env" import * as env;
 from "core/fs" import { EntryKind, FsRead, FsWrite };
 from "core/fs" import * as fs;
 from "core/host" import * as host;
 from "core/io" import * as io;
+from "core/path" import * as path;
 from "core/path" import { Path };
 from "core/str" import * as str;
 from "core/time" import { Instant };
@@ -1753,6 +1755,27 @@ fn named(kind: EntryKind): Str {
         .Directory => "directory",
         .Symlink => "symlink",
         .Other => "other",
+    }
+}
+
+/// An `IoError` as one word, so a row can name the one it expects.
+fn why(error: IoError): Str {
+    match (error) {
+        .NotFound => "NotFound",
+        .PermissionDenied => "PermissionDenied",
+        .ReadOnly => "ReadOnly",
+        .AlreadyExists => "AlreadyExists",
+        .NotADirectory => "NotADirectory",
+        .CrossDevice => "CrossDevice",
+        .Other(_message) => "Other",
+    }
+}
+
+/// What a call that must fail said — or that it did not fail.
+fn refused<T>(answer: Result<T, IoError>): Str {
+    match (answer) {
+        .Ok(_it) => "no refusal",
+        .Err(error) => why(error),
     }
 }
 
@@ -1777,6 +1800,59 @@ fn walked<C: Alloc + FsRead>(ctx: C, root: Path): Result<Str, Str> {
     .Ok(shown.sort(ctx).join(ctx, " "))
 }
 
+/// The links and the two directories the harness made beside the binary:
+/// nothing in `core/fs` creates a symbolic link or takes a permission away, and
+/// both are what `EntryKind` and the walk's refusals are about.
+fn harnessMade<C: Alloc + Env + FsRead + FsWrite + Stdout>(ctx: C, here: Path): Result<(), Str> {
+    // A link `metadata` must not follow, and one that points at nothing: both
+    // are `.Symlink`, and neither is what it points at.
+    let link = here.join(ctx, "pointer");
+    let linkInfo = fs.metadata(ctx, link).mapErr(fn(_e) => "metadata link")?;
+    let _p1 = io.println(ctx, "link ${named(linkInfo.kind)}").mapErr(fn(_e) => "print")?;
+    let dangling = here.join(ctx, "dangling");
+    let danglingInfo = fs.metadata(ctx, dangling).mapErr(fn(_e) => "metadata dangling")?;
+    let _p2 = io
+        .println(
+            ctx,
+            "dangling ${named(danglingInfo.kind)} ${fs.exists(ctx, dangling)} ${refused(fs.readText(ctx, dangling))} ${refused(fs.canonicalize(ctx, dangling))}",
+        )
+        .mapErr(fn(_e) => "print")?;
+    let _p3 = io
+        .println(ctx, "gone ${refused(fs.metadata(ctx, here.join(ctx, "no-such-entry")))}")
+        .mapErr(fn(_e) => "print")?;
+
+    // A link to a link to a file: only the filesystem can follow the chain.
+    let chained = fs.canonicalize(ctx, here.join(ctx, "chain")).mapErr(fn(_e) => "chain")?;
+    let _p4 = io
+        .println(ctx, "chain ${chained.fileName().withDefault("?")}")
+        .mapErr(fn(_e) => "print")?;
+
+    // A directory holding a link to its own parent. A walk lists it and does
+    // not follow it, which is the whole reason `metadata` does not either.
+    let looped = here.join(ctx, "loopdir");
+    let _p5 = io.println(ctx, "loop ${walked(ctx, looped)?}").mapErr(fn(_e) => "print")?;
+
+    // A tree with a link out of it: the link goes and what it pointed at stays.
+    let tree = here.join(ctx, "tree");
+    let _gone = fs.removeTree(ctx, tree).mapErr(fn(_e) => "removeTree tree")?;
+    let _p6 = io
+        .println(
+            ctx,
+            "outside ${fs.exists(ctx, tree)} ${fs.exists(ctx, here.join(ctx, "outside.txt"))}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    // A directory this process may not read. The harness took the permission
+    // away and knows whether the operating system honoured it.
+    let closed = here.join(ctx, "closed");
+    io
+        .println(
+            ctx,
+            "closed ${refused(fs.walk(ctx, closed))} ${refused(fs.removeTree(ctx, closed))}",
+        )
+        .mapErr(fn(_e) => "print")
+}
+
 export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
@@ -1795,22 +1871,25 @@ export fn main(): Result<(), Str> {
     let _p2 = io.println(ctx, "os ${env.operatingSystem(ctx)}").mapErr(fn(_e) => "print")?;
     let seen = env.all(ctx).any(fn(pair) => pair.0 == "BURI_E2E_VARIABLE" && pair.1 == "seen");
     let _p3 = io.println(ctx, "inherited ${seen}").mapErr(fn(_e) => "print")?;
+    let home = match (env.homeDirectory(ctx)) {
+        .Some(_at) => "some",
+        .None => "none",
+    };
+    let under = env.temporaryDirectory(ctx);
+    let _p4 = io
+        .println(ctx, "home ${home} tmproot ${under.text()}")
+        .mapErr(fn(_e) => "print")?;
 
-    // The link the harness made beside the binary, which `metadata` must not
-    // follow.
-    let link = here.join(ctx, "pointer");
-    let linkInfo = fs.metadata(ctx, link).mapErr(fn(_e) => "metadata link")?;
-    let _p4 = io.println(ctx, "link ${named(linkInfo.kind)}").mapErr(fn(_e) => "print")?;
+    let _made = harnessMade(ctx, here)?;
 
     // A real tree, in a real temporary directory.
     let root = fs.makeTemporaryDirectory(ctx, "buri-e2e-").mapErr(fn(_e) => "temporary")?;
-    let under = env.temporaryDirectory(ctx);
     let _p5 = io
         .println(ctx, "temporary ${root.startsWith(under)}")
         .mapErr(fn(_e) => "print")?;
 
     let deep = root.join(ctx, "deep");
-    let _made = fs.makeDir(ctx, deep).mapErr(fn(_e) => "makeDir")?;
+    let _made2 = fs.makeDir(ctx, deep).mapErr(fn(_e) => "makeDir")?;
     let note = root.join(ctx, "note.txt");
     let _wrote = fs.writeBytes(ctx, note, [104, 101, 108, 108, 111]).mapErr(fn(_e) => "write")?;
     let inner = deep.join(ctx, "b.bin");
@@ -1834,31 +1913,86 @@ export fn main(): Result<(), Str> {
     let tree = walked(ctx, root)?;
     let _p10 = io.println(ctx, "walk ${tree}").mapErr(fn(_e) => "print")?;
 
-    // A window into the file, and a copy of the whole of it.
+    // An empty directory lists nothing and is not a directory that is missing,
+    // which is the one thing an in-memory map cannot tell apart. A file is not
+    // a directory at all.
+    let empty = root.join(ctx, "empty");
+    let _made3 = fs.makeDir(ctx, empty).mapErr(fn(_e) => "makeDir empty")?;
+    let _p11 = io
+        .println(
+            ctx,
+            "empty ${fs.walk(ctx, empty).map(fn(found) => found.len()).withDefault(0 - 1)} ${refused(fs.walk(ctx, root.join(ctx, "nowhere")))} ${refused(fs.walk(ctx, note))}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    // A window into the file: its middle, the octet at its end, past the end,
+    // none of it at all, and a count no read can have.
     let head = fs.readRange(ctx, note, 1, 3).mapErr(fn(_e) => "readRange")?;
-    let _p11 = io.println(ctx, "range ${head == [101, 108, 108]}").mapErr(fn(_e) => "print")?;
+    let _p12 = io.println(ctx, "range ${head == [101, 108, 108]}").mapErr(fn(_e) => "print")?;
     let past = fs.readRange(ctx, note, 99, 4).mapErr(fn(_e) => "readRange past")?;
-    let _p12 = io.println(ctx, "past ${past.len()}").mapErr(fn(_e) => "print")?;
+    let last = fs.readRange(ctx, note, 4, 9).mapErr(fn(_e) => "readRange last")?;
+    let none = fs.readRange(ctx, note, 1, 0).mapErr(fn(_e) => "readRange none")?;
+    let _p13 = io
+        .println(
+            ctx,
+            "window ${past.len()} ${last.len()} ${none.len()} ${refused(fs.readRange(ctx, note, 0 - 1, 2))} ${refused(fs.readRange(ctx, note, 0, 0 - 2))}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    // A copy of the whole of it, over itself, over a file that is there, into a
+    // directory that is not, and of a directory, which is not a file.
     let twin = root.join(ctx, "note.copy");
+    let _wrote3 = fs.writeBytes(ctx, twin, [55, 55, 55, 55, 55, 55, 55]).mapErr(fn(_e) => "write twin")?;
     let _copied = fs.copy(ctx, note, twin).mapErr(fn(_e) => "copy")?;
     let back = fs.readBytes(ctx, twin).mapErr(fn(_e) => "read copy")?;
-    let _p13 = io.println(ctx, "copy ${back.len()}").mapErr(fn(_e) => "print")?;
+    let _self = fs.copy(ctx, note, note).mapErr(fn(_e) => "copy onto itself")?;
+    let itself = fs.readBytes(ctx, note).mapErr(fn(_e) => "read after self copy")?;
+    let _p14 = io
+        .println(
+            ctx,
+            "copy ${back.len()} ${itself.len()} ${refused(fs.copy(ctx, note, root.join(ctx, "nowhere/x")))} ${refused(fs.copy(ctx, deep, root.join(ctx, "deep.copy")))}",
+        )
+        .mapErr(fn(_e) => "print")?;
 
-    // `..` is the filesystem's to resolve, and this is the call that asks it.
+    // `..` and `.` are the filesystem's to resolve, and this is the call that
+    // asks it.
     let wound = fs.canonicalize(ctx, root.join(ctx, "deep/../note.txt"))
         .mapErr(fn(_e) => "canonicalize")?;
     let straight = fs.canonicalize(ctx, note).mapErr(fn(_e) => "canonicalize note")?;
-    let _p14 = io.println(ctx, "canonical ${wound == straight}").mapErr(fn(_e) => "print")?;
-    let missing = match (fs.canonicalize(ctx, root.join(ctx, "nope"))) {
-        .Err(.NotFound) => "NotFound",
-        .Err(_other) => "other",
-        .Ok(_p) => "resolved something that is not there",
-    };
-    let _p15 = io.println(ctx, "absent ${missing}").mapErr(fn(_e) => "print")?;
+    let dot = fs.canonicalize(ctx, path.of(ctx, ".")).mapErr(fn(_e) => "canonicalize dot")?;
+    let up = fs.canonicalize(ctx, path.of(ctx, "..")).mapErr(fn(_e) => "canonicalize up")?;
+    let _p15 = io
+        .println(
+            ctx,
+            "canonical ${wound == straight} ${dot.isAbsolute()} ${dot.startsWith(up)} ${refused(fs.canonicalize(ctx, root.join(ctx, "nope")))}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    // A second scratch directory is a second directory, and a prefix with a
+    // separator in it names one further down.
+    let second = fs.makeTemporaryDirectory(ctx, "buri-e2e-").mapErr(fn(_e) => "temporary twice")?;
+    let nested = fs
+        .makeTemporaryDirectory(ctx, "buri-e2e-nest/inner-")
+        .mapErr(fn(_e) => "temporary nested")?;
+    let _p16 = io
+        .println(
+            ctx,
+            "twice ${root == second} ${fs.isDirectory(ctx, second)} ${fs.isDirectory(ctx, nested)} ${nested.startsWith(under)}",
+        )
+        .mapErr(fn(_e) => "print")?;
+    let _gone2 = fs.removeTree(ctx, second).mapErr(fn(_e) => "removeTree second")?;
+    let _gone3 = fs
+        .removeTree(ctx, nested.parent().withDefault(nested))
+        .mapErr(fn(_e) => "removeTree nested")?;
 
     // And the tree goes, which `removeDir` alone could not do.
     let _gone = fs.removeTree(ctx, root).mapErr(fn(_e) => "removeTree")?;
-    io.println(ctx, "left ${fs.exists(ctx, root)}").mapErr(fn(_e) => "print")
+    io
+        .println(
+            ctx,
+            "left ${fs.exists(ctx, root)} ${refused(fs.removeTree(ctx, root))}",
+        )
+        .mapErr(fn(_e) => "print")
 }
 "#,
     )
@@ -1870,31 +2004,40 @@ export fn main(): Result<(), Str> {
 /// The conformance package for `core/fs` runs every one of these calls against
 /// the in-memory double; what a whole process adds is the half a map cannot
 /// have — a symbolic link that `metadata` refuses to follow, a `..` that only
-/// `realpath(3)` can resolve, a modification time from a real clock, and a
-/// directory that is really gone at the end.
+/// `realpath(3)` can resolve, a modification time from a real clock, an empty
+/// directory that is not a missing one, and a directory that is really gone at
+/// the end.
+///
+/// It runs twice: once with an environment, and once with `HOME` and `TMPDIR`
+/// taken out of it, which is the only way to ask what a scrubbed environment
+/// answers.
 #[test]
 fn a_native_binary_reads_a_real_tree_and_removes_it() {
     unless_ready!();
     let binary = built("e2e-real-tree", &real_tree());
     let dir = binary.parent().expect("the program is in a workspace of its own").to_path_buf();
-    // The one thing `core/fs` cannot make. `metadata` not following it is what
-    // `EntryKind::Symlink` is for, and nothing smaller than this can say so.
-    let link = dir.join("pointer");
-    let _ = std::fs::remove_file(&link);
-    #[cfg(unix)]
-    std::os::unix::fs::symlink("note.txt", &link).expect("the harness could not make a link");
-    let out = std::process::Command::new(&binary)
-        .current_dir(&dir)
-        .env("BURI_E2E_VARIABLE", "seen")
-        .output()
-        .expect("the program did not start");
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert_eq!(
-        out.status.code(),
-        Some(0),
-        "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+
+    // Laid out again before each run: the program removes the tree it is given,
+    // which is the point of that half of the row.
+    let run = |scrubbed: bool| -> (String, bool) {
+        let unreadable = laid_out(&dir);
+        let mut command = std::process::Command::new(&binary);
+        command.current_dir(&dir).env("BURI_E2E_VARIABLE", "seen");
+        if scrubbed {
+            command.env_remove("HOME").env_remove("TMPDIR");
+        }
+        let out = command.output().expect("the program did not start");
+        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        (stdout, unreadable)
+    };
+
+    let (stdout, unreadable) = run(false);
     let lines: Vec<&str> = stdout.lines().collect();
     let said = |prefix: &str| -> String {
         lines
@@ -1911,34 +2054,175 @@ fn a_native_binary_reads_a_real_tree_and_removes_it() {
         said("os ")
     );
     assert_eq!(said("inherited "), "true", "the child did not see the variable it was given");
+
+    // The links, the loop and the tree the harness laid out.
     assert_eq!(said("link "), "symlink", "`metadata` followed the link instead of reporting it");
+    assert_eq!(
+        said("dangling "),
+        "symlink false NotFound NotFound",
+        "a link to nothing is not a link that is not there"
+    );
+    assert_eq!(said("gone "), "NotFound", "a path naming nothing is not `.NotFound`");
+    assert_eq!(said("chain "), "target.txt", "a chain of two links did not resolve");
+    assert_eq!(
+        said("loop "),
+        "self",
+        "a walk followed a link to the directory's own parent"
+    );
+    assert_eq!(
+        said("outside "),
+        "false true",
+        "`removeTree` followed a link out of the tree it was given"
+    );
+    // A process that may read anything — root in a container — is told the
+    // same thing the operating system told the harness.
+    let expected_refusal = if unreadable {
+        "PermissionDenied PermissionDenied"
+    } else {
+        "no refusal no refusal"
+    };
+    assert_eq!(
+        said("closed "),
+        expected_refusal,
+        "the walk, the removal and the operating system disagree about a directory with \
+         no permission"
+    );
+
+    // The tree the program made itself.
     assert_eq!(said("temporary "), "true", "the scratch directory is not under `TMPDIR`");
     assert_eq!(said("note "), "file 5", "the file's kind or size is wrong");
     assert_eq!(said("modified "), "true", "the file's timestamp is not a real one");
     assert_eq!(said("kinds "), "true true");
     assert_eq!(said("entries "), "deep:directory note.txt:file");
-    assert_eq!(said("walk "), "deep deep/b.bin note.txt");
+    assert_eq!(
+        said("walk "),
+        "deep deep/b.bin note.txt",
+        "the walk is not the tree, depth first"
+    );
+    assert_eq!(
+        said("empty "),
+        "0 NotFound NotADirectory",
+        "an empty directory, a missing one and a file are not three answers"
+    );
     assert_eq!(said("range "), "true", "`readRange` answered the wrong octets");
-    assert_eq!(said("past "), "0", "a read past the end is not the empty list");
-    assert_eq!(said("copy "), "5", "the copy does not hold what the source did");
-    assert_eq!(said("canonical "), "true", "`..` was not resolved by the filesystem");
-    assert_eq!(said("absent "), "NotFound");
-    assert_eq!(said("left "), "false", "`removeTree` left the tree behind");
+    assert_eq!(
+        said("window "),
+        "0 1 0 Other Other",
+        "a window past the end, at the end, of nothing, or of a negative count"
+    );
+    assert_eq!(
+        said("copy "),
+        "5 5 NotFound Other",
+        "a copy over a file, onto itself, into nowhere, or of a directory"
+    );
+    assert_eq!(
+        said("canonical "),
+        "true true true NotFound",
+        "`..` and `.` were not resolved by the filesystem"
+    );
+    assert_eq!(
+        said("twice "),
+        "false true true true",
+        "two temporary directories are not two directories"
+    );
+    assert_eq!(
+        said("left "),
+        "false NotFound",
+        "`removeTree` left the tree behind, or removing it twice is not `.NotFound`"
+    );
+
+    // The same program, with nothing in the environment to read.
+    let (scrubbed, _again) = run(true);
+    let home = scrubbed
+        .lines()
+        .find_map(|l| l.strip_prefix("home "))
+        .unwrap_or_else(|| panic!("no `home` line:\n{scrubbed}"));
+    assert_eq!(
+        home, "none tmproot /tmp",
+        "a scrubbed environment still answered a home directory or a `TMPDIR`"
+    );
+    let given = stdout
+        .lines()
+        .find_map(|l| l.strip_prefix("home "))
+        .expect("the first run says where home is");
+    assert!(
+        given.starts_with("some tmproot /"),
+        "an inherited environment has a home directory and a temporary one: {given}"
+    );
 }
 
-/// A program that runs three real children and looks one up on `PATH`.
+/// The five things `core/fs` cannot make, laid out beside the binary.
 ///
-/// `true`, `false` and `cat` are the three every unix has and the three whose
-/// whole interface is an exit code, an exit code, and standard input. `which`
-/// finds each of them, which is the other half of the row: a path this program
-/// invented would prove nothing about `PATH`.
+/// Answers whether the operating system really refuses this process the
+/// unreadable directory: a container that runs as root refuses nothing, and a
+/// row that asserted a refusal there would be a row that fails on one machine
+/// and passes on another.
+fn laid_out(dir: &std::path::Path) -> bool {
+    let make = |name: &str| dir.join(name);
+    let _ = std::fs::remove_dir_all(make("loopdir"));
+    let _ = std::fs::remove_dir_all(make("tree"));
+    let _ = std::fs::set_permissions(make("closed"), permissions(0o755));
+    let _ = std::fs::remove_dir_all(make("closed"));
+    for name in ["pointer", "dangling", "chain", "chain2", "target.txt", "outside.txt"] {
+        let _ = std::fs::remove_file(make(name));
+    }
+
+    std::fs::write(make("target.txt"), "a real file").expect("the harness could not write");
+    std::fs::write(make("outside.txt"), "outside the tree").expect("the harness could not write");
+    std::fs::create_dir_all(make("loopdir")).expect("the harness could not make a directory");
+    std::fs::create_dir_all(make("tree")).expect("the harness could not make a directory");
+    std::fs::create_dir_all(make("closed")).expect("the harness could not make a directory");
+    std::fs::write(dir.join("closed").join("secret.txt"), "unreadable")
+        .expect("the harness could not write");
+    #[cfg(unix)]
+    {
+        let link = |from: &str, to: &std::path::Path| {
+            std::os::unix::fs::symlink(from, to).expect("the harness could not make a link")
+        };
+        link("target.txt", &make("pointer"));
+        link("no-such-file", &make("dangling"));
+        link("chain2", &make("chain"));
+        link("target.txt", &make("chain2"));
+        // A directory that holds a link to its own parent: the loop a walk
+        // would take if `metadata` followed links.
+        link("..", &dir.join("loopdir").join("self"));
+        // And a link out of a tree that is about to be removed.
+        link("../outside.txt", &dir.join("tree").join("out"));
+    }
+    #[cfg(unix)]
+    std::fs::set_permissions(make("closed"), permissions(0o000))
+        .expect("the harness could not take a permission away");
+    std::fs::read_dir(make("closed")).is_err()
+}
+
+/// A mode, as a `Permissions`. Unix only, which every row in this file is.
+#[cfg(unix)]
+fn permissions(mode: u32) -> std::fs::Permissions {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::Permissions::from_mode(mode)
+}
+
+/// A program that runs real children, reads its own standard input, and looks
+/// programs up on `PATH`.
+///
+/// `true`, `false`, `cat`, `env`, `pwd` and `sh` are the ones every unix has and
+/// the ones whose whole interface is an exit code, a stream and an environment.
+/// `which` finds each of them, which is the other half of the row: a path this
+/// program invented would prove nothing about `PATH`.
+///
+/// Its first argument picks what it does, because four claims here need four
+/// processes and only one of them needs a build: the children, the two
+/// whole-input readers — a stream is lines or octets and never both — and a
+/// `PATH` the harness chose.
 fn child_processes() -> String {
     String::from(
         r#"from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Env, Stdout };
+from "core/effect" import { Alloc, Env, IoError, Stdin, Stdout };
+from "core/env" import * as env;
 from "core/fs" import { FsRead };
 from "core/host" import * as host;
 from "core/io" import * as io;
+from "core/list" import * as list;
 from "core/path" import { Path };
 from "core/process" import * as process;
 from "core/process" import { Command, Spawn };
@@ -1951,11 +2235,65 @@ fn text<C: Alloc>(ctx: C, body: [U8]): Str {
     }
 }
 
+/// An `IoError` as one word, so a row can name the one it expects.
+fn why(error: IoError): Str {
+    match (error) {
+        .NotFound => "NotFound",
+        .PermissionDenied => "PermissionDenied",
+        .ReadOnly => "ReadOnly",
+        .AlreadyExists => "AlreadyExists",
+        .NotADirectory => "NotADirectory",
+        .CrossDevice => "CrossDevice",
+        .Other(_message) => "Other",
+    }
+}
+
+fn refused<T>(answer: Result<T, IoError>): Str {
+    match (answer) {
+        .Ok(_it) => "no refusal",
+        .Err(error) => why(error),
+    }
+}
+
 fn found<C: Alloc + Env + FsRead>(ctx: C, program: Str): Result<Path, Str> {
     match (process.which(ctx, program)) {
         .Some(at) => .Ok(at),
         .None => .Err(str.format(ctx, "no `${program}` on PATH")),
     }
+}
+
+fn shown(at: Option<Path>): Str {
+    match (at) {
+        .Some(p) => p.text(),
+        .None => "none",
+    }
+}
+
+/// Everything on standard input, as text and as octets. Two modes rather than
+/// one call: a stream is lines or octets and never both, which `Stdin` states.
+fn filtered<C: Alloc + Stdin + Stdout>(ctx: C, mode: Str): Result<(), Str> {
+    if (mode == "read") {
+        let whole = io.readAll(ctx);
+        io
+            .println(ctx, "readAll ${whole.len()} ${whole.replace(ctx, "\n", "|")}")
+            .mapErr(fn(_e) => "print")
+    } else {
+        let body = io.readAllBytes(ctx);
+        let sum = body.fold(fn(total, b) => total + b.toI64(), 0);
+        io
+            .println(ctx, "readAllBytes ${body.len()} ${sum}")
+            .mapErr(fn(_e) => "print")
+    }
+}
+
+/// Where `PATH` says these are, under whatever `PATH` this run was given.
+fn lookups<C: Alloc + Env + FsRead + Stdout>(ctx: C): Result<(), Str> {
+    io
+        .println(
+            ctx,
+            "which ${shown(process.which(ctx, "helper"))} ${shown(process.which(ctx, "./helper"))} ${shown(process.which(ctx, "buri-no-such-program"))}",
+        )
+        .mapErr(fn(_e) => "print")
 }
 
 export fn main(): Result<(), Str> {
@@ -1964,13 +2302,29 @@ export fn main(): Result<(), Str> {
         Env: host.env,
         FsRead: host.fs,
         Spawn: host.spawn,
+        Stdin: host.stdin,
         Stdout: host.stdout,
     };
 
+    // The harness runs this binary four times: once for the children, twice for
+    // the two whole-input readers, and once with a `PATH` of its own.
+    let mode = env.args(ctx).get(0).withDefault("");
+    if (mode == "read" || mode == "bytes") {
+        filtered(ctx, mode)
+    } else if (mode == "path") {
+        lookups(ctx)
+    } else {
+        children(ctx)
+    }
+}
+
+fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
     let yes = found(ctx, "true")?;
     let no = found(ctx, "false")?;
     let cat = found(ctx, "cat")?;
-    let _p1 = io.println(ctx, "which ${yes.isAbsolute()}").mapErr(fn(_e) => "print")?;
+    let _p1 = io
+        .println(ctx, "which ${yes.isAbsolute()} ${shown(process.which(ctx, yes.text()))}")
+        .mapErr(fn(_e) => "print")?;
 
     let ran = process.run(ctx, process.command(yes.text(), [])).mapErr(fn(_e) => "true")?;
     let _p2 = io
@@ -1993,36 +2347,101 @@ export fn main(): Result<(), Str> {
         .println(ctx, "cat ${echoed.code} ${text(ctx, echoed.stdout)}")
         .mapErr(fn(_e) => "print")?;
 
+    // More than a pipe holds, both ways at once. A run that read its input only
+    // after the child exited would stop here rather than answer.
+    let large = list.generate(ctx, 300_000, fn(_i) => 65);
+    let flooded = Command {
+        program: cat.text(),
+        arguments: [],
+        workingDirectory: .None,
+        environment: .None,
+        stdin: .Some(large),
+    };
+    let all = process.run(ctx, flooded).mapErr(fn(_e) => "cat large")?;
+    let _p5 = io
+        .println(ctx, "large ${all.code} ${all.stdout.len()}")
+        .mapErr(fn(_e) => "print")?;
+
     // A `cat` of a path that is not there writes to standard error and exits
     // non-zero: a child that ran and failed is `.Ok`, not `.Err`.
     let complained = process
         .run(ctx, process.command(cat.text(), ["no-such-file-here"]))
         .mapErr(fn(_e) => "cat missing")?;
-    let _p5 = io
+    let _p6 = io
         .println(ctx, "missing ${complained.code != 0} ${complained.stderr.len() > 0}")
         .mapErr(fn(_e) => "print")?;
 
-    // A program that is not there never ran at all.
-    let absent = match (process.run(ctx, process.command("buri-no-such-program", []))) {
-        .Err(.NotFound) => "NotFound",
-        .Err(_other) => "other",
-        .Ok(_done) => "ran a program that does not exist",
+    // A program that is not there never ran at all, and neither did one whose
+    // working directory is not there.
+    let nowhere = Command {
+        program: yes.text(),
+        arguments: [],
+        workingDirectory: .Some(yes.parent().withDefault(yes).join(ctx, "no-such-directory")),
+        environment: .None,
+        stdin: .None,
     };
-    let _p6 = io.println(ctx, "absent ${absent}").mapErr(fn(_e) => "print")?;
+    // The same again with a working directory that is a *file*, which is a
+    // different refusal and the one a mistyped path usually gets.
+    let notAtAll = Command {
+        program: yes.text(),
+        arguments: [],
+        workingDirectory: .Some(yes.join(ctx, "under-a-file")),
+        environment: .None,
+        stdin: .None,
+    };
+    let _p7 = io
+        .println(
+            ctx,
+            "absent ${refused(process.run(ctx, process.command("buri-no-such-program", [])))} ${refused(process.run(ctx, process.command("./buri-no-such-program", [])))} ${refused(process.run(ctx, nowhere))} ${refused(process.run(ctx, notAtAll))}",
+        )
+        .mapErr(fn(_e) => "print")?;
 
-    // The child's whole environment, replaced.
+    // The child's whole environment, replaced — with a value holding a space
+    // and an `=`, which is one value and not two variables. An empty list is a
+    // child with no environment at all.
     let printer = found(ctx, "env")?;
     let scrubbed = Command {
         program: printer.text(),
         arguments: [],
         workingDirectory: .None,
-        environment: .Some([("BURI_CHILD", "yes")]),
+        environment: .Some([("BURI_CHILD", "one two=three")]),
         stdin: .None,
     };
     let listed = process.run(ctx, scrubbed).mapErr(fn(_e) => "env")?;
-    let _p7 = io
+    let _p8 = io
         .println(ctx, "env ${text(ctx, listed.stdout)}")
         .mapErr(fn(_e) => "print")?;
+    let bare = Command {
+        program: printer.text(),
+        arguments: [],
+        workingDirectory: .None,
+        environment: .Some([]),
+        stdin: .None,
+    };
+    let nothing = process.run(ctx, bare).mapErr(fn(_e) => "env none")?;
+    let _p9 = io
+        .println(ctx, "envnone ${nothing.code} ${text(ctx, nothing.stdout).contains("PATH=")}")
+        .mapErr(fn(_e) => "print")?;
+
+    // Both streams at once, from one child: two pipes drained while it runs,
+    // and neither one of them is the other.
+    let shell = found(ctx, "sh")?;
+    let both = process
+        .run(ctx, process.command(shell.text(), ["-c", "echo out; echo err >&2; exit 4"]))
+        .mapErr(fn(_e) => "sh both")?;
+    let _p10 = io
+        .println(
+            ctx,
+            "both ${both.code} ${text(ctx, both.stdout)} ${text(ctx, both.stderr)}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    // A child killed by a signal reports `128 + signal`, which is the number a
+    // shell reports for it.
+    let killed = process
+        .run(ctx, process.command(shell.text(), ["-c", "kill -9 $$"]))
+        .mapErr(fn(_e) => "sh")?;
+    let _p11 = io.println(ctx, "signal ${killed.code}").mapErr(fn(_e) => "print")?;
 
     // And the directory it runs in.
     let pwd = found(ctx, "pwd")?;
@@ -2043,23 +2462,70 @@ export fn main(): Result<(), Str> {
 /// **A native binary starts a real child, feeds it, waits for it, and reads
 /// back everything it wrote.**
 ///
-/// The conformance package for `core/process` runs every one of these through the
-/// double, which records the command and answers what the test wrote down.
+/// The conformance package for `core/process` runs every one of these through
+/// the double, which records the command and answers what the test wrote down.
 /// What a whole process adds is the half a double cannot have: a real `fork`
-/// and `exec`, a real pipe with octets going both ways, a real exit code, and
-/// a real `PATH` lookup that found the program on this machine.
+/// and `exec`, a real pipe with more octets in it than a pipe holds, a real
+/// exit code, a real signal, and a real `PATH` lookup that found the program on
+/// this machine.
 #[test]
 fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
     unless_ready!();
     let binary = built("e2e-child-processes", &child_processes());
-    let out = std::process::Command::new(&binary).output().expect("the program did not start");
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert_eq!(
-        out.status.code(),
-        Some(0),
-        "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    );
+    let dir = binary.parent().expect("the program is in a workspace of its own").to_path_buf();
+    std::fs::write(dir.join("helper"), "a file with a name to look up")
+        .expect("the harness could not write");
+
+    // Every wait here is bounded and both streams are drained while the program
+    // runs — this file's own rule, and the one a child that writes more than a
+    // pipe holds is about. The writer and the two readers are threads, so the
+    // only thing left to bound is the exit, which `shared::waited` does.
+    let ran = |arguments: &[&str], input: &[u8], path: Option<&str>| -> String {
+        use std::io::{Read, Write};
+        let mut command = std::process::Command::new(&binary);
+        command
+            .current_dir(&dir)
+            .args(arguments)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        if let Some(path) = path {
+            command.env("PATH", path);
+        }
+        let mut child = command.spawn().expect("the program did not start");
+        let mut pipe = child.stdin.take().expect("the child was given a pipe");
+        let body = input.to_vec();
+        let feeding = std::thread::spawn(move || {
+            let _ = pipe.write_all(&body);
+        });
+        let drain = |mut stream: std::process::ChildStdout| {
+            std::thread::spawn(move || {
+                let mut said = Vec::new();
+                let _ = stream.read_to_end(&mut said);
+                said
+            })
+        };
+        let reading = drain(child.stdout.take().expect("the child was given a pipe"));
+        let mut errors = child.stderr.take().expect("the child was given a pipe");
+        let complaining = std::thread::spawn(move || {
+            let mut said = Vec::new();
+            let _ = errors.read_to_end(&mut said);
+            said
+        });
+        let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+        let stdout = String::from_utf8_lossy(&reading.join().expect("the reader thread")).to_string();
+        let stderr =
+            String::from_utf8_lossy(&complaining.join().expect("the reader thread")).to_string();
+        feeding.join().expect("the writer thread");
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        stdout
+    };
+
+    let stdout = ran(&[], b"", None);
     let lines: Vec<&str> = stdout.lines().collect();
     let said = |prefix: &str| -> String {
         lines
@@ -2068,27 +2534,86 @@ fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
             .unwrap_or_else(|| panic!("no `{prefix}` line:\n{stdout}"))
             .to_string()
     };
-    assert_eq!(said("which "), "true", "`which` answered a relative path");
+    let yes = said("which ");
+    assert!(
+        yes.starts_with("true /") && yes.ends_with("true"),
+        "`which` answered a relative path, or refused the absolute one it had just given: {yes}"
+    );
     assert_eq!(said("true "), "0 0 0", "`true` did not exit 0 with nothing to say");
     assert_eq!(said("false "), "1", "`false` did not exit 1");
     assert_eq!(said("cat "), "0 hello", "standard input did not reach the child");
+    assert_eq!(
+        said("large "),
+        "0 300000",
+        "a child fed more than a pipe holds did not get all of it back"
+    );
     assert_eq!(
         said("missing "),
         "true true",
         "a child that ran and failed did not report its own failure"
     );
-    assert_eq!(said("absent "), "NotFound", "a program that is not there was not `.NotFound`");
+    assert_eq!(
+        said("absent "),
+        "NotFound NotFound NotFound NotADirectory",
+        "a program that is not there, a directory that is not, and one that is a file"
+    );
     assert_eq!(
         said("env "),
-        "BURI_CHILD=yes",
+        "BURI_CHILD=one two=three",
         "the child's environment was added to rather than replaced"
     );
+    // Not "nothing at all": macOS adds a variable of its own to an empty
+    // environment. The claim is that nothing the *parent* had survived.
+    assert_eq!(
+        said("envnone "),
+        "0 false",
+        "a child given an empty environment kept the parent's"
+    );
+    assert_eq!(
+        said("both "),
+        "4 out err",
+        "a child that wrote to both streams was not read from both"
+    );
+    assert_eq!(said("signal "), "137", "a child killed by a signal is not `128 + signal`");
     // The directory `true` sits in, whatever that is on this machine — and
     // resolved, because `pwd` reports the physical path.
     let told = said("cwd ");
     assert!(
         !told.is_empty() && told.starts_with('/'),
         "the child did not run in the directory it was given: {told}"
+    );
+
+    // Standard input, read to its end: with no newline after the last line,
+    // with nothing on it at all, and as octets that are not text.
+    assert_eq!(
+        ran(&["read"], b"one\ntwo", None).trim_end(),
+        "readAll 7 one|two",
+        "the last line without a newline after it did not come back"
+    );
+    assert_eq!(
+        ran(&["read"], b"", None).trim_end(),
+        "readAll 0",
+        "an empty stream is not the empty string"
+    );
+    assert_eq!(
+        ran(&["bytes"], &[0u8, 255, 10, 0, 65], None).trim_end(),
+        "readAllBytes 5 330",
+        "a NUL, a high octet and a newline did not survive the stream"
+    );
+
+    // `PATH` the program cannot set for itself: an empty one is one empty
+    // entry, which is the directory the process is standing in.
+    assert_eq!(
+        ran(&["path"], b"", Some("")).trim_end(),
+        // `./helper` comes back as `helper`: a `Path` is normalized once, when
+        // the text becomes one.
+        "which helper helper none",
+        "an empty `PATH` is not the current directory"
+    );
+    assert_eq!(
+        ran(&["path"], b"", Some("/nowhere-at-all")).trim_end(),
+        "which none helper none",
+        "a `PATH` naming nothing found something, or a relative name stopped resolving"
     );
 }
 

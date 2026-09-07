@@ -1,0 +1,334 @@
+// The JavaScript host, asked the same questions the native one is asked.
+//
+// `core/host/testing`'s doubles answer every one of these in the conformance
+// corpus, and `native::e2e` asks a real Linux or macOS. This is the third
+// answer: node's own `fs`, `process` and `child_process`, reached through
+// `buri run`, which builds for the host and runs outside the sandbox.
+//
+// Every line printed here is the same on any machine — a kind, a length, a
+// name, a refusal — because a golden that held this machine's paths would be a
+// golden nobody else could reproduce.
+
+from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc, Entropy, Env, IoError, Stdout };
+from "core/env" import * as env;
+from "core/fs" import * as fs;
+from "core/fs" import { EntryKind, FsRead, FsWrite };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/path" import * as path;
+from "core/path" import { Path };
+from "core/process" import * as process;
+from "core/process" import { Command, Spawn };
+from "core/str" import * as str;
+
+fn named(kind: EntryKind): Str {
+    match (kind) {
+        .File => "file",
+        .Directory => "directory",
+        .Symlink => "symlink",
+        .Other => "other",
+    }
+}
+
+/// An `IoError` as one word, so a golden can name the one it expects.
+fn why(error: IoError): Str {
+    match (error) {
+        .NotFound => "NotFound",
+        .PermissionDenied => "PermissionDenied",
+        .ReadOnly => "ReadOnly",
+        .AlreadyExists => "AlreadyExists",
+        .NotADirectory => "NotADirectory",
+        .CrossDevice => "CrossDevice",
+        .Other(_message) => "Other",
+    }
+}
+
+/// What a call that must fail said — or that it did not fail.
+fn refused<T>(answer: Result<T, IoError>): Str {
+    match (answer) {
+        .Ok(_it) => "no refusal",
+        .Err(error) => why(error),
+    }
+}
+
+fn text<C: Alloc>(ctx: C, body: [U8]): Str {
+    match (bytes.fromUtf8(ctx, body)) {
+        .Ok(said) => said.trim(),
+        .Err(_e) => "?",
+    }
+}
+
+/// The entries as `name:kind`, sorted: a directory answers in whatever order
+/// the operating system keeps it in.
+fn listed<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, Str> {
+    let entries = fs
+        .listDirectoryEntries(ctx, at)
+        .mapErr(fn(_e) => "listDirectoryEntries")?;
+    let shown = entries.mapCtx(ctx, fn(c, entry) => {
+        str.format(c, "${entry.0}:${named(entry.1)}")
+    });
+    .Ok(shown.sort(ctx).join(ctx, " "))
+}
+
+/// Every path under `root`, written from it and sorted, for `listed`'s reason.
+fn walked<C: Alloc + FsRead>(ctx: C, root: Path): Result<Str, Str> {
+    let found = fs.walk(ctx, root).mapErr(fn(_e) => "walk")?;
+    let shown = found.mapCtx(ctx, fn(c, p) => {
+        match (p.relativeTo(c, root)) {
+            .Some(under) => under.text(),
+            .None => p.text(),
+        }
+    });
+    .Ok(shown.sort(ctx).join(ctx, " "))
+}
+
+fn found<C: Alloc + Env + FsRead>(ctx: C, program: Str): Result<Path, Str> {
+    match (process.which(ctx, program)) {
+        .Some(at) => .Ok(at),
+        .None => .Err(str.format(ctx, "no `${program}` on PATH")),
+    }
+}
+
+fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
+    let yes = found(ctx, "true")?;
+    let cat = found(ctx, "cat")?;
+    let printer = found(ctx, "env")?;
+    let _p1 = io
+        .println(
+            ctx,
+            "which ${yes.isAbsolute()} ${process.which(ctx, "buri-no-such").isNone()}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    let ran = process
+        .run(ctx, process.command(yes.text(), []))
+        .mapErr(fn(_e) => "true")?;
+    let _p2 = io
+        .println(ctx, "true ${ran.code} ${ran.stdout.len()} ${ran.stderr.len()}")
+        .mapErr(fn(_e) => "print")?;
+
+    // A child that ran and failed is `.Ok` with a code and something on
+    // standard error; one that never ran is `.Err`.
+    let complained = process
+        .run(ctx, process.command(cat.text(), ["no-such-file-here"]))
+        .mapErr(fn(_e) => "cat missing")?;
+    let _p3 = io
+        .println(
+            ctx,
+            "failed ${complained.code != 0} ${complained.stderr.len() > 0} ${refused(
+                process.run(ctx, process.command("buri-no-such-program", [])),
+            )}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    // More than a pipe holds, both ways at once: a run that fed the child
+    // before it read from it would stop here rather than answer.
+    let large = list.generate(ctx, 300_000, fn(_i) => 65);
+    let flooded = Command {
+        program: cat.text(),
+        arguments: [],
+        workingDirectory: .None,
+        environment: .None,
+        stdin: .Some(large),
+    };
+    let all = process.run(ctx, flooded).mapErr(fn(_e) => "cat large")?;
+    let _p4 = io
+        .println(ctx, "large ${all.code} ${all.stdout.len()}")
+        .mapErr(fn(_e) => "print")?;
+
+    // The child's whole environment, replaced rather than added to.
+    let scrubbed = Command {
+        program: printer.text(),
+        arguments: [],
+        workingDirectory: .None,
+        environment: .Some([("BURI_CHILD", "one two=three")]),
+        stdin: .None,
+    };
+    let listing = process.run(ctx, scrubbed).mapErr(fn(_e) => "env")?;
+    // What the child holds rather than every line of it: macOS adds a variable
+    // of its own to a replaced environment and Linux does not, and the claim
+    // is that the value given arrived whole and the parent's did not.
+    let said = text(ctx, listing.stdout);
+    let _p5 = io
+        .println(
+            ctx,
+            "child ${said.contains("BURI_CHILD=one two=three")} ${said.contains(
+                "PATH=",
+            )}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    // And a working directory that is not there is a child that never ran.
+    let nowhere = Command {
+        program: yes.text(),
+        arguments: [],
+        workingDirectory: .Some(
+            yes.parent().withDefault(yes).join(ctx, "no-such-directory"),
+        ),
+        environment: .None,
+        stdin: .None,
+    };
+    io
+        .println(ctx, "nowhere ${refused(process.run(ctx, nowhere))}")
+        .mapErr(fn(_e) => "print")
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Entropy: host.entropy,
+        Env: host.env,
+        FsRead: host.fs,
+        FsWrite: host.fs,
+        Spawn: host.spawn,
+        Stdout: host.stdout,
+    };
+
+    // The environment, without printing anything this machine owns.
+    let here = env.currentDirectory(ctx);
+    let system = env.operatingSystem(ctx);
+    let known = system == "macos" || system == "linux";
+    let hasPath = env.all(ctx).any(fn(pair) => pair.0 == "PATH");
+    let _p1 = io
+        .println(
+            ctx,
+            "env ${here.isAbsolute()} ${known} ${hasPath} ${env
+                .temporaryDirectory(ctx)
+                .isAbsolute()}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    // A real tree, in a real temporary directory.
+    let root = fs
+        .makeTemporaryDirectory(ctx, "buri-node-")
+        .mapErr(fn(_e) => "temporary")?;
+    let second = fs
+        .makeTemporaryDirectory(ctx, "buri-node-")
+        .mapErr(fn(_e) => "temporary twice")?;
+    let _p2 = io
+        .println(
+            ctx,
+            "temporary ${root.startsWith(env.temporaryDirectory(ctx))} ${root
+                == second} ${fs.isDirectory(ctx, root)}",
+        )
+        .mapErr(fn(_e) => "print")?;
+    let _gone1 = fs.removeTree(ctx, second).mapErr(fn(_e) => "removeTree second")?;
+
+    let deep = root.join(ctx, "deep");
+    let _made = fs.makeDir(ctx, deep).mapErr(fn(_e) => "makeDir")?;
+    let note = root.join(ctx, "note.txt");
+    let _wrote = fs
+        .writeBytes(ctx, note, [104, 101, 108, 108, 111])
+        .mapErr(fn(_e) => "write")?;
+    let inner = deep.join(ctx, "b.bin");
+    let _wrote2 = fs.writeBytes(ctx, inner, [1, 2]).mapErr(fn(_e) => "write inner")?;
+
+    let info = fs.metadata(ctx, note).mapErr(fn(_e) => "metadata")?;
+    let there = fs.metadata(ctx, deep).mapErr(fn(_e) => "metadata deep")?;
+    let _p3 = io
+        .println(
+            ctx,
+            "metadata ${named(info.kind)} ${info.size} ${named(there.kind)} ${refused(
+                fs.metadata(ctx, root.join(ctx, "nope")),
+            )}",
+        )
+        .mapErr(fn(_e) => "print")?;
+    let _p4 = io
+        .println(
+            ctx,
+            "kinds ${fs.isFile(ctx, note)} ${fs.isDirectory(ctx, deep)} ${fs.isFile(
+                ctx,
+                deep,
+            )} ${fs.isFile(ctx, root.join(ctx, "nope"))}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    let _p5 = io
+        .println(ctx, "entries ${listed(ctx, root)?}")
+        .mapErr(fn(_e) => "print")?;
+    let _p6 = io.println(ctx, "walk ${walked(ctx, root)?}").mapErr(fn(_e) => "print")?;
+
+    // An empty directory is not a directory that is missing, and a file is not
+    // a directory at all.
+    let empty = root.join(ctx, "empty");
+    let _made2 = fs.makeDir(ctx, empty).mapErr(fn(_e) => "makeDir empty")?;
+    let _p7 = io
+        .println(
+            ctx,
+            "empty ${fs
+                .walk(ctx, empty)
+                .map(fn(found) => found.len())
+                .withDefault(0 - 1)} ${refused(
+                fs.walk(ctx, root.join(ctx, "nope")),
+            )} ${refused(fs.walk(ctx, note))}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    // The window into a file: its middle, past its end, none of it, and a
+    // count no read can have.
+    let head = fs.readRange(ctx, note, 1, 3).mapErr(fn(_e) => "readRange")?;
+    let past = fs.readRange(ctx, note, 99, 4).mapErr(fn(_e) => "readRange past")?;
+    let last = fs.readRange(ctx, note, 4, 9).mapErr(fn(_e) => "readRange last")?;
+    let none = fs.readRange(ctx, note, 1, 0).mapErr(fn(_e) => "readRange none")?;
+    let _p8 = io
+        .println(
+            ctx,
+            "window ${head
+                == [101, 108, 108]} ${past.len()} ${last.len()} ${none.len()} ${refused(
+                fs.readRange(ctx, note, 0 - 1, 2),
+            )} ${refused(fs.readRange(ctx, note, 0, 0 - 2))}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    // A copy over a file that is there, onto itself, into a directory that is
+    // not, and of a directory, which is not a file.
+    let twin = root.join(ctx, "note.copy");
+    let _wrote3 = fs
+        .writeBytes(ctx, twin, [55, 55, 55, 55, 55, 55, 55])
+        .mapErr(fn(_e) => "write twin")?;
+    let _copied = fs.copy(ctx, note, twin).mapErr(fn(_e) => "copy")?;
+    let back = fs.readBytes(ctx, twin).mapErr(fn(_e) => "read copy")?;
+    let _self = fs.copy(ctx, note, note).mapErr(fn(_e) => "copy onto itself")?;
+    let itself = fs.readBytes(ctx, note).mapErr(fn(_e) => "read after self copy")?;
+    let _p9 = io
+        .println(
+            ctx,
+            "copy ${back.len()} ${itself.len()} ${refused(
+                fs.copy(ctx, note, root.join(ctx, "nowhere/x")),
+            )} ${refused(fs.copy(ctx, deep, root.join(ctx, "deep.copy")))}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    // `..` and `.` are the filesystem's to resolve.
+    let wound = fs
+        .canonicalize(ctx, root.join(ctx, "deep/../note.txt"))
+        .mapErr(fn(_e) => "canonicalize")?;
+    let straight = fs.canonicalize(ctx, note).mapErr(fn(_e) => "canonicalize note")?;
+    let dot = fs
+        .canonicalize(ctx, path.of(ctx, "."))
+        .mapErr(fn(_e) => "canonicalize dot")?;
+    let up = fs
+        .canonicalize(ctx, path.of(ctx, ".."))
+        .mapErr(fn(_e) => "canonicalize up")?;
+    let _p10 = io
+        .println(
+            ctx,
+            "canonical ${wound == straight} ${dot.isAbsolute()} ${dot.startsWith(
+                up,
+            )} ${refused(fs.canonicalize(ctx, root.join(ctx, "nope")))}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
+    let _children = children(ctx)?;
+
+    // And the tree goes, which `removeDir` alone could not do.
+    let _gone = fs.removeTree(ctx, root).mapErr(fn(_e) => "removeTree")?;
+    io
+        .println(
+            ctx,
+            "left ${fs.exists(ctx, root)} ${refused(fs.removeTree(ctx, root))}",
+        )
+        .mapErr(fn(_e) => "print")
+}

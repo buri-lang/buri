@@ -1,0 +1,23 @@
+error: `readAllBytes` takes 1 arguments, but 2 were given [wrong-argument-count]
+   --> main.buri:109:15
+    |
+109 |     assert.eq(io.readAllBytes(extra ctx), [7]);
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = expected: 1
+    = actual: 2
+    = fix: pass exactly 1
+error: there is nothing named `extra` in scope [unresolved-name]
+   --> main.buri:109:31
+    |
+109 |     assert.eq(io.readAllBytes(extra ctx), [7]);
+    |                               ^^^^^
+    |
+    = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a call argument ends with `,` [missing-separator]
+   --> main.buri:109:36
+    |
+109 |     assert.eq(io.readAllBytes(extra ctx), [7]);
+    |                                    ^
+    |
+    = fix: write `,` here
