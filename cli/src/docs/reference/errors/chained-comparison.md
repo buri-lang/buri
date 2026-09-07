@@ -16,10 +16,9 @@ Write `a < b && b < c`.
 
 ## Why
 
-This is not a taste decision. Non-associativity is what makes `f<T>(x)` readable
-as a call: under it, `(f < T) > (x)` is not a program either, so no source
-accepts both readings and disagrees about them. So `a < b < c` is refused here,
-where a chaining language would have quietly parsed it as `(a < b) < c`.
+Non-associativity is what makes `f<T>(x)` readable as a call: under it,
+`(f < T) > (x)` is not a program either, so no source has two readings to
+disagree about.
 
 ## A program that provokes it
 

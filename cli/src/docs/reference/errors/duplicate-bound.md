@@ -18,8 +18,7 @@ Delete one of the two bindings.
 
 An explicit binding replaces a spread's binding: `context { ..Fixture(),
 FsRead: fs().files([]) }` is how a test overrides a default. Two explicit
-bindings of one effect have no such reading, so the later one does not silently
-win.
+bindings have no such reading, so the later one does not silently win.
 
 ## A program that provokes it
 
