@@ -1,8 +1,7 @@
 ## Why the grammar is context-free and unambiguous
 
-A maintainer document, no longer part of the specification.
-
-Each item below is a deliberate design decision, with what it cost.
+A maintainer document, no longer part of the specification. Each item below is a
+deliberate design decision, with what it cost.
 
 **12.1 `if` and `match` subjects are parenthesized.**
 `if (c) { ... }` closes the condition at `)`, so the `{` that follows is always a
@@ -19,44 +18,36 @@ A **test source** may use one, as long as the expression has type `()` (Section
 11.2): a call, and equally a `match`, an `if` or a block that produces `()`. The
 grammar admits `Expr ";"` as a statement and stays LR(1), because after an
 expression a `;` means statement and a `}` means result. The property this rule
-protects survives, since `Result` is not `()`. Every other module still has
-`let` as its only statement.
-
-A `{`-initial expression needs the `;` too, and that alone keeps this rule from
-costing the section its title: a block-like statement allowed to drop it would
-compete with the result expression at the one place a block ends, and
+protects survives, since `Result` is not `()`. The `;` is required even after a
+`{`-initial expression: a block-like statement allowed to drop it would compete
+with the result expression at the one place a block ends, and
 `{ match (c) { … } }` would have two readings.
 
 **12.3 There are no records, so a `{` that could open a block does.**
 Structural records made `{ x }` ambiguous: a record with a shorthand field, or a
-block whose result expression is `x`. An earlier draft paid for that by banning
-field shorthand in literals. Removing records (Section 5.5) killed the ambiguity
-at its source, so `Point { x, y }` shorthand works and the grammar got smaller
-rather than more careful. *Cost:* every product type needs a name.
+block whose result expression is `x`. Removing records (Section 5.5) killed the
+ambiguity at its source, so `Point { x, y }` shorthand works and the grammar got
+smaller rather than more careful. *Cost:* every product type needs a name.
 
 A `{` after a path is always a struct literal. A bare `{` opens a block —
 `{ Stmt* Expr? }` — unless the two tokens after it are ones no statement and no
 expression can begin with, which is a `..` or a `name :`. Then it is an
 *anonymous* struct literal, and its type comes from what the expression is
-checked against (Section 5.6). That is the whole rule, with no exceptions to
-list: `{ }`, `{ name }` and `{ name, ... }` are all blocks, because none of them
-opens with either.
+checked against (Section 5.6). That is the whole rule: `{ }`, `{ name }` and
+`{ name, ... }` are all blocks, because none of them opens with either.
 
 Shorthand *after* the first field is free, because by then the `{` is settled:
-`{ hi: hi, hello }` is a literal. Only the first field is held to `name :`, and
-the reason is worth stating, because a leading shorthand is tempting and the
-grammar would allow it. `{ name }` is a block whose result is `name` and cannot
-be anything else; `{ name, }` is unambiguous and could be a literal. Taking that
-second one would make two strings a comma apart mean different things, and the
-formatter would have to preserve a trailing comma to preserve a meaning.
-Declining it costs one spelling and buys a rule that fits in a sentence.
+`{ hi: hi, hello }` is a literal. Only the first field is held to `name :`.
+A leading shorthand is tempting — `{ name, }` is unambiguous and could be a
+literal — but taking it would make two strings a comma apart mean different
+things, and the formatter would have to preserve a trailing comma to preserve a
+meaning.
 
 So the decision takes two tokens of lookahead with no backtracking, the grammar
 stays LR(1), and the generated tree-sitter grammar needs no second declared
-conflict. Nothing that parses today parses differently: every string the new
-production accepts was a syntax error before it. *Cost:* `World {}` and
-`World { hi }` keep their type name where `{ hi: "hi" }` does not, and a reader
-meets that seam before the rule explains itself.
+conflict. *Cost:* `World {}` and `World { hi }` keep their type name where
+`{ hi: "hi" }` does not, and a reader meets that seam before the rule explains
+itself.
 
 **12.4 Type arguments in expressions are written `f<T>(x)`, with no `::`.**
 `f<a>(b)` and `(f < a) > (b)` are the same tokens. A rule that was already there
@@ -66,8 +57,8 @@ both readings accept and disagree about. The parser looks ahead for the `>` that
 would close the list and backtracks if it does not find one; the generated
 tree-sitter grammar carries the same decision as its one declared conflict.
 *Cost:* the grammar stops being LR(1) at exactly one production, and
-`a < b > (c)` is a call. The turbofish `::<T>` that used to be here is now a
-parse error, and the error carries the edit that removes the `::`.
+`a < b > (c)` is a call. The turbofish `::<T>` is a parse error whose message
+carries the edit that removes the `::`.
 
 **12.5 There is no cast operator.**
 `as`, `as?`, and `as%` were three tokens and a precedence level doing work that
@@ -133,24 +124,19 @@ followed by a call, and name resolution decides whether `area` is a field or a
 method. The alternative, `sq:area()`, would visibly separate data from
 computation — but a `:` after an expression breaks the one-token lookahead that
 tells `{ foo: bar }` (record literal) from `{ foo:bar() }` (block whose result is
-a method call), the very disambiguation that cost record literals their field
-shorthand in 12.3. Buying `:` back would mean moving record literals to
-`{ x = 1 }`. *Cost:* `.` now carries four meanings — field, tuple index, module
-member, method — all resolved after parsing, and a method may not share a name
-with a field of the same type.
+a method call), the very disambiguation 12.3 is about. *Cost:* `.` now carries
+four meanings — field, tuple index, module member, method — all resolved after
+parsing, and a method may not share a name with a field of the same type.
 
 **12.17 A method is declared by an `impl` block, and `self` is a keyword in a
 fixed position, written without a type.**
 Where the declaration sits answers "is this a method?", and a keyword answers
-"what is the receiver?" instead of comparing types against a rule about argument
-order. Neither question needs name resolution. Nor does the receiver's *type*:
-the `impl` head sits above the declaration and a trait signature means `Self`, so
-a `self` annotation could only repeat what is already written or contradict it,
-and the contradiction is a diagnostic about a thing nobody meant. An `impl`
-block's two forms differ by one token of lookahead — `for` after the first type
-makes it a conformance declaration, and its absence makes it the type's own
-methods — and `derive` and `trait` each begin with a distinct keyword too, which
-keeps top-level parsing a switch on one token.
+"what is the receiver?" Neither question needs name resolution. Nor does the
+receiver's *type*: the `impl` head sits above the declaration and a trait
+signature means `Self`, so a `self` annotation could only repeat what is already
+written or contradict it. An `impl` block's two forms differ by one token of
+lookahead — `for` after the first type makes it a conformance declaration, and
+its absence makes it the type's own methods.
 
 **12.18 `context` is a keyword, and its two forms differ at one token.**
 `context Name { ... }` is a declaration and `context { ... }` is an expression.
