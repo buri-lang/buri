@@ -1,0 +1,43 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `//lib/wire` runs `//cmd/gen` over `units.txt`, whose one line becomes a
+# struct and a value of it. `lib.buri` re-exports both, and `//cmd/app` reads
+# them across the package boundary — so every request below is asked about a
+# generated name at the seam a person actually meets it on.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/wire/units\" export { plate, Plate };\n"}}}
+#
+# The re-export line itself. Its path names a module with no file on disk, and
+# the two names on it are a type and a value the tool wrote.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 0, "character": 10}}}
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 0, "character": 10}}}
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 0, "character": 35}}}
+{"jsonrpc": "2.0", "id": 5, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 0, "character": 35}}}
+{"jsonrpc": "2.0", "id": 6, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 0, "character": 42}}}
+#
+# What else the repository says about the re-exported name: every use of it,
+# and every use inside this one buffer.
+{"jsonrpc": "2.0", "id": 7, "method": "textDocument/references", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 0, "character": 35}, "context": {"includeDeclaration": true}}}
+{"jsonrpc": "2.0", "id": 8, "method": "textDocument/documentHighlight", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 0, "character": 35}}}
+#
+# Renaming it is refused at the boundary as much as at a use site: the tool
+# would write it again on the next build.
+{"jsonrpc": "2.0", "id": 9, "method": "textDocument/prepareRename", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 0, "character": 35}}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri", "languageId": "buri", "version": 1, "text": "from \"core/effect\" import { Alloc, Stdout };\nfrom \"core/host\" import * as host;\nfrom \"core/io\" import * as io;\nfrom \"//lib/wire\" import { plate, Plate };\n\nfn widen(p: Plate): Int {\n    p.size * 2\n}\n\nexport fn main(): Result<(), Str> {\n    let ctx = context {\n        Alloc: host.alloc,\n        Stdout: host.stdout,\n    };\n    io.println(ctx, \"${widen(plate)}\").mapErr(fn(_e) => \"could not write\")\n}\n"}}}
+#
+# The other side of the boundary. `//cmd/app` imports the two names through
+# `lib.buri` and never names the generated module, so these are the requests a
+# reader of ordinary code makes.
+{"jsonrpc": "2.0", "id": 10, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 3, "character": 29}}}
+{"jsonrpc": "2.0", "id": 11, "method": "textDocument/typeDefinition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 3, "character": 29}}}
+{"jsonrpc": "2.0", "id": 12, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 5, "character": 14}}}
+{"jsonrpc": "2.0", "id": 13, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 6, "character": 7}}}
+{"jsonrpc": "2.0", "id": 14, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 6, "character": 7}}}
+{"jsonrpc": "2.0", "id": 15, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/cmd/app/main.buri"}, "position": {"line": 14, "character": 30}}}
+#
+# And the workspace-wide question, which is the one that used to skip a
+# generated declaration entirely.
+{"jsonrpc": "2.0", "id": 16, "method": "workspace/symbol", "params": {"query": "plate"}}
+{"jsonrpc": "2.0", "id": 17, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
