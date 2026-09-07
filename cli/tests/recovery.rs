@@ -439,7 +439,22 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // array literal inside a call, where a stray token leaves a call whose
         // arguments the checker can still count. 406 of 1914 is 21.2%, and
         // twenty-two is that rounded up.
-        ("a syntax error stays a syntax error", "insert-stray") => 22,
+        // Re-read a third time, and the reading was taken twice on purpose.
+        // Nine conformance files landed — `actor/payloads`, `buri_ast/
+        // expressions`, `data/lists`, `data/steps`, `memory/captures`,
+        // `memory/discards`, `proto_schema/reading`, `tasks/background` and one
+        // more — and the snapshot pass then added three blocks to
+        // `ui/reactivity`. **431 of 1956 without those three blocks and 433
+        // with them**, which is 22.0% and 22.1% of one population: the nine
+        // files are the move and the three blocks are two cases of it. Same
+        // shape as every re-read above — a `memo(ctx, fn(s) => log.note(...))`
+        // is a call inside a closure inside a call, and a stray token in one
+        // leaves a call whose arguments the checker can still count. The only
+        // front-end code in any of those merges is `semantics/patterns.rs`
+        // writing a `..` out as the wildcards it stands for, which is what
+        // `middle::rc` reads and not what any diagnostic does. Twenty-three is
+        // the rate rounded up.
+        ("a syntax error stays a syntax error", "insert-stray") => 23,
         // Re-read with the same F5 wave the `insert-stray` paragraph above
         // records: the new conformance files moved this row to 24.2% of a
         // grown population (409 of its cases), with no parser or checker code
