@@ -1,0 +1,11 @@
+export fn f(): Str {
+  "a\r\nb\0c\u{1}d\te\nf"
+
+
+export fn g(count: Int): Str {
+  "rows: ${count}\r\n"
+}
+
+export fn h(): Char {
+  '\r'
+}
