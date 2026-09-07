@@ -126,6 +126,92 @@ fn padding() -> String {
     format!(r#"    let pad = "x".repeat(ctx, {});"#, crate::shared::STDOUT_BUFFER)
 }
 
+/// A program that dials a socket, writes to it, reads until the answer is
+/// whole, and closes it.
+///
+/// The port arrives on the command line rather than in the source, for the same
+/// reason every server row here prints one: a port written into a fixture is a
+/// race between the write and the bind.
+///
+/// The read is a **loop**, and that is the half of `core/net/tcp`'s contract
+/// this fixture exists to exercise. `Stream.read` answers at most what it was
+/// asked for and waits for at least one byte, so a client that stopped at the
+/// first answer would be asserting about whatever the kernel coalesced into one
+/// segment — which is `cli/tests/README.md`'s read-loop rule seen from the
+/// program's side. The peer below answers in two writes so that the loop
+/// happens every time rather than on a loaded machine only.
+fn tcp_client() -> String {
+    String::from(
+        r#"from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc, Env, Stdout, Tcp };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/tcp" import * as tcp;
+from "core/net/tcp" import { Stream };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Env: host.env,
+        Stdout: host.stdout,
+        Tcp: host.tcp,
+    };
+    let port = env.args(ctx).first().andThen(fn(a) => a.toInt()).withDefault(0);
+    match (tcp.connect(ctx, "127.0.0.1", port)) {
+        .Err(_e) => .Err("the dial failed"),
+        .Ok(stream) => exchange(ctx, stream),
+    }
+}
+
+fn exchange<C: Alloc + Stdout + Tcp>(ctx: C, stream: Stream): Result<(), Str> {
+    match (stream.write(ctx, bytes.toUtf8(ctx, "ping\n"))) {
+        .Err(_e) => .Err("the write failed"),
+        .Ok(_sent) => {
+            match (whole(ctx, stream, [])) {
+                .Err(why) => .Err(why),
+                .Ok(answer) => said(ctx, stream, answer),
+            }
+        },
+    }
+}
+
+/// Reads until a newline has arrived, however many segments it took.
+fn whole<C: Alloc + Tcp>(ctx: C, stream: Stream, sofar: [U8]): Result<[U8], Str> {
+    if (sofar.contains(10)) {
+        .Ok(sofar)
+    } else {
+        match (stream.read(ctx, 64)) {
+            .Err(_e) => .Err("the read failed"),
+            .Ok(more) => {
+                if (more.isEmpty()) {
+                    .Err("the peer closed before it answered")
+                } else {
+                    whole(ctx, stream, sofar.concat(ctx, more))
+                }
+            },
+        }
+    }
+}
+
+fn said<C: Alloc + Stdout + Tcp>(ctx: C, stream: Stream, answer: [U8]): Result<(), Str> {
+    let text = bytes.fromUtf8(ctx, answer).withDefault("<not utf-8>");
+    let _shown = io.println(ctx, "got ${text.trim()}").ignore();
+    let _closed = stream.close(ctx);
+    // And a stream that has been closed is one that names nothing, which is the
+    // signature failure beside the exchange above.
+    match (stream.read(ctx, 8)) {
+        .Ok(_more) => .Err("a closed stream still read"),
+        .Err(e) => {
+            let _refused = io.println(ctx, "after close ${e.show(ctx)}").ignore();
+            .Ok(())
+        },
+    }
+}
+"#,
+    )
+}
+
 /// A server that asks for HTTP/3 on a toolchain whose runtime has no QUIC.
 ///
 /// **The refusal is a run-time `.Err` and not a compile-time one, on purpose.**
@@ -1490,6 +1576,106 @@ fn a_native_binary_writes_atomically_and_reads_what_may_not_be_there() {
 /// is a whole process rather than a unit row because nothing smaller can say
 /// that a file was really written — a table with the right rows in it and an
 /// archive that never opened the file would pass every other tier here.
+/// **A Buri program dialled a socket and spoke over it.** `Tcp`, end to end.
+///
+/// The peer is this test: a loopback listener, one connection, and an answer
+/// written in **two** pieces. Two rather than one is the point — it is the
+/// read-loop rule from the program's side, and with one write the fixture would
+/// pass whether or not `Stream.read` were allowed to answer short.
+///
+/// Nothing here can hang. The accept has a deadline and drops the listener when
+/// it expires, so a program that dialled late is refused rather than left
+/// waiting; the peer's own reads and writes carry `SERVER_DEADLINE`; and a
+/// panic in the peer closes the socket, which the program reads as an empty
+/// answer and reports. The child goes through `shared::waited`, which kills what
+/// it could not stop.
+///
+/// It is here rather than in `stencil.rs` or `llvm.rs` for this file's reason:
+/// what it asserts is behaviour, which no backend decides.
+#[test]
+fn a_native_binary_speaks_over_a_socket_it_dialled() {
+    unless_ready!();
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+    let port = listener.local_addr().expect("the bound address").port();
+    listener.set_nonblocking(true).expect("a listener that can be polled");
+
+    let peer = std::thread::spawn(move || {
+        let until = std::time::Instant::now() + crate::shared::SERVER_DEADLINE;
+        let mut accepted = None;
+        while std::time::Instant::now() < until {
+            match listener.accept() {
+                Ok((socket, _)) => {
+                    accepted = Some(socket);
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+                Err(e) => panic!("the loopback listener failed: {e}"),
+            }
+        }
+        // Dropping the listener without accepting is what a program that never
+        // dialled gets: a refusal rather than a wait.
+        let Some(mut socket) = accepted else {
+            return String::from("<nobody dialled>");
+        };
+        socket.set_nonblocking(false).expect("a blocking socket");
+        socket.set_read_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a read deadline");
+        socket.set_write_timeout(Some(crate::shared::SERVER_DEADLINE)).expect("a write deadline");
+        let mut asked = Vec::new();
+        let mut byte = [0_u8; 1];
+        while socket.read(&mut byte).expect("the request") == 1 {
+            asked.push(byte[0]);
+            if byte[0] == b'\n' {
+                break;
+            }
+        }
+        // Two writes, so the program's read loop runs at least twice.
+        socket.write_all(b"po").expect("the first half of the answer");
+        socket.flush().expect("the first half flushed");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        socket.write_all(b"ng\n").expect("the second half of the answer");
+        socket.flush().expect("the second half flushed");
+        String::from_utf8_lossy(&asked).into_owned()
+    });
+
+    let binary = built("e2e-tcp-client", &tcp_client());
+    let mut child = std::process::Command::new(&binary)
+        .arg(port.to_string())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("the program did not start");
+    let status = crate::shared::waited(&mut child, crate::shared::SERVER_DEADLINE);
+    let mut stdout = String::new();
+    child.stdout.take().expect("a piped stdout").read_to_string(&mut stdout).expect("stdout");
+    let mut stderr = String::new();
+    child.stderr.take().expect("a piped stderr").read_to_string(&mut stderr).expect("stderr");
+
+    // The client's answer is read before the peer is joined, so a client that
+    // failed reports as the client failing.
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    assert_eq!(
+        stdout.lines().collect::<Vec<_>>(),
+        vec![
+            // Both halves of the answer, so the read loop ran.
+            "got pong",
+            // And the stream is gone once it is closed: a handle that names
+            // nothing is one already closed, which `core/effect` promises and
+            // `IoError.NotFound` is how it says so.
+            "after close .NotFound",
+        ],
+        "stderr:\n{stderr}"
+    );
+    assert_eq!(peer.join().expect("the peer thread"), "ping\n", "the program sent something else");
+}
+
 #[test]
 fn a_native_binary_touches_files_and_reads_its_own_arguments() {
     unless_ready!();

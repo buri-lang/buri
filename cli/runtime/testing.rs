@@ -171,6 +171,20 @@ enum Slot {
     /// has, and that is what makes two `sockets()` calls two worlds the way two
     /// `fs()` calls are two filesystems.
     Sockets { sent: Vec<SentLog> },
+    /// `core/host/testing`'s `TestTcp` — the octets a read draws from, how far
+    /// through them it has got, which of its streams are still open, and the
+    /// log.
+    ///
+    /// `stream` is the whole of the scripted answer and `taken` is the cursor
+    /// into it, which is `Slot::Client`'s `script`/`next` arrangement one layer
+    /// down: a TCP stream has no messages in it, so what a test writes down is
+    /// bytes and what a read takes is a prefix.
+    ///
+    /// `open` is the streams this double has minted and not yet been told to
+    /// close. A handle outside it is one already closed, which is what
+    /// `core/effect` promises of the real effect and therefore what the double
+    /// has to promise too.
+    Tcp { stream: Vec<u8>, taken: usize, open: Vec<i64>, calls: Vec<TcpLog> },
     /// One socket `TestSockets::open` minted: which double owns it, and whether
     /// it is still open.
     ///
@@ -237,6 +251,21 @@ struct NetLog {
     headers: Vec<(String, String)>,
     body: Vec<u8>,
     timeout_millis: i64,
+}
+
+/// One call through a `TestTcp`, as `core/host/testing`'s `TcpCall` records it.
+///
+/// One record for four operations, because a log a test compares by value is
+/// easier to read as one shape than as four: the fields an operation does not
+/// use are empty, and the constructors in `host_testing.buri` are what a test
+/// actually writes.
+struct TcpLog {
+    name: &'static str,
+    host: String,
+    port: i64,
+    stream: i64,
+    limit: i64,
+    body: Vec<u8>,
 }
 
 /// One read from a `TestStdin`. `count` is what `readBytes` asked for, and zero
@@ -2250,6 +2279,18 @@ struct BuriNetCall {
     timeout_millis: i64,
 }
 
+/// `TcpCall` — `struct { name: Str, host: Str, port: Int, stream: Int,
+/// limit: Int, body: [U8] }`, in declaration order at natural alignment.
+#[repr(C)]
+struct BuriTcpCall {
+    name: BuriStr,
+    host: BuriStr,
+    port: i64,
+    stream: i64,
+    limit: i64,
+    body: BuriList,
+}
+
 /// `StdinCall` — `struct { name: Str, count: Int }`.
 #[repr(C)]
 struct BuriStdinCall {
@@ -2437,6 +2478,207 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_fetch(
             calls.push(call);
         }
     });
+}
+
+// ---------------------------------------------------------------------------
+// `tcp()` — a connection with nothing behind it
+// ---------------------------------------------------------------------------
+
+/// `newTcp() -> I64` — a fresh double: nothing scripted, nothing recorded.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_new_tcp() -> i64 {
+    install(Slot::Tcp { stream: Vec::new(), taken: 0, open: Vec::new(), calls: Vec::new() })
+}
+
+/// `tcpStream(handle, bytes) -> I64` — a **new** double answering reads from
+/// those octets.
+///
+/// A new one rather than an edit, on `TestStdin::bytes`'s rule: a builder
+/// answers a value, so a test that keeps the receiver keeps what it had.
+///
+/// # Safety
+/// `ptr`/`len` must be a readable range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_tcp_stream(
+    _handle: i64,
+    ptr: *const u8,
+    len: u64,
+) -> i64 {
+    // SAFETY: forwarded.
+    let stream = unsafe { view(ptr, len) }.to_vec();
+    install(Slot::Tcp { stream, taken: 0, open: Vec::new(), calls: Vec::new() })
+}
+
+/// `recordTcpConnect(handle, host, port) -> Int` — the dial, recorded, and the
+/// stream handle it answers.
+///
+/// Handles start at one and only go up, exactly as `cli/runtime/tcp.rs`'s do:
+/// a spent handle that came back would let a test write to a stream it had
+/// closed and see it recorded against a live one.
+///
+/// # Safety
+/// The host view must be live for the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_record_tcp_connect(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    port: i64,
+) -> i64 {
+    // SAFETY: forwarded.
+    let host = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    with(handle, 0, |slot| {
+        let Slot::Tcp { open, calls, .. } = slot else { return 0 };
+        let stream = (calls.iter().filter(|c| c.name == "connect").count() as i64) + 1;
+        calls.push(TcpLog {
+            name: "connect",
+            host,
+            port,
+            stream,
+            limit: 0,
+            body: Vec::new(),
+        });
+        open.push(stream);
+        stream
+    })
+}
+
+/// `recordTcpRead(handle, stream, limit) -> Option<[U8]>` — up to `limit`
+/// octets off the scripted stream, and `.None` for a handle this double does
+/// not hold open.
+///
+/// The empty list is the far side closing, which is what a script that has run
+/// out answers — the same thing the real effect answers when the peer goes.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_record_tcp_read(
+    handle: i64,
+    stream: i64,
+    limit: i64,
+    out: *mut BuriList,
+) -> i32 {
+    let taken = with(handle, None, |slot| {
+        let Slot::Tcp { stream: script, taken, open, calls } = slot else { return None };
+        if !open.contains(&stream) {
+            return None;
+        }
+        calls.push(TcpLog {
+            name: "read",
+            host: String::new(),
+            port: 0,
+            stream,
+            limit,
+            body: Vec::new(),
+        });
+        let want = usize::try_from(limit).unwrap_or(0);
+        let end = script.len().min(taken.saturating_add(want));
+        let piece = script.get(*taken..end).unwrap_or(&[]).to_vec();
+        *taken = end;
+        Some(piece)
+    });
+    match taken {
+        Some(bytes) => {
+            let value = list_of_bytes(&bytes);
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out.write(value) };
+            crate::BURI_OK
+        }
+        None => 0,
+    }
+}
+
+/// `recordTcpWrite(handle, stream, body) -> Bool` — the write, recorded. False
+/// is a handle this double does not hold open, which the Buri body turns into
+/// `.Err(.NotFound)`.
+///
+/// # Safety
+/// `ptr`/`len` must be a readable range, or null with a zero length.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_record_tcp_write(
+    handle: i64,
+    stream: i64,
+    ptr: *const u8,
+    len: u64,
+) -> u8 {
+    // SAFETY: forwarded.
+    let body = unsafe { view(ptr, len) }.to_vec();
+    with(handle, 0, |slot| {
+        let Slot::Tcp { open, calls, .. } = slot else { return 0 };
+        if !open.contains(&stream) {
+            return 0;
+        }
+        calls.push(TcpLog {
+            name: "write",
+            host: String::new(),
+            port: 0,
+            stream,
+            limit: 0,
+            body,
+        });
+        1
+    })
+}
+
+/// `recordTcpClose(handle, stream) -> ()` — the close, recorded, and the stream
+/// forgotten.
+///
+/// Recorded whether or not the stream was open, because what a test asserts is
+/// what the code under test *did*, and closing something twice is a thing a
+/// program can do.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_record_tcp_close(handle: i64, stream: i64) {
+    with(handle, (), |slot| {
+        let Slot::Tcp { open, calls, .. } = slot else { return };
+        calls.push(TcpLog {
+            name: "close",
+            host: String::new(),
+            port: 0,
+            stream,
+            limit: 0,
+            body: Vec::new(),
+        });
+        open.retain(|s| *s != stream);
+    });
+}
+
+/// `tcpCalls(handle) -> [TcpCall]` — every call through this double, in the
+/// order they completed.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_tcp_calls(handle: i64, out: *mut BuriList) {
+    let calls: Vec<(&'static str, String, i64, i64, i64, Vec<u8>)> =
+        with(handle, Vec::new(), |slot| match slot {
+            Slot::Tcp { calls, .. } => calls
+                .iter()
+                .map(|c| (c.name, c.host.clone(), c.port, c.stream, c.limit, c.body.clone()))
+                .collect(),
+            _ => Vec::new(),
+        });
+    let value = list_of(
+        &calls,
+        |(name, host, port, stream, limit, body): &(
+            &'static str,
+            String,
+            i64,
+            i64,
+            i64,
+            Vec<u8>,
+        )| BuriTcpCall {
+            name: str_of(name),
+            host: str_of(host),
+            port: *port,
+            stream: *stream,
+            limit: *limit,
+            body: list_of_bytes(body),
+        },
+    );
+    // SAFETY: the caller promises a writable destination.
+    unsafe { out.write(value) };
 }
 
 /// The name/value pairs of a `[Header]` argument.

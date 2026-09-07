@@ -561,6 +561,16 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostStdin.readLine", "buri_rt_host_stdin_read_line", Ret::Opt),
     e("host.HostStdin.readBytes", "buri_rt_host_stdin_read_bytes", Ret::Opt),
     // -- the scalar capabilities --------------------------------------------
+    // `Tcp`'s four. A dial answers a handle and a read answers octets, both
+    // `Result<_, IoError>` with `.Other(Str)` on the error side — so both are
+    // `Ret::ResMsg`, exactly as `host.HostFs`'s eleven are and for the same
+    // reason: a socket meets failures `IoError` has no variant for, and the
+    // sentence is the only actionable half of one. `tcpWrite`'s `.Ok` is `()`
+    // and so has no payload out-pointer, and `tcpClose` answers nothing at all.
+    e("host.HostTcp.tcpConnect", "buri_rt_host_tcp_connect", Ret::ResMsg),
+    e("host.HostTcp.tcpRead", "buri_rt_host_tcp_read", Ret::ResMsg),
+    e("host.HostTcp.tcpWrite", "buri_rt_host_tcp_write", Ret::ResMsg),
+    e("host.HostTcp.tcpClose", "buri_rt_host_tcp_close", Ret::Void),
     e("host.HostFs.fileExists", "buri_rt_host_fs_file_exists", Ret::Scalar),
     e("host.HostClock.nowMillis", "buri_rt_host_clock_now_millis", Ret::Scalar),
     e("host.HostClock.sleepMillis", "buri_rt_host_clock_sleep_millis", Ret::Void),
@@ -936,6 +946,23 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.newNet", "buri_rt_host_testing_new_net", Ret::Scalar),
     e("host_testing.recordFetch", "buri_rt_host_testing_record_fetch", Ret::Void),
     e("host_testing.netCalls", "buri_rt_host_testing_net_calls", Ret::Out),
+    // `tcp()`'s seven. Its shape is `TestStdin`'s rather than `TestNet`'s —
+    // what a test writes down is a script and what it reads back is a log, and
+    // there is no responder to keep in the program — so the handle names all of
+    // it and nothing here needs a plan. `recordTcpRead` is `Ret::Opt` because
+    // the one failure the double has is a stream it never minted, which carries
+    // nothing.
+    e("host_testing.newTcp", "buri_rt_host_testing_new_tcp", Ret::Scalar),
+    e("host_testing.tcpStream", "buri_rt_host_testing_tcp_stream", Ret::Scalar),
+    e(
+        "host_testing.recordTcpConnect",
+        "buri_rt_host_testing_record_tcp_connect",
+        Ret::Scalar,
+    ),
+    e("host_testing.recordTcpRead", "buri_rt_host_testing_record_tcp_read", Ret::Opt),
+    e("host_testing.recordTcpWrite", "buri_rt_host_testing_record_tcp_write", Ret::Scalar),
+    e("host_testing.recordTcpClose", "buri_rt_host_testing_record_tcp_close", Ret::Void),
+    e("host_testing.tcpCalls", "buri_rt_host_testing_tcp_calls", Ret::Out),
     // -- tasks(): the order the work happens in ------------------------------
     //
     // `parallel` is the **second** key of the closure trampoline in this table
@@ -1482,7 +1509,9 @@ mod tests {
     /// Two claims, and the second is the one worth the test. Every fallible
     /// operation of the filesystem carries a message, because `ENOTEMPTY` and `EISDIR`
     /// have no `IoError` variant at all and the string is the only place the
-    /// failure says which it was. **The five stream writers do not**, and
+    /// failure says which it was. `Tcp`'s three fallible operations are on the
+    /// same list for the same reason: a reset connection, a broken pipe and a
+    /// host with no route to it are three failures `IoError` names none of. **The five stream writers do not**, and
     /// `cli/runtime/host.rs`'s `reported` is the other half of that: those five
     /// take no out-pointer, so a row that gained one here would hand the archive
     /// an argument it has no parameter for. The reason they were left out is a
@@ -1509,6 +1538,9 @@ mod tests {
                 "host.HostFs.syncFile",
                 "host.HostFs.writeFile",
                 "host.HostFs.writeFileBytes",
+                "host.HostTcp.tcpConnect",
+                "host.HostTcp.tcpRead",
+                "host.HostTcp.tcpWrite",
                 // The one double with a sentence to give: a `TestFs` whose
                 // directory still holds something answers `.Other` for the same
                 // reason a real one does, and writes the same words the

@@ -1,0 +1,115 @@
+//! core/net/tcp — a connection, and nothing over it.
+//!
+//! `core/net/http` speaks HTTP and `core/net/websocket` speaks WebSocket. This
+//! is the layer below both: dial a host, write bytes, read bytes, close. A
+//! Redis client, a Postgres client or a line protocol is written out of these
+//! four calls and nothing else.
+//!
+//! ```buri
+//! from "core/bytes" import * as bytes;
+//! from "core/effect" import { Alloc, IoError, Tcp };
+//! from "core/net/tcp" import * as tcp;
+//!
+//! export fn ping<C: Alloc + Tcp>(ctx: C, host: Str, port: Int): Result<[U8], IoError> {
+//!     match (tcp.connect(ctx, host, port)) {
+//!         .Err(e) => .Err(e),
+//!         .Ok(stream) => {
+//!             match (stream.write(ctx, bytes.toUtf8(ctx, "PING\r\n"))) {
+//!                 .Err(e) => .Err(e),
+//!                 .Ok(_written) => {
+//!                     let answer = stream.read(ctx, 64);
+//!                     let _closed = stream.close(ctx);
+//!                     answer
+//!                 },
+//!             }
+//!         },
+//!     }
+//! }
+//! ```
+//!
+//! ## A stream is a stream
+//!
+//! [`Stream::read`] answers **at most** what you asked for and waits for at
+//! least one byte. A short answer is the ordinary case, not an error: TCP has
+//! no messages in it, so a reader that wants a whole one reads until it has
+//! one. The empty list is the far side closing cleanly, and it is the only
+//! answer that is neither bytes nor an error.
+//!
+//! [`Stream::write`] has no short write. `.Ok` means every byte went.
+//!
+//! ## Closing, and forgetting to
+//!
+//! [`Stream::close`] never fails — the far side may already have gone, so "was
+//! it open" was never a question with an answer. A `Stream` that is dropped
+//! without being closed leaves the connection open until the process ends,
+//! because a Buri value has no destructor. Close what you dial.
+//!
+//! ## No TLS, and no listening
+//!
+//! Wrapping a stream needs a TLS implementation, and the one in this runtime is
+//! `core/net/http`'s and `core/net/server`'s. So `tcp` is cleartext: a program
+//! that needs `rediss://` reaches for one of those, or speaks the protocol over
+//! HTTP.
+//!
+//! Accepting is `Listen`'s, and `core/net/server` is its door. Dialling out and
+//! accepting in are two authorities, exactly as they are one level up.
+//!
+//! **`Tcp` is granted on LINUX and MACOS.** A page and a worker have no sockets
+//! of their own.
+
+from "core/effect" import { Alloc, IoError, Tcp };
+
+from "core/effect" export { IoError };
+
+derive Eq, Show for Stream;
+/// One open connection. The handle is exported because it is inert — a number
+/// the runtime knows and nothing else — so a `Stream` can go to an actor and be
+/// written from there.
+export struct Stream(export Int);
+
+/// Dials `host` on `port`.
+///
+/// ```buri
+/// from "core/effect" import { IoError, Tcp };
+/// from "core/net/tcp" import * as tcp;
+/// from "core/net/tcp" import { Stream };
+///
+/// export fn dial<C: Tcp>(ctx: C, host: Str): Result<Stream, IoError> {
+///     tcp.connect(ctx, host, 6379)
+/// }
+/// ```
+///
+/// Waits: a name is resolved and a connection is made, both bounded by the
+/// runtime. `.Err(.NotFound)` is a name that resolves to nothing,
+/// `.Err(.PermissionDenied)` is a refused connection, and everything else is
+/// `.Err(.Other(message))` with the platform's own sentence.
+export fn connect<C: Tcp>(ctx: C, host: Str, port: Int): Result<Stream, IoError> {
+    match (ctx.tcpConnect(host, port)) {
+        .Err(e) => .Err(e),
+        .Ok(handle) => .Ok(Stream(handle)),
+    }
+}
+
+impl Stream {
+    /// At most `limit` bytes, waiting for at least one.
+    ///
+    /// The empty list means the far side closed. A `limit` at or below zero
+    /// reads nothing and answers the empty list without waiting.
+    ///
+    /// `Alloc` is in the bound because the answer's size is the wire's and not
+    /// the signature's.
+    export fn read<C: Alloc + Tcp>(self, ctx: C, limit: Int): Result<[U8], IoError> {
+        ctx.tcpRead(self.0, limit)
+    }
+
+    /// Every byte of `body`, or an error. There is no short write.
+    export fn write<C: Tcp>(self, ctx: C, body: [U8]): Result<(), IoError> {
+        ctx.tcpWrite(self.0, body)
+    }
+
+    /// Closes the connection. Never fails, and closing one twice is nothing
+    /// happening the second time.
+    export fn close<C: Tcp>(self, ctx: C): () {
+        ctx.tcpClose(self.0)
+    }
+}
