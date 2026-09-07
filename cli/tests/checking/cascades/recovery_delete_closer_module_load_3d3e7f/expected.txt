@@ -1,0 +1,36 @@
+error: this statement has type `I64`, not `()` [statement-not-unit]
+  --> main.buri:58:5
+   |
+58 |     shared(n) * 100
+   |     ^^^^^^^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:58:20
+   |
+58 |     shared(n) * 100
+   |                    ^
+   |
+   = fix: write `;` here
+error: expected `(`, found `doubled` [unexpected-token]
+  --> main.buri:62:4
+   |
+62 | fn doubled(n: Int): Int {
+   |    ^^^^^^^
+   |
+   = expected: `(`
+   = actual: `doubled`
+   = fix: write `(` here
+error: this function body is missing its closing `}` [unclosed-delimiter]
+   --> main.buri:129:1
+    |
+129 | 
+    | ^
+    |
+  --> main.buri:57:23
+   |
+57 | fn right(n: Int): Int {
+   |                       ^ opened here
+   |
+   = fix: write `}` here

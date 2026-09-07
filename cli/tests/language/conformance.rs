@@ -671,9 +671,11 @@ fn version_works_outside_a_repository() {
 /// `Request`, and read a real `Response` back. Every JavaScript engine this
 /// suite runs on has both globals.
 ///
-/// Three crossings in one run: a path routed on, a method the entry reads, and
-/// a body it echoes. Each one is a field of the bridge, and a bridge that lost
-/// one would still answer the other two.
+/// Every field of the crossing, in one run: each of the seven methods HTTP has,
+/// the path routed on, the query string beside it, a header read by name, a
+/// header written on the way out, a body echoed, a body that is not text, and
+/// the two answers that are not `200`. Each is a field of the bridge, and a
+/// bridge that lost one would still answer the rest.
 #[test]
 fn a_worker_answers_the_platforms_request_with_the_platforms_response() {
     let scratch = Scratch::repo("worker-fetch");
@@ -684,21 +686,38 @@ fn a_worker_answers_the_platforms_request_with_the_platforms_response() {
     scratch.write(
         "cmd/site/main.buri",
         r#"
-from "core/effect" import { Alloc, Request, Response };
+from "core/effect" import { Alloc, Method, Request, Response };
 from "core/host" import * as host;
 from "core/net/http" import * as http;
 from "core/str" import * as str;
 
 export fn fetch(request: Request): Response {
   let ctx = context { Alloc: host.alloc };
-  let verb = match (request.method) {
-    .Get => "GET",
-    .Post => "POST",
-    _ => "OTHER",
-  };
   match (request.path()) {
+    // What was sent, read back off the request the platform handed over.
     "/echo" => http.text(ctx, bodyOrExcuse(ctx, request)),
-    other => http.text(ctx, str.format(ctx, "${verb} ${other}")),
+    "/query" => http.text(ctx, request.query()),
+    "/header" => http.text(ctx, request.header("x-asked").withDefault("nothing")),
+    // A header the worker writes, which the platform has to carry back.
+    "/tagged" => http.text(ctx, "tagged").withHeader(ctx, "x-answered", "yes"),
+    // The two answers that are not 200. A worker says so with a status, and
+    // there is no exit code anywhere in it.
+    "/missing" => http.status(404),
+    "/broken" => http.status(500),
+    other => http.text(ctx, str.format(ctx, "${verb(request.method)} ${other}")),
+  }
+}
+
+/// Every method HTTP has, so a method the bridge drops is a line that changed.
+fn verb(method: Method): Str {
+  match (method) {
+    .Get => "GET",
+    .Head => "HEAD",
+    .Post => "POST",
+    .Put => "PUT",
+    .Patch => "PATCH",
+    .Delete => "DELETE",
+    .Options => "OPTIONS",
   }
 }
 
@@ -721,12 +740,31 @@ import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
 
 const say = async (request) => {
   const answer = await worker.fetch(request);
-  console.log(`${answer.status} ${answer.headers.get("content-type")} ${await answer.text()}`);
+  const tag = answer.headers.get("x-answered");
+  const said = `${answer.status} ${answer.headers.get("content-type")} ${await answer.text()}`;
+  console.log(tag === null ? said : `${said} x-answered=${tag}`);
 };
 
 await say(new Request("https://example.com/about?ref=x#top"));
+
+// Every method, on a path that answers with the one it was called by. A `GET`
+// and a `HEAD` may carry no body, so none of these do.
+for (const method of ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+  await say(new Request("https://example.com/", { method }));
+}
+
 await say(new Request("https://example.com/echo", { method: "POST", body: "hello" }));
-await say(new Request("https://example.com/", { method: "PUT", body: "ignored" }));
+// A body that is not text at all: the bridge carries octets, so what comes back
+// is the entry's own excuse rather than a crash.
+await say(
+  new Request("https://example.com/echo", { method: "POST", body: new Uint8Array([0xff, 0xfe]) }),
+);
+await say(new Request("https://example.com/query?ref=x&page=2#top"));
+await say(new Request("https://example.com/header", { headers: { "X-Asked": "please" } }));
+await say(new Request("https://example.com/header"));
+await say(new Request("https://example.com/tagged"));
+await say(new Request("https://example.com/missing"));
+await say(new Request("https://example.com/broken"));
 "#,
     );
 
@@ -740,8 +778,21 @@ await say(new Request("https://example.com/", { method: "PUT", body: "ignored" }
     assert_eq!(
         stdout,
         "200 text/plain; charset=utf-8 GET /about\n\
+         200 text/plain; charset=utf-8 GET /\n\
+         200 text/plain; charset=utf-8 HEAD /\n\
+         200 text/plain; charset=utf-8 POST /\n\
+         200 text/plain; charset=utf-8 PUT /\n\
+         200 text/plain; charset=utf-8 PATCH /\n\
+         200 text/plain; charset=utf-8 DELETE /\n\
+         200 text/plain; charset=utf-8 OPTIONS /\n\
          200 text/plain; charset=utf-8 hello\n\
-         200 text/plain; charset=utf-8 OTHER /\n",
+         200 text/plain; charset=utf-8 not utf-8\n\
+         200 text/plain; charset=utf-8 ref=x&page=2\n\
+         200 text/plain; charset=utf-8 please\n\
+         200 text/plain; charset=utf-8 nothing\n\
+         200 text/plain; charset=utf-8 tagged x-answered=yes\n\
+         404 null \n\
+         500 null \n",
         "the crossing lost a field:\n{stderr}"
     );
 }
@@ -762,6 +813,11 @@ await say(new Request("https://example.com/", { method: "PUT", body: "ignored" }
 /// both answer. An artifact that fetched its chunks at start-up would fail the
 /// first run's `/` as well, and one that fetched nothing would pass `/heavy`
 /// without the file.
+///
+/// A chunk that is on disk and is *not a module* is the same answer from the
+/// other side: the request that needs it fails and the request that does not is
+/// untouched, so a half-written file cannot take the whole artifact down with
+/// it.
 #[test]
 fn a_chunk_is_fetched_only_where_the_program_asks_for_it() {
     let scratch = Scratch::repo("lazy-when-fetched");
@@ -833,6 +889,16 @@ await say("/heavy");
         run(),
         "/home\nno chunk\n",
         "a request that never reaches the `load` needs no chunk, and one that does needs it"
+    );
+
+    // A file that is there and is not a module. Half a download and a truncated
+    // deploy both look like this, and neither may cost the requests that never
+    // reach the `load`.
+    std::fs::write(&chunk, b"export const $bind = (").expect("the chunk is writable");
+    assert_eq!(
+        run(),
+        "/home\nno chunk\n",
+        "a chunk that will not load must cost only the request that needed it"
     );
 
     std::fs::write(&chunk, &held).expect("the chunk goes back");
@@ -1637,7 +1703,7 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     let scratch = Scratch::copy_of("website", &site);
     scratch.run(&["build", "//cmd/site"]).ok();
 
-    let driver = scratch.write("drive.mjs", WEBSITE_DRIVER);
+    let driver = scratch.write("drive.mjs", &format!("{DOCUMENT_DOUBLE}\n{WEBSITE_DRIVER}"));
     let drive = |at: &str| {
         let out = Command::new(js_runtime())
             .arg(&driver)
@@ -1656,7 +1722,7 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
 
     let sent = "<main><h1>Buri</h1>visitors: 3\
                 <button type=\"button\">say thanks</button></main>\
-                <script id=\"buri-state\" type=\"application/json\">\
+                <script id=\"buri-state\" type=\"application/json\" data-path=\"/\">\
                 {\"title\":\"Buri\",\"visitors\":3}</script>";
     let pressed = sent.replace(">say thanks<", ">thanks<");
     assert_eq!(
@@ -1672,35 +1738,43 @@ fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
         "the website lost a half:\n{stderr}"
     );
 
-    // The failure. `/about` is a page the server did not send, so the tree the
-    // page builds is not the markup in front of it.
+    // The failure. `/about` is a page the server did not send, and `shell` wrote
+    // down which page it did send, so this is refused before a node is walked.
     let (code, stdout, stderr) = drive("/about");
-    assert_eq!(code, 1, "a resume onto markup it does not match must fail:\n{stdout}{stderr}");
+    assert_eq!(code, 1, "a resume at an address the server did not send must fail:\n{stdout}{stderr}");
     assert!(
-        stderr.contains("this page is not the markup the server sent"),
-        "and it must say so: {stderr}"
+        stderr.contains(
+            "this page is not the page the server sent: it was rendered at / and the address \
+             is /about"
+        ),
+        "and it must name both: {stderr}"
     );
 }
 
-/// The browser's half of
-/// [`a_website_is_rendered_by_its_worker_and_resumed_by_its_page`]: a document
-/// holding what the worker sent, and the handful of operations the runtime asks
-/// of one.
-const WEBSITE_DRIVER: &str = r##"
-import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
-
-const at = process.argv[2];
-const answer = await worker.fetch(new Request("https://example.com/"));
-const document_ = await answer.text();
-const sent = document_.split("<body>")[1].split("</body>")[0];
-console.log(`${answer.status} ${answer.headers.get("content-type")}`);
-console.log(sent);
-
+/// A document a page can resume into: the markup a browser would have parsed,
+/// and the handful of operations the runtime asks of one.
+///
+/// Shared by the two rows that drive a page —
+/// [`a_website_is_rendered_by_its_worker_and_resumed_by_its_page`] and
+/// [`a_resumed_page_takes_the_markup_a_browser_would_have_handed_it`] — so there
+/// is one document here rather than two that can drift apart.
+///
+/// It parses the way a browser parses: one run of text per run however many the
+/// tree that wrote it had, entities read back, an attribute that stands on its
+/// own kept as one, and an element left **open** unless HTML says it holds
+/// nothing — so `<div />` is not a closed `div` here either, which is the whole
+/// reason the renderer writes a closing tag.
+///
+/// `browser(sent, at, holds)` installs it; `holds: false` is a platform whose
+/// document has no body yet. `navigate(to)` is the reader pressing Back. `made`
+/// counts every node the page asked the document for, so "the page built
+/// nothing" is a number and a comparison rather than an impression.
+const DOCUMENT_DOUBLE: &str = r##"
 // Everything this document is asked to build, counted.
 const made = { elements: 0, text: 0 };
 
 function node(nodeType, nodeName) {
-  return {
+  const self = {
     nodeType,
     nodeName,
     childNodes: [],
@@ -1708,8 +1782,17 @@ function node(nodeType, nodeName) {
     listeners: {},
     attributes: {},
     data: "",
-    className: "",
-    style: { cssText: "", setProperty() {} },
+    // `className` and `style` are attributes in a browser, so they are
+    // attributes here: writing "" to either *adds* `class=""` to markup the
+    // server wrote, and a resume that did that would not be leaving the
+    // document alone.
+    get className() {
+      const held = this.attributes.class;
+      return held === undefined || held === null ? "" : held;
+    },
+    set className(value) {
+      this.attributes.class = value;
+    },
     get firstChild() {
       return this.childNodes.length > 0 ? this.childNodes[0] : null;
     },
@@ -1742,6 +1825,10 @@ function node(nodeType, nodeName) {
     setAttribute(name, value) {
       this.attributes[name] = value;
     },
+    getAttribute(name) {
+      const held = this.attributes[name];
+      return held === undefined ? null : held;
+    },
     addEventListener(type, handler) {
       this.listeners[type] = handler;
     },
@@ -1753,14 +1840,44 @@ function node(nodeType, nodeName) {
       return tail;
     },
   };
+  self.style = {
+    get cssText() {
+      const held = self.attributes.style;
+      return held === undefined || held === null ? "" : held;
+    },
+    set cssText(text) {
+      self.attributes.style = text;
+    },
+    setProperty(name, value) {
+      const held = self.style.cssText;
+      self.attributes.style = held === "" ? `${name}: ${value}` : `${held}; ${name}: ${value}`;
+    },
+  };
+  return self;
 }
 
-const unescaped = (t) =>
-  t.split("&lt;").join("<").split("&gt;").join(">").split("&quot;").join('"').split("&amp;").join("&");
-const escaped = (t) => t.split("&").join("&amp;").split("<").join("&lt;").split(">").join("&gt;");
+// HTML's own empty elements. A trailing slash closes one of these and nothing
+// else: a parser reads `<div />` as an opening tag and puts what follows inside.
+const VOID = new Set([
+  "area", "base", "br", "col", "embed", "hr", "img",
+  "input", "link", "meta", "param", "source", "track", "wbr",
+]);
 
-// The markup, parsed the way a browser parses it: one run of text per run,
-// whatever the tree that wrote it did.
+const NAMED = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+
+function unescaped(text) {
+  return text.replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);/g, (whole, body) => {
+    if (body[0] !== "#") return NAMED[body] === undefined ? whole : NAMED[body];
+    const digits = body[1] === "x" || body[1] === "X" ? body.slice(2) : body.slice(1);
+    const code = parseInt(digits, body[1] === "x" || body[1] === "X" ? 16 : 10);
+    return Number.isNaN(code) ? whole : String.fromCodePoint(code);
+  });
+}
+
+const escaped = (t) => t.split("&").join("&amp;").split("<").join("&lt;").split(">").join("&gt;");
+const quoted = (t) => escaped(t).split('"').join("&quot;");
+
+// The markup, parsed the way a browser parses it.
 function parse(html, into) {
   const stack = [into];
   const text = (data) => {
@@ -1784,10 +1901,14 @@ function parse(html, into) {
       stack.pop();
       continue;
     }
-    const name = tag.split(/[ /]/)[0];
+    const written = tag.split(/[ /]/)[0];
+    const name = written.toLowerCase();
     const element = node(1, name.toUpperCase());
-    for (const found of tag.slice(name.length).matchAll(/([a-zA-Z-]+)="([^"]*)"/g)) {
-      element.attributes[found[1]] = unescaped(found[2]);
+    // An attribute may carry a value or stand on its own: `checked` and
+    // `checked=""` are one attribute to a browser, and only the first is markup
+    // anybody writes.
+    for (const found of tag.slice(written.length).matchAll(/([a-zA-Z-]+)(?:="([^"]*)")?/g)) {
+      element.attributes[found[1]] = found[2] === undefined ? null : unescaped(found[2]);
     }
     stack[stack.length - 1].appendChild(element);
     if (name === "script") {
@@ -1798,7 +1919,7 @@ function parse(html, into) {
       read = close + "</script>".length;
       continue;
     }
-    if (!tag.endsWith("/")) stack.push(element);
+    if (!VOID.has(name)) stack.push(element);
   }
 }
 
@@ -1809,15 +1930,22 @@ function markup(n) {
   if (n.nodeType === 3) return escaped(n.data);
   const name = n.nodeName.toLowerCase();
   let out = "<" + name;
-  for (const key of Object.keys(n.attributes)) out += ` ${key}="${n.attributes[key]}"`;
-  if (n.className !== "") out += ` class="${n.className}"`;
+  for (const key of Object.keys(n.attributes)) {
+    const value = n.attributes[key];
+    out += value === null ? ` ${key}` : ` ${key}="${quoted(value)}"`;
+  }
+  if (VOID.has(name)) return out + " />";
+  // What is inside a `script` or a `style` is raw text: a browser neither reads
+  // entities in it nor writes them back out.
+  if (name === "script" || name === "style") {
+    return `${out}>${n.childNodes.map((c) => c.data).join("")}</${name}>`;
+  }
   let inner = "";
   for (const child of n.childNodes) inner += markup(child);
-  return inner === "" ? out + " />" : `${out}>${inner}</${name}>`;
+  return `${out}>${inner}</${name}>`;
 }
 
 const body = node(1, "BODY");
-parse(sent, body);
 const showing = () => body.childNodes.map(markup).join("");
 
 const findFirst = (n, name) => {
@@ -1829,34 +1957,71 @@ const findFirst = (n, name) => {
   return null;
 };
 
-globalThis.document = {
-  body,
-  getElementById(id) {
-    const walk = (n) => {
-      if (n.nodeType === 1 && n.attributes.id === id) return n;
-      for (const child of n.childNodes) {
-        const found = walk(child);
-        if (found !== null) return found;
-      }
-      return null;
-    };
-    return walk(body);
-  },
-  createElement(name) {
-    made.elements++;
-    return node(1, name.toUpperCase());
-  },
-  createTextNode(data) {
-    made.text++;
-    const run = node(3, "#text");
-    run.data = data;
-    return run;
-  },
-  createComment() {
-    return node(8, "#comment");
-  },
+// The window's own listeners. `popstate` is the one a page registers.
+const heard = {};
+globalThis.addEventListener = (type, handler) => {
+  if (heard[type] === undefined) heard[type] = [];
+  heard[type].push(handler);
 };
-globalThis.location = { pathname: at };
+
+function browser(sent, at, holds) {
+  parse(sent, body);
+  globalThis.document = {
+    get body() {
+      return holds === false ? null : body;
+    },
+    getElementById(id) {
+      const walk = (n) => {
+        if (n.nodeType === 1 && n.attributes.id === id) return n;
+        for (const child of n.childNodes) {
+          const found = walk(child);
+          if (found !== null) return found;
+        }
+        return null;
+      };
+      return walk(body);
+    },
+    createElement(name) {
+      made.elements++;
+      return node(1, name.toUpperCase());
+    },
+    createTextNode(data) {
+      made.text++;
+      const run = node(3, "#text");
+      run.data = data;
+      return run;
+    },
+    createComment() {
+      return node(8, "#comment");
+    },
+  };
+  globalThis.location = { pathname: at };
+}
+
+// The reader going back or forward: the address changes, and the browser says
+// so. Nothing else here touches the document.
+function navigate(to) {
+  globalThis.location.pathname = to;
+  for (const handler of heard.popstate || []) handler({});
+}
+
+const press = (button) => button.listeners.click({ preventDefault() {}, target: button });
+"##;
+
+/// The site half of [`a_website_is_rendered_by_its_worker_and_resumed_by_its_page`]:
+/// the worker called the way a worker runtime calls one, and the page imported
+/// on top of the document it sent.
+const WEBSITE_DRIVER: &str = r##"
+import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
+
+const at = process.argv[2];
+const answer = await worker.fetch(new Request("https://example.com/"));
+const document_ = await answer.text();
+const sent = document_.split("<body>")[1].split("</body>")[0];
+console.log(`${answer.status} ${answer.headers.get("content-type")}`);
+console.log(sent);
+
+browser(sent, at, true);
 
 await import("./.buri/out/web/cmd/site/main.mjs");
 
@@ -1864,9 +2029,518 @@ console.log(`made ${made.elements} elements and ${made.text} runs of text`);
 console.log(showing());
 
 // The press the server could not have handled.
-const button = findFirst(body, "BUTTON");
-button.listeners.click({ preventDefault() {}, target: button });
+press(findFirst(body, "BUTTON"));
 console.log(showing());
+"##;
+
+/// **Every shape the markup can arrive in**, asked of one built website.
+///
+/// [`a_website_is_rendered_by_its_worker_and_resumed_by_its_page`] is the happy
+/// path of a resume. This is the rest of the surface, and it is one build with
+/// a driver run per scenario, because what varies is the *markup the browser
+/// hands the page* rather than the program.
+///
+/// Three groups.
+///
+/// **Markup a browser would have normalised.** The document that reaches a page
+/// is never the bytes the worker wrote: runs of text beside each other are one
+/// node, an attribute may stand on its own, an empty element may be spelled
+/// either way, and an entity may be numeric. A resume that only worked on the
+/// server's own spelling would work in a test and fail in a browser.
+///
+/// **A tree the markup does not match.** One node too many, one too few, and an
+/// element renamed are each refused with a sentence naming what was wanted and
+/// what was there. A changed attribute and a changed run of text are *not*: they
+/// are written, because what a page renders comes from a state that is allowed
+/// to have moved on.
+///
+/// **What a page does after it has resumed.** It presses a button the server
+/// wrote, navigates, and finds that the region which read the path is the only
+/// one rebuilt — the node holding the title is the same object it was. Then it
+/// fetches a lazy chunk, which is the other half of this feature meeting this
+/// one.
+///
+/// And the two `.Err`s `resume` documents: a document with no body at all, and
+/// a body with nothing in it.
+#[test]
+fn a_resumed_page_takes_the_markup_a_browser_would_have_handed_it() {
+    let scratch = Scratch::repo("resume-edges");
+    scratch.write(
+        "cmd/edges/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: WEB, entry: \"main\" },\n        \
+         { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+    );
+    scratch.write("cmd/edges/main.buri", RESUME_EDGES_PAGE);
+    scratch.run(&["build", "//cmd/edges"]).ok();
+
+    let driver = scratch.write("drive.mjs", &format!("{DOCUMENT_DOUBLE}\n{RESUME_EDGES_DRIVER}"));
+    let drive = |how: &str, at: &str| {
+        let out = Command::new(js_runtime())
+            .arg(&driver)
+            .arg(how)
+            .arg(at)
+            .output()
+            .expect("the javascript runtime runs");
+        (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    };
+
+    // What the worker writes, and therefore what every scenario starts from.
+    let sent = "<main><h1>Tom &amp; Jerry &lt;br&gt; ✓</h1>onetwo \
+                <img src=\"/cat.png\" alt=\"a cat\" />\
+                <aside><ul><li>alpha</li><li>beta</li></ul>\
+                <button type=\"button\">press me</button></aside>\
+                <article>home</article></main>";
+    // Every `<` in the state is written `<`, which is how a string holding
+    // `</script>` closes nothing — and it is a JSON escape, so what the page
+    // reads back is the character.
+    let state = "{\"title\":\"Tom & Jerry \\u003cbr> ✓\",\"gap\":\" \",\"picture\":\"/cat.png\",\
+                 \"twice\":false,\"rows\":[{\"key\":\"a\",\"label\":\"alpha\"},\
+                 {\"key\":\"b\",\"label\":\"beta\"}]}";
+    // The whole body: the tree, and the state script `shell` put beside it —
+    // carrying the address it rendered for.
+    let showing = format!(
+        "{sent}<script id=\"buri-state\" type=\"application/json\" \
+         data-path=\"/\">{state}</script>"
+    );
+
+    // --- The whole of a page's life, in one run -------------------------------
+    let (code, stdout, stderr) = drive("plain", "/");
+    assert_eq!(code, 0, "the page did not resume:\n{stdout}{stderr}");
+    let pressed = showing.replace(">press me<", ">pressed once<");
+    let about = pressed
+        .replace("<article>home</article>", "<article><h2>About</h2>about</article>");
+    let again = about.replace(">pressed once<", ">pressed twice<");
+    assert_eq!(
+        stdout,
+        format!(
+            "sent {sent}\n\
+             before {state}\n\
+             after {state}\n\
+             at / once\n\
+             ONLY_IN_THE_CHUNK over 2 rows\n\
+             made 0 elements and 0 runs of text\n\
+             showing {showing}\n\
+             pressed {pressed}\n\
+             navigated 2 elements and 2 runs of text\n\
+             showing {about}\n\
+             the title is the node the server wrote: true\n\
+             pressed {again}\n"
+        ),
+        "the page's life is not what it was:\n{stderr}"
+    );
+
+    // --- Markup a browser would have normalised -------------------------------
+    //
+    // Each of these is the same document said a different way, and every one of
+    // them has to resume with nothing built. The pair is what makes the claim:
+    // the run answers 0 nodes *and* the markup it leaves is what arrived.
+    for (how, why) in [
+        ("boolean", "an attribute that stands on its own"),
+        ("open-void", "an empty element spelled without its slash"),
+        ("numeric-entity", "an entity written by number"),
+        ("upper-case", "a tag name in capitals"),
+    ] {
+        let (code, stdout, stderr) = drive(how, "/");
+        assert_eq!(code, 0, "{why} stopped the resume:\n{stdout}{stderr}");
+        assert!(
+            stdout.contains("made 0 elements and 0 runs of text\n"),
+            "{why} made the page build:\n{stdout}{stderr}"
+        );
+    }
+
+    // --- A tree the markup does not match -------------------------------------
+    for (how, said) in [
+        ("missing", "wanted <img>, found <aside>"),
+        ("renamed", "wanted <h1>, found <h2>"),
+        ("extra", "<ul> holds more than the tree does"),
+    ] {
+        let (code, stdout, stderr) = drive(how, "/");
+        assert_eq!(code, 1, "a mismatch must fail:\n{stdout}{stderr}");
+        assert!(
+            stderr.contains(&format!("this page is not the markup the server sent: {said}")),
+            "and it must name where: {stderr}"
+        );
+    }
+
+    // --- The address, checked before the shape --------------------------------
+    //
+    // `/` and `/about` here render the same *shape* — a region holding a heading
+    // and a run of text — so the walk would adopt one into the other and find
+    // nothing wrong, leaving the reader looking at one page's markup with
+    // another page's handlers on it. The path `shell` wrote is what catches
+    // that, and it is compared before anything is walked.
+    let (code, stdout, stderr) = drive("wrong-address", "/");
+    assert_eq!(code, 1, "a page resumed where the server did not render must fail");
+    assert!(
+        stderr.contains(
+            "this page is not the page the server sent: it was rendered at / and the address \
+             is /about"
+        ),
+        "and it must name both:\n{stdout}{stderr}"
+    );
+
+    // Answered at `/about` and read at `/about`: the same page. The markup is
+    // not `/`'s, so this is the check saying yes rather than saying nothing.
+    let (code, stdout, stderr) = drive("plain", "/about");
+    assert_eq!(code, 0, "the address the server rendered must resume:\n{stdout}{stderr}");
+    assert!(
+        stdout.contains("made 0 elements and 0 runs of text\n"),
+        "and build nothing:\n{stdout}{stderr}"
+    );
+
+    // A query string and a fragment are not part of a path. The worker was asked
+    // for `/?ref=x#top` and `Request.path` answers `/`; the address bar has both
+    // and `location.pathname` has neither. One page, not two.
+    let (code, stdout, stderr) = drive("right-address", "/");
+    assert_eq!(code, 0, "a query string must not be a different page:\n{stdout}{stderr}");
+    assert!(
+        stdout.contains("made 0 elements and 0 runs of text\n"),
+        "and it must resume on the markup:\n{stdout}{stderr}"
+    );
+
+    // Markup no `shell` wrote carries no path, so there is nothing to compare
+    // and the shape is the whole check — which is what it was before.
+    let (code, stdout, stderr) = drive("no-path", "/");
+    assert_eq!(code, 1, "a page with no embedded path still fails on its shape");
+    assert!(
+        stderr.contains("this page is not the markup the server sent"),
+        "and by the shape rather than the address:\n{stdout}{stderr}"
+    );
+
+    // The two that are written rather than refused. A page's numbers come from a
+    // state that is allowed to have moved on, so a value that differs is
+    // corrected in place and the reader is left looking at the tree.
+    let (code, stdout, stderr) = drive("changed-text", "/");
+    assert_eq!(code, 0, "a run of text that differs must not stop a resume:\n{stdout}{stderr}");
+    assert!(
+        stdout.contains(&format!("showing {showing}\n")),
+        "and the tree's own text must win:\n{stdout}{stderr}"
+    );
+    let (code, stdout, stderr) = drive("changed-attribute", "/");
+    assert_eq!(code, 0, "an attribute that differs must not stop a resume:\n{stdout}{stderr}");
+    assert!(
+        stdout.contains(&format!("showing {showing}\n")),
+        "and the tree's own attribute must win:\n{stdout}{stderr}"
+    );
+
+    // --- Resumed twice --------------------------------------------------------
+    //
+    // The state says so, so the tree and the markup are the ones above. The
+    // second pass walks markup the first pass has already taken over and holds
+    // markers the server never wrote, so it is refused like any other
+    // disagreement rather than quietly registering everything a second time.
+    let (code, stdout, stderr) = drive("twice", "/");
+    assert_eq!(code, 0, "the first resume must still succeed:\n{stdout}{stderr}");
+    assert!(
+        stdout.contains("at / this page is not the markup the server sent"),
+        "a second resume must answer .Err naming what it found:\n{stdout}{stderr}"
+    );
+
+    // --- Nowhere to resume ----------------------------------------------------
+    let (code, stdout, stderr) = drive("no-body", "/");
+    assert_eq!(code, 1, "a document with no body must fail:\n{stdout}{stderr}");
+    assert!(
+        stderr.contains("there is nowhere to resume: this platform has no document"),
+        "and it must say which of the two it is: {stderr}"
+    );
+
+    // A body with nothing in it is the other one: there is somewhere to resume
+    // and nothing there, so it reads as a tree the markup does not match.
+    let (code, stdout, stderr) = drive("blank", "/");
+    assert_eq!(code, 1, "a blank document must fail:\n{stdout}{stderr}");
+    assert!(
+        stdout.contains("before none\n"),
+        "and `state` must answer `.None` where no server rendered:\n{stdout}{stderr}"
+    );
+    assert!(
+        stderr.contains("this page is not the markup the server sent: wanted <main>, found nothing left"),
+        "and the resume must name what it wanted: {stderr}"
+    );
+}
+
+/// A page with one of everything a resume has to walk: nested regions, rows
+/// keyed by a list, a handler on an element inside two of them, an empty
+/// element, runs of text beside each other, a run of nothing but a space, text
+/// carrying the three characters markup is made of, a region that reads the
+/// address bar, and a chunk fetched after the resume.
+///
+/// One `main.buri`, two entries, and one `page` both of them call — which is
+/// what makes the markup match, and is the shape the guide teaches.
+const RESUME_EDGES_PAGE: &str = r#"
+from "core/effect" import { Alloc, Request, Response, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { FromJson, ToJson };
+from "core/lazy" import * as lazy;
+from "core/net/http" import * as http;
+from "core/str" import * as str;
+from "ui/effect" import { Event, Location, Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/signal" import { signal };
+from "ui/web" import * as web;
+
+derive Eq, FromJson, ToJson for Row;
+/// One row of the list, keyed by `key`.
+struct Row {
+    key: Str,
+    label: Str,
+}
+
+derive FromJson, ToJson for Sent;
+/// What the worker rendered from, and what it sends with the document.
+struct Sent {
+    title: Str,
+    gap: Str,
+    picture: Str,
+    twice: Bool,
+    rows: [Row],
+}
+
+fn sent(): Sent {
+    Sent {
+        title: "Tom & Jerry <br> ✓",
+        gap: " ",
+        picture: "/cat.png",
+        twice: false,
+        rows: [Row { key: "a", label: "alpha" }, Row { key: "b", label: "beta" }],
+    }
+}
+
+/// What a page with no state to read builds from.
+fn blank(): Sent {
+    let none: [Row] = [];
+    Sent { title: "no state", gap: "", picture: "", twice: false, rows: none }
+}
+
+/// The whole site, as one function of the path and the state.
+fn page<C>(
+    path: Prop<Str>,
+    state: Sent,
+    label: Prop<Str>,
+    onPress: fn(C, Event) => (),
+): Node<C> {
+    ui.region(
+        .Main,
+        [],
+        [
+            ui.heading(1, .Const(state.title)),
+            // Two runs of text side by side, and a third holding one space: a
+            // browser parses all three into one node.
+            ui.text(.Const("one")),
+            ui.text(.Const("two")),
+            ui.text(.Const(state.gap)),
+            ui.image(.Const(state.picture), .Const("a cat")),
+            ui.region(
+                .Complementary,
+                [],
+                [
+                    ui.region(
+                        .List,
+                        [],
+                        [
+                            ui.each(
+                                .Const(state.rows),
+                                fn(row) => row.key,
+                                fn(_c, row, _i) => {
+                                    ui.region(.ListItem, [], [ui.text(.Const(row.label))])
+                                },
+                            ),
+                        ],
+                    ),
+                    ui.button(label, onPress),
+                ],
+            ),
+            ui.computed(fn(scope) => at(path.read(scope))),
+        ],
+    )
+}
+
+/// Routing: an ordinary match on the path.
+fn at<C>(path: Str): Node<C> {
+    match (path) {
+        "/" => ui.region(.Article, [], [ui.text(.Const("home"))]),
+        "/about" => {
+            ui.region(.Article, [], [ui.heading(2, .Const("About")), ui.text(.Const("about"))])
+        },
+        _other => ui.region(.Article, [], [ui.text(.Const("nowhere"))]),
+    }
+}
+
+/// The label after a press. A function rather than a lambda because it is
+/// handed to `update`, which takes what it answers.
+fn nextLabel(old: Str): Str {
+    match (old) {
+        "press me" => "pressed once",
+        _other => "pressed twice",
+    }
+}
+
+/// Reached from the `load` and from nowhere else, so it ships in a chunk of its
+/// own — and the worker, which never reaches it, has no chunk at all.
+fn summary<C: Alloc>(ctx: C, rows: Int): Str {
+    str.format(ctx, "ONLY_IN_THE_CHUNK over ${rows} rows")
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+        Ui: host.ui,
+        Watch: host.watch,
+        Location: host.location,
+    };
+    // The state the worker sent, read *before* anything is built: the tree the
+    // page resumes with is the tree the worker rendered, and this is what it
+    // was rendered from.
+    let before = web.state(ctx).withDefault("none");
+    let _ = io.println(ctx, "before ${before}").ignore();
+    let state = json
+        .decode(ctx, json.parse(ctx, before).withDefault(.Null))
+        .withDefault(blank());
+    let label = signal(ctx, "press me");
+    let tree = page(
+        web.route(ctx),
+        state,
+        .Cell(label),
+        fn(c, _event) => label.update(c, nextLabel),
+    );
+    match (web.resume(ctx, tree)) {
+        .Err(why) => .Err(why),
+        .Ok(_) => {
+            // A second resume, where the state asks for one: the markup in
+            // front of it is markup a resume has already taken over.
+            let twice = if (state.twice) {
+                match (web.resume(ctx, tree)) {
+                    .Err(why) => why,
+                    .Ok(_) => "the second resume answered .Ok",
+                }
+            } else {
+                "once"
+            };
+            // And again after it: a resume reads the document, and does not
+            // consume what it read.
+            let after = web.state(ctx).withDefault("none");
+            let _ = io.println(ctx, "after ${after}").ignore();
+            let _ = io.println(ctx, "at ${web.path(ctx)} ${twice}").ignore();
+            let open = lazy.load(summary);
+            match (io.println(ctx, open(ctx, state.rows.len()))) {
+                .Ok(_written) => .Ok(()),
+                .Err(_e) => .Err("the page has nowhere to print"),
+            }
+        },
+    }
+}
+
+export fn fetch(request: Request): Response {
+    let ctx = context {
+        Alloc: host.alloc,
+    };
+    let state = sent();
+    http.html(
+        ctx,
+        web.shell(
+            ctx,
+            request.path(),
+            web.render(
+                page(.Const(request.path()), state, .Const("press me"), fn(_c, _event) => ()),
+            ),
+            state.toJson(ctx),
+        ),
+    )
+}
+"#;
+
+/// The browser's half of
+/// [`a_resumed_page_takes_the_markup_a_browser_would_have_handed_it`]: the
+/// worker's document, said a different way per scenario, and the page imported
+/// on top of it.
+///
+/// Every perturbation is a `change`, which fails loudly when the text it is
+/// looking for is not there — so a scenario cannot quietly stop perturbing
+/// anything when the page it is written against moves.
+const RESUME_EDGES_DRIVER: &str = r##"
+import worker from "./.buri/out/cloudflare-worker/cmd/edges/fetch.mjs";
+
+const how = process.argv[2];
+const at = process.argv[3];
+
+// The address bar is not always the address the worker answered.
+// `wrong-address` and `no-path` are the page resumed where the server did not
+// render; `right-address` is the same route reached with a query string and a
+// fragment on it, neither of which is part of a path.
+const elsewhere = how === "wrong-address" || how === "no-path";
+const address = elsewhere ? "/about" : at;
+const asked = how === "right-address" ? at + "?ref=x#top" : at;
+const answer = await worker.fetch(new Request("https://example.com" + asked));
+const document_ = await answer.text();
+let sent = document_.split("<body>")[1].split("</body>")[0];
+console.log(`sent ${sent.split("<script")[0]}`);
+
+const change = (from, to) => {
+  if (!sent.includes(from)) throw new Error(`the markup holds no ${from}`);
+  sent = sent.split(from).join(to);
+};
+
+// Markup a browser would have handed the page, said the way a browser may say
+// it rather than the way the worker wrote it.
+if (how === "boolean") change("<main>", "<main hidden>");
+if (how === "open-void") change('alt="a cat" />', 'alt="a cat">');
+if (how === "numeric-entity") change("&amp;", "&#38;");
+if (how === "upper-case") change("<article>home</article>", "<ARTICLE>home</ARTICLE>");
+
+// Markup the tree does not match.
+if (how === "missing") change('<img src="/cat.png" alt="a cat" />', "");
+if (how === "renamed") change("<h1>", "<h2>"), change("</h1>", "</h2>");
+if (how === "extra") change("<li>beta</li>", "<li>beta</li><li>gamma</li>");
+if (how === "changed-text") change("<li>alpha</li>", "<li>ALPHA</li>");
+if (how === "changed-attribute") change('src="/cat.png"', 'src="/dog.png"');
+
+// A page the state asks to resume twice.
+if (how === "twice") change('"twice":false', '"twice":true');
+
+// Markup no `shell` wrote: it carries no path, so only the shape is checked.
+if (how === "no-path") change(' data-path="/"', "");
+
+// Nowhere to resume, the two ways there are: a document with no body, and a
+// body the server wrote nothing into.
+if (how === "blank") sent = "";
+
+browser(sent, address, how !== "no-body");
+if (how === "right-address") {
+  globalThis.location.search = "?ref=x";
+  globalThis.location.hash = "#top";
+}
+
+const title = findFirst(body, "H1");
+await import("./.buri/out/web/cmd/edges/main.mjs");
+
+console.log(`made ${made.elements} elements and ${made.text} runs of text`);
+console.log(`showing ${showing()}`);
+
+// A handler the server could not have attached, on an element two regions in.
+press(findFirst(body, "BUTTON"));
+console.log(`pressed ${showing()}`);
+
+// The reader navigates. Only what read the address bar may be rebuilt, which is
+// one element and one run of text — and the title is still the very node the
+// server wrote.
+made.elements = 0;
+made.text = 0;
+navigate("/about");
+console.log(`navigated ${made.elements} elements and ${made.text} runs of text`);
+console.log(`showing ${showing()}`);
+console.log(`the title is the node the server wrote: ${findFirst(body, "H1") === title}`);
+
+// And the button still works, because navigating rebuilt no part of it.
+press(findFirst(body, "BUTTON"));
+console.log(`pressed ${showing()}`);
 "##;
 
 /// **A page spawns after `main` returned**, and a worker spawns inside its

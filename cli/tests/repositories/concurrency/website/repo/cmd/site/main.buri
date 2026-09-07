@@ -106,6 +106,7 @@ export fn fetch(request: Request): Response {
         ctx,
         web.shell(
             ctx,
+            request.path(),
             web.render(
                 page(
                     .Const(request.path()),

@@ -1,0 +1,8 @@
+error: `` is not a function name [entry-not-a-name]
+ --> cmd/site/BUILD.buri:4:47
+  |
+4 |         { platform: CLOUDFLARE_WORKER, entry: "" },
+  |                                               ^^
+  |
+  = an `entry` names an exported function of the binary's `main.buri`, so it is a Buri identifier — letters, digits and `_`, not starting with a digit
+  = fix: write the function's name, or drop `entry` to enter through `main`

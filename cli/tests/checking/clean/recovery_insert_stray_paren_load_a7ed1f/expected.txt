@@ -1,9 +1,0 @@
-error: expected an expression, found `@` [unexpected-token]
-  --> main.buri:41:15
-   |
-41 |     assert.eq(@ f(-3), -6);
-   |               ^
-   |
-   = expected: an expression
-   = actual: `@`
-   = fix: write a value here

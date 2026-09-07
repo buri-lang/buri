@@ -1,7 +1,0 @@
-error: an import declaration ends with `;` [missing-terminator]
-  --> main.buri:15:34
-   |
-15 | from "core/lazy" import * as lazy
-   |                                  ^
-   |
-   = fix: write `;` here

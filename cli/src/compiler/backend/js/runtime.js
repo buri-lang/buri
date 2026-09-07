@@ -3185,6 +3185,10 @@ function $dom_classes(element, value) {
     element.classes = value;
     return;
   }
+  // Nothing to say is nothing to write. Assigning "" to an element that has no
+  // class *adds* `class=""` to it, which on a resume is markup the server did
+  // not write appearing on every element the reader can see.
+  if (value === "" && element.className === "") return;
   element.className = value;
 }
 
@@ -3196,6 +3200,8 @@ function $dom_styles(element, declarations) {
     for (const entry of declarations) element.styles[entry[0]] = entry[1];
     return;
   }
+  // `$dom_classes`'s rule, for the same attribute-shaped reason.
+  if (declarations.size === 0 && element.style.cssText === "") return;
   element.style.cssText = "";
   for (const entry of declarations) element.style.setProperty(entry[0], entry[1]);
 }
@@ -3235,6 +3241,13 @@ function $dom_escape(text, quotes) {
   return out;
 }
 
+// The elements this vocabulary writes that hold nothing. A trailing slash
+// closes one of these and *nothing else*: an HTML parser reads `<div />` as an
+// opening `<div>` and puts everything after it inside, so an empty region
+// written that way swallows the rest of the page. Every other name gets its
+// closing tag, empty or not.
+const $DOM_VOID = { img: true, input: true, hr: true };
+
 function $dom_markup(node) {
   if (node.kind === 2) return "";
   if (node.kind === 1) return $dom_escape(node.data, false);
@@ -3243,6 +3256,9 @@ function $dom_markup(node) {
     out += " " + name + '="' + $dom_escape(node.attributes[name], true) + '"';
   }
   if (node.classes !== "") out += ' class="' + $dom_escape(node.classes, true) + '"';
+  // What is typed into a `textarea` is its text and not an attribute, which is
+  // the one element where the two spellings are not the same markup.
+  if (node.name === "textarea") return out + ">" + $dom_escape(node.value, false) + "</textarea>";
   if (node.value !== "") out += ' value="' + $dom_escape(node.value, true) + '"';
   if (node.checked) out += " checked";
   const styles = Object.keys(node.styles);
@@ -3251,9 +3267,10 @@ function $dom_markup(node) {
     for (const property of styles) parts.push(property + ": " + node.styles[property]);
     out += ' style="' + $dom_escape(parts.join("; "), true) + '"';
   }
+  if ($DOM_VOID[node.name]) return out + " />";
   let inner = "";
   for (const child of node.children) inner += $dom_markup(child);
-  return inner === "" ? out + " />" : out + ">" + inner + "</" + node.name + ">";
+  return out + ">" + inner + "</" + node.name + ">";
 }
 
 // Every run of text, in order. Separate runs stay separate, because two runs
@@ -5548,19 +5565,47 @@ function $ui_web_render(root) {
   return out;
 }
 
-// The state the server embedded, read off the document the browser parsed.
-// `undefined` — `None` — where there is no document, which is every JavaScript
-// host that is not a browser, and where the server sent none.
-function $ui_web_embedded() {
-  if (typeof document === "undefined" || !document.getElementById) return undefined;
+// The script `shell` wrote, or `null` where there is no document — which is
+// every JavaScript host that is not a browser — and where the server sent none.
+function $ui_web_holder() {
+  if (typeof document === "undefined" || !document.getElementById) return null;
   const holder = document.getElementById("buri-state");
-  if (holder === null || holder === undefined) return undefined;
-  return holder.textContent;
+  return holder === null || holder === undefined ? null : holder;
+}
+
+// The state the server embedded, as `undefined` — `None` — where there is none.
+function $ui_web_embedded() {
+  const holder = $ui_web_holder();
+  return holder === null ? undefined : holder.textContent;
+}
+
+// The address `shell` rendered this document for, or `null` where the markup
+// came from something that is not `shell` and has none to compare against.
+function $ui_web_sent_path() {
+  const holder = $ui_web_holder();
+  if (holder === null || !holder.getAttribute) return null;
+  const at = holder.getAttribute("data-path");
+  return at === undefined ? null : at;
 }
 
 function $ui_web_resume(ctx, root) {
   const body = $dom_body();
   if (!body) return $err("there is nowhere to resume: this platform has no document");
+  // Where before what. Two routes that render the same shape adopt each other's
+  // markup happily, and the reader is then looking at one page with another
+  // page's handlers on it — which the walk below cannot see, because as far as
+  // it is concerned everything matched. A query string and a fragment are not
+  // part of a path: `location.pathname` and `Request.path` both leave them out,
+  // so an address that differs only there is the same page.
+  const rendered = $ui_web_sent_path();
+  if (rendered !== null && rendered !== $ui_web_path()) {
+    return $err(
+      "this page is not the page the server sent: it was rendered at " +
+        rendered +
+        " and the address is " +
+        $ui_web_path(),
+    );
+  }
   // The tree is rendered against the document the server sent: every element
   // and every run of text is the one already there, and what the walk adds is
   // the listeners and the computations. Nothing is created and nothing is

@@ -103,6 +103,11 @@ pub fn command_build(args: &arguments::Args) -> i32 {
             failed |= session.print(&diagnostics);
             continue;
         }
+        // One sink for every output of this target, because a mistake in
+        // `main.buri` is one mistake however many artifacts are built from it.
+        // Two outputs are two compilations of the same sources, so a helper
+        // that will not typecheck otherwise reports once per artifact.
+        let mut reported = crate::diagnostics::Diagnostics::new();
         for output in actions::selected_outputs(&session, target, &args.flags) {
             match actions::build_target(&mut session, target, &output, &args.flags) {
                 Ok(a) => {
@@ -111,11 +116,10 @@ pub fn command_build(args: &arguments::Args) -> i32 {
                     let note = if a.cached { ", cached" } else { "" };
                     println!("{} ({} bytes{note})", rel.display(), a.bytes);
                 }
-                Err(diagnostics) => {
-                    failed |= session.print(&diagnostics);
-                }
+                Err(diagnostics) => reported.extend(diagnostics.items),
             }
         }
+        failed |= session.print(&reported);
     }
     // `check_during_build`: the catalogue runs here too, but only over a build
     // that held — findings on code that does not compile are noise stacked on

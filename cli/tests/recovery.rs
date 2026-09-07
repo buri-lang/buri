@@ -454,6 +454,17 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // writing a `..` out as the wildcards it stands for, which is what
         // `middle::rc` reads and not what any diagnostic does. Twenty-three is
         // the rate rounded up.
+        // Re-read once more with the website edge-case pass. The population is
+        // the same 1956 and three more of its cases violate, because that pass
+        // edited corpus sources rather than adding to them —
+        // `conformance/lib/web/test/document.buri` and `lib/lazy/test/load.buri`
+        // grew, so the stride lands on different tokens inside them. Checked
+        // against the two sources it *added*: removing both leaves the same 434,
+        // so they are not in the row. Its one toolchain change outside the
+        // JavaScript runtime is `commands/build.rs` printing a target's outputs
+        // through one diagnostic sink, which no case here can reach —
+        // `harness::JS_BINARY` gives every one of them a single output. 434 of
+        // 1956 is 22.2%, and twenty-three still covers it.
         ("a syntax error stays a syntax error", "insert-stray") => 23,
         // Re-read with the same F5 wave the `insert-stray` paragraph above
         // records: the new conformance files moved this row to 24.2% of a

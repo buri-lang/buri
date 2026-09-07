@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-terminator]
+  --> main.buri:17:46
+   |
+17 | from "core/testing/assert" import * as assert
+   |                                              ^
+   |
+   = fix: write `;` here
