@@ -1,5 +1,5 @@
-keyed  compile //cmd/app cloudflare-worker a9290bfb0bd4
+keyed  compile //cmd/app cloudflare-worker 475d53c900f3
 keyed  generate //lib/wire cloudflare-worker d7228cb76a9e
 keyed  compile //lib/wire cloudflare-worker 3b87d8b0d94b
-run    link //cmd/app cloudflare-worker 098e5133b5b3
+run    link //cmd/app cloudflare-worker b906ae7d792c
 .buri/out/cloudflare-worker/cmd/app/handle.mjs (N bytes)
