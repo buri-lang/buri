@@ -147,6 +147,10 @@ pub const MODULES: &[StdModule] = &[
     m("core/ordmap", include_str!("sources/ordmap.buri")),
     m("core/ordset", include_str!("sources/ordset.buri")),
     m("core/bytes", include_str!("sources/bytes.buri")),
+    // DEFLATE and gzip, and pure Buri all the way down: there is no compression
+    // crate in the runtime's manifest to bind to, and the archive's own
+    // hand-written deflate is the PNG writer's and answers to no Buri name.
+    m("core/compression", include_str!("sources/compression.buri")),
     m("core/hash", include_str!("sources/hash.buri")),
     m("core/crypto", include_str!("sources/crypto.buri")),
     m("core/math", include_str!("sources/math.buri")),

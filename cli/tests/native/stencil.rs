@@ -1837,7 +1837,9 @@ const CORPUS_COMPILES: &[&str] = &[
     "collections/map.buri",
     "collections/ordmap.buri",
     "collections/queue.buri",
+    "compression/deflate.buri",
     "crypto/entropy.buri",
+    "csv/csv.buri",
     "crypto/sha256.buri",
     "data/assertions.buri",
     "data/lists.buri",
@@ -1874,6 +1876,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "text/hex.buri",
     "text/path.buri",
     "ui/reactivity.buri",
+    "url/url.buri",
     "vectors/simd.buri",
 ];
 
