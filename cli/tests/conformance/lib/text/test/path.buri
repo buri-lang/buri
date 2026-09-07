@@ -286,6 +286,21 @@ test "relativeTo writes a path from a directory above it" {
     assert.eq(relative(ctx, "/srv/application", root), .None);
 }
 
+test "relativeTo is lexical, so a `..` is a component like any other" {
+    // `a/../b` starts with `a` component by component, and what is left of it
+    // after `a` is `../b`. The filesystem is the only thing that can say where
+    // that really lands, which is what `fs.canonicalize` is for.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(relative(ctx, "a/../b", path.of(ctx, "a")), .Some("../b"));
+    assert.eq(relative(ctx, "a/../b", path.of(ctx, "a/..")), .Some("b"));
+    assert.eq(relative(ctx, "a/b", path.of(ctx, "a/..")), .None);
+    // A base below the path is not a base at all, however the two are spelled.
+    assert.eq(relative(ctx, "/srv", path.of(ctx, "/srv/app")), .None);
+    assert.eq(relative(ctx, "srv/app", path.of(ctx, "/srv")), .None);
+}
+
 test "relativeTo from the root and from `.` keeps the rest" {
     let ctx = context {
         Alloc: alloc(),
@@ -320,6 +335,34 @@ test "an empty extension drops the one that was there" {
         "a/report.tar",
     );
     assert.eq(path.of(ctx, "README").withoutExtension(ctx).text(), "README");
+}
+
+test "a name that ends in a dot separates nothing, so the new dot is a second one" {
+    // `archive.` has no extension — its dot ends the name rather than
+    // separating one — so replacing what is not there appends.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(extended(ctx, "archive.", "txt"), .Some("archive..txt"));
+    assert.eq(path.of(ctx, "archive.").withoutExtension(ctx).text(), "archive.");
+}
+
+test "an extension with a dot in it is written as it is given" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(extended(ctx, "a/data.db", "tar.gz"), .Some("a/data.tar.gz"));
+    assert.eq(extended(ctx, "a/.gitignore", ""), .Some("a/.gitignore"));
+}
+
+test "a dotfile keeps its whole name, and a second dot is the extension" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(path.of(ctx, "a/.env.local").extension(), .Some("local"));
+    assert.eq(path.of(ctx, "a/.env.local").stem(), .Some(".env"));
+    assert.eq(extended(ctx, "a/.env.local", "prod"), .Some("a/.env.prod"));
+    assert.eq(path.of(ctx, "a/.env.local").withoutExtension(ctx).text(), "a/.env");
 }
 
 test "a path with no last component has no extension to replace" {
@@ -405,6 +448,68 @@ test "`**` matches any number of whole components, none included" {
     assert.isTrue(path.of(ctx, "src/a/b").matchesGlob("src/**"));
     assert.isTrue(path.of(ctx, "src").matchesGlob("src/**"));
     assert.isFalse(path.of(ctx, "lib/a.buri").matchesGlob("src/**/*.buri"));
+}
+
+test "`**` matches at the front of a pattern and on its own" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let deep = path.of(ctx, "src/net/http.buri");
+    assert.isTrue(deep.matchesGlob("**/http.buri"));
+    assert.isTrue(deep.matchesGlob("**/*.buri"));
+    assert.isTrue(deep.matchesGlob("**"));
+    assert.isTrue(path.of(ctx, "http.buri").matchesGlob("**/http.buri"));
+    assert.isFalse(deep.matchesGlob("**/lib.buri"));
+    // Two of them, each matching a different number of components.
+    assert.isTrue(path.of(ctx, "a/b/c/d/e").matchesGlob("a/**/c/**/e"));
+    assert.isTrue(path.of(ctx, "a/c/e").matchesGlob("a/**/c/**/e"));
+    assert.isFalse(path.of(ctx, "a/c/x").matchesGlob("a/**/c/**/e"));
+}
+
+test "an empty pattern names the current directory and nothing else" {
+    // A pattern of no components matches a path of no components: `.` is that
+    // path, and every name is one component more than the pattern has.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, ".").matchesGlob(""));
+    assert.isFalse(path.of(ctx, "a").matchesGlob(""));
+    assert.isFalse(path.of(ctx, "/").matchesGlob(""));
+    assert.isTrue(path.of(ctx, "/").matchesGlob("/"));
+}
+
+test "nothing escapes, so a `\\` is a character and a `*` is always a wildcard" {
+    // The pattern language is `*`, `?`, `[...]` and `**` — there is no escape,
+    // which means a name holding a `*` cannot be asked for literally.
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "a-b").matchesGlob("a*b"));
+    assert.isTrue(path.of(ctx, "a*b").matchesGlob("a*b"));
+    assert.isFalse(path.of(ctx, "a*b").matchesGlob("a\\*b"));
+    assert.isTrue(path.of(ctx, "a\\zb").matchesGlob("a\\*b"));
+    assert.isFalse(path.of(ctx, "a\\b").matchesGlob("a\\?b"));
+    assert.isTrue(path.of(ctx, "a\\xb").matchesGlob("a\\?b"));
+}
+
+test "a `?` is one scalar, whatever it takes to write it down" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "é").matchesGlob("?"));
+    assert.isTrue(path.of(ctx, "café").matchesGlob("caf?"));
+    assert.isFalse(path.of(ctx, "café").matchesGlob("caf??"));
+    assert.isTrue(path.of(ctx, "café").matchesGlob("caf[é]"));
+}
+
+test "a `]` closes a set rather than joining one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isFalse(path.of(ctx, "]").matchesGlob("[]]"));
+    assert.isTrue(path.of(ctx, "a").matchesGlob("[a]"));
+    // An empty set closes immediately and matches nothing.
+    assert.isFalse(path.of(ctx, "a").matchesGlob("[]"));
 }
 
 test "an absolute path matches only an absolute pattern" {

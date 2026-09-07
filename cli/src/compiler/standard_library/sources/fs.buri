@@ -190,6 +190,13 @@ export fn exists<C: FsRead>(ctx: C, path: Path): Bool {
     ctx.fileExists(path)
 }
 
+/// The names in the directory, in the platform's own order.
+///
+/// Not sorted, and not the order they were created in — sort it where the order
+/// matters. `.` and `..` are not among them.
+///
+/// Names, not paths: `directory.join(ctx, name)` is the path, and
+/// [`listDirectoryEntries`] is the same call with what each name *is* beside it.
 export fn listDir<C: Alloc + FsRead>(ctx: C, path: Path): Result<[Str], IoError> {
     ctx.readDir(path)
 }
@@ -466,7 +473,8 @@ export fn isFile<C: FsRead>(ctx: C, path: Path): Bool {
 /// the loop.
 ///
 /// Names, not paths, exactly as `listDir` gives them — `directory.join(ctx,
-/// name)` is the path. The first failure is the answer.
+/// name)` is the path — and in the platform's own order, which is not sorted.
+/// The first failure is the answer.
 export fn listDirectoryEntries<C: Alloc + FsRead>(
     ctx: C,
     path: Path,
@@ -636,6 +644,10 @@ fn removedEntries<C: Alloc + FsRead + FsWrite>(
 /// lines a caller writes: a predictable name in a shared directory is a
 /// predictable name somebody else can create first. `core/env`'s
 /// `temporaryDirectory` says where it goes.
+///
+/// **`prefix` is joined on, so a `/` in it makes the directory deeper** — every
+/// missing parent is created, exactly as `makeDir` does. Keep a prefix a name
+/// rather than a path unless that is what you meant.
 ///
 /// The caller owns it, and nothing removes it: [`removeTree`] is the other half.
 export fn makeTemporaryDirectory<C: Alloc + Entropy + Env + FsWrite>(
