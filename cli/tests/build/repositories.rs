@@ -40,11 +40,16 @@ fn tag_policy() {
 
 /// CLI.md: the exit codes, and the commands whose contract is about what they
 /// leave on disk rather than what they compute — `gen`, `run`, `clean`,
-/// `version`, `add skills`, the `out/` symlink, and the no-argument forms that
-/// mean the whole repository from wherever they are run.
+/// `version`, `init`, `add skills`, the `out/` symlink, and the no-argument
+/// forms that mean the whole repository from wherever they are run.
+///
+/// The five `init_*` cases are the whole of what that command promises about
+/// files it did not write: the scaffold into a directory that has none, the
+/// three shapes an existing `.gitignore` comes in, and the refusal every other
+/// collision still gets.
 #[test]
 fn cli_contract() {
-    run_corpus(&tests_dir().join("repositories/cli"), "cli", 13);
+    run_corpus(&tests_dir().join("repositories/cli"), "cli", 18);
 }
 
 /// CLI.md's `query`: what the graph says, asked without building anything.
