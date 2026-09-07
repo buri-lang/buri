@@ -1644,6 +1644,8 @@ test "an inner fold's seed is the outer fold's accumulator, and neither is writt
     );
     assert.eq(out, [0, 1, 1, 2, 2]);
     assert.eq(seed, [0]);
+}
+
 // --- flatMap / flatMapCtx -------------------------------------------------------
 
 test "flatMap runs the pieces together" {
