@@ -218,6 +218,11 @@ closes and then runs the hook. One sender's messages arrive in order, the actor
 steps each message exactly once, and a send sees the state its own message left.
 So an actor is not yet a way to get work done in the background.
 
+A step that sends to the actor running it gets `.Err(.Stopped)` back. The state
+is already out — waiting for it would be waiting for itself — so the send does
+not wait. The message is posted all the same, and the loop already running
+steps it before it puts the state back.
+
 ## Why the state goes behind a mailbox
 
 State threaded through arguments works for as long as there is one call to
@@ -260,22 +265,13 @@ test "a recorded amount is added to the running total" {
 }
 ```
 
-<<<<<<< HEAD
-`core/actor` ships no test double, and that follows from the shape rather than
-being an omission: a mailbox is a queue, the order is the order, and the one
-thing a double would decide is decided in Buri where a test can read it.
-`core/tasks` does have one. `tasks()` makes the order the work runs in a value
-the test writes down, with `anyOrder()`, `seed(n)` and `everyOrder()` — and it
-covers a spawned task too, because a scope runs its round through
-`Tasks.parallel`. So a test of background work asserts an order it chose rather
-than one it hoped for, and no test here waits on real time. Both are
-[testing your code](./testing.md).
-=======
 `core/actor` ships no test double: a mailbox is a queue, and the order is the
 order. `core/tasks` does have one — `tasks()` makes the order the work runs in a
-value the test writes down, with `anyOrder()`, `seed(n)` and `everyOrder()`.
-Both are [testing your code](./testing.md).
->>>>>>> main
+value the test writes down, with `anyOrder()`, `seed(n)` and `everyOrder()`, and
+it covers a spawned task too, because a scope runs its round through
+`Tasks.parallel`. So a test of background work asserts an order it chose rather
+than one it hoped for, and none of it waits on real time. Both are
+[testing your code](./testing.md).
 
 ## Next
 
