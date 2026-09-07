@@ -30,36 +30,27 @@ export struct Region(export I64);
 /// The charge comes from the *types*, computed from the layout in
 /// `design/native/VALUE-MODEL.md` §5, so the same program charges the same
 /// number on every backend and every platform. It never measures what an
-/// allocator did, and that is deliberate: a measured number changes from
-/// backend to backend, and a test asserting one is flaky.
+/// allocator did.
 ///
-/// Two rows carry their reasons. A **view charges nothing** because the
-/// language says so — `slice`, `trim` and `splitOnce` are declared without an
-/// `Alloc` bound, and the accounting has to agree with the type system or the
-/// type system is lying. A **fixed-size construction charges nothing** even
-/// where the implementation heap-allocates, because SPEC 10.5 says fixed-size
-/// construction never requires `Alloc`. The model counts what the *language*
-/// says allocates, and a number that moves when the optimizer improves is a
-/// number no test can assert.
+/// A **view charges nothing** because `slice`, `trim` and `splitOnce` are
+/// declared without an `Alloc` bound. A **fixed-size construction charges
+/// nothing** even where the implementation heap-allocates, because SPEC 10.5
+/// says fixed-size construction never requires `Alloc`.
 ///
-/// A definition is a commitment: change a row and you break observable
-/// behaviour. `core/alloc` counts the charges, and it says which of these rows
-/// an allocator hears about today.
+/// Change a row and you break observable behaviour. `core/alloc` counts the
+/// charges, and it says which of these rows an allocator hears about today.
 export effect Alloc {
     fn allocate(self, bytes: Int): Region;
 }
 
 /// Writing to standard output.
 ///
-/// **Every operation answers `Result<(), IoError>`**, and that says what
-/// writing to a stream *is*. A closed pipe, a full disk and a revoked
-/// permission are all things that happen to a print, and a signature saying
-/// `()` claimed they do not.
+/// **Every operation answers `Result<(), IoError>`**: a closed pipe, a full
+/// disk and a revoked permission are all things that happen to a print.
 ///
 /// You have to look at the `Result`. Discarding one is `result-discarded`, in
-/// both of the two places a value can be dropped. A program that does not care
-/// says so in the one greppable spelling there is, and `buri lint` reports every
-/// one as `discarded-result` — a print no differently from anything else:
+/// both of the two places a value can be dropped, and `buri lint` reports every
+/// one as `discarded-result`. A program that does not care says so:
 ///
 /// ```text
 /// io.println(ctx, "ready").ignore();
@@ -67,25 +58,18 @@ export effect Alloc {
 ///
 /// A program that does care answers instead, and `mapErr` carries the `IoError`
 /// into whatever error type it uses.
-///
-/// That is the whole of the cost, and it buys what the old shape could not
-/// give: a program writing to a pipe whose reader has gone away can *notice*.
-/// Before this, the platform reported a stream error at flush time and it
-/// surfaced only as `main`'s exit status — the one place a program can no
-/// longer act on it.
 export effect Stdout {
     fn print(self, text: Template): Result<(), IoError>;
     fn println(self, text: Template): Result<(), IoError>;
     /// Octets, written through unchanged.
     ///
     /// `print` takes a `Template` and the platform encodes it; this takes bytes
-    /// and the platform encodes nothing. A program speaking a binary protocol
-    /// over a pipe needs the second, and cannot get it by rendering the first.
+    /// and the platform encodes nothing.
     fn writeBytes(self, b: [U8]): Result<(), IoError>;
 }
 
-/// Writing to standard error, on `Stdout`'s terms — including the `Result`, and
-/// for its reasons. The two streams fail in the same ways.
+/// Writing to standard error, on `Stdout`'s terms, `Result` included. The two
+/// streams fail in the same ways.
 export effect Stderr {
     fn eprint(self, text: Template): Result<(), IoError>;
     fn eprintln(self, text: Template): Result<(), IoError>;
@@ -96,26 +80,21 @@ export effect Stdin {
     /// Exactly `n` octets, or fewer at end of input — `.None` when there were
     /// none at all.
     ///
-    /// This blocks until the octets arrive, which is what makes a
-    /// request/response protocol over a pipe expressible. `readLine` reads the
-    /// input to its end, so a program using it cannot answer before the other
-    /// side has finished speaking.
+    /// Blocks until the octets arrive. `readLine` reads the input to its end,
+    /// so a program using it cannot answer before the other side has finished
+    /// speaking; this is how a request/response protocol over a pipe is
+    /// written.
     fn readBytes(self, n: Int): Option<[U8]>;
 }
 
-// `Fs` is not here. It split into `FsRead` and `FsWrite`, and `core/fs`
-// declares both — which is exactly why `core/fs` is a platform module. Every
-// method of both names a `Path`, `core/path` names `Alloc`, and this module
-// sits below `core/path` rather than above it, so a declaration here could only
-// have said `Str`. The rule that matters is unchanged: a platform module
-// declares an effect, and a program's platform still fixes what it can do to
-// the world (SPEC 10.1).
+// `Fs` is not here. It split into `FsRead` and `FsWrite`, and the platform
+// module `core/fs` declares both: every method of both names a `Path`, and this
+// module sits below `core/path`.
 
 export effect Net {
     /// One request, one response. `Request` and `Response` are declared below,
-    /// and they are the *same* two types `core/net/http` re-exports and a server
-    /// hands its handler. There is one shape for an HTTP message in this
-    /// language, not one per direction.
+    /// and they are the same two types `core/net/http` re-exports and a server
+    /// hands its handler.
     fn fetch(self, request: Request): Result<Response, NetError>;
 }
 
@@ -126,17 +105,14 @@ export effect Clock {
 
 /// Uniform numbers, and **only** uniform ones.
 ///
-/// This effect promises a *distribution*. It says nothing about
-/// unpredictability, and that silence used to be all there was — which was the
-/// bug, because a reader could not tell whether nobody had written the promise
-/// down or nobody was making it. Nobody is making it: the host runs xoshiro256++
-/// natively and `Math.random` on JavaScript, and an observer who has seen
-/// enough output of either can predict the rest.
+/// This effect promises a *distribution* and nothing about unpredictability.
+/// The host runs xoshiro256++ natively and `Math.random` on JavaScript, and an
+/// observer who has seen enough output of either can predict the rest.
 ///
-/// A program that needs the other promise names `Entropy` below.
-/// A program that wants a generator it can *replay* uses `core/random`'s `Gen`,
-/// which takes a seed and is a value rather than an effect — the same
-/// distribution, none of the authority, and the same numbers twice.
+/// A program that needs unpredictability names `Entropy` below. A program that
+/// wants a generator it can *replay* uses `core/random`'s `Gen`: a seeded value
+/// rather than an effect, with the same distribution and the same numbers
+/// twice.
 export effect Rand {
     fn nextInt(self, lo: Int, hi: Int): Int;
     fn nextFloat(self): Float;
@@ -144,36 +120,25 @@ export effect Rand {
 
 /// Octets nobody can predict, from the operating system's own generator.
 ///
-/// **This is not `Rand` with a better distribution, and the two are separate
-/// effects on purpose.** `Rand` promises *uniformity*, a claim about the shape
-/// of a sequence. This promises *unpredictability*, a claim about somebody who
-/// has already seen part of one. A seeded generator can keep the first promise
-/// and cannot keep the second — and `core/host/testing`'s `rand()` is seeded
-/// deliberately, because a hermetic test needs the same numbers every run. A
-/// program minting a session token needs the second promise, and until this
-/// effect existed there was no way to ask for it and no way for a platform that
-/// cannot supply it to refuse.
+/// **This is not `Rand` with a better distribution.** `Rand` promises
+/// *uniformity*, a claim about the shape of a sequence. This promises
+/// *unpredictability*, a claim about somebody who has already seen part of one.
+/// A seeded generator keeps the first promise and cannot keep the second — and
+/// `core/host/testing`'s `rand()` is seeded deliberately, so that a hermetic
+/// test gets the same numbers every run. A program minting a session token
+/// needs this one.
 ///
-/// The source is the platform's, never this language's: `getrandom(2)` or
-/// `getentropy(2)` behind `cli/runtime`, and `crypto.getRandomValues` on
-/// JavaScript. Not a generator seeded here and stepped here — the kernel's is
-/// reseeded from the machine, survives a fork, and is the one thing on this
-/// page that a userspace copy would be strictly worse than.
+/// The source is the platform's: `getrandom(2)` or `getentropy(2)` behind
+/// `cli/runtime`, and `crypto.getRandomValues` on JavaScript.
 ///
-/// `core/crypto` is the door, not `core/random`. `core/crypto`'s header has said
-/// since it was written that a CSPRNG is a different thing from a seeded
-/// generator and belongs beside the hashes rather than quietly beside `int` and
-/// `float`.
+/// `core/crypto` is the door, not `core/random`.
 export effect Entropy {
     /// `count` octets, each drawn from the platform's generator.
     ///
     /// **A failure aborts rather than answering.** Every other fallible
-    /// operation on this page returns a `Result`, and this one does not, because
-    /// the two ways to be wrong are not comparable. Ignore a `.Err` from a file
-    /// read and you get a wrong answer. Ignore one from here and you get a
-    /// *guessable key* and no symptom. There is also nothing useful to return:
-    /// fewer octets than were asked for is the one answer that must never reach
-    /// a caller.
+    /// operation on this page returns a `Result`, and this one does not: an
+    /// ignored `.Err` here is a guessable key with no symptom, and fewer octets
+    /// than were asked for is the one answer that must never reach a caller.
     ///
     /// A negative `count` aborts. Zero is the empty list.
     fn bytes(self, count: Int): [U8];
@@ -182,13 +147,10 @@ export effect Entropy {
 /// The process's environment: its variables and the arguments it was started
 /// with.
 ///
-/// `args` and not `arguments`, which is the name a program has always written —
-/// `core/env` exports `args(ctx)`, and it is the only caller of this method. The
-/// spelling is load-bearing rather than a preference. A type's methods are one
-/// map keyed by name, so an implementation of this effect cannot also carry a
-/// *builder* called `arguments`, and `core/host/testing`'s `TestEnv` is exactly
-/// that: `env().arguments([...])` is how a test says what the arguments are. The
-/// reader is the one that gave way.
+/// `args` and not `arguments`: `core/env` exports `args(ctx)` and is the only
+/// caller of this method. A type's methods are one map keyed by name, so the
+/// name `arguments` is left for `core/host/testing`'s `TestEnv` builder, where
+/// `env().arguments([...])` is how a test says what the arguments are.
 export effect Env {
     fn variable(self, name: Str): Option<Str>;
     fn args(self): [Str];
@@ -200,61 +162,37 @@ export effect Proc {
 
 /// Running a piece of a program more than once at a time.
 ///
-/// `parallel` is the whole of it, and the shape is deliberate. There is no
-/// detached spawn and no handle to join: a task takes the caller's context, runs
-/// while the caller waits, and has finished before `parallel` returns. A task
-/// that outlived the call would outlive the context that granted it, and then "a
-/// program that never names `host.fs` cannot read a file" would stop being true
-/// of the program's *lifetime* rather than only of its call graph.
+/// `parallel` is the whole of it. There is no detached spawn and no handle to
+/// join: a task takes the caller's context, runs while the caller waits, and has
+/// finished before `parallel` returns. A task that outlived the call would
+/// outlive the context that granted it.
 ///
 /// **Results come back in the order the items were given**, whatever order the
-/// tasks finished in, and the `Int` is the item's own index. That is a promise,
-/// not an implementation detail waiting to be relaxed: a program whose answer
-/// depended on which task won is a program no test can pin, and this language
-/// has no way to say "assert one of these six outputs".
+/// tasks finished in, and the `Int` is the item's own index. That is a promise
+/// rather than an implementation detail.
 ///
 /// **The context is a parameter of its own, and the closure names it.** A task
-/// receives the caller's *whole* context — that is the promise, and `C` is how
-/// it is spelled. It arrives as a parameter rather than by capture because an
-/// effect-carrying value may be passed only as `self` or `ctx` (SPEC 10.6), so a
-/// task is *handed* what it needs and captures nothing effectful.
+/// receives the caller's *whole* context. It arrives as a parameter rather than
+/// by capture because an effect-carrying value may be passed only as `self` or
+/// `ctx` (SPEC 10.6).
 ///
 /// It is deliberately **not** spelled `Self`. `Self` is the type implementing
-/// this effect — `HostTasks`, or a fake a test wrote — and that is a different
-/// value from the context the call came through. It grants this one effect,
-/// where the caller's context grants everything the caller had, so a step handed
-/// `Self` could not read a clock, print a line or allocate. Name the one you
-/// mean and the two stay apart, which is the rule SPEC 10.6 states.
-///
-/// Naming it also keeps an effect an *ordinary interface*. `C` is a type a
-/// hand-written implementation can name and a value it is given, so anyone may
-/// write a type satisfying `Tasks` (SPEC 10.9) and have its steps receive what
-/// this promises. Only the compiler could implement a callback whose parameter
-/// no implementation can name.
+/// this effect, and it grants this one effect, so a step handed `Self` could not
+/// read a clock, print a line or allocate.
 ///
 /// The receiver and `ctx` are the same value at every call site the standard
-/// library has: `core/tasks`'s `parallel` writes `ctx.parallel(ctx, …)`. They are
-/// still two parameters. The effect dispatches on the first, and the work happens
-/// with the second.
+/// library has: `core/tasks`'s `parallel` writes `ctx.parallel(ctx, …)`. The
+/// effect dispatches on the first, and the work happens with the second.
 ///
-/// **Granted on every platform, WEB included.** It was withheld from the page
-/// until `core/tasks` gained a `scope`: `parallel` returns only when the last
-/// task has finished, and that is the one shape a page's host is built to
-/// avoid. What answers it is that a page's concurrency *is* its event loop and
-/// a task is what a program puts on one — the JavaScript host starts tasks
-/// together and awaits them together, so a page waiting for a task is a page
-/// with an outstanding promise. `core/tasks`'s `spawn` is how a page says
-/// "keep this socket open" or "fire this in five minutes", and there was no
-/// other way to say it.
+/// **Granted on every platform, WEB included.**
 ///
 /// How much of it runs at once belongs to the platform and not to this
 /// signature. JavaScript starts the tasks together and awaits them together, on
 /// one thread. The native runtime fans them out onto its carrier pool, and they
-/// run at the same time on as many processors. The exception is the development
-/// backend, which has a single Buri stack to hold their frames in and runs them
-/// in index order on the calling carrier. Every one of those answers the same
-/// list: the order promise above is what the signature commits to, and the
-/// overlap is not. `core/tasks` has the table.
+/// run at the same time on as many processors. The development backend has a
+/// single Buri stack to hold their frames in and runs the tasks in index order
+/// on the calling carrier. All three answer the same list. `core/tasks` has the
+/// table.
 export effect Tasks {
     /// Runs `f` over every item and answers the results in the items' order,
     /// handing every step `ctx` — the caller's whole context.
@@ -263,15 +201,10 @@ export effect Tasks {
 
 /// Accepting connections.
 ///
-/// `Net` is "I make requests"; this is "I accept them". They are two grants
-/// rather than one because they are two authorities. A program that fetches a
-/// URL has not thereby earned the right to hold a port open, and a reader of a
-/// context should be able to see the difference: `Net` in the list means the
-/// program talks to servers, `Listen` means it *is* one.
-///
-/// `Sockets` is the other half of the pair and is declared beside this one,
-/// because the two are granted together: a platform that accepts connections is
-/// a platform that can write back on them.
+/// `Net` is "I make requests"; this is "I accept them". Two authorities, so two
+/// grants: a program that fetches a URL has not thereby earned the right to hold
+/// a port open. `Sockets` is declared beside this one and granted with it, since
+/// a platform that accepts connections can write back on them.
 ///
 /// **Seven operations, and none of them is the loop.** `listenBind` opens the
 /// port and says how many handlers it will host on it, `listenAccept` waits for
@@ -285,124 +218,53 @@ export effect Tasks {
 ///   * **the handler runs under the caller's own context.** `serve` calls it
 ///     directly, so a handler may allocate, print, read a clock or start a task
 ///     — every authority its `C` carries — without any of that crossing this
-///     effect. The alternative was one `listen` taking the handler. That makes
-///     the handler something the *acceptor* invokes, and an acceptor grants
-///     acceptance and nothing else — so the handler would have been handed a
-///     value it could do nothing with.
-///   * **the loop is a tail call.** There are no loops (design/non-goals.md),
-///     and `middle/tail_calls.rs` rewrites a self tail call into one, so the
-///     accept loop costs no stack however long the server runs.
-///   * **there may be several of it at once.** `core/net/server`'s `run` fans
+///     effect.
+///   * **there may be several loops at once.** `core/net/server`'s `run` fans
 ///     the loop out with `Tasks.parallel`, one worker per handler the acceptor
 ///     will host, so a slow handler holds up its own connection and nothing
-///     else. That is the whole of F3. It cost this effect one `Listener`
-///     field and an identifier: a worker has to be able to say *which* request
-///     it is answering, so `listenAccept` answers a connection and
-///     `listenRespond` names that connection instead of the listener. A handler
-///     still runs on the caller's own context; what is new is which task the
-///     caller is.
+///     else. Each worker says which request it is answering: `listenAccept`
+///     answers a connection, and `listenRespond` names that connection.
+///   * **the runtime keeps no Buri value between calls.** Every value here is
+///     built, handed over and finished with inside one call.
 ///
-/// **Accepting and reading are two calls**, because they are two different
-/// things to whatever schedules the worker. `listenAccept` is where a server
+/// **Accepting and reading are two calls.** `listenAccept` is where a server
 /// spends its idle life: it waits, it is the one call in this effect that can
 /// wait forever, and it is the one a shutdown has to be able to interrupt.
 /// `listenRequest` waits on nothing — the request was framed and read whole
-/// before the connection was handed out — so it is an ordinary read of something
-/// the acceptor is already holding.
+/// before the connection was handed out.
 ///
-/// Folding them into one call answering a connection *and* its request is the
-/// obvious alternative, and it was written that way first. It costs a `Request`
-/// on the widest value crossing the boundary, and it makes every implementation
-/// of this effect — including a fake in a test — build one before it can say
-/// which connection it accepted. Two calls keep the widest thing this effect
-/// answers exactly what it answered before F3.
-///   * **the runtime keeps no Buri value between calls.** Every value here is
-///     built, handed over and finished with inside one call, which lets the
-///     acceptor be an ordinary blocking implementation rather than a scheduler
-///     holding a program's heap.
+/// Nothing calls these methods directly. `core/net/server` does, and a program
+/// hands *that* module a `Server` value carrying every knob.
 ///
-/// **What is fixed here is the authority, not the argument list.** `Tasks` is
-/// the other shape — `parallel` is what a program calls, so its signature was
-/// the expensive thing and it is pinned above. Nothing calls these four
-/// directly: `core/net/server` does, and a program hands *that* module a
-/// `Server` value carrying every knob. So the split of authority is the
-/// commitment, and the parameters are plumbing that grows a knob at a time as
-/// the runtime learns to honour one.
+/// The methods carry a prefix for `Sockets`' reason, one declaration down: a
+/// bare `bind` or `accept` would claim an ordinary verb out of the namespace
+/// every effect bound beside this one shares.
 ///
-/// The methods carry a prefix for `Sockets`' reason, one declaration down. A
-/// bare `bind`, `accept`, `respond` or `close` would claim four ordinary verbs
-/// out of the namespace every effect bound beside this one shares, and the
-/// language has no way to un-claim a name once programs exist. `upgrade` and
-/// `receive` are the two most recent and would have been the two worst. A
-/// program serving a page binds `Ui` beside this, and `ctx.receive` reading a
-/// socket or a message queue depending on what else was in scope is exactly the
-/// ambiguity `Ui.read` and `Watch.read` already demonstrate.
+/// **A socket is `Listen`'s to hand out and `Sockets`' to write on.** Accepting a
+/// connection and reading what arrives on it is one authority however the bytes
+/// are framed, so the upgrade and the receive live here. Pushing on a socket is
+/// the other, and it *outlives* the loop that accepted it.
 ///
-/// **A socket is `Listen`'s to hand out and `Sockets`' to write on**, which is
-/// where the line between the two effects falls and why the upgrade and the
-/// receive live here rather than one declaration down. Accepting a connection
-/// and reading what arrives on it is one authority however the bytes are framed
-/// — `listenRequest` and `listenReceive` are the same act — and a listener
-/// already has it. Pushing on a socket is the other one, and it is separate
-/// because it *outlives* the loop that accepted it: a socket handed to an actor
-/// is written on long after, by a task that never held a listener at all.
-///
-/// **A `Listener` is inert data, not a resource**, and so is an `Accepted`'s
-/// connection. A `Listener` is `{ handle, port }`: two integers, copied freely,
-/// meaningful only to the acceptor that minted them. That is the arrangement
-/// `Ui` already uses, where the effect speaks in signal ids and `ui/signal`
-/// hands out `Signal<T>`. `port` rides on it because the bind is what discovers
-/// the port: a `ListenOptions.port` of `0` asks the operating system to choose
-/// one, and a program that has to tell somebody which port it got reads it
-/// there. A handle from another acceptor, or one already closed, is a
-/// `.Err(ServeError)` and never a crash.
+/// **A `Listener` is inert data, not a resource**, and so is an accepted
+/// connection: integers copied freely, meaningful only to the acceptor that
+/// minted them. `port` rides on it because the bind is what discovers the port —
+/// a `ListenOptions.port` of `0` asks the operating system to choose one. A
+/// handle from another acceptor, or one already closed, is a `.Err(ServeError)`
+/// and never a crash.
 ///
 /// **Every knob is its own parameter, and "unset" is part of the encoding.** A
 /// `Server`'s `.None` fields become an empty `Str` and a negative `Int` on the
-/// way here. `core/net/server`'s header argues that convention for the people
-/// who write them. The encoding sits at this boundary rather than a
-/// default sitting in the library because a default is a decision, and the
-/// runtime is the side that knows which defaults it can honour.
+/// way here, so the runtime picks the defaults it knows it can honour.
 ///
-/// The knobs are parameters rather than one options struct, and that is the C
-/// ABI showing through rather than a taste. `cli/runtime/lib.rs` §2 rule 1
-/// flattens an aggregate argument into its leaves. One of the two native
-/// backends describes a runtime call one *Buri argument* at a time rather than
-/// one leaf at a time, so a struct here would be a shape only half the toolchain
-/// can spell. It is the same reason `listenRespond` takes a `Response`'s three
-/// fields instead of a `Response`.
-///
-/// **The parameter list has a budget, `listenBind` is at it, and the plan is how
-/// it stopped being a wall.** A runtime call carries ten integer arguments —
-/// `backend/stencil/abi.rs`'s `MAX_INT_ARGS`, AAPCS64's register half plus two.
-/// This one spends all ten: three for the address, one for the port, two for the
-/// plan list, two knobs, and the two out-pointers `Result` needs. TLS then needed
-/// two more `Str`s, which is six more integers on a call with none to give. The
-/// two answers written down at the time were "widen the budget" and "an options
-/// struct behind one pointer". Neither was needed. The **list** argument already
-/// crosses as a pointer and a length, whatever its elements are, so
-/// `protocols: [Protocol]` became `plan: [Serve]` — one tagged option per
-/// element. A certificate, a key and every knob after them cost a variant rather
-/// than an argument.
-///
-/// The knobs that still do not cross are the acceptor's own constants: how long
+/// Two knobs do not cross at all and stay the acceptor's own constants: how long
 /// one connection may take to send its head, and the largest body it will read.
-/// They belong to the runtime rather than the program because nobody has yet had
-/// a reason to name them, and `Serve` is where they land when somebody does.
-/// `.DrainMillis` was the first one that did — a deployment that gives a process
-/// ten seconds to stop is a program with a reason to say how long its own
-/// shutdown may take, and saying it cost a variant rather than an argument there
-/// was no room for. `.SocketBuffer` is the second, and the two together are what
-/// the shape was for: neither would have been reachable at all under the
-/// ten-integer budget, and neither cost a table row.
+/// `Serve` is where they land if a program ever needs to name them.
 ///
-/// **How many handlers a listener hosts is not in the plan either**, and that is
-/// a different argument reaching a different answer: it is not a setting but an
-/// *answer*, so it rides back on `Listener` rather than out on the bind.
+/// **How many handlers a listener hosts is not in the plan either.** It is an
+/// answer rather than a setting, so it rides back on `Listener`.
 ///
 /// **Granted on LINUX and MACOS**, together with `Sockets`, and never on `JS` or
-/// `WEB`: a page does not hold a port open, and that is a fact about pages rather
-/// than a slice nobody has written yet.
+/// `WEB`: a page does not hold a port open.
 export effect Listen {
     /// Opens a port, and answers with it.
     ///
@@ -429,10 +291,8 @@ export effect Listen {
 
     /// The next connection on this listener with a whole request on it.
     ///
-    /// Waits. The `Int` is the connection, and it is opaque on `Listener`'s
-    /// terms: meaningful to the acceptor that minted it and to nobody else. It
-    /// is what `listenRequest` reads and what `listenRespond` answers, and it is
-    /// what makes several workers on one listener possible at all.
+    /// Waits. The `Int` is the connection, opaque on `Listener`'s terms: what
+    /// `listenRequest` reads and what `listenRespond` answers.
     ///
     /// `.Err(.Closed)` is how a listener says it will answer no more — its
     /// request limit is spent, it has been closed, or **the platform was asked
@@ -441,18 +301,14 @@ export effect Listen {
     /// one cause into `.Ok(())`. `.Err(.Timeout)` is the idle deadline expiring
     /// with nobody connected.
     ///
-    /// The third of those is why this call has to be interruptible. A shutdown
-    /// arrives while every worker is waiting here, and a graceful one stops the
-    /// platform taking new connections, lets the requests already in flight be
-    /// answered, and only then answers this with `.Closed`. So a server that was
-    /// asked to stop ends the same way a server that spent its request limit
-    /// does, and a program does not have to know which happened.
+    /// A graceful shutdown stops the platform taking new connections, lets the
+    /// requests already in flight be answered, and only then answers this with
+    /// `.Closed`. So a server that was asked to stop ends the same way a server
+    /// that spent its request limit does.
     ///
-    /// A connection that speaks nonsense never surfaces here. A malformed
-    /// request is the transport's problem and the runtime answers it, because a
-    /// handler that had to defend against one would be writing a parser. So a
-    /// connection this answers is one a whole request has already been read off,
-    /// and `listenRequest` is the reading of it and not a second wait.
+    /// A connection that speaks nonsense never surfaces here: the runtime
+    /// answers a malformed request itself. Every connection this answers has a
+    /// whole request already read off it.
     fn listenAccept(self, handle: Int): Result<Int, ServeError>;
 
     /// The request that arrived on a connection `listenAccept` answered with.
@@ -465,15 +321,12 @@ export effect Listen {
     /// Answers one accepted request, named by its connection, with a
     /// `Response`'s three fields.
     ///
-    /// One response per accepted request. The pairing is **by identifier and not
-    /// by position**, and that is what a worker per handler cost. While there was
-    /// one loop there was one outstanding request and the listener named it. With
-    /// several loops on one listener there are as many outstanding requests as
-    /// there are workers.
+    /// One response per accepted request, paired **by identifier and not by
+    /// position**: several workers on one listener means as many outstanding
+    /// requests as there are workers.
     ///
     /// A connection nobody is holding — one already answered, or one whose
-    /// listener was closed under it — is `.Ok(())` and writes nothing. Neither is
-    /// something the loop did wrong.
+    /// listener was closed under it — is `.Ok(())` and writes nothing.
     fn listenRespond(
         self,
         connection: Int,
@@ -484,31 +337,24 @@ export effect Listen {
 
     /// Gives the port back.
     ///
-    /// Closing twice is not an error: the second call has nothing to do, and a
-    /// server unwinding out of a failed loop should not have to remember how far
-    /// it got before it can tidy up.
+    /// Closing twice is not an error: the second call has nothing to do.
     fn listenClose(self, handle: Int): ();
 
     /// Turns an accepted connection into a socket, if that is what the client
     /// asked for.
     ///
     /// The `Int` is the socket, on `listenAccept`'s terms: opaque, minted by the
-    /// acceptor, and the thing `Sockets`' three methods name. It costs the
-    /// connection everything — a socket is not answered with a `Response`, so a
-    /// connection this upgrades is one `listenRespond` will never be called for.
+    /// acceptor, and the thing `Sockets`' three methods name. A socket is not
+    /// answered with a `Response`, so a connection this upgrades is one
+    /// `listenRespond` will never be called for.
     ///
     /// **`.Err` is the ordinary answer and not a failure.** A request that is not
     /// an upgrade, an upgrade this acceptor cannot complete, a transport that
     /// cannot carry one — all of them leave the connection exactly as it was,
     /// still holding its request and still answerable. So `core/net/server` reads
     /// any `.Err` here as "this is an ordinary request" and hands it to
-    /// `onRequest`. That is what makes an upgrade *invisible*: a server with no
-    /// socket hooks never calls this, and a server with them never has to decide
-    /// what an upgrade request looks like.
-    ///
-    /// It follows that this is the one call in this effect whose `.Err` is not a
-    /// reason to stop, and `core/net/server`'s loop is where that is written
-    /// down.
+    /// `onRequest`. It is the one call in this effect whose `.Err` is not a
+    /// reason to stop.
     fn listenUpgrade(self, connection: Int): Result<Int, ServeError>;
 
     /// The next thing to arrive on a socket, once one has.
@@ -522,18 +368,15 @@ export effect Listen {
     /// **One caller per socket, and that is the ordering rule.** The events on
     /// one socket go to whoever asks, in the order they arrived, and
     /// `core/net/server` asks from one task per socket. So the hooks on a socket
-    /// run in order by construction rather than by a lock. Two tasks asking about
-    /// one socket would each get some of its messages, which is a program
-    /// dividing its own stream in half.
+    /// run in order by construction rather than by a lock.
     ///
     /// **`.Closed` is the last answer a socket gives**, and after it the socket
     /// is gone: a message sent to it is dropped, and asking again is
-    /// `.Err(.Closed)`. That is what makes "the close hook is the last thing that
-    /// runs" true without a second call to release the socket.
+    /// `.Err(.Closed)`.
     ///
     /// `.Err` is a socket that is already gone — closed, never opened, or its
-    /// listener closed under it — and a loop reads it as an end it should report
-    /// to the close hook as an abnormal one.
+    /// listener closed under it — and a loop reads it as an abnormal end and
+    /// reports it to the close hook.
     fn listenReceive(self, socket: Int): Result<Received, ServeError>;
 }
 
@@ -542,66 +385,45 @@ export effect Listen {
 /// A websocket is not a request and a response, so the authority to push on one
 /// is neither `Listen` nor `Net`. It is separate because it *outlives* the
 /// handler: a socket handle can go to an actor and be pushed to from there long
-/// after the request that opened it returned, and a context granted only
-/// `Listen` should not be able to do that.
+/// after the request that opened it returned.
 ///
 /// **Every method here names the noun it acts on**, and that is a rule rather
 /// than a style. Method lookup through a context searches every bound effect and
-/// reports two matches as `ambiguous-trait-method` (`find_in_bounds`,
-/// `semantics/expressions.rs`). So an effect that claims a common verb makes that
-/// verb unusable for every effect bound beside it, and the language has no way to
-/// un-claim it afterwards. `Ui.read` and `Watch.read` are the shipped cautionary
-/// case: the two are meant to be bound together, and `ctx.read(id)` is ambiguous
-/// for everyone who does. A bare `send`, `write` or `close` here would have made
-/// the same mistake against `Stdout`, `Ui` and whatever a later effect wants.
-/// Claiming the `socket…` prefix costs six characters at the one call site there
-/// will ever be, and reserves a namespace instead of a word.
+/// reports two matches as `ambiguous-trait-method`, so an effect that claims a
+/// common verb makes that verb unusable for every effect bound beside it.
+/// `Ui.read` and `Watch.read` are the shipped cautionary case: the two are meant
+/// to be bound together, and `ctx.read(id)` is ambiguous for everyone who does.
+/// The `socket…` prefix reserves a namespace instead of a word.
 ///
-/// **The operations are declared, rather than this being a marker effect.** It is
-/// tempting to leave `Sockets` empty and used only as a bound, letting
-/// `core/net/server` hold the real operations as functions taking `C: Sockets`.
-/// The surface a program sees would be identical, since `send` and `close` are
-/// `Socket`'s methods either way. It would also be an authority hole. An effect
-/// is an ordinary interface and anyone may write a type satisfying it (SPEC
-/// 10.9). That is safe exactly because a hand-written `Stdout` writes nowhere. A
-/// hand-written `Sockets` satisfying a *marker* would instead be a key to
-/// operations somebody else implemented. So the operations go through the
-/// implementation, and a forged one forges only its own inert bodies.
+/// **The operations are declared, rather than this being a marker effect.**
+/// Anyone may write a type satisfying an effect (SPEC 10.9), which is safe only
+/// because a hand-written `Stdout` writes nowhere. A hand-written `Sockets`
+/// satisfying a marker would be a key to operations somebody else implemented.
 ///
-/// A socket is an `Int` handle here and `core/net/server` wraps it in a `Socket`,
-/// which is the arrangement `Ui` already uses: the effect speaks in signal ids
-/// and `ui/signal` hands out `Signal<T>`. The close code is an `Int` for the same
-/// reason. `CloseReason` is an enum in the module above, and "wire codes never
-/// appear in Buri code" is a rule about the code people write — so the mapping
-/// lives one layer up from here.
+/// A socket is an `Int` handle here and `core/net/server` wraps it in a
+/// `Socket`. The close code is an `Int` for the same reason: `CloseReason` is an
+/// enum in the module above, and wire codes never appear in Buri code.
 ///
 /// **Granted on every platform**, because there are two ways to come by a
-/// socket now and only one of them is a server's. `listenUpgrade` mints one on
+/// socket and only one of them is a server's. `listenUpgrade` mints one on
 /// `LINUX` and `MACOS`; `WebSocketClient.connectSocket` mints one everywhere, a
-/// page included. So this effect is granted wherever *either* half is, which
-/// today is every one of them. It used to be granted with `Listen` and only
-/// with it, and the sentence that read "a page neither accepts connections nor
-/// holds one to push on" was true right up until a page could dial one.
+/// page included.
 ///
-/// A handle that names no open socket counts as one that has already gone. That
-/// is what the third method promises for a socket somebody closed, so a made-up
-/// handle and a spent one are deliberately indistinguishable.
+/// A handle that names no open socket counts as one that has already gone, so a
+/// made-up handle and a spent one are deliberately indistinguishable.
 export effect Sockets {
     /// Enqueues a text frame. Never waits: the frame goes to the socket's
     /// outbound buffer, and a socket whose buffer is full is closed rather than
     /// its writer blocked.
     ///
-    /// **Enqueued and not sent**, which is the distinction the word buys. The
-    /// bytes leave when the socket's own loop next asks what arrived
-    /// (`listenReceive`), so a message pushed from an actor is on its way as soon
-    /// as that loop is between messages. A `send` from any task at all costs a
-    /// lock and a queue, rather than a wait on a socket somebody else might be
-    /// reading slowly. `Serve.SocketBuffer` is how deep the queue is; overflowing
-    /// it closes the socket, and the loop hears about that like any other close.
+    /// **Enqueued and not sent.** The bytes leave when the socket's own loop
+    /// next asks what arrived (`listenReceive`), so a message pushed from an
+    /// actor is on its way as soon as that loop is between messages.
+    /// `Serve.SocketBuffer` is how deep the queue is; overflowing it closes the
+    /// socket, and the loop hears about that like any other close.
     fn socketSendText(self, socket: Int, text: Str): ();
     /// Enqueues a binary frame, on `socketSendText`'s terms. Two operations
-    /// rather than one taking a payload, because they are two framings on the
-    /// wire and not one operation with a choice of argument.
+    /// rather than one, because they are two framings on the wire.
     fn socketSendBytes(self, socket: Int, body: [U8]): ();
     /// Closes the socket, with the wire code and reason the far side is told. A
     /// message sent afterwards is dropped rather than refused: the other end may
@@ -613,10 +435,8 @@ export effect Sockets {
 ///
 /// `Listen` is the accepting half: a program that holds a port, takes a
 /// connection, and upgrades it. This is the other half — a program that dials
-/// somebody else's socket and reads what they push at it. They are two
-/// authorities for the reason `Net` and `Listen` are two: dialling out is not
-/// accepting in, and a context that grants one should not grant the other by
-/// accident.
+/// somebody else's socket and reads what they push at it. Dialling out is not
+/// accepting in, so they are two authorities.
 ///
 /// **Two methods, and they are `listenUpgrade` and `listenReceive` from the
 /// other end.** The first mints a socket, the second waits for what arrives on
@@ -626,24 +446,15 @@ export effect Sockets {
 /// the same three hooks `core/net/server`'s `WebSocket` does.
 ///
 /// **Writing on the socket is `Sockets`' and not this effect's.** A socket
-/// minted here is the same inert handle a server's is, so `socket.send` and
-/// `socket.close` are the same two methods over the same effect, and a client
-/// that pushes says `C: WebSocketClient + Sockets` where it is written. That is
-/// why `Sockets` is granted on every platform now and this one is too: the
-/// authority to write on a socket is worth having wherever a socket can be
-/// obtained, and a page can obtain one by dialling even though it can never
-/// accept one.
+/// minted here is the same inert handle a server's is, so a client that pushes
+/// says `C: WebSocketClient + Sockets`.
 ///
-/// **Every method names the noun it acts on**, on `Sockets`' rule: a bare
-/// `connect` would have claimed a common verb out of the namespace every effect
-/// bound beside this one shares, and `receive` was the word `Listen` already
-/// declined to take.
+/// **Every method names the noun it acts on**, on `Sockets`' rule.
 ///
 /// **Granted on LINUX, MACOS, JS, WEB and CLOUDFLARE_WORKER** — every platform.
 /// Dialling out is what a page does; it is holding a port open that a page
 /// cannot do, and a worker is in the same position. On WEB and
-/// CLOUDFLARE_WORKER the two methods suspend without holding the event loop,
-/// which is the same thing that let `Net.fetch` onto a page.
+/// CLOUDFLARE_WORKER the two methods suspend without holding the event loop.
 export effect WebSocketClient {
     /// Dials `url` and completes the opening handshake, answering the socket and
     /// the response that opened it.
@@ -666,8 +477,7 @@ export effect WebSocketClient {
     ///
     /// **Headers and a subprotocol are not arguments here.** A program that
     /// wants either builds the URL and reads the answer: `Connected` carries the
-    /// response's own header fields, which is where a negotiated subprotocol
-    /// arrives.
+    /// response's own header fields, where a negotiated subprotocol arrives.
     fn connectSocket(self, url: Str): Result<Connected, ServeError>;
 
     /// The next thing to arrive on a socket this effect minted.
@@ -679,18 +489,14 @@ export effect WebSocketClient {
     /// what makes `socketSendText` a call that never waits on a client socket
     /// either.
     ///
-    /// **One caller per socket**, on `listenReceive`'s terms: two callers would
-    /// each get some of the stream, which is a program dividing its own messages
-    /// in half.
+    /// **One caller per socket**, on `listenReceive`'s terms.
     fn connectReceive(self, socket: Int): Result<Received, ServeError>;
 }
 
 derive Eq, Show for IoError;
 /// Declared here rather than in `core/fs` because the three stream effects above
-/// answer it too, and they are declared here. A failure to write a line and a
-/// failure to write a file are the same small set of facts about a platform
-/// refusing, and one enum is what makes them comparable. `core/fs` re-exports it,
-/// so a program that only reads files names one module.
+/// answer it too. `core/fs` re-exports it, so a program that only reads files
+/// names one module.
 export enum IoError {
     NotFound,
     PermissionDenied,
@@ -698,9 +504,8 @@ export enum IoError {
     AlreadyExists,
     NotADirectory,
     /// A rename whose two paths are on different filesystems — the one case
-    /// where the operation is a copy and therefore not atomic. Named rather than
-    /// folded into `Other` because a caller that wanted atomicity has to be able
-    /// to tell this apart from a failure it can retry.
+    /// where the operation is a copy and therefore not atomic. A caller that
+    /// wanted atomicity has to tell this apart from a failure it can retry.
     CrossDevice,
     Other(Str),
 }
@@ -715,12 +520,6 @@ export enum NetError {
     /// closed connection, a deadline the caller set. Distinct from `Timeout`,
     /// which is the *transport* giving up: this one is the program's own doing,
     /// and a caller that retries a `Timeout` should not retry this.
-    ///
-    /// It is also the reason this enum is the only one. `ui/effect` used to
-    /// declare a `FetchError` whose fifth variant this was, because a
-    /// callback-shaped request could be called off and a blocking one could not.
-    /// A page's requests are `Net`'s now, so there is one list of reasons a
-    /// request produced no response.
     Aborted,
 }
 
@@ -734,10 +533,8 @@ derive Eq, Show for Protocol;
 ///
 /// A `Server` naming a protocol its toolchain's runtime was not built with is
 /// refused when it binds, with `.Unsupported` and a message naming the build
-/// switch. That is a *run-time* refusal on purpose. HTTP/3 is a field of a value
-/// rather than an intrinsic key, so nothing about the program is wrong. Refusing
-/// every program that mentions `serve` would refuse every server that was only
-/// ever going to speak HTTP/1.1.
+/// switch. The refusal is at run time on purpose: nothing about the program is
+/// wrong, and a server that only ever speaks HTTP/1.1 should still run.
 export enum Protocol {
     Http1,
     Http2,
@@ -748,12 +545,10 @@ derive Eq, Show for Serve;
 /// One thing a listener is being asked for — **the bind's whole plan, one
 /// element at a time.**
 ///
-/// `listenBind` is at the ten-integer budget a runtime call has, and this is the
-/// shape that stopped that from being the end of the conversation. A list crosses
-/// as a pointer and a length whatever its elements are, so a list of *tagged
-/// options* carries as many `Str`s and `Int`s as anyone wants for the price of
-/// the one list argument the call already spends. A certificate and a key would
-/// have been six more integers; they are two variants.
+/// A runtime call carries ten integer arguments and `listenBind` spends all ten,
+/// but a list crosses as a pointer and a length whatever its elements are. So a
+/// list of *tagged options* carries as many `Str`s and `Int`s as anyone wants for
+/// the price of one argument.
 ///
 /// The **declaration order is the ABI**, as `Protocol`'s is: the variant index
 /// and its payload are what cross, and `cli/runtime/net.rs`'s `BuriServe` is this
@@ -766,9 +561,9 @@ export enum Serve {
     Speak(Protocol),
     /// Where to read the server's certificate chain, as a path to a PEM file.
     ///
-    /// A **path** and not the certificate itself, because a certificate is a file
-    /// that expires and gets rotated, and a private key written into a source
-    /// file is a private key in a version control system.
+    /// A **path** and not the certificate itself: certificates expire and get
+    /// rotated, and a key written into a source file is a key in version
+    /// control.
     Certificate(Str),
     /// Where to read the private key that goes with it, on the same terms.
     PrivateKey(Str),
@@ -786,14 +581,10 @@ export enum Serve {
     /// How many messages a socket's outbound buffer holds before the socket is
     /// closed.
     ///
-    /// `socketSendText` never waits — it hands the message to the socket's own
-    /// buffer and returns — so something has to say what happens when the far
-    /// side reads more slowly than this side writes. A buffer that grew without a
-    /// bound would be a server whose memory is decided by its slowest client; a
-    /// `send` that blocked would be an actor stalled by a socket it does not own.
-    /// So the buffer is bounded and a socket that fills it is **closed**, which is
-    /// the one answer that costs neither. Naming none leaves the number to the
-    /// runtime.
+    /// `socketSendText` never waits, so something has to say what happens when
+    /// the far side reads more slowly than this side writes: the buffer is
+    /// bounded, and a socket that fills it is **closed**. Naming none leaves the
+    /// number to the runtime.
     SocketBuffer(Int),
 }
 
@@ -801,10 +592,7 @@ derive Eq, Show for ServeFailure;
 /// Why a server stopped, as a closed set.
 ///
 /// Separate from `NetError` because being a server fails in different ways from
-/// talking to one: a client is refused, redirected or timed out, while a server
-/// finds the port taken, the privilege missing, or its own protocol list
-/// unbuildable. Two enums rather than one union of nine, so that a `match` on
-/// either covers cases that can actually happen.
+/// talking to one, so a `match` on either covers cases that can actually happen.
 ///
 /// The **declaration order is the ABI**, as `Protocol`'s is.
 export enum ServeFailure {
@@ -831,13 +619,10 @@ export enum ServeFailure {
 derive Eq, Show for ServeError;
 /// Why a server stopped, and what the platform said about it.
 ///
-/// A **struct** rather than an enum with payloads, and the shape is load bearing
-/// on both sides. For a reader, `cause` is what a program branches on and
-/// `detail` is what it prints. That keeps the two questions apart, where
-/// `NetError` answers them with one enum and a `match` that binds a `Str` it
-/// mostly ignores. For the runtime, `cli/runtime/lib.rs` §2.1 gives a non-enum
-/// error its own out-pointer, so the message crosses the C ABI whole. A variant
-/// index names an enum error, and its payload does not cross at all.
+/// A **struct** rather than an enum with payloads: `cause` is what a program
+/// branches on and `detail` is what it prints. `cli/runtime/lib.rs` §2.1 also
+/// gives a non-enum error its own out-pointer, so the message crosses the C ABI
+/// whole, where an enum error's payload would not cross at all.
 export struct ServeError {
     export cause: ServeFailure,
     export detail: Str,
@@ -854,18 +639,8 @@ derive Eq, Show for Listener;
 ///
 /// `handlers` is **how many handlers this acceptor will host at once on this
 /// listener**, and it is what `core/net/server`'s `run` fans its accept loop out
-/// to. It rides here rather than on a method of its own for two reasons. The bind
-/// is where the acceptor learns everything else about the listener, and a sixth
-/// method would have claimed a sixth name out of the namespace every effect bound
-/// beside this one shares. An acceptor that answers one drives exactly the server
-/// this effect described before F3.
-///
-/// The number is the *acceptor's* and not the program's, for `headerTimeout`'s
-/// reason one paragraph down. `listenBind` is at the ten-integer budget, so a
-/// program's own preference has no way across, and a knob nothing could carry
-/// would be a knob that silently did nothing. A program that has to bound its
-/// concurrency bounds it in its handler; the day the budget grows, this becomes a
-/// request as well as an answer.
+/// to. The number is the acceptor's and not the program's: a program that has to
+/// bound its concurrency bounds it in its handler.
 ///
 /// It is inert like the rest of this value, so a program may write a `Listener`
 /// of its own with any number in it. `core/net/server` therefore believes it only
@@ -881,8 +656,7 @@ derive Eq, Show for Frame;
 ///
 /// **Three and not five**: a ping and a pong are the transport keeping a
 /// connection alive and the platform answers them, so nothing above this line
-/// ever sees one. The set is closed for `Method`'s reason — a frame kind a
-/// program cannot name is one it cannot be surprised by.
+/// ever sees one.
 ///
 /// The **declaration order is the ABI**, as `Protocol`'s is.
 export enum Frame {
@@ -898,13 +672,10 @@ export enum Frame {
 derive Eq, Show for Received;
 /// One thing that arrived on a socket.
 ///
-/// **A struct with a kind beside it, rather than an enum with payloads.** It is
-/// `ServeError`'s shape for `ServeError`'s reason: `cli/runtime/lib.rs` §2.1
-/// gives a non-enum value its own out-pointer and it crosses whole, so the
-/// runtime writes one shape and the program reads one shape. The enum with
-/// payloads that a reader wants is `core/net/server`'s `Message`, built from this
-/// on the Buri side of the boundary — the same division that puts `CloseReason`
-/// one layer up from the `Int` in `socketClose`.
+/// **A struct with a kind beside it, rather than an enum with payloads**, on
+/// `ServeError`'s terms: it crosses the C ABI whole. The enum with payloads that
+/// a reader wants is `core/net/server`'s `Message`, built from this on the Buri
+/// side of the boundary.
 ///
 /// The fields a `frame` does not name are empty: a `.Text` carries nothing in
 /// `data`, a `.Binary` nothing in `text`, and neither carries a `code`.
@@ -915,32 +686,25 @@ export struct Received {
     export text: Str,
     /// A `.Binary` message's payload.
     export data: [U8],
-    /// Why a `.Closed` socket closed, as the wire's own number — which is why
-    /// `core/net/server` maps it to a `CloseReason` before any program sees it,
-    /// exactly as it maps one *to* a number for `socketClose`.
+    /// Why a `.Closed` socket closed, as the wire's own number.
+    /// `core/net/server` maps it to a `CloseReason` before any program sees it.
     ///
     /// **A negative code is the platform's own and never the far side's.** Wire
-    /// codes are unsigned, so a number below zero cannot have come off a socket.
-    /// It is how a platform says a socket ended for a reason that was never on
-    /// the wire at all — an outbound buffer that filled, say — without a peer
-    /// being able to claim the same thing by sending it.
+    /// codes are unsigned, so a number below zero cannot have come off a socket:
+    /// it is how a platform says a socket ended for a reason that was never on
+    /// the wire at all, such as an outbound buffer that filled.
     export code: Int,
 }
 
 derive Eq, Show for Connected;
 /// A WebSocket client's opening handshake, answered.
 ///
-/// **Flat, and a struct rather than a pair**, which is `Received`'s shape for
-/// `Received`'s reason: `cli/runtime/lib.rs` §2.1 gives a non-enum value its own
-/// out-pointer and it crosses whole, so the runtime writes one shape and the
-/// program reads one shape. `core/net/websocket` builds the `Response` a program
-/// wanted out of the last three fields, on the Buri side of the boundary —
-/// exactly the division that puts `Message` one layer up from `Received`.
+/// **Flat, and a struct rather than a pair**, on `Received`'s terms: it crosses
+/// the C ABI whole. `core/net/websocket` builds the `Response` a program wanted
+/// out of the last three fields.
 ///
 /// The response is the `101` the server answered, and it is where a negotiated
-/// subprotocol arrives. That is why a subprotocol is not an argument to
-/// `connectSocket`: a program asks for one by building the URL and the headers
-/// it dials with, and reads what it got here.
+/// subprotocol arrives.
 export struct Connected {
     /// The socket, on `listenUpgrade`'s terms: opaque, minted by the platform,
     /// and the thing `Sockets`' three methods name.
@@ -966,11 +730,9 @@ export struct Connected {
 derive Eq, Show for Method;
 /// The request method.
 ///
-/// Its **wire spelling never appears in Buri code**: `GET` is written `.Get`, and
-/// the three letters are the platform's business, exactly as a WebSocket close
-/// code is. That is what makes the set closed — a method a program cannot name is
-/// a method it cannot send — and what keeps a typo a compile error instead of a
-/// 501 from a server three timezones away.
+/// Its **wire spelling never appears in Buri code**: `GET` is written `.Get`,
+/// and the three letters are the platform's business. The set is closed, so a
+/// typo is a compile error rather than a 501.
 ///
 /// The **declaration order is the ABI**: the variant index is what crosses to the
 /// runtime, so a variant may be appended and never reordered.
@@ -990,8 +752,8 @@ derive Eq, Show for Header;
 /// **Names are lowercase.** HTTP/2 and HTTP/3 require it on the wire, every
 /// platform here lowercases what it receives, and `withHeader` lowercases what it
 /// is given. So `header` is an exact comparison rather than a case-insensitive
-/// scan, and a program never has to guess which casing a server chose. A name
-/// written any other way is not an error; this lowercases it on the way in.
+/// scan. A name written any other way is not an error; it is lowercased on the
+/// way in.
 export struct Header {
     export name: Str,
     export value: Str,
@@ -1000,10 +762,9 @@ export struct Header {
 derive Eq, Show for Request;
 /// An HTTP request: what `Net.fetch` takes, and what a server's handler is given.
 ///
-/// The body is octets rather than text because a request body is not necessarily
-/// text — a decoded `Str` would have to be lossy or fallible, and both are wrong
-/// for a byte range or a protobuf. `core/net/http` has the text-shaped
-/// constructors and `core/bytes` the conversions.
+/// The body is octets rather than text: a decoded `Str` would have to be lossy or
+/// fallible, and both are wrong for a byte range or a protobuf. `core/net/http`
+/// has the text-shaped constructors and `core/bytes` the conversions.
 export struct Request {
     export method: Method,
     export url: Str,
@@ -1024,8 +785,8 @@ impl Request {
     /// The path component of `url`, always beginning with `/` and carrying
     /// neither query nor fragment. `"/"` when the URL names no path.
     ///
-    /// Pure: every step is a view (`splitOnce`, `slice`), so asking a request
-    /// where it is going costs no allocation and needs no context.
+    /// Pure: every step is a view, so this costs no allocation and needs no
+    /// context.
     export fn path(self): Str {
         let after = match (self.url.splitOnce("://")) {
             .Some((_scheme, rest)) => rest,
@@ -1066,9 +827,8 @@ impl Request {
         }
     }
 
-    /// The same request with one more header. Appends rather than replaces:
-    /// `set-cookie` legitimately repeats, and a builder that silently dropped the
-    /// earlier one would make that unsayable.
+    /// The same request with one more header. Appends rather than replaces,
+    /// because `set-cookie` legitimately repeats.
     export fn withHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Request {
         Request {
             method: self.method,
@@ -1100,8 +860,8 @@ impl Request {
 }
 
 impl Response {
-    /// `2xx`. Nothing else: a redirect is not a success, and a caller that wanted
-    /// to follow one has to say so.
+    /// `2xx`. A redirect is not a success, and a caller that wants to follow one
+    /// has to say so.
     export fn isOk(self): Bool {
         self.status >= 200 && self.status < 300
     }
