@@ -23,7 +23,6 @@ function __cmd_x_main_buri$main(){
   let $t1;
   if(parsed_2[0]===0){
     const pair_3=parsed_2[1];
-    $share(pair_3);
     const $t4=__cmd_x_main_buri$eval(pair_3[0]);
     if($t4[0]===0){
       $t1='value '+String($t4[1])+' depth '+String(__cmd_x_main_buri$depth(pair_3[0]));
@@ -262,13 +261,11 @@ function __cmd_x_main_buri$parsePrimary(c_0){
   switch($t1[0]){
     case 0:
       {
-        const c_4=$share(c_0);
-        return [0,[[0,$t1[1]],[c_4[0],c_4[1]+1n]]];
+        return [0,[[0,$t1[1]],[c_0[0],c_0[1]+1n]]];
       }
     case 5:
       {
-        const c_5=$share(c_0);
-        const $t5=__cmd_x_main_buri$parseSum([c_5[0],c_5[1]+1n]);
+        const $t5=__cmd_x_main_buri$parseSum([c_0[0],c_0[1]+1n]);
         if($t5[0]!==0){
           return $t5;
         }
@@ -284,8 +281,7 @@ function __cmd_x_main_buri$parsePrimary(c_0){
       break;
     case 2:
       {
-        const c_7=$share(c_0);
-        const $t10=__cmd_x_main_buri$parsePrimary([c_7[0],c_7[1]+1n]);
+        const $t10=__cmd_x_main_buri$parsePrimary([c_0[0],c_0[1]+1n]);
         if($t10[0]!==0){
           return $t10;
         }
