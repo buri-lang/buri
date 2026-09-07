@@ -16,6 +16,11 @@
 // literal — a literal lives in the constant pool (VALUE-MODEL.md §5.2) and is
 // never a block anybody has to give back.
 //
+// A field a `..` stands for is a skipped position too, and it is the one the
+// walk could not see: `..` left those fields out of the tree entirely, so
+// `let Nest { tag, .. }` leaked whatever it elided. The checker writes them out
+// as wildcards now, and the two `..` cases below are what found that.
+//
 // The last section is the other direction. Naming a skipped position is only
 // right if the name is not a *second* one for a value something else already
 // releases, so those cases read the value again after destructuring it: an
