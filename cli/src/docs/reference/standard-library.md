@@ -190,6 +190,9 @@ unordered, so it answers `.Equal` for a pair it could not order.
   table and one to write the tree; a type name resolves through an `OrdMap`, so
   a schema of `n` declarations costs O(n log t) in the `t` types in scope.
   [The proto reference](./build/proto.md) is the mapping, and it is a promise.
+  This is the module the build runs: `generators: [{ tool: "std/codegen/proto",
+  ... }]` compiles it and hands it a request, the same way it runs a tool of
+  your own.
 
 ## Collections
 

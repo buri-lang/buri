@@ -16,13 +16,14 @@
 //! what go-to-definition and a diagnostic inside generated code need. The
 //! compiler then parses the text with its one ordinary parser.
 //!
-//! Two kinds of tool, one protocol. A `tool` beginning `//` names a binary
+//! Two kinds of tool, **one path**. A `tool` beginning `//` names a binary
 //! target in this repository: it is built for `JS` through the ordinary action
 //! path and run under the JavaScript runtime. Anything else names a generator
-//! the toolchain ships — `std/codegen/proto` is the only one — which produces
-//! the same [`Response`] in this process, with no subprocess. That is what
-//! makes the boundary provable: the `.proto` generator this toolchain has
-//! always had answers the same protocol a user's binary does.
+//! the toolchain ships — `std/codegen/proto` is the only one — which is a Buri
+//! program too, compiled from [`PROTO_MAIN`] the first time a build needs it
+//! and run through the same [`run_artifact`]. That is what makes the boundary
+//! provable rather than asserted: the `.proto` generator is not privileged,
+//! and nothing here would notice if it moved into a repository.
 //!
 //! The JSON is written and read by hand. This workspace may not grow a
 //! dependency (`language::corpus::dependencies_stay_behind_the_bar`), and the
