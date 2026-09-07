@@ -5,15 +5,11 @@
 //! `core/host/testing`, so a test builds the context it wants instead of
 //! taking a whole world.
 //!
-//! Only the two graph effects live here. A page's requests used to need a
-//! third — `ui/effect`'s callback-shaped `Fetch`, plus a `noFetch()` that
-//! refused. A page asks for `Net` now, so the double a test wants is
+//! Only the two graph effects live here. For a page's requests, the double is
 //! `core/host/testing`'s `net()`, which refuses every request until `respond`
-//! says what to answer, or one the test writes itself.
+//! says what to answer.
 //!
-//! The implementations are the real reactive runtime with no document
-//! attached. That is deliberate. The graph is what these tests are about, and
-//! a second implementation of it would be a second thing to get right.
+//! The implementations are the real reactive runtime with no document attached.
 //!
 //! Every call to `recorder()` allocates a fresh handle, so what one test
 //! records is invisible to the next. `headless()` and `observer()` are windows
@@ -60,32 +56,22 @@ export fn observer(): Observer;
 /// A tree the runtime rendered, ready to look at and act on.
 ///
 /// Behind it is the renderer `ui/node`'s `mount` uses, pointed at a document
-/// the runtime supplies rather than a browser. There is no second reconciler
-/// to get right, and these tests exercise the shipping one. Which element each
-/// role became, which style reached which element, what a press did, and which
-/// rows a keyed list moved rather than rebuilt are all answerable here.
+/// the runtime supplies rather than a browser. Which element each role became,
+/// which style reached which element, what a press did, and which rows a keyed
+/// list moved rather than rebuilt are all answerable here.
 ///
-/// What is left is what only a browser does. It is a short list, written down
-/// here so that it is a list rather than a silence:
+/// What only a browser does is out of reach, and needs a suite that drives a
+/// real one:
 ///
 /// - **Layout and painting.** A test asserts a style as the declaration it
-///   became, not as pixels. Whether `flex-grow: 1` actually took the leftover
-///   room is the browser's answer to give.
-/// - **The browser's own dispatch.** That Enter and Space on a button produce
-///   a press, that Enter in a field submits the form around it, and that a
-///   press inside a label reaches the input it wraps. All three are why the
-///   vocabulary lowers to `button`, `form` and `label` rather than to
-///   listeners on a `div`, and all three are the browser keeping its side.
-/// - **Focus and selection.** That a moved row keeps the focus and the caret
-///   is the reason rows are keyed. What a test asserts here is the identity
-///   that makes it possible.
+///   became, not as pixels.
+/// - **The browser's own dispatch.** That Enter and Space on a button produce a
+///   press, that Enter in a field submits the form around it, and that a press
+///   inside a label reaches the input it wraps.
+/// - **Focus and selection.** That a moved row keeps the focus and the caret.
+///   What a test asserts here is the identity that makes it possible.
 /// - **What assistive technology announces.** A test asserts a role as the
-///   element it became. Whether a reader says "list, five items" is that
-///   reader's contract with HTML, which is the whole reason meaning lowers to
-///   HTML rather than to attributes on a `div`.
-///
-/// Each of those needs a real browser driven from the outside, and this
-/// repository has no such suite yet.
+///   element it became.
 export struct Rendered(I64);
 
 /// Renders `root` into a document of its own.
@@ -98,9 +84,8 @@ impl Rendered {
     /// The tree as markup: elements, their attributes, their styles and their
     /// text, in order.
     ///
-    /// It leaves out the runtime's own bookkeeping — the markers it puts around
-    /// a region that can change — because a reader never sees that, and a test
-    /// should not pin itself to it.
+    /// It leaves out the runtime's own bookkeeping, the markers it puts around
+    /// a region that can change.
     export fn markup(self): Str;
 
     /// Every run of text in the tree, in order, separated by a space.
@@ -108,10 +93,8 @@ impl Rendered {
 
     /// Presses the button whose label is `label`.
     ///
-    /// Addressed by label rather than by position, because that is how a reader
-    /// addresses it, and because a test that says which button it meant will
-    /// not quietly start pressing another one. Aborts when no button carries
-    /// that label.
+    /// Addressed by label rather than by position, the way a reader addresses
+    /// it. Aborts when no button carries that label.
     export fn press(self, label: Str): ();
 
     /// Types `value` into the field labelled `label`, the way a reader replacing
@@ -139,30 +122,24 @@ impl Rendered {
 
 /// The stylesheet the compiler extracted for this artifact.
 ///
-/// It holds every static style in the program, as one atomic class per
-/// distinct property value, deduped across the whole build. So this is how a
-/// test asserts what a class *means* rather than only what an element is
-/// called, and how it sees that two modules asking for one padding produced one
+/// It holds every static style in the program, as one atomic class per distinct
+/// property value, deduped across the whole build. So a test can assert what a
+/// class *means*, and see that two modules asking for one padding produced one
 /// rule and not two.
-///
-/// It is a compile-time string. Nothing appends to it at run time, and no call
-/// anywhere could.
 export fn stylesheet(): Str;
 
 /// Installs `themes` exactly as `mount` does, and answers the custom-property
 /// block they resolve to.
 ///
-/// This is how a test asserts what a token is *worth*. The stylesheet says
-/// only that a class reads `var(--cardlib-surface)`; a theme decides that
-/// variable's value. A chain resolves here, once, the way it resolves at
-/// mount.
+/// This is how a test asserts what a token is *worth*: the stylesheet says only
+/// that a class reads `var(--cardlib-surface)`. A chain resolves here once, the
+/// way it resolves at mount.
 export fn install(themes: [Theme]): Str;
 
 /// The custom-property block installed right now.
 ///
 /// Write a signal a `switching` theme's condition depends on, then read this
-/// again: that is how a test sees a theme switch. The block changes and nothing
-/// else does, which is the claim.
+/// again: that is how a test sees a theme switch.
 export fn variables(): Str;
 
 /// Paints `root` and compares it against `test/__snapshots__/<name>.png`.
@@ -177,7 +154,8 @@ export fn variables(): Str;
 ///
 /// No window and no browser: `describe` resolves the tree to a scene document
 /// and the toolchain's own renderer paints it. `state` is the pseudo-class to
-/// paint in, so a hovered card and a resting one are two snapshots of one tree.
+/// paint in, so a hovered card and a resting one are two snapshots of one
+/// tree.
 ///
 /// The name is a file name and nothing more. It may not be empty and may not
 /// hold a path separator.
@@ -186,9 +164,6 @@ export fn snapshot<C: Alloc + Ui>(ctx: C, name: Str, root: Node<C>, state: State
 }
 
 /// The runner's side: paint the scene, then compare or record.
-///
-/// Monomorphic — three strings in, nothing out — which is the whole reason the
-/// walk that produces the scene is Buri.
 fn paint(name: Str, scene: Str, state: Str): ();
 
 /// The state, as the painter spells it.
@@ -204,15 +179,13 @@ fn stateName(state: State): Str {
 
 /// An ordered log, for asserting on *when* something ran.
 ///
-/// A reactive computation gets a `Scope`, which grants reading the graph and
-/// nothing else, so it cannot write a signal to say that it ran. This is how a
-/// test sees the order the runtime scheduled watchers in, and how many times a
-/// memo recomputed — the same shape as `core/host/testing`'s captured stdout,
-/// and for the same reason: Buri has no mutation, so the state lives on the
-/// runner's side and this value names it.
+/// A reactive computation gets a `Scope`, so it cannot write a signal to say
+/// that it ran. This is how a test sees the order the runtime scheduled watchers
+/// in, and how many times a memo recomputed. The log lives on the runner's side
+/// and this value names it, the same shape as `core/host/testing`'s captured
+/// stdout.
 ///
-/// Holds no authority, so a lambda may capture one, which is what lets a
-/// computation reach it at all.
+/// Holds no authority, so a lambda may capture one.
 export struct Recorder(I64);
 
 /// A fresh, empty recorder.
@@ -229,8 +202,8 @@ impl Recorder {
     ///
     /// A second channel rather than `record("${value}")`, because a computation
     /// holds only a `Scope`: it cannot allocate, so it cannot render a number
-    /// into a string. It answers its argument so you can wrap it around the
-    /// expression being watched instead of sequencing it before.
+    /// into a string. It answers its argument, so you can wrap it around the
+    /// expression being watched.
     export fn note(self, value: Int): Int;
 
     /// Every value noted so far, oldest first.
