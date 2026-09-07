@@ -299,10 +299,15 @@ means.
 ## Golden values and fixture files
 
 A golden is a value in the suite's own source, compared with `assert.eq`. There
-is no `--accept` and no golden directory: you rewrite one in your editor, and a
-diff review approves it. Hand a test a filesystem only when the code under test
-is what does the reading, as in `fs().files([("statement.txt", "coffee")])` —
-one holding an expected string is a golden written the hard way.
+is no `--accept`: you rewrite one in your editor, and a diff review approves it.
+Hand a test a filesystem only when the code under test is what does the reading,
+as in `fs().files([("statement.txt", "coffee")])` — one holding an expected
+string is a golden written the hard way.
+
+A picture is the exception, because nobody hand-writes a PNG. `ui/testing`'s
+`snapshot` compares what a tree paints against a golden in
+`test/__snapshots__/` beside the suite, and `buri test --update` records it. The
+[user interfaces guide](user-interfaces.md#snapshots) has the rest.
 
 ## Fixtures more than one suite wants
 

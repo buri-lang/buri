@@ -204,6 +204,46 @@ crate-type = ["staticlib"]
 # says of itself that it is unaudited and not for production use, and a TLS
 # stack in every binary this compiler produces is the last place to accept that.
 #
+# ## Three more, and they buy one capability between them
+#
+# **Visual snapshot testing.** `buri test` paints a `Node` tree with no window
+# and no browser, then compares the PNG against a golden. That asks the runtime
+# to do what a browser does — lay a box tree out, shape text into glyphs, fill
+# paths — and none of the three is a thing this repository could write and then
+# trust. They are behind the `paint` feature, argued below with the others:
+#
+# * **`taffy`** — CSS flexbox and grid. Not a layout *idea* but a
+#   specification with a conformance suite: flex line breaking, the three-pass
+#   grid track sizing algorithm, min-content and max-content contributions, and
+#   the automatic minimum size rule. Getting one of those subtly wrong moves a
+#   box four pixels in a picture that is only ever compared against itself, so
+#   the mistake would be invisible until a real page was laid out beside it.
+#
+# * **`cosmic-text`** — shaping and line breaking. A run of text becomes glyph
+#   ids and advances by way of the font's `GSUB` and `GPOS` tables, and where it
+#   may break is the Unicode line-breaking algorithm over the Unicode
+#   bidirectional algorithm. Three table-driven standards, each with its own
+#   errata; a hand-written shaper that lost a kern pair would put a snapshot one
+#   pixel away from the browser rendering the same tree.
+#
+# * **`tiny-skia`** — the rasterizer. Analytic anti-aliased coverage for a
+#   filled path, and the stroker that turns an outline into one. The fill is the
+#   half that looks writable; the stroker is not, because offsetting a cubic
+#   curve is a numerical problem with a literature and a pile of degenerate
+#   cases, and a wrong one shows up as a border that is a shade off on one edge.
+#
+# The smallest feature set of each, and one of them is larger than the design
+# asked for: `taffy_tree` is on, because it is the tree `taffy` stores nodes in
+# and the alternative is implementing its traversal traits over a second tree of
+# our own. `cosmic-text` carries `swash` because that is where it rasterizes a
+# glyph, and `tiny-skia`'s `png-format` is **off**: `paint.rs` writes the PNG
+# itself — row filters, a fixed-Huffman deflate over a fixed-chain match finder,
+# and a hand-rolled CRC-32 and Adler-32 — and the point of that is a byte string
+# two zlib versions cannot disagree about, which a general deflate encoder is
+# free not to give. `cli/runtime/fonts/` is the other half of the same decision —
+# three bundled faces, 135 740 bytes, and no system font enumeration ever — so
+# that a snapshot is the same picture on Linux and on macOS.
+#
 # One line each, deliberately: `dependencies_stay_behind_the_bar` reads this
 # file with a hand-rolled line scanner rather than a TOML crate — a test that
 # needed a crate to check that the crates are the agreed ones would be its own
@@ -216,8 +256,11 @@ ring = { version = "0.17", optional = true, default-features = false }
 tungstenite = { version = "0.30", optional = true, default-features = false, features = ["handshake"] }
 quinn = { version = "0.11", optional = true, default-features = false, features = ["rustls-ring", "runtime-tokio"] }
 getrandom = { version = "0.4", optional = true, default-features = false }
+taffy = { version = "=0.14.0", optional = true, default-features = false, features = ["std", "taffy_tree", "flexbox", "grid"] }
+cosmic-text = { version = "=0.19.0", optional = true, default-features = false, features = ["std", "swash"] }
+tiny-skia = { version = "=0.12.0", optional = true, default-features = false, features = ["std", "simd"] }
 
-# Three features. Two of them are on and one is off, and the split is the whole
+# Four features. Three of them are on and one is off, and the split is the whole
 # of the argument here: a feature is in `default` when turning it off costs a
 # *language capability* a user did not choose to do without, and out of it when
 # turning it on is a choice somebody has to make on purpose.
@@ -293,11 +336,20 @@ getrandom = { version = "0.4", optional = true, default-features = false }
 # cryptographic generator must never do is answer anyway from a weaker one: an
 # `Entropy` served by `rng.rs`'s xoshiro would be indistinguishable from the
 # real thing at every point except the one that matters.
+#
+# ## `paint`, which is on because a test that cannot run is not a test
+#
+# `paint` is in `default` for `net`'s reason once more: `snapshot(ctx, "card",
+# …)` is a language feature, and a toolchain that could not paint one would make
+# "can this package have visual tests" a build-flag question for every user.
+# Off, `buri test` refuses a snapshot rather than answering a blank picture —
+# a missing capability is a refusal here exactly as it is under `crypto`.
 [features]
-default = ["net", "crypto"]
+default = ["net", "crypto", "paint"]
 net = ["dep:tokio", "dep:hyper", "dep:rustls", "dep:ring", "dep:tungstenite"]
 net-h3 = ["net", "dep:quinn"]
 crypto = ["dep:getrandom"]
+paint = ["dep:taffy", "dep:cosmic-text", "dep:tiny-skia"]
 
 # The flags that used to be spelled out in `cli/build.rs`'s `rustc` command
 # line, in the one place a `cargo build --release` reads them from. Each is a

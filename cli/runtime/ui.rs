@@ -1,0 +1,1565 @@
+//! The reactive graph, the themes, and the headless `Ui` platform.
+//!
+//! A port of three sections of `backend/js/runtime.js` — "The reactive graph",
+//! "Themes" and "The headless user-interface platform" — so that a native
+//! program's signals behave exactly as a JavaScript one's do. **The DOM shim
+//! did not come with them.** Nothing here renders anything: `$tree_render` is
+//! still JavaScript, and a native snapshot is painted from a scene document
+//! rather than from a document.
+//!
+//! ## The graph
+//!
+//! One `Vec` of nodes, indexed by the `Int` a Buri `Signal<T>` carries. Four
+//! kinds:
+//!
+//! ```text
+//!   cell      a value, written from outside
+//!   memo      a value, computed from other nodes, lazily
+//!   watcher   run for its effect on the world, eagerly
+//!   owner     runs nothing; exists so that something else can be disposed
+//!             with it
+//! ```
+//!
+//! [`Graph::tracking`] is what a read right now subscribes and
+//! [`Graph::current`] is what a node created right now belongs to. A run drops
+//! its edges before it calls its body, so what a body reads *this* time is
+//! exactly what it is subscribed to — a read behind an `if` is tracked
+//! exactly. A memo is lazy: it recomputes when something reads it. A watcher is
+//! not: it goes on the queue and the queue drains at the end of the batch.
+//!
+//! ## A write inside a drain joins the pass
+//!
+//! `$ui_write` drains whenever no batch is open, and during a drain no batch
+//! is. So a watcher that writes what it read starts a *second* drain on
+//! JavaScript, and a runaway there is a stack overflow rather than the message
+//! the budget exists to print. Here the drain is not re-entrant: a write while
+//! one is running only queues, and the index walk already in progress picks the
+//! work up. Every program that settles settles the same way; a runaway meets
+//! [`STEPS`] and stops with a sentence.
+//!
+//! ## What a node holds
+//!
+//! `Vec<u8>` at a stride the caller names, and every entry that reads or writes
+//! one takes that stride. Two values are the same value when their bytes are
+//! equal, which is the native reading of `runtime.js`'s "identical is not a
+//! change". The bytes are opaque: what they mean, and any reference count
+//! inside them, belongs to the caller.
+//!
+//! ## The flattened theme document
+//!
+//! A `Theme` holds closures and a closure cannot cross as data, so the caller
+//! resolves the switch conditions and hands over the bindings as text. UTF-8,
+//! line-oriented, one theme per `theme` line:
+//!
+//! ```text
+//! buri-theme 1
+//! theme
+//! bind cardlib-surface token app-bg
+//! bind cardlib-accent value rgb(29,78,216)
+//! theme
+//! bind app-bg value rgb(255,255,255)
+//! ```
+//!
+//! * The first line is exactly `buri-theme 1`. A document that opens any other
+//!   way resolves to nothing.
+//! * `theme` opens a theme. Every `bind` after it belongs to that theme, in
+//!   order.
+//! * `bind <name> token <name>` is a value that is itself a token;
+//!   `bind <name> value <text>` is one that is not. `<name>` is
+//!   `namespace-name`, the custom property without its dashes, and `<text>` is
+//!   the rest of the line — `rgb(1,2,3)`, `transparent`, whatever the caller
+//!   rendered.
+//! * Any other line is skipped.
+//!
+//! Resolution is `runtime.js`'s, unchanged: every binding of every theme in one
+//! map keyed by name, a later one replacing an earlier; each value followed
+//! while it is itself a token, with a step budget of the map's size; a chain
+//! that leaves the map or closes on itself left out rather than guessed at; and
+//! the answer one `:root{...}` block per theme in the order they were passed.
+
+use crate::abort::die;
+use crate::value::{str_of, BuriStr};
+use std::sync::Mutex;
+
+/// A runaway is a program whose watchers write what they read. The limit is not
+/// a policy, it is the difference between a diagnosis and a hung tab.
+const STEPS: usize = 100_000;
+
+/// `$ui_at`'s message, word for word, so a program that names a signal that was
+/// never made says the same thing on both backends.
+const NO_SIGNAL: &str = "this signal does not exist";
+
+/// `$ui_drain`'s message, likewise.
+const RUNAWAY: &str = "a reactive update did not settle";
+
+/// The generated C-ABI thunk a memo's or a watcher's body is reached through.
+///
+/// `lib.rs` §2 rule 5, in the shape `rt.rs`'s `Tasks.parallel` already uses:
+/// `state` is the backend's own record and is never read here, `scope` is the
+/// computation the body belongs to — the one field a Buri `Scope` carries —
+/// and `out` is where a memo's answer goes, at the stride the memo was made
+/// with.
+pub type ComputeEntry = unsafe extern "C" fn(state: *mut u8, scope: i64, out: *mut u8);
+
+/// A body, as the graph holds it.
+#[derive(Clone, Copy)]
+struct Compute {
+    entry: ComputeEntry,
+    state: *mut u8,
+}
+
+// SAFETY: `state` is the backend's record for one computation, handed back
+// untouched and never read here. The graph is one per process and a Buri
+// program drives it from one carrier, so the pointer is only ever called on the
+// thread that installed it; the `Send` is what a `static Mutex` asks for and
+// not a promise that two threads may run the same body.
+unsafe impl Send for Compute {}
+
+/// What a node is for.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Cell,
+    Memo,
+    Watcher,
+    Owner,
+}
+
+/// One node. `deps` and `subs` are the same edges from the two ends, and both
+/// are `Vec`s because a computation reads a handful of cells and a linear scan
+/// over three elements beats a hash.
+struct Node {
+    kind: Kind,
+    value: Vec<u8>,
+    stride: usize,
+    compute: Option<Compute>,
+    deps: Vec<i64>,
+    subs: Vec<i64>,
+    dirty: bool,
+    queued: bool,
+    disposed: bool,
+    children: Vec<i64>,
+}
+
+/// The whole graph — one per process, as `$ui` is one per artifact.
+struct Graph {
+    nodes: Vec<Node>,
+    /// What a node created right now belongs to, or `-1`.
+    current: i64,
+    /// What a read right now subscribes, or `-1` for a read nobody is
+    /// listening to. Separate from `current` because building a keyed list's
+    /// row is two questions at once: the row belongs to the list, and what the
+    /// row read is nobody's dependency.
+    tracking: i64,
+    queue: Vec<i64>,
+    /// Open batches. A write inside one defers the drain, so N writes cause one
+    /// pass rather than N.
+    depth: i64,
+    /// Whether a pass is running. A write during one joins it.
+    draining: bool,
+}
+
+impl Graph {
+    const fn new() -> Graph {
+        Graph {
+            nodes: Vec::new(),
+            current: -1,
+            tracking: -1,
+            queue: Vec::new(),
+            depth: 0,
+            draining: false,
+        }
+    }
+
+    fn get(&self, id: i64) -> Option<&Node> {
+        usize::try_from(id).ok().and_then(|i| self.nodes.get(i))
+    }
+
+    fn get_mut(&mut self, id: i64) -> Option<&mut Node> {
+        usize::try_from(id).ok().and_then(|i| self.nodes.get_mut(i))
+    }
+
+    /// A fresh node, owned by whatever is running.
+    fn make(&mut self, kind: Kind, value: Vec<u8>, stride: usize, compute: Option<Compute>) -> i64 {
+        let owner = self.current;
+        self.nodes.push(Node {
+            kind,
+            value,
+            stride,
+            compute,
+            deps: Vec::new(),
+            subs: Vec::new(),
+            // A memo has never run, so it is out of date by construction.
+            dirty: kind == Kind::Memo,
+            queued: false,
+            disposed: false,
+            children: Vec::new(),
+        });
+        let id = (self.nodes.len() as i64) - 1;
+        // Disposal is keyed on which computation was executing when the node
+        // was created, so a nested computation dies with the run that made it.
+        if let Some(o) = self.get_mut(owner) {
+            o.children.push(id);
+        }
+        id
+    }
+
+    /// Drops every edge `id` reads through, from both ends.
+    fn unsubscribe(&mut self, id: i64) {
+        let deps = match self.get_mut(id) {
+            Some(n) => std::mem::take(&mut n.deps),
+            None => return,
+        };
+        for d in deps {
+            if let Some(source) = self.get_mut(d) {
+                source.subs.retain(|s| *s != id);
+            }
+        }
+    }
+
+    /// Disposes `id` and everything hanging off it.
+    fn dispose(&mut self, id: i64) {
+        let mut stack = vec![id];
+        while let Some(next) = stack.pop() {
+            let children = {
+                let Some(n) = self.get_mut(next) else { continue };
+                if n.disposed {
+                    continue;
+                }
+                n.disposed = true;
+                n.compute = None;
+                std::mem::take(&mut n.children)
+            };
+            stack.extend(children);
+            self.unsubscribe(next);
+            if let Some(n) = self.get_mut(next) {
+                n.subs.clear();
+            }
+        }
+    }
+
+    /// Marks dependents out of date, transitively. A memo is only marked — it
+    /// recomputes when read — while a watcher is queued, since nothing will
+    /// ever read it.
+    fn notify(&mut self, id: i64) {
+        let subs = match self.get(id) {
+            Some(n) => n.subs.clone(),
+            None => return,
+        };
+        for s in subs {
+            let mark = {
+                let Some(c) = self.get_mut(s) else { continue };
+                if c.disposed {
+                    continue;
+                }
+                match c.kind {
+                    Kind::Memo if !c.dirty => {
+                        c.dirty = true;
+                        Mark::Deeper
+                    }
+                    Kind::Watcher if !c.queued => {
+                        c.queued = true;
+                        Mark::Queue
+                    }
+                    _ => Mark::Nothing,
+                }
+            };
+            match mark {
+                Mark::Deeper => self.notify(s),
+                Mark::Queue => self.queue.push(s),
+                Mark::Nothing => {}
+            }
+        }
+    }
+}
+
+/// What [`Graph::notify`] does with one subscriber.
+enum Mark {
+    Deeper,
+    Queue,
+    Nothing,
+}
+
+static GRAPH: Mutex<Graph> = Mutex::new(Graph::new());
+
+/// The custom-property block installed right now, without the `<style>` element
+/// around it. Off a browser this is all there is, which is what `ui/testing`
+/// reads.
+static THEME: Mutex<String> = Mutex::new(String::new());
+
+/// Lock, recovering from poisoning, for the reason `testing.rs`'s `lock` gives:
+/// the language has no threads, so a poisoned lock means this runtime already
+/// panicked and failing a second time on top of the first helps nobody.
+fn lock() -> std::sync::MutexGuard<'static, Graph> {
+    match GRAPH.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+fn theme_lock() -> std::sync::MutexGuard<'static, String> {
+    match THEME.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Running, reading, writing
+// ---------------------------------------------------------------------------
+
+/// One run of a computation: drop what the last run made, re-collect the
+/// dependencies, call the body.
+///
+/// The lock is released for the call, because the body is Buri code and reads
+/// and writes the graph on its way through.
+fn run(id: i64) {
+    let (compute, stride, outer_current, outer_tracking) = {
+        let mut g = lock();
+        let Some(n) = g.get(id) else { return };
+        if n.disposed {
+            return;
+        }
+        let Some(compute) = n.compute else { return };
+        let stride = n.stride;
+        // Everything the previous run created belongs to the previous run.
+        let children = match g.get_mut(id) {
+            Some(n) => std::mem::take(&mut n.children),
+            None => return,
+        };
+        for c in children {
+            g.dispose(c);
+        }
+        // Per-run dependency re-collection: the edges go before the body runs,
+        // so what it reads this time is exactly what it is subscribed to.
+        g.unsubscribe(id);
+        let saved = (g.current, g.tracking);
+        g.current = id;
+        g.tracking = id;
+        (compute, stride, saved.0, saved.1)
+    };
+    // A watcher answers `()` and writes nothing, but a destination it could
+    // never write to would be a null pointer in a generated thunk's hands.
+    let mut out = vec![0u8; stride.max(8)];
+    // SAFETY: `entry` is the thunk the backend generated for this computation
+    // and `state` the record it was generated against; `out` is a live buffer
+    // of at least the stride the memo was made with.
+    unsafe { (compute.entry)(compute.state, id, out.as_mut_ptr()) };
+    let mut g = lock();
+    g.current = outer_current;
+    g.tracking = outer_tracking;
+    if let Some(n) = g.get_mut(id) {
+        if n.kind == Kind::Memo {
+            out.truncate(stride);
+            n.value = out;
+        }
+        n.dirty = false;
+    }
+}
+
+/// The queue, in the order it was scheduled. `false` when the step budget ran
+/// out, which is the caller's cue to stop the program.
+///
+/// Index-walking rather than draining a snapshot: a watcher may schedule
+/// another, and the one it schedules belongs to this pass.
+fn drain() -> bool {
+    {
+        let mut g = lock();
+        if g.draining {
+            return true;
+        }
+        g.draining = true;
+    }
+    let mut steps = 0usize;
+    let mut at = 0usize;
+    let settled = loop {
+        let next = {
+            let g = lock();
+            g.queue.get(at).copied()
+        };
+        let Some(id) = next else { break true };
+        steps = steps.saturating_add(1);
+        if steps > STEPS {
+            break false;
+        }
+        {
+            let mut g = lock();
+            if let Some(n) = g.get_mut(id) {
+                n.queued = false;
+            }
+        }
+        run(id);
+        at = at.saturating_add(1);
+    };
+    let mut g = lock();
+    g.draining = false;
+    if settled {
+        g.queue.clear();
+    }
+    settled
+}
+
+/// Drains, and stops the program where it will not settle.
+fn settle() {
+    if !drain() {
+        die(&[RUNAWAY.as_bytes()]);
+    }
+}
+
+/// Whether a write should drain right now: no batch is open and no pass is
+/// already walking the queue.
+fn should_drain() -> bool {
+    let g = lock();
+    g.depth == 0 && !g.draining
+}
+
+/// `$ui_read` — the value, and the edge the read makes.
+///
+/// # Safety
+/// `out` is writable for `stride` bytes, or null with a zero stride.
+unsafe fn read_into(id: i64, stride: usize, out: *mut u8) {
+    let stale = {
+        let g = lock();
+        let Some(n) = g.get(id) else { die(&[NO_SIGNAL.as_bytes()]) };
+        // Reading is what makes a memo run: until then it has computed nothing,
+        // and a memo nothing reads never runs at all.
+        n.kind == Kind::Memo && n.dirty && !n.disposed
+    };
+    if stale {
+        run(id);
+    }
+    let mut g = lock();
+    let reader = g.tracking;
+    if reader >= 0 && reader != id {
+        if let Some(n) = g.get_mut(id) {
+            if !n.subs.contains(&reader) {
+                n.subs.push(reader);
+            }
+        }
+        if let Some(r) = g.get_mut(reader) {
+            if !r.deps.contains(&id) {
+                r.deps.push(id);
+            }
+        }
+    }
+    let Some(n) = g.get(id) else { return };
+    let count = n.value.len().min(stride);
+    if count == 0 || out.is_null() {
+        return;
+    }
+    // SAFETY: the caller promises `stride` writable bytes, and `count` is at
+    // most that.
+    unsafe { std::ptr::copy_nonoverlapping(n.value.as_ptr(), out, count) };
+}
+
+// ---------------------------------------------------------------------------
+// The C ABI
+// ---------------------------------------------------------------------------
+
+/// `Ui.signal(initial)` — a fresh cell holding `stride` bytes, and the `Int` a
+/// `Signal<T>` carries.
+///
+/// # Safety
+/// `initial` points at `stride` readable bytes, or is null with a zero stride.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_signal(initial: *const u8, stride: usize) -> i64 {
+    let value = if initial.is_null() || stride == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: the caller promises `stride` readable bytes.
+        unsafe { std::slice::from_raw_parts(initial, stride) }.to_vec()
+    };
+    let mut g = lock();
+    g.make(Kind::Cell, value, stride, None)
+}
+
+/// `Ui.read(id)` — the value, written through `out`, and the read subscribes
+/// whatever computation is running.
+///
+/// A signal that was never made stops the program with `this signal does not
+/// exist`.
+///
+/// # Safety
+/// `out` is writable for `stride` bytes, or null with a zero stride.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_read(id: i64, stride: usize, out: *mut u8) {
+    // SAFETY: forwarded to the caller's promise.
+    unsafe { read_into(id, stride, out) }
+}
+
+/// `Ui.write(id, value)` — the new bytes, and the pass they cause.
+///
+/// Identical bytes are not a change, which is what makes "wrote the same value,
+/// so nothing re-ran" a thing a test can assert.
+///
+/// # Safety
+/// `value` points at `stride` readable bytes, or is null with a zero stride.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_write(id: i64, value: *const u8, stride: usize) {
+    // SAFETY: forwarded to the caller's promise.
+    unsafe { write_changed(id, value, stride) };
+}
+
+/// [`buri_rt_ui_write`], answering whether the bytes were new.
+///
+/// The answer is what the generic entry below needs and this one does not: a
+/// value the graph did not store is a value the graph must not take a
+/// reference on.
+///
+/// # Safety
+/// As [`buri_rt_ui_write`].
+unsafe fn write_changed(id: i64, value: *const u8, stride: usize) -> bool {
+    let fresh = if value.is_null() || stride == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: the caller promises `stride` readable bytes.
+        unsafe { std::slice::from_raw_parts(value, stride) }.to_vec()
+    };
+    {
+        let mut g = lock();
+        let Some(n) = g.get_mut(id) else { die(&[NO_SIGNAL.as_bytes()]) };
+        if n.value == fresh {
+            return false;
+        }
+        n.value = fresh;
+        g.notify(id);
+    }
+    if should_drain() {
+        settle();
+    }
+    true
+}
+
+/// `Ui.memo(compute)` — a lazy node, out of date by construction.
+///
+/// It runs on the first read and not before, and `stride` is how many bytes its
+/// body writes through the thunk's `out`.
+///
+/// # Safety
+/// `entry` is the thunk the backend generated for this body and `state` the
+/// record it was generated against.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_memo(
+    entry: ComputeEntry,
+    state: *mut u8,
+    stride: usize,
+) -> i64 {
+    let mut g = lock();
+    g.make(Kind::Memo, Vec::new(), stride, Some(Compute { entry, state }))
+}
+
+/// `Ui.watch(run)` — a node that runs for its effect, now and on every change.
+///
+/// Eager, and that is not an optimization: a watcher learns what it depends on
+/// by running, so one that has never run is subscribed to nothing and would
+/// never run again.
+///
+/// # Safety
+/// As [`buri_rt_ui_memo`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_watch(entry: ComputeEntry, state: *mut u8) {
+    let id = {
+        let mut g = lock();
+        g.make(Kind::Watcher, Vec::new(), 0, Some(Compute { entry, state }))
+    };
+    run(id);
+}
+
+/// `Scope.read(id)` — the same read, reached through the `Scope` a reactive
+/// closure was handed.
+///
+/// `scope` names the computation the body belongs to and is not what the edge
+/// is drawn from: the graph's own tracking pointer is, exactly as
+/// `$ui_effect_Scope_read` forwards to `$ui_read`. That is what makes a read
+/// inside a keyed list's row the list's dependency and not the row's.
+///
+/// # Safety
+/// As [`buri_rt_ui_read`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_scope_read(_scope: i64, id: i64, stride: usize, out: *mut u8) {
+    // SAFETY: forwarded to the caller's promise.
+    unsafe { read_into(id, stride, out) }
+}
+
+/// Opens a batch. Writes inside one defer the pass.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_flush_begin() {
+    let mut g = lock();
+    g.depth = g.depth.saturating_add(1);
+}
+
+/// Closes a batch, and runs the one pass N writes earned.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_flush_end() {
+    let closed = {
+        let mut g = lock();
+        if g.depth > 0 {
+            g.depth -= 1;
+        }
+        g.depth == 0
+    };
+    if closed {
+        settle();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Owners, for the keyed list
+// ---------------------------------------------------------------------------
+
+/// `$ui_under`, `$ui_forget` and the owner node they work on.
+///
+/// Their one caller is `$tree_each`, which is still JavaScript, so nothing in
+/// this archive reaches them yet. They are here because the graph is one port
+/// and half a graph would be a second thing to get right later.
+#[allow(dead_code)]
+pub(crate) mod rows {
+    use super::{lock, Kind};
+
+    /// A node that runs nothing, so that something else can be disposed with
+    /// it. A keyed list's rows hang off one, which is what lets a row outlive
+    /// the run that decided it belongs.
+    pub(crate) fn owner() -> i64 {
+        let mut g = lock();
+        g.make(Kind::Owner, Vec::new(), 0, None)
+    }
+
+    /// Runs `body` with everything it creates belonging to `owner`, and with
+    /// what it reads subscribing nothing.
+    ///
+    /// Both halves are needed together exactly once: a keyed list builds a row
+    /// that must outlive the run that decided to build it, and whose reads are
+    /// the list's dependencies and not the row's.
+    pub(crate) fn under<R>(owner: i64, body: impl FnOnce() -> R) -> R {
+        let saved = {
+            let mut g = lock();
+            let saved = (g.current, g.tracking);
+            g.current = owner;
+            g.tracking = -1;
+            saved
+        };
+        let answer = body();
+        let mut g = lock();
+        g.current = saved.0;
+        g.tracking = saved.1;
+        answer
+    }
+
+    /// Drops `id` from its owner's children, so that a list which adds and
+    /// removes a row a thousand times holds a thousand disposed nodes for no
+    /// longer than it holds the row.
+    pub(crate) fn forget(owner: i64, id: i64) {
+        let mut g = lock();
+        if let Some(n) = g.get_mut(owner) {
+            n.children.retain(|c| *c != id);
+        }
+    }
+
+    /// Disposes a node and everything hanging off it.
+    pub(crate) fn dispose(id: i64) {
+        let mut g = lock();
+        g.dispose(id);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Themes
+// ---------------------------------------------------------------------------
+
+/// One binding's value: another token, or something a browser can read.
+#[derive(Clone)]
+enum Bound {
+    Token(String),
+    Value(String),
+}
+
+/// One theme's bindings, in declaration order.
+struct Block {
+    bindings: Vec<(String, Bound)>,
+}
+
+/// The document, as blocks. Anything the format does not name is skipped, and a
+/// document that does not open with `buri-theme 1` is nothing at all.
+fn parse(doc: &str) -> Vec<Block> {
+    let mut lines = doc.lines();
+    if lines.next() != Some("buri-theme 1") {
+        return Vec::new();
+    }
+    let mut blocks: Vec<Block> = Vec::new();
+    for line in lines {
+        if line == "theme" {
+            blocks.push(Block { bindings: Vec::new() });
+            continue;
+        }
+        let mut parts = line.splitn(4, ' ');
+        if parts.next() != Some("bind") {
+            continue;
+        }
+        let (Some(name), Some(kind), Some(rest)) = (parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        let bound = match kind {
+            "token" => Bound::Token(rest.to_owned()),
+            "value" => Bound::Value(rest.to_owned()),
+            _ => continue,
+        };
+        if let Some(block) = blocks.last_mut() {
+            block.bindings.push((name.to_owned(), bound));
+        }
+    }
+    blocks
+}
+
+/// One value, followed while it is a token. The step budget is the number of
+/// bindings there are, so a chain that closes on itself stops instead of
+/// hanging, and one that leaves the map names nothing rather than a guess.
+fn resolve<'a>(bindings: &'a [(String, Bound)], start: &'a Bound) -> Option<String> {
+    let mut steps = bindings.len();
+    let mut value = start;
+    loop {
+        match value {
+            Bound::Value(text) => return Some(text.clone()),
+            Bound::Token(name) => {
+                if steps == 0 {
+                    return None;
+                }
+                steps -= 1;
+                let next = bindings.iter().find(|(k, _)| k == name)?;
+                value = &next.1;
+            }
+        }
+    }
+}
+
+/// The whole custom-property text: one `:root` block per theme, in the order
+/// they were passed — a theme *is* a block of values, so reading the installed
+/// text shows which package each variable came from.
+fn render(doc: &str) -> String {
+    let blocks = parse(doc);
+    // Every binding, in declaration order, a later one for the same token
+    // replacing an earlier one. This is what a chain is followed through.
+    let mut bindings: Vec<(String, Bound)> = Vec::new();
+    for block in &blocks {
+        for (name, bound) in &block.bindings {
+            match bindings.iter().position(|(k, _)| k == name) {
+                Some(at) => {
+                    if let Some(slot) = bindings.get_mut(at) {
+                        slot.1 = bound.clone();
+                    }
+                }
+                None => bindings.push((name.clone(), bound.clone())),
+            }
+        }
+    }
+    let mut out = String::new();
+    for block in &blocks {
+        let mut body: Vec<String> = Vec::new();
+        for (name, bound) in &block.bindings {
+            if let Some(value) = resolve(&bindings, bound) {
+                body.push(format!("--{name}:{value}"));
+            }
+        }
+        if !body.is_empty() {
+            out.push_str(":root{");
+            out.push_str(&body.join(";"));
+            out.push_str("}\n");
+        }
+    }
+    out
+}
+
+/// Installs a theme list the caller has already flattened, and answers the
+/// custom-property block it resolved to.
+///
+/// The header of this file is the document's format. A switching theme is the
+/// caller's business: it registers the watcher and installs again, which is why
+/// nothing here holds a closure.
+///
+/// # Safety
+/// `doc` points at `len` readable bytes, or is null with a zero length; `out`
+/// is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_theme_install(doc: *const u8, len: usize, out: *mut BuriStr) {
+    let bytes = if doc.is_null() || len == 0 {
+        &[][..]
+    } else {
+        // SAFETY: the caller promises `len` readable bytes.
+        unsafe { std::slice::from_raw_parts(doc, len) }
+    };
+    let text = render(&String::from_utf8_lossy(bytes));
+    let answer = str_of(&text);
+    *theme_lock() = text;
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(answer) };
+}
+
+/// The block installed right now.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_theme_variables(out: *mut BuriStr) {
+    let answer = str_of(theme_lock().as_str());
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(answer) };
+}
+
+// ---------------------------------------------------------------------------
+// The keys a runtime table names
+// ---------------------------------------------------------------------------
+//
+// The entries above are the graph's own vocabulary. These are the six symbols
+// the two runtime tables have rows for, named by §1's rule from the intrinsic
+// key rather than from what the operation is called here: `ui_testing.headless`
+// is `buri_rt_ui_testing_headless`, and `ui_effect.Scope.read` is
+// `buri_rt_ui_effect_scope_read`. Each table asserts that spelling
+// (`runtime_table.rs`'s `every_symbol_obeys_the_naming_rule`), so the two
+// layers are one rename apart rather than one convention apart.
+//
+// **The retain glue, and what a cell owes the value in it.** Every generic
+// entry here is emitted with §2 rule 4's pair — a stride and the per-element
+// retain glue — and both halves are used. A cell holds the caller's bytes
+// verbatim, so a `Str`-typed signal parks a 24-byte `BuriStr` naming a heap
+// block. The glue is called **twice**: once on the bytes the graph keeps, so
+// the block cannot be freed under it, and once on the bytes handed back, so
+// the reader owns what it was given.
+//
+// The first of those is a reference the graph never gives back. This ABI has a
+// retain and no release (`list.rs`'s header says why), and a cell is written
+// over rather than dropped, so a stored value leaks one reference. That is the
+// safe direction and it is bounded: `ui/testing` is test-only, so the leak is
+// one test binary's. A release glue beside the retain is what would take it
+// back, and it would take `core/list`'s copies with it.
+
+use crate::list::Retain;
+
+/// Takes a reference on whatever counted pointers one value holds.
+///
+/// # Safety
+/// `at` addresses a whole value of the type `glue` was generated for.
+unsafe fn hold(glue: Retain, at: *mut u8) {
+    if let Some(retain) = glue
+        && !at.is_null()
+    {
+        // SAFETY: the caller promises `at` is a whole value of that type.
+        unsafe { retain(at) };
+    }
+}
+
+/// `ui/testing`'s `headless()` — the handle a `Headless` carries.
+///
+/// The graph is the state, so the number is unused and every call answers the
+/// same one. The entry exists because `Headless` is a struct, and a struct
+/// comes back through an out-pointer (§2 rule 2).
+///
+/// # Safety
+/// `out` is writable and aligned for eight bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_headless(out: *mut i64) {
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(0) };
+}
+
+/// `ui/node`'s `rootScope()` — an untracked scope, which is `-1`.
+///
+/// What `describe` reads props under. Nothing is running, so a read through it
+/// records no dependency and a snapshot subscribes to nothing.
+///
+/// # Safety
+/// As [`buri_rt_ui_testing_headless`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_node_root_scope(out: *mut i64) {
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(-1) };
+}
+
+/// `Headless.signal(initial)`.
+///
+/// # Safety
+/// `initial` points at `stride` readable bytes, and `glue` is the retain glue
+/// for that type or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_headless_signal(
+    _self: i64,
+    initial: *const u8,
+    stride: usize,
+    glue: Retain,
+) -> i64 {
+    // SAFETY: forwarded to the caller's promise.
+    let id = unsafe { buri_rt_ui_signal(initial, stride) };
+    let mut g = lock();
+    if let Some(n) = g.get_mut(id) {
+        let at = n.value.as_mut_ptr();
+        // SAFETY: the cell holds one whole value of that type.
+        unsafe { hold(glue, at) };
+    }
+    id
+}
+
+/// `Headless.read(id)`.
+///
+/// # Safety
+/// `out` is writable for `stride` bytes, and `glue` is the retain glue for that
+/// type or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_headless_read(
+    _self: i64,
+    id: i64,
+    stride: usize,
+    glue: Retain,
+    out: *mut u8,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    unsafe {
+        read_into(id, stride, out);
+        hold(glue, out);
+    }
+}
+
+/// `Headless.write(id, value)`.
+///
+/// # Safety
+/// As [`buri_rt_ui_testing_headless_signal`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_headless_write(
+    _self: i64,
+    id: i64,
+    value: *const u8,
+    stride: usize,
+    glue: Retain,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let changed = unsafe { write_changed(id, value, stride) };
+    if !changed {
+        return;
+    }
+    let mut g = lock();
+    if let Some(n) = g.get_mut(id) {
+        let at = n.value.as_mut_ptr();
+        // SAFETY: the cell holds one whole value of that type.
+        unsafe { hold(glue, at) };
+    }
+}
+
+/// `Scope.read(id)`, at the key the tables name.
+///
+/// # Safety
+/// As [`buri_rt_ui_testing_headless_read`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_effect_scope_read(
+    _scope: i64,
+    id: i64,
+    stride: usize,
+    glue: Retain,
+    out: *mut u8,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    unsafe {
+        read_into(id, stride, out);
+        hold(glue, out);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    /// The graph and the installed block are one per process, and `cargo test`
+    /// runs these cases on many threads at once. Every case here takes this
+    /// first and starts from an empty graph.
+    static ONE_GRAPH_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+    fn alone() -> std::sync::MutexGuard<'static, ()> {
+        let guard = match ONE_GRAPH_AT_A_TIME.lock() {
+            Ok(g) => g,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        *lock() = Graph::new();
+        theme_lock().clear();
+        guard
+    }
+
+    /// A body written in Rust, so a case can say what a computation does.
+    struct Body(Box<dyn Fn(i64) -> i64>);
+
+    unsafe extern "C" fn call(state: *mut u8, scope: i64, out: *mut u8) {
+        // SAFETY: every case hands a live `Body` and eight writable bytes.
+        unsafe {
+            let body = &*state.cast::<Body>();
+            let answer = (body.0)(scope);
+            out.cast::<i64>().write(answer);
+        }
+    }
+
+    /// What each run of a body recorded.
+    type Log = Rc<RefCell<Vec<i64>>>;
+
+    fn log() -> Log {
+        Rc::new(RefCell::new(Vec::new()))
+    }
+
+    fn noted(log: &Log) -> Vec<i64> {
+        log.borrow().clone()
+    }
+
+    fn new_cell(value: i64) -> i64 {
+        // SAFETY: `value` is a live, aligned `i64`.
+        unsafe { buri_rt_ui_signal((&raw const value).cast(), 8) }
+    }
+
+    fn read_cell(id: i64) -> i64 {
+        let mut value = 0i64;
+        // SAFETY: `value` is a live, aligned `i64`.
+        unsafe { buri_rt_ui_read(id, 8, (&raw mut value).cast()) };
+        value
+    }
+
+    /// The same read, through the `Scope` a reactive closure is handed.
+    fn scope_read(scope: i64, id: i64) -> i64 {
+        let mut value = 0i64;
+        // SAFETY: `value` is a live, aligned `i64`.
+        unsafe { buri_rt_ui_scope_read(scope, id, 8, (&raw mut value).cast()) };
+        value
+    }
+
+    fn write_cell(id: i64, value: i64) {
+        // SAFETY: `value` is a live, aligned `i64`.
+        unsafe { buri_rt_ui_write(id, (&raw const value).cast(), 8) };
+    }
+
+    /// A memo, and the box the graph points at — which the case must hold for
+    /// as long as the graph may run it.
+    fn memo(body: impl Fn(i64) -> i64 + 'static) -> (Box<Body>, i64) {
+        let held = Box::new(Body(Box::new(body)));
+        let state = (&raw const *held).cast_mut().cast::<u8>();
+        // SAFETY: `call` is the thunk `held` was written for, and `held` is a
+        // heap box the case keeps.
+        let id = unsafe { buri_rt_ui_memo(call, state, 8) };
+        (held, id)
+    }
+
+    /// A watcher, likewise. It has already run once by the time this answers.
+    fn watcher(body: impl Fn(i64) -> i64 + 'static) -> Box<Body> {
+        let held = Box::new(Body(Box::new(body)));
+        let state = (&raw const *held).cast_mut().cast::<u8>();
+        // SAFETY: as `memo`.
+        unsafe { buri_rt_ui_watch(call, state) };
+        held
+    }
+
+    fn subs_of(id: i64) -> Vec<i64> {
+        lock().get(id).map(|n| n.subs.clone()).unwrap_or_default()
+    }
+
+    fn children_of(id: i64) -> Vec<i64> {
+        lock().get(id).map(|n| n.children.clone()).unwrap_or_default()
+    }
+
+    fn is_disposed(id: i64) -> bool {
+        lock().get(id).map(|n| n.disposed).unwrap_or(false)
+    }
+
+    /// The text an out-pointer entry answered, with its block freed.
+    fn taken(answer: BuriStr) -> String {
+        // SAFETY: the entry wrote a live `Str` there.
+        let text = unsafe { answer.as_str() }.into_owned();
+        if !answer.base.is_null() {
+            // SAFETY: this is the only reference to the block.
+            unsafe { crate::memory::buri_rt_free(answer.base) };
+        }
+        text
+    }
+
+    fn install(doc: &str) -> String {
+        let mut answer = BuriStr { base: std::ptr::null_mut(), ptr: std::ptr::null(), len: 0 };
+        // SAFETY: `doc` is a live view and `answer` a live local.
+        unsafe { buri_rt_ui_theme_install(doc.as_ptr(), doc.len(), &raw mut answer) };
+        taken(answer)
+    }
+
+    fn variables() -> String {
+        let mut answer = BuriStr { base: std::ptr::null_mut(), ptr: std::ptr::null(), len: 0 };
+        // SAFETY: `answer` is a live local.
+        unsafe { buri_rt_ui_theme_variables(&raw mut answer) };
+        taken(answer)
+    }
+
+    // --- signals ---------------------------------------------------------
+
+    #[test]
+    fn a_signal_reads_back_what_was_written() {
+        let _alone = alone();
+        let n = new_cell(1);
+        assert_eq!(read_cell(n), 1);
+        write_cell(n, 7);
+        assert_eq!(read_cell(n), 7);
+    }
+
+    #[test]
+    fn two_signals_are_two_cells() {
+        let _alone = alone();
+        let a = new_cell(1);
+        let b = new_cell(2);
+        write_cell(a, 100);
+        assert_eq!(read_cell(a), 100);
+        assert_eq!(read_cell(b), 2);
+    }
+
+    /// A cell holds bytes at whatever stride it was made with, so a `Str` or a
+    /// struct is a cell exactly as an `Int` is.
+    #[test]
+    fn a_cell_holds_the_bytes_it_was_given_at_any_stride() {
+        let _alone = alone();
+        let initial: [u8; 24] = [7; 24];
+        // SAFETY: `initial` covers twenty-four readable bytes.
+        let id = unsafe { buri_rt_ui_signal(initial.as_ptr(), 24) };
+        let mut got = [0u8; 24];
+        // SAFETY: `got` covers twenty-four writable bytes.
+        unsafe { buri_rt_ui_read(id, 24, got.as_mut_ptr()) };
+        assert_eq!(got, initial);
+    }
+
+    #[test]
+    fn writing_the_value_already_there_is_not_a_change() {
+        let _alone = alone();
+        let n = new_cell(3);
+        let seen = log();
+        let recording = Rc::clone(&seen);
+        let _held = watcher(move |scope| {
+            let value = scope_read(scope, n);
+            recording.borrow_mut().push(value);
+            value
+        });
+        write_cell(n, 3);
+        assert_eq!(noted(&seen), vec![3], "the same bytes are the same value");
+    }
+
+    // --- watchers --------------------------------------------------------
+
+    #[test]
+    fn a_watcher_runs_when_it_is_registered_and_again_on_a_change() {
+        let _alone = alone();
+        let n = new_cell(3);
+        let seen = log();
+        let recording = Rc::clone(&seen);
+        let _held = watcher(move |scope| {
+            let value = scope_read(scope, n);
+            recording.borrow_mut().push(value);
+            value
+        });
+        assert_eq!(noted(&seen), vec![3]);
+        write_cell(n, 4);
+        write_cell(n, 5);
+        assert_eq!(noted(&seen), vec![3, 4, 5]);
+    }
+
+    #[test]
+    fn a_watcher_that_read_nothing_never_runs_again() {
+        let _alone = alone();
+        let n = new_cell(3);
+        let seen = log();
+        let recording = Rc::clone(&seen);
+        let _held = watcher(move |_| {
+            recording.borrow_mut().push(1);
+            1
+        });
+        write_cell(n, 4);
+        assert_eq!(noted(&seen), vec![1]);
+    }
+
+    #[test]
+    fn watchers_run_in_the_order_they_were_registered() {
+        let _alone = alone();
+        let n = new_cell(0);
+        let seen = log();
+        let first = Rc::clone(&seen);
+        let _one = watcher(move |scope| {
+            let _ = scope_read(scope, n);
+            first.borrow_mut().push(1);
+            1
+        });
+        let second = Rc::clone(&seen);
+        let _two = watcher(move |scope| {
+            let _ = scope_read(scope, n);
+            second.borrow_mut().push(2);
+            2
+        });
+        assert_eq!(noted(&seen), vec![1, 2]);
+        write_cell(n, 1);
+        assert_eq!(noted(&seen), vec![1, 2, 1, 2]);
+    }
+
+    // --- memos -----------------------------------------------------------
+
+    #[test]
+    fn a_memo_nothing_reads_never_runs() {
+        let _alone = alone();
+        let n = new_cell(2);
+        let seen = log();
+        let recording = Rc::clone(&seen);
+        let (_held, _doubled) = memo(move |scope| {
+            let value = scope_read(scope, n) * 2;
+            recording.borrow_mut().push(value);
+            value
+        });
+        write_cell(n, 3);
+        assert!(noted(&seen).is_empty());
+    }
+
+    #[test]
+    fn reading_a_memo_twice_in_one_computation_runs_it_once() {
+        let _alone = alone();
+        let n = new_cell(2);
+        let seen = log();
+        let recording = Rc::clone(&seen);
+        let (_held, doubled) = memo(move |scope| {
+            let value = scope_read(scope, n) * 2;
+            recording.borrow_mut().push(value);
+            value
+        });
+        let _watching =
+            watcher(move |scope| scope_read(scope, doubled) + scope_read(scope, doubled));
+        assert_eq!(noted(&seen), vec![4]);
+    }
+
+    #[test]
+    fn a_memo_recomputes_once_per_change_to_what_it_read() {
+        let _alone = alone();
+        let n = new_cell(2);
+        let seen = log();
+        let recording = Rc::clone(&seen);
+        let (_held, doubled) = memo(move |scope| {
+            let value = scope_read(scope, n) * 2;
+            recording.borrow_mut().push(value);
+            value
+        });
+        let _watching = watcher(move |scope| scope_read(scope, doubled));
+        assert_eq!(noted(&seen), vec![4]);
+        write_cell(n, 5);
+        assert_eq!(noted(&seen), vec![4, 10]);
+        write_cell(n, 5);
+        assert_eq!(noted(&seen), vec![4, 10], "the same bytes are not a change");
+    }
+
+    #[test]
+    fn a_memo_answers_the_value_it_computed() {
+        let _alone = alone();
+        let n = new_cell(6);
+        let seen = log();
+        let (_held, doubled) = memo(move |scope| scope_read(scope, n) * 2);
+        let recording = Rc::clone(&seen);
+        let _watching = watcher(move |scope| {
+            let value = scope_read(scope, doubled);
+            recording.borrow_mut().push(value);
+            value
+        });
+        write_cell(n, 7);
+        assert_eq!(noted(&seen), vec![12, 14]);
+    }
+
+    #[test]
+    fn a_memo_of_a_memo_settles_in_one_pass() {
+        let _alone = alone();
+        let n = new_cell(1);
+        let (_first, doubled) = memo(move |scope| scope_read(scope, n) * 2);
+        let (_second, quadrupled) = memo(move |scope| scope_read(scope, doubled) * 2);
+        let seen = log();
+        let recording = Rc::clone(&seen);
+        let _watching = watcher(move |scope| {
+            let value = scope_read(scope, quadrupled);
+            recording.borrow_mut().push(value);
+            value
+        });
+        write_cell(n, 3);
+        assert_eq!(noted(&seen), vec![4, 12]);
+    }
+
+    // --- exact tracking --------------------------------------------------
+
+    #[test]
+    fn a_read_behind_a_condition_is_tracked_exactly() {
+        let _alone = alone();
+        let use_left = new_cell(1);
+        let left = new_cell(1);
+        let right = new_cell(100);
+        let seen = log();
+        let recording = Rc::clone(&seen);
+        let _held = watcher(move |scope| {
+            let value = if scope_read(scope, use_left) != 0 {
+                scope_read(scope, left)
+            } else {
+                scope_read(scope, right)
+            };
+            recording.borrow_mut().push(value);
+            value
+        });
+        assert_eq!(noted(&seen), vec![1]);
+
+        // `right` was not read on that run, so writing it is not a reason to
+        // run again.
+        write_cell(right, 200);
+        assert_eq!(noted(&seen), vec![1]);
+
+        // Flipping the condition re-collects: `right` is read now, `left` is
+        // not.
+        write_cell(use_left, 0);
+        assert_eq!(noted(&seen), vec![1, 200]);
+        write_cell(left, 2);
+        assert_eq!(noted(&seen), vec![1, 200]);
+        write_cell(right, 300);
+        assert_eq!(noted(&seen), vec![1, 200, 300]);
+    }
+
+    /// Outside a computation nothing is listening, which is what makes the
+    /// resolve walk a read of the graph rather than a subscriber to it.
+    #[test]
+    fn a_read_nobody_is_listening_to_subscribes_nothing() {
+        let _alone = alone();
+        let n = new_cell(1);
+        assert_eq!(read_cell(n), 1);
+        assert!(subs_of(n).is_empty());
+    }
+
+    // --- batching --------------------------------------------------------
+
+    #[test]
+    fn a_batch_of_writes_causes_one_pass() {
+        let _alone = alone();
+        let n = new_cell(0);
+        let seen = log();
+        let recording = Rc::clone(&seen);
+        let _held = watcher(move |scope| {
+            let value = scope_read(scope, n);
+            recording.borrow_mut().push(value);
+            value
+        });
+        assert_eq!(noted(&seen), vec![0]);
+        buri_rt_ui_flush_begin();
+        write_cell(n, 1);
+        write_cell(n, 2);
+        assert_eq!(noted(&seen), vec![0], "an open batch defers the pass");
+        buri_rt_ui_flush_end();
+        assert_eq!(noted(&seen), vec![0, 2], "one pass, at the value it settled on");
+    }
+
+    // --- disposal --------------------------------------------------------
+
+    #[test]
+    fn a_run_disposes_what_the_previous_run_created() {
+        let _alone = alone();
+        let n = new_cell(0);
+        let made = log();
+        let recording = Rc::clone(&made);
+        let _held = watcher(move |scope| {
+            let value = scope_read(scope, n);
+            recording.borrow_mut().push(rows::owner());
+            value
+        });
+        write_cell(n, 1);
+        let made = noted(&made);
+        assert_eq!(made.len(), 2, "one node per run");
+        let first = made.first().copied().unwrap_or(-1);
+        let second = made.get(1).copied().unwrap_or(-1);
+        assert!(is_disposed(first), "the first run's node died with the run");
+        assert!(!is_disposed(second));
+    }
+
+    #[test]
+    fn disposing_a_node_disposes_its_children() {
+        let _alone = alone();
+        let owner = rows::owner();
+        let child = rows::under(owner, rows::owner);
+        assert_eq!(children_of(owner), vec![child]);
+        rows::dispose(owner);
+        assert!(is_disposed(owner));
+        assert!(is_disposed(child));
+    }
+
+    #[test]
+    fn a_forgotten_child_outlives_the_owner_that_made_it() {
+        let _alone = alone();
+        let owner = rows::owner();
+        let kept = rows::under(owner, rows::owner);
+        let dropped = rows::under(owner, rows::owner);
+        rows::forget(owner, dropped);
+        assert_eq!(children_of(owner), vec![kept]);
+        rows::dispose(owner);
+        assert!(is_disposed(kept));
+        assert!(!is_disposed(dropped), "forgotten is not owned");
+    }
+
+    #[test]
+    fn a_run_under_an_owner_subscribes_nothing_and_gives_it_the_children() {
+        let _alone = alone();
+        let tracked = new_cell(1);
+        let untracked = new_cell(2);
+        let owner = rows::owner();
+        let made = log();
+        let recording = Rc::clone(&made);
+        let _held = watcher(move |scope| {
+            let value = scope_read(scope, tracked);
+            recording.borrow_mut().push(rows::under(owner, || {
+                let _ = read_cell(untracked);
+                rows::owner()
+            }));
+            value
+        });
+        assert_eq!(subs_of(tracked).len(), 1, "the watcher reads this one");
+        assert!(subs_of(untracked).is_empty(), "a read under an owner is nobody's edge");
+        assert_eq!(children_of(owner), noted(&made), "what it made belongs to the owner");
+    }
+
+    // --- the budget ------------------------------------------------------
+
+    /// A watcher that writes what it read. The pass stops rather than running
+    /// forever, and the sentence is `runtime.js`'s.
+    ///
+    /// The batch is what keeps this case in the process: a write at depth zero
+    /// would drain, and the exported entry ends the program on a runaway.
+    #[test]
+    fn a_runaway_update_stops_at_the_step_budget() {
+        assert_eq!(RUNAWAY, "a reactive update did not settle");
+        let _alone = alone();
+        let n = new_cell(0);
+        buri_rt_ui_flush_begin();
+        let _held = watcher(move |scope| {
+            let value = scope_read(scope, n);
+            write_cell(n, value + 1);
+            value
+        });
+        assert!(!drain(), "the budget reports rather than hanging");
+    }
+
+    #[test]
+    fn a_signal_that_was_never_made_has_its_own_sentence() {
+        assert_eq!(NO_SIGNAL, "this signal does not exist");
+        let _alone = alone();
+        assert!(lock().get(7).is_none(), "a fresh graph holds no node");
+    }
+
+    // --- themes ----------------------------------------------------------
+
+    /// The document `theme.buri`'s `cardThemed(cardTheme)` flattens to.
+    const CARDLIB: &str = "theme\n\
+        bind cardlib-surface token app-bg\n\
+        bind cardlib-onSurface token app-fg\n\
+        bind cardlib-accent value rgb(29,78,216)\n";
+
+    const DAY: &str = "theme\n\
+        bind app-bg value rgb(255,255,255)\n\
+        bind app-fg value rgb(24,24,27)\n";
+
+    const NIGHT: &str = "theme\n\
+        bind app-bg value rgb(24,24,27)\n\
+        bind app-fg value rgb(240,240,245)\n";
+
+    fn document(themes: &[&str]) -> String {
+        let mut doc = String::from("buri-theme 1\n");
+        for theme in themes {
+            doc.push_str(theme);
+        }
+        doc
+    }
+
+    #[test]
+    fn a_theme_resolves_each_of_its_tokens_to_a_value() {
+        let _alone = alone();
+        assert_eq!(
+            install(&document(&[DAY])),
+            ":root{--app-bg:rgb(255,255,255);--app-fg:rgb(24,24,27)}\n"
+        );
+    }
+
+    #[test]
+    fn one_block_per_theme_in_the_order_they_were_passed() {
+        let _alone = alone();
+        assert_eq!(
+            install(&document(&[CARDLIB, DAY])),
+            ":root{--cardlib-surface:rgb(255,255,255);\
+             --cardlib-onSurface:rgb(24,24,27);\
+             --cardlib-accent:rgb(29,78,216)}\n\
+             :root{--app-bg:rgb(255,255,255);--app-fg:rgb(24,24,27)}\n"
+        );
+    }
+
+    #[test]
+    fn a_chain_resolves_to_the_value_at_its_end() {
+        let _alone = alone();
+        let block = install(&document(&[CARDLIB, NIGHT]));
+        assert!(block.contains("--cardlib-surface:rgb(24,24,27)"));
+        assert!(block.contains("--cardlib-onSurface:rgb(240,240,245)"));
+        assert!(!block.contains("var("), "the chain arrived, in one step");
+    }
+
+    #[test]
+    fn a_token_mapped_straight_to_a_value_needs_no_chain() {
+        let _alone = alone();
+        let block = install(&document(&[CARDLIB, DAY]));
+        assert!(block.contains("--cardlib-accent:rgb(29,78,216)"));
+    }
+
+    #[test]
+    fn a_chain_that_ends_nowhere_names_nothing() {
+        let _alone = alone();
+        assert_eq!(
+            install(&document(&[CARDLIB])),
+            ":root{--cardlib-accent:rgb(29,78,216)}\n",
+            "the two that lead nowhere are left out rather than guessed at"
+        );
+    }
+
+    #[test]
+    fn a_chain_that_closes_on_itself_names_nothing() {
+        let _alone = alone();
+        let doc = document(&["theme\nbind app-bg token app-fg\nbind app-fg token app-bg\n"]);
+        assert_eq!(install(&doc), "");
+    }
+
+    #[test]
+    fn no_themes_at_all_is_no_block_at_all() {
+        let _alone = alone();
+        assert_eq!(install(&document(&[])), "");
+    }
+
+    #[test]
+    fn a_document_that_is_not_one_resolves_to_nothing() {
+        let _alone = alone();
+        assert_eq!(install("theme\nbind app-bg value rgb(1,2,3)\n"), "");
+    }
+
+    #[test]
+    fn a_later_binding_of_one_token_replaces_an_earlier() {
+        let _alone = alone();
+        let block = install(&document(&[CARDLIB, DAY, NIGHT]));
+        assert!(block.contains("--cardlib-surface:rgb(24,24,27)"), "the chain follows the last");
+    }
+
+    #[test]
+    fn switching_a_theme_swaps_the_values_and_keeps_the_names() {
+        let _alone = alone();
+        let light = install(&document(&[CARDLIB, DAY]));
+        assert!(light.contains("--app-bg:rgb(255,255,255)"));
+        assert!(light.contains("--cardlib-surface:rgb(255,255,255)"));
+
+        let dark = install(&document(&[CARDLIB, NIGHT]));
+        assert!(dark.contains("--app-bg:rgb(24,24,27)"));
+        assert!(dark.contains("--cardlib-surface:rgb(24,24,27)"), "the chain resolves again");
+        assert_eq!(
+            light.matches(":root{").count(),
+            dark.matches(":root{").count(),
+            "the same blocks, holding other values"
+        );
+
+        assert_eq!(install(&document(&[CARDLIB, DAY])), light, "switching back restores it");
+    }
+
+    #[test]
+    fn variables_answers_the_block_installed_right_now() {
+        let _alone = alone();
+        assert_eq!(variables(), "", "nothing is installed yet");
+        let block = install(&document(&[DAY]));
+        assert_eq!(variables(), block);
+    }
+}

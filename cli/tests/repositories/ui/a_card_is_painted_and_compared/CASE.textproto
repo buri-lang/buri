@@ -1,0 +1,80 @@
+# A snapshot, driven the way a person drives one: a package, a suite beside it,
+# a golden picture checked in, and one `buri` command.
+#
+# The picture is the assertion. `test/__snapshots__/card.png` was recorded by
+# `buri test --update` and is compared byte for byte, so this case is also the
+# only place that says the renderer produces the same bytes on Linux and on
+# macOS — a golden that did not would fail on one of the two CI hosts and pass
+# on the other.
+#
+# Four steps, and the middle two are the ones worth reading.
+#
+# **Wrapping the tree in an unstyled `stack` changes nothing.** That is the
+# proving test of the whole design: a container with no style must be
+# transparent to layout, so the same picture comes back. A renderer that laid
+# the canvas out differently from a `stack` would pass every other assertion
+# here and fail this one, which is what it caught the day it was written.
+#
+# **And the negative twin the corpus rule asks for.** One word of the tree
+# changes, the run fails, the report names the file to look at, and the diff
+# image is on disk beside the golden. A snapshot suite that could not fail
+# would be a suite that never looked at a pixel.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a card is painted, compared byte for byte, unchanged by an unstyled stack around it, and fails with a diff when the tree changes"
+
+run {
+  args: ["test", "//lib/card", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# Nothing was written: a run that matched leaves no diff image behind.
+path { path: "lib/card/test/__snapshots__/card.diff.png"  exists: false }
+
+# The proving test. An unstyled container is transparent to layout, so the
+# bytes are the same bytes.
+edit {
+  file: "lib/card/test/card.buri"
+  replace: "snapshot(ctx, \"card\", card(.Const(\"Ada\")), .Hover);"
+  with: "snapshot(ctx, \"card\", ui.stack([], [card(.Const(\"Ada\"))]), .Hover);"
+}
+
+run {
+  args: ["test", "//lib/card", "--force"]
+  exit: 0
+  golden: "wrapped.txt"
+}
+
+# The negative twin: one word of the tree, and the report a reader gets.
+edit {
+  file: "lib/card/test/card.buri"
+  replace: ".Const(\"Ada\")"
+  with: ".Const(\"Grace\")"
+}
+
+run {
+  args: ["test", "//lib/card", "--force"]
+  exit: 1
+  golden: "changed.txt"
+}
+
+path { path: "lib/card/test/__snapshots__/card.diff.png"  exists: true }
+
+# And the way back: `--update` records the tree as it is now, and the run after
+# it compares against what it just wrote.
+run {
+  args: ["test", "//lib/card", "--update", "--force"]
+  exit: 0
+  golden: "recorded.txt"
+}
+
+path { path: "lib/card/test/__snapshots__/card.diff.png"  exists: false }
+
+run {
+  args: ["test", "//lib/card", "--force"]
+  exit: 0
+  golden: "again.txt"
+}

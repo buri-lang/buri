@@ -879,8 +879,26 @@ fn dependencies_stay_behind_the_bar() {
     // where the answer is written, and the short form of it is that a *seed*
     // with a clock fallback and a *key* with none are not the same twenty
     // lines.
-    const RUNTIME_ADMITTED: &[&str] =
-        &["getrandom", "hyper", "quinn", "ring", "rustls", "tokio", "tungstenite"];
+    //
+    // `taffy`, `cosmic-text` and `tiny-skia` are the eighth, ninth and tenth,
+    // and they are one capability between them: painting a user interface with
+    // no window, which is what `ui/testing`'s `snapshot` compares. Flexbox and
+    // grid, shaping and glyph rasterisation, and a path rasteriser are three
+    // specifications rather than three algorithms, and a snapshot suite rests
+    // on all three agreeing to the byte on two operating systems.
+    // `manifest.toml`'s entries argue each one.
+    const RUNTIME_ADMITTED: &[&str] = &[
+        "cosmic-text",
+        "getrandom",
+        "hyper",
+        "quinn",
+        "ring",
+        "rustls",
+        "taffy",
+        "tiny-skia",
+        "tokio",
+        "tungstenite",
+    ];
     let runtime = std::fs::read_to_string(repo_root().join("cli/runtime/manifest.toml"))
         .expect("cli/runtime/manifest.toml");
     let mut runtime_deps: Vec<String> =
@@ -930,6 +948,12 @@ fn dependencies_stay_behind_the_bar() {
          mints a token, and `Entropy` becomes a build-flag question rather than a capability \
          question. The refusal is the right answer for a toolchain that genuinely has none; it \
          is the wrong default for everybody else"
+    );
+    assert!(
+        default_line.contains("\"paint\""),
+        "`paint` left the runtime's default feature set ({default_line}). A toolchain whose \
+         runtime cannot paint answers no `ui/testing` snapshot at all, so a visual test would \
+         be a build-flag question for every user rather than a line in a suite"
     );
 
     // -- the h3 leg: a feature the default build does not turn on -------------

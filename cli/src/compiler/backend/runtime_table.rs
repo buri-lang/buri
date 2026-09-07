@@ -1006,6 +1006,34 @@ pub const ENTRIES: &[Entry] = &[
     // reruns are one tree on all three backends rather than a loop in each of
     // three entry points.
     e("test.replay", "buri_rt_test_replay", Ret::Scalar),
+    // -- the reactive graph, and the snapshot it paints ----------------------
+    //
+    // `cli/runtime/ui.rs` holds the graph and `cli/runtime/snapshot.rs` the
+    // painter's entry. These six are what a *snapshot* reaches, which is less
+    // than the whole of `ui/testing`: `observer()` and `Observer.read` are not
+    // here because nothing a snapshot does reaches them, and `Ui.memo` and
+    // `Ui.watch` are not here because they take a Buri
+    // closure and are not here, because the closure shape they need is not one
+    // either native backend generates yet. `ui/node`'s `describe` is written so
+    // that a snapshot needs neither — `rootScope` is the untracked scope it
+    // reads props under, and an untracked read subscribes nothing.
+    //
+    // Three of them are generic and each carries §2 rule 4's pair. The type is
+    // a bare `T` rather than a `[T]`'s element, which is what
+    // `stencil/rtcall.rs`'s `element_ty` widened for: `signal` and `write` name
+    // it in a `by_ref` argument, and the two `read`s name it in the result.
+    //
+    // `Ret::Out` on both `read`s although a `T` is often a scalar. One key is
+    // one C signature, and `read` at `Str` and at `Bool` is one key — so the
+    // value comes back through a pointer at every instantiation rather than in
+    // a register at some of them.
+    e("ui_node.rootScope", "buri_rt_ui_node_root_scope", Ret::Out),
+    el("ui_effect.Scope.read", "buri_rt_ui_effect_scope_read", Ret::Out),
+    e("ui_testing.headless", "buri_rt_ui_testing_headless", Ret::Out),
+    er("ui_testing.Headless.signal", "buri_rt_ui_testing_headless_signal", Ret::Scalar, 1),
+    el("ui_testing.Headless.read", "buri_rt_ui_testing_headless_read", Ret::Out),
+    er("ui_testing.Headless.write", "buri_rt_ui_testing_headless_write", Ret::Void, 2),
+    e("ui_testing.paint", "buri_rt_ui_testing_paint", Ret::Void),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.

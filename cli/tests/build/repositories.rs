@@ -162,6 +162,25 @@ fn concurrency_and_memory() {
     run_corpus(&tests_dir().join("repositories/concurrency"), "concurrency", 6);
 }
 
+/// Visual snapshots: a tree painted to a PNG and compared byte for byte.
+///
+/// A group of its own rather than a case under `testing/`, because what it
+/// asserts is not what a suite reports — it is what the *renderer* produced,
+/// and the assertion is a picture checked into the repository. That picture is
+/// the only claim anywhere that `cli/runtime/paint.rs` paints the same bytes on
+/// Linux and on macOS: a golden that did not would go red on one CI host and
+/// green on the other.
+///
+/// It is a repository case rather than a conformance one for the reason
+/// `concurrency_and_memory` is. The conformance corpus runs on every backend
+/// and its `ui` package says `platforms: [JS]`, and a snapshot has no
+/// JavaScript answer at all — there is no painter there. So the only tier that
+/// can ask this question is the one that links a real binary and runs it.
+#[test]
+fn snapshots() {
+    run_corpus(&tests_dir().join("repositories/ui"), "ui", 1);
+}
+
 /// The language server. Each case is a recorded session: requests in, decoded
 /// responses out, so a change to what the server says shows up as a diff
 /// rather than as an editor behaving differently.
