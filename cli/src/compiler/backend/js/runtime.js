@@ -4840,8 +4840,8 @@ function $host_testing_TestSockets_socketClose(self, socket, code, reason) {
   return 0;
 }
 
-// A WebSocket client with a script instead of a network: it connects once,
-// delivers the messages it was handed in order, and then closes normally.
+// A WebSocket client with a script instead of a network: every time it dials
+// it delivers the messages it was handed, in order, and then closes normally.
 //
 // **It writes through the `sockets()` double it was built on** rather than
 // minting a socket of its own kind, and that is why it is that double's own
@@ -4878,8 +4878,14 @@ function $host_testing_TestWebSocketClient_connectSocket(self, url) {
     return $err([$SERVE_UNSUPPORTED, said]);
   }
   // The same mint `socketsOpen` uses, on the double this client was handed.
+  // Every dial starts the script again: `connect` returns when a socket closes
+  // and reconnecting is a loop around it, so a double that delivered its
+  // messages once would answer the second dial with a socket that was already
+  // spent.
   const socket = $tmint({ owner: s.owner, open: true });
   s.socket = Number(socket);
+  s.at = 0;
+  s.gone = false;
   return $ok([socket, 101n, [], []]);
 }
 
