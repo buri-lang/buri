@@ -17,22 +17,18 @@ warning: this branch is nested 5 levels deep [deep-nesting]
 
      Prefer, in order:
 
-     1. Guard clauses / early returns. Invert a condition and return early so
-     the happy path stays at the top indentation level. Each guard you lift
-     removes one level of nesting from everything below it. 2. Replace the
-     structure. A deep if/else ladder is often a lookup table or a polymorphic
-     dispatch in disguise. Sometimes an enum and a match is better. 3. Extract a
-     helper. When an inner block is a coherent sub-step, pull it into a named
-     function. The name documents the intent, and the nesting moves into a flat,
-     separately readable unit.
+     1. Guard clauses. Invert a condition and return early so the happy path
+     stays at the top indentation level. Each guard you lift removes one level
+     from everything below it. 2. Replace the structure. A deep if/else ladder
+     is often a lookup table or a dispatch in disguise. Sometimes an enum and a
+     match is better. 3. Extract a helper. When an inner block is a coherent
+     sub-step, pull it into a named function. The name documents the intent, and
+     the nesting moves into a flat, separately readable unit.
 
      Do not merge conditions with && just to drop a level. That trades vertical
-     nesting for an unreadable horizontal condition. The goal is a function
-     whose shape you can take in at a glance, not one that scrapes past the
-     depth threshold.
+     nesting for an unreadable horizontal condition.
 
-     If the nesting is genuinely irreducible — a real algorithm with interacting
-     conditions — extracting the inner loops into well-named helpers is still
-     the move. Keep each function shallow even when the algorithm as a whole is
-     deep.
+     If the nesting is genuinely irreducible, extracting the inner loops into
+     well-named helpers is still the move. Keep each function shallow even when
+     the algorithm as a whole is deep.
 

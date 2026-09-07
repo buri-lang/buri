@@ -9,15 +9,11 @@ fix: declare it, import it, or correct the spelling
 error: there is no type `Widgett` [unresolved-type]
 ```
 
-## What to do
-
-Declare it, import it, or correct the spelling.
-
 ## Why
 
 Types are nominal throughout. There is no structural fallback and no inference
-from shape, so a misspelling cannot quietly become a different type that
-happens to fit.
+from shape, so a misspelling cannot quietly become a different type that happens
+to fit.
 
 ## A program that provokes it
 

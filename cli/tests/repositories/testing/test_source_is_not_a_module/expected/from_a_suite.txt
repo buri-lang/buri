@@ -26,7 +26,7 @@ error: "//lib/money/test/parse.buri" does not export `digits` [no-such-export]
     Why
     ───
 
-    A re-export may name only what its module path exports. So a library's
+    A re-export may name only what its module path exports, so a library's
     surface is never wider than the modules it is built from.
 
 error: there is nothing named `digits` in scope [unresolved-name]
@@ -47,6 +47,6 @@ error: there is nothing named `digits` in scope [unresolved-name]
     ───
 
     There is no prelude and no ambient scope. A module's available names are the
-    ones it declares plus the ones its own imports name. That is what makes the
-    suggestion trustworthy: it is drawn from exactly the set the file put there.
+    ones it declares plus the ones its own imports name, which is what makes the
+    suggestion trustworthy.
 

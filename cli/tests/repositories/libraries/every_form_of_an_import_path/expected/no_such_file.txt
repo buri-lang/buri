@@ -31,11 +31,6 @@ error: there is no type `Cents` [unresolved-type]
   |
   = fix: declare it, import it, or correct the spelling
 
-    What to do
-    ──────────
-
-    Declare it, import it, or correct the spelling.
-
     Why
     ───
 
@@ -61,6 +56,6 @@ error: there is nothing named `fromCents` in scope [unresolved-name]
     ───
 
     There is no prelude and no ambient scope. A module's available names are the
-    ones it declares plus the ones its own imports name. That is what makes the
-    suggestion trustworthy: it is drawn from exactly the set the file put there.
+    ones it declares plus the ones its own imports name, which is what makes the
+    suggestion trustworthy.
 
