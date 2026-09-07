@@ -292,6 +292,14 @@ pub const TOPICS: &[Topic] = &[
         &["build/build-files", "guides/proto"],
     ),
     tagged(
+        "build/generators",
+        "Generators: a program whose output is a module",
+        Kind::Build,
+        include_str!("../docs/reference/build/generators.md"),
+        &["generator", "codegen", "generate", "tool", "generated", "stdin", "stdout"],
+        &["build/build-files", "build/hermeticity"],
+    ),
+    tagged(
         "build/hermeticity",
         "Hermeticity, actions, and the cache",
         Kind::Build,
