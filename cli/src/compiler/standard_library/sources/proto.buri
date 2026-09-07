@@ -5,17 +5,7 @@
 //! — `from "//proto/person.proto" import { Person };` — becomes a generated
 //! module holding the types *and* their four codecs, and those codecs call the
 //! functions below. This module is the part of that generated code that is the
-//! same for every schema, so somebody writes it once, tests it once, and reads
-//! it once.
-//!
-//! **Why the compiler generates the codecs rather than walking a descriptor.**
-//! `derive ToJson` walks a *descriptor* the compiler already ships — field
-//! names, variant shapes, element types. A protobuf message is none of those
-//! things. It is field *numbers* and wire *types*, and the descriptor carries
-//! neither. A runtime walk would need a second descriptor emitted beside the
-//! first, and at that point generating Buri is strictly better: the real
-//! checker checks the generated codec, the real optimiser optimises it, and it
-//! needs no intrinsic and no runtime privilege.
+//! same for every schema.
 //!
 //! The four wire types this format has, and the only ones this module reads:
 //!
@@ -26,10 +16,10 @@
 //! 5  I32     fixed32 sfixed32 float
 //! ```
 //!
-//! Wire types 3 and 4 are the deprecated group encoding, and this module
-//! rejects them rather than skipping them: a group is a nesting the reader
-//! would have to understand to get past, so treating one as an unknown field
-//! would silently read the rest of the message at the wrong offset.
+//! Wire types 3 and 4 are the deprecated group encoding. This module rejects
+//! them rather than skipping them: a group is a nesting the reader would have to
+//! understand to get past, so treating one as an unknown field would read the
+//! rest of the message at the wrong offset.
 
 from "core/bytes" import * as bytes;
 from "core/effect" import { Alloc };
@@ -41,9 +31,7 @@ from "core/str" import * as str;
 derive Eq, Show for ProtoError;
 /// Where a message stopped being one.
 ///
-/// Every case carries a byte offset or a field number, because a decoder that
-/// says only "malformed" of a four-kilobyte message is a decoder you debug by
-/// bisection.
+/// Every case carries a byte offset or a field number.
 export enum ProtoError {
     /// The input ended in the middle of a field.
     Truncated(Int),
@@ -74,10 +62,9 @@ let TWO32: Int = 4294967296;
 // -----------------------------------------------------------------------------
 //
 // Every writer returns the bytes of one complete field — header included — so a
-// message is the concatenation of its fields and nothing needs patching up
-// afterwards. proto3's canonical encoding writes fields in ascending field
-// number, which is what makes an encoding reproducible; the generated code
-// emits them in schema order, and the compiler reads the schema in that order.
+// message is the concatenation of its fields. proto3's canonical encoding writes
+// fields in ascending field number, and the generated code emits them in schema
+// order.
 
 /// The header of one field: its number and its wire type, as a varint.
 export fn tag<C: Alloc>(ctx: C, field: Int, wire: Int): [U8] {
@@ -165,19 +152,15 @@ fn halves(value: Int): (Int, Int) {
 /// One field header: the field number, the wire type, and the index just past
 /// the header.
 ///
-/// A *known* field arriving with a wire type it cannot have is not an error
-/// here, and not one anywhere. The generated decoder matches on the pair, so
-/// such a field simply does not match, and the decoder skips it as though the
-/// schema had never heard of it. That is what every other implementation does,
-/// and it is what keeps a schema change that alters a field's type from
-/// crashing a reader nobody has rebuilt.
+/// A *known* field arriving with a wire type it cannot have is not an error.
+/// The generated decoder matches on the pair, so such a field does not match and
+/// gets skipped as an unknown one.
 export fn readTag(b: [U8], at: Int): Result<(Int, Int, Int), ProtoError> {
     let (key, next) = readVarint(b, at)?;
     let wire = key % 8;
     let field = div(key - wire, 8);
-    // A tag is a `uint32`, and even the widest five-byte varint carries more
-    // than 32 bits, so this checks the value too. Reading the low 32 bits would
-    // turn field 2147483649 into field 1: a different message, not an error.
+    // A tag is a `uint32` and a five-byte varint carries more than 32 bits, so
+    // this checks the value too rather than reading the low 32 bits.
     if (next - at > 5 || key < 0 || key > 4294967295) {
         .Err(.BadFieldNumber(at))
     } else if (field <= 0 || field > 536870911) {
@@ -190,8 +173,7 @@ export fn readTag(b: [U8], at: Int): Result<(Int, Int, Int), ProtoError> {
 }
 
 /// One varint, as a `ProtoError` rather than a `bytes.DecodeError`: a varint
-/// that does not end is a truncated message, and there is one vocabulary for
-/// what is wrong with a message.
+/// that does not end is a truncated message.
 export fn readVarint(b: [U8], at: Int): Result<(Int, Int), ProtoError> {
     match (bytes.readVarint(b, at)) {
         .Ok(pair) => .Ok(pair),
@@ -289,12 +271,10 @@ export fn readStr<C: Alloc>(ctx: C, b: [U8], at: Int): Result<(Str, Int), ProtoE
 
 /// Past a field the schema does not know.
 ///
-/// This is proto3's forward compatibility, and it is the whole of it: a reader
-/// built from an older schema walks over a field a newer writer added and
-/// carries on. It *drops* the bytes rather than keeping them — Buri's generated
-/// types have nowhere to put them, so re-encoding a message decoded from a
-/// newer schema loses the fields that schema added. Written down here rather
-/// than left for you to find out.
+/// This is proto3's forward compatibility: a reader built from an older schema
+/// walks over a field a newer writer added and carries on. It *drops* the bytes,
+/// so re-encoding a message decoded from a newer schema loses the fields that
+/// schema added.
 export fn skip(b: [U8], at: Int, wire: Int): Result<Int, ProtoError> {
     if (wire == VARINT) {
         let (_v, next) = readVarint(b, at)?;
@@ -441,8 +421,7 @@ fn packedF32At<C: Alloc>(
 // -----------------------------------------------------------------------------
 //
 // proto3 has a JSON mapping of its own, and it is not the one `derive ToJson`
-// applies. Four differences, and each one is why these helpers exist instead of
-// a `derive`:
+// applies. Four differences, and each is why these helpers exist:
 //
 //   * A 64-bit integer goes out as a *string*, because a JSON number is a
 //     double and `9007199254740993` is not one.
@@ -467,8 +446,6 @@ export fn jsonInt32(x: Int): Json {
 /// A `double` or `float`, as proto3 JSON writes one.
 ///
 /// JSON has no NaN and no infinities, so proto3 spells all three as strings.
-/// Write the bare word — which is what a JSON encoder does with a `Float`
-/// holding one — and you get a document nothing can read.
 export fn jsonFloat(x: Float): Json {
     if (x != x) {
         Json.Str("NaN")
@@ -496,8 +473,7 @@ export fn member(doc: Json, name: Str): Option<Json> {
 /// The same, under either of a field's two names.
 ///
 /// proto3 JSON writes the lowerCamelCase name and accepts either it or the one
-/// the schema wrote. The camel name wins where a document carries both, which
-/// is a document no writer produces.
+/// the schema wrote. The camel name wins where a document carries both.
 export fn memberEither(doc: Json, name: Str, alternate: Str): Option<Json> {
     match (member(doc, name)) {
         .Some(v) => .Some(v),
@@ -508,12 +484,11 @@ export fn memberEither(doc: Json, name: Str, alternate: Str): Option<Json> {
 /// An integer field's value, checked against the field's own range. A JSON
 /// number, or the string proto3 writes a 64-bit one as.
 ///
-/// proto3 JSON is stricter about numbers than JSON itself, and the
-/// specification states every rule here. A fractional value is an error, not a
-/// rounding. A value outside the field's width is an error, not a truncation —
-/// the *binary* format truncates instead, and that difference is protobuf's,
-/// not this implementation's. A quoted value is fine, but it has to be a JSON
-/// number with nothing around it: no leading zero, no surrounding space.
+/// proto3 JSON is stricter about numbers than JSON itself. A fractional value
+/// is an error, not a rounding. A value outside the field's width is an error,
+/// not a truncation — the *binary* format truncates instead. A quoted value is
+/// fine, but it has to be a JSON number with nothing around it: no leading zero,
+/// no surrounding space.
 export fn asInt(doc: Json, path: Str, lo: Int, hi: Int): Result<Int, ProtoError> {
     match (doc) {
         .Num(x) => inRange(x, path, lo, hi),
@@ -620,8 +595,7 @@ fn finite(x: Float, path: Str): Result<Float, ProtoError> {
     }
 }
 
-/// Built rather than named: the language has no literal for either, and the
-/// arithmetic that produces them is the definition.
+/// Built rather than named: the language has no literal for either.
 fn infinity(): Float {
     1.0 / 0.0
 }
@@ -646,10 +620,8 @@ export fn asStr(doc: Json, path: Str): Result<Str, ProtoError> {
 
 /// A `bytes` field: base64, in either alphabet and with the padding optional.
 ///
-/// `core/bytes` writes and reads the standard alphabet, always padded, on
-/// purpose — two spellings of one encoding is two things to get wrong. proto3
-/// JSON is the caller that has to accept both, so the translation lives here,
-/// where the requirement is, rather than there.
+/// `core/bytes` writes and reads the standard alphabet, always padded. proto3
+/// JSON has to accept both, so the translation lives here.
 export fn asBytes<C: Alloc>(ctx: C, doc: Json, path: Str): Result<[U8], ProtoError> {
     match (doc.asStr()) {
         .None => .Err(.BadJson { path: path, wanted: "base64" }),
