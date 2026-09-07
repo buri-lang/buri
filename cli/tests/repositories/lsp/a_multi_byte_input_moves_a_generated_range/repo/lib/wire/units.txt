@@ -1,0 +1,4 @@
+# Mesuré à 20 °C, en millimètres.
+width 3
+# L'épaisseur du plateau 😀
+depth 5 # arrondi à ½ mm

@@ -28,6 +28,9 @@ pub enum Refusal {
     Module,
     /// The standard library, which is compiled into the binary.
     NoFile,
+    /// A name a generator wrote. The sentence names the tool and the input,
+    /// because the input is the file the edit has to happen in.
+    Generated(String),
     /// The replacement is not something Buri could parse as a name.
     NotAName,
     /// A declaration with no name of its own: a tuple field, which is named by
@@ -36,8 +39,20 @@ pub enum Refusal {
 }
 
 impl Refusal {
-    pub fn message(&self) -> &'static str {
+    /// The sentence the editor shows. Every refusal but one is a fixed
+    /// sentence; a generated name's names the tool and the file, and both are
+    /// read off the repository the rename was asked in.
+    pub fn message(&self) -> String {
         match self {
+            Refusal::Generated(sentence) => sentence.clone(),
+            _ => self.fixed().to_string(),
+        }
+    }
+
+    fn fixed(&self) -> &'static str {
+        match self {
+            // Answered above; `message` is the only caller.
+            Refusal::Generated(_) => "",
             Refusal::Nothing => "there is no name under the cursor to rename",
             Refusal::Module => {
                 "a module is named by its path — rename one by moving its file and editing \
@@ -134,7 +149,14 @@ fn renameable(analyzed: &Analyzed, symbol: &Symbol) -> Result<String, Refusal> {
     let name = symbols::name(analyzed, symbol).ok_or(Refusal::Nothing)?;
     let declaration = symbols::declaration_name(analyzed, symbol);
     if file_uri(analyzed, declaration).is_none() {
-        return Err(Refusal::NoFile);
+        // Refused either way: generated text is rewritten by the next build, so
+        // an edit to it is an edit that does not last. What changes is the
+        // sentence — it names the generator and the input to edit instead of
+        // blaming the standard library for a file the generator wrote.
+        return Err(match super::origins::refusal_sentence(&analyzed.session, declaration) {
+            Some(sentence) => Refusal::Generated(sentence),
+            None => Refusal::NoFile,
+        });
     }
     // The one check that the edit is an edit to a name: whatever else the scan
     // turns up, the declaration itself must spell what is being renamed.

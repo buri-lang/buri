@@ -1,0 +1,6 @@
+from "//lib/wire/units" import { spare, width };
+
+/// The plate, and the piece kept beside it.
+export fn total(): Int {
+    width + spare
+}

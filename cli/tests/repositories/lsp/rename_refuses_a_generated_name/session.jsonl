@@ -1,0 +1,18 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `width` is declared by `//cmd/gen`, in text no file holds. A rename would
+# rewrite what the next build overwrites, so it is refused — and the sentence
+# has to be the one that tells a reader where the edit does belong.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/wire/units\" import { width };\n\n/// The plate, edge on.\nexport fn edge(): Int {\n    width\n}\n"}}}
+# The editor asks first, and gets nothing to offer: there is no range to edit.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/prepareRename", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 4, "character": 5}}}
+# And the rename itself is an error with the sentence in it, rather than an
+# empty edit that looks like the server hung.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 4, "character": 5}, "newName": "breadth"}}
+# A name declared in this repository still renames, so what is refused above is
+# the generated declaration and not the request.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/rename", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 3, "character": 11}, "newName": "side"}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

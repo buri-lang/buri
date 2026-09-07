@@ -1,0 +1,17 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `//lib/wire` runs `//cmd/gen` over `units.txt`. `width` is written on a line
+# of that file and the generator anchored it there; `spare` is a `~` line, which
+# the generator printed and anchored nowhere. Both are ordinary names in the
+# buffer below, and the whole case is that the server tells them apart.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/wire/units\" import { spare, width };\n\n/// The plate, and the piece kept beside it.\nexport fn total(): Int {\n    width + spare\n}\n"}}}
+# The line the case is for: `width` came from `units.txt`, so that is where the
+# editor is sent, at the bytes of the line it was written on.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 4, "character": 5}}}
+# And the other half. `spare` was printed out of nothing, so there is nowhere to
+# send anybody — `null`, rather than a guess at a file.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 4, "character": 13}}}
+{"jsonrpc": "2.0", "id": 4, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}
