@@ -39,7 +39,7 @@ test "nothing comes of nothing" {
         Alloc: alloc(),
     };
     assert.isEmpty(ast.tokenize(ctx, ""));
-    assert.isEmpty(ast.tokenize(ctx, "   \n\t "));
+    assert.isEmpty(ast.tokenize(ctx, "   \n\t\r "));
 }
 
 // --- spans -----------------------------------------------------------------------
@@ -295,7 +295,8 @@ test "one source produces every kind of token there is" {
     let ctx = context {
         Alloc: alloc(),
     };
-    let source = "//! m\n/// d\n// l\n/* b */\nlet x = 1 1.5 \"s\" 'c' \"a\${x}b\${x}c\" #";
+    let source =
+        "//! m\n/// d\n// l\n/* b */\nlet x = 1 1.5 \"s\" 'c' \"a\${x}b\${x}c\" #";
     assert.eq(kinds(ctx, source), [
         TokenKind.ModuleDoc,
         TokenKind.DocComment,

@@ -607,7 +607,6 @@ let GZIP_TWO_MEMBERS: [U8] = [
     0,
 ];
 
-
 // --- Inputs at the small end ------------------------------------------------------
 
 test "one byte there and back, through both wrappers" {
@@ -682,10 +681,7 @@ test "a stored block reaches its 65535-byte limit and the next one carries the r
     let rest: [U8] = [66, 67, 68];
     let opening: [U8] = [0, 255, 255, 0, 0];
     let closing: [U8] = [1, 3, 0, 252, 255];
-    let stream = opening
-        .concat(ctx, first)
-        .concat(ctx, closing)
-        .concat(ctx, rest);
+    let stream = opening.concat(ctx, first).concat(ctx, closing).concat(ctx, rest);
     assert.eq(assert.ok(unpacked(stream)), first.concat(ctx, rest));
 }
 
