@@ -32,7 +32,8 @@
 //! case-insensitive. Nothing else changes: the path keeps its `.` and `..`
 //! segments, and a percent-escape keeps the spelling it arrived in. So
 //! `parse` then [`Url::text`] gives the text back, character for character,
-//! apart from that lowercasing.
+//! apart from that lowercasing and from a bare `?`, which is dropped because an
+//! empty query and no query are one value. A bare `#` survives.
 //!
 //! [`Url::resolve`] is the one that removes dot segments, because RFC 3986
 //! §5.2.4 says resolution does.
@@ -47,7 +48,9 @@
 //! ## A URL with no authority
 //!
 //! `mailto:ada@example.com` parses: `host` is `""` and the path is the rest.
-//! [`Url::text`] leaves the `//` off again for any URL whose host is empty.
+//! [`Url::text`] leaves the `//` off again for any URL whose host is empty, so
+//! an empty authority does not survive the trip: `file:///tmp/x` comes back as
+//! `file:/tmp/x`, which parses to the same `Url`.
 
 from "core/bytes" import * as bytes;
 from "core/bytes" import { DecodeError };

@@ -412,3 +412,260 @@ test "a reference that is absolute and broken reports why" {
     let base = assert.ok(read(BASE));
     assert.eq(assert.err(base.resolve(ctx, "http://a:x/")), UrlError.BadPort("x"));
 }
+
+// --- Every reserved character, one at a time -----------------------------------
+
+test "the gen-delims all escape" {
+    // RFC 3986 §2.2: `:` `/` `?` `#` `[` `]` `@`.
+    assert.eq(encodeOne(":/?#[]@"), "%3A%2F%3F%23%5B%5D%40");
+}
+
+test "the sub-delims all escape" {
+    // RFC 3986 §2.2: `!` `$` `&` `'` `(` `)` `*` `+` `,` `;` `=`.
+    assert.eq(encodeOne("!$&'()*+,;="), "%21%24%26%27%28%29%2A%2B%2C%3B%3D");
+}
+
+test "the characters that are neither reserved nor unreserved escape too" {
+    assert.eq(encodeOne("%"), "%25");
+    assert.eq(encodeOne("\""), "%22");
+    assert.eq(encodeOne("<>"), "%3C%3E");
+    assert.eq(encodeOne("\\^`{|}"), "%5C%5E%60%7B%7C%7D");
+    // A control character and a space, which are the two a copied URL carries.
+    assert.eq(encodeOne("\n\t "), "%0A%09%20");
+}
+
+test "encodePath escapes everything a component does except the slash" {
+    assert.eq(encodeWhole(":?#[]@"), "%3A%3F%23%5B%5D%40");
+    assert.eq(encodeWhole("a/b?c"), "a/b%3Fc");
+    assert.eq(encodeWhole("//"), "//");
+}
+
+test "a two-byte, a three-byte and a four-byte character, and back again" {
+    // The first scalar of each UTF-8 length above one, and the last.
+    assert.eq(encodeOne(""), "%C2%80");
+    assert.eq(encodeOne("߿"), "%DF%BF");
+    assert.eq(encodeOne("ࠀ"), "%E0%A0%80");
+    assert.eq(encodeOne("￿"), "%EF%BF%BF");
+    assert.eq(encodeOne("𐀀"), "%F0%90%80%80");
+    assert.eq(encodeOne("􏿿"), "%F4%8F%BF%BF");
+    assert.eq(assert.ok(decodeOne(encodeOne("􏿿"))), "􏿿");
+    assert.eq(assert.ok(decodeOne(encodeOne(""))), "");
+}
+
+test "a null byte survives both directions" {
+    assert.eq(encodeOne("\0"), "%00");
+    assert.eq(assert.ok(decodeOne("%00")).len(), 1);
+    assert.eq(assert.ok(decodeOne("a%00b")).len(), 3);
+}
+
+test "an escape reads in either case, and comes back uppercase" {
+    assert.eq(assert.ok(decodeOne("%2f")), "/");
+    assert.eq(assert.ok(decodeOne("%2F")), "/");
+    assert.eq(encodeOne("/"), "%2F");
+}
+
+// --- The query's own plus -------------------------------------------------------
+
+test "a plus is a space in a query and a plus everywhere else" {
+    assert.eq(query("a=+"), [("a", " ")]);
+    assert.eq(query("+=1"), [(" ", "1")]);
+    assert.eq(query("a=%2B"), [("a", "+")]);
+    assert.eq(assert.ok(decodeOne("+")), "+");
+    // encodeQuery writes %20 rather than `+`, and both read back as a space.
+    assert.eq(unquery([("a", " ")]), "a=%20");
+    assert.eq(query(unquery([("a", "+")])), [("a", "+")]);
+}
+
+test "a query pair with more than one equals keeps the rest of the value" {
+    assert.eq(query("a=1=2"), [("a", "1=2")]);
+}
+
+test "a query holding a null byte and a multi-byte character" {
+    assert.eq(query("a=%00").len(), 1);
+    assert.eq(query("q=%F0%9F%98%80"), [("q", "😀")]);
+}
+
+// --- A port at the ends of its range ---------------------------------------------
+
+test "port zero is a port, and it is written back" {
+    let u = assert.ok(read("http://a:0/x"));
+    assert.eq(u.port, .Some(0));
+    assert.eq(roundTrip("http://a:0/x"), "http://a:0/x");
+}
+
+test "sixty-five thousand five hundred and thirty-five is the last one" {
+    assert.eq(assert.ok(read("http://a:65535/")).port, .Some(65535));
+    assert.eq(assert.err(read("http://a:65536/")), UrlError.BadPort("65536"));
+}
+
+test "a port that is not digits at all" {
+    assert.eq(assert.err(read("http://a:80x/")), UrlError.BadPort("80x"));
+    assert.eq(assert.err(read("http://a:8 0/")), UrlError.BadPort("8 0"));
+}
+
+// --- Hosts ------------------------------------------------------------------------
+
+test "an IPv6 host lowercases like any other" {
+    assert.eq(assert.ok(read("http://[2001:DB8::AB]/")).host, "[2001:db8::ab]");
+    assert.eq(assert.ok(read("http://[::FFFF:127.0.0.1]:0/")).port, .Some(0));
+}
+
+test "an IPv6 host with a port that is not one" {
+    assert.eq(assert.err(read("http://[::1]:x/")), UrlError.BadPort("x"));
+    // Text after the closing bracket that is not a port at all.
+    assert.eq(assert.err(read("http://[::1]junk/")), UrlError.BadPort("junk"));
+}
+
+test "an IPv4 host and a host that is a single label" {
+    assert.eq(assert.ok(read("http://127.0.0.1:8080/")).host, "127.0.0.1");
+    assert.eq(assert.ok(read("http://localhost/")).host, "localhost");
+}
+
+// --- Every component, present and absent -------------------------------------------
+
+test "an authority with nothing in it" {
+    let u = assert.ok(read("file:///tmp/x"));
+    assert.eq(u.scheme, "file");
+    assert.eq(u.host, "");
+    assert.eq(u.path, "/tmp/x");
+}
+
+test "a scheme and a path, with a query and a fragment and no authority" {
+    let u = assert.ok(read("mailto:ada@example.com?subject=hi#body"));
+    assert.eq(u.host, "");
+    assert.eq(u.path, "ada@example.com");
+    assert.eq(u.query, "subject=hi");
+    assert.eq(u.fragment, .Some("body"));
+}
+
+test "a host with a query and no path, and a host with a fragment and no path" {
+    let one = assert.ok(read("http://a?x=1"));
+    assert.eq(one.path, "");
+    assert.eq(one.query, "x=1");
+    assert.eq(one.fragment, Option.None);
+    let two = assert.ok(read("http://a#top"));
+    assert.eq(two.path, "");
+    assert.eq(two.query, "");
+    assert.eq(two.fragment, .Some("top"));
+}
+
+test "a fragment holding a question mark belongs to the fragment" {
+    let u = assert.ok(read("http://a/b#c?d"));
+    assert.eq(u.query, "");
+    assert.eq(u.fragment, .Some("c?d"));
+}
+
+test "a query holding a hash does not, because the hash binds first" {
+    let u = assert.ok(read("http://a/b?c#d"));
+    assert.eq(u.query, "c");
+    assert.eq(u.fragment, .Some("d"));
+}
+
+test "a scheme is letters, digits, plus, minus and dot, and starts with a letter" {
+    assert.eq(assert.ok(read("a+b-c.1://h/")).scheme, "a+b-c.1");
+    assert.eq(assert.err(read("1http://a/")), UrlError.NoScheme);
+    assert.eq(assert.err(read("ht_tp://a/")), UrlError.NoScheme);
+    assert.eq(assert.err(read("://a/")), UrlError.NoScheme);
+}
+
+// --- parse then text ----------------------------------------------------------------
+
+test "every shape a URL takes comes back as it went in" {
+    assert.eq(roundTrip("http://a"), "http://a");
+    assert.eq(roundTrip("http://a?x=1"), "http://a?x=1");
+    assert.eq(roundTrip("http://a#f"), "http://a#f");
+    assert.eq(roundTrip("http://a/b?x=1"), "http://a/b?x=1");
+    assert.eq(roundTrip("http://a/b#f"), "http://a/b#f");
+    assert.eq(roundTrip("http://a:0/b?x=1#f"), "http://a:0/b?x=1#f");
+    assert.eq(roundTrip("http://[::1]/"), "http://[::1]/");
+    assert.eq(roundTrip("mailto:a@b?s=1#c"), "mailto:a@b?s=1#c");
+    assert.eq(roundTrip("urn:isbn:0451450523"), "urn:isbn:0451450523");
+}
+
+test "an escape keeps the spelling it arrived in" {
+    assert.eq(roundTrip("http://a/%7euser/%2Fx?q=%2b"), "http://a/%7euser/%2Fx?q=%2b");
+}
+
+test "a bare question mark is dropped and a bare hash is not" {
+    // A `query` of "" is a URL with no query, so the `?` has nowhere to be kept.
+    assert.eq(roundTrip("http://a/b?"), "http://a/b");
+    assert.eq(roundTrip("http://a/b#"), "http://a/b#");
+    assert.eq(roundTrip("http://a/b?#"), "http://a/b#");
+}
+
+test "an empty authority is dropped, so a file URL loses two slashes" {
+    // `host` of "" is what `mailto:` has, and `text` leaves the `//` off both.
+    assert.eq(roundTrip("file:///tmp/x"), "file:/tmp/x");
+    // And that is a fixed point: reading it again gives the same URL.
+    assert.eq(roundTrip("file:/tmp/x"), "file:/tmp/x");
+}
+
+// --- parameters, once more --------------------------------------------------------
+
+test "parameter answers the first of a repeated name, and parameters keeps both" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let u = assert.ok(read("http://a/b?k=1&k=2"));
+    assert.eq(u.parameter("k"), .Some("1"));
+    assert.eq(u.parameters(ctx), [("k", "1"), ("k", "2")]);
+}
+
+test "parameter compares the name as the query spells it" {
+    let u = assert.ok(read("http://a/b?a%20b=1"));
+    assert.eq(u.parameter("a b"), Option.None);
+    assert.eq(u.parameter("a%20b"), .Some("1"));
+}
+
+// --- withPath and withQuery, at the edges ------------------------------------------
+
+test "withPath on a URL with no host leaves the path alone" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let u = assert.ok(read("mailto:ada@example.com"));
+    assert.eq(shown(u.withPath(ctx, "bob@example.com")), "mailto:bob@example.com");
+}
+
+test "withQuery keeps the fragment and the port" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let u = assert.ok(read("http://a:8080/b?x=1#top"));
+    assert.eq(shown(u.withQuery(ctx, [("y", "2")])), "http://a:8080/b?y=2#top");
+}
+
+// --- resolve, the rest of the reference's shapes ------------------------------------
+
+test "a reference with an authority replaces the host and the port" {
+    assert.eq(resolved("//h:9/x"), "http://h:9/x");
+    assert.eq(resolved("//[::1]/x"), "http://[::1]/x");
+}
+
+test "a reference with only a fragment keeps the base's query" {
+    assert.eq(resolved("#"), "http://a/b/c/d;p?q#");
+}
+
+test "an empty query on a reference clears the base's" {
+    assert.eq(resolved("?"), "http://a/b/c/d;p");
+    assert.eq(resolved("g?"), "http://a/b/c/g");
+}
+
+test "a reference resolved against a base with no path" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let base = assert.ok(read("http://a"));
+    assert.eq(shown(assert.ok(base.resolve(ctx, "g"))), "http://a/g");
+    assert.eq(shown(assert.ok(base.resolve(ctx, "/g"))), "http://a/g");
+}
+
+test "resolving against a base twice over is the same as resolving once" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let base = assert.ok(read(BASE));
+    let once = assert.ok(base.resolve(ctx, "x/y/../z"));
+    assert.eq(shown(once), "http://a/b/c/x/z");
+    assert.eq(shown(assert.ok(once.resolve(ctx, ""))), "http://a/b/c/x/z");
+}

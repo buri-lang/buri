@@ -88,6 +88,11 @@ export fn parse<C: Alloc>(ctx: C, text: Str): Result<[[Str]], CsvError> {
 /// commas, so a file read with another delimiter does not round-trip through
 /// it.
 ///
+/// Three characters make poor delimiters and are not refused. A `"` opens a
+/// quoted field wherever a field starts, so it separates only fields already
+/// under way. A `\n` or a `\r` is asked about as a delimiter before it is asked
+/// about as a terminator, so it splits fields and the whole file is one record.
+///
 /// ```buri
 /// from "core/csv" import * as csv;
 /// from "core/effect" import { Alloc };
