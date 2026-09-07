@@ -20,13 +20,11 @@ A derived encoder stands for the type's *shape*, and one walker in the runtime
 reads it. So `json.encode(ctx, date)` would call a hand-written
 `impl ToJson for Date`, while `json.encode(ctx, appointment)` would walk straight
 past it, because `Appointment` holds a `Date` and derives its own. One value,
-two encodings, depending on where it turned up.
+two encodings.
 
-So there is one encoding, and it is the derived one. A type that needs a
-different document is a type you convert to first, through a function you can
-see at the call site.
-
-`core/json`'s `ToJson` and `FromJson` are the only two traits this applies to.
+A type that needs a different document is a type you convert to first, through a
+function you can see at the call site. `core/json`'s `ToJson` and `FromJson` are
+the only two traits this applies to.
 
 ## A program that provokes it
 

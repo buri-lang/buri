@@ -15,9 +15,8 @@ Bind a value whose type has `impl Alloc for ...`.
 ## Why
 
 You declare conformance; the compiler never infers it. A type with all the right
-methods still does not satisfy an effect until an `impl` says so. An effect is
-an ordinary interface, which is why a test double is a struct with those methods
-and an `impl` block.
+methods still does not satisfy an effect until an `impl` says so — which is why
+a test double is a struct with those methods and an `impl` block.
 
 ## A program that provokes it
 

@@ -47,14 +47,11 @@ error: a statement ends with `;` [missing-terminator]
     Why
     ───
 
-    A declaration that binds a value or a name ends with ;. One that opens a
+    A declaration that binds a value or a name ends with ;; one that opens a
     brace-delimited body does not. So let, type, derive, an import and a
     tuple-struct end with ;, while a fn, a struct with fields, an enum, a trait
     and an impl end with }. The rule follows the declaration's last token, so
     you remember nothing per keyword.
-
-    Inside a block, that same ; separates one statement from the next and says
-    the expression's value is discarded rather than returned.
 
 error: a match arm ends with `,` [missing-separator]
  --> lib/money/routes.buri:9:42
@@ -68,19 +65,14 @@ error: a match arm ends with `,` [missing-separator]
     ──────────
 
     Write the , where the caret is. The error carries the edit as bytes, so an
-    editor's quick fix and buri lint --fix both write it for you. The parser
-    then reads the rest of the list rather than abandoning it.
+    editor's quick fix and buri lint --fix both write it for you.
 
     Why
     ───
 
     Every comma-separated list in the language separates the same way, with no
-    exception for an element that happens to end in a brace. A match arm whose
+    exception for an element that happens to end in a brace: a match arm whose
     body is a block still ends with ,. Without it, A => x followed by -1 => y
     reads as x - 1, and where one arm stops becomes a guess
     (design/grammar-rationale.md 12.12).
-
-    One rule, stated once, also lets the parser tell a missing separator from a
-    list that has ended. The next element is already under the cursor, so the
-    mistake is one comma and the diagnostic is one sentence.
 

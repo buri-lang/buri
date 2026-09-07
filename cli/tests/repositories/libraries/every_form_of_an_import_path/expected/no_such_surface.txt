@@ -20,8 +20,8 @@ error: "//lib/money/notes/lib.buri" names no file (lib/money/notes/lib.buri) [mo
     A program that provokes it
     ──────────────────────────
 
-    A module path resolves against the repository, so this snippet compiles
-    against the worked monorepo in cli/tests/example, which has no lib/nope.
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
 
 error: there is no type `Cents` [unresolved-type]
  --> cmd/app/routes.buri:6:12
