@@ -82,9 +82,32 @@ fn proto_schemas() {
 /// `generate` action, the cache, reproducibility, the module's internality, and
 /// the two ways a tool can fail — one for what a generator says about its
 /// input, and one for a tool built from the target that runs it.
+///
+/// Two more are the edges of each half. `generator_shapes` is what a tool may
+/// hand back: no modules, two of them with one importing the other, an entry
+/// with no inputs at all, noise on either stream, an answer followed by a
+/// non-zero exit, and the three names a generated module may not take.
+/// `generator_tools` is what an entry may *name*: no tool, a generator this
+/// toolchain does not ship, a label that is no binary, an input that is not
+/// there, and `proto_sources` on a binary.
+///
+/// `origins_at_the_edges` is the third: an origin is a byte range in a file,
+/// and the ends of one are where a caret is easiest to get wrong. Five spans —
+/// the first byte, the last byte, one that begins where the file ends, one well
+/// past it, and one naming a file the repository does not have — over a
+/// two-line input, a one-byte input, and an empty one.
+///
+/// `the_printer_round_trips` is the fourth, and it is about `core/buri/ast`
+/// rather than about the rule: a generator builds a module out of nodes,
+/// `core/codegen` prints it, the compiler parses and checks the text, and the
+/// program that runs it gets the same answers as a byte-identical module a
+/// person wrote by hand. Between the two halves it reaches every construct
+/// `std/codegen/proto` never writes, so a node kind the printer wrote wrongly
+/// fails as a program that does not compile rather than as a string nobody
+/// re-read.
 #[test]
 fn generators() {
-    run_corpus(&tests_dir().join("repositories/generators"), "generators", 3);
+    run_corpus(&tests_dir().join("repositories/generators"), "generators", 7);
 }
 
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own
@@ -205,7 +228,7 @@ fn snapshots() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 94);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 95);
 }
 
 /// Every method a 3.17 client can send is answered by the dispatch, and is

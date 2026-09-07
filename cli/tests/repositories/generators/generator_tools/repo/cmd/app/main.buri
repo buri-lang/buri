@@ -1,0 +1,15 @@
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "//lib/wire" import { defaultPoint, Point };
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let p = Point { ..defaultPoint(), x: .Some(4) };
+    io
+        .println(ctx, "${p.x.withDefault(0)}")
+        .mapErr(fn(_e) => "could not write to standard output")
+}

@@ -145,6 +145,35 @@ fn the_declared_set_is_the_inputs_and_the_files_that_decide_them() {
     assert_eq!(sorted.len(), listed.len(), "a file is swept twice per sweep");
 }
 
+/// **A `generators` input is watched, and so is the tool that reads it.**
+///
+/// Both are in the `generate` key, and a file in the key and not in this set is
+/// a build the loop stops re-running: edit the schema, and `--watch` sits
+/// there. The tool arrives through the ordinary closure — it is a target — and
+/// the input arrives only because `generators::inputs` is what enumerates it,
+/// which is the half nothing else here would notice going quiet.
+#[test]
+fn a_generators_input_and_the_tool_that_reads_it_are_watched() {
+    let scratch = Scratch::repo("watch-generators");
+    scratch.write(
+        "lib/wire/BUILD.buri",
+        "library {\n  generators: [{ tool: \"//cmd/gen\", inputs: [\"units.txt\"] }]\n}\n",
+    );
+    scratch.write("lib/wire/units.txt", "width 3\n");
+    scratch.write("lib/wire/lib.buri", "export fn here(): Int { 1 }\n");
+    scratch.write("cmd/gen/BUILD.buri", "binary {\n  outputs: [{ platform: JS }]\n}\n");
+    scratch.write("cmd/gen/main.buri", "export fn main(): Result<(), Str> { .Ok(()) }\n");
+
+    let listed = names(&scratch.root, &declared_set(&scratch.root));
+    for want in ["lib/wire/units.txt", "cmd/gen/main.buri", "cmd/gen/BUILD.buri"] {
+        assert!(
+            listed.iter().any(|p| p == want),
+            "the declared set does not name {want}:\n{}",
+            indent(&listed.join("\n"))
+        );
+    }
+}
+
 /// A library the suite's *test* code depends on is watched, because it is in
 /// the suite's key.
 ///

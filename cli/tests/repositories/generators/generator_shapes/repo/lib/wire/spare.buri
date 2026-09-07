@@ -1,0 +1,2 @@
+// A source of the rule, whose name a generator may not take.
+export let spare: Int = 1;
