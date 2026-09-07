@@ -54,9 +54,9 @@
 //!     budget, and the `:root` block a theme list resolves to. It is here for
 //!     [`testing`]'s reason rather than a new one — a graph is mutable process
 //!     state outliving every expression that touches it — and the bodies it
-//!     runs arrive as §2 rule 5's entry thunk, exactly as `Tasks.parallel`'s
-//!     steps do. The DOM shim stays in JavaScript; nothing in that file
-//!     renders anything;
+//!     runs arrive as §2 rule 6's *deferred* body, which is rule 5's entry
+//!     thunk with a record this crate copies and a frame it supplies. The DOM
+//!     shim stays in JavaScript; nothing in that file renders anything;
 //!   * **128-bit arithmetic** — [`buri_rt_i128_divmod`], [`buri_rt_i128_checked`]
 //!     and [`buri_rt_i128_saturating`], at the bottom of this file. They are
 //!     here for one reason: the overflow test both backends use at 64 bits is
@@ -145,6 +145,14 @@
 //!    ([`list`]'s header). A bare `T` — one with no leaf list a C signature
 //!    could name — goes by address, at that same stride.
 //!
+//!    An entry that **keeps** what it was given takes a third word, the
+//!    per-value **release** function, and calls it when the store ends. One
+//!    entry does: `ui/effect`'s `write`, where a cell holds the bytes it was
+//!    written until the next write replaces them
+//!    (`backend/runtime_table.rs`'s `Extra::Owned`). Nothing in `core/list`
+//!    holds a value past the call it was made in, so nothing there has a
+//!    reference to give back.
+//!
 //! 5. **A closure parameter arrives as an entry thunk and an opaque state.**
 //!    Rule 4 answers "the runtime cannot name `T`" for a value; this answers it
 //!    for a *call*. Four words: a `void(state, index, in, out)` the backend
@@ -163,6 +171,23 @@
 //!    and exists to be compared against an answer that is already known; and
 //!    `host.HostTasks.parallel`, which is the scheduler the pilot was landed
 //!    for (`list.rs`'s `StepEntry`, `rt.rs`).
+//!
+//! 6. **A body the runtime keeps arrives as that thunk, a record to copy, and
+//!    a place to put a frame.** Rule 5's closure runs during the call that
+//!    handed it over; `ui/effect`'s `memo` and `watch` run on the first read
+//!    and on every change, long after. So three more words follow the four:
+//!    how many bytes of the record there are, because the runtime **copies**
+//!    it — the caller's frame will be gone; where in the copy to write a
+//!    working frame, or `-1` for a backend whose thunk needs none; and the
+//!    release glue for the record itself, because the graph holds the closure
+//!    for the life of the program and gives the reference back at exit
+//!    ([`ui`]'s `give_back`). The stride and release of rule 4 come with them,
+//!    for the value a memo keeps.
+//!
+//!    The thunk is rule 5's, unchanged. A reactive body is `fn(Scope) => T`,
+//!    which is a step of one element whose element is the scope, so there is
+//!    one thunk shape in this archive rather than two
+//!    (`backend/runtime_table.rs`'s `Extra::Compute`).
 //!
 //! ## 2.2 The one entry that goes the other way
 //!

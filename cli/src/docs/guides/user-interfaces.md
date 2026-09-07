@@ -278,6 +278,11 @@ the call, because the JavaScript runtime has no painter:
 the snapshot "card" was not painted: snapshots run natively, and this suite is JS
 ```
 
+The graph runs there too: `signal`, `memo`, `watch` and the `Recorder` are all
+native, so a suite that reads and writes signals needs no `platforms: [JS]`
+either. `ui/testing`'s `render` is the part that still does — it wants a
+document, and only a browser has one.
+
 The rest is short:
 
 - The context binds `Alloc` as well as `Ui`, because building the scene builds a
@@ -291,7 +296,7 @@ The rest is short:
   paints — every prop read, every style expanded, every child in order. Print it
   when a snapshot surprises you.
 
-Two things the painter does not do yet, and both show up in a picture. A
-`box-shadow`'s blur radius paints nothing: you get the offset, spread rectangle
-in its colour. And `overflow: hidden` clips to the box's rectangle, ignoring its
-radius.
+A `box-shadow`'s blur is three integer box passes over a coverage mask — the
+approximation the SVG filter specification writes down for a Gaussian, and what
+a browser does for a shadow. Integers, so the bytes are the same bytes on every
+machine.

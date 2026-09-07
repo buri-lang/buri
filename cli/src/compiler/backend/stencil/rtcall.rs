@@ -211,6 +211,13 @@ impl Jit<'_> {
             if entry.extra == Extra::Step && step_call(entry.key).is_some_and(|c| c.func == i) {
                 continue;
             }
+            // And a **deferred body** is not flattened either, for the same
+            // reason and at a fixed position: it is the last argument of every
+            // [`Extra::Compute`] row, which is what lets one table with no
+            // per-argument column describe the call.
+            if entry.extra == Extra::Compute && i + 1 == args.len() {
+                continue;
+            }
             for leaf in self.leaves(prog, t)? {
                 let at = slot + leaf.offset;
                 if leaf.float {
@@ -223,14 +230,14 @@ impl Jit<'_> {
             }
         }
 
-        if entry.extra == Extra::Element {
+        if matches!(entry.extra, Extra::Element | Extra::Owned) {
             // The pair, from the `[T]` this walks — or, where the row names no
             // list at all, from the bare `T` it names instead
             // ([`Self::bare_carrier`]).
-            let (stride, glue) = match self.element_ty(prog, dest.map(|d| d.1), args) {
+            let (stride, carried) = match self.element_ty(prog, dest.map(|d| d.1), args) {
                 Some(elem) => {
                     let stride = u64::from(self.layouts_of(elem.clone()).stride.max(1));
-                    (stride, self.element_glue(elem))
+                    (stride, Some(elem))
                 }
                 None => {
                     let bare = entry
@@ -248,14 +255,29 @@ impl Jit<'_> {
             // that increfs whatever counted pointers one element holds, and a
             // **null** pointer for an element type that holds none — which is
             // the common case and what the runtime tests for.
+            let glue = carried.clone().and_then(|ty| self.element_glue(ty));
             match glue {
                 Some(name) => ints.push(Src::Sym(name)),
                 None => ints.push(Src::Imm(0)),
+            }
+            // And, where the runtime *keeps* what it was given, the release
+            // after it ([`Extra::Owned`]): the same walk with a decref where
+            // the retain has an incref, which is the one `emit.rs` already
+            // emits for a value going out of scope.
+            if entry.extra == Extra::Owned {
+                match carried.and_then(|ty| self.value_release(ty)) {
+                    Some(name) => ints.push(Src::Sym(name)),
+                    None => ints.push(Src::Imm(0)),
+                }
             }
         }
 
         if entry.extra == Extra::Step {
             self.step_extra(prog, st, entry, dest.map(|d| d.1), args, &mut ints)?;
+        }
+
+        if entry.extra == Extra::Compute {
+            self.compute_extra(prog, st, entry, args, &mut ints)?;
         }
 
         let dslot = dest.map(|d| d.0).unwrap_or(0);
@@ -686,6 +708,17 @@ impl Jit<'_> {
             .then(|| self.helper(super::glue::Helper::Walk { ty: elem, retain: true }))
     }
 
+    /// [`Self::element_glue`]'s mirror: the release, for a value the runtime
+    /// stores and later writes over ([`Extra::Owned`]).
+    ///
+    /// The same walk `emit.rs` emits for a value going out of scope. It is
+    /// reached from here because the runtime is the side that knows *when* a
+    /// store ends and this is the side that knows *what* is in it.
+    fn value_release(&mut self, ty: Ty) -> Option<String> {
+        self.rc_counted(&ty)
+            .then(|| self.helper(super::glue::Helper::Walk { ty, retain: false }))
+    }
+
     /// One argument into its place in the scratch area.
     pub(crate) fn marshal(&mut self, at: u32, src: &Src) {
         match src.clone() {
@@ -857,6 +890,74 @@ impl Jit<'_> {
         Ok(())
     }
 
+    /// [`Extra::Compute`]'s seven words: a body the runtime keeps and calls
+    /// later.
+    ///
+    /// It is [`Self::step_extra`] with the lifetime turned around. The record
+    /// is built in the same place and holds the same first two words, and the
+    /// thunk is the same `Helper::Entry` — a body is `fn(Scope) => T`, which is
+    /// a step of one element whose element is the scope, so the generator needs
+    /// no second shape. What differs is everything about *when*: the runtime
+    /// copies the record, because this frame will be gone; it supplies the
+    /// working frame, because this one will be gone too; and it holds the
+    /// closure for the life of the program, so the count on the closure's
+    /// environment is taken **here**, at the call site, exactly as
+    /// `emit::json_prim` takes one on a `Str` an intrinsic put in an enum.
+    fn compute_extra(
+        &mut self,
+        prog: &ir::Program,
+        st: &mut Fn2,
+        entry: &Entry,
+        args: &[(u32, ir::Type)],
+        ints: &mut Vec<Src>,
+    ) -> Result<(), String> {
+        let Some((fslot, fty)) = args.last().copied() else {
+            return Err(format!("{}: no body argument", entry.key));
+        };
+        let Some(ty) = source_ty(prog, fty) else {
+            return Err(format!("{}: a body with no type", entry.key));
+        };
+        let Ty::Fn(params, ret) = ty.clone() else {
+            return Err(format!("{}: a body that is not a function", entry.key));
+        };
+        if params.len() != 1 {
+            return Err(format!("{}: a body taking {} arguments", entry.key, params.len()));
+        }
+        let widths: Vec<u32> =
+            params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
+        let (_, bytes) = super::glue::state_shape(&widths, None);
+        let state = st.frame.size;
+        self.mv(state, fslot, 16);
+        // The graph keeps the closure, so the graph owes it a reference.
+        // `middle::rc` releases the argument at this call, which is its last
+        // use, and without this the environment would be freed under a memo
+        // that has not run yet.
+        if self.rc_counted(&ty) {
+            self.walk_rc(st, &ty, state, true, 0)?;
+        }
+        let stride = u64::from(self.layouts_of((*ret).clone()).stride);
+        let release = self.value_release((*ret).clone());
+        let thunk =
+            self.helper(super::glue::Helper::Entry { params, ret: *ret, index: None });
+        ints.push(Src::Sym(thunk));
+        ints.push(Src::Addr(state));
+        ints.push(Src::Imm(u64::from(bytes)));
+        // This backend's record keeps a frame word, and `E_FRAME` is where.
+        ints.push(Src::Imm(u64::from(super::glue::E_FRAME)));
+        ints.push(Src::Imm(stride));
+        match release {
+            Some(name) => ints.push(Src::Sym(name)),
+            None => ints.push(Src::Imm(0)),
+        }
+        // And the record's own walk, which is the closure's: what gives back
+        // the reference taken above, at exit, when the graph lets the body go.
+        match self.value_release(ty) {
+            Some(name) => ints.push(Src::Sym(name)),
+            None => ints.push(Src::Imm(0)),
+        }
+        Ok(())
+    }
+
     /// The element type of the `[T]` an `Extra::Element` row operates on: the
     /// result's where the result is a list, and the first list argument's
     /// otherwise. Both orders are needed — `list.repeat` mentions `T` only in
@@ -886,17 +987,18 @@ impl Jit<'_> {
     /// the result, and neither has a list anywhere for [`Self::element_ty`] to
     /// find. What the runtime needs is the same pair either way — how many
     /// bytes one value is, and how to take a reference on what it holds — so
-    /// this answers the pair rather than the type.
+    /// this answers the width and the type behind it, and the two glue
+    /// functions are read off that type.
     ///
     /// A scalar has no `Ty` to ask, because the IR keeps one only for an
     /// aggregate. It needs none: its width is its `ir::Type`, and a scalar
     /// holds no counted pointer, so the glue is null.
-    fn bare_carrier(&mut self, prog: &ir::Program, t: ir::Type) -> (u64, Option<String>) {
+    fn bare_carrier(&mut self, prog: &ir::Program, t: ir::Type) -> (u64, Option<Ty>) {
         match t {
             ir::Type::Agg(id) => {
                 let ty = prog.type_info(id).ty.clone();
                 let stride = u64::from(self.layouts_of(ty.clone()).stride.max(1));
-                (stride, self.element_glue(ty))
+                (stride, Some(ty))
             }
             ir::Type::Unit => (1, None),
             ir::Type::I1 | ir::Type::I8 => (1, None),

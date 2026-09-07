@@ -1198,14 +1198,94 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         fields: &[ir::ValueId],
     ) {
         let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
+        let boxed = self.boxed_fields(code.ty_of(dest));
         let mut pieces = Vec::with_capacity(slots.len());
-        for f in fields {
+        for (i, f) in fields.iter().enumerate() {
             let fs = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*f));
             let value = self.get(state, *f);
-            pieces.extend(repr::disassemble(&self.builder, &fs, value));
+            let taken = repr::disassemble(&self.builder, &fs, value);
+            if boxed.get(i).copied().unwrap_or(false) {
+                state.observed.allocates = true;
+                pieces.push(self.box_value(code, *f, &fs, &taken).into());
+                continue;
+            }
+            pieces.extend(taken);
         }
         let value = repr::assemble(self.ctx, &self.builder, &slots, &pieces);
         self.set(state, dest, value);
+    }
+
+    /// Which of an aggregate's fields `middle::layout` keeps behind an
+    /// indirection, in declaration order.
+    ///
+    /// The empty answer for anything that is not a struct, which is what the
+    /// callers want: an enum's variants are laid out per variant and a scalar
+    /// has no fields at all.
+    fn boxed_fields(&mut self, ty: ir::Type) -> Vec<bool> {
+        let ir::Type::Agg(id) = ty else { return Vec::new() };
+        let owner = self.program.type_info(id).ty.clone();
+        let fields = crate::compiler::semantics::types::field_types(self.tables, &owner);
+        fields.iter().map(|f| self.reprs.boxes(&owner, f)).collect()
+    }
+
+    /// The same question of **one variant's** payload fields, with the size and
+    /// alignment of each so that a boxed one can be allocated and read back.
+    ///
+    /// A recursive enum is where this is the whole answer: `enum Chain { End,
+    /// Link(Box) }` whose `Box` names `Chain` back keeps its payload behind an
+    /// indirection, so the variant's slot in the blob is one pointer and not
+    /// the payload's own words.
+    fn boxed_payload(&mut self, id: ir::TypeId, variant: usize) -> Vec<(bool, u32, u32)> {
+        let owner = self.program.type_info(id).ty.clone();
+        let fields = crate::compiler::semantics::types::variant_types(self.tables, &owner, variant);
+        fields
+            .iter()
+            .map(|f| {
+                let boxed = self.reprs.boxes(&owner, f);
+                let layout = self.reprs.of_ty(f).layout.clone();
+                (boxed, layout.size, layout.align)
+            })
+            .collect()
+    }
+
+    /// One value in a block of its own, and the pointer that stands for it.
+    fn block_of(
+        &mut self,
+        size: u32,
+        align: u32,
+        slots: &[Slot],
+        pieces: &[BasicValueEnum<'ctx>],
+    ) -> PointerValue<'ctx> {
+        let alloc = self.rt_alloc();
+        let bytes = self.ctx.i64_type().const_int(u64::from(size.max(1)), false);
+        let block = match self.builder.build_call(alloc, &[bytes.into()], "box") {
+            Ok(call) => {
+                attrs::set_call_convention(call, attrs::C);
+                call.try_as_basic_value()
+                    .basic()
+                    .and_then(|v| v.try_into().ok())
+                    .unwrap_or_else(|| self.ptr_ty().const_null())
+            }
+            Err(_) => self.ptr_ty().const_null(),
+        };
+        self.store_slots(block, slots, align, pieces);
+        block
+    }
+
+    /// A **boxed** field's value: one block holding the field's bytes, and the
+    /// pointer that goes where the field would have been.
+    ///
+    /// `stencil/emit.rs`'s `box_into` is the same three steps, and
+    /// `repr.rs`'s `Site::Boxed` is what releases and copies what this builds.
+    fn box_value(
+        &mut self,
+        code: &ir::Code,
+        field: ir::ValueId,
+        slots: &[Slot],
+        pieces: &[BasicValueEnum<'ctx>],
+    ) -> PointerValue<'ctx> {
+        let (_, size, align) = self.dest_shape(code, field);
+        self.block_of(size, align, slots, pieces)
     }
 
     fn get_field(
@@ -1227,6 +1307,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         let taken: Vec<BasicValueEnum<'ctx>> =
             pieces.get(start..end).map(<[_]>::to_vec).unwrap_or_default();
+        // A boxed field holds the block's pointer, so the value is the bytes it
+        // names — one load per slot, `stencil/emit.rs`'s `unbox_from`.
+        if self.boxed_fields(code.ty_of(agg)).get(index).copied().unwrap_or(false) {
+            let Some(BasicValueEnum::PointerValue(block)) = taken.first().copied() else {
+                return;
+            };
+            let (_, _, align) = self.dest_shape(code, dest);
+            let loaded = self.load_slots(block, &want, align);
+            let value = repr::assemble(self.ctx, &self.builder, &want, &loaded);
+            self.set(state, dest, value);
+            return;
+        }
         let value = repr::assemble(self.ctx, &self.builder, &want, &taken);
         self.set(state, dest, value);
     }
@@ -1341,6 +1433,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 (fs, pieces)
             })
             .collect();
+        // A boxed payload is a block, so a variant that has one allocates.
+        if self.boxed_payload(id, variant as usize).iter().any(|(boxed, _, _)| *boxed) {
+            state.observed.allocates = true;
+        }
         let Some(value) = self.build_variant(id, variant as usize, &parts) else { return };
         let _ = span;
         self.set(state, dest, value);
@@ -1387,7 +1483,26 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 let bytes = size.saturating_sub(payload);
                 let blob_ty = repr::blob_type(self.ctx, bytes);
                 let mut blob: IntValue<'ctx> = blob_ty.const_zero();
+                // A **boxed** payload field is one pointer in the blob, not its
+                // own words: the block holds the value and the variant holds
+                // the block. `enum Chain { End, Link(Box) }` whose `Box` names
+                // `Chain` back is the shape.
+                let boxes = self.boxed_payload(id, variant);
+                let mut owned: Vec<(Vec<Slot>, Vec<BasicValueEnum<'ctx>>)> =
+                    Vec::with_capacity(fields.len());
                 for (i, (fs, pieces)) in fields.iter().enumerate() {
+                    match boxes.get(i).copied() {
+                        Some((true, size, align)) => {
+                            let block = self.block_of(size, align, fs, pieces);
+                            owned.push((
+                                vec![Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) }],
+                                vec![block.into()],
+                            ));
+                        }
+                        _ => owned.push((fs.clone(), pieces.clone())),
+                    }
+                }
+                for (i, (fs, pieces)) in owned.iter().enumerate() {
                     let Some(at) = offsets.get(i).copied() else { continue };
                     let within = at.saturating_sub(payload);
                     for (slot, piece) in fs.iter().zip(pieces) {
@@ -1428,7 +1543,28 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let Some(enum_repr) = enum_repr else { return };
         let whole = self.get(state, agg);
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
-        let value = self.payload_of(&slots, &enum_repr, &offsets, index, &want, whole);
+        let boxed = self
+            .boxed_payload(id, variant)
+            .get(index)
+            .copied()
+            .is_some_and(|(boxed, _, _)| boxed);
+        // A boxed payload is one pointer in the blob, and the value is the
+        // bytes it names: take the pointer the way any other payload field is
+        // taken, then load through it (`stencil/emit.rs`'s `unbox_from`).
+        let read = if boxed {
+            vec![Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) }]
+        } else {
+            want.clone()
+        };
+        let taken = self.payload_of(&slots, &enum_repr, &offsets, index, &read, whole);
+        let value = if boxed {
+            let BasicValueEnum::PointerValue(block) = taken else { return };
+            let (_, _, align) = self.dest_shape(code, dest);
+            let loaded = self.load_slots(block, &want, align);
+            repr::assemble(self.ctx, &self.builder, &want, &loaded)
+        } else {
+            taken
+        };
         self.set(state, dest, value);
     }
 
@@ -2113,6 +2249,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     match mode {
                         runtime::Arg::Stride => argv
                             .push(self.ctx.i64_type().const_int(u64::from(stride), false).into()),
+                        runtime::Arg::Release => {
+                            let glue = glue_ty
+                                .and_then(|t| self.release_glue(&t))
+                                .map(function_pointer)
+                                .unwrap_or_else(|| self.ptr_ty().const_null());
+                            argv.push(glue.into());
+                        }
                         _ => {
                             let glue = glue_ty
                                 .and_then(|t| self.retain_glue(&t))
@@ -2138,6 +2281,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     runtime::Arg::Stride => {
                         let stride = self.reprs.of_ty(&elem).layout.stride;
                         argv.push(self.ctx.i64_type().const_int(u64::from(stride), false).into());
+                    }
+                    runtime::Arg::Release => {
+                        let glue = self
+                            .release_glue(&elem)
+                            .map(function_pointer)
+                            .unwrap_or_else(|| self.ptr_ty().const_null());
+                        argv.push(glue.into());
                     }
                     _ => {
                         let glue = self
@@ -2289,6 +2439,65 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     argv.push(record.into());
                     argv.push(word.const_int(u64::from(a), false).into());
                     argv.push(word.const_int(u64::from(b), false).into());
+                }
+                // The deferred body's six words. The record is built the way
+                // a step's is and holds the same two, and then the runtime
+                // **copies** it: this `alloca` is gone by the time a memo
+                // first runs. The count on the closure's environment is taken
+                // here, at the call site, because the graph keeps the closure
+                // for the life of the program and `middle::rc` releases the
+                // argument at this call.
+                runtime::Arg::Compute => {
+                    let body = self.type_of(ir_ty);
+                    let Some(Ty::Fn(ps, r)) = body.clone() else {
+                        self.error(
+                            span,
+                            format!("internal error: `{key}`'s body is not a function"),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    };
+                    if ps.len() != 1 {
+                        self.error(
+                            span,
+                            format!(
+                                "internal error: `{key}` was given a body taking {} arguments",
+                                ps.len()
+                            ),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    }
+                    let bytes = self.step_state_bytes(&ps, None);
+                    let record = self.scratch(state, bytes, 8);
+                    self.store_slots(record, &slots, 8, &pieces);
+                    if let Some(glue) = body.as_ref().and_then(|ty| self.retain_glue(ty)) {
+                        let _ = self.builder.build_call(glue, &[record.into()], "");
+                    }
+                    let thunk = self.entry_thunk(&ps, &r, None);
+                    let stride = self.reprs.stride_of(&r);
+                    let release = self
+                        .release_glue(&r)
+                        .map(function_pointer)
+                        .unwrap_or_else(|| self.ptr_ty().const_null());
+                    let word = self.ctx.i64_type();
+                    argv.push(function_pointer(thunk).into());
+                    argv.push(record.into());
+                    argv.push(word.const_int(u64::from(bytes), false).into());
+                    // No frame word: this backend's thunk works on the machine
+                    // stack, so there is nothing for the runtime to fill in.
+                    argv.push(word.const_all_ones().into());
+                    argv.push(word.const_int(u64::from(stride), false).into());
+                    argv.push(release.into());
+                    // And the record's own walk, which is the closure's: what
+                    // gives back the reference taken above, at exit, when the
+                    // graph lets the body go.
+                    let give_back = body
+                        .as_ref()
+                        .and_then(|ty| self.release_glue(ty))
+                        .map(function_pointer)
+                        .unwrap_or_else(|| self.ptr_ty().const_null());
+                    argv.push(give_back.into());
                 }
                 runtime::Arg::Spilled => {
                     let (size, align) = match &element {
