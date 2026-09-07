@@ -1057,18 +1057,18 @@ export struct TestSpawn {
 impl Spawn for TestSpawn {
     fn spawnProcess(
         self,
-        program: Str,
-        arguments: [Str],
-        workingDirectory: Str,
+        plan: [Str],
         environment: [Str],
         replaceEnvironment: Bool,
         stdin: [U8],
     ): Result<Output, IoError> {
-        let _at = workingDirectory;
         let _variables = environment;
         let _replaces = replaceEnvironment;
         let _input = stdin;
-        let _recorded = recordSpawn(self.handle, program, arguments);
+        // The whole plan, because splitting it into a program and its arguments
+        // would need an `Alloc` and an effect method takes only `self`. The
+        // runner does the split, which is where `SpawnCall` is built anyway.
+        let _recorded = recordSpawn(self.handle, plan);
         self.answer
     }
 }
@@ -1099,7 +1099,9 @@ impl TestSpawn {
 /// A fresh, empty log, and the handle that names it.
 fn newSpawn(): I64;
 
-fn recordSpawn(handle: I64, program: Str, arguments: [Str]): ();
+/// The plan as `spawnProcess` takes it: the program, the working directory, and
+/// then the arguments. The runner splits it into a `SpawnCall`.
+fn recordSpawn(handle: I64, plan: [Str]): ();
 
 fn spawnCalls(handle: I64): [SpawnCall];
 

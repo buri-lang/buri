@@ -95,20 +95,24 @@ export struct Output {
 /// another are not the same permission, and a program that only needs the first
 /// should not be handed the second.
 export effect Spawn {
-    /// Runs `program`, waits for it, and answers everything it wrote.
+    /// Runs a program, waits for it, and answers everything it wrote.
     ///
-    /// The pieces of a `Command` rather than the `Command` itself, because an
-    /// argument crosses to the runtime flattened into its scalar leaves and
-    /// three of that struct's five fields are an `Option` whose layout the
-    /// runtime would then have to know. `run` below is the door, and it is
-    /// where the encoding lives: an empty `workingDirectory` is "this process's
-    /// own", and `environment` is name and value alternating, used only when
-    /// `replaceEnvironment` says so.
+    /// **Four flat arguments rather than a `Command`**, and the shape is the
+    /// boundary's rather than the module's. An argument crosses to the runtime
+    /// flattened into its scalar leaves, three of that struct's five fields are
+    /// an `Option` whose layout the runtime would have to know, and a runtime
+    /// call has a fixed number of registers to put leaves in
+    /// (`backend/stencil/abi.rs`). So the encoding is here, in one place, and
+    /// [`run`] is the only caller of it:
+    ///
+    /// * `plan` is the **program**, then the **working directory** — empty for
+    ///   this process's own — then the arguments.
+    /// * `environment` is name and value alternating, and is used only when
+    ///   `replaceEnvironment` says so.
+    /// * `stdin` is written to the child and the pipe is then closed.
     fn spawnProcess(
         self,
-        program: Str,
-        arguments: [Str],
-        workingDirectory: Str,
+        plan: [Str],
         environment: [Str],
         replaceEnvironment: Bool,
         stdin: [U8],
@@ -163,7 +167,8 @@ export fn run<C: Alloc + Spawn>(ctx: C, command: Command): Result<Output, IoErro
         .None => [],
         .Some(body) => body,
     };
-    ctx.spawnProcess(command.program, command.arguments, at, variables, replace, input)
+    let plan = [command.program, at].concat(ctx, command.arguments);
+    ctx.spawnProcess(plan, variables, replace, input)
 }
 
 /// `[(name, value)]` as name and value alternating, which is what the effect

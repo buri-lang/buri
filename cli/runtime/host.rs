@@ -1227,10 +1227,10 @@ pub struct BuriOutput {
 
 /// `Spawn::spawnProcess` — `Result<Output, IoError>`.
 ///
-/// The pieces of a `Command` rather than the value, which `core/proc`'s
-/// `effect Spawn` argues: an empty `working` is this process's own directory,
-/// and `environment` is name and value alternating and used only when
-/// `replaces` says so.
+/// Four flat arguments rather than a `Command`, which `core/proc`'s
+/// `effect Spawn` argues: `plan` is the program, then the working directory —
+/// empty for this process's own — then the arguments, and `environment` is name
+/// and value alternating, used only when `replaces` says so.
 ///
 /// **Both streams are drained while the child runs.** `std::process::Child`'s
 /// `wait_with_output` does exactly that, which is what keeps a child writing
@@ -1241,20 +1241,13 @@ pub struct BuriOutput {
 /// shell reports and the number node's half computes from the signal's name.
 ///
 /// # Safety
-/// Every view must be live: the program's three `Str` leaves, the `[Str]`
-/// argument lists as `(ptr, len)`, and the `[U8]` input. Both out-pointers
-/// writable and aligned.
+/// Every view must be live: the two `[Str]` lists as `(ptr, len)`, and the
+/// `[U8]` input. Both out-pointers writable and aligned.
 #[unsafe(no_mangle)]
 #[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn buri_rt_host_spawn_process(
-    _pbase: *mut u8,
     pptr: *const u8,
     plen: u64,
-    aptr: *const u8,
-    alen: u64,
-    _wbase: *mut u8,
-    wptr: *const u8,
-    wlen: u64,
     eptr: *const u8,
     elen: u64,
     replaces: u8,
@@ -1264,18 +1257,16 @@ pub unsafe extern "C" fn buri_rt_host_spawn_process(
     out_err: *mut BuriStr,
 ) -> i32 {
     // SAFETY: forwarded.
-    let program = unsafe { text(pptr, plen) };
-    // SAFETY: forwarded.
-    let working = unsafe { text(wptr, wlen) };
-    // SAFETY: forwarded.
-    let arguments = unsafe { strs(aptr, alen) };
+    let plan = unsafe { strs(pptr, plen) };
     // SAFETY: forwarded.
     let variables = unsafe { strs(eptr, elen) };
     // SAFETY: forwarded.
     let input = unsafe { view(iptr, ilen) }.to_vec();
 
+    let program = plan.first().cloned().unwrap_or_default();
+    let working = plan.get(1).cloned().unwrap_or_default();
     let mut command = std::process::Command::new(&program);
-    command.args(&arguments);
+    command.args(plan.iter().skip(2));
     if !working.is_empty() {
         command.current_dir(&working);
     }

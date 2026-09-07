@@ -1535,6 +1535,377 @@ fn a_native_binary_touches_files_and_reads_its_own_arguments() {
     );
 }
 
+
+/// A program that builds a real tree in a real temporary directory and asks
+/// the filesystem about it.
+///
+/// **`makeTemporaryDirectory` is what makes the row hermetic**: the name comes
+/// from `TMPDIR` and eight octets of the operating system's own entropy, so two
+/// runs of this suite at once do not meet. It removes the tree with
+/// `removeTree` at the end, which is the other half — and the assertion the
+/// double cannot make, because a flat map has no directory to leave behind.
+///
+/// The one thing here that needs the *harness* is the symbolic link: nothing in
+/// `core/fs` creates one, and `metadata` not following one is the decision
+/// `EntryKind` exists for. So the row makes the link and the program reports
+/// what the filesystem said it was.
+fn real_tree() -> String {
+    String::from(
+        r#"from "core/effect" import { Alloc, Entropy, Env, Stdout };
+from "core/env" import * as env;
+from "core/fs" import { EntryKind, FsRead, FsWrite };
+from "core/fs" import * as fs;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/path" import { Path };
+from "core/str" import * as str;
+from "core/time" import { Instant };
+
+fn named(kind: EntryKind): Str {
+    match (kind) {
+        .File => "file",
+        .Directory => "directory",
+        .Symlink => "symlink",
+        .Other => "other",
+    }
+}
+
+/// The entries as `name:kind`, sorted — `readDir` answers in the operating
+/// system's own order, which is not an order a test may depend on.
+fn listed<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, Str> {
+    let entries = fs.listDirectoryEntries(ctx, at).mapErr(fn(_e) => "listDirectoryEntries")?;
+    let shown = entries.mapCtx(ctx, fn(c, entry) => str.format(c, "${entry.0}:${named(entry.1)}"));
+    .Ok(shown.sort(ctx).join(ctx, " "))
+}
+
+/// Every path under `root`, written from it and sorted, for `listed`'s reason.
+fn walked<C: Alloc + FsRead>(ctx: C, root: Path): Result<Str, Str> {
+    let found = fs.walk(ctx, root).mapErr(fn(_e) => "walk")?;
+    let shown = found.mapCtx(
+        ctx,
+        fn(c, p) => match (p.relativeTo(c, root)) {
+            .Some(under) => under.text(),
+            .None => p.text(),
+        },
+    );
+    .Ok(shown.sort(ctx).join(ctx, " "))
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Entropy: host.entropy,
+        Env: host.env,
+        FsRead: host.fs,
+        FsWrite: host.fs,
+        Stdout: host.stdout,
+    };
+
+    // Where the process is, and what it is running on.
+    let here = env.currentDirectory(ctx);
+    let _p1 = io
+        .println(ctx, "cwd ${here.fileName().withDefault("?")}")
+        .mapErr(fn(_e) => "print")?;
+    let _p2 = io.println(ctx, "os ${env.operatingSystem(ctx)}").mapErr(fn(_e) => "print")?;
+    let seen = env.all(ctx).any(fn(pair) => pair.0 == "BURI_E2E_VARIABLE" && pair.1 == "seen");
+    let _p3 = io.println(ctx, "inherited ${seen}").mapErr(fn(_e) => "print")?;
+
+    // The link the harness made beside the binary, which `metadata` must not
+    // follow.
+    let link = here.join(ctx, "pointer");
+    let linkInfo = fs.metadata(ctx, link).mapErr(fn(_e) => "metadata link")?;
+    let _p4 = io.println(ctx, "link ${named(linkInfo.kind)}").mapErr(fn(_e) => "print")?;
+
+    // A real tree, in a real temporary directory.
+    let root = fs.makeTemporaryDirectory(ctx, "buri-e2e-").mapErr(fn(_e) => "temporary")?;
+    let under = env.temporaryDirectory(ctx);
+    let _p5 = io
+        .println(ctx, "temporary ${root.startsWith(under)}")
+        .mapErr(fn(_e) => "print")?;
+
+    let deep = root.join(ctx, "deep");
+    let _made = fs.makeDir(ctx, deep).mapErr(fn(_e) => "makeDir")?;
+    let note = root.join(ctx, "note.txt");
+    let _wrote = fs.writeBytes(ctx, note, [104, 101, 108, 108, 111]).mapErr(fn(_e) => "write")?;
+    let inner = deep.join(ctx, "b.bin");
+    let _wrote2 = fs.writeBytes(ctx, inner, [1, 2]).mapErr(fn(_e) => "write inner")?;
+
+    let info = fs.metadata(ctx, note).mapErr(fn(_e) => "metadata")?;
+    let _p6 = io
+        .println(ctx, "note ${named(info.kind)} ${info.size}")
+        .mapErr(fn(_e) => "print")?;
+    // A real clock is behind this, so what is assertable is that it is after a
+    // date this toolchain did not exist on.
+    let _p7 = io
+        .println(ctx, "modified ${info.modified.hasPassed(Instant(1_500_000_000_000))}")
+        .mapErr(fn(_e) => "print")?;
+    let _p8 = io
+        .println(ctx, "kinds ${fs.isFile(ctx, note)} ${fs.isDirectory(ctx, deep)}")
+        .mapErr(fn(_e) => "print")?;
+
+    let entries = listed(ctx, root)?;
+    let _p9 = io.println(ctx, "entries ${entries}").mapErr(fn(_e) => "print")?;
+    let tree = walked(ctx, root)?;
+    let _p10 = io.println(ctx, "walk ${tree}").mapErr(fn(_e) => "print")?;
+
+    // A window into the file, and a copy of the whole of it.
+    let head = fs.readRange(ctx, note, 1, 3).mapErr(fn(_e) => "readRange")?;
+    let _p11 = io.println(ctx, "range ${head == [101, 108, 108]}").mapErr(fn(_e) => "print")?;
+    let past = fs.readRange(ctx, note, 99, 4).mapErr(fn(_e) => "readRange past")?;
+    let _p12 = io.println(ctx, "past ${past.len()}").mapErr(fn(_e) => "print")?;
+    let twin = root.join(ctx, "note.copy");
+    let _copied = fs.copy(ctx, note, twin).mapErr(fn(_e) => "copy")?;
+    let back = fs.readBytes(ctx, twin).mapErr(fn(_e) => "read copy")?;
+    let _p13 = io.println(ctx, "copy ${back.len()}").mapErr(fn(_e) => "print")?;
+
+    // `..` is the filesystem's to resolve, and this is the call that asks it.
+    let wound = fs.canonicalize(ctx, root.join(ctx, "deep/../note.txt"))
+        .mapErr(fn(_e) => "canonicalize")?;
+    let straight = fs.canonicalize(ctx, note).mapErr(fn(_e) => "canonicalize note")?;
+    let _p14 = io.println(ctx, "canonical ${wound == straight}").mapErr(fn(_e) => "print")?;
+    let missing = match (fs.canonicalize(ctx, root.join(ctx, "nope"))) {
+        .Err(.NotFound) => "NotFound",
+        .Err(_other) => "other",
+        .Ok(_p) => "resolved something that is not there",
+    };
+    let _p15 = io.println(ctx, "absent ${missing}").mapErr(fn(_e) => "print")?;
+
+    // And the tree goes, which `removeDir` alone could not do.
+    let _gone = fs.removeTree(ctx, root).mapErr(fn(_e) => "removeTree")?;
+    io.println(ctx, "left ${fs.exists(ctx, root)}").mapErr(fn(_e) => "print")
+}
+"#,
+    )
+}
+
+/// **A native binary asks a real filesystem what is there, and takes a real
+/// tree away again.**
+///
+/// The conformance package for `core/fs` runs every one of these calls against
+/// the in-memory double; what a whole process adds is the half a map cannot
+/// have — a symbolic link that `metadata` refuses to follow, a `..` that only
+/// `realpath(3)` can resolve, a modification time from a real clock, and a
+/// directory that is really gone at the end.
+#[test]
+fn a_native_binary_reads_a_real_tree_and_removes_it() {
+    unless_ready!();
+    let binary = built("e2e-real-tree", &real_tree());
+    let dir = binary.parent().expect("the program is in a workspace of its own").to_path_buf();
+    // The one thing `core/fs` cannot make. `metadata` not following it is what
+    // `EntryKind::Symlink` is for, and nothing smaller than this can say so.
+    let link = dir.join("pointer");
+    let _ = std::fs::remove_file(&link);
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("note.txt", &link).expect("the harness could not make a link");
+    let out = std::process::Command::new(&binary)
+        .current_dir(&dir)
+        .env("BURI_E2E_VARIABLE", "seen")
+        .output()
+        .expect("the program did not start");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<&str> = stdout.lines().collect();
+    let said = |prefix: &str| -> String {
+        lines
+            .iter()
+            .find_map(|l| l.strip_prefix(prefix))
+            .unwrap_or_else(|| panic!("no `{prefix}` line:\n{stdout}"))
+            .to_string()
+    };
+    let expected = dir.file_name().expect("a directory has a name").to_string_lossy().to_string();
+    assert_eq!(said("cwd "), expected, "the program is not where it was started");
+    assert!(
+        said("os ") == "macos" || said("os ") == "linux",
+        "the operating system reported itself as `{}`",
+        said("os ")
+    );
+    assert_eq!(said("inherited "), "true", "the child did not see the variable it was given");
+    assert_eq!(said("link "), "symlink", "`metadata` followed the link instead of reporting it");
+    assert_eq!(said("temporary "), "true", "the scratch directory is not under `TMPDIR`");
+    assert_eq!(said("note "), "file 5", "the file's kind or size is wrong");
+    assert_eq!(said("modified "), "true", "the file's timestamp is not a real one");
+    assert_eq!(said("kinds "), "true true");
+    assert_eq!(said("entries "), "deep:directory note.txt:file");
+    assert_eq!(said("walk "), "deep deep/b.bin note.txt");
+    assert_eq!(said("range "), "true", "`readRange` answered the wrong octets");
+    assert_eq!(said("past "), "0", "a read past the end is not the empty list");
+    assert_eq!(said("copy "), "5", "the copy does not hold what the source did");
+    assert_eq!(said("canonical "), "true", "`..` was not resolved by the filesystem");
+    assert_eq!(said("absent "), "NotFound");
+    assert_eq!(said("left "), "false", "`removeTree` left the tree behind");
+}
+
+/// A program that runs three real children and looks one up on `PATH`.
+///
+/// `true`, `false` and `cat` are the three every unix has and the three whose
+/// whole interface is an exit code, an exit code, and standard input. `which`
+/// finds each of them, which is the other half of the row: a path this program
+/// invented would prove nothing about `PATH`.
+fn child_processes() -> String {
+    String::from(
+        r#"from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc, Env, Stdout };
+from "core/fs" import { FsRead };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/path" import { Path };
+from "core/proc" import * as proc;
+from "core/proc" import { Command, Spawn };
+from "core/str" import * as str;
+
+fn text<C: Alloc>(ctx: C, body: [U8]): Str {
+    match (bytes.fromUtf8(ctx, body)) {
+        .Ok(said) => said.trim(),
+        .Err(_e) => "?",
+    }
+}
+
+fn found<C: Alloc + Env + FsRead>(ctx: C, program: Str): Result<Path, Str> {
+    match (proc.which(ctx, program)) {
+        .Some(at) => .Ok(at),
+        .None => .Err(str.format(ctx, "no `${program}` on PATH")),
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Env: host.env,
+        FsRead: host.fs,
+        Spawn: host.spawn,
+        Stdout: host.stdout,
+    };
+
+    let yes = found(ctx, "true")?;
+    let no = found(ctx, "false")?;
+    let cat = found(ctx, "cat")?;
+    let _p1 = io.println(ctx, "which ${yes.isAbsolute()}").mapErr(fn(_e) => "print")?;
+
+    let ran = proc.run(ctx, proc.command(yes.text(), [])).mapErr(fn(_e) => "true")?;
+    let _p2 = io
+        .println(ctx, "true ${ran.code} ${ran.stdout.len()} ${ran.stderr.len()}")
+        .mapErr(fn(_e) => "print")?;
+
+    let failed = proc.run(ctx, proc.command(no.text(), [])).mapErr(fn(_e) => "false")?;
+    let _p3 = io.println(ctx, "false ${failed.code}").mapErr(fn(_e) => "print")?;
+
+    // Standard input reaches the child, and what it writes reaches back.
+    let fed = Command {
+        program: cat.text(),
+        arguments: [],
+        workingDirectory: .None,
+        environment: .None,
+        stdin: .Some([104, 101, 108, 108, 111]),
+    };
+    let echoed = proc.run(ctx, fed).mapErr(fn(_e) => "cat")?;
+    let _p4 = io
+        .println(ctx, "cat ${echoed.code} ${text(ctx, echoed.stdout)}")
+        .mapErr(fn(_e) => "print")?;
+
+    // A `cat` of a path that is not there writes to standard error and exits
+    // non-zero: a child that ran and failed is `.Ok`, not `.Err`.
+    let complained = proc
+        .run(ctx, proc.command(cat.text(), ["no-such-file-here"]))
+        .mapErr(fn(_e) => "cat missing")?;
+    let _p5 = io
+        .println(ctx, "missing ${complained.code != 0} ${complained.stderr.len() > 0}")
+        .mapErr(fn(_e) => "print")?;
+
+    // A program that is not there never ran at all.
+    let absent = match (proc.run(ctx, proc.command("buri-no-such-program", []))) {
+        .Err(.NotFound) => "NotFound",
+        .Err(_other) => "other",
+        .Ok(_done) => "ran a program that does not exist",
+    };
+    let _p6 = io.println(ctx, "absent ${absent}").mapErr(fn(_e) => "print")?;
+
+    // The child's whole environment, replaced.
+    let printer = found(ctx, "env")?;
+    let scrubbed = Command {
+        program: printer.text(),
+        arguments: [],
+        workingDirectory: .None,
+        environment: .Some([("BURI_CHILD", "yes")]),
+        stdin: .None,
+    };
+    let listed = proc.run(ctx, scrubbed).mapErr(fn(_e) => "env")?;
+    let _p7 = io
+        .println(ctx, "env ${text(ctx, listed.stdout)}")
+        .mapErr(fn(_e) => "print")?;
+
+    // And the directory it runs in.
+    let pwd = found(ctx, "pwd")?;
+    let moved = Command {
+        program: pwd.text(),
+        arguments: [],
+        workingDirectory: .Some(yes.parent().withDefault(pwd)),
+        environment: .None,
+        stdin: .None,
+    };
+    let told = proc.run(ctx, moved).mapErr(fn(_e) => "pwd")?;
+    io.println(ctx, "cwd ${text(ctx, told.stdout)}").mapErr(fn(_e) => "print")
+}
+"#,
+    )
+}
+
+/// **A native binary starts a real child, feeds it, waits for it, and reads
+/// back everything it wrote.**
+///
+/// The conformance package for `core/proc` runs every one of these through the
+/// double, which records the command and answers what the test wrote down.
+/// What a whole process adds is the half a double cannot have: a real `fork`
+/// and `exec`, a real pipe with octets going both ways, a real exit code, and
+/// a real `PATH` lookup that found the program on this machine.
+#[test]
+fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
+    unless_ready!();
+    let binary = built("e2e-child-processes", &child_processes());
+    let out = std::process::Command::new(&binary).output().expect("the program did not start");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the program failed.\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+    let lines: Vec<&str> = stdout.lines().collect();
+    let said = |prefix: &str| -> String {
+        lines
+            .iter()
+            .find_map(|l| l.strip_prefix(prefix))
+            .unwrap_or_else(|| panic!("no `{prefix}` line:\n{stdout}"))
+            .to_string()
+    };
+    assert_eq!(said("which "), "true", "`which` answered a relative path");
+    assert_eq!(said("true "), "0 0 0", "`true` did not exit 0 with nothing to say");
+    assert_eq!(said("false "), "1", "`false` did not exit 1");
+    assert_eq!(said("cat "), "0 hello", "standard input did not reach the child");
+    assert_eq!(
+        said("missing "),
+        "true true",
+        "a child that ran and failed did not report its own failure"
+    );
+    assert_eq!(said("absent "), "NotFound", "a program that is not there was not `.NotFound`");
+    assert_eq!(
+        said("env "),
+        "BURI_CHILD=yes",
+        "the child's environment was added to rather than replaced"
+    );
+    // The directory `true` sits in, whatever that is on this machine — and
+    // resolved, because `pwd` reports the physical path.
+    let told = said("cwd ");
+    assert!(
+        !told.is_empty() && told.starts_with('/'),
+        "the child did not run in the directory it was given: {told}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // The two shapes that leaked a block the program could still name
 // ---------------------------------------------------------------------------

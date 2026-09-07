@@ -577,9 +577,11 @@ pub const ENTRIES: &[Entry] = &[
         Ret::Out,
     ),
     // Starting a program. `self` is `HostSpawn`, an empty struct, so the C call
-    // is the six pieces of a `Command` flattened — a `Str`, a `[Str]`, a `Str`,
-    // a `[Str]`, a `Bool` and a `[U8]` — and `Output`'s three fields leave
-    // through the one out-pointer `Ret::ResMsg` gives, as `Metadata` does.
+    // is a `Command` encoded into four flat arguments — two `[Str]`s, a `Bool`
+    // and a `[U8]`, which is nine leaves with the two out-pointers and so
+    // inside `backend/stencil/abi.rs`'s register budget. `Output`'s three
+    // fields leave through the one out-pointer `Ret::ResMsg` gives, as
+    // `Metadata` does.
     e("host.HostSpawn.spawnProcess", "buri_rt_host_spawn_process", Ret::ResMsg),
     e("host.HostStdin.readLine", "buri_rt_host_stdin_read_line", Ret::Opt),
     e("host.HostStdin.readBytes", "buri_rt_host_stdin_read_bytes", Ret::Opt),

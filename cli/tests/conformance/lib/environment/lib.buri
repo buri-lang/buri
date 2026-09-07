@@ -1,0 +1,6 @@
+// The environment conformance package.
+//
+// `core/env`: the variables, the arguments, where the process is, and the two
+// directories `TMPDIR` and `HOME` name. Every block runs against
+// `core/host/testing`'s `env()`, which answers what the test wrote down and
+// nothing the machine happens to be holding.

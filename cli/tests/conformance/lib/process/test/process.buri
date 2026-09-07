@@ -1,0 +1,150 @@
+// core/proc — running another program.
+//
+// `Spawn` is the largest authority a context can carry, so the double is where
+// most of it is asserted: what `run` hands the effect, what a scripted answer
+// comes back as, and where `which` looks. `native::e2e` runs `true`, `false`
+// and `cat` for real.
+
+from "core/effect" import { Alloc, Env };
+from "core/fs" import { FsRead };
+from "core/host/testing" import { alloc, env, fs, spawn, spawned };
+from "core/path" import * as path;
+from "core/proc" import * as proc;
+from "core/proc" import { Command, Output, Spawn };
+from "core/testing/assert" import * as assert;
+
+// -----------------------------------------------------------------------------
+// Building a command
+// -----------------------------------------------------------------------------
+
+test "a command names a program and its arguments, and nothing else" {
+    let one = proc.command("git", ["describe", "--tags"]);
+    assert.eq(one.program, "git");
+    assert.eq(one.arguments, ["describe", "--tags"]);
+    assert.none(one.workingDirectory);
+    assert.none(one.environment);
+    assert.none(one.stdin);
+}
+
+test "a command with no arguments is a command" {
+    let bare = proc.command("true", []);
+    assert.eq(bare.arguments, []);
+    assert.eq(bare, proc.command("true", []));
+}
+
+// -----------------------------------------------------------------------------
+// Running one
+// -----------------------------------------------------------------------------
+
+test "a double that was told nothing refuses" {
+    let runner = spawn();
+    let ctx = context {
+        Alloc: alloc(),
+        Spawn: runner,
+    };
+    assert.eq(assert.err(proc.run(ctx, proc.command("git", ["--version"]))), .NotFound);
+    assert.eq(runner.calls(), [spawned("git", ["--version"])]);
+}
+
+test "a scripted output comes back whole" {
+    let answer = Output { code: 0, stdout: [104, 105], stderr: [] };
+    let runner = spawn().answers(answer);
+    let ctx = context {
+        Alloc: alloc(),
+        Spawn: runner,
+    };
+    assert.eq(assert.ok(proc.run(ctx, proc.command("echo", ["hi"]))), answer);
+}
+
+test "a non-zero exit is an answer rather than an error" {
+    let runner = spawn().answers(Output { code: 3, stdout: [], stderr: [33] });
+    let ctx = context {
+        Alloc: alloc(),
+        Spawn: runner,
+    };
+    let done = assert.ok(proc.run(ctx, proc.command("false", [])));
+    assert.eq(done.code, 3);
+    assert.eq(done.stderr, [33]);
+}
+
+test "a scripted failure is the failure" {
+    let runner = spawn().fails(.PermissionDenied);
+    let ctx = context {
+        Alloc: alloc(),
+        Spawn: runner,
+    };
+    assert.eq(assert.err(proc.run(ctx, proc.command("sh", []))), .PermissionDenied);
+}
+
+test "every run is a call the log has, in order" {
+    let runner = spawn().answers(Output { code: 0, stdout: [], stderr: [] });
+    let ctx = context {
+        Alloc: alloc(),
+        Spawn: runner,
+    };
+    let _ = assert.ok(proc.run(ctx, proc.command("a", ["1"])));
+    let _ = assert.ok(proc.run(ctx, proc.command("b", [])));
+    assert.eq(runner.calls(), [spawned("a", ["1"]), spawned("b", [])]);
+}
+
+test "the three optional fields reach the effect without changing what is logged" {
+    let runner = spawn().answers(Output { code: 0, stdout: [], stderr: [] });
+    let ctx = context {
+        Alloc: alloc(),
+        Spawn: runner,
+    };
+    let full = Command {
+        program: "make",
+        arguments: ["-j", "4"],
+        workingDirectory: .Some(path.of(ctx, "/srv/app")),
+        environment: .Some([("CC", "clang")]),
+        stdin: .Some([1, 2]),
+    };
+    let _ = assert.ok(proc.run(ctx, full));
+    assert.eq(runner.calls(), [spawned("make", ["-j", "4"])]);
+}
+
+// -----------------------------------------------------------------------------
+// which
+// -----------------------------------------------------------------------------
+
+test "which walks PATH and answers the first that is there" {
+    let disk = fs().files([("/usr/bin/git", ""), ("/opt/bin/git", "")]);
+    let ctx = context {
+        Alloc: alloc(),
+        Env: env().variables([("PATH", "/opt/bin:/usr/bin")]),
+        FsRead: disk,
+    };
+    assert.eq(assert.some(proc.which(ctx, "git")), path.of(ctx, "/opt/bin/git"));
+}
+
+test "which answers nothing where nothing on PATH is called that" {
+    let disk = fs().files([("/usr/bin/git", "")]);
+    let ctx = context {
+        Alloc: alloc(),
+        Env: env().variables([("PATH", "/usr/bin")]),
+        FsRead: disk,
+    };
+    assert.none(proc.which(ctx, "ffmpeg"));
+}
+
+test "a program with a separator in it names a file directly" {
+    let disk = fs().files([("build/tool", "")]);
+    let ctx = context {
+        Alloc: alloc(),
+        Env: env().variables([("PATH", "/usr/bin")]),
+        FsRead: disk,
+    };
+    assert.eq(assert.some(proc.which(ctx, "build/tool")), path.of(ctx, "build/tool"));
+    assert.none(proc.which(ctx, "build/missing"));
+}
+
+test "an environment with no PATH finds nothing" {
+    let disk = fs().files([("/usr/bin/git", "")]);
+    let ctx = context {
+        Alloc: alloc(),
+        Env: env(),
+        FsRead: disk,
+    };
+    assert.none(proc.which(ctx, "git"));
+}

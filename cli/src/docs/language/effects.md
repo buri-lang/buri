@@ -578,7 +578,7 @@ struct FakeFs {
     export files: [(Str, Str)],
 }
 
-// Four methods, not twelve. A double for the half the code under test needs
+// Seven methods, not sixteen. A double for the half the code under test needs
 // restates only that half, which is the other thing splitting the filesystem
 // bought.
 impl FsRead for FakeFs {

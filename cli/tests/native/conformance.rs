@@ -622,6 +622,18 @@ const PACKAGES: &[Case] = &[
     // from either backend. It is in the corpus rather than beside `core/fs`'s
     // blocks for that reason: a path is not a filesystem.
     included("text/path.buri"),
+    // The four packages the filesystem, the environment, a child process and
+    // the two whole-input readers brought with them. Every one of them is in
+    // for `semantics/host_testing.buri`'s reason: the doubles are rows in the
+    // archive's own table, so what a block asserts here is what the archive
+    // answers rather than what the machine running the suite holds. Nothing in
+    // the four reaches a real file, a real environment or a real process —
+    // `native::e2e` is where those are, and it is where the answers that vary
+    // by machine belong.
+    included("filesystem/fs.buri"),
+    included("environment/env.buri"),
+    included("process/process.buri"),
+    included("streams/io.buri"),
     excluded(
         "numbers/floats.buri",
         "core/math's thirteen *transcendentals*, whose answers IEEE 754 does \

@@ -459,20 +459,13 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped],
         ret: Ret::Out,
     },
-    // Starting a program: a `Command`'s six pieces flattened, and `Output`'s
-    // three fields back through the one out-pointer.
+    // Starting a program: `Command` encoded into four flat arguments — nine
+    // leaves, which is what `backend/stencil/abi.rs`'s register budget leaves
+    // room for — and `Output`'s three fields back through the one out-pointer.
     Entry {
         key: "host.HostSpawn.spawnProcess",
         symbol: "buri_rt_host_spawn_process",
-        args: &[
-            Arg::Dropped,
-            Arg::Str,
-            Arg::List,
-            Arg::Str,
-            Arg::List,
-            Arg::Scalar,
-            Arg::List,
-        ],
+        args: &[Arg::Dropped, Arg::List, Arg::List, Arg::Scalar, Arg::List],
         ret: Ret::ResMsg,
     },
     Entry {
@@ -1857,7 +1850,7 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         key: "host_testing.recordSpawn",
         symbol: "buri_rt_host_testing_record_spawn",
-        args: &[Arg::Scalar, Arg::Str, Arg::List],
+        args: &[Arg::Scalar, Arg::List],
         ret: Ret::Void,
     },
     Entry {
