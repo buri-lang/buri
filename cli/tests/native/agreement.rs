@@ -2209,6 +2209,57 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// A `let` gives back the positions its pattern **skips**, on both natives.
+///
+/// `middle::rc` releases a value through a name — a local, or the node that
+/// produced a temporary — and a destructuring `let` used to leave the
+/// positions its pattern skipped with neither. `let (q, _) = nextToken(ctx, p)`
+/// took the pair the call answered, handed element 0 to `q`, and element 1
+/// went nowhere. That is the thirteen blocks `proto_schema/refusals.buri`
+/// leaked, all of them one and two-byte tokens the `.proto` reader stepped
+/// over, and `rc::name_discards` is the fix.
+///
+/// Not a §12 row, for [`an_aggregate_of_two_counted_values_agrees_through_its_projections`]'s
+/// reason: nothing in the table is about when a count goes down, because
+/// JavaScript is garbage collected and the question does not arise there. It
+/// belongs here anyway, and here rather than only in the conformance corpus,
+/// because the corpus is driven natively through the **stencil** backend and
+/// the rule is one `middle::rc` states once for every backend. This is the
+/// row that says the LLVM one obeys it: [`agree`] runs each native under the
+/// heap check and reports a leak as a leak.
+///
+/// Every skipped position holds a heap string. A literal's block is immortal
+/// (VALUE-MODEL.md §5.2), so the same program over literals leaked nothing
+/// before the fix and would prove nothing after it. The last two lines are
+/// the other direction: `held` is read again after being destructured, so a
+/// second release of its element would be a use-after-free rather than a leak.
+#[test]
+fn a_let_gives_back_the_positions_its_pattern_skips() {
+    rows_or_skip!();
+    agree(
+        "skipped let positions",
+        r#"
+from "core/host" import { stdout, alloc };
+from "core/io" import * as io;
+
+struct Pair { kept: Int, dropped: Str }
+
+fn step(at: Int, word: Str): (Int, Str) { (at + 1, word) }
+
+export fn main(): Result<(), Str> {
+  let (at, _) = step(0, "ab".repeat(alloc, 2));
+  let Pair { kept, dropped: _ } = Pair { kept: 2, dropped: "cd".repeat(alloc, 2) };
+  let (n, (_, m)) = (3, ("ef".repeat(alloc, 2), 4));
+  let held = step(5, "gh".repeat(alloc, 2));
+  let (six, _) = held;
+  let _ = io.println(stdout, "${at}|${kept}|${n}${m}|${six}|${held.1}").ignore();
+  .Ok(())
+}
+"#,
+        "1|2|34|6|ghgh\n",
+    );
+}
+
 /// A struct holding `NaN` compared with **itself** — the case that used to
 /// divide the backends, now the case that shows they no longer are divided.
 ///

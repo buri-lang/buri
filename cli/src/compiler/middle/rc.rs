@@ -265,7 +265,7 @@
 
 use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Desc, Func, FuncKind, Program};
-use crate::compiler::semantics::typed::{self, Expr, ExprKind, Stmt};
+use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
 use crate::compiler::semantics::types::{self, FuncIdx, LocalId, Prim, Ty};
 use crate::hash::{Map as HashMap, Set as HashSet};
 
@@ -835,6 +835,101 @@ impl Counted for Syntactic {
             _ => a,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Naming what a `let` throws away
+// ---------------------------------------------------------------------------
+
+/// Gives every counted value a `let` pattern does **not** bind a name, so that
+/// the plan below has something to release it by.
+///
+/// **A destructuring `let` distributes what it was handed and does not
+/// dispose of the rest.** [`Target`] names a local or a node, and the
+/// positions a pattern skips are neither: `let (q, _) = nextToken(ctx, p)`
+/// takes the pair the call answered, hands element 0 to `q` — which the scan
+/// drops at the end of the scope, balancing the one count the call gave — and
+/// leaves element 1 with no name at all. Nothing released it. `match` needs
+/// none of this, which is why the defect was only ever here: an arm's unbound
+/// payload goes with the scrutinee, and [`Scan::match_`] releases the
+/// scrutinee whole.
+///
+/// The fix is to stop throwing the value away. A skipped position inside a
+/// pattern that binds *something* becomes a binding of its own, on a local
+/// nobody reads — which is a shape the scan already handles exactly right:
+/// [`Scan::expr`]'s `Stmt::Let` arm drops a binding nothing reads where it is
+/// bound. A pattern that binds *nothing at all* is left alone, because
+/// `let _ = f(ctx);` is already scanned as the statement it is — the value
+/// borrowed, the temporary dropped after it — and that is the better plan of
+/// the two.
+///
+/// Only tuple, struct and variant positions are walked, because those are the
+/// patterns a `let` can hold: an array pattern tests a length and a literal
+/// tests a value, so neither is irrefutable and the front end refuses both
+/// here. A binding that carries a sub-pattern is not walked either — the outer
+/// name already covers everything under it, and a second name for one value is
+/// a second release.
+pub fn name_discards(program: &mut Program) {
+    let mut counted = Syntactic::new(program);
+    for f in &mut program.funcs {
+        let Func { locals, kind, .. } = f;
+        let FuncKind::Body(body) = kind else { continue };
+        name_in(locals, body, &mut counted);
+    }
+}
+
+/// Every `let` in `e` and everything under it.
+fn name_in(locals: &mut Vec<typed::Local>, e: &mut Expr, counted: &mut dyn Counted) {
+    if let ExprKind::Block { stmts, .. } = &mut e.kind {
+        for s in stmts.iter_mut() {
+            let Stmt::Let { pattern, .. } = s else { continue };
+            if binds_something(pattern) {
+                name_skipped(locals, pattern, counted);
+            }
+        }
+    }
+    typed::children_mut(e, &mut |c| name_in(locals, c, counted));
+}
+
+fn binds_something(p: &typed::Pattern) -> bool {
+    let mut bound: Vec<LocalId> = Vec::new();
+    p.binds(&mut bound);
+    !bound.is_empty()
+}
+
+/// Names every position under `p` that binds nothing and carries a count.
+///
+/// A position that binds nothing and is *not* counted holds nothing counted
+/// either — an aggregate is counted when any of its fields is — so there is
+/// nothing below it to walk to.
+fn name_skipped(locals: &mut Vec<typed::Local>, p: &mut Pattern, counted: &mut dyn Counted) {
+    let parts: Vec<&mut Pattern> = match &mut p.kind {
+        PatKind::Tuple(ps) => ps.iter_mut().collect(),
+        PatKind::Struct { fields, .. } | PatKind::Variant { fields, .. } => {
+            fields.iter_mut().map(|f| &mut f.pattern).collect()
+        }
+        _ => Vec::new(),
+    };
+    for part in parts {
+        if binds_something(part) {
+            name_skipped(locals, part, counted);
+        } else if counted.counted(&part.ty) == Answer::Yes {
+            name_one(locals, part);
+        }
+    }
+}
+
+/// Wraps one pattern in a binding on a fresh local.
+fn name_one(locals: &mut Vec<typed::Local>, p: &mut Pattern) {
+    let local = LocalId(locals.len() as u32);
+    locals.push(typed::Local { name: String::from("discarded"), ty: p.ty.clone(), span: p.span });
+    // A `_` tests nothing, so the binding replaces it outright; anything else
+    // still has its test to do, under the name.
+    let sub = match std::mem::replace(&mut p.kind, PatKind::Wild) {
+        PatKind::Wild => None,
+        other => Some(Box::new(Pattern { kind: other, ty: p.ty.clone(), span: p.span })),
+    };
+    p.kind = PatKind::Bind { local, sub };
 }
 
 // ---------------------------------------------------------------------------
