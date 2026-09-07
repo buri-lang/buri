@@ -48,9 +48,8 @@ export fn readLine<C: Stdin>(ctx: C): Option<Str> {
 
 /// Exactly `n` octets from standard input, or fewer at end of input.
 ///
-/// Text and octets are two different questions about the same stream, so they
-/// get two operations: `readLine` decodes, this does not. Mixing them on one
-/// stream is undefined. Pick one.
+/// `readLine` decodes and this does not. Mixing the two on one stream is
+/// undefined.
 export fn readBytes<C: Stdin>(ctx: C, n: Int): Option<[U8]> {
     ctx.readBytes(n)
 }

@@ -17,11 +17,10 @@
 //! the boundary, and each means the same thing everywhere.
 //!
 //! The compiler declares the conversion methods — `toI64`, `wrapToU8`, and the
-//! rest, one per source-and-target pair — on the primitive types themselves,
-//! rather than this module writing them out. They are methods, resolved by the
-//! receiver's type, so `i32.toI64()` and `i64.toI32()` are different operations
-//! with different return types, and no overloading is involved. `buri query` and
-//! the language reference list them. SPEC 6.2.1 gives the three shapes:
+//! rest, one per source-and-target pair — on the primitive types themselves.
+//! They resolve by the receiver's type, so `i32.toI64()` and `i64.toI32()` are
+//! different operations with different return types. `buri query` and the
+//! language reference list them. SPEC 6.2.1 gives the three shapes:
 //!
 //!   x.toT()      where every value fits  -> T
 //!   x.toT()      where it might not      -> Result<T, RangeError>
@@ -49,9 +48,8 @@ export struct RangeError {
 // --- The operator traits ------------------------------------------------------
 //
 // An operator implementation cannot allocate or perform an effect: `a + b` has
-// no argument position through which a context could be passed. You cannot
-// write an expensive `+` in this language, which is why operator traits are
-// safe here in a way they are not elsewhere.
+// no argument position through which a context could be passed. So you cannot
+// write an expensive `+` in this language.
 
 export trait Add {
     fn add(self, other: Self): Self;
@@ -89,10 +87,8 @@ export trait Bounded {
 }
 
 /// Every one of these answers `.None` rather than a value the type cannot hold.
-/// `.None` means out of the type's range and nothing else: every backend
-/// represents every value of every integer type. So `.Some(v)` always promises
-/// that `v` is the answer, which is the whole reason to reach for `Checked` over
-/// `+` (SPEC 6.2.2).
+/// `.None` means out of the type's range and nothing else, so `.Some(v)` always
+/// promises that `v` is the answer (SPEC 6.2.2).
 export trait Checked {
     fn checkedAdd(self, rhs: Self): Option<Self>;
     fn checkedSub(self, rhs: Self): Option<Self>;
@@ -134,27 +130,20 @@ export fn clamp<T: Ord>(lo: T, hi: T, x: T): T {
 
 // --- Floor division and the Euclidean remainder ---------------------------------
 //
-// `Int` only, and generic over nothing. `/` and `%` are the operator traits of
-// SPEC 6.2 and every numeric type has them, but rounding toward negative
-// infinity is a fact about the integers. On a float, `math.floor(a / b)` says the
-// same thing where it belongs, and on an unsigned type there is no second answer
-// to give. So these two take `Int` and say so, rather than a `T: Div + Rem + Ord`
-// that would compile at `F64` and mean something else.
+// `Int` only. Rounding toward negative infinity is a fact about the integers;
+// on a float, `math.floor(a / b)` says the same thing.
 //
 // Both abort on a zero divisor, because both are written in terms of `/` and `%`
-// and that is what those do (SPEC 6.2). There is no answer to give, and an
-// `Option` in the signature would put a `.withDefault` at every call site of a
-// function that cannot fail for any divisor a caller meant to pass.
+// and that is what those do (SPEC 6.2).
 
 /// `a / b` rounded toward negative infinity rather than toward zero, so the
 /// quotient does not jump at the origin: `divFloor(-1, 2)` is `-1` where
 /// `-1 / 2` is `0`.
 ///
-/// **Pairs with `remEuclid` only for a positive `b`**, which is every caller in
-/// `core/date` and the case this exists for. The two round differently below
-/// zero — `divFloor` follows the sign of the divisor and `remEuclid` is never
-/// negative — so `divFloor(a, b) * b + remEuclid(a, b)` is `a` when `b > 0` and
-/// need not be when `b < 0`.
+/// **Pairs with `remEuclid` only for a positive `b`.** The two round differently
+/// below zero — `divFloor` follows the sign of the divisor and `remEuclid` is
+/// never negative — so `divFloor(a, b) * b + remEuclid(a, b)` is `a` when
+/// `b > 0` and need not be when `b < 0`.
 ///
 /// Aborts if `b` is zero, exactly as `a / b` does.
 export fn divFloor(a: Int, b: Int): Int {
@@ -177,9 +166,8 @@ export fn divFloor(a: Int, b: Int): Int {
 /// less than `b.abs()` for every non-zero `b`, where `a % b` takes the sign of
 /// `a`.
 ///
-/// This is what a program means by "which day of the week", "which bucket" or
-/// "which digit" — `(x % n + n) % n` written once, and correct for a negative
-/// `n` as well, which that idiom is not.
+/// This is `(x % n + n) % n` written once, and correct for a negative `n` as
+/// well, which that idiom is not.
 ///
 /// Aborts if `b` is zero, exactly as `a % b` does.
 export fn remEuclid(a: Int, b: Int): Int {
@@ -196,23 +184,18 @@ export fn maxValue<T: Bounded>(): T;
 // --- Hexadecimal ------------------------------------------------------------------
 //
 // The other direction — hexadecimal text back to a number — is
-// `str.toRadix(text, 16)`, on `Str` because that is where a parse of a string
-// belongs. This half is here rather than in `core/str` for the same reason:
-// `toHex` is a fact about a number, and `str.fromInt` is the base-ten case of
-// exactly this.
+// `str.toRadix(text, 16)`.
 
 /// `x` in lowercase hexadecimal, zero-padded to at least `width` digits.
 ///
 /// **A bit pattern, not a signed numeral.** The digits are `x`'s 64-bit two's
-/// complement, so `toHex(ctx, -1, 0)` is `ffffffffffffffff` and not `-1`. That
-/// is what a hexadecimal view of a number is for, and it is what makes
-/// `toHex(ctx, x, 16)` the sixteen digits of a `U64` whichever end of the range
-/// `x` came from.
+/// complement, so `toHex(ctx, -1, 0)` is `ffffffffffffffff` and not `-1`, and
+/// `toHex(ctx, x, 16)` is the sixteen digits of a `U64` whichever end of the
+/// range `x` came from.
 ///
 /// `width` is a floor and never truncates: a value needing more digits than
-/// asked for gets them, so no call of this can silently lose the top of a
-/// number. `width` at or below zero asks for the shortest form, which is one
-/// digit for zero.
+/// asked for gets them. `width` at or below zero asks for the shortest form,
+/// which is one digit for zero.
 export fn toHex<C: Alloc>(ctx: C, x: Int, width: Int): Str {
     let digits = max(width, significantNibbles(x, 16));
     str.fromChars(
@@ -233,9 +216,9 @@ export fn toHex<C: Alloc>(ctx: C, x: Int, width: Int): Str {
     )
 }
 
-/// The lowest four bits of a value, as a number from 0 to 15. Written as a
-/// shift up and back rather than as `% 16`, because the input here is a
-/// logical shift of a possibly negative `Int` and `%` keeps the sign.
+/// The lowest four bits of a value, as a number from 0 to 15. A shift up and
+/// back rather than `% 16`, because the input is a logical shift of a possibly
+/// negative `Int` and `%` keeps the sign.
 fn lowNibble(x: Int): Int {
     bits.shr(bits.shl(x, 60), 60)
 }

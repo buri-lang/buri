@@ -6,12 +6,10 @@
 //! every function here is pure except the ones that build a string.
 //!
 //! **There is no timezone database, and there will not be one.** tzdata is
-//! megabytes that change several times a year, and this toolchain has no
-//! dependencies and ships no data files. `Zoned` is here instead: a civil
-//! date-time and a fixed offset in minutes. That covers UTC, a stored offset,
-//! and arithmetic within one offset. It does not cover "America/New_York", and
-//! it does not pretend to. A library that answered that question from a stale
-//! table would be worse than one that says no.
+//! megabytes that change several times a year, and this toolchain ships no data
+//! files. `Zoned` is here instead: a civil date-time and a fixed offset in
+//! minutes. That covers UTC, a stored offset, and arithmetic within one offset.
+//! It does not cover "America/New_York".
 //!
 //! The conversion between a date and a day number is Howard Hinnant's
 //! `days_from_civil`, which is exact for the proleptic Gregorian calendar over
@@ -51,11 +49,8 @@ from "core/num" import * as num;
 from "core/str" import * as str;
 from "core/time" import { Duration, Instant };
 
-// One `Duration`, and it is `core/time`'s: a length of time is not a calendar
-// fact, and a method may only be declared in its receiver's defining module
-// (SPEC 6.7.3), so a `Duration` here could never meet an `Instant` there. The
-// re-export keeps `from "core/date" import { Duration }` resolving, to the same
-// type, with the constructors and the arithmetic it did not use to have.
+// One `Duration`, and it is `core/time`'s. The re-export keeps
+// `from "core/date" import { Duration }` resolving, to that same type.
 from "core/time" export { Duration };
 
 derive Eq, Ord, Show, Hash for Date;
@@ -241,7 +236,7 @@ impl Date {
 
     /// Adds months, clamping the day to what the resulting month holds — so
     /// January 31st plus one month is the 28th or the 29th, not the 3rd of
-    /// March. Clamping is a choice, and the other one is worse.
+    /// March.
     export fn addMonths(self, n: Int): Date {
         let total = self.year * 12 + (self.month - 1) + n;
         let year = num.divFloor(total, 12);
@@ -266,9 +261,8 @@ impl Date {
 /// The UTC date-time an instant names.
 export fn fromInstant(i: Instant): DateTime {
     let millis = i.0;
-    // Floor division, so an instant before the epoch lands on the right day
-    // rather than one too late, and a remainder that is never negative, so the
-    // time of day is a time of day on both sides of the epoch.
+    // Floor division and a never-negative remainder, so an instant before the
+    // epoch lands on the right day at a real time of day.
     let days = num.divFloor(millis, MILLIS_PER_DAY);
     let rest = num.remEuclid(millis, MILLIS_PER_DAY);
     DateTime {
@@ -294,7 +288,7 @@ export fn toInstant(dt: DateTime): Instant {
 }
 
 /// The length of time between two instants. `b.duration(a)` says the same thing
-/// on the receiver, and is the spelling to reach for now that you can write it.
+/// on the receiver, and is the spelling to reach for.
 export fn between(a: Instant, b: Instant): Duration {
     b.duration(a)
 }
@@ -316,8 +310,7 @@ export fn formatDate<C: Alloc>(ctx: C, d: Date): Str {
     str.format(ctx, "${y}-${m}-${day}")
 }
 
-/// `2026-08-15T13:45:00.000Z` — always UTC, always with milliseconds, so the
-/// output has one shape and a reader never has to ask which.
+/// `2026-08-15T13:45:00.000Z` — always UTC, always with milliseconds.
 export fn formatDateTime<C: Alloc>(ctx: C, dt: DateTime): Str {
     let d = formatDate(ctx, dt.date);
     let h = pad(ctx, dt.time.hour, 2);

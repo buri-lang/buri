@@ -1,12 +1,8 @@
 //! core/proc — ending the process.
 //!
-//! One function, because `Proc` declares one operation. Exiting gets its own
-//! module rather than a line in `core/io` for the same reason the effects are
-//! split at all: exiting is a different authority from printing, and a reader
-//! of a context can see which of them a program was given.
-//!
-//! The name is `exit`, not `exitWith`. `exitWith` reads as a method, and the
-//! call is `proc.exit(ctx, 3)`.
+//! One function, because `Proc` declares one operation. Exiting is a different
+//! authority from printing, so it gets its own module and a reader of a context
+//! can see which of them a program was given.
 //!
 //! LINUX, MACOS and JS grant it. WEB does not: a page has no process to exit,
 //! and a mounted interface stays live.
@@ -15,7 +11,7 @@ from "core/effect" import { Proc };
 
 /// Ends the process with `code`, immediately.
 ///
-/// It never returns. No signature can say that, so the type says `()` and the
+/// It never returns — no signature can say that, so the type says `()` and the
 /// function never produces one. Nothing after the call runs.
 ///
 /// **A `main` that ends normally should return rather than call this.**

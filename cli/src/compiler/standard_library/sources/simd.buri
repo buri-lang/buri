@@ -6,18 +6,17 @@
 //! operation here is four ordinary arithmetic operations in a row.
 //!
 //! What it buys is the shape. A kernel written against `F32x4` is written
-//! lane-wise, with no loop-carried dependency and no aliasing, which is the
-//! form a backend with vector registers can lower directly. Porting it later is
-//! a change to this module and to nothing that uses it. Writing the same kernel
-//! as a fold over a list is not, because a fold says "in this order".
+//! lane-wise, with no loop-carried dependency and no aliasing, which is the form
+//! a backend with vector registers can lower directly. Porting it later changes
+//! this module and nothing that uses it. A fold over a list is not portable that
+//! way, because a fold says "in this order".
 //!
-//! Do not benchmark against a scalar loop expecting a win. There is not one
-//! today, and this file says so rather than letting you find out.
+//! Do not benchmark against a scalar loop expecting a win; there is not one
+//! today.
 //!
 //! **Every operation is pure.** A vector is four numbers in a struct — a fixed
 //! size, known at compile time — so nothing here allocates and nothing takes a
-//! context (SPEC 10.5). That is a genuinely good fit rather than a coincidence:
-//! a vector type is exactly the shape the purity rule was drawn around.
+//! context (SPEC 10.5).
 //!
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
@@ -88,9 +87,7 @@ export let ZERO_F: F32x4 = F32x4 { x: 0.0, y: 0.0, z: 0.0, w: 0.0 };
 export let ZERO_I: I32x4 = I32x4 { x: 0, y: 0, z: 0, w: 0 };
 
 impl F32x4 {
-    /// Lane 0 to 3. Out of range is lane 0 rather than an error: a vector has
-    /// exactly four lanes, and asking for a fifth is a mistake the type system
-    /// would catch if the index were a type.
+    /// Lane 0 to 3. Out of range is lane 0 rather than an error.
     export fn lane(self, i: Int): Float {
         if (i == 1) {
             self.y
@@ -176,7 +173,7 @@ impl F32x4 {
     }
 
     /// The lanes added together. A horizontal reduction, which is the one thing
-    /// a vector unit is bad at — worth knowing when you reach for it.
+    /// a vector unit is bad at.
     export fn sum(self): Float {
         self.x + self.y + self.z + self.w
     }
@@ -207,7 +204,7 @@ impl F32x4 {
 }
 
 /// `mask` lane non-zero takes from `a`, zero takes from `b`. Branch-free, which
-/// is the point of producing a mask rather than a `Bool` in the first place.
+/// is why the comparisons produce a mask rather than a `Bool`.
 export fn selectF(mask: I32x4, a: F32x4, b: F32x4): F32x4 {
     F32x4 {
         x: if (mask.x != 0) { a.x } else { b.x },
