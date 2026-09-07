@@ -12,8 +12,8 @@
 from "core/bytes" import * as bytes;
 from "core/effect" import { Alloc, Entropy, Env, IoError, Stdout };
 from "core/env" import * as env;
-from "core/fs" import { EntryKind, FsRead, FsWrite };
 from "core/fs" import * as fs;
+from "core/fs" import { EntryKind, FsRead, FsWrite };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -63,21 +63,24 @@ fn text<C: Alloc>(ctx: C, body: [U8]): Str {
 /// The entries as `name:kind`, sorted: a directory answers in whatever order
 /// the operating system keeps it in.
 fn listed<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, Str> {
-    let entries = fs.listDirectoryEntries(ctx, at).mapErr(fn(_e) => "listDirectoryEntries")?;
-    let shown = entries.mapCtx(ctx, fn(c, entry) => str.format(c, "${entry.0}:${named(entry.1)}"));
+    let entries = fs
+        .listDirectoryEntries(ctx, at)
+        .mapErr(fn(_e) => "listDirectoryEntries")?;
+    let shown = entries.mapCtx(ctx, fn(c, entry) => {
+        str.format(c, "${entry.0}:${named(entry.1)}")
+    });
     .Ok(shown.sort(ctx).join(ctx, " "))
 }
 
 /// Every path under `root`, written from it and sorted, for `listed`'s reason.
 fn walked<C: Alloc + FsRead>(ctx: C, root: Path): Result<Str, Str> {
     let found = fs.walk(ctx, root).mapErr(fn(_e) => "walk")?;
-    let shown = found.mapCtx(
-        ctx,
-        fn(c, p) => match (p.relativeTo(c, root)) {
+    let shown = found.mapCtx(ctx, fn(c, p) => {
+        match (p.relativeTo(c, root)) {
             .Some(under) => under.text(),
             .None => p.text(),
-        },
-    );
+        }
+    });
     .Ok(shown.sort(ctx).join(ctx, " "))
 }
 
@@ -93,10 +96,15 @@ fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
     let cat = found(ctx, "cat")?;
     let printer = found(ctx, "env")?;
     let _p1 = io
-        .println(ctx, "which ${yes.isAbsolute()} ${process.which(ctx, "buri-no-such").isNone()}")
+        .println(
+            ctx,
+            "which ${yes.isAbsolute()} ${process.which(ctx, "buri-no-such").isNone()}",
+        )
         .mapErr(fn(_e) => "print")?;
 
-    let ran = process.run(ctx, process.command(yes.text(), [])).mapErr(fn(_e) => "true")?;
+    let ran = process
+        .run(ctx, process.command(yes.text(), []))
+        .mapErr(fn(_e) => "true")?;
     let _p2 = io
         .println(ctx, "true ${ran.code} ${ran.stdout.len()} ${ran.stderr.len()}")
         .mapErr(fn(_e) => "print")?;
@@ -109,7 +117,9 @@ fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
     let _p3 = io
         .println(
             ctx,
-            "failed ${complained.code != 0} ${complained.stderr.len() > 0} ${refused(process.run(ctx, process.command("buri-no-such-program", [])))}",
+            "failed ${complained.code != 0} ${complained.stderr.len() > 0} ${refused(
+                process.run(ctx, process.command("buri-no-such-program", [])),
+            )}",
         )
         .mapErr(fn(_e) => "print")?;
 
@@ -144,7 +154,9 @@ fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
     let _p5 = io
         .println(
             ctx,
-            "child ${said.contains("BURI_CHILD=one two=three")} ${said.contains("PATH=")}",
+            "child ${said.contains("BURI_CHILD=one two=three")} ${said.contains(
+                "PATH=",
+            )}",
         )
         .mapErr(fn(_e) => "print")?;
 
@@ -152,7 +164,9 @@ fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
     let nowhere = Command {
         program: yes.text(),
         arguments: [],
-        workingDirectory: .Some(yes.parent().withDefault(yes).join(ctx, "no-such-directory")),
+        workingDirectory: .Some(
+            yes.parent().withDefault(yes).join(ctx, "no-such-directory"),
+        ),
         environment: .None,
         stdin: .None,
     };
@@ -178,16 +192,26 @@ export fn main(): Result<(), Str> {
     let known = system == "macos" || system == "linux";
     let hasPath = env.all(ctx).any(fn(pair) => pair.0 == "PATH");
     let _p1 = io
-        .println(ctx, "env ${here.isAbsolute()} ${known} ${hasPath} ${env.temporaryDirectory(ctx).isAbsolute()}")
+        .println(
+            ctx,
+            "env ${here.isAbsolute()} ${known} ${hasPath} ${env
+                .temporaryDirectory(ctx)
+                .isAbsolute()}",
+        )
         .mapErr(fn(_e) => "print")?;
 
     // A real tree, in a real temporary directory.
-    let root = fs.makeTemporaryDirectory(ctx, "buri-node-").mapErr(fn(_e) => "temporary")?;
-    let second = fs.makeTemporaryDirectory(ctx, "buri-node-").mapErr(fn(_e) => "temporary twice")?;
+    let root = fs
+        .makeTemporaryDirectory(ctx, "buri-node-")
+        .mapErr(fn(_e) => "temporary")?;
+    let second = fs
+        .makeTemporaryDirectory(ctx, "buri-node-")
+        .mapErr(fn(_e) => "temporary twice")?;
     let _p2 = io
         .println(
             ctx,
-            "temporary ${root.startsWith(env.temporaryDirectory(ctx))} ${root == second} ${fs.isDirectory(ctx, root)}",
+            "temporary ${root.startsWith(env.temporaryDirectory(ctx))} ${root
+                == second} ${fs.isDirectory(ctx, root)}",
         )
         .mapErr(fn(_e) => "print")?;
     let _gone1 = fs.removeTree(ctx, second).mapErr(fn(_e) => "removeTree second")?;
@@ -195,7 +219,9 @@ export fn main(): Result<(), Str> {
     let deep = root.join(ctx, "deep");
     let _made = fs.makeDir(ctx, deep).mapErr(fn(_e) => "makeDir")?;
     let note = root.join(ctx, "note.txt");
-    let _wrote = fs.writeBytes(ctx, note, [104, 101, 108, 108, 111]).mapErr(fn(_e) => "write")?;
+    let _wrote = fs
+        .writeBytes(ctx, note, [104, 101, 108, 108, 111])
+        .mapErr(fn(_e) => "write")?;
     let inner = deep.join(ctx, "b.bin");
     let _wrote2 = fs.writeBytes(ctx, inner, [1, 2]).mapErr(fn(_e) => "write inner")?;
 
@@ -204,17 +230,24 @@ export fn main(): Result<(), Str> {
     let _p3 = io
         .println(
             ctx,
-            "metadata ${named(info.kind)} ${info.size} ${named(there.kind)} ${refused(fs.metadata(ctx, root.join(ctx, "nope")))}",
+            "metadata ${named(info.kind)} ${info.size} ${named(there.kind)} ${refused(
+                fs.metadata(ctx, root.join(ctx, "nope")),
+            )}",
         )
         .mapErr(fn(_e) => "print")?;
     let _p4 = io
         .println(
             ctx,
-            "kinds ${fs.isFile(ctx, note)} ${fs.isDirectory(ctx, deep)} ${fs.isFile(ctx, deep)} ${fs.isFile(ctx, root.join(ctx, "nope"))}",
+            "kinds ${fs.isFile(ctx, note)} ${fs.isDirectory(ctx, deep)} ${fs.isFile(
+                ctx,
+                deep,
+            )} ${fs.isFile(ctx, root.join(ctx, "nope"))}",
         )
         .mapErr(fn(_e) => "print")?;
 
-    let _p5 = io.println(ctx, "entries ${listed(ctx, root)?}").mapErr(fn(_e) => "print")?;
+    let _p5 = io
+        .println(ctx, "entries ${listed(ctx, root)?}")
+        .mapErr(fn(_e) => "print")?;
     let _p6 = io.println(ctx, "walk ${walked(ctx, root)?}").mapErr(fn(_e) => "print")?;
 
     // An empty directory is not a directory that is missing, and a file is not
@@ -224,7 +257,12 @@ export fn main(): Result<(), Str> {
     let _p7 = io
         .println(
             ctx,
-            "empty ${fs.walk(ctx, empty).map(fn(found) => found.len()).withDefault(0 - 1)} ${refused(fs.walk(ctx, root.join(ctx, "nope")))} ${refused(fs.walk(ctx, note))}",
+            "empty ${fs
+                .walk(ctx, empty)
+                .map(fn(found) => found.len())
+                .withDefault(0 - 1)} ${refused(
+                fs.walk(ctx, root.join(ctx, "nope")),
+            )} ${refused(fs.walk(ctx, note))}",
         )
         .mapErr(fn(_e) => "print")?;
 
@@ -237,7 +275,10 @@ export fn main(): Result<(), Str> {
     let _p8 = io
         .println(
             ctx,
-            "window ${head == [101, 108, 108]} ${past.len()} ${last.len()} ${none.len()} ${refused(fs.readRange(ctx, note, 0 - 1, 2))} ${refused(fs.readRange(ctx, note, 0, 0 - 2))}",
+            "window ${head
+                == [101, 108, 108]} ${past.len()} ${last.len()} ${none.len()} ${refused(
+                fs.readRange(ctx, note, 0 - 1, 2),
+            )} ${refused(fs.readRange(ctx, note, 0, 0 - 2))}",
         )
         .mapErr(fn(_e) => "print")?;
 
@@ -254,7 +295,9 @@ export fn main(): Result<(), Str> {
     let _p9 = io
         .println(
             ctx,
-            "copy ${back.len()} ${itself.len()} ${refused(fs.copy(ctx, note, root.join(ctx, "nowhere/x")))} ${refused(fs.copy(ctx, deep, root.join(ctx, "deep.copy")))}",
+            "copy ${back.len()} ${itself.len()} ${refused(
+                fs.copy(ctx, note, root.join(ctx, "nowhere/x")),
+            )} ${refused(fs.copy(ctx, deep, root.join(ctx, "deep.copy")))}",
         )
         .mapErr(fn(_e) => "print")?;
 
@@ -263,12 +306,18 @@ export fn main(): Result<(), Str> {
         .canonicalize(ctx, root.join(ctx, "deep/../note.txt"))
         .mapErr(fn(_e) => "canonicalize")?;
     let straight = fs.canonicalize(ctx, note).mapErr(fn(_e) => "canonicalize note")?;
-    let dot = fs.canonicalize(ctx, path.of(ctx, ".")).mapErr(fn(_e) => "canonicalize dot")?;
-    let up = fs.canonicalize(ctx, path.of(ctx, "..")).mapErr(fn(_e) => "canonicalize up")?;
+    let dot = fs
+        .canonicalize(ctx, path.of(ctx, "."))
+        .mapErr(fn(_e) => "canonicalize dot")?;
+    let up = fs
+        .canonicalize(ctx, path.of(ctx, ".."))
+        .mapErr(fn(_e) => "canonicalize up")?;
     let _p10 = io
         .println(
             ctx,
-            "canonical ${wound == straight} ${dot.isAbsolute()} ${dot.startsWith(up)} ${refused(fs.canonicalize(ctx, root.join(ctx, "nope")))}",
+            "canonical ${wound == straight} ${dot.isAbsolute()} ${dot.startsWith(
+                up,
+            )} ${refused(fs.canonicalize(ctx, root.join(ctx, "nope")))}",
         )
         .mapErr(fn(_e) => "print")?;
 
@@ -277,6 +326,9 @@ export fn main(): Result<(), Str> {
     // And the tree goes, which `removeDir` alone could not do.
     let _gone = fs.removeTree(ctx, root).mapErr(fn(_e) => "removeTree")?;
     io
-        .println(ctx, "left ${fs.exists(ctx, root)} ${refused(fs.removeTree(ctx, root))}")
+        .println(
+            ctx,
+            "left ${fs.exists(ctx, root)} ${refused(fs.removeTree(ctx, root))}",
+        )
         .mapErr(fn(_e) => "print")
 }

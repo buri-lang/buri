@@ -43,7 +43,10 @@ test "a double that was told nothing refuses" {
         Alloc: alloc(),
         Spawn: runner,
     };
-    assert.eq(assert.err(process.run(ctx, process.command("git", ["--version"]))), .NotFound);
+    assert.eq(
+        assert.err(process.run(ctx, process.command("git", ["--version"]))),
+        .NotFound,
+    );
     assert.eq(runner.calls(), [spawned("git", ["--version"])]);
 }
 
@@ -74,7 +77,10 @@ test "a scripted failure is the failure" {
         Alloc: alloc(),
         Spawn: runner,
     };
-    assert.eq(assert.err(process.run(ctx, process.command("sh", []))), .PermissionDenied);
+    assert.eq(
+        assert.err(process.run(ctx, process.command("sh", []))),
+        .PermissionDenied,
+    );
 }
 
 test "every run is a call the log has, in order" {
@@ -117,7 +123,11 @@ test "a program named by a path is the program, separators and all" {
 }
 
 test "a child that wrote to both streams is read back from both" {
-    let runner = spawn().answers(Output { code: 2, stdout: [111, 117, 116], stderr: [101] });
+    let runner = spawn().answers(Output {
+        code: 2,
+        stdout: [111, 117, 116],
+        stderr: [101],
+    });
     let ctx = context {
         Alloc: alloc(),
         Spawn: runner,
@@ -189,7 +199,10 @@ test "a program with a separator in it names a file directly" {
         Env: env().variables([("PATH", "/usr/bin")]),
         FsRead: files,
     };
-    assert.eq(assert.some(process.which(ctx, "build/tool")), path.of(ctx, "build/tool"));
+    assert.eq(
+        assert.some(process.which(ctx, "build/tool")),
+        path.of(ctx, "build/tool"),
+    );
     assert.none(process.which(ctx, "build/missing"));
 }
 
