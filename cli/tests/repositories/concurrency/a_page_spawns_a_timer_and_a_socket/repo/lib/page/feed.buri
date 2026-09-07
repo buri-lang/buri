@@ -1,0 +1,44 @@
+// A library that has work to do in the background, and cannot start it.
+//
+// `run` is a loop that keeps going until somebody closes it, and `sweep` is the
+// thing a timer fires. Neither names `Tasks` for a spawn of its own, because a
+// library may not spawn: a scope is the application's to open, and this package
+// exposes the two functions an application puts in one.
+
+from "core/effect" import { Alloc, Clock, Stdout };
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/time" import * as time;
+
+/// One connection's worth of work: read what is there, and stop when it is
+/// closed.
+///
+/// Stopping is cooperative and this is what that looks like. There is no
+/// cancel: the loop asks whether there is anything left, and ends when there is
+/// not. A real one would ask a socket; this one asks a list, so the answer is
+/// in the file.
+export fn run<C: Alloc + Stdout>(ctx: C, frames: [Str]): () {
+    match (frames.first()) {
+        .None => {
+            let _ = io.println(ctx, "socket closed").ignore();
+            ()
+        },
+        .Some(frame) => {
+            let _ = io.println(ctx, "frame ${frame}").ignore();
+            run(ctx, frames.drop(ctx, 1))
+        },
+    }
+}
+
+/// What the timer fires. It waits first, which is the whole of what a timer is.
+export fn sweep<C: Alloc + Clock + Stdout>(ctx: C, after: Int): () {
+    let _ = time.sleepMs(ctx, after);
+    let _ = io.println(ctx, "sessions expired at ${time.now(ctx).0}").ignore();
+    ()
+}
+
+/// The frames a connection is going to see. A stand-in for a socket, so that
+/// the case is about the scope rather than about the network.
+export fn open<C: Alloc>(ctx: C): [Str] {
+    ["a", "b"]
+}

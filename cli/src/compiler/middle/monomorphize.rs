@@ -2371,6 +2371,24 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "str.toJson",
     "str.toLower",
     "str.toUpper",
+    // `core/tasks`'s scopes. The `core/actor` argument, at a second family: a
+    // spawned task crosses as a one-element `[Carried<fn(C) => ()>]`, the
+    // runtime takes a reference on the block and hands that same reference
+    // back, and nothing about the closure is described to it. There is no
+    // stride here for the same reason there is none there — no body asks how
+    // wide an element is — and `core/tasks`'s own `Carried<T>` keeps the
+    // degenerate empty block out.
+    //
+    // The four that are generic only in the *context* are on this list for
+    // `actor.replyOpen`'s reason: `C` is a type parameter, so the key is
+    // generic even where nothing about it crosses, and the list is the record
+    // that somebody looked.
+    "tasks.scopeEnter",
+    "tasks.scopeLeave",
+    "tasks.scopeOpen",
+    "tasks.scopePush",
+    "tasks.scopeRound",
+    "tasks.scopeTaskAt",
     // The test runner's two. Both render values the program never rendered
     // itself, so both are given a descriptor in `build_fn` — the `desc` field
     // on `Func` exists for exactly these.
@@ -2700,6 +2718,8 @@ mod tests {
         str.chars str.concat str.format str.fromChars str.fromFloat \
         str.fromInt str.lines str.padEnd str.padStart str.repeat str.replace \
         str.show str.split str.splitAny str.toJson str.toLower str.toUpper \
+        tasks.scopeEnter tasks.scopeLeave tasks.scopeOpen tasks.scopePush \
+        tasks.scopeRound tasks.scopeTaskAt \
         testing_assert.failExpected testing_assert.report \
         ui_effect.Scope.read ui_node.mount \
         ui_testing.Headless.memo ui_testing.Headless.read \

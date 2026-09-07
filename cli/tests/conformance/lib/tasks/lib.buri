@@ -1,0 +1,14 @@
+// The tasks conformance package. Its `test/` directory drives `core/tasks`'s
+// background half — `scope`, `spawn` and the `Scope` a handler may capture —
+// and asserts what the module promises rather than what the platform does.
+//
+// The promise is that a scope returns when its body and every task spawned into
+// it have finished, whatever order they ran in, and that a task spawned after
+// the body has returned still runs. Nothing here asserts *when* a task runs or
+// how much of it overlaps: that is the platform's business, and it is the same
+// line `core/actor` draws.
+//
+// The order the work runs in is not left to chance either. `core/host/testing`
+// already makes it a value a test writes down, because a spawned task is run
+// through `Tasks.parallel` — so `tasks()` is program order, `seed(n)` is one
+// numbered order, and both answer the same thing.

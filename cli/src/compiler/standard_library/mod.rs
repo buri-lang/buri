@@ -472,27 +472,29 @@ const HOST_GRANTS: &[HostGrant] = &[
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
         because: "a page has no process to exit; a mounted interface stays live",
     },
-    // Granted wherever a program is a program rather than a page — the same
-    // three as `Fs`, `Stdin`, `Env` and `Proc`, and withheld from WEB for a
-    // reason of the same kind.
+    // Granted on every platform, and WEB is the one that had to be argued.
     //
-    // WEB is the one platform where `parallel` would be *reachable* from a
-    // running interface rather than from `main`: a page's own concurrency is
-    // its event loop, and every effect a page has either answers instantly
-    // (`Ui`, `Watch`) or suspends without holding that loop — which is what let
-    // `Net` onto WEB once `fetch` stopped waiting. `parallel` waits by
-    // construction — it returns when the last task has finished — so granting it
-    // there would put the one shape a page's host is built to avoid back into a
-    // page, in the one place a program cannot leave. The note says the same
-    // thing from the other end: tasks are what servers are built out of, and
-    // the browser's story is the one that lands with them.
+    // It was withheld until `core/tasks` gained a `scope`. The argument for
+    // withholding it was `parallel`: it returns only when the last task has
+    // finished, WEB is the one platform where that is reachable from a running
+    // interface rather than from `main`, and a page's own concurrency is its
+    // event loop. What answers it is that the page's event loop is what a task
+    // *is* here — the JavaScript host starts the tasks together and awaits
+    // them together, so a page waiting for a task is a page with an
+    // outstanding promise, which is what every effect it already has does.
+    // `Net` reached WEB the same way, once `fetch` stopped waiting.
+    //
+    // And the reason to want it is the shape that arrived with the scope. A
+    // page's work is a socket that stays open, a retry, a timer: started once
+    // and run beside everything else. `spawn` is how a program says that, and
+    // withholding the grant meant a page could not say it at all.
     HostGrant {
         effect: "`Tasks`",
         exports: &["HostTasks", "tasks"],
-        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "`parallel` returns only when the last task has finished, which freezes a \
-                  page; a page's concurrency is its event loop, and the effect that reaches \
-                  it lands with the servers",
+        platforms: EVERY_PLATFORM,
+        because: "a page's concurrency is its event loop, and a task is what a program puts \
+                  on it: `spawn` starts a socket, a retry or a timer, and the scope that \
+                  waits for it waits the way every other effect a page has waits",
     },
     // The two halves of being a server. They are granted *together* or not at
     // all, and never on `JS` or `WEB`. Nothing enforces the pairing beyond the
@@ -995,33 +997,36 @@ mod tests {
     /// The reject corpus can ask for `JS` and `WEB` and no more — a case's
     /// platform comes from its `// PLATFORM:` line, and the two native ones
     /// would want a linker — so *every* platform is proved here, over
-    /// `Platform::ALL`, and `reject/tasks_not_granted_on_web` pins what the
-    /// refusal reads like.
+    /// `Platform::ALL`.
     ///
-    /// The assertion is two-sided, which is what makes it able to fail in both
-    /// directions: a platform quietly losing the grant is caught by the first
-    /// half, and WEB quietly gaining it by the second.
+    /// **The direction that matters now is the other one.** This test was
+    /// written to catch WEB quietly *gaining* the grant; WEB has it, on
+    /// purpose, and what the test catches is a platform quietly losing it. So
+    /// it asserts every name on every platform, and separately that `Tasks` is
+    /// no longer tied to `Fs` — the group that varies with the platform is the
+    /// filesystem's and this row left it, which is the whole of what the
+    /// scope bought.
     #[test]
-    fn tasks_is_granted_off_the_page_and_nowhere_else() {
+    fn tasks_is_granted_on_every_platform_including_the_page() {
         let grant = host_grant_of("tasks").expect("`tasks` is in the grant table");
         assert_eq!(grant.effect, "`Tasks`");
-        assert_eq!(grant.platforms_phrase(), "LINUX, MACOS, JS");
+        assert_eq!(grant.platforms_phrase(), "LINUX, MACOS, JS, WEB");
         for platform in Platform::ALL {
-            let granted = platform != Platform::Web;
             for name in ["HostTasks", "tasks"] {
-                assert_eq!(
+                assert!(
                     !host_withholds(platform, name),
-                    granted,
-                    "`{}` and `{name}` disagree about the grant",
+                    "`{}` withholds `{name}`",
                     platform.proto()
                 );
             }
         }
-        // Asserted against `Fs`'s row rather than written out a second time:
-        // the claim is that `Tasks` joined the group that varies with the
-        // platform, so it moves if that group ever splits.
+        // The claim the row used to make, now asserted the other way round: a
+        // page has no filesystem and does have tasks, so the two rows have
+        // parted and a change that put them back together is a change to this
+        // line rather than a silent one.
         let fs = host_grant_of("fs").expect("`fs` is in the grant table");
-        assert_eq!(grant.platforms, fs.platforms, "`Tasks` and `Fs` are granted together");
+        assert_ne!(grant.platforms, fs.platforms, "`Tasks` is no longer `Fs`'s row");
+        assert!(host_withholds(Platform::Web, "fs"), "a page still has no filesystem");
     }
 
     /// `Listen` and `Sockets` are granted on the two native platforms, never

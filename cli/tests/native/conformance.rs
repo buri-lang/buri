@@ -271,6 +271,11 @@ const PACKAGES: &[Case] = &[
     // a *native* case in the way `memory/copyout.buri` is: on JavaScript the
     // assertions are answers, and here they are answers plus the pages.
     included("actor/scoped.buri"),
+    // `core/tasks`'s background half, through the six runtime entries that
+    // hold a spawned task by its two words. In for `actor/counter.buri`'s
+    // reason exactly — the entries are in both runtime tables, and every
+    // assertion is a line of captured output rather than a timing.
+    included("tasks/scope.buri"),
     //
     // Five files, and between them they are `core/bits` entire,
     // `Checked`/`Wrapping`/`Saturating`/`Bounded` at every width including
