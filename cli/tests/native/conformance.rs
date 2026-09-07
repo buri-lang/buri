@@ -291,6 +291,12 @@ const PACKAGES: &[Case] = &[
     // in 320. Every one of these files holds a `[Item]`, because that is what
     // a module is. They run on the reference backend, and they come back here
     // when the frame grows.
+    // The exception among them, and it is in: `tokenize` answers a `[Token]`,
+    // whose element is a small enum, a `Str` and two `Int`s. Nothing in this
+    // file builds a declaration, so the frame limit below does not reach it —
+    // and running it here is what says a lexer that a generator depends on
+    // reads the same bytes under both backends, spans and all.
+    included("buri_ast/tokens.buri"),
     excluded(
         "buri_ast/anchors.buri",
         "an `ast.Item` is 448 bytes and the stencil backend stages a `[T]` \
