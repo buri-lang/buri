@@ -22,8 +22,19 @@
 #     runs its page; `//cmd/worker`, which declares a worker and nothing else,
 #     is refused.
 #
-# Then the two refusals: an entry the binary does not export, and an entry
-# whose signature is not the one its platform fixes.
+#   * **Two outputs may share one entry.** `//cmd/both` is a page and a plain
+#     JavaScript program out of one `main`, and gets one artifact each. Its body
+#     is then checked against *both* platforms, which is the per-entry rule read
+#     from the other end.
+#   * **A helper is not an entry.** The same `host.ui` that is fine inside
+#     `main` is refused in a function beside it, naming the worker, because a
+#     `core/host` name outside an entry's body is checked against every output.
+#
+# Then the refusals, one per way an `entry` can be wrong: a name the binary does
+# not export, a name that is a keyword, a name that is exported and is not a
+# function, a name that is not a name at all and the empty one, an entry with
+# type parameters, and an entry whose parameter or answer is not the one its
+# platform fixes.
 #
 # Schema: the repository-case manifest, cli/tests/harness/case.rs.
 
@@ -155,4 +166,207 @@ run {
   args: ["build", "//cmd/site"]
   exit: 2
   golden: "entry_is_not_a_name.txt"
+}
+
+edit {
+  file: "cmd/site/BUILD.buri"
+  replace: "entry: \"fetch handler\""
+  with: "entry: \"\""
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 2
+  golden: "entry_is_empty.txt"
+}
+
+edit {
+  file: "cmd/site/BUILD.buri"
+  replace: "entry: \"\""
+  with: "entry: \"fetch\""
+}
+
+# Refusal four: the entry has the right arity and the wrong argument. The
+# platform hands it a `Request`, so nothing else can be the parameter.
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(request: Request): Response {"
+  with: "export fn fetch(request: Str): Response {"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "    http.text(ctx, request.path())"
+  with: "    http.text(ctx, request)"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "fetch_takes_a_request_and_not_a_string.txt"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(request: Str): Response {"
+  with: "export fn fetch(request: Request): Response {"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "    http.text(ctx, request)"
+  with: "    http.text(ctx, request.path())"
+}
+
+# And the answer is fixed too: a worker answers a `Response`, because that is
+# what the platform reads off it.
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(request: Request): Response {"
+  with: "export fn fetch(request: Request): Str {"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "    http.text(ctx, request.path())"
+  with: "    request.path()"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "fetch_answers_a_response.txt"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(request: Request): Str {"
+  with: "export fn fetch(request: Request): Response {"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "    request.path()"
+  with: "    http.text(ctx, request.path())"
+}
+
+# **A helper is not an entry.** Per-entry checking is exactly the entry's own
+# body: a `core/host` name anywhere else in `main.buri` is checked against every
+# platform the outputs name, because any of them may reach it. So the same
+# `host.ui` that is fine inside `main` is refused inside a function beside it,
+# and the refusal names the worker.
+edit {
+  file: "cmd/site/main.buri"
+  replace: "fn view<C: Ui>(ctx: C, path: Str): Node<C> {"
+  with: "fn theUi(): () {\n    let _ = host.ui;\n    ()\n}\n\nfn view<C: Ui>(ctx: C, path: Str): Node<C> {"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "a_helper_is_not_an_entry.txt"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "fn theUi(): () {\n    let _ = host.ui;\n    ()\n}\n\nfn view<C: Ui>(ctx: C, path: Str): Node<C> {"
+  with: "fn view<C: Ui>(ctx: C, path: Str): Node<C> {"
+}
+
+# **Two outputs, one entry.** Nothing says an entry belongs to one output.
+# `//cmd/both` declares a page and a plain JavaScript program that are the same
+# function, and gets one artifact each.
+run {
+  args: ["build", "//cmd/both"]
+  exit: 0
+  golden: "both_built.txt"
+}
+
+# And the body is then checked against *both* platforms, not either. `Ui` is
+# granted on WEB and not on JS, so binding it here is refused naming the output
+# that does not grant it — which is the per-entry rule read from the other end.
+edit {
+  file: "cmd/both/main.buri"
+  replace: "from \"core/io\" import * as io;"
+  with: "from \"core/io\" import * as io;\nfrom \"ui/effect\" import { Ui };"
+}
+
+edit {
+  file: "cmd/both/main.buri"
+  replace: "        Stdout: host.stdout,\n    };"
+  with: "        Stdout: host.stdout,\n        Ui: host.ui,\n    };"
+}
+
+run {
+  args: ["build", "//cmd/both"]
+  exit: 1
+  golden: "one_entry_two_platforms.txt"
+}
+
+edit {
+  file: "cmd/both/main.buri"
+  replace: "        Stdout: host.stdout,\n        Ui: host.ui,\n    };"
+  with: "        Stdout: host.stdout,\n    };"
+}
+
+edit {
+  file: "cmd/both/main.buri"
+  replace: "from \"core/io\" import * as io;\nfrom \"ui/effect\" import { Ui };"
+  with: "from \"core/io\" import * as io;"
+}
+
+# An entry the binary exports, and it is not a function. The entries table holds
+# the exported free functions and nothing else, so a struct is as absent as a
+# name nobody wrote.
+edit {
+  file: "cmd/both/BUILD.buri"
+  replace: "{ platform: WEB, entry: \"main\" }"
+  with: "{ platform: WEB, entry: \"Page\" }"
+}
+
+run {
+  args: ["build", "//cmd/both"]
+  exit: 1
+  golden: "entry_is_not_a_function.txt"
+}
+
+# A name that is a keyword reads as a name the reader will accept and the
+# compiler will not find — which is the right answer, because no `main.buri` can
+# export one.
+edit {
+  file: "cmd/both/BUILD.buri"
+  replace: "{ platform: WEB, entry: \"Page\" }"
+  with: "{ platform: WEB, entry: \"match\" }"
+}
+
+run {
+  args: ["build", "//cmd/both"]
+  exit: 1
+  golden: "entry_is_a_keyword.txt"
+}
+
+edit {
+  file: "cmd/both/BUILD.buri"
+  replace: "{ platform: WEB, entry: \"match\" }"
+  with: "{ platform: WEB, entry: \"main\" }"
+}
+
+# An entry with type parameters. The runtime calls it, so there is nothing to
+# infer them from.
+edit {
+  file: "cmd/both/main.buri"
+  replace: "export fn main(): Result<(), Str> {"
+  with: "export fn main<T>(): Result<(), Str> {"
+}
+
+run {
+  args: ["build", "//cmd/both"]
+  exit: 1
+  golden: "entry_has_type_parameters.txt"
+}
+
+edit {
+  file: "cmd/both/main.buri"
+  replace: "export fn main<T>(): Result<(), Str> {"
+  with: "export fn main(): Result<(), Str> {"
 }

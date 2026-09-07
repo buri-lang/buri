@@ -1,0 +1,36 @@
+.buri/out/web/cmd/site/site.mjs (N bytes)
+error: `fetch` must return `Response` [main-signature]
+  --> cmd/site/main.buri:25:36
+   |
+25 | export fn fetch(request: Request): Str {
+   |                                    ^^^
+   |
+   = the platform sends what it answers, so there is no exit code to report
+   = fix: change the return type to `Response`
+
+     What to do
+     ──────────
+
+     Give the entry the signature its platform fixes.
+
+       Platform               The entry
+       LINUX, MACOS, JS, WEB  fn <entry>(): Result<(), Str>
+       CLOUDFLARE_WORKER      fn <entry>(request: Request): Response
+
+     No entry declares generic parameters.
+
+     Why
+     ───
+
+     The platform calls the entry, so its signature is the platform's to fix. A
+     program runs itself and reports how it went: .Ok(()) exits 0, .Err(msg)
+     prints msg to stderr and exits 1. A worker is called once per request, so
+     the request is the argument and the response is the answer.
+
+     Neither has a call site to infer a type argument from, which is why neither
+     declares generic parameters. Neither takes a context either — an entry
+     builds the one it needs in its own body.
+
+     An outputs entry says which function is the entry and which platform fixes
+     its shape.
+
