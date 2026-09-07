@@ -631,6 +631,11 @@ const PACKAGES: &[Case] = &[
     // zlib, so a divergence between the two backends would be one of them
     // disagreeing with the format rather than with the other.
     included("compression/deflate.buri"),
+    // `core/net/http`'s hand-written half: repeated header fields, cookies,
+    // form bodies, status lines and content types, and the bound a `Request`
+    // carries. All of it is string work over two structs and reaches no host,
+    // which is why it is here rather than beside `semantics/http.buri`.
+    included("http/messages.buri"),
     // `core/net/url` is the same: percent-encoding over `[Char]`, RFC 3986's
     // reference resolution over string views, and a six-field struct that
     // derives `Eq` and `Show`. No effect, and nothing on either backend to

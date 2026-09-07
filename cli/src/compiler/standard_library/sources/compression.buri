@@ -23,7 +23,7 @@
 //! ```
 //!
 //! ```stdout
-//! 35 in, 35 back
+//! 36 in, 36 back
 //! ```
 //!
 //! ## What it reads, and what it writes
@@ -97,7 +97,12 @@ export fn deflate<C: Alloc>(ctx: C, raw: [U8]): [U8] {
 /// out, a block type that does not exist, a Huffman tree that claims more codes
 /// than its lengths allow, or a match that copies from before the start.
 export fn inflate<C: Alloc>(ctx: C, body: [U8]): Result<[U8], DecodeError> {
-    let done = inflating(ctx, body, Cursor { at: 0, bit: 0, error: NONE }, list.empty<U8>());
+    let done = inflating(
+        ctx,
+        body,
+        Cursor { at: 0, bit: 0, error: NONE },
+        list.empty<U8>(),
+    );
     if (done.0.error >= 0) { .Err(DecodeError(done.0.error)) } else { .Ok(done.1) }
 }
 
@@ -259,31 +264,159 @@ fn crc32Byte(crc: U32, left: Int): U32 {
 
 /// The first length symbols 257 to 285 stand for.
 let LENGTH_BASE: [Int] = [
-    3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67,
-    83, 99, 115, 131, 163, 195, 227, 258,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    13,
+    15,
+    17,
+    19,
+    23,
+    27,
+    31,
+    35,
+    43,
+    51,
+    59,
+    67,
+    83,
+    99,
+    115,
+    131,
+    163,
+    195,
+    227,
+    258,
 ];
 
 /// How many extra bits each of them reads.
 let LENGTH_EXTRA: [Int] = [
-    0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5,
-    5, 5, 5, 0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    1,
+    1,
+    1,
+    2,
+    2,
+    2,
+    2,
+    3,
+    3,
+    3,
+    3,
+    4,
+    4,
+    4,
+    4,
+    5,
+    5,
+    5,
+    5,
+    0,
 ];
 
 /// The first distance codes 0 to 29 stand for.
 let DISTANCE_BASE: [Int] = [
-    1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513,
-    769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
+    1,
+    2,
+    3,
+    4,
+    5,
+    7,
+    9,
+    13,
+    17,
+    25,
+    33,
+    49,
+    65,
+    97,
+    129,
+    193,
+    257,
+    385,
+    513,
+    769,
+    1025,
+    1537,
+    2049,
+    3073,
+    4097,
+    6145,
+    8193,
+    12289,
+    16385,
+    24577,
 ];
 
 /// How many extra bits each distance code reads.
 let DISTANCE_EXTRA: [Int] = [
-    0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10,
-    11, 11, 12, 12, 13, 13,
+    0,
+    0,
+    0,
+    0,
+    1,
+    1,
+    2,
+    2,
+    3,
+    3,
+    4,
+    4,
+    5,
+    5,
+    6,
+    6,
+    7,
+    7,
+    8,
+    8,
+    9,
+    9,
+    10,
+    10,
+    11,
+    11,
+    12,
+    12,
+    13,
+    13,
 ];
 
 /// The order RFC 1951 §3.2.7 writes a dynamic block's code lengths in.
 let LENGTH_ORDER: [Int] = [
-    16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+    16,
+    17,
+    18,
+    0,
+    8,
+    7,
+    9,
+    6,
+    10,
+    5,
+    11,
+    4,
+    12,
+    3,
+    13,
+    2,
+    14,
+    1,
+    15,
 ];
 
 /// How far back a match may reach, and how long one may be.
@@ -343,7 +476,12 @@ fn draining<C: Alloc>(ctx: C, out: [U8], held: Int, count: Int): ([U8], Int, Int
     if (count < 8) {
         (out, held, count)
     } else {
-        draining(ctx, out.push(ctx, (held & 255).wrapToU8()), bits.shr(held, 8), count - 8)
+        draining(
+            ctx,
+            out.push(ctx, (held & 255).wrapToU8()),
+            bits.shr(held, 8),
+            count - 8,
+        )
     }
 }
 
@@ -617,7 +755,9 @@ struct Huffman {
 fn huffmanOf<C: Alloc>(ctx: C, lengths: [Int]): Huffman {
     let counts = list
         .range(ctx, 0, 16)
-        .map(ctx, fn(len) => if (len == 0) { 0 } else { lengths.count(fn(l) => l == len) });
+        .map(ctx, fn(len) => {
+            if (len == 0) { 0 } else { lengths.count(fn(l) => l == len) }
+        });
     let symbols = list
         .range(ctx, 0, lengths.len())
         .filter(ctx, fn(sym) => at(lengths, sym) > 0)
@@ -700,12 +840,7 @@ fn inflating<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8])
 
 /// A stored block: to the next byte boundary, then a length, its complement,
 /// and that many bytes as they are.
-fn storedBlock<C: Alloc>(
-    ctx: C,
-    data: [U8],
-    c: Cursor,
-    out: [U8],
-): (Cursor, [U8]) {
+fn storedBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
     let aligned = if (c.bit == 0) { c } else { Cursor { ..c, at: c.at + 1, bit: 0 } };
     let len = takeBits(data, aligned, 16);
     let nlen = takeBits(data, len.1, 16);
@@ -730,13 +865,15 @@ fn storedBytes<C: Alloc>(
     } else {
         match (data.get(c.at)) {
             .None => (failed(c), out),
-            .Some(b) => storedBytes(
-                ctx,
-                data,
-                Cursor { ..c, at: c.at + 1 },
-                out.push(ctx, b),
-                left - 1,
-            ),
+            .Some(b) => {
+                storedBytes(
+                    ctx,
+                    data,
+                    Cursor { ..c, at: c.at + 1 },
+                    out.push(ctx, b),
+                    left - 1,
+                )
+            },
         }
     }
 }
@@ -746,9 +883,8 @@ fn fixedBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]
         ctx,
         list
             .range(ctx, 0, 288)
-            .map(
-                ctx,
-                fn(i) => if (i <= 143) {
+            .map(ctx, fn(i) => {
+                if (i <= 143) {
                     8
                 } else if (i <= 255) {
                     9
@@ -756,8 +892,8 @@ fn fixedBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]
                     7
                 } else {
                     8
-                },
-            ),
+                }
+            }),
     );
     let distances = huffmanOf(ctx, list.repeat(ctx, 5, 30));
     pairs(ctx, data, c, out, literals, distances)
@@ -765,12 +901,7 @@ fn fixedBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]
 
 /// A dynamic block: the two trees are written into the stream ahead of the
 /// data, themselves compressed by a third.
-fn dynamicBlock<C: Alloc>(
-    ctx: C,
-    data: [U8],
-    c: Cursor,
-    out: [U8],
-): (Cursor, [U8]) {
+fn dynamicBlock<C: Alloc>(ctx: C, data: [U8], c: Cursor, out: [U8]): (Cursor, [U8]) {
     let hlit = takeBits(data, c, 5);
     let hdist = takeBits(data, hlit.1, 5);
     let hclen = takeBits(data, hdist.1, 4);
@@ -855,14 +986,16 @@ fn runLengths<C: Alloc>(
             let more = takeBits(data, symbol.1, 2);
             match (acc.last()) {
                 .None => (acc, failed(more.1)),
-                .Some(previous) => runLengths(
-                    ctx,
-                    data,
-                    more.1,
-                    coder,
-                    want,
-                    acc.concat(ctx, list.repeat(ctx, previous, more.0 + 3)),
-                ),
+                .Some(previous) => {
+                    runLengths(
+                        ctx,
+                        data,
+                        more.1,
+                        coder,
+                        want,
+                        acc.concat(ctx, list.repeat(ctx, previous, more.0 + 3)),
+                    )
+                },
             }
         } else if (symbol.0 == 17) {
             let more = takeBits(data, symbol.1, 3);
@@ -904,7 +1037,14 @@ fn pairs<C: Alloc>(
     if (symbol.1.error >= 0) {
         (symbol.1, out)
     } else if (symbol.0 < 256) {
-        pairs(ctx, data, symbol.1, out.push(ctx, symbol.0.wrapToU8()), literals, distances)
+        pairs(
+            ctx,
+            data,
+            symbol.1,
+            out.push(ctx, symbol.0.wrapToU8()),
+            literals,
+            distances,
+        )
     } else if (symbol.0 == 256) {
         (symbol.1, out)
     } else if (symbol.0 > 285) {

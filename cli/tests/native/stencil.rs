@@ -1848,6 +1848,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "data/patterns.buri",
     "data/steps.buri",
     "data/strings.buri",
+    "http/messages.buri",
     "lazy/load.buri",
     "memory/allocators.buri",
     "memory/captures.buri",

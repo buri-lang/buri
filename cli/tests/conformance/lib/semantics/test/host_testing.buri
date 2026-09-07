@@ -1950,6 +1950,7 @@ test "a net fault matches the whole request" {
         url: "https://n.test/x",
         headers: [Header { name: "x-trace", value: "1" }],
         body: [],
+        timeoutMillis: 0,
     };
     let ctx = context {
         Alloc: alloc(),
