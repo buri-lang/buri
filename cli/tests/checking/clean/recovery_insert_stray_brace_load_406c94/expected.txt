@@ -1,0 +1,30 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+   --> main.buri:104:14
+    |
+104 |     assert.eq, (f(5), 16);
+    |              ^
+    |
+   --> main.buri:102:43
+    |
+102 | test "a loaded function may load another" {
+    |                                           ^ opened here
+    |
+    = fix: write `}` here
+error: expected a declaration, found `assert` [unexpected-token]
+   --> main.buri:106:5
+    |
+106 |     assert.eq(lazy.load(inner)(5), 15);
+    |     ^^^^^^
+    |
+    = expected: a declaration
+    = actual: `assert`
+    = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected a declaration, found `}` [unexpected-token]
+   --> main.buri:107:1
+    |
+107 | }
+    | ^
+    |
+    = expected: a declaration
+    = actual: `}`
+    = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them

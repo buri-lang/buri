@@ -1,5 +1,8 @@
 binary {
+    dependencies: ["//lib/report"]
+
     outputs: [
         { platform: WEB },
+        { platform: CLOUDFLARE_WORKER, entry: "fetch" },
     ]
 }

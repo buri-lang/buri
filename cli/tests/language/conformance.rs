@@ -591,9 +591,11 @@ fn version_works_outside_a_repository() {
 /// `Request`, and read a real `Response` back. Every JavaScript engine this
 /// suite runs on has both globals.
 ///
-/// Three crossings in one run: a path routed on, a method the entry reads, and
-/// a body it echoes. Each one is a field of the bridge, and a bridge that lost
-/// one would still answer the other two.
+/// Every field of the crossing, in one run: each of the seven methods HTTP has,
+/// the path routed on, the query string beside it, a header read by name, a
+/// header written on the way out, a body echoed, a body that is not text, and
+/// the two answers that are not `200`. Each is a field of the bridge, and a
+/// bridge that lost one would still answer the rest.
 #[test]
 fn a_worker_answers_the_platforms_request_with_the_platforms_response() {
     let scratch = Scratch::repo("worker-fetch");
@@ -604,21 +606,38 @@ fn a_worker_answers_the_platforms_request_with_the_platforms_response() {
     scratch.write(
         "cmd/site/main.buri",
         r#"
-from "core/effect" import { Alloc, Request, Response };
+from "core/effect" import { Alloc, Method, Request, Response };
 from "core/host" import * as host;
 from "core/net/http" import * as http;
 from "core/str" import * as str;
 
 export fn fetch(request: Request): Response {
   let ctx = context { Alloc: host.alloc };
-  let verb = match (request.method) {
-    .Get => "GET",
-    .Post => "POST",
-    _ => "OTHER",
-  };
   match (request.path()) {
+    // What was sent, read back off the request the platform handed over.
     "/echo" => http.text(ctx, bodyOrExcuse(ctx, request)),
-    other => http.text(ctx, str.format(ctx, "${verb} ${other}")),
+    "/query" => http.text(ctx, request.query()),
+    "/header" => http.text(ctx, request.header("x-asked").withDefault("nothing")),
+    // A header the worker writes, which the platform has to carry back.
+    "/tagged" => http.text(ctx, "tagged").withHeader(ctx, "x-answered", "yes"),
+    // The two answers that are not 200. A worker says so with a status, and
+    // there is no exit code anywhere in it.
+    "/missing" => http.status(404),
+    "/broken" => http.status(500),
+    other => http.text(ctx, str.format(ctx, "${verb(request.method)} ${other}")),
+  }
+}
+
+/// Every method HTTP has, so a method the bridge drops is a line that changed.
+fn verb(method: Method): Str {
+  match (method) {
+    .Get => "GET",
+    .Head => "HEAD",
+    .Post => "POST",
+    .Put => "PUT",
+    .Patch => "PATCH",
+    .Delete => "DELETE",
+    .Options => "OPTIONS",
   }
 }
 
@@ -641,12 +660,31 @@ import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
 
 const say = async (request) => {
   const answer = await worker.fetch(request);
-  console.log(`${answer.status} ${answer.headers.get("content-type")} ${await answer.text()}`);
+  const tag = answer.headers.get("x-answered");
+  const said = `${answer.status} ${answer.headers.get("content-type")} ${await answer.text()}`;
+  console.log(tag === null ? said : `${said} x-answered=${tag}`);
 };
 
 await say(new Request("https://example.com/about?ref=x#top"));
+
+// Every method, on a path that answers with the one it was called by. A `GET`
+// and a `HEAD` may carry no body, so none of these do.
+for (const method of ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+  await say(new Request("https://example.com/", { method }));
+}
+
 await say(new Request("https://example.com/echo", { method: "POST", body: "hello" }));
-await say(new Request("https://example.com/", { method: "PUT", body: "ignored" }));
+// A body that is not text at all: the bridge carries octets, so what comes back
+// is the entry's own excuse rather than a crash.
+await say(
+  new Request("https://example.com/echo", { method: "POST", body: new Uint8Array([0xff, 0xfe]) }),
+);
+await say(new Request("https://example.com/query?ref=x&page=2#top"));
+await say(new Request("https://example.com/header", { headers: { "X-Asked": "please" } }));
+await say(new Request("https://example.com/header"));
+await say(new Request("https://example.com/tagged"));
+await say(new Request("https://example.com/missing"));
+await say(new Request("https://example.com/broken"));
 "#,
     );
 
@@ -660,8 +698,21 @@ await say(new Request("https://example.com/", { method: "PUT", body: "ignored" }
     assert_eq!(
         stdout,
         "200 text/plain; charset=utf-8 GET /about\n\
+         200 text/plain; charset=utf-8 GET /\n\
+         200 text/plain; charset=utf-8 HEAD /\n\
+         200 text/plain; charset=utf-8 POST /\n\
+         200 text/plain; charset=utf-8 PUT /\n\
+         200 text/plain; charset=utf-8 PATCH /\n\
+         200 text/plain; charset=utf-8 DELETE /\n\
+         200 text/plain; charset=utf-8 OPTIONS /\n\
          200 text/plain; charset=utf-8 hello\n\
-         200 text/plain; charset=utf-8 OTHER /\n",
+         200 text/plain; charset=utf-8 not utf-8\n\
+         200 text/plain; charset=utf-8 ref=x&page=2\n\
+         200 text/plain; charset=utf-8 please\n\
+         200 text/plain; charset=utf-8 nothing\n\
+         200 text/plain; charset=utf-8 tagged x-answered=yes\n\
+         404 null \n\
+         500 null \n",
         "the crossing lost a field:\n{stderr}"
     );
 }
@@ -682,6 +733,11 @@ await say(new Request("https://example.com/", { method: "PUT", body: "ignored" }
 /// both answer. An artifact that fetched its chunks at start-up would fail the
 /// first run's `/` as well, and one that fetched nothing would pass `/heavy`
 /// without the file.
+///
+/// A chunk that is on disk and is *not a module* is the same answer from the
+/// other side: the request that needs it fails and the request that does not is
+/// untouched, so a half-written file cannot take the whole artifact down with
+/// it.
 #[test]
 fn a_chunk_is_fetched_only_where_the_program_asks_for_it() {
     let scratch = Scratch::repo("lazy-when-fetched");
@@ -753,6 +809,16 @@ await say("/heavy");
         run(),
         "/home\nno chunk\n",
         "a request that never reaches the `load` needs no chunk, and one that does needs it"
+    );
+
+    // A file that is there and is not a module. Half a download and a truncated
+    // deploy both look like this, and neither may cost the requests that never
+    // reach the `load`.
+    std::fs::write(&chunk, b"export const $bind = (").expect("the chunk is writable");
+    assert_eq!(
+        run(),
+        "/home\nno chunk\n",
+        "a chunk that will not load must cost only the request that needed it"
     );
 
     std::fs::write(&chunk, &held).expect("the chunk goes back");

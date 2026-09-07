@@ -8,6 +8,11 @@
 #     in the page and not in the chunk.
 #   * **A page is still a page.** The shell and the module are what they were;
 #     a chunk is a fourth file, not a different kind of output.
+#   * **A library splits itself**, and its chunk lands beside the binary's own:
+#     `//lib/report` writes the `load` and the binary writes nothing.
+#   * **A chunk belongs to an artifact.** The worker beside the page loads the
+#     same function and gets a chunk of its own — and, reaching no library
+#     report, has no second one.
 #   * **Both files are functions of their inputs alone**, which is the claim
 #     `--check-reproducible` makes and which a new file could quietly fall out
 #     of.
@@ -68,6 +73,40 @@ file {
 file {
   path: ".buri/out/web/cmd/page/page.html"
   contains: "page.mjs"
+}
+
+# **A library splits itself.** `//lib/report` writes the `load`, the binary
+# writes nothing, and the chunk lands beside the binary's own — because a chunk
+# belongs to an artifact and a library has none.
+file {
+  path: ".buri/out/web/cmd/page/page.1.mjs"
+  contains: "ONLY_IN_THE_LIBRARY_CHUNK"
+}
+
+file {
+  path: ".buri/out/web/cmd/page/page.mjs"
+  absent: "ONLY_IN_THE_LIBRARY_CHUNK"
+}
+
+# **Two entries that load the same function get a chunk each.** The worker beside
+# the page reaches `markTheChunk` through a `load` of its own, so the split is
+# per artifact rather than per program — and the worker's module, like the
+# page's, does not hold what its chunk holds.
+file {
+  path: ".buri/out/cloudflare-worker/cmd/page/fetch.0.mjs"
+  contains: "ONLY_IN_THE_CHUNK"
+}
+
+file {
+  path: ".buri/out/cloudflare-worker/cmd/page/fetch.mjs"
+  absent: "ONLY_IN_THE_CHUNK"
+}
+
+# And the worker never reaches the library's report, so it has no second chunk
+# to fetch.
+path {
+  path: ".buri/out/cloudflare-worker/cmd/page/fetch.1.mjs"
+  exists: false
 }
 
 # Built twice from two fresh sessions with the cache off. A chunk is a file the
