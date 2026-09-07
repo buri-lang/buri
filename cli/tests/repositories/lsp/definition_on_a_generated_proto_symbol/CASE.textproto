@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "go-to-definition on a type a `.proto` schema produced opens the schema at the `message` that produced it, and a name the generator made up answers `null` — the same two answers a generator of your own gets, because `std/codegen/proto` is a generator of that kind"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

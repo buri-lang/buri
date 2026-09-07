@@ -196,7 +196,7 @@ fn snapshots() {
 /// rather than as an editor behaving differently.
 #[test]
 fn language_server() {
-    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 93);
+    run_corpus(&tests_dir().join("repositories/lsp"), "lsp", 94);
 }
 
 /// Every method a 3.17 client can send is answered by the dispatch, and is
