@@ -2824,16 +2824,20 @@ fn lambda_head(t: &Tree, params: &[LambdaParamData], ret: Option<TypeId>) -> Str
     out
 }
 
+/// The text of a template, where every `$` is an escape as well: the printer
+/// writes the holes itself, so a `$` in the text is content whatever follows
+/// it.
 fn template_text(t: &str) -> String {
     let mut out = String::new();
     for c in t.chars() {
         match c {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
             '$' => out.push_str("\\$"),
-            c => out.push(c),
+            c => match control_escape(c) {
+                Some(e) => out.push_str(&e),
+                None => out.push(c),
+            },
         }
     }
     out
@@ -2991,28 +2995,54 @@ pub fn type_text(t: &Tree, id: TypeId) -> String {
     }
 }
 
+/// How a literal prints a character that has no printable shape of its own, or
+/// `None` for one that prints as itself.
+///
+/// The rule, and it is the same in every literal: a control character is
+/// written as an escape and every other scalar is written as itself. `\n`,
+/// `\r`, `\t` and `\0` have names; the rest of the C0 range and `DEL` go as
+/// `\u{…}`. What is left — a letter, an accent, an emoji — is its own bytes,
+/// so an author's `\u{41}` comes back as `A`.
+///
+/// The delimiters are the caller's business, because which of `"`, `'` and `$`
+/// needs a backslash depends on what the literal is delimited by.
+fn control_escape(c: char) -> Option<String> {
+    match c {
+        '\n' => Some("\\n".into()),
+        '\r' => Some("\\r".into()),
+        '\t' => Some("\\t".into()),
+        '\0' => Some("\\0".into()),
+        c if (c as u32) < 0x20 || c == '\u{7f}' => Some(format!("\\u{{{:x}}}", c as u32)),
+        _ => None,
+    }
+}
+
 fn quote_char(c: char) -> String {
     match c {
         '\'' => "'\\''".into(),
         '\\' => "'\\\\'".into(),
-        '\n' => "'\\n'".into(),
-        '\r' => "'\\r'".into(),
-        '\t' => "'\\t'".into(),
-        '\0' => "'\\0'".into(),
-        c if (c as u32) < 0x20 => format!("'\\u{{{:x}}}'", c as u32),
-        c => format!("'{c}'"),
+        c => match control_escape(c) {
+            Some(e) => format!("'{e}'"),
+            None => format!("'{c}'"),
+        },
     }
 }
 
 fn quote(s: &str) -> String {
     let mut out = String::from("\"");
-    for c in s.chars() {
+    let mut rest = s.chars().peekable();
+    while let Some(c) = rest.next() {
         match c {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\t' => out.push_str("\\t"),
-            c => out.push(c),
+            // A `$` is ordinary content, except before a `{`: that pair reads
+            // back as the start of a hole, which would make this a template
+            // rather than the string it came from.
+            '$' if rest.peek() == Some(&'{') => out.push_str("\\$"),
+            c => match control_escape(c) {
+                Some(e) => out.push_str(&e),
+                None => out.push(c),
+            },
         }
     }
     out.push('"');

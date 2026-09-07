@@ -180,6 +180,20 @@ true        false                                             // BOOL
 A float literal must begin with a digit. `.5` is not a literal; write `0.5`
 (`design/grammar-rationale.md` 12.14).
 
+The escapes a string or character literal takes:
+
+```buri ignore why="a table of spellings rather than a program: every line is a bare literal, which no body may hold as a statement"
+"\n"  "\r"  "\t"  "\0"  "\\"  "\""  "\$"   // the ones with names
+'\n'  '\r'  '\t'  '\0'  '\\'  '\''         // the same, in a character literal
+"\u{1F600}"   '\u{41}'                     // any scalar value, by code point
+```
+
+`buri format` prints a literal back as the escapes it denotes: every C0 control
+and `DEL` as an escape — the named ones by name, the rest as `\u{...}` — and
+every other scalar as itself. So a literal never comes back holding a raw
+control character, and an escape you wrote for a printable character normalises
+to that character: `"\u{41}"` is reprinted as `"A"`.
+
 Underscores are permitted as digit separators anywhere after the first digit.
 
 There are no literal suffixes. A numeric literal takes its type from context and

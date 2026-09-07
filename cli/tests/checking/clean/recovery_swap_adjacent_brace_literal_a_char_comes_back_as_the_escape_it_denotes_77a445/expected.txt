@@ -1,0 +1,9 @@
+error: expected a pattern, found `=>` [unexpected-token]
+ --> main.buri:5:23
+  |
+5 |         '\u{1}' => 8, => '\u{7f}' 9,
+  |                       ^^
+  |
+  = expected: a pattern
+  = actual: `=>`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

@@ -1,0 +1,25 @@
+export fn kind(c: Char): Int {
+    match (c) {
+        '\r' => 1,
+        '\n' => 2,
+        '\t' => 3,
+        '\0' => 4,
+        '\\' => 5,
+        '\'' => 6,
+        '"' => 7,
+        '\u{1}' => 8,
+        '\u{7f}' => 9,
+        // An escape for a printable character comes back as the character.
+        'A' => 10,
+        'é' => 11,
+        _ => 0,
+    }
+}
+
+export fn carriageReturn(): Char {
+    '\r'
+
+
+export fn delete(): Char {
+    '\u{7f}'
+}

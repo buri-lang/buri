@@ -1,3 +1,0 @@
-export fn f(root: Tree): Str {
-  root.theFirstFieldName.extra theSecondFieldName.theThirdFieldName.theFourthFieldNameIsRightHere
-}
