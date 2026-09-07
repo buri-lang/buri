@@ -634,12 +634,13 @@ const PACKAGES: &[Case] = &[
     // with a scheduler — and it lives in the JavaScript runtime alone. There
     // is no `cli/runtime/*.rs` for `$ui_*`, and until a native target renders
     // anything there is nothing for one to be right about.
-    excluded(
-        "ui/reactivity.buri",
-        "the reactive graph, `ui/effect`'s five `Ui` entries and \
-             `ui/testing`'s recorder — all of them `backend/js/runtime.js` and \
-             nothing else, because no native platform grants `Ui`",
-    ),
+    // The reactive graph, natively. `cli/runtime/ui.rs` is the graph and
+    // `Extra::Compute` is the boundary: a memo's and a watcher's body is a
+    // Buri closure the runtime keeps and calls back into long after the call
+    // that handed it over, which is the one shape neither backend generated.
+    // Its two neighbours below stay out, and for a reason no wave retires:
+    // they are the *document*.
+    included("ui/reactivity.buri"),
     excluded(
         "ui/tree.buri",
         "`ui/node`'s `mount` and `ui/testing`'s renderer, which are a \

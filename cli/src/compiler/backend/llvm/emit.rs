@@ -2304,6 +2304,65 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     argv.push(word.const_int(u64::from(a), false).into());
                     argv.push(word.const_int(u64::from(b), false).into());
                 }
+                // The deferred body's six words. The record is built the way
+                // a step's is and holds the same two, and then the runtime
+                // **copies** it: this `alloca` is gone by the time a memo
+                // first runs. The count on the closure's environment is taken
+                // here, at the call site, because the graph keeps the closure
+                // for the life of the program and `middle::rc` releases the
+                // argument at this call.
+                runtime::Arg::Compute => {
+                    let body = self.type_of(ir_ty);
+                    let Some(Ty::Fn(ps, r)) = body.clone() else {
+                        self.error(
+                            span,
+                            format!("internal error: `{key}`'s body is not a function"),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    };
+                    if ps.len() != 1 {
+                        self.error(
+                            span,
+                            format!(
+                                "internal error: `{key}` was given a body taking {} arguments",
+                                ps.len()
+                            ),
+                            "this is a toolchain bug; report it",
+                        );
+                        return None;
+                    }
+                    let bytes = self.step_state_bytes(&ps, None);
+                    let record = self.scratch(state, bytes, 8);
+                    self.store_slots(record, &slots, 8, &pieces);
+                    if let Some(glue) = body.as_ref().and_then(|ty| self.retain_glue(ty)) {
+                        let _ = self.builder.build_call(glue, &[record.into()], "");
+                    }
+                    let thunk = self.entry_thunk(&ps, &r, None);
+                    let stride = self.reprs.stride_of(&r);
+                    let release = self
+                        .release_glue(&r)
+                        .map(function_pointer)
+                        .unwrap_or_else(|| self.ptr_ty().const_null());
+                    let word = self.ctx.i64_type();
+                    argv.push(function_pointer(thunk).into());
+                    argv.push(record.into());
+                    argv.push(word.const_int(u64::from(bytes), false).into());
+                    // No frame word: this backend's thunk works on the machine
+                    // stack, so there is nothing for the runtime to fill in.
+                    argv.push(word.const_all_ones().into());
+                    argv.push(word.const_int(u64::from(stride), false).into());
+                    argv.push(release.into());
+                    // And the record's own walk, which is the closure's: what
+                    // gives back the reference taken above, at exit, when the
+                    // graph lets the body go.
+                    let give_back = body
+                        .as_ref()
+                        .and_then(|ty| self.release_glue(ty))
+                        .map(function_pointer)
+                        .unwrap_or_else(|| self.ptr_ty().const_null());
+                    argv.push(give_back.into());
+                }
                 runtime::Arg::Spilled => {
                     let (size, align) = match &element {
                         Some(t) => {
