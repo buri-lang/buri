@@ -27,10 +27,24 @@ test "the canonical spelling round-trips" {
         Alloc: alloc(),
     };
     assert.eq(assert.some(uuid.parse(CANONICAL)).text(ctx), CANONICAL);
-    assert.eq(
-        assert.some(uuid.parse(CANONICAL)).0,
-        [85, 14, 132, 0, 226, 155, 65, 212, 167, 22, 68, 102, 85, 68, 0, 0],
-    );
+    assert.eq(assert.some(uuid.parse(CANONICAL)).0, [
+        85,
+        14,
+        132,
+        0,
+        226,
+        155,
+        65,
+        212,
+        167,
+        22,
+        68,
+        102,
+        85,
+        68,
+        0,
+        0,
+    ]);
 }
 
 test "uppercase reads, and comes back lowercase" {

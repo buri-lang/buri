@@ -718,7 +718,12 @@ fn blocks1<C: Alloc>(ctx: C, padded: [U8], state: [U32], i: Int): [U32] {
     if (i >= padded.len()) {
         state
     } else {
-        blocks1(ctx, padded, compress1(ctx, state, padded.slice(ctx, i, i + 64)), i + 64)
+        blocks1(
+            ctx,
+            padded,
+            compress1(ctx, state, padded.slice(ctx, i, i + 64)),
+            i + 64,
+        )
     }
 }
 
@@ -757,7 +762,10 @@ let BLOCK_512: Int = 128;
 /// that is the only difference from `hmacSha256`.
 export fn hmacSha512<C: Alloc>(ctx: C, key: [U8], message: [U8]): Digest {
     let shortened = if (key.len() > BLOCK_512) { sha512(ctx, key).0 } else { key };
-    let padded = shortened.concat(ctx, list.repeat(ctx, 0, BLOCK_512 - shortened.len()));
+    let padded = shortened.concat(
+        ctx,
+        list.repeat(ctx, 0, BLOCK_512 - shortened.len()),
+    );
     let inner = padded.map(ctx, fn(b) => (b.toI64() ^ 54).wrapToU8());
     let outer = padded.map(ctx, fn(b) => (b.toI64() ^ 92).wrapToU8());
     let innerDigest = sha512(ctx, inner.concat(ctx, message));

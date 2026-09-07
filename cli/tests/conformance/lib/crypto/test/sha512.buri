@@ -95,7 +95,10 @@ test "the byte form and the text form agree" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(crypto.sha512(ctx, bytes.toUtf8(ctx, "abc")), crypto.sha512Text(ctx, "abc"));
+    assert.eq(
+        crypto.sha512(ctx, bytes.toUtf8(ctx, "abc")),
+        crypto.sha512Text(ctx, "abc"),
+    );
 }
 
 test "one bit of input changes the whole digest" {
