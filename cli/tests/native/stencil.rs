@@ -1824,6 +1824,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "actor/scoped.buri",
     "calendar/date.buri",
     "calendar/duration.buri",
+    "calendar/timestamps.buri",
     "canary/canary.buri",
     "cli/arguments.buri",
     "checksum/checksum.buri",
@@ -1839,6 +1840,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "collections/queue.buri",
     "crypto/entropy.buri",
     "crypto/sha256.buri",
+    "crypto/sha512.buri",
     "data/assertions.buri",
     "data/lists.buri",
     "data/optionresult.buri",
@@ -1874,6 +1876,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "text/hex.buri",
     "text/path.buri",
     "ui/reactivity.buri",
+    "uuid/uuid.buri",
     "vectors/simd.buri",
 ];
 
