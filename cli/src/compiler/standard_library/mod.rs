@@ -209,7 +209,11 @@ pub const MODULES: &[StdModule] = &[
     // it re-exports rather than declaring again — one program can serve on one
     // end and dial on the other, and the two ends use one vocabulary.
     m("core/net/websocket", include_str!("sources/websocket.buri")),
-    m("core/proc", include_str!("sources/proc.buri")),
+    // A **platform module**, for `core/fs`'s reason: `Spawn.spawnProcess`
+    // answers this module's own `Output`, and a `Command` is built out of a
+    // `Path`, so the declaration has to live where those names are. `Proc` is
+    // still `core/effect`'s — ending this process names nothing but an integer.
+    StdModule { platform: true, ..m("core/proc", include_str!("sources/proc.buri")) },
     // Not a platform module: it *names* `Tasks` in its bounds rather than
     // declaring or implementing it, exactly as `core/fs` names `Fs`. The
     // authority is still `core/host`'s to hand out.
@@ -506,6 +510,17 @@ const HOST_GRANTS: &[HostGrant] = &[
         because: "a page has no process to exit — a mounted interface stays live — and a \
                   worker answers a request rather than running one",
     },
+    // Starting a program, which is a bigger authority than ending one — a
+    // context that can run `sh` can do anything its user can — so it is its own
+    // row rather than a second export on `Proc`'s. The platforms are `Proc`'s
+    // for a different reason: a page and a worker have no process table to put
+    // a child in, and node does.
+    HostGrant {
+        effect: "`Spawn`",
+        exports: &["HostSpawn", "spawn"],
+        platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
+        because: "neither a page nor a worker has a process table to put a child in",
+    },
     // Granted on every platform, and WEB is the one that had to be argued.
     //
     // It was withheld until `core/tasks` gained a `scope`. The argument for
@@ -696,6 +711,9 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("FsRead", "fileExists", "core/fs", "fs.exists(ctx, path)"),
     w("FsRead", "readDir", "core/fs", "fs.listDir(ctx, path)"),
     w("FsRead", "readFileBytes", "core/fs", "fs.readBytes(ctx, path)"),
+    w("FsRead", "metadata", "core/fs", "fs.metadata(ctx, path)"),
+    w("FsRead", "readRange", "core/fs", "fs.readRange(ctx, path, at, count)"),
+    w("FsRead", "realPath", "core/fs", "fs.canonicalize(ctx, path)"),
     w("FsWrite", "writeFile", "core/fs", "fs.writeText(ctx, path, body)"),
     w("FsWrite", "writeFileBytes", "core/fs", "fs.writeBytes(ctx, path, body)"),
     w("FsWrite", "appendFile", "core/fs", "fs.append(ctx, path, body)"),
@@ -704,6 +722,7 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("FsWrite", "removeDir", "core/fs", "fs.removeDir(ctx, path)"),
     w("FsWrite", "makeDir", "core/fs", "fs.makeDir(ctx, path)"),
     w("FsWrite", "syncFile", "core/fs", "fs.sync(ctx, path)"),
+    w("FsWrite", "copyFile", "core/fs", "fs.copy(ctx, source, destination)"),
     w("Net", "fetch", "core/net/http", "http.send(ctx, request)"),
     w("Clock", "nowMillis", "core/time", "time.now(ctx)"),
     w("Clock", "sleepMillis", "core/time", "time.sleepMs(ctx, millis)"),
@@ -715,7 +734,11 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Entropy", "bytes", "core/crypto", "crypto.randomBytes(ctx, count)"),
     w("Env", "variable", "core/env", "env.get(ctx, name)"),
     w("Env", "args", "core/env", "env.args(ctx)"),
+    w("Env", "currentDirectory", "core/env", "env.currentDirectory(ctx)"),
+    w("Env", "allVariables", "core/env", "env.all(ctx)"),
+    w("Env", "operatingSystemName", "core/env", "env.operatingSystem(ctx)"),
     w("Proc", "exitWith", "core/proc", "proc.exit(ctx, code)"),
+    w("Spawn", "spawnProcess", "core/proc", "proc.run(ctx, command)"),
     w("Tasks", "parallel", "core/tasks", "tasks.parallel(ctx, items, f)"),
     w("Listen", "listenBind", "core/net/server", "server.bind(ctx, aServer)"),
     w("Listen", "listenAccept", "core/net/server", "server.serve(ctx, aServer)"),
@@ -793,7 +816,7 @@ mod tests {
     /// it, which is precisely the hole [`WRAPPERS`] exists to close.
     fn declared_effect_methods() -> Vec<(String, String)> {
         let mut out = Vec::new();
-        for path in ["core/effect", "core/fs", "ui/effect"] {
+        for path in ["core/effect", "core/fs", "core/proc", "ui/effect"] {
             let src = source(path).expect("a platform module");
             let mut effect: Option<String> = None;
             for line in src.lines() {

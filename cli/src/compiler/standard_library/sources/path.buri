@@ -326,4 +326,373 @@ impl Path {
     export fn components<C: Alloc>(self, ctx: C): [Str] {
         named(ctx, self.0)
     }
+
+    /// Whether this path is `prefix` or sits under it.
+    ///
+    /// Component-wise, so `/srv/ab` does not start with `/srv/a`. An absolute
+    /// path never starts with a relative one, and `.` starts every relative
+    /// path the way `/` starts every absolute one.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/path" import * as path;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let base = path.of(ctx, "/srv/a");
+    ///     let under = path.of(ctx, "/srv/a/b").startsWith(base);
+    ///     let beside = path.of(ctx, "/srv/ab").startsWith(base);
+    ///     let _ = io.println(ctx, "${under} ${beside}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// true false
+    /// ```
+    export fn startsWith(self, prefix: Path): Bool {
+        if (self.0 == prefix.0) {
+            true
+        } else if (self.isAbsolute() != prefix.isAbsolute()) {
+            false
+        } else if (prefix.0 == "/" || prefix.0 == ".") {
+            true
+        } else if (self.0.startsWith(prefix.0)) {
+            match (self.0.charAt(prefix.0.len())) {
+                .None => false,
+                .Some(c) => c == '/',
+            }
+        } else {
+            false
+        }
+    }
+
+    /// This path written from `base`, or `.None` where it is not under it.
+    ///
+    /// Lexical, like the rest of this module: it never answers a path of `..`
+    /// components, because `..` is not something a path alone can resolve. A
+    /// path that *is* `base` answers `.`.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/path" import * as path;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let root = path.of(ctx, "/srv/app");
+    ///     let inside = path.of(ctx, "/srv/app/log/today");
+    ///     let one = inside.relativeTo(ctx, root).map(fn(p) => p.text()).withDefault("none");
+    ///     let two = path.of(ctx, "/etc").relativeTo(ctx, root).map(fn(p) => p.text());
+    ///     let _ = io.println(ctx, "${one} ${two.withDefault("none")}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// log/today none
+    /// ```
+    export fn relativeTo<C: Alloc>(self, ctx: C, base: Path): Option<Path> {
+        if (!self.startsWith(base)) {
+            .None
+        } else if (self.0 == base.0) {
+            .Some(Path("."))
+        } else if (base.0 == ".") {
+            .Some(self)
+        } else if (base.0 == "/") {
+            .Some(of(ctx, self.0.slice(1, self.0.len())))
+        } else {
+            .Some(of(ctx, self.0.slice(base.0.len() + 1, self.0.len())))
+        }
+    }
+
+    /// This path with its extension replaced by `extension`, written without a
+    /// dot.
+    ///
+    /// The mirror of [`Path::withSuffix`], which appends to the whole name:
+    /// `report.tar.gz` with extension `txt` is `report.tar.txt`. An empty
+    /// `extension` drops the extension, which is [`Path::withoutExtension`].
+    ///
+    /// `.None` wherever [`Path::fileName`] is: the root, `.`, and a path ending
+    /// in `..`.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/path" import * as path;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let file = path.of(ctx, "/var/log/app.log");
+    ///     let renamed = file.withExtension(ctx, "gz").map(fn(p) => p.text());
+    ///     let bare = file.withoutExtension(ctx).text();
+    ///     let _ = io.println(ctx, "${renamed.withDefault("none")} ${bare}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// /var/log/app.gz /var/log/app
+    /// ```
+    export fn withExtension<C: Alloc>(self, ctx: C, extension: Str): Option<Path> {
+        match (self.fileName()) {
+            .None => .None,
+            .Some(name) => {
+                let bare = match (extensionDot(name)) {
+                    .None => name,
+                    .Some(at) => name.slice(0, at),
+                };
+                let renamed = if (extension == "") {
+                    bare
+                } else {
+                    str.format(ctx, "${bare}.${extension}")
+                };
+                match (self.parent()) {
+                    .None => .Some(of(ctx, renamed)),
+                    .Some(directory) => .Some(directory.join(ctx, renamed)),
+                }
+            },
+        }
+    }
+
+    /// This path with its extension dropped, or the path unchanged where there
+    /// is none to drop.
+    export fn withoutExtension<C: Alloc>(self, ctx: C): Path {
+        self.withExtension(ctx, "").withDefault(self)
+    }
+
+    /// [`Path::join`] for a path rather than for a `Str`.
+    ///
+    /// It appends an absolute `other` exactly as `join` does — the root never
+    /// changes — so joining a path a caller supplied cannot walk out of this
+    /// one.
+    export fn joinPath<C: Alloc>(self, ctx: C, other: Path): Path {
+        self.join(ctx, other.text())
+    }
+
+    /// Whether this path matches a shell-style pattern, component by component.
+    ///
+    /// `*` matches any run of characters inside one component, `?` matches one
+    /// character, `[abc]` and `[a-z]` match a set — a leading `!` or `^` negates
+    /// it — and `**` matches any number of whole components, none included.
+    /// Nothing else is special, so a pattern without a metacharacter is an
+    /// equality test.
+    ///
+    /// An absolute path matches only an absolute pattern. A `]` closes a set and
+    /// cannot be a member of one.
+    ///
+    /// Pure, so it allocates nothing and takes no context. Backtracking is
+    /// recursion, so a pattern of many `*`s against a long name costs what
+    /// backtracking costs.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/path" import * as path;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let file = path.of(ctx, "src/net/http.buri");
+    ///     let deep = file.matchesGlob("src/**/*.buri");
+    ///     let shallow = file.matchesGlob("src/*.buri");
+    ///     let _ = io.println(ctx, "${deep} ${shallow}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// true false
+    /// ```
+    export fn matchesGlob(self, pattern: Str): Bool {
+        if (self.isAbsolute() != pattern.startsWith("/")) {
+            false
+        } else {
+            globComponents(componentsOf(self.0), 0, componentsOf(pattern), 0)
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Globbing
+//
+// Index arithmetic over two views rather than two lists of components: a list
+// would need an `Alloc`, and `matchesGlob` is pure.
+// -----------------------------------------------------------------------------
+
+/// The components of a path or a pattern as one string, without the leading
+/// separator and without the `.` that names none.
+fn componentsOf(text: Str): Str {
+    if (text == "." || text == "/") {
+        ""
+    } else if (text.startsWith("/")) {
+        text.slice(1, text.len())
+    } else {
+        text
+    }
+}
+
+/// Where the component starting at `at` ends.
+fn componentEnd(text: Str, at: Int): Int {
+    match (text.slice(at, text.len()).indexOf("/")) {
+        .None => text.len(),
+        .Some(k) => at + k,
+    }
+}
+
+/// Where the component after the one ending at `end` starts.
+fn afterComponent(text: Str, end: Int): Int {
+    if (end >= text.len()) { text.len() } else { end + 1 }
+}
+
+/// `text` from `ti`, against `pattern` from `pi`, one component at a time.
+fn globComponents(text: Str, ti: Int, pattern: Str, pi: Int): Bool {
+    if (pi >= pattern.len()) {
+        ti >= text.len()
+    } else {
+        let pe = componentEnd(pattern, pi);
+        let piece = pattern.slice(pi, pe);
+        if (piece == "**") {
+            globAcross(text, ti, pattern, afterComponent(pattern, pe))
+        } else if (ti >= text.len()) {
+            false
+        } else {
+            let te = componentEnd(text, ti);
+            if (globOne(text.slice(ti, te), 0, piece, 0)) {
+                globComponents(text, afterComponent(text, te), pattern, afterComponent(pattern, pe))
+            } else {
+                false
+            }
+        }
+    }
+}
+
+/// `**`: the rest of the pattern, tried here and at every component after it.
+fn globAcross(text: Str, ti: Int, pattern: Str, pi: Int): Bool {
+    if (globComponents(text, ti, pattern, pi)) {
+        true
+    } else if (ti >= text.len()) {
+        false
+    } else {
+        globAcross(text, afterComponent(text, componentEnd(text, ti)), pattern, pi)
+    }
+}
+
+/// One component against one pattern component.
+fn globOne(name: Str, ni: Int, piece: Str, pi: Int): Bool {
+    if (pi >= piece.len()) {
+        ni >= name.len()
+    } else {
+        match (piece.charAt(pi)) {
+            .None => ni >= name.len(),
+            .Some(c) => {
+                if (c == '*') {
+                    globRun(name, ni, piece, pi + 1)
+                } else if (c == '?') {
+                    if (ni >= name.len()) { false } else { globOne(name, ni + 1, piece, pi + 1) }
+                } else if (c == '[') {
+                    globSet(name, ni, piece, pi)
+                } else {
+                    match (name.charAt(ni)) {
+                        .None => false,
+                        .Some(n) => {
+                            if (n == c) { globOne(name, ni + 1, piece, pi + 1) } else { false }
+                        },
+                    }
+                }
+            },
+        }
+    }
+}
+
+/// `*`: the rest of the pattern, tried at this character and at every one after.
+fn globRun(name: Str, ni: Int, piece: Str, pi: Int): Bool {
+    if (globOne(name, ni, piece, pi)) {
+        true
+    } else if (ni >= name.len()) {
+        false
+    } else {
+        globRun(name, ni + 1, piece, pi)
+    }
+}
+
+/// `[...]`: one character against the set, then the rest of the pattern.
+fn globSet(name: Str, ni: Int, piece: Str, pi: Int): Bool {
+    let negated = match (piece.charAt(pi + 1)) {
+        .None => false,
+        .Some(c) => c == '!' || c == '^',
+    };
+    let start = if (negated) { pi + 2 } else { pi + 1 };
+    match (closingBracket(piece, start)) {
+        .None => false,
+        .Some(end) => {
+            match (name.charAt(ni)) {
+                .None => false,
+                .Some(n) => {
+                    if (inGlobSet(n, piece, start, end) != negated) {
+                        globOne(name, ni + 1, piece, end + 1)
+                    } else {
+                        false
+                    }
+                },
+            }
+        },
+    }
+}
+
+/// Where the `]` closing a set opened before `start` is.
+fn closingBracket(piece: Str, start: Int): Option<Int> {
+    match (piece.slice(start, piece.len()).indexOf("]")) {
+        .None => .None,
+        .Some(k) => .Some(start + k),
+    }
+}
+
+/// Whether `c` is one of the members listed between `start` and `end`.
+fn inGlobSet(c: Char, piece: Str, start: Int, end: Int): Bool {
+    if (start >= end) {
+        false
+    } else {
+        match (piece.charAt(start)) {
+            .None => false,
+            .Some(low) => {
+                let ranged = match (piece.charAt(start + 1)) {
+                    .None => false,
+                    .Some(d) => d == '-',
+                };
+                if (ranged && start + 2 < end) {
+                    match (piece.charAt(start + 2)) {
+                        .None => false,
+                        .Some(high) => {
+                            if (low.toU32() <= c.toU32() && c.toU32() <= high.toU32()) {
+                                true
+                            } else {
+                                inGlobSet(c, piece, start + 3, end)
+                            }
+                        },
+                    }
+                } else if (c == low) {
+                    true
+                } else {
+                    inGlobSet(c, piece, start + 1, end)
+                }
+            },
+        }
+    }
 }

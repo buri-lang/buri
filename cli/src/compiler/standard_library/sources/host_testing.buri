@@ -28,7 +28,7 @@
 //! `TestFs` is the second value that is not a bare handle. A fault plan holds
 //! `IoError` *values* and `IoError.Other` carries a `Str`, which
 //! `cli/runtime/lib.rs` §2.1 cannot hand back across a row. So the plan travels
-//! in the program, and the twelve methods of `FsRead` and `FsWrite` are Buri
+//! in the program, and the sixteen methods of `FsRead` and `FsWrite` are Buri
 //! bodies over rows that take the handle. The runner holds the log, the files,
 //! and which entries of the plan have fired.
 //!
@@ -118,7 +118,11 @@ from "core/effect" import {
 
 // The filesystem's two effects, declared in `core/fs` because their methods
 // name a `Path`.
-from "core/fs" import { FsRead, FsWrite };
+from "core/fs" import { FsRead, FsWrite, Metadata };
+
+// And `Spawn`, which `core/proc` declares for the same reason: it answers that
+// module's own `Output`.
+from "core/proc" import { Output, Spawn };
 
 // The one module above `core/effect` this one imports, and it is the surface
 // rather than the authority: `Socket` and `Message` are inert data that
@@ -277,6 +281,36 @@ impl FsRead for TestFs {
             .None => fsReadFileBytes(self.handle, at),
         }
     }
+
+    /// A flat map of paths holds no links, so a file is `.File`, a `makeDir`
+    /// path is `.Directory`, and `kind` is never `.Symlink`. `size` is the
+    /// octets the file holds, and `modified` is the epoch: a hermetic double has
+    /// no clock behind it.
+    fn metadata(self, path: Path): Result<Metadata, IoError> {
+        let at = path.text();
+        match (self.planned(metadata(at))) {
+            .Some(error) => .Err(error),
+            .None => fsMetadata(self.handle, at),
+        }
+    }
+
+    fn readRange(self, path: Path, at: Int, count: Int): Result<[U8], IoError> {
+        let named = path.text();
+        match (self.planned(readRange(named))) {
+            .Some(error) => .Err(error),
+            .None => fsReadRange(self.handle, named, at, count),
+        }
+    }
+
+    /// The path back as it was given. There are no links and no `..` to resolve
+    /// in a flat map, and a path that names nothing is still `.Err(.NotFound)`.
+    fn realPath(self, path: Path): Result<Str, IoError> {
+        let at = path.text();
+        match (self.planned(realPath(at))) {
+            .Some(error) => .Err(error),
+            .None => fsRealPath(self.handle, at),
+        }
+    }
 }
 
 impl FsWrite for TestFs {
@@ -343,6 +377,15 @@ impl FsWrite for TestFs {
         match (self.planned(syncFile(at))) {
             .Some(error) => .Err(error),
             .None => fsSyncFile(self.handle, at),
+        }
+    }
+
+    fn copyFile(self, source: Path, destination: Path): Result<(), IoError> {
+        let start = source.text();
+        let end = destination.text();
+        match (self.planned(copyFile(start, end))) {
+            .Some(error) => .Err(error),
+            .None => fsCopyFile(self.handle, start, end),
         }
     }
 }
@@ -594,7 +637,7 @@ fn fsSnapshot(handle: I64): [(Str, Str)];
 /// Every call made through this handle, in the order they completed.
 fn fsCalls(handle: I64): [FsCall];
 
-/// The twelve methods of `Fs`, as rows over a handle.
+/// The sixteen methods of `Fs`, as rows over a handle.
 ///
 /// Free functions rather than methods on `TestFs`, because a `TestFs` is a handle
 /// *and* a plan and an argument is flattened into its leaves: a row taking `self`
@@ -622,6 +665,14 @@ fn fsRemoveDir(handle: I64, path: Str): Result<(), IoError>;
 fn fsMakeDir(handle: I64, path: Str): Result<(), IoError>;
 
 fn fsSyncFile(handle: I64, path: Str): Result<(), IoError>;
+
+fn fsMetadata(handle: I64, path: Str): Result<Metadata, IoError>;
+
+fn fsReadRange(handle: I64, path: Str, at: Int, count: Int): Result<[U8], IoError>;
+
+fn fsRealPath(handle: I64, path: Str): Result<Str, IoError>;
+
+fn fsCopyFile(handle: I64, source: Str, destination: Str): Result<(), IoError>;
 
 // --- Network ------------------------------------------------------------------
 
@@ -939,6 +990,16 @@ impl Env for TestEnv {
     fn variable(self, name: Str): Option<Str>;
 
     fn args(self): [Str];
+
+    /// `/` — a double is not standing in any directory, and a hermetic test
+    /// that read the runner's own would answer differently on every machine.
+    fn currentDirectory(self): Str;
+
+    fn allVariables(self): [(Str, Str)];
+
+    /// `test` — a double is not an operating system, and answering `linux` on a
+    /// Mac would be a lie a program could branch on.
+    fn operatingSystemName(self): Str;
 }
 
 export fn env(): TestEnv;
@@ -972,6 +1033,90 @@ impl Proc for TestProc {
 
 export fn proc(): TestProc {
     TestProc(0)
+}
+
+/// Runs nothing, and refuses every command until a test says what to answer.
+///
+/// `.Err(.NotFound)` by default, and not a stub exit 0: a test that reaches a
+/// child process by accident should say so at its assertion rather than pass on
+/// an answer nobody wrote. `answers` scripts the success and `fails` the
+/// failure.
+///
+/// Two fields, for `TestFs`'s reason. The handle names the runner-side log and
+/// the answer stays in the program, because `IoError.Other` carries a `Str` and
+/// `cli/runtime/lib.rs` §2.1 cannot hand one back across a row.
+///
+/// **One answer for every command.** A double that answered differently per
+/// program would be a second scripting language; a test that needs two answers
+/// runs two blocks.
+export struct TestSpawn {
+    handle: I64,
+    answer: Result<Output, IoError>,
+}
+
+impl Spawn for TestSpawn {
+    fn spawnProcess(
+        self,
+        program: Str,
+        arguments: [Str],
+        workingDirectory: Str,
+        environment: [Str],
+        replaceEnvironment: Bool,
+        stdin: [U8],
+    ): Result<Output, IoError> {
+        let _at = workingDirectory;
+        let _variables = environment;
+        let _replaces = replaceEnvironment;
+        let _input = stdin;
+        let _recorded = recordSpawn(self.handle, program, arguments);
+        self.answer
+    }
+}
+
+export fn spawn(): TestSpawn {
+    TestSpawn { handle: newSpawn(), answer: .Err(.NotFound) }
+}
+
+impl TestSpawn {
+    /// A **new** double answering this output for every command, over the same
+    /// log.
+    export fn answers(self, output: Output): TestSpawn {
+        TestSpawn { handle: self.handle, answer: .Ok(output) }
+    }
+
+    /// A **new** double failing every command with this error, over the same
+    /// log.
+    export fn fails(self, error: IoError): TestSpawn {
+        TestSpawn { handle: self.handle, answer: .Err(error) }
+    }
+
+    /// Every command run through this double, in order.
+    export fn calls(self): [SpawnCall] {
+        spawnCalls(self.handle)
+    }
+}
+
+/// A fresh, empty log, and the handle that names it.
+fn newSpawn(): I64;
+
+fn recordSpawn(handle: I64, program: Str, arguments: [Str]): ();
+
+fn spawnCalls(handle: I64): [SpawnCall];
+
+derive Eq, Show for SpawnCall;
+/// One command run through a `TestSpawn`.
+///
+/// The program and its arguments, which is what an assertion is about. The
+/// working directory, the environment and the input are not recorded: a
+/// `SpawnCall` a test writes down should be short enough to read.
+export struct SpawnCall {
+    export program: Str,
+    export arguments: [Str],
+}
+
+/// A `run(command)`, as a call.
+export fn spawned(program: Str, arguments: [Str]): SpawnCall {
+    SpawnCall { program: program, arguments: arguments }
 }
 
 // --- Sockets ------------------------------------------------------------------
@@ -1263,6 +1408,29 @@ export fn makeDir(path: Str): FsCall {
 /// A `syncFile(path)`, as a call.
 export fn syncFile(path: Str): FsCall {
     FsCall { name: "syncFile", path: path, body: "" }
+}
+
+/// A `metadata(path)`, as a call.
+export fn metadata(path: Str): FsCall {
+    FsCall { name: "metadata", path: path, body: "" }
+}
+
+/// A `readRange(path, at, count)`, as a call. **The range is not recorded**: a
+/// call is the path, so two reads of two windows of one file are one call and a
+/// fault naming it fails both.
+export fn readRange(path: Str): FsCall {
+    FsCall { name: "readRange", path: path, body: "" }
+}
+
+/// A `realPath(path)`, as a call.
+export fn realPath(path: Str): FsCall {
+    FsCall { name: "realPath", path: path, body: "" }
+}
+
+/// A `copyFile(source, destination)`, as a call. The source is the path and the
+/// destination is the second argument, as `renameFile` records them.
+export fn copyFile(source: Str, destination: Str): FsCall {
+    FsCall { name: "copyFile", path: source, body: destination }
 }
 
 /// The text these octets spell, exactly as `readFile` reads back what

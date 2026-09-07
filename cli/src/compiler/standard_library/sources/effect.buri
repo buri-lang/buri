@@ -154,6 +154,24 @@ export effect Entropy {
 export effect Env {
     fn variable(self, name: Str): Option<Str>;
     fn args(self): [Str];
+
+    /// Where the process is running, as text. `core/env` turns it into a
+    /// `Path`.
+    fn currentDirectory(self): Str;
+
+    /// Every variable, as `(name, value)` pairs, in the platform's own order.
+    ///
+    /// `allVariables` and not `variables`, for the reason `args` is not
+    /// `arguments`: a type's methods are one map keyed by name, and
+    /// `core/host/testing`'s `TestEnv` already spends `variables` on the
+    /// builder a test writes its environment with.
+    fn allVariables(self): [(Str, Str)];
+
+    /// The operating system's short name, lower case: `"linux"`, `"macos"`.
+    ///
+    /// The one fact about the platform that no variable carries honestly, and
+    /// the reason this effect has a third method rather than two.
+    fn operatingSystemName(self): Str;
 }
 
 export effect Proc {

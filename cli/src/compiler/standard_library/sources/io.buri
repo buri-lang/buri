@@ -22,7 +22,7 @@
 //!
 //! `core/effect`'s `Stdout` argues that decision in full.
 
-from "core/effect" import { IoError, Stderr, Stdin, Stdout };
+from "core/effect" import { Alloc, IoError, Stderr, Stdin, Stdout };
 
 from "core/effect" export { IoError };
 
@@ -57,4 +57,67 @@ export fn readBytes<C: Stdin>(ctx: C, n: Int): Option<[U8]> {
 /// Octets to standard output, with no encoding at all.
 export fn writeBytes<C: Stdout>(ctx: C, b: [U8]): Result<(), IoError> {
     ctx.writeBytes(b)
+}
+
+/// Everything left on standard input, as text.
+///
+/// ```buri role=std
+/// # from "core/effect" import { Alloc, Stdin, Stdout };
+/// # from "core/io" import * as io;
+///
+/// export fn shout<C: Alloc + Stdin + Stdout>(ctx: C): () {
+///     io.println(ctx, "${io.readAll(ctx)}!").ignore()
+/// }
+/// ```
+///
+/// The lines, joined by a single `\n`. `readLine` cuts at each `\n` and hands
+/// back what came before it, so a trailing newline on the input does not
+/// survive and neither does a `\r\n`'s second byte — the `\r` stays on the line
+/// it ended. A filter that must not change one octet reads [`readAllBytes`].
+///
+/// It returns at end of input and not before, so a stream that stays open is a
+/// call that does not come back.
+export fn readAll<C: Alloc + Stdin>(ctx: C): Str {
+    gatheredLines(ctx, []).join(ctx, "\n")
+}
+
+fn gatheredLines<C: Alloc + Stdin>(ctx: C, sofar: [Str]): [Str] {
+    match (ctx.readLine()) {
+        .None => sofar,
+        .Some(line) => gatheredLines(ctx, sofar.push(ctx, line)),
+    }
+}
+
+/// How much [`readAllBytes`] asks for at a time. Big enough that a megabyte is
+/// sixteen reads, small enough that a one-line program does not ask for a
+/// megabyte.
+let CHUNK: Int = 65_536;
+
+/// Everything left on standard input, unchanged.
+///
+/// ```buri role=std
+/// # from "core/effect" import { Alloc, Stdin, Stdout };
+/// # from "core/io" import * as io;
+///
+/// export fn size<C: Alloc + Stdin + Stdout>(ctx: C): () {
+///     io.println(ctx, "${io.readAllBytes(ctx).len()}").ignore()
+/// }
+/// ```
+///
+/// No decoding step, so this is the one to read a stream that is not text with.
+/// **Do not mix it with [`readAll`] or `readLine` on one stream**: a line reader
+/// and an octet reader over one queue is undefined, which `Stdin` states.
+///
+/// It returns at end of input and not before.
+export fn readAllBytes<C: Alloc + Stdin>(ctx: C): [U8] {
+    gatheredBytes(ctx, []).flatten(ctx)
+}
+
+fn gatheredBytes<C: Alloc + Stdin>(ctx: C, sofar: [[U8]]): [[U8]] {
+    match (ctx.readBytes(CHUNK)) {
+        .None => sofar,
+        .Some(chunk) => {
+            if (chunk.len() == 0) { sofar } else { gatheredBytes(ctx, sofar.push(ctx, chunk)) }
+        },
+    }
 }
