@@ -89,7 +89,7 @@ test "nesting works in both directions" {
 }
 
 test "whitespace between every token is ignored" {
-    assert.eq(parsed(" \n\t{ \"a\" : [ 1 , 2 ] }\n"), parsed("{\"a\":[1,2]}"));
+    assert.eq(parsed(" \n\t{ \"a\" : [ 1 , 2 ] }\r\n"), parsed("{\"a\":[1,2]}"));
 }
 
 // --- rendering ----------------------------------------------------------------
@@ -217,7 +217,7 @@ test "a control character is written as an escape" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(json.stringify(ctx, Json.Str("ab")), "\"a\\u0001b\"");
+    assert.eq(json.stringify(ctx, Json.Str("a\u{1}b")), "\"a\\u0001b\"");
     assert.eq(json.stringify(ctx, parsed("\"\\u0000\"")), "\"\\u0000\"");
 }
 

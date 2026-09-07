@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:14:1
+   |
+14 | export fn delete(): Char { '\u{7f}' }
+   | ^^^^^^
+   |
+  --> main.buri:12:34
+   |
+12 | export fn carriageReturn(): Char { '\r' 
+   |                                  ^ opened here
+   |
+   = fix: write `}` here

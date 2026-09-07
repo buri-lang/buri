@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:8:1
+  |
+8 | export fn printable(): Str { "\u{41}\u{e9}\u{1F600}" }
+  | ^^^^^^
+  |
+ --> main.buri:5:33
+  |
+5 | export fn beyondTheNames(): Str { "a\u{1}b\u{7f}c\u{1b}d" 
+  |                                 ^ opened here
+  |
+  = fix: write `}` here

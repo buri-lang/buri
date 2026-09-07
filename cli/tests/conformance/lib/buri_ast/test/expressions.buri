@@ -109,12 +109,32 @@ test "the postfix operators print in order" {
 
 // --- literals -------------------------------------------------------------------
 
-test "a string literal escapes the four the formatter escapes" {
+fn strLine<C: Alloc>(ctx: C, text: Str): Str {
+    ast.print(ctx, letOf(ex(.Str(text)))).text
+}
+
+fn charLine<C: Alloc>(ctx: C, ch: Char): Str {
+    ast.print(ctx, letOf(ex(.Char(ch)))).text
+}
+
+// The round trip a printer lives on. The argument on the left is the characters
+// the lexer made out of the spelling on the right, so printing them has to give
+// that spelling back: a literal that came in as `"\r\n"` and went out as a real
+// carriage return and line feed is a file whose bytes an author never wrote.
+test "a string literal comes back spelled the way it was written" {
     let ctx = context {
         Alloc: alloc(),
     };
     let e = ex(.Str("a\"b\\c\nd\te"));
     assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = \"a\\\"b\\\\c\\nd\\te\";\n");
+    assert.eq(strLine(ctx, "a\r\nb"), "let X: Int = \"a\\r\\nb\";\n");
+    assert.eq(strLine(ctx, "a\0b"), "let X: Int = \"a\\0b\";\n");
+    // The controls with no name of their own, and `DEL` at the far end of them.
+    assert.eq(strLine(ctx, "a\u{1}b"), "let X: Int = \"a\\u{1}b\";\n");
+    assert.eq(strLine(ctx, "a\u{1b}b"), "let X: Int = \"a\\u{1b}b\";\n");
+    assert.eq(strLine(ctx, "a\u{7f}b"), "let X: Int = \"a\\u{7f}b\";\n");
+    // `${` is escaped: on the way back in the pair opens a hole.
+    assert.eq(strLine(ctx, "a\${b"), "let X: Int = \"a\\\${b\";\n");
 }
 
 test "a template escapes the dollar its own text carries" {
@@ -126,15 +146,27 @@ test "a template escapes the dollar its own text carries" {
         .concat(ctx, hole(ctx, "count"))
         .concat(ctx, " each\";\n");
     assert.eq(ast.print(ctx, letOf(e)).text, want);
+    // A control in a template's text is escaped the way a string's is.
+    let lines = ex(.Template([.Text("a\r\n"), .Hole(id("count"))]));
+    let wanted = "let X: Int = \"a\\r\\n"
+        .concat(ctx, hole(ctx, "count"))
+        .concat(ctx, "\";\n");
+    assert.eq(ast.print(ctx, letOf(lines)).text, wanted);
 }
 
 test "a character literal escapes what it has to" {
     let ctx = context {
         Alloc: alloc(),
     };
-    assert.eq(ast.print(ctx, letOf(ex(.Char('\n')))).text, "let X: Int = '\\n';\n");
-    assert.eq(ast.print(ctx, letOf(ex(.Char('\'')))).text, "let X: Int = '\\'';\n");
-    assert.eq(ast.print(ctx, letOf(ex(.Char('a')))).text, "let X: Int = 'a';\n");
+    assert.eq(charLine(ctx, '\n'), "let X: Int = '\\n';\n");
+    assert.eq(charLine(ctx, '\''), "let X: Int = '\\'';\n");
+    assert.eq(charLine(ctx, 'a'), "let X: Int = 'a';\n");
+    assert.eq(charLine(ctx, '\r'), "let X: Int = '\\r';\n");
+    assert.eq(charLine(ctx, '\t'), "let X: Int = '\\t';\n");
+    assert.eq(charLine(ctx, '\0'), "let X: Int = '\\0';\n");
+    assert.eq(charLine(ctx, '\\'), "let X: Int = '\\\\';\n");
+    assert.eq(charLine(ctx, '\u{1}'), "let X: Int = '\\u{1}';\n");
+    assert.eq(charLine(ctx, '\u{7f}'), "let X: Int = '\\u{7f}';\n");
 }
 
 test "a float always carries a point" {

@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:26:1
+   |
+26 | 
+   | ^
+   |
+  --> main.buri:23:26
+   |
+23 | export fn delete(): Char {
+   |                          ^ opened here
+   |
+   = fix: write `}` here

@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:3:1
+  |
+3 | export fn delimiters(): Str { "a\\b\"c\${d}e" }
+  | ^^^^^^
+  |
+ --> main.buri:1:27
+  |
+1 | export fn controls(): Str { "a\r\nb\tc\0d" 
+  |                           ^ opened here
+  |
+  = fix: write `}` here
