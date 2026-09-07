@@ -13,7 +13,7 @@
 from "core/effect" import {
     Alloc, Clock, Connected, Entropy, Env, Header, IoError, Listen, Listener, Net,
     NetError, Proc, Rand, Received, Region, Request, Response, Serve, ServeError,
-    Sockets, Stderr, Stdin, Stdout, Tasks, WebSocketClient,
+    Sockets, Stderr, Stdin, Stdout, Tasks, Tcp, WebSocketClient,
 };
 
 // The filesystem's two effects are declared in `core/fs` rather than
@@ -193,6 +193,24 @@ impl Listen for HostListen {
     fn listenReceive(self, socket: Int): Result<Received, ServeError>;
 }
 
+/// A connection dialled out, with bytes each way and no protocol over them.
+///
+/// **Granted on LINUX and MACOS**, beside `HostListen`: a page and a worker have
+/// no sockets of their own. The client is `cli/runtime/tcp.rs`, and it is plain
+/// `std::net` — no TLS, so a program that needs it speaks it itself or uses
+/// `HostNet`.
+export struct HostTcp {}
+
+impl Tcp for HostTcp {
+    fn tcpConnect(self, host: Str, port: Int): Result<Int, IoError>;
+
+    fn tcpRead(self, handle: Int, limit: Int): Result<[U8], IoError>;
+
+    fn tcpWrite(self, handle: Int, body: [U8]): Result<(), IoError>;
+
+    fn tcpClose(self, handle: Int): ();
+}
+
 /// Pushing on a connection that is already open.
 ///
 /// **Granted on every platform**, because there are two ways to come by a socket
@@ -295,6 +313,8 @@ export let tasks: HostTasks = HostTasks { };
 export let listen: HostListen = HostListen { };
 
 export let sockets: HostSockets = HostSockets { };
+
+export let tcp: HostTcp = HostTcp { };
 
 export let websocketClient: HostWebSocketClient = HostWebSocketClient { };
 

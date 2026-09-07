@@ -1873,6 +1873,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "semantics/traits.buri",
     "semantics/variance.buri",
     "tasks/scope.buri",
+    "tcp/stream.buri",
     "text/bytes.buri",
     "text/hex.buri",
     "text/path.buri",

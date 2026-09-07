@@ -477,6 +477,7 @@ implements them all, and only the module that exports `main` may import it.
 [`core/net/http`](../../compiler/standard_library/sources/http.buri),
 [`core/net/server`](../../compiler/standard_library/sources/server.buri),
 [`core/net/websocket`](../../compiler/standard_library/sources/websocket.buri),
+[`core/net/tcp`](../../compiler/standard_library/sources/tcp.buri),
 [`core/proc`](../../compiler/standard_library/sources/proc.buri),
 [`core/tasks`](../../compiler/standard_library/sources/tasks.buri) and
 [`core/actor`](../../compiler/standard_library/sources/actor.buri) are the interfaces
@@ -600,6 +601,23 @@ is closed. `serve` returns `.Ok(())`, and whatever a program does after `serve`
 still happens. `drainMillis` bounds how long the middle step may take, and a
 second signal is the operating system's own, so `Ctrl-C` twice stops a process
 that will not drain. The platform holds the signals only while it holds a port.
+
+`core/net/tcp` is the layer under both of those: a connection dialled out,
+bytes each way, and no opinion about what they mean. `connect(ctx, host, port)`
+answers a `Stream`, and a `Stream` reads, writes and closes. It is what a Redis
+or a Postgres client is written out of.
+
+`Stream.read` answers **at most** what you asked for and waits for at least one
+byte, so a short answer is the ordinary case and a reader that wants a whole
+message reads until it has one; the empty list is the far side closing.
+`Stream.write` has no short write. A stream that is dropped without being closed
+stays open until the process ends, because a Buri value has no destructor.
+
+**No TLS and no listening.** Wrapping a stream needs the TLS the runtime keeps
+for `core/net/http` and `core/net/server`, and accepting is `Listen`'s. `Tcp` is
+granted on `LINUX` and `MACOS` beside `Listen`, because a page and a worker have
+no sockets of their own — the one connection a browser can dial is a WebSocket,
+and `WebSocketClient` is granted everywhere for it.
 
 `core/net/websocket` is the client half of the same socket: a program that
 *dials* one somebody else is holding. It is the same three hooks over the same
@@ -795,7 +813,8 @@ mutation. The language has no associated functions, since a function inside an
 
 `core/host/testing` is `core/host`'s surface for a test. It has the same names —
 `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `entropy`,
-`env`, `proc`, `sockets` — but you **call** them rather than refer to them, so
+`env`, `proc`, `sockets`, `tcp` — but you **call** them rather than refer to
+them, so
 each call mints a fresh double. A method configures one by answering a new one:
 `clock().at(1000)`, `rand().seed(7)`, `entropy().seed(7)`,
 `env().variables([...]).arguments([...])`, `fs().files([...]).readOnly()`.
@@ -837,6 +856,15 @@ socket that was already spent. A URL that is neither `ws://` nor `wss://` is the
 refusal — `.Err(.Unsupported)`, the cause a real client gives a scheme it cannot
 speak — which is how you test what your program does when the socket never
 opens.
+
+`tcp()` doubles a connection with nothing behind it. `tcp().bytes([...])`
+is the octets a read draws from, `calls()` is the log, and the four constructors
+that write it down are named after the methods: `tcpConnect(host, port, stream)`,
+`tcpRead(stream, limit)`, `tcpWrite(stream, body)` and `tcpClose(stream)`. A
+read takes a **prefix** of the script, because a stream has no messages in it,
+and once the script has run out every read answers the empty list — which is the
+far side closing. A stream this double did not mint, or one it has been told to
+close, is `.Err(.NotFound)`, the same promise the real effect makes.
 
 `entropy()` is the one double that is the *opposite* of what the effect
 promises, and the only place in this language where these octets are predictable

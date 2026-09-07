@@ -219,6 +219,11 @@ pub const MODULES: &[StdModule] = &[
     // it re-exports rather than declaring again — one program can serve on one
     // end and dial on the other, and the two ends use one vocabulary.
     m("core/net/websocket", include_str!("sources/websocket.buri")),
+    // The layer under both of those: a connection dialled out, bytes each way,
+    // and no protocol over them. It is a third authority for the reason the
+    // other two are two — `Tcp` is granted where `Listen` is and nowhere else,
+    // because a page has no sockets of its own.
+    m("core/net/tcp", include_str!("sources/tcp.buri")),
     m("core/proc", include_str!("sources/proc.buri")),
     // Not a platform module: it *names* `Tasks` in its bounds rather than
     // declaring or implementing it, exactly as `core/fs` names `Fs`. The
@@ -566,6 +571,20 @@ const HOST_GRANTS: &[HostGrant] = &[
     // to *write* on a socket belongs wherever either half is — which today is
     // everywhere. What used to be here read "a page neither accepts connections
     // nor holds one to push on", and it was true until a page could dial.
+    // Dialling a connection and speaking whatever is on the other end. It is
+    // granted exactly where `Listen` is, and for the mirror of `Listen`'s
+    // reason: a page and a worker have no sockets of their own at all, and the
+    // one thing a browser can dial — a WebSocket — is `WebSocketClient`'s and
+    // granted everywhere already. So `LINUX, MACOS` is now three rows rather
+    // than two.
+    HostGrant {
+        effect: "`Tcp`",
+        exports: &["HostTcp", "tcp"],
+        platforms: &[Platform::Linux, Platform::Macos],
+        because: "a page and a worker have no sockets of their own; the one connection a \
+                  browser can dial is a WebSocket, and `WebSocketClient` is granted \
+                  everywhere for it",
+    },
     HostGrant {
         effect: "`Sockets`",
         exports: &["HostSockets", "sockets"],
@@ -737,6 +756,10 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Sockets", "socketSendText", "core/net/server", "aSocket.send(ctx, .Text(text))"),
     w("Sockets", "socketSendBytes", "core/net/server", "aSocket.send(ctx, .Binary(bytes))"),
     w("Sockets", "socketClose", "core/net/server", "aSocket.close(ctx, aCloseReason)"),
+    w("Tcp", "tcpConnect", "core/net/tcp", "tcp.connect(ctx, host, port)"),
+    w("Tcp", "tcpRead", "core/net/tcp", "aStream.read(ctx, limit)"),
+    w("Tcp", "tcpWrite", "core/net/tcp", "aStream.write(ctx, body)"),
+    w("Tcp", "tcpClose", "core/net/tcp", "aStream.close(ctx)"),
     w("WebSocketClient", "connectSocket", "core/net/websocket", "websocket.connect(ctx, aClient)"),
     w(
         "WebSocketClient",
@@ -938,11 +961,12 @@ mod tests {
     /// the second arm is that a reader already holds the value. Two types are
     /// on it and both are the same arrangement — an effect that speaks in
     /// integer handles, and a module one level up that wraps one in a value
-    /// with methods: `ui/signal`'s `Signal<T>` over `Ui`'s signal ids, and
-    /// `core/net/server`'s `Socket` over `Sockets`' socket ids.
+    /// with methods: `ui/signal`'s `Signal<T>` over `Ui`'s signal ids,
+    /// `core/net/server`'s `Socket` over `Sockets`' socket ids, and
+    /// `core/net/tcp`'s `Stream` over `Tcp`'s stream handles.
     #[test]
     fn every_wrapper_call_leads_with_its_module_or_a_handle() {
-        const HANDLES: &[&str] = &["aSignal.", "aSocket."];
+        const HANDLES: &[&str] = &["aSignal.", "aSocket.", "aStream."];
         for row in WRAPPERS {
             let alias = row.module.rsplit('/').next().expect("a path has a segment");
             let leads = row.call.starts_with(&format!("{alias}."));
