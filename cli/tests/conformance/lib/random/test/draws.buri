@@ -201,3 +201,81 @@ test "sample through a context draws without replacement" {
     assert.eq(drawn.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 3);
     assert.isEmpty(random.sample(ctx, items, -1));
 }
+
+// --- The counts and the lengths a caller gets wrong --------------------------------
+//
+// `nextSample`'s rules for a count outside the list are asserted above. These
+// are the same three counts and the same three lengths at the **`Rand` door**,
+// which is a second entry point onto the same algorithm and could drift from it.
+
+test "sample through a context takes the counts outside the list the same way" {
+    let ctx = context {
+        Alloc: alloc(),
+        Rand: rand(),
+    };
+    let items = [1, 2, 3, 4, 5];
+    // Nothing asked for is nothing given.
+    assert.isEmpty(random.sample(ctx, items, 0));
+    // A negative count is nothing too, rather than a count read from the end.
+    assert.isEmpty(random.sample(ctx, items, -1));
+    assert.isEmpty(random.sample(ctx, items, -100));
+    // A count past the length is the whole list, shuffled — not a list with
+    // repeats in it, and not a shorter one.
+    assert.eq(random.sample(ctx, items, 5).sort(ctx), items);
+    assert.eq(random.sample(ctx, items, 6).sort(ctx), items);
+    assert.eq(random.sample(ctx, items, 1000).sort(ctx), items);
+    // And an empty list gives nothing back at any count.
+    let none: [Int] = [];
+    assert.isEmpty(random.sample(ctx, none, 3));
+    assert.isEmpty(random.sample(ctx, none, 0));
+}
+
+test "shuffle through a context holds at an empty list and at one item" {
+    let ctx = context {
+        Alloc: alloc(),
+        Rand: rand(),
+    };
+    let none: [Int] = [];
+    assert.isEmpty(random.shuffle(ctx, none));
+    assert.eq(random.shuffle(ctx, [9]), [9]);
+    // Two items come back as the two items, in one order or the other.
+    let pair = random.shuffle(ctx, [1, 2]);
+    assert.eq(pair.sort(ctx), [1, 2]);
+    assert.eq(pair.len(), 2);
+}
+
+test "pick through a context answers the only item there is" {
+    let ctx = context {
+        Rand: rand(),
+    };
+    assert.eq(random.pick(ctx, [42]), .Some(42));
+    assert.eq(random.pick(ctx, ["only"]), .Some("only"));
+}
+
+test "the same seed gives the same shuffle, sample and pick, every time" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let items = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    // Four draws from one seed, taken twice: a `Gen` is a value, so replaying a
+    // seed replays the run rather than continuing it.
+    let (firstShuffle, afterOne) = random.seeded(1234).nextShuffle(ctx, items);
+    let (againShuffle, afterTwo) = random.seeded(1234).nextShuffle(ctx, items);
+    assert.eq(firstShuffle, againShuffle);
+    assert.eq(afterOne, afterTwo);
+    let (firstSample, _) = random.seeded(1234).nextSample(ctx, items, 4);
+    let (againSample, _) = random.seeded(1234).nextSample(ctx, items, 4);
+    assert.eq(firstSample, againSample);
+    let (firstPick, _) = random.seeded(1234).nextPick(items);
+    let (againPick, _) = random.seeded(1234).nextPick(items);
+    assert.eq(firstPick, againPick);
+    // A seed of zero, and a negative one, are seeds like any other.
+    let (fromZero, _) = random.seeded(0).nextShuffle(ctx, items);
+    let (fromZeroAgain, _) = random.seeded(0).nextShuffle(ctx, items);
+    assert.eq(fromZero, fromZeroAgain);
+    assert.eq(fromZero.sort(ctx), items);
+    let (fromBelow, _) = random.seeded(-1).nextShuffle(ctx, items);
+    let (fromBelowAgain, _) = random.seeded(-1).nextShuffle(ctx, items);
+    assert.eq(fromBelow, fromBelowAgain);
+    assert.eq(fromBelow.sort(ctx), items);
+}

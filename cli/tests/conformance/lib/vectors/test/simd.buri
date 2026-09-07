@@ -4,6 +4,7 @@
 // that every operation is lane-wise, that a mask is 1 and 0 rather than a
 // boolean, and that a horizontal reduction reduces across all four.
 
+from "core/math" import * as math;
 from "core/num" import * as num;
 from "core/simd" import * as simd;
 from "core/testing/assert" import * as assert;
@@ -286,4 +287,118 @@ fn sumOfBlocks(xs: [Float], at: Int, acc: Float): Float {
         .None => acc,
         .Some(v) => sumOfBlocks(xs, at + 4, acc + v.sum()),
     }
+}
+
+// --- The lanes a kernel reaches by accident ------------------------------------------
+//
+// A vector's lanes are ordinary `Float`s and `Int`s, so every value either type
+// has can land in one: a zero of either sign, an infinity, a `NaN`, and each end
+// of `Int`. What the two reductions and the two masks do with those is what a
+// kernel over real data eventually meets.
+//
+// The shifts are `bits.shl` and `bits.shr` four times, so a count at or beyond
+// sixty-four aborts and `cli/tests/crash/shift_at_width.buri` is the program
+// that pins it — an abort cannot be asserted from inside a `test` block.
+
+test "a NaN lane is passed over wherever in the vector it sits" {
+    let nan = 0.0 / 0.0;
+    // One number among three `NaN`s is found from any of the four positions,
+    // which the fold used to manage from some of them and not from others.
+    assert.eq(simd.f32x4(4.0, nan, nan, nan).minLane(), 4.0);
+    assert.eq(simd.f32x4(nan, 4.0, nan, nan).minLane(), 4.0);
+    assert.eq(simd.f32x4(nan, nan, 4.0, nan).minLane(), 4.0);
+    assert.eq(simd.f32x4(nan, nan, nan, 4.0).minLane(), 4.0);
+    assert.eq(simd.f32x4(4.0, nan, nan, nan).maxLane(), 4.0);
+    assert.eq(simd.f32x4(nan, 4.0, nan, nan).maxLane(), 4.0);
+    assert.eq(simd.f32x4(nan, nan, 4.0, nan).maxLane(), 4.0);
+    assert.eq(simd.f32x4(nan, nan, nan, 4.0).maxLane(), 4.0);
+    // And the smallest of the numbers, not merely one of them.
+    assert.eq(simd.f32x4(1.0, nan, 3.0, 4.0).minLane(), 1.0);
+    assert.eq(simd.f32x4(1.0, 2.0, 3.0, nan).minLane(), 1.0);
+    assert.eq(simd.f32x4(nan, 9.0, 3.0, 4.0).maxLane(), 9.0);
+    assert.eq(simd.f32x4(1.0, 2.0, 9.0, nan).maxLane(), 9.0);
+}
+
+test "a reduction over four NaN lanes is a NaN, because there is nothing else" {
+    let all = simd.splatF(0.0 / 0.0);
+    assert.isTrue(math.isNan(all.minLane()));
+    assert.isTrue(math.isNan(all.maxLane()));
+}
+
+test "the lane-wise min and max do not pass a NaN over" {
+    // The reductions skip a `NaN`; `min` and `max` are one comparison each,
+    // which is the instruction a vector unit has, so a `NaN` in the argument
+    // comes straight through. That difference is the reason `minLane` is not
+    // written as `min` folded.
+    let nan = 0.0 / 0.0;
+    let numbers = simd.splatF(1.0);
+    assert.isTrue(math.isNan(numbers.min(simd.splatF(nan)).lane(0)));
+    assert.isTrue(math.isNan(numbers.max(simd.splatF(nan)).lane(0)));
+    // The other way round the comparison is false too, so the argument wins.
+    assert.eq(simd.splatF(nan).min(numbers).lane(0), 1.0);
+    assert.eq(simd.splatF(nan).max(numbers).lane(0), 1.0);
+}
+
+test "the reductions reach the infinities and both zeros" {
+    let spread = simd.f32x4(1.0 / 0.0, -1.0 / 0.0, 0.0, 5.0);
+    assert.eq(spread.minLane(), -1.0 / 0.0);
+    assert.eq(spread.maxLane(), 1.0 / 0.0);
+    assert.eq(simd.splatF(1.0 / 0.0).minLane(), 1.0 / 0.0);
+    assert.eq(simd.splatF(-1.0 / 0.0).maxLane(), -1.0 / 0.0);
+    // The two zeros are equal and neither is below the other, so a vector of
+    // them reduces to a zero and the sign is not something to promise.
+    assert.eq(simd.f32x4(0.0, -0.0, 0.0, -0.0).minLane(), 0.0);
+    assert.eq(simd.f32x4(0.0, -0.0, 0.0, -0.0).maxLane(), 0.0);
+    assert.eq(simd.f32x4(-0.0, -0.0, -0.0, -0.0).minLane(), 0.0);
+}
+
+test "mulAdd carries an infinity and a NaN through lane by lane" {
+    let a = simd.f32x4(1.0 / 0.0, 2.0, 0.0 / 0.0, 4.0);
+    let b = simd.splatF(2.0);
+    let c = simd.splatF(1.0);
+    let out = a.mulAdd(b, c);
+    assert.eq(out.lane(0), 1.0 / 0.0);
+    assert.eq(out.lane(1), 5.0);
+    assert.isTrue(math.isNan(out.lane(2)));
+    assert.eq(out.lane(3), 9.0);
+}
+
+test "the integer lanes reach both ends of Int" {
+    let ends = simd.i32x4(num.minValue<I64>(), num.maxValue<I64>(), 0, -1);
+    assert.eq(ends.lane(0), num.minValue<I64>());
+    assert.eq(ends.lane(1), num.maxValue<I64>());
+    // `minValue` is non-zero, so it is a true lane in a mask and `not` sends it
+    // to zero rather than complementing its bits.
+    assert.eq(ends.not(), simd.i32x4(0, 0, 1, 0));
+    assert.eq(
+        simd.selectI(ends, simd.splatI(10), simd.splatI(20)),
+        simd.i32x4(10, 10, 20, 10),
+    );
+    // And the comparisons order them the way the scalar operators do.
+    assert.eq(ends.lessThan(simd.ZERO_I), simd.i32x4(1, 0, 0, 1));
+    assert.eq(ends.equalTo(ends), simd.splatI(1));
+}
+
+test "shl and shr take every count the width allows" {
+    let v = simd.i32x4(1, 2, 3, 4);
+    assert.eq(v.shl(0), v);
+    assert.eq(v.shr(0), v);
+    // Sixty-three is the largest count there is; sixty-four aborts.
+    assert.eq(simd.splatI(1).shl(63), simd.splatI(num.minValue<I64>()));
+    assert.eq(simd.splatI(num.minValue<I64>()).shr(63), simd.splatI(1));
+    assert.eq(simd.splatI(-1).shr(63), simd.splatI(1));
+    assert.eq(v.shl(63), simd.i32x4(num.minValue<I64>(), 0, num.minValue<I64>(), 0));
+}
+
+test "loadI32x4 refuses a negative index too" {
+    let xs = [10, 20, 30, 40, 50];
+    assert.eq(simd.loadI32x4(xs, -1), .None);
+    assert.eq(simd.loadI32x4(xs, -4), .None);
+    assert.eq(simd.loadI32x4(xs, 5), .None);
+    // Exactly four items load at zero and nowhere else.
+    let four = [1, 2, 3, 4];
+    assert.eq(simd.loadI32x4(four, 0), .Some(simd.i32x4(1, 2, 3, 4)));
+    assert.eq(simd.loadI32x4(four, 1), .None);
+    let one = [1.0];
+    assert.eq(simd.loadF32x4(one, 0), .None);
 }
