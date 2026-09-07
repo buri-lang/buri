@@ -32,10 +32,3 @@ error: `main` declares no generic parameters [main-signature]
      An outputs entry says which function is the entry and which platform fixes
      its shape.
 
-error: `main` declares no generic parameters [main-signature]
-  --> cmd/both/main.buri:14:1
-   |
-14 | export fn main<T>(): Result<(), Str> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = fix: drop them: `main` is called by the runtime, so there is nothing to infer them from

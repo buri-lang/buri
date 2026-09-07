@@ -1,0 +1,24 @@
+error: this statement has type `I64`, not `()` [statement-not-unit]
+  --> main.buri:54:5
+   |
+54 |     shared(n) 10 *
+   |     ^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:54:14
+   |
+54 |     shared(n) 10 *
+   |              ^
+   |
+   = fix: write `;` here
+error: expected an expression, found `}` [unexpected-token]
+  --> main.buri:55:1
+   |
+55 | }
+   | ^
+   |
+   = expected: an expression
+   = actual: `}`
+   = fix: write a value here
