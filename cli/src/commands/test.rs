@@ -2353,7 +2353,7 @@ mod tests {
             }
             is_backend_gap(&diagnostics)
         };
-        assert!(of(&["the stencil backend has no implementation of char.isDigit"]));
+        assert!(of(&["the stencil backend has no implementation of character.isDigit"]));
         assert!(of(&["the native runtime has no implementation of `json.decode`"]));
         assert!(of(&[
             "the llvm backend has no implementation of testing_assert.report",
@@ -2364,7 +2364,7 @@ mod tests {
         assert!(!of(&[]));
         assert!(!of(&["cannot declare the entry point: duplicate definition"]));
         assert!(!of(&[
-            "the stencil backend has no implementation of char.isDigit",
+            "the stencil backend has no implementation of character.isDigit",
             "cannot declare the entry point: duplicate definition",
         ]));
     }

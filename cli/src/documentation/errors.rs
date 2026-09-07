@@ -242,6 +242,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("relative-import", "Every module path is absolute"),
     e!("reserved-word", "Reserved words are not identifiers"),
     e!("retired-coalesce", "A default for an absent value is `withDefault`", &["language/expressions"]),
+    e!("retired-module", "A renamed standard library module is imported by its new name"),
     e!("retired-proto-sources", "A schema is a generator's input", &["build/proto", "build/generators"]),
     e!("retired-test-data", "A suite's filesystem is written in the suite", &["build/build-files", "build/testing"]),
     e!("rest-pattern-not-last", "A rest pattern comes last"),

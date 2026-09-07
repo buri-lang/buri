@@ -1180,57 +1180,57 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::List, Arg::Scalar],
         ret: Ret::Sum,
     },
-    // -- core/char ----------------------------------------------------------
+    // -- core/character -----------------------------------------------------
     //
     // Eight rows, and the five predicates are `Ret::Int(8)` rather than
     // `Ret::Scalar`: the C boundary has no `i1`, so the archive returns `u8`
     // and the call site narrows. `toUpper` and `toLower` *are* `Ret::Scalar`,
     // because a `Char` is an `i32` on both sides of the boundary.
     Entry {
-        key: "char.isDigit",
-        symbol: "buri_rt_char_is_digit",
+        key: "character.isDigit",
+        symbol: "buri_rt_character_is_digit",
         args: &[Arg::Scalar],
         ret: Ret::Int(8),
     },
     Entry {
-        key: "char.isAlpha",
-        symbol: "buri_rt_char_is_alpha",
+        key: "character.isAlpha",
+        symbol: "buri_rt_character_is_alpha",
         args: &[Arg::Scalar],
         ret: Ret::Int(8),
     },
     Entry {
-        key: "char.isSpace",
-        symbol: "buri_rt_char_is_space",
+        key: "character.isSpace",
+        symbol: "buri_rt_character_is_space",
         args: &[Arg::Scalar],
         ret: Ret::Int(8),
     },
     Entry {
-        key: "char.isUpper",
-        symbol: "buri_rt_char_is_upper",
+        key: "character.isUpper",
+        symbol: "buri_rt_character_is_upper",
         args: &[Arg::Scalar],
         ret: Ret::Int(8),
     },
     Entry {
-        key: "char.isLower",
-        symbol: "buri_rt_char_is_lower",
+        key: "character.isLower",
+        symbol: "buri_rt_character_is_lower",
         args: &[Arg::Scalar],
         ret: Ret::Int(8),
     },
     Entry {
-        key: "char.toUpper",
-        symbol: "buri_rt_char_to_upper",
+        key: "character.toUpper",
+        symbol: "buri_rt_character_to_upper",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
     Entry {
-        key: "char.toLower",
-        symbol: "buri_rt_char_to_lower",
+        key: "character.toLower",
+        symbol: "buri_rt_character_to_lower",
         args: &[Arg::Scalar],
         ret: Ret::Scalar,
     },
     Entry {
-        key: "char.toDigit",
-        symbol: "buri_rt_char_to_digit",
+        key: "character.toDigit",
+        symbol: "buri_rt_character_to_digit",
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Sum,
     },

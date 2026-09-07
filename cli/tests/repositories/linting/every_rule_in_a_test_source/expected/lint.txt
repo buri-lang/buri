@@ -42,8 +42,8 @@ warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
 17 | let HEX_DIGITS: Str = "0123456789abcdef";
    |                       ^^^^^^^^^^^^^^^^^^
    |
-   = `char.fromDigit(n, 16)` is a digit and `char.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
-   = fix: delete the table, and reach for `char.fromDigit`, `num.toHex` or `bytes.toHex`
+   = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `character.fromDigit`, `num.toHex` or `bytes.toHex`
 
      A table of digits never arrives on its own. With it come a nibble helper, a
      shift, a mask, an index, and — sooner or later — a sixteen-call unrolled
@@ -51,11 +51,11 @@ warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
 
      The library keeps the digits once:
 
-     - One digit — char.fromDigit(n, radix) is the character, and
-     char.toDigit(radix) is its inverse. Both reach base 36, so the same pair
-     answers hexadecimal, octal and base 32.
+     - One digit — character.fromDigit(n, radix) is the character, and
+     character.toDigit(radix) is its inverse. Both reach base 36, so the same
+     pair answers hexadecimal, octal and base 32.
 
-     - Is this one? — char.isHexDigit(), rather than comparing a toDigit
+     - Is this one? — character.isHexDigit(), rather than comparing a toDigit
      against .None.
 
      - A whole number — num.toHex(ctx, x, width), lowercase and zero-padded to

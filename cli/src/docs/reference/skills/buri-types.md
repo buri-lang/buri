@@ -154,7 +154,7 @@ supertraits, no trait objects, no dynamic dispatch.
 |---|---|
 | a `struct` or `enum` you declared | the module declaring it |
 | `[T]` | `core/list` |
-| `Str` `Char` `Bool` | `core/str` `core/char` `core/bool` |
+| `Str` `Char` `Bool` | `core/str` `core/character` `core/bool` |
 | every integer and float type | `core/num` |
 | `Option<T>` `Result<T, E>` | `core/option` `core/result` |
 | tuples, function types, `Template` | none — no methods |
@@ -186,7 +186,7 @@ An effect is a trait in every other respect but three:
 - **you perform an effect by handing the context to a function.**
   `ctx.println("hi")` is `io.println(ctx, "hi")`, and `ctx.readFile(p)` is
   `fs.readText(ctx, p)`. The doors are `core/alloc`, `core/io`, `core/fs`,
-  `core/net/http`, `core/time`, `core/random`, `core/env`, `core/proc`,
+  `core/net/http`, `core/time`, `core/random`, `core/env`, `core/process`,
   `core/tasks`, `core/net/server` and `ui/signal`, and a method on the value is
   `effect-method-call`. Only `core/*` and an `impl` supplying an effect keep
   the method form, which lets a wrapper delegate with `self.0.readFile(path)`.

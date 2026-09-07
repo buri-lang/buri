@@ -612,11 +612,19 @@ impl<'a> Loader<'a> {
         // names the same module the long way round. The module is keyed by the
         // canonical spelling, so the two cannot become two.
         let Some(module) = standard_library::find(path) else {
-            self.diags.push(
-                Diagnostic::templated("no-such-module", span)
+            // A path this library used to have is a different mistake from a
+            // path it never had, and the reader can be told the answer rather
+            // than the rule. It is still a refusal: the old name does not
+            // load, so nothing compiles against two spellings of one module.
+            let diagnostic = match standard_library::retired(path) {
+                Some(now) => Diagnostic::templated("retired-module", span)
+                    .with_bind("path", path)
+                    .with_bind("now", now),
+                None => Diagnostic::templated("no-such-module", span)
                     .with_bind("path", path)
                     .with_bind("roots", standard_library::roots_phrase()),
-            );
+            };
+            self.diags.push(diagnostic);
             return None;
         };
         let (written, text) = (path, module.source);
