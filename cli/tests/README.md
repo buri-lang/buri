@@ -67,7 +67,8 @@ cli/tests/
   example/              the worked monorepo, and the largest Buri here to read
   repositories/         whole repositories, one per build-system rule
     concurrency/          …and one per concurrency-and-servers claim: actors,
-                          arenas, the sockets double, imports, a print's Result
+                          scopes, arenas, the sockets double, imports, a
+                          print's Result
   golden_javascript/    one construct per case, with the code it emits
   formatting/           an `input.buri` and the one `expected.buri` allowed
     generated/          the same, a thousand of them, written by the mutator

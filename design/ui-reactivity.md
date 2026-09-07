@@ -530,6 +530,10 @@ language one, and the existing machinery covers it:
   signature had to change when the runtime arrived. The row is still short on
   `WEB`, for an ordinary reason rather than that one: `parallel` returns only
   when the last task has finished, and a page's concurrency is its event loop.
+  **That last sentence was reversed once `core/tasks` gained `spawn`**: a page's
+  concurrency is still its event loop, and a task is now what a program puts on
+  one, so the row grants `Tasks` on every platform.
+  `design/native/DECISIONS.md` carries the reversal.
 
   `Listen` and `Sockets` came down that same route and are now through it. Both
   landed naming an empty platform list, and both name `LINUX, MACOS` today — the
