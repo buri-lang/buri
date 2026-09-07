@@ -1,23 +1,14 @@
 //! core/net/http — HTTP over the `Net` effect.
 //!
 //! `Request` and `Response` are declared in `core/effect` and re-exported here.
-//! They live there because `effect Net`'s own signature names them, and
-//! `core/effect` cannot import a module that imports it. That is the same reason
-//! `IoError` sits beside `effect Fs` rather than in `core/fs`. This module holds
-//! the things that build them *out of text*, because turning a `Str` into octets
-//! is `core/bytes`' job and `core/bytes` imports `core/effect`.
+//! This module holds the things that build them *out of text*.
 //!
-//! This language has no associated functions: a function inside an `impl` block
-//! must take `self` (SPEC 6.7.1), so a type cannot offer `Response.text("pong")`.
-//! The construction surface splits in two instead, and the split is not an
-//! accident:
-//!
-//! * **free functions here, for making a message out of text** — `request`,
-//!   `textRequest`, `status`, `ok`, `text`, `json`. They read
-//!   `http.text(ctx, "pong")` and `http.status(404)` at the call site.
-//! * **`with*` methods on the value, for changing one** — `withHeader`,
-//!   `withBody`, `withStatus`, `withMethod`. Each answers a new value, so you
-//!   build a message by chaining and never by mutation.
+//! * **free functions make a message** — `request`, `textRequest`, `status`,
+//!   `ok`, `text`, `json`, `html`. They read `http.text(ctx, "pong")` and
+//!   `http.status(404)` at the call site.
+//! * **`with*` methods change one** — `withHeader`, `withBody`, `withStatus`,
+//!   `withMethod`. Each answers a new value, so you build a message by chaining
+//!   and never by mutation.
 //!
 //! A struct literal always works too — both types export every field — and it is
 //! what to write when you know every field at once.
@@ -80,14 +71,14 @@ export fn text<C: Alloc>(ctx: C, body: Str): Response {
     ok(ctx, body).withHeader(ctx, "content-type", "text/plain; charset=utf-8")
 }
 
-/// `200 application/json`. It writes the body without validating it: encoding is
-/// `core/json`'s job, and a second parse here could only disagree with it.
+/// `200 application/json`. It writes the body as given, without validating it:
+/// encoding is `core/json`'s job.
 export fn json<C: Alloc>(ctx: C, body: Str): Response {
     ok(ctx, body).withHeader(ctx, "content-type", "application/json")
 }
 
-/// `200 text/html; charset=utf-8`. What a worker answers a page request with,
-/// and `ui/web`'s `shell` is what writes the document it takes.
+/// `200 text/html; charset=utf-8`. `ui/web`'s `shell` writes the document it
+/// takes.
 export fn html<C: Alloc>(ctx: C, body: Str): Response {
     ok(ctx, body).withHeader(ctx, "content-type", "text/html; charset=utf-8")
 }
@@ -96,18 +87,17 @@ export fn html<C: Alloc>(ctx: C, body: Str): Response {
 
 /// A message body decoded as UTF-8, strictly: `http.bodyText(ctx, reply.body)`.
 ///
-/// A `Result` rather than a lossy `Str`: a body that is not text should say so
-/// where you read it, instead of turning into U+FFFD and surfacing later. It is
-/// `bytes.fromUtf8` under an HTTP name, so reading a response needs no second
-/// import.
+/// It is `bytes.fromUtf8` under an HTTP name, so reading a response needs no
+/// second import. A body that is not text fails here rather than turning into
+/// U+FFFD.
 export fn bodyText<C: Alloc>(ctx: C, body: [U8]): Result<Str, Utf8Error> {
     bytes.fromUtf8(ctx, body)
 }
 
 // --- Sending ------------------------------------------------------------------
 
-/// The request, as written. Needs only `Net`: the request already exists and
-/// the response is the platform's, so nothing here allocates.
+/// Sends the request as written. Needs only `Net`, since nothing here
+/// allocates.
 export fn send<C: Net>(ctx: C, request: Request): Result<Response, NetError> {
     ctx.fetch(request)
 }
@@ -124,8 +114,8 @@ export fn post<C: Alloc + Net>(
     send(ctx, textRequest(ctx, .Post, url, body))
 }
 
-/// A free function rather than a method: `NetError` is declared in
-/// `core/effect`, and a method must live in its type's defining module.
+/// A sentence for a `NetError`. It is a free function because `NetError`
+/// belongs to `core/effect`.
 export fn errorText(e: NetError): Str {
     match (e) {
         .Timeout => "the request timed out",

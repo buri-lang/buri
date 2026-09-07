@@ -1,11 +1,9 @@
 //! core/net/websocket — dialling somebody else's WebSocket.
 //!
-//! `core/net/server` is the accepting half: a program that holds a port, takes
-//! an upgrade request and runs three hooks over the socket it made. This is the
-//! other half — a program that *dials* a socket somebody else is holding. The
-//! hooks are the same three, the state threads the same way, and `Socket`,
-//! `Message` and `CloseReason` are that module's own types re-exported here, so
-//! a program that has written one end already knows the other.
+//! `core/net/server` is the accepting half. This is the other half — a program
+//! that *dials* a socket somebody else is holding. The hooks are the same three,
+//! the state threads the same way, and `Socket`, `Message` and `CloseReason` are
+//! that module's own types re-exported here.
 //!
 //! ```buri
 //! from "core/effect" import { Sockets, Stdout, WebSocketClient };
@@ -41,18 +39,16 @@
 //!
 //! ## `connect` returns when the socket closes
 //!
-//! There is one call and it is the socket's whole life: dial, run `onOpen`, read
-//! a message and run `onMessage` for each one, and run `onClose` when the far
-//! side goes or this end closes. The answer is the `CloseReason` it ended with.
+//! One call is the socket's whole life: dial, run `onOpen`, run `onMessage` for
+//! each message, and run `onClose` when the far side goes or this end closes.
+//! The answer is the `CloseReason` it ended with.
 //!
 //! `.Err` means the socket was never opened — a URL this platform cannot dial, a
 //! machine that refused the connection, a server that did not answer `101`. Once
-//! a socket exists every ending is an `.Ok` carrying a reason, because a socket
-//! closing is not a failure.
+//! a socket exists every ending is an `.Ok` carrying a reason.
 //!
 //! **Reconnecting is a loop around it.** There is no reconnect knob, no backoff
-//! setting and no retry count, because `connect` is an ordinary call that
-//! returns:
+//! setting and no retry count:
 //!
 //! ```buri
 //! from "core/effect" import { Clock, Sockets, WebSocketClient };
@@ -83,17 +79,15 @@
 //! ## What the hooks see
 //!
 //! `onOpen` is handed the `Response` that opened the socket, where
-//! `core/net/server`'s is handed the `Request` that asked for one. It is the
-//! same value from the other side of the wire, and it is where a negotiated
-//! subprotocol arrives.
+//! `core/net/server`'s is handed the `Request` that asked for one. It is where a
+//! negotiated subprotocol arrives.
 //!
 //! Everything else reads the same as a server's hooks. `onOpen` answers the
 //! socket's first state, every later hook is handed the current one, and
-//! `onMessage` answers the next. `onClose` runs once, with the last state, and
-//! is the last thing the socket does — the socket is already closed by then, so
-//! anything sent from there is dropped. `onMessage` sees `.Text` and `.Binary`
-//! and nothing else, because a ping and a pong are the platform keeping the
-//! connection alive.
+//! `onMessage` answers the next. `onClose` runs once, with the last state; the
+//! socket is already closed by then, so anything sent from there is dropped.
+//! `onMessage` sees `.Text` and `.Binary` and nothing else — a ping and a pong
+//! are the platform keeping the connection alive.
 //!
 //! **Pushing needs `Sockets` and nothing else.** A `Socket` here is the same
 //! inert integer a server's is, so it can go to an actor and be pushed on from
@@ -102,12 +96,9 @@
 //!
 //! ## Headers and subprotocols are the URL's business
 //!
-//! `Client` has a `url` and no header list. A browser's `WebSocket` cannot send
-//! request headers at all — that is the platform's rule and not this module's —
-//! so a header list here would be a field that worked on the two native
-//! platforms and nowhere else. A program that has to authenticate puts the token
-//! in the query string, which is what every browser client does, and reads what
-//! it was given back off the response in `onOpen`.
+//! `Client` has a `url` and no header list, because a browser's `WebSocket`
+//! cannot send request headers at all. Put a token or a subprotocol in the query
+//! string, and read what you were given back off the response in `onOpen`.
 //!
 //! ## On a page, and in a worker
 //!
@@ -116,12 +107,11 @@
 //! while the socket is idle. A pushed frame wakes it exactly as a click does. A
 //! worker dials the same way while it is answering a request.
 //!
-//! What differs there is who writes the handshake. On `LINUX` and `MACOS` this
-//! runtime writes it and checks every clause of the answer. Everywhere else the
-//! platform's own `WebSocket` does, so how strictly a bad `101` is refused is
-//! that engine's decision, and `Connected.headers` carries what the engine
-//! exposes — the negotiated subprotocol and extensions — rather than the head
-//! the server sent.
+//! On `LINUX` and `MACOS` this runtime writes the handshake and checks every
+//! clause of the answer. Everywhere else the platform's own `WebSocket` does, so
+//! how strictly a bad `101` is refused is that engine's decision, and
+//! `Connected.headers` carries what the engine exposes — the negotiated
+//! subprotocol and extensions — rather than the head the server sent.
 
 from "core/effect" import {
     Connected, Received, Response, ServeError, Sockets, WebSocketClient,
@@ -137,24 +127,19 @@ from "core/net/server" export { CloseReason, errorText, Message, Socket };
 /// `C` is the caller's own context and every hook is handed it, so a hook may do
 /// anything the context it was written beside can do. `S` is **the state this
 /// socket carries**: `onOpen` answers the first one, every later hook is handed
-/// the current one, and `onMessage` answers the next. So per-socket state is a
-/// value on a stack rather than a table keyed by socket — `core/net/server`'s
-/// `WebSocket` says the same thing about the same three hooks, and one program
-/// can use both.
+/// the current one, and `onMessage` answers the next. `core/net/server`'s
+/// `WebSocket` says the same thing about the same three hooks.
 export struct Client<C, S> {
     /// Where to dial. `ws://…` or `wss://…`; anything else is
     /// `.Err(.Unsupported)` from `connect`.
     ///
     /// **The whole of the request.** A subprotocol and a token go in the query
-    /// string, because a page cannot send a header on a WebSocket handshake —
-    /// see the module header.
+    /// string, because a page cannot send a header on a WebSocket handshake.
     export url: Str,
     /// The socket is open. Answers its first state.
     ///
     /// The `Response` is the `101` the server answered — its status and its
-    /// header fields — and it is where a negotiated subprotocol arrives. It is
-    /// the mirror of `core/net/server`'s `onOpen`, which is handed the `Request`
-    /// that asked.
+    /// header fields — and it is where a negotiated subprotocol arrives.
     export onOpen: fn(C, Socket, Response) => S,
     /// A message arrived. Answers the state the next one will see.
     export onMessage: fn(C, Socket, S, Message) => S,
@@ -171,14 +156,12 @@ export struct Client<C, S> {
 /// wants a second one calls it again — the module header writes that loop out.
 ///
 /// `.Err` is a socket that never opened. Everything after the handshake is
-/// `.Ok`, because a socket closing is the ordinary end of one and not a failure:
-/// `.Ok(.Normal)` is a clean goodbye and `.Ok(.Abnormal)` is a connection that
-/// dropped, and a program that cares reads the reason.
+/// `.Ok`: `.Ok(.Normal)` is a clean goodbye and `.Ok(.Abnormal)` is a connection
+/// that dropped.
 ///
 /// **`Sockets` is in the bound because the hooks push.** `connect` itself never
 /// calls a `Sockets` method — `socket.send` and `socket.close` are the hooks' —
-/// but the hooks are handed this context, so the authority has to be in it. That
-/// is the same reason `core/net/server`'s `serve` carries `Tasks`.
+/// but the hooks are handed this context, so the authority has to be in it.
 export fn connect<C: WebSocketClient + Sockets, S>(
     ctx: C,
     client: Client<C, S>,
@@ -189,12 +172,8 @@ export fn connect<C: WebSocketClient + Sockets, S>(
     }
 }
 
-/// A socket, from the hook that opens it to the hook that closes it.
-///
-/// The `Response` is built here, out of the three fields `Connected` carries
-/// flat. That is the division `core/effect` states where `Connected` is
-/// declared: the runtime writes one flat shape and the program reads the value
-/// it wanted.
+/// A socket, from the hook that opens it to the hook that closes it. The
+/// `Response` is built here, out of the three fields `Connected` carries flat.
 fn opened<C: WebSocketClient, S>(
     ctx: C,
     client: Client<C, S>,
@@ -212,14 +191,11 @@ fn opened<C: WebSocketClient, S>(
 
 /// One message, then the next, then the close.
 ///
-/// A self tail call, so a socket that carries a million messages costs one frame
-/// — `core/net/server`'s `pumping` is the same loop from the other end, and
-/// `middle/tail_calls.rs` is what makes it one (design/non-goals.md).
+/// A self tail call, so a socket that carries a million messages costs one
+/// frame.
 ///
 /// **`.Err` is a close too.** A socket that is already gone when this asks
-/// reaches `onClose` as `.Abnormal` rather than getting dropped. The hook is
-/// where a program undoes what `onOpen` did, and a socket that skipped it would
-/// leak whatever that was.
+/// reaches `onClose` as `.Abnormal` rather than getting dropped.
 fn pumping<C: WebSocketClient, S>(
     ctx: C,
     client: Client<C, S>,
@@ -274,11 +250,8 @@ fn closed<C, S>(
 
 /// The number a socket closed with, as the reason a program reads.
 ///
-/// **The same mapping `core/net/server` applies to a server's sockets**, and the
-/// second copy of it in this language. It is private in both modules on purpose:
-/// a close code is what crosses to a platform, and "wire codes never appear in
-/// Buri code" is a rule about the code people write. Exporting either copy would
-/// hand a program the numbers back.
+/// The same mapping `core/net/server` applies to a server's sockets, private in
+/// both modules so a program never sees the numbers.
 ///
 /// A negative code is the platform's own and never the far side's — wire codes
 /// are unsigned — so nothing a server can send reaches the first arm. Every

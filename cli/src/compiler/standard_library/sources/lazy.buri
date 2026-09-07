@@ -34,8 +34,6 @@
 //! report over 12 rows
 //! ```
 //!
-//! ## `load` is where the fetch happens
-//!
 //! The chunk arrives at the `load`, not at the first call of what it answers.
 //! So write the `load` on the path that needs the code:
 //!
@@ -58,21 +56,14 @@
 //! }
 //! ```
 //!
-//! A `route` that took the `/` arm never fetched the chunk. A `load` at the
-//! top of a body fetches it every time that body runs, which is a slower way
-//! of shipping one file.
+//! A `load` at the top of a body fetches the chunk every time that body runs.
 //!
-//! ## What goes in the chunk
-//!
-//! Everything `f` reaches that nothing else in the artifact reaches. A helper
-//! two `load`s share is in both chunks; a helper the rest of the program calls
-//! stays in the artifact and the chunk reads it from there. So splitting is
-//! worth the most where the split code is the code nothing else touches — a
-//! route, an editor, a chart.
+//! A chunk holds everything `f` reaches that nothing else in the artifact
+//! reaches. A helper two `load`s share is in both chunks; a helper the rest of
+//! the program calls stays in the artifact and the chunk reads it from there.
 //!
 //! `load` takes the **name of a function**. A lambda, a local holding one, or
-//! anything that is not a function at all is `lazy-not-a-function`: there has
-//! to be a body to move.
+//! anything that is not a function at all is `lazy-not-a-function`.
 
 /// Answers `f`, having fetched the chunk it was split into.
 ///
