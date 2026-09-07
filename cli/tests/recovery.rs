@@ -439,16 +439,25 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // array literal inside a call, where a stray token leaves a call whose
         // arguments the checker can still count. 406 of 1914 is 21.2%, and
         // twenty-two is that rounded up.
-        // Re-read again with the `buri init` repository case and the language
-        // server's generated-name fixture — `cmd/gen/main.buri` and
-        // `lib/wire/lib.buri` under `cli/tests/repositories/`. Same reason and
-        // same evidence: no parsing, semantics or middle-end file is in those
-        // commits, and the two new sources are dense in what this row measures —
-        // a generator writes nested calls building nested literals, so a stray
-        // token leaves a call whose arguments the checker can still count. 434
-        // of 1956 is 22.2%, and twenty-three is that rounded up. Checked against
-        // the two sources this pass added, which are not in the row at all:
-        // removing both leaves the same 434 of 1956.
+        // Re-read again when the edge-case passes over `core/actor`,
+        // `core/tasks` and the memory rules landed — `actor/test/payloads.buri`,
+        // `tasks/test/background.buri`, and the grown `memory/test/captures.buri`
+        // and `discards.buri`. The one semantics change in those merges (a `..`
+        // in a struct pattern written out as a wildcard per field) was reverted
+        // and the row re-run: 431 violated either way, so the toolchain did not
+        // move and the population did. 431 of 1956 is 22.03%, and twenty-three
+        // is that rounded up.
+        // Re-read once more with the website edge-case pass. The population is
+        // the same 1956 and three more of its cases violate, because that pass
+        // edited corpus sources rather than adding to them —
+        // `conformance/lib/web/test/document.buri` and `lib/lazy/test/load.buri`
+        // grew, so the stride lands on different tokens inside them. Checked
+        // against the two sources it *added*: removing both leaves the same 434,
+        // so they are not in the row. Its one toolchain change outside the
+        // JavaScript runtime is `commands/build.rs` printing a target's outputs
+        // through one diagnostic sink, which no case here can reach —
+        // `harness::JS_BINARY` gives every one of them a single output. 434 of
+        // 1956 is 22.2%, and twenty-three still covers it.
         ("a syntax error stays a syntax error", "insert-stray") => 23,
         // Re-read with the same F5 wave the `insert-stray` paragraph above
         // records: the new conformance files moved this row to 24.2% of a
