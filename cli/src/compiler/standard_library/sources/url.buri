@@ -1,0 +1,740 @@
+//! core/net/url — a URL, as RFC 3986 spells one.
+//!
+//! Two halves. The free functions are percent-encoding: one component in,
+//! one component out. [`Url`] is the whole address, split into its parts and
+//! put back together again.
+//!
+//! ```buri run
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//! from "core/net/url" import * as url;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let base = url.parse(ctx, "https://example.com/docs/intro").withDefault(url.EMPTY);
+//!     let next = base.resolve(ctx, "../api?page=2").withDefault(url.EMPTY);
+//!     let _ = io.println(ctx, next.text(ctx)).ignore();
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! https://example.com/api?page=2
+//! ```
+//!
+//! ## What `parse` normalizes, and what it leaves alone
+//!
+//! The scheme and the host are lowercased, because RFC 3986 says both are
+//! case-insensitive. Nothing else changes: the path keeps its `.` and `..`
+//! segments, and a percent-escape keeps the spelling it arrived in. So
+//! `parse` then [`Url::text`] gives the text back, character for character,
+//! apart from that lowercasing.
+//!
+//! [`Url::resolve`] is the one that removes dot segments, because RFC 3986
+//! §5.2.4 says resolution does.
+//!
+//! ## No credentials
+//!
+//! `Url` has no field for a user name and a password, so
+//! `https://ada:secret@example.com/` is [`UrlError::UserInfo`] rather than a
+//! `Url` that quietly dropped half of what it was given. Put a token in a
+//! header.
+//!
+//! ## A URL with no authority
+//!
+//! `mailto:ada@example.com` parses: `host` is `""` and the path is the rest.
+//! [`Url::text`] leaves the `//` off again for any URL whose host is empty.
+
+from "core/bytes" import * as bytes;
+from "core/bytes" import { DecodeError };
+from "core/char" import * as char;
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+from "core/bytes" export { DecodeError };
+
+derive Eq, Show for UrlError;
+/// Why a text is not a URL.
+export enum UrlError {
+    /// The text does not begin with `scheme:`. Relative references go through
+    /// [`Url::resolve`], which is what knows the base they are relative to.
+    NoScheme,
+    /// The authority's host is malformed — an `[` with no `]`.
+    BadHost(Str),
+    /// The authority's port is not a number, or is outside 0 to 65535.
+    BadPort(Str),
+    /// The authority carries `user@` or `user:password@`, which [`Url`] has
+    /// nowhere to keep.
+    UserInfo,
+}
+
+derive Eq, Show for Url;
+/// An absolute URL, in parts.
+///
+/// `path` keeps its leading `/` and `query` and `fragment` do **not** keep the
+/// `?` and the `#`. A `query` of `""` and a `fragment` of `.None` mean the URL
+/// had neither; `.Some("")` is the URL that ended in a bare `#`.
+///
+/// Every field is percent-encoded exactly as the text was.
+/// [`Url::parameters`] is what decodes.
+export struct Url {
+    export scheme: Str,
+    export host: Str,
+    export port: Option<Int>,
+    export path: Str,
+    export query: Str,
+    export fragment: Option<Str>,
+}
+
+/// Every field empty. A `withDefault` needs something to fall back to, and a
+/// URL with no scheme is not one anything can dial.
+export let EMPTY: Url = Url {
+    scheme: "",
+    host: "",
+    port: .None,
+    path: "",
+    query: "",
+    fragment: .None,
+};
+
+// --- One component ------------------------------------------------------------
+
+/// One path segment, or one query value, percent-encoded.
+///
+/// Keeps the unreserved set — `A-Z`, `a-z`, `0-9`, `-`, `.`, `_`, `~` — and
+/// escapes every other character as the uppercase `%XX` of each of its UTF-8
+/// bytes. So `/` is escaped: this encodes a segment, not a path.
+///
+/// ```buri
+/// from "core/effect" import { Alloc };
+/// from "core/net/url" import * as url;
+///
+/// export fn slug<C: Alloc>(ctx: C, title: Str): Str {
+///     url.encodeComponent(ctx, title)
+/// }
+/// ```
+///
+/// O(n) in the characters, with one allocation per escaped character.
+export fn encodeComponent<C: Alloc>(ctx: C, text: Str): Str {
+    encoded(ctx, text, false)
+}
+
+/// A whole path, percent-encoded, with `/` left alone.
+///
+/// [`encodeComponent`] for everything between the separators. Use it when the
+/// path is one string; use [`encodeComponent`] when you are joining segments.
+///
+/// ```buri
+/// from "core/effect" import { Alloc };
+/// from "core/net/url" import * as url;
+///
+/// export fn encoded<C: Alloc>(ctx: C, path: Str): Str {
+///     url.encodePath(ctx, path)
+/// }
+/// ```
+export fn encodePath<C: Alloc>(ctx: C, text: Str): Str {
+    encoded(ctx, text, true)
+}
+
+/// The text a percent-encoded component stands for.
+///
+/// Strict, and both ways it can fail carry the index that failed: a `%` without
+/// two hexadecimal digits after it, and octets that are not UTF-8. A `+` is a
+/// plus sign here — it is [`parseQuery`] that reads one as a space, because
+/// that is a form's rule and not a URL's.
+///
+/// ```buri
+/// from "core/bytes" import { DecodeError };
+/// from "core/effect" import { Alloc };
+/// from "core/net/url" import * as url;
+///
+/// export fn plain<C: Alloc>(ctx: C, text: Str): Result<Str, DecodeError> {
+///     url.decodeComponent(ctx, text)
+/// }
+/// ```
+export fn decodeComponent<C: Alloc>(ctx: C, text: Str): Result<Str, DecodeError> {
+    let cs = text.chars(ctx);
+    match (octets(ctx, cs, 0, list.empty<U8>())) {
+        .Err(e) => .Err(e),
+        .Ok(raw) => {
+            match (bytes.fromUtf8(ctx, raw)) {
+                .Err(bad) => .Err(DecodeError(bad.0)),
+                .Ok(decoded) => .Ok(decoded),
+            }
+        },
+    }
+}
+
+// --- Query strings ------------------------------------------------------------
+
+/// The `name=value` pairs of a query string, decoded.
+///
+/// Total: it refuses nothing. A `%` that is not an escape stays a `%`, a pair
+/// with no `=` gets the empty value, and an empty pair is dropped — so
+/// `"a=1&&b"` is `[("a", "1"), ("b", "")]`.
+///
+/// **A `+` is a space here.** That is what a browser sends for a form, and a
+/// query string is where forms arrive. `%2B` is still a plus.
+///
+/// ```buri
+/// from "core/effect" import { Alloc };
+/// from "core/net/url" import * as url;
+///
+/// export fn page<C: Alloc>(ctx: C, query: Str): Option<Str> {
+///     url.parseQuery(ctx, query).find(fn(kv) => kv.0 == "page").map(fn(kv) => kv.1)
+/// }
+/// ```
+export fn parseQuery<C: Alloc>(ctx: C, query: Str): [(Str, Str)] {
+    query.split(ctx, "&").filterMapCtx(ctx, fn(c, part) => keyed(c, part))
+}
+
+/// The query string those pairs spell, each half [`encodeComponent`]-ed.
+///
+/// A space comes out as `%20` rather than `+`; both are read back as a space by
+/// [`parseQuery`] and by every server, and `%20` is the one RFC 3986 defines.
+///
+/// ```buri
+/// from "core/effect" import { Alloc };
+/// from "core/net/url" import * as url;
+///
+/// export fn search<C: Alloc>(ctx: C, term: Str): Str {
+///     url.encodeQuery(ctx, [("q", term), ("page", "2")])
+/// }
+/// ```
+export fn encodeQuery<C: Alloc>(ctx: C, pairs: [(Str, Str)]): Str {
+    pairs
+        .mapCtx(
+            ctx,
+            fn(c, kv) => encodeComponent(c, kv.0)
+                .concat(c, "=")
+                .concat(c, encodeComponent(c, kv.1)),
+        )
+        .join(ctx, "&")
+}
+
+// --- The URL ------------------------------------------------------------------
+
+/// The URL this text spells.
+///
+/// ```buri
+/// from "core/effect" import { Alloc };
+/// from "core/net/url" import * as url;
+/// from "core/net/url" import { Url, UrlError };
+///
+/// export fn read<C: Alloc>(ctx: C, text: Str): Result<Url, UrlError> {
+///     url.parse(ctx, text)
+/// }
+/// ```
+///
+/// Absolute only: a text with no `scheme:` is [`UrlError::NoScheme`]. Lowercases
+/// the scheme and the host and changes nothing else.
+export fn parse<C: Alloc>(ctx: C, text: Str): Result<Url, UrlError> {
+    let split = parts(ctx, text);
+    match (split.scheme) {
+        .None => .Err(.NoScheme),
+        .Some(scheme) => {
+            match (hostPort(ctx, split.authority)) {
+                .Err(e) => .Err(e),
+                .Ok(place) => .Ok(Url {
+                    scheme: scheme.toLower(ctx),
+                    host: place.0,
+                    port: place.1,
+                    path: split.path,
+                    query: split.query.withDefault(""),
+                    fragment: split.fragment,
+                }),
+            }
+        },
+    }
+}
+
+impl Url {
+    /// The URL as one string, which is [`parse`] backwards.
+    ///
+    /// ```buri
+    /// from "core/effect" import { Alloc };
+    /// from "core/net/url" import * as url;
+    /// from "core/net/url" import { Url };
+    ///
+    /// export fn shown<C: Alloc>(ctx: C, u: Url): Str {
+    ///     u.text(ctx)
+    /// }
+    /// ```
+    ///
+    /// A host of `""` leaves the `//` off, so `mailto:` comes back as it went
+    /// in.
+    export fn text<C: Alloc>(self, ctx: C): Str {
+        let place = if (self.host == "") {
+            ""
+        } else {
+            "//".concat(ctx, self.host).concat(ctx, portText(ctx, self.port))
+        };
+        let after = if (self.query == "") {
+            ""
+        } else {
+            "?".concat(ctx, self.query)
+        };
+        self.scheme
+            .concat(ctx, ":")
+            .concat(ctx, place)
+            .concat(ctx, self.path)
+            .concat(ctx, after)
+            .concat(ctx, hashText(ctx, self.fragment))
+    }
+
+    /// The query's `name=value` pairs, decoded — [`parseQuery`] over
+    /// [`Url::query`].
+    export fn parameters<C: Alloc>(self, ctx: C): [(Str, Str)] {
+        parseQuery(ctx, self.query)
+    }
+
+    /// The first value under this name, **exactly as the query spells it**.
+    ///
+    /// Pure, so nothing here decodes: a value holding `%20` comes back holding
+    /// `%20`, and the name is compared encoded too. Reach for
+    /// [`Url::parameters`] when either side may be escaped.
+    export fn parameter(self, name: Str): Option<Str> {
+        valueOf(self.query, name)
+    }
+
+    /// The same URL, at another path. Roots the path with a `/` when there is a
+    /// host, because a URL with an authority cannot have a relative path.
+    export fn withPath<C: Alloc>(self, ctx: C, path: Str): Url {
+        let rooted = if (self.host != "" && path != "" && !path.startsWith("/")) {
+            "/".concat(ctx, path)
+        } else {
+            path
+        };
+        Url {
+            scheme: self.scheme,
+            host: self.host,
+            port: self.port,
+            path: rooted,
+            query: self.query,
+            fragment: self.fragment,
+        }
+    }
+
+    /// The same URL, with the query rebuilt from these pairs by
+    /// [`encodeQuery`]. An empty list clears the query.
+    export fn withQuery<C: Alloc>(self, ctx: C, pairs: [(Str, Str)]): Url {
+        Url {
+            scheme: self.scheme,
+            host: self.host,
+            port: self.port,
+            path: self.path,
+            query: encodeQuery(ctx, pairs),
+            fragment: self.fragment,
+        }
+    }
+
+    /// This URL as the base, and `reference` resolved against it — RFC 3986
+    /// §5.2, dot segments and all.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/net/url" import * as url;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let base = url.parse(ctx, "http://a/b/c/d;p?q").withDefault(url.EMPTY);
+    ///     let one = base.resolve(ctx, "g").withDefault(url.EMPTY);
+    ///     let two = base.resolve(ctx, "../g").withDefault(url.EMPTY);
+    ///     let three = base.resolve(ctx, "//example.org/x").withDefault(url.EMPTY);
+    ///     let _ = io
+    ///         .println(ctx, "${one.text(ctx)} ${two.text(ctx)} ${three.text(ctx)}")
+    ///         .ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// http://a/b/c/g http://a/b/g http://example.org/x
+    /// ```
+    ///
+    /// `.Err` only when `reference` is itself absolute and does not parse.
+    export fn resolve<C: Alloc>(self, ctx: C, reference: Str): Result<Url, UrlError> {
+        let r = parts(ctx, reference);
+        match (r.scheme) {
+            .Some(_absolute) => {
+                match (parse(ctx, reference)) {
+                    .Err(e) => .Err(e),
+                    .Ok(target) => .Ok(target.withPath(ctx, tidy(ctx, target.path))),
+                }
+            },
+            .None => {
+                match (hostPort(ctx, r.authority)) {
+                    .Err(e) => .Err(e),
+                    .Ok(place) => .Ok(against(ctx, self, r, place)),
+                }
+            },
+        }
+    }
+}
+
+// --- Percent-encoding, one character at a time --------------------------------
+
+/// The unreserved set of RFC 3986 §2.3. `toDigit(36)` is exactly ASCII
+/// alphanumeric, and it needs no table.
+fn unreserved(ch: Char): Bool {
+    ch.toDigit(36).isSome() || ch == '-' || ch == '.' || ch == '_' || ch == '~'
+}
+
+fn encoded<C: Alloc>(ctx: C, text: Str, keepSlash: Bool): Str {
+    text.chars(ctx).mapCtx(ctx, fn(c, ch) => escaped(c, ch, keepSlash)).join(ctx, "")
+}
+
+/// One character, kept or escaped. A character outside ASCII escapes to one
+/// `%XX` per UTF-8 byte.
+fn escaped<C: Alloc>(ctx: C, ch: Char, keepSlash: Bool): Str {
+    if (unreserved(ch) || (keepSlash && ch == '/')) {
+        str.fromChars(ctx, [ch])
+    } else {
+        bytes
+            .toUtf8(ctx, str.fromChars(ctx, [ch]))
+            .mapCtx(ctx, fn(c, b) => percent(c, b))
+            .join(ctx, "")
+    }
+}
+
+/// `%` and two uppercase hexadecimal digits, which is the spelling RFC 3986
+/// §2.1 asks producers for.
+fn percent<C: Alloc>(ctx: C, b: U8): Str {
+    let n = b.toI64();
+    str.fromChars(ctx, [
+        '%',
+        char.fromDigit(n / 16, 16).withDefault('0').toUpper(),
+        char.fromDigit(n % 16, 16).withDefault('0').toUpper(),
+    ])
+}
+
+/// The octets a component decodes to, or the index that stopped it.
+fn octets<C: Alloc>(
+    ctx: C,
+    cs: [Char],
+    at: Int,
+    acc: [U8],
+): Result<[U8], DecodeError> {
+    match (cs.get(at)) {
+        .None => .Ok(acc),
+        .Some(c) => {
+            if (c == '%') {
+                match (escapeAt(cs, at)) {
+                    .None => .Err(DecodeError(at)),
+                    .Some(n) => octets(ctx, cs, at + 3, acc.push(ctx, n.wrapToU8())),
+                }
+            } else {
+                octets(
+                    ctx,
+                    cs,
+                    at + 1,
+                    acc.concat(ctx, bytes.toUtf8(ctx, str.fromChars(ctx, [c]))),
+                )
+            }
+        },
+    }
+}
+
+/// The byte the `%` at `at` introduces, or `.None` when the two digits are not
+/// there.
+fn escapeAt(cs: [Char], at: Int): Option<Int> {
+    match ((cs.get(at + 1), cs.get(at + 2))) {
+        (.Some(hi), .Some(lo)) => {
+            match ((hi.toDigit(16), lo.toDigit(16))) {
+                (.Some(h), .Some(l)) => .Some(h * 16 + l),
+                _ => .None,
+            }
+        },
+        _ => .None,
+    }
+}
+
+/// One `name=value` of a query, with `+` read as a space. `.None` for an empty
+/// pair, which is what `a=1&&b=2` has in the middle.
+fn keyed<C: Alloc>(ctx: C, part: Str): Option<(Str, Str)> {
+    if (part == "") {
+        .None
+    } else {
+        match (part.splitOnce("=")) {
+            .None => .Some((relaxed(ctx, part), "")),
+            .Some((name, value)) => .Some((relaxed(ctx, name), relaxed(ctx, value))),
+        }
+    }
+}
+
+/// A form's decoding: `+` is a space, and an escape that is not one is left
+/// where it is rather than failing the whole query.
+fn relaxed<C: Alloc>(ctx: C, text: Str): Str {
+    let spaced = text.replace(ctx, "+", " ");
+    decodeComponent(ctx, spaced).withDefault(spaced)
+}
+
+/// The first value under `name` in a raw query string, undecoded. Pure: every
+/// step is a view.
+fn valueOf(query: Str, name: Str): Option<Str> {
+    let split: (Str, Str) = match (query.splitOnce("&")) {
+        .Some(two) => two,
+        .None => (query, ""),
+    };
+    match (split.0.splitOnce("=")) {
+        .Some((key, value)) => {
+            if (key == name) { .Some(value) } else { afterFirst(split.1, name) }
+        },
+        .None => {
+            if (split.0 == name) { .Some("") } else { afterFirst(split.1, name) }
+        },
+    }
+}
+
+/// The rest of the query, or `.None` when there is none.
+fn afterFirst(rest: Str, name: Str): Option<Str> {
+    if (rest == "") { .None } else { valueOf(rest, name) }
+}
+
+// --- Splitting a reference ----------------------------------------------------
+
+/// A URL reference cut at its four delimiters, before anything is checked.
+/// `authority` is `.None` when the reference had no `//`, which is a different
+/// thing from an empty one.
+struct Parts {
+    scheme: Option<Str>,
+    authority: Option<Str>,
+    path: Str,
+    query: Option<Str>,
+    fragment: Option<Str>,
+}
+
+/// RFC 3986 appendix B, in the order the delimiters bind: fragment, query,
+/// scheme, then authority.
+fn parts<C: Alloc>(ctx: C, text: Str): Parts {
+    let (beforeHash, fragment) = match (text.splitOnce("#")) {
+        .Some((before, after)) => (before, Option.Some(after)),
+        .None => (text, Option.None),
+    };
+    let (beforeQuery, query) = match (beforeHash.splitOnce("?")) {
+        .Some((before, after)) => (before, Option.Some(after)),
+        .None => (beforeHash, Option.None),
+    };
+    let (scheme, rest) = schemeOf(ctx, beforeQuery);
+    if (rest.startsWith("//")) {
+        let body = rest.slice(2, rest.len());
+        let cut = body.indexOf("/").withDefault(body.len());
+        Parts {
+            scheme: scheme,
+            authority: .Some(body.slice(0, cut)),
+            path: body.slice(cut, body.len()),
+            query: query,
+            fragment: fragment,
+        }
+    } else {
+        Parts {
+            scheme: scheme,
+            authority: .None,
+            path: rest,
+            query: query,
+            fragment: fragment,
+        }
+    }
+}
+
+/// The scheme this text starts with, and everything after the `:`.
+///
+/// A `:` that comes after the first `/` belongs to a path segment, not to a
+/// scheme, and a prefix that is not `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`
+/// is not one either.
+fn schemeOf<C: Alloc>(ctx: C, text: Str): (Option<Str>, Str) {
+    match (text.splitOnce(":")) {
+        .None => (.None, text),
+        .Some((head, tail)) => {
+            if (schemeShaped(ctx, head)) {
+                (.Some(head), tail)
+            } else {
+                (.None, text)
+            }
+        },
+    }
+}
+
+fn schemeShaped<C: Alloc>(ctx: C, head: Str): Bool {
+    let cs = head.chars(ctx);
+    match (cs.first()) {
+        .None => false,
+        .Some(lead) => {
+            lead.isAlpha() && !head.contains("/")
+                && cs.all(
+                    fn(c) => c.toDigit(36).isSome() || c == '+' || c == '-' || c == '.',
+                )
+        },
+    }
+}
+
+/// An authority as a host and a port. `.None` for the authority is a reference
+/// with no `//` at all, which has neither.
+fn hostPort<C: Alloc>(
+    ctx: C,
+    text: Option<Str>,
+): Result<(Str, Option<Int>), UrlError> {
+    match (text) {
+        .None => .Ok(("", .None)),
+        .Some(whole) => {
+            if (whole.contains("@")) {
+                .Err(.UserInfo)
+            } else if (whole.startsWith("[")) {
+                match (whole.indexOf("]")) {
+                    .None => .Err(.BadHost(whole)),
+                    .Some(close) => hosted(
+                        ctx,
+                        whole.slice(0, close + 1),
+                        whole.slice(close + 1, whole.len()),
+                    ),
+                }
+            } else {
+                match (whole.splitOnce(":")) {
+                    .None => .Ok((whole.toLower(ctx), .None)),
+                    .Some((host, rest)) => hosted(ctx, host, ":".concat(ctx, rest)),
+                }
+            }
+        },
+    }
+}
+
+/// A host and the text that should be its port: `""`, or `:` and the digits.
+fn hosted<C: Alloc>(
+    ctx: C,
+    host: Str,
+    rest: Str,
+): Result<(Str, Option<Int>), UrlError> {
+    if (rest == "" || rest == ":") {
+        .Ok((host.toLower(ctx), .None))
+    } else if (!rest.startsWith(":")) {
+        .Err(.BadPort(rest))
+    } else {
+        let digits = rest.slice(1, rest.len());
+        match (digits.toInt()) {
+            .None => .Err(.BadPort(digits)),
+            .Some(n) => {
+                if (n < 0 || n > 65535) {
+                    .Err(.BadPort(digits))
+                } else {
+                    .Ok((host.toLower(ctx), .Some(n)))
+                }
+            },
+        }
+    }
+}
+
+// --- Putting one back together ------------------------------------------------
+
+fn portText<C: Alloc>(ctx: C, p: Option<Int>): Str {
+    match (p) {
+        .None => "",
+        .Some(n) => ":".concat(ctx, str.fromInt(ctx, n)),
+    }
+}
+
+fn hashText<C: Alloc>(ctx: C, fragment: Option<Str>): Str {
+    match (fragment) {
+        .None => "",
+        .Some(f) => "#".concat(ctx, f),
+    }
+}
+
+/// RFC 3986 §5.2.2, with the reference already split and its authority already
+/// read.
+fn against<C: Alloc>(
+    ctx: C,
+    base: Url,
+    r: Parts,
+    place: (Str, Option<Int>),
+): Url {
+    match (r.authority) {
+        .Some(_given) => Url {
+            scheme: base.scheme,
+            host: place.0,
+            port: place.1,
+            path: tidy(ctx, r.path),
+            query: r.query.withDefault(""),
+            fragment: r.fragment,
+        },
+        .None => {
+            let (path, query) = if (r.path == "") {
+                (base.path, r.query.withDefault(base.query))
+            } else if (r.path.startsWith("/")) {
+                (tidy(ctx, r.path), r.query.withDefault(""))
+            } else {
+                (tidy(ctx, merged(ctx, base, r.path)), r.query.withDefault(""))
+            };
+            Url {
+                scheme: base.scheme,
+                host: base.host,
+                port: base.port,
+                path: path,
+                query: query,
+                fragment: r.fragment,
+            }
+        },
+    }
+}
+
+/// RFC 3986 §5.2.3: the base's path up to its last `/`, then the reference.
+fn merged<C: Alloc>(ctx: C, base: Url, path: Str): Str {
+    if (base.host != "" && base.path == "") {
+        "/".concat(ctx, path)
+    } else {
+        match (lastSlash(base.path, 0, .None)) {
+            .None => path,
+            .Some(at) => base.path.slice(0, at + 1).concat(ctx, path),
+        }
+    }
+}
+
+fn lastSlash(text: Str, start: Int, best: Option<Int>): Option<Int> {
+    match (text.slice(start, text.len()).indexOf("/")) {
+        .None => best,
+        .Some(at) => lastSlash(text, start + at + 1, .Some(start + at)),
+    }
+}
+
+/// RFC 3986 §5.2.4, `remove_dot_segments`, written the way the specification
+/// writes it: move one segment at a time from the input to the output.
+fn tidy<C: Alloc>(ctx: C, path: Str): Str {
+    walking(ctx, path, list.empty<Str>()).join(ctx, "")
+}
+
+fn walking<C: Alloc>(ctx: C, input: Str, out: [Str]): [Str] {
+    if (input == "") {
+        out
+    } else if (input.startsWith("../")) {
+        walking(ctx, input.slice(3, input.len()), out)
+    } else if (input.startsWith("./")) {
+        walking(ctx, input.slice(2, input.len()), out)
+    } else if (input.startsWith("/./")) {
+        walking(ctx, input.slice(2, input.len()), out)
+    } else if (input == "/.") {
+        walking(ctx, "/", out)
+    } else if (input.startsWith("/../")) {
+        walking(ctx, input.slice(3, input.len()), dropLast(ctx, out))
+    } else if (input == "/..") {
+        walking(ctx, "/", dropLast(ctx, out))
+    } else if (input == "." || input == "..") {
+        out
+    } else {
+        let body = input.slice(1, input.len());
+        let cut = 1 + body.indexOf("/").withDefault(body.len());
+        walking(ctx, input.slice(cut, input.len()), out.push(ctx, input.slice(0, cut)))
+    }
+}
+
+fn dropLast<C: Alloc>(ctx: C, out: [Str]): [Str] {
+    if (out.isEmpty()) { out } else { out.take(ctx, out.len() - 1) }
+}
