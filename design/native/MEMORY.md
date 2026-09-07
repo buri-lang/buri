@@ -476,8 +476,8 @@ doubling is why it is now routinely larger. A `[T]`'s element count is in its
 descriptor and a `Str`'s byte count is in its view, so neither reads `cap` to
 know how long it is. `cap` is read by `buri_rt_free`, to recover the layout
 the block was made with, and by §5.3's headroom test. Two consequences follow.
-The heap accounting (`buri_rt_heap_stats`)
-counts capacity, so `live_bytes` after a build loop is up to twice the bytes
+The heap accounting (`buri_rt_heap_stats`) counts capacity, so `live_bytes`
+after a build loop is up to twice the bytes
 the values hold — it measures `malloc`, and §7's charge is a definition over
 the *types*, so nothing a program can observe moves. And the release glue for
 a `[T]` block walks `cap / stride` elements, which is why §5.3's fast paths
