@@ -1,0 +1,386 @@
+// `core/actor` — what a message, a state and an answer may be, and what an
+// actor may do with another actor.
+//
+// `counter.buri` next door drives the protocol with `Int` states and `Int`
+// answers, which is the one shape where nothing about the crossing is
+// interesting: an `Int` fits in the word the block already had. This file is
+// the rest of the type surface. Every value below goes into the runtime and
+// comes back out — four crossings per send — so a value the runtime handed back
+// at the wrong shape is a wrong *answer* here rather than a leak somewhere
+// else.
+//
+// The unit block is the sharpest of them. `Carried`'s `pad` exists because a
+// `[T]` whose element occupies no bytes has no block at all, and the only way
+// to reach that is an actor whose state or whose answer is `()`. Nothing else
+// in the corpus writes one.
+
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host/testing" import { alloc, stdout, tasks };
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/tasks" import { Scope };
+from "core/testing/assert" import * as assert;
+
+// -----------------------------------------------------------------------------
+// Nothing at all: `S` and `R` are both `()`
+// -----------------------------------------------------------------------------
+
+enum Ping {
+    Ping,
+}
+
+/// An actor with nothing to remember and nothing to say.
+///
+/// Both the state and the answer occupy no bytes, so both cross as a block
+/// whose element is only `Carried`'s own word. The hook is handed a state of
+/// `()` and has nothing to say about it, so what it prints is that it ran —
+/// which is the only way a unit state is visible at all.
+fn silent<C: Alloc + Stdout + Tasks>(): Actor<C, (), Ping, ()> {
+    Actor {
+        state: (),
+        step: fn(c, held, message) => Stepped { state: (), answer: () },
+        onStop: .Some(fn(c, last) => io.println(c, "quiet").ignore()),
+    }
+}
+
+test "an actor whose state and answer are both unit answers every message" {
+    let sink = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: sink,
+        Tasks: tasks(),
+    };
+    let quiet = actor.start(ctx, silent());
+    assert.eq(quiet.sendMessage(ctx, .Ping), .Ok(()));
+    assert.eq(quiet.sendMessage(ctx, .Ping), .Ok(()));
+    assert.eq(sink.captured(), "");
+    // The hook is handed the final state, and the final state is `()`.
+    assert.eq(quiet.stop(ctx), .Ok(()));
+    assert.eq(sink.captured(), "quiet\n");
+    assert.eq(quiet.sendMessage(ctx, .Ping), .Err(.Stopped));
+}
+
+// -----------------------------------------------------------------------------
+// A list, a string nobody can spell in ASCII, and a struct inside a struct
+// -----------------------------------------------------------------------------
+
+enum Bag {
+    /// Replaces the whole state with a list the sender built.
+    Fill([Int]),
+    /// Appends one, so the state the runtime handed back is the one the next
+    /// message reads.
+    Push(Int),
+    Drain,
+}
+
+derive Eq, Show for Bagged;
+enum Bagged {
+    Kept(Int),
+    Held([Int]),
+}
+
+fn bag<C: Alloc + Tasks>(): Actor<C, [Int], Bag, Bagged> {
+    Actor {
+        state: [],
+        step: fn(c, held, message) => {
+            match (message) {
+                .Fill(next) => Stepped { state: next, answer: .Kept(next.len()) },
+                .Push(n) => {
+                    let grown = held.push(c, n);
+                    Stepped { state: grown, answer: .Kept(grown.len()) }
+                },
+                .Drain => Stepped { state: [], answer: .Held(held) },
+            }
+        },
+    }
+}
+
+test "a message, a state and an answer may each be a list" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let held = actor.start(ctx, bag());
+    assert.eq(held.sendMessage(ctx, .Fill([1, 2, 3])), .Ok(.Kept(3)));
+    assert.eq(held.sendMessage(ctx, .Push(4)), .Ok(.Kept(4)));
+    assert.eq(held.sendMessage(ctx, .Push(5)), .Ok(.Kept(5)));
+    // The list that comes back out is the one five messages built, in order.
+    assert.eq(held.sendMessage(ctx, .Drain), .Ok(.Held([1, 2, 3, 4, 5])));
+    // And the state the drain left behind is the empty list, which is the one
+    // shape of `[T]` a program can hand over that has no block under it.
+    assert.eq(held.sendMessage(ctx, .Drain), .Ok(.Held([])));
+    assert.eq(held.stop(ctx), .Ok(()));
+}
+
+enum Say {
+    Say(Str),
+    Read,
+}
+
+derive Eq, Show for Said;
+enum Said {
+    Scalars(Int),
+    Text(Str),
+}
+
+fn scribe<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
+    Actor {
+        state: initial,
+        step: fn(c, held, message) => {
+            match (message) {
+                .Say(next) => Stepped { state: next, answer: .Scalars(next.len()) },
+                .Read => Stepped { state: held, answer: .Text(held) },
+            }
+        },
+    }
+}
+
+test "text crosses the runtime whatever is in it" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    // Seven scalars in four scripts, one of them outside the basic plane. A
+    // crossing that counted bytes, or that stopped at a byte that is not a
+    // whole scalar, gives a different answer to both assertions below.
+    let told = actor.start(ctx, scribe("mix日😀éd"));
+    assert.eq(told.sendMessage(ctx, .Read), .Ok(.Text("mix日😀éd")));
+    assert.eq(told.sendMessage(ctx, .Say("héllo wörld 🌍")), .Ok(.Scalars(13)));
+    assert.eq(told.sendMessage(ctx, .Read), .Ok(.Text("héllo wörld 🌍")));
+    // The empty string is the other end of the same range.
+    assert.eq(told.sendMessage(ctx, .Say("")), .Ok(.Scalars(0)));
+    assert.eq(told.sendMessage(ctx, .Read), .Ok(.Text("")));
+    assert.eq(told.stop(ctx), .Ok(()));
+}
+
+derive Eq, Show for Label;
+struct Label {
+    name: Str,
+    tags: [Str],
+}
+
+derive Eq, Show for Record;
+struct Record {
+    label: Label,
+    counts: [Int],
+    note: Option<Str>,
+}
+
+enum Filing {
+    File(Record),
+    Look,
+}
+
+derive Eq, Show for Filed;
+enum Filed {
+    Was(Record),
+}
+
+fn cabinet<C: Alloc + Tasks>(initial: Record): Actor<C, Record, Filing, Filed> {
+    Actor {
+        state: initial,
+        step: fn(c, held, message) => {
+            match (message) {
+                .File(next) => Stepped { state: next, answer: .Was(held) },
+                .Look => Stepped { state: held, answer: .Was(held) },
+            }
+        },
+    }
+}
+
+/// A record two structs deep, with a list at each level and an `Option` beside
+/// them — the shape a shallow copy gets right and a deep one has to walk.
+fn record(name: Str, note: Option<Str>): Record {
+    Record {
+        label: Label { name: name, tags: ["one", "two"] },
+        counts: [7, 8, 9],
+        note: note,
+    }
+}
+
+test "a struct inside a struct crosses whole" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let filed = actor.start(ctx, cabinet(record("first", .None)));
+    assert.eq(filed.sendMessage(ctx, .Look), .Ok(.Was(record("first", .None))));
+    // The answer to a `File` is the record it replaced, so one send moves a
+    // nested value both ways at once.
+    assert.eq(
+        filed.sendMessage(ctx, .File(record("second", .Some("kept")))),
+        .Ok(.Was(record("first", .None))),
+    );
+    assert.eq(
+        filed.sendMessage(ctx, .Look),
+        .Ok(.Was(record("second", .Some("kept")))),
+    );
+    assert.eq(filed.stop(ctx), .Ok(()));
+}
+
+// -----------------------------------------------------------------------------
+// One actor's address as another actor's state
+// -----------------------------------------------------------------------------
+//
+// `Address` says it holds no context, so a lambda may capture one, "which is
+// what makes an address usable as another actor's state". This is that
+// sentence: a desk whose whole state is where to forward to.
+
+enum Tally {
+    Increment,
+    Get,
+}
+
+derive Eq, Show for Tallied;
+enum Tallied {
+    Done,
+    Count(Int),
+}
+
+fn tally<C: Alloc + Tasks>(): Actor<C, Int, Tally, Tallied> {
+    Actor {
+        state: 0,
+        step: fn(c, count, message) => {
+            match (message) {
+                .Increment => Stepped { state: count + 1, answer: .Done },
+                .Get => Stepped { state: count, answer: .Count(count) },
+            }
+        },
+    }
+}
+
+enum Desk {
+    Bump,
+    Total,
+}
+
+derive Eq, Show for Desked;
+enum Desked {
+    Noted,
+    Total(Int),
+    Gone,
+}
+
+/// A front desk. Its state is the address behind it, and every message it takes
+/// it takes up with that actor — so a `sendMessage` here is a step of one actor
+/// driving another's whole mailbox before it answers its own.
+fn desk<C: Alloc + Tasks>(
+    behind: Address<C, Int, Tally, Tallied>,
+): Actor<C, Address<C, Int, Tally, Tallied>, Desk, Desked> {
+    Actor {
+        state: behind,
+        step: fn(c, back, message) => {
+            match (message) {
+                .Bump => {
+                    match (back.sendMessage(c, .Increment)) {
+                        .Ok(_done) => Stepped { state: back, answer: .Noted },
+                        .Err(_gone) => Stepped { state: back, answer: .Gone },
+                    }
+                },
+                .Total => {
+                    match (back.sendMessage(c, .Get)) {
+                        .Ok(.Count(n)) => Stepped { state: back, answer: .Total(n) },
+                        .Ok(_other) => Stepped { state: back, answer: .Gone },
+                        .Err(_gone) => Stepped { state: back, answer: .Gone },
+                    }
+                },
+            }
+        },
+    }
+}
+
+test "two actors exchange messages, and one holds the other's address" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, tally());
+    let front = actor.start(ctx, desk(counted));
+    assert.eq(front.sendMessage(ctx, .Bump), .Ok(.Noted));
+    assert.eq(front.sendMessage(ctx, .Bump), .Ok(.Noted));
+    // Asked through the desk and asked directly: the same actor, so the same
+    // number.
+    assert.eq(front.sendMessage(ctx, .Total), .Ok(.Total(2)));
+    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(2)));
+    assert.eq(front.stop(ctx), .Ok(()));
+    assert.eq(counted.stop(ctx), .Ok(()));
+}
+
+test "a step that sends to an actor that has stopped is told so" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    // The desk outlives what it forwards to, which is the one way a program
+    // reaches `.Err(.Stopped)` from *inside* a step rather than at a call site.
+    let counted = actor.start(ctx, tally());
+    let front = actor.start(ctx, desk(counted));
+    assert.eq(front.sendMessage(ctx, .Bump), .Ok(.Noted));
+    assert.eq(counted.stop(ctx), .Ok(()));
+    // The desk is still running, so its own answer is `.Ok`; what it says is
+    // that the actor behind it is gone.
+    assert.eq(front.sendMessage(ctx, .Bump), .Ok(.Gone));
+    assert.eq(front.sendMessage(ctx, .Total), .Ok(.Gone));
+    assert.eq(front.stop(ctx), .Ok(()));
+}
+
+// -----------------------------------------------------------------------------
+// A step that spawns
+// -----------------------------------------------------------------------------
+//
+// A `Scope` is inert, so it fits in a message the same way an address fits in a
+// state. That is the whole of what an actor needs to start background work:
+// there is no `Tasks` method to reach for, only the scope somebody handed it.
+
+enum Job {
+    /// Start a job in the scope the sender is holding.
+    Run(Scope),
+}
+
+derive Eq, Show for Ran;
+enum Ran {
+    Started(Int),
+}
+
+/// An actor that spawns rather than working: the step queues the task and
+/// answers how many jobs it has started.
+fn foreman<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
+    Actor {
+        state: 0,
+        step: fn(c, started, message) => {
+            match (message) {
+                .Run(here) => {
+                    let _ = tasks.spawn(c, here, fn(c2) => {
+                        let _ = io.println(c2, "the job ran").ignore();
+                        ()
+                    });
+                    Stepped { state: started + 1, answer: .Started(started + 1) }
+                },
+            }
+        },
+    }
+}
+
+test "a step may spawn into a scope the message handed it" {
+    let out = stdout();
+    let ctx = context {
+        Alloc: alloc(),
+        Stdout: out,
+        Tasks: tasks(),
+    };
+    let boss = actor.start(ctx, foreman());
+    let started = tasks.scope(ctx, fn(c, here) => {
+        let first = boss.sendMessage(c, .Run(here));
+        let second = boss.sendMessage(c, .Run(here));
+        let _ = io.println(c, "asked twice").ignore();
+        [first, second]
+    });
+    assert.eq(started, [.Ok(.Started(1)), .Ok(.Started(2))]);
+    // The body is what printed first, so the scope was still its own drain
+    // while the steps were spawning — and it waited for both jobs before it
+    // answered.
+    assert.eq(out.captured(), "asked twice\nthe job ran\nthe job ran\n");
+    assert.eq(boss.stop(ctx), .Ok(()));
+}
