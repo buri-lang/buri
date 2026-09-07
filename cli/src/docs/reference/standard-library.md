@@ -425,8 +425,9 @@ On the page, `web.state(ctx)` reads that state back and `web.resume(ctx, tree)`
 takes the document over. It creates no element and no run of text — the renderer
 takes the node the server already wrote for each one — and what it adds is the
 listeners and the computations. So a server-rendered button works, and nothing
-the reader is looking at is built twice. A tree the markup does not match is
-`.Err` naming the node it wanted.
+the reader is looking at is built twice. A tree whose *shape* the markup does not
+match is `.Err` naming the node it wanted; a run of text or an attribute that
+differs is written instead. Resume once — a second call answers that same `.Err`.
 
 Routing is a match. A page function takes the path as a `Prop<Str>`: the worker
 passes `.Const(request.path())` and the page passes `web.route(ctx)`, which is
