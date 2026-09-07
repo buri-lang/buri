@@ -1,0 +1,154 @@
+// core/char — the classifiers a scalar answers for itself.
+//
+// `isPunctuation` and `isPrintable` read the General Category table
+// `unicode_tables.py` writes into `char.buri` at Unicode 16.0, so the cases
+// below are chosen to say which category is being asked about rather than to
+// sample it: a symbol that is not punctuation, a format character that is not a
+// control, an unassigned code point that is neither.
+
+from "core/testing/assert" import * as assert;
+
+// --- isAscii --------------------------------------------------------------------
+
+test "isAscii is the first 128 scalars" {
+    assert.isTrue('a'.isAscii());
+    assert.isTrue('\u{0}'.isAscii());
+    assert.isTrue('\u{7f}'.isAscii());
+    assert.isFalse('\u{80}'.isAscii());
+    assert.isFalse('é'.isAscii());
+    assert.isFalse('😀'.isAscii());
+}
+
+// --- isControl ------------------------------------------------------------------
+
+test "isControl is the C0 and C1 blocks" {
+    assert.isTrue('\u{0}'.isControl());
+    assert.isTrue('\n'.isControl());
+    assert.isTrue('\t'.isControl());
+    assert.isTrue('\u{1f}'.isControl());
+    assert.isTrue('\u{7f}'.isControl());
+    assert.isTrue('\u{85}'.isControl());
+    assert.isTrue('\u{9f}'.isControl());
+}
+
+test "isControl refuses everything outside them" {
+    assert.isFalse(' '.isControl());
+    assert.isFalse('a'.isControl());
+    assert.isFalse('\u{a0}'.isControl());
+    // A zero-width joiner is a *format* character, not a control one.
+    assert.isFalse('\u{200d}'.isControl());
+    assert.isFalse('😀'.isControl());
+}
+
+// --- isPunctuation ---------------------------------------------------------------
+
+test "isPunctuation accepts each of the seven punctuation categories" {
+    assert.isTrue('_'.isPunctuation());
+    assert.isTrue('-'.isPunctuation());
+    assert.isTrue('('.isPunctuation());
+    assert.isTrue(')'.isPunctuation());
+    assert.isTrue('«'.isPunctuation());
+    assert.isTrue('»'.isPunctuation());
+    assert.isTrue('!'.isPunctuation());
+    assert.isTrue('.'.isPunctuation());
+}
+
+// The one surprise in the set: a mathematical or currency sign is General
+// Category `S`, and `S` is not `P`.
+test "isPunctuation refuses a symbol" {
+    assert.isFalse('+'.isPunctuation());
+    assert.isFalse('<'.isPunctuation());
+    assert.isFalse('='.isPunctuation());
+    assert.isFalse('$'.isPunctuation());
+    assert.isFalse('~'.isPunctuation());
+    assert.isFalse('^'.isPunctuation());
+    assert.isFalse('`'.isPunctuation());
+    assert.isFalse('|'.isPunctuation());
+}
+
+test "isPunctuation refuses letters, digits and whitespace" {
+    assert.isFalse('a'.isPunctuation());
+    assert.isFalse('0'.isPunctuation());
+    assert.isFalse(' '.isPunctuation());
+    assert.isFalse('\n'.isPunctuation());
+    assert.isFalse('😀'.isPunctuation());
+}
+
+test "isPunctuation reaches past the basic multilingual plane" {
+    // U+10100 AEGEAN WORD SEPARATOR LINE, General Category Po.
+    assert.isTrue('\u{10100}'.isPunctuation());
+    // U+3001 IDEOGRAPHIC COMMA.
+    assert.isTrue('、'.isPunctuation());
+    // U+1F600, a symbol.
+    assert.isFalse('\u{1f600}'.isPunctuation());
+}
+
+// --- isPrintable ------------------------------------------------------------------
+
+test "isPrintable accepts a visible character and the space" {
+    assert.isTrue('a'.isPrintable());
+    assert.isTrue('0'.isPrintable());
+    assert.isTrue('!'.isPrintable());
+    assert.isTrue(' '.isPrintable());
+    assert.isTrue('é'.isPrintable());
+    assert.isTrue('😀'.isPrintable());
+}
+
+test "isPrintable refuses controls, formats and the other separators" {
+    assert.isFalse('\t'.isPrintable());
+    assert.isFalse('\n'.isPrintable());
+    assert.isFalse('\u{0}'.isPrintable());
+    assert.isFalse('\u{7f}'.isPrintable());
+    // U+00A0 NO-BREAK SPACE is a separator, and only U+0020 is excused.
+    assert.isFalse('\u{a0}'.isPrintable());
+    // U+200D ZERO WIDTH JOINER is General Category Cf.
+    assert.isFalse('\u{200d}'.isPrintable());
+    // U+2028 LINE SEPARATOR is Zl.
+    assert.isFalse('\u{2028}'.isPrintable());
+}
+
+test "isPrintable refuses an unassigned and a private-use code point" {
+    // U+0378 is unassigned, and U+E000 is the first private-use character.
+    assert.isFalse('\u{378}'.isPrintable());
+    assert.isFalse('\u{e000}'.isPrintable());
+    assert.isFalse('\u{10ffff}'.isPrintable());
+}
+
+// --- isNewline ---------------------------------------------------------------------
+
+test "isNewline is the seven line terminators" {
+    assert.isTrue('\n'.isNewline());
+    assert.isTrue('\u{b}'.isNewline());
+    assert.isTrue('\u{c}'.isNewline());
+    assert.isTrue('\r'.isNewline());
+    assert.isTrue('\u{85}'.isNewline());
+    assert.isTrue('\u{2028}'.isNewline());
+    assert.isTrue('\u{2029}'.isNewline());
+}
+
+// This is the distinction `isSpace` cannot make, which is why the method exists.
+test "isNewline refuses whitespace that does not end a line" {
+    assert.isFalse(' '.isNewline());
+    assert.isFalse('\t'.isNewline());
+    assert.isFalse('\u{a0}'.isNewline());
+    assert.isTrue('\t'.isSpace());
+    assert.isTrue('\n'.isSpace());
+    assert.isFalse('a'.isNewline());
+}
+
+// --- utf8Length ----------------------------------------------------------------------
+
+test "utf8Length is one to four bytes by code point" {
+    assert.eq('a'.utf8Length(), 1);
+    assert.eq('\u{0}'.utf8Length(), 1);
+    assert.eq('\u{7f}'.utf8Length(), 1);
+    assert.eq('\u{80}'.utf8Length(), 2);
+    assert.eq('é'.utf8Length(), 2);
+    assert.eq('\u{7ff}'.utf8Length(), 2);
+    assert.eq('\u{800}'.utf8Length(), 3);
+    assert.eq('あ'.utf8Length(), 3);
+    assert.eq('\u{ffff}'.utf8Length(), 3);
+    assert.eq('\u{10000}'.utf8Length(), 4);
+    assert.eq('😀'.utf8Length(), 4);
+    assert.eq('\u{10ffff}'.utf8Length(), 4);
+}
