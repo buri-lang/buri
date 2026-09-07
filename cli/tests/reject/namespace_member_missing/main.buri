@@ -1,6 +1,8 @@
-// EXPECT: "core/fs" has no member `copy`
-// Not `appendBytes`: `core/fs` now exports `append` and `readBytes`, so that
-// name draws a did-you-mean and stops pinning the no-suggestion branch.
+// EXPECT: "core/fs" has no member `chmod`
+// Not `appendBytes` and not `copy`: `core/fs` exports `append`, `readBytes` and
+// now `copy` itself, and each of those draws a did-you-mean that stops this
+// case pinning the no-suggestion branch. Permissions are the part of a
+// filesystem this module has never had.
 from "core/effect" import { Alloc, Stdout };
 from "core/fs" import { FsRead };
 from "core/host" import * as host;
@@ -9,6 +11,6 @@ from "core/path" import * as filepath;
 
 export fn main(): Result<(), Str> {
   let ctx = context { Alloc: host.alloc, Stdout: host.stdout, FsRead: host.fs };
-  let _ = fs.copy(ctx, filepath.of(ctx, "wal"), filepath.of(ctx, "wal.bak"));
+  let _ = fs.chmod(ctx, filepath.of(ctx, "wal"));
   .Ok(())
 }

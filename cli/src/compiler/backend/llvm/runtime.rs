@@ -394,6 +394,33 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped, Arg::Str],
         ret: Ret::ResMsg,
     },
+    // `metadata` answers a **struct** and the argument list does not change for
+    // it: `Ret::Out`'s pointer is the destination's own slot, so the entry
+    // writes `Metadata`'s three fields where they already belong.
+    Entry {
+        key: "host.HostFs.metadata",
+        symbol: "buri_rt_host_fs_metadata",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.readRange",
+        symbol: "buri_rt_host_fs_read_range",
+        args: &[Arg::Dropped, Arg::Str, Arg::Scalar, Arg::Scalar],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.realPath",
+        symbol: "buri_rt_host_fs_real_path",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host.HostFs.copyFile",
+        symbol: "buri_rt_host_fs_copy_file",
+        args: &[Arg::Dropped, Arg::Str, Arg::Str],
+        ret: Ret::ResMsg,
+    },
     // -- Env, and Stdin beside it -------------------------------------------
     //
     // Four rows and no new shape between them, which is what made them the
@@ -413,6 +440,33 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_env_args",
         args: &[Arg::Dropped],
         ret: Ret::Out,
+    },
+    Entry {
+        key: "host.HostEnv.currentDirectory",
+        symbol: "buri_rt_host_env_current_directory",
+        args: &[Arg::Dropped],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host.HostEnv.allVariables",
+        symbol: "buri_rt_host_env_all_variables",
+        args: &[Arg::Dropped],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host.HostEnv.operatingSystemName",
+        symbol: "buri_rt_host_env_operating_system_name",
+        args: &[Arg::Dropped],
+        ret: Ret::Out,
+    },
+    // Starting a program: `Command` encoded into four flat arguments — nine
+    // leaves, which is what `backend/stencil/abi.rs`'s register budget leaves
+    // room for — and `Output`'s three fields back through the one out-pointer.
+    Entry {
+        key: "host.HostSpawn.spawnProcess",
+        symbol: "buri_rt_host_spawn_process",
+        args: &[Arg::Dropped, Arg::List, Arg::List, Arg::Scalar, Arg::List],
+        ret: Ret::ResMsg,
     },
     Entry {
         key: "host.HostStdin.readLine",
@@ -1499,6 +1553,30 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Str],
         ret: Ret::Res,
     },
+    Entry {
+        key: "host_testing.fsMetadata",
+        symbol: "buri_rt_host_testing_fs_metadata",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.fsReadRange",
+        symbol: "buri_rt_host_testing_fs_read_range",
+        args: &[Arg::Scalar, Arg::Str, Arg::Scalar, Arg::Scalar],
+        ret: Ret::ResMsg,
+    },
+    Entry {
+        key: "host_testing.fsRealPath",
+        symbol: "buri_rt_host_testing_fs_real_path",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.fsCopyFile",
+        symbol: "buri_rt_host_testing_fs_copy_file",
+        args: &[Arg::Scalar, Arg::Str, Arg::Str],
+        ret: Ret::Res,
+    },
     // The fault plan's promise. The plan never crosses — it is a list of Buri
     // values holding an `IoError`, and §2.1 cannot name an error variant that
     // carries a field, so matching is the `Eq` the `Call` records derive and
@@ -1752,6 +1830,44 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         key: "host_testing.TestEnv.args",
         symbol: "buri_rt_host_testing_test_env_args",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestEnv.currentDirectory",
+        symbol: "buri_rt_host_testing_test_env_current_directory",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestEnv.allVariables",
+        symbol: "buri_rt_host_testing_test_env_all_variables",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "host_testing.TestEnv.operatingSystemName",
+        symbol: "buri_rt_host_testing_test_env_operating_system_name",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    // `spawn()` — the log and nothing else, `newNet`'s arrangement: the
+    // scripted answer holds an `IoError` and stays in the program.
+    Entry {
+        key: "host_testing.newSpawn",
+        symbol: "buri_rt_host_testing_new_spawn",
+        args: &[],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.recordSpawn",
+        symbol: "buri_rt_host_testing_record_spawn",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.spawnCalls",
+        symbol: "buri_rt_host_testing_spawn_calls",
         args: &[Arg::Scalar],
         ret: Ret::Out,
     },

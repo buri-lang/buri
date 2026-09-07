@@ -94,8 +94,9 @@ from "core/effect" import {
 
 // The filesystem's two effects, and the type their methods take. Declared in
 // `core/fs` rather than `core/effect`; see that module's header.
-from "core/fs" import { FsRead, FsWrite };
+from "core/fs" import { FsRead, FsWrite, Metadata };
 from "core/path" import { Path };
+from "core/process" import { Output, Spawn };
 
 // --- The door onto the effect -------------------------------------------------
 
@@ -539,6 +540,18 @@ impl<C: FsRead> FsRead for Scoped<C> {
     fn readFileBytes(self, path: Path): Result<[U8], IoError> {
         self.0.readFileBytes(path)
     }
+
+    fn metadata(self, path: Path): Result<Metadata, IoError> {
+        self.0.metadata(path)
+    }
+
+    fn readRange(self, path: Path, at: Int, count: Int): Result<[U8], IoError> {
+        self.0.readRange(path, at, count)
+    }
+
+    fn realPath(self, path: Path): Result<Str, IoError> {
+        self.0.realPath(path)
+    }
 }
 
 impl<C: FsWrite> FsWrite for Scoped<C> {
@@ -572,6 +585,10 @@ impl<C: FsWrite> FsWrite for Scoped<C> {
 
     fn syncFile(self, path: Path): Result<(), IoError> {
         self.0.syncFile(path)
+    }
+
+    fn copyFile(self, source: Path, destination: Path): Result<(), IoError> {
+        self.0.copyFile(source, destination)
     }
 }
 
@@ -613,11 +630,35 @@ impl<C: Env> Env for Scoped<C> {
     fn args(self): [Str] {
         self.0.args()
     }
+
+    fn currentDirectory(self): Str {
+        self.0.currentDirectory()
+    }
+
+    fn allVariables(self): [(Str, Str)] {
+        self.0.allVariables()
+    }
+
+    fn operatingSystemName(self): Str {
+        self.0.operatingSystemName()
+    }
 }
 
 impl<C: Proc> Proc for Scoped<C> {
     fn exitWith(self, code: Int): () {
         self.0.exitWith(code)
+    }
+}
+
+impl<C: Spawn> Spawn for Scoped<C> {
+    fn spawnProcess(
+        self,
+        plan: [Str],
+        environment: [Str],
+        replaceEnvironment: Bool,
+        stdin: [U8],
+    ): Result<Output, IoError> {
+        self.0.spawnProcess(plan, environment, replaceEnvironment, stdin)
     }
 }
 

@@ -103,6 +103,9 @@ enum Slot {
     Rand(u32),
     /// `TestEnv`.
     Env { vars: Vec<(String, String)>, args: Vec<String> },
+    /// `TestSpawn` — the log, and nothing else. The scripted answer stays in
+    /// the program, because `IoError::Other` carries a `Str`.
+    Spawn { calls: Vec<SpawnLog> },
     /// `core/host/testing`'s `TestFs` — a **view**: the handle of the
     /// [`Slot::Files`] store its files live in, and whether writes through this
     /// view are refused.
@@ -244,6 +247,12 @@ struct NetLog {
 struct StdinLog {
     name: &'static str,
     count: i64,
+}
+
+/// One command run through a `TestSpawn`, as `SpawnCall` records it.
+struct SpawnLog {
+    program: String,
+    arguments: Vec<String>,
 }
 
 /// One entry of a fault plan, as the runner sees it: the sentence a failure
@@ -2267,6 +2276,14 @@ struct BuriStdinCall {
     count: i64,
 }
 
+/// `SpawnCall` — `struct { program: Str, arguments: [Str] }`, so a 24-byte
+/// `Str` and a 16-byte list back to back.
+#[repr(C)]
+struct BuriSpawnCall {
+    program: BuriStr,
+    arguments: BuriList,
+}
+
 /// A `[T]` of one of the four records this file writes — the three above and
 /// [`BuriSent`]: one block of `size_of::<T>()` strides, each written in place.
 ///
@@ -2336,6 +2353,279 @@ fn recording_fs(handle: i64, name: &'static str, path: &str, body: &str) -> Reco
 /// A `TestStdin` read, recorded on the stream it was made through.
 fn recording_stdin(handle: i64, name: &'static str, count: i64) -> Recording {
     Recording { handle, call: Some(Call::Stdin(StdinLog { name, count })) }
+}
+
+
+/// `TestFs.metadata(self, path) -> Result<Metadata, IoError>`.
+///
+/// A flat map holds no links, so `kind` is `.File` for a file, `.Directory` for
+/// a path `makeDir` recorded, and never `.Symlink`. `modified` is the epoch: a
+/// hermetic double has no clock behind it, and a timestamp that moved would be
+/// the one value in a fixture nobody could write down.
+///
+/// # Safety
+/// The range is readable; `out` is writable and aligned for a [`BuriMetadata`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_fs_metadata(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut crate::host::BuriMetadata,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let _recorded = recording_fs(handle, "metadata", &path, "");
+    let (store, _) = fs_view(handle);
+    if let Some(body) = fs_read(store, &path) {
+        let value = crate::host::metadata_of(0, body.len() as i64);
+        // SAFETY: the caller promises a writable, aligned destination.
+        unsafe { out.write(value) };
+        return BURI_OK;
+    }
+    let clean = fs_clean(&path).to_string();
+    let directory = clean.is_empty()
+        || with(store, false, |slot| match slot {
+            Slot::Files { dirs, .. } => dirs.iter().any(|d| *d == clean),
+            _ => false,
+        });
+    if !directory {
+        return IO_NOT_FOUND;
+    }
+    let value = crate::host::metadata_of(1, 0);
+    // SAFETY: as above.
+    unsafe { out.write(value) };
+    BURI_OK
+}
+
+/// `TestFs.readRange(self, path, at, count) -> Result<[U8], IoError>`.
+///
+/// Clamped at both ends: an offset past the end is the empty list, and a short
+/// file gives back what it has. A negative offset or count is `.Other` with the
+/// sentence the JavaScript double writes.
+///
+/// # Safety
+/// The range is readable; both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_fs_read_range(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    at: i64,
+    count: i64,
+    out: *mut BuriList,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let _recorded = recording_fs(handle, "readRange", &path, "");
+    if at < 0 || count < 0 {
+        // SAFETY: the caller promises a writable destination.
+        unsafe { out_err.write(str_of("a negative offset or count")) };
+        return IO_OTHER;
+    }
+    let (store, _) = fs_view(handle);
+    let Some(body) = fs_read(store, &path) else { return IO_NOT_FOUND };
+    let start = (at as usize).min(body.len());
+    let end = start.saturating_add(count as usize).min(body.len());
+    let value = list_of_bytes(&body[start..end]);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) };
+    BURI_OK
+}
+
+/// `TestFs.realPath(self, path) -> Result<Str, IoError>` — the path back.
+///
+/// There are no links and no `..` to resolve in a flat map, so what comes back
+/// is what went in. A path that names nothing is still `.NotFound`, which is
+/// the half of `realpath(3)` a double can keep.
+///
+/// # Safety
+/// The range is readable; `out` is writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_fs_real_path(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out: *mut BuriStr,
+) -> i32 {
+    // SAFETY: the caller promises the range.
+    let path = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
+    let _recorded = recording_fs(handle, "realPath", &path, "");
+    let (store, _) = fs_view(handle);
+    let clean = fs_clean(&path).to_string();
+    let there = fs_read(store, &path).is_some()
+        || clean.is_empty()
+        || with(store, false, |slot| match slot {
+            Slot::Files { dirs, .. } => dirs.iter().any(|d| *d == clean),
+            _ => false,
+        });
+    if !there {
+        return IO_NOT_FOUND;
+    }
+    let value = str_of(&path);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) };
+    BURI_OK
+}
+
+/// `TestFs.copyFile(self, source, destination) -> Result<(), IoError>`.
+///
+/// `.Err(.ReadOnly)` through an attenuated view, and `.Err(.NotFound)` where
+/// the source is not there — the two answers `renameFile` gives, minus the move.
+///
+/// # Safety
+/// Both ranges are readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_fs_copy_file(
+    handle: i64,
+    _fbase: *mut u8,
+    fptr: *const u8,
+    flen: u64,
+    _tbase: *mut u8,
+    tptr: *const u8,
+    tlen: u64,
+) -> i32 {
+    let (store, read_only) = fs_view(handle);
+    // SAFETY: the caller promises both ranges.
+    let (from, to) = unsafe {
+        (
+            String::from_utf8_lossy(view(fptr, flen)).into_owned(),
+            String::from_utf8_lossy(view(tptr, tlen)).into_owned(),
+        )
+    };
+    let _recorded = recording_fs(handle, "copyFile", &from, &to);
+    if read_only {
+        return IO_READ_ONLY;
+    }
+    let Some(body) = fs_read(store, &from) else { return IO_NOT_FOUND };
+    fs_put(store, to, body);
+    BURI_OK
+}
+
+
+/// `TestEnv::currentDirectory` — `/`, whatever the machine running the suite is.
+///
+/// A double that answered the runner's own directory would give one test two
+/// answers on two machines, which is the one thing a hermetic double is for.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_current_directory(
+    _handle: i64,
+    out: *mut BuriStr,
+) {
+    let value = str_of("/");
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `TestEnv::allVariables` — the variables a test set, **sorted by name**.
+///
+/// Sorted, unlike the real thing: a hermetic double owes a test one order, and
+/// the JavaScript half sorts for the same reason. The **last** binding of a
+/// name wins, as `variable` does.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_all_variables(
+    handle: i64,
+    out: *mut BuriList,
+) {
+    let vars = with(handle, Vec::new(), |slot| match slot {
+        Slot::Env { vars, .. } => vars.clone(),
+        _ => Vec::new(),
+    });
+    let mut named: Vec<(String, String)> = Vec::new();
+    for (name, value) in vars {
+        match named.iter_mut().find(|(k, _)| *k == name) {
+            Some(entry) => entry.1 = value,
+            None => named.push((name, value)),
+        }
+    }
+    named.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+    let value = list_of_headers(&named);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `TestEnv::operatingSystemName` — `test`.
+///
+/// A double is not an operating system, and answering `linux` on a Mac would be
+/// a lie a program could branch on.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_test_env_operating_system_name(
+    _handle: i64,
+    out: *mut BuriStr,
+) {
+    let value = str_of("test");
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `newSpawn()` — a fresh, empty log, and the handle that names it.
+///
+/// [`buri_rt_host_testing_new_net`]'s shape and its reason: `spawn()` is a Buri
+/// body, because the scripted answer in the other field holds an `IoError` and
+/// `lib.rs` §2.1 cannot hand one back across a row.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_new_spawn() -> i64 {
+    install(Slot::Spawn { calls: Vec::new() })
+}
+
+/// `recordSpawn(handle, plan)` — one command, recorded.
+///
+/// The program and its arguments and nothing else: a `SpawnCall` a test writes
+/// down should be short enough to read.
+///
+/// # Safety
+/// `xs` points at `count` [`BuriStr`]s.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_record_spawn(
+    handle: i64,
+    xs: *const u8,
+    count: u64,
+) {
+    // SAFETY: forwarded to the caller.
+    let plan = unsafe { strings(xs, count) };
+    // The plan is the program, the working directory and then the arguments,
+    // which is `spawnProcess`'s own encoding: the split happens here because a
+    // Buri body would need an `Alloc` to make the two lists and an effect
+    // method takes only `self`.
+    let program = plan.first().cloned().unwrap_or_default();
+    let arguments: Vec<String> = plan.iter().skip(2).cloned().collect();
+    with(handle, (), |slot| {
+        if let Slot::Spawn { calls } = slot {
+            calls.push(SpawnLog { program, arguments });
+        }
+    });
+}
+
+/// `spawnCalls(handle)` — every command run through this double, in order.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_testing_spawn_calls(handle: i64, out: *mut BuriList) {
+    let calls = with(handle, Vec::new(), |slot| match slot {
+        Slot::Spawn { calls } => {
+            calls.iter().map(|c| (c.program.clone(), c.arguments.clone())).collect()
+        }
+        _ => Vec::new(),
+    });
+    let value = list_of(&calls, |(program, arguments): &(String, Vec<String>)| BuriSpawnCall {
+        program: str_of(program),
+        arguments: list_of_strs(arguments),
+    });
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
 }
 
 /// `TestFs::calls` — every call through this view, in completion order.
@@ -2770,8 +3060,14 @@ pub unsafe extern "C" fn buri_rt_host_testing_note_fs_call(
     });
 }
 
-/// The eleven names an `FsCall` can carry, which are the eleven methods of `Fs`.
-const FS_CALL_NAMES: [&str; 11] = [
+/// The names an `FsCall` can carry, which are the sixteen methods of `FsRead`
+/// and `FsWrite`.
+///
+/// **Every one of them, or a fault on the missing one records a call with no
+/// name.** `removeDir` was absent for as long as this list was eleven long, and
+/// the symptom is quiet: the plan fires, the answer is right, and `calls()`
+/// reports an entry no constructor can match.
+const FS_CALL_NAMES: [&str; 16] = [
     "readFile",
     "writeFile",
     "fileExists",
@@ -2781,8 +3077,13 @@ const FS_CALL_NAMES: [&str; 11] = [
     "appendFile",
     "renameFile",
     "removeFile",
+    "removeDir",
     "makeDir",
     "syncFile",
+    "metadata",
+    "readRange",
+    "realPath",
+    "copyFile",
 ];
 
 // ---------------------------------------------------------------------------

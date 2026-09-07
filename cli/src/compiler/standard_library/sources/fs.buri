@@ -5,7 +5,7 @@
 //!
 //! ## Reading and writing are two authorities
 //!
-//! `FsRead` has four methods, `FsWrite` has eight. They are two grants: a
+//! `FsRead` has seven methods, `FsWrite` has nine. They are two grants: a
 //! program that reads its configuration hasn't thereby earned the right to
 //! delete it.
 //!
@@ -32,9 +32,13 @@
 //! ## Directories
 //!
 //! `makeDir` creates a directory and every missing parent of it. `removeDir`
-//! removes one that is **empty**. Neither is recursive: creation is `mkdir -p`,
-//! removal is `rmdir`. A program that wants a recursive delete writes the walk
-//! itself out of `listDir`, `remove` and `removeDir`.
+//! removes one that is **empty**: creation is `mkdir -p`, removal is `rmdir`.
+//! [`removeTree`] is the recursive one, and it is the walk over `listDir`,
+//! `remove` and `removeDir` written once rather than a flag on either.
+//!
+//! `listDir` answers names. [`listDirectoryEntries`] answers names and what
+//! each one is, which is what a program that recurses actually needs, and
+//! [`walk`] is that recursion.
 //!
 //! ## Text and octets
 //!
@@ -74,12 +78,48 @@
 //! `sync` it, `rename` it over the old one, `sync` the directory holding both
 //! — and [`writeAtomic`] is those four written once.
 
-from "core/effect" import { Alloc, IoError };
+from "core/crypto" import * as crypto;
+from "core/effect" import { Alloc, Entropy, Env, IoError };
+from "core/env" import * as env;
+from "core/path" import * as path;
 from "core/path" import { Path };
+from "core/str" import * as str;
+from "core/time" import { Instant };
 
 from "core/effect" export { IoError };
 
 from "core/path" export { Path };
+
+from "core/time" export { Instant };
+
+derive Eq, Show for EntryKind;
+/// What a directory entry is.
+///
+/// The **declaration order is the ABI**: the variant index is what crosses to
+/// the runtime, so a variant may be appended and never reordered.
+///
+/// `.Symlink` is a link itself rather than what it points at, because
+/// [`metadata`] does not follow one. `.Other` is a device, a socket or a
+/// pipe — something a program that walks a tree should step over rather than
+/// read.
+export enum EntryKind {
+    File,
+    Directory,
+    Symlink,
+    Other,
+}
+
+derive Eq, Show for Metadata;
+/// What the filesystem knows about a path without opening it.
+///
+/// `size` is octets, and it means nothing for a directory: what a directory's
+/// own entry costs is the filesystem's business, and it is not the size of what
+/// is inside. `modified` is when the contents last changed.
+export struct Metadata {
+    export kind: EntryKind,
+    export size: Int,
+    export modified: Instant,
+}
 
 /// Looking at what is on the filesystem.
 ///
@@ -93,11 +133,22 @@ export effect FsRead {
     /// The octets, unchanged. `readFile` decodes UTF-8 and substitutes U+FFFD
     /// for anything that is not; use this for a file that is not text.
     fn readFileBytes(self, path: Path): Result<[U8], IoError>;
+
+    /// What the filesystem knows about the path, without opening it and
+    /// **without following a symbolic link**.
+    fn metadata(self, path: Path): Result<Metadata, IoError>;
+
+    /// `count` octets from `at`, or fewer where the file ends first.
+    fn readRange(self, path: Path, at: Int, count: Int): Result<[U8], IoError>;
+
+    /// The path with every symbolic link and every `..` resolved, as text.
+    /// `core/fs` turns it back into a `Path`.
+    fn realPath(self, path: Path): Result<Str, IoError>;
 }
 
 /// Changing what is on the filesystem.
 ///
-/// Eight methods, none of which reads. A program that only writes — a logger, a
+/// Nine methods, none of which reads. A program that only writes — a logger, a
 /// recorder — binds this and nothing else.
 export effect FsWrite {
     fn writeFile(self, path: Path, body: Str): Result<(), IoError>;
@@ -117,6 +168,10 @@ export effect FsWrite {
     /// The commit point: what was written to `path` is durable once this
     /// returns. `sync` below states what each platform promises.
     fn syncFile(self, path: Path): Result<(), IoError>;
+
+    /// Copies the file's contents over `destination`, creating it when it is
+    /// absent. Not atomic: `rename` is the only thing that is.
+    fn copyFile(self, source: Path, destination: Path): Result<(), IoError>;
 }
 
 export fn readText<C: Alloc + FsRead>(ctx: C, path: Path): Result<Str, IoError> {
@@ -330,4 +385,267 @@ export fn makeDir<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
 /// the same promise, and the two macOS rows differ.
 export fn sync<C: FsWrite>(ctx: C, path: Path): Result<(), IoError> {
     ctx.syncFile(path)
+}
+
+// -----------------------------------------------------------------------------
+// Looking at what is there
+// -----------------------------------------------------------------------------
+
+/// What the filesystem knows about `path`, without opening it.
+///
+/// ```buri run
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/fs" import * as fs;
+/// from "core/fs" import { FsRead };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/path" import * as path;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         FsRead: host.fs,
+///         Stdout: host.stdout,
+///     };
+///     let here = fs.metadata(ctx, path.of(ctx, "."));
+///     let kind = match (here) {
+///         .Ok(info) => {
+///             if (info.kind == .Directory) { "directory" } else { "something else" }
+///         },
+///         .Err(_e) => "gone",
+///     };
+///     let _ = io.println(ctx, "${kind}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// directory
+/// ```
+///
+/// **It does not follow a symbolic link.** A link is `.Symlink`, whatever it
+/// points at, and its `size` is the length of the target text. That is what
+/// makes `EntryKind` worth having: a walk that followed links would loop the
+/// first time one pointed at its own parent. [`canonicalize`] is how a program
+/// asks about the target instead.
+///
+/// `.Err(.NotFound)` where the path names nothing.
+export fn metadata<C: FsRead>(ctx: C, path: Path): Result<Metadata, IoError> {
+    ctx.metadata(path)
+}
+
+/// Whether the path names a directory.
+///
+/// `false` for everything else, a path that names nothing and a path that
+/// cannot be read included: this is the question `readDir` is about to be
+/// asked, and the honest answer to all three is the same. Use [`metadata`] to
+/// tell a missing path from an unreadable one.
+export fn isDirectory<C: FsRead>(ctx: C, path: Path): Bool {
+    match (ctx.metadata(path)) {
+        .Ok(info) => info.kind == .Directory,
+        .Err(_e) => false,
+    }
+}
+
+/// Whether the path names an ordinary file.
+///
+/// `false` for a symbolic link to one, because [`metadata`] does not follow
+/// links.
+export fn isFile<C: FsRead>(ctx: C, path: Path): Bool {
+    match (ctx.metadata(path)) {
+        .Ok(info) => info.kind == .File,
+        .Err(_e) => false,
+    }
+}
+
+/// The directory's entries, each with what it is.
+///
+/// `listDir` answers names, and a name cannot be told from a directory. This is
+/// the call that can: one `readDir` for the directory and one `metadata` per
+/// entry, written once so that a program that wants to recurse does not write
+/// the loop.
+///
+/// Names, not paths, exactly as `listDir` gives them — `directory.join(ctx,
+/// name)` is the path. The first failure is the answer.
+export fn listDirectoryEntries<C: Alloc + FsRead>(
+    ctx: C,
+    path: Path,
+): Result<[(Str, EntryKind)], IoError> {
+    let names = ctx.readDir(path)?;
+    kindedEntries(ctx, path, names, 0, [])
+}
+
+fn kindedEntries<C: Alloc + FsRead>(
+    ctx: C,
+    at: Path,
+    names: [Str],
+    index: Int,
+    sofar: [(Str, EntryKind)],
+): Result<[(Str, EntryKind)], IoError> {
+    match (names.get(index)) {
+        .None => .Ok(sofar),
+        .Some(name) => {
+            let info = ctx.metadata(at.join(ctx, name))?;
+            kindedEntries(ctx, at, names, index + 1, sofar.push(ctx, (name, info.kind)))
+        },
+    }
+}
+
+/// Every path under `root`, depth first, `root` itself not included.
+///
+/// A directory appears before what is inside it. Symbolic links are listed and
+/// never followed, so a link pointing at its own parent is one entry rather
+/// than a loop.
+///
+/// The whole tree in memory: one `Path` per entry. A tree too big to hold is a
+/// walk a program writes itself out of [`listDirectoryEntries`].
+///
+/// `.Err` at the first directory that will not open — including `root`, so a
+/// `root` that names a file is `.Err(.NotADirectory)`.
+export fn walk<C: Alloc + FsRead>(ctx: C, root: Path): Result<[Path], IoError> {
+    walked(ctx, root, [])
+}
+
+fn walked<C: Alloc + FsRead>(ctx: C, at: Path, sofar: [Path]): Result<[Path], IoError> {
+    let entries = listDirectoryEntries(ctx, at)?;
+    walkedEntries(ctx, at, entries, 0, sofar)
+}
+
+fn walkedEntries<C: Alloc + FsRead>(
+    ctx: C,
+    at: Path,
+    entries: [(Str, EntryKind)],
+    index: Int,
+    sofar: [Path],
+): Result<[Path], IoError> {
+    match (entries.get(index)) {
+        .None => .Ok(sofar),
+        .Some(entry) => {
+            let (name, kind) = entry;
+            let child = at.join(ctx, name);
+            let grown = sofar.push(ctx, child);
+            let deeper = if (kind == .Directory) {
+                walked(ctx, child, grown)?
+            } else {
+                grown
+            };
+            walkedEntries(ctx, at, entries, index + 1, deeper)
+        },
+    }
+}
+
+/// `count` octets of the file from `at`, or fewer where the file ends first.
+///
+/// The head of a large file without reading the rest of it — a magic number, a
+/// header, the first line of a log. `at` is an octet offset and not a character
+/// one, so a range that cuts a multi-byte character in half gives back half of
+/// it: this is [`readBytes`]'s window, not [`readText`]'s.
+///
+/// An `at` past the end is the empty list rather than an error, which is what a
+/// read at end of file is. A negative `at` or `count` is `.Err(.Other)`.
+export fn readRange<C: Alloc + FsRead>(
+    ctx: C,
+    path: Path,
+    at: Int,
+    count: Int,
+): Result<[U8], IoError> {
+    ctx.readRange(path, at, count)
+}
+
+/// The path with every symbolic link and every `..` resolved.
+///
+/// `core/path` deliberately leaves `..` alone — `a/../b` and `b` are two files
+/// where `a` is a link — so this is the only thing that can answer what a path
+/// really names. Every component has to exist: `.Err(.NotFound)` otherwise.
+///
+/// What comes back is absolute.
+export fn canonicalize<C: Alloc + FsRead>(ctx: C, at: Path): Result<Path, IoError> {
+    match (ctx.realPath(at)) {
+        .Ok(text) => .Ok(path.of(ctx, text)),
+        .Err(e) => .Err(e),
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Changing what is there
+// -----------------------------------------------------------------------------
+
+/// Copies the file's contents over `destination`, creating it when it is
+/// absent.
+///
+/// **Not atomic**, and that is the difference from [`rename`]: a reader of
+/// `destination` can see half of the new contents. Copy to a sibling temporary
+/// and rename it where that matters.
+///
+/// Contents only. Permissions, ownership and timestamps are not carried over,
+/// and a `source` that is a directory is `.Err(.Other)`.
+export fn copy<C: FsRead + FsWrite>(
+    ctx: C,
+    source: Path,
+    destination: Path,
+): Result<(), IoError> {
+    ctx.copyFile(source, destination)
+}
+
+/// Deletes the path and everything under it.
+///
+/// The recursive removal `removeDir` refuses to be, written once out of
+/// [`listDirectoryEntries`], [`remove`] and [`removeDir`] — which is exactly
+/// the walk that module's header tells a program to write.
+///
+/// A symbolic link is removed and never followed, so this cannot delete
+/// something outside the tree it was pointed at.
+///
+/// `.Err(.NotFound)` where the path names nothing, as `remove` is. The first
+/// failure stops the walk, so a partly removed tree is a real outcome and the
+/// error names what stopped it.
+export fn removeTree<C: Alloc + FsRead + FsWrite>(
+    ctx: C,
+    path: Path,
+): Result<(), IoError> {
+    let info = ctx.metadata(path)?;
+    if (info.kind == .Directory) {
+        let entries = listDirectoryEntries(ctx, path)?;
+        let _emptied = removedEntries(ctx, path, entries, 0)?;
+        ctx.removeDir(path)
+    } else {
+        ctx.removeFile(path)
+    }
+}
+
+fn removedEntries<C: Alloc + FsRead + FsWrite>(
+    ctx: C,
+    at: Path,
+    entries: [(Str, EntryKind)],
+    index: Int,
+): Result<(), IoError> {
+    match (entries.get(index)) {
+        .None => .Ok(()),
+        .Some(entry) => {
+            let (name, _kind) = entry;
+            let _gone = removeTree(ctx, at.join(ctx, name))?;
+            removedEntries(ctx, at, entries, index + 1)
+        },
+    }
+}
+
+/// A new directory under the temporary directory, named `prefix` and sixteen
+/// hex characters nobody can guess.
+///
+/// `Entropy` rather than `Rand`, and that is the whole of why this is not three
+/// lines a caller writes: a predictable name in a shared directory is a
+/// predictable name somebody else can create first. `core/env`'s
+/// `temporaryDirectory` says where it goes.
+///
+/// The caller owns it, and nothing removes it: [`removeTree`] is the other half.
+export fn makeTemporaryDirectory<C: Alloc + Entropy + Env + FsWrite>(
+    ctx: C,
+    prefix: Str,
+): Result<Path, IoError> {
+    let stamp = crypto.token(ctx, 8);
+    let at = env
+        .temporaryDirectory(ctx)
+        .join(ctx, str.format(ctx, "${prefix}${stamp}"));
+    let _made = ctx.makeDir(at)?;
+    .Ok(at)
 }

@@ -1253,6 +1253,16 @@ fn the_runtime_archive_is_real() {
     // (BUILD-AND-WATCH.md §3.3.1's container, plus F7's WebSockets) that is
     // about 18.1 MB, and 19 MiB was the re-statement. The next slice to touch
     // this owes the container a real total.
+    // **The filesystem's four new operations, the environment's three and a
+    // child process cost 289 032 bytes**, measured on aarch64-apple-darwin at
+    // the same flags: 12 286 712 before and 12 575 744 after, with the archive
+    // this toolchain ships standing at 12 575 816. Almost none of it is the
+    // Buri-facing code — it is `std::process::Command` and
+    // `std::fs::canonicalize` arriving with their `OsString` and formatting
+    // machinery, which nothing in the runtime reached before. That leaves 4.1 %
+    // of the macOS margin. The Linux number is unmeasured for the same reason
+    // as above and is scaled from the Darwin delta at ELF's 1.43x, which is
+    // about 414 KB against 19 MiB.
     //
     // **Thin LTO moved the Linux number the same derived way, and the ratio
     // under it IS measured.** The same `net`-off cross-build to

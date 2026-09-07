@@ -1545,6 +1545,12 @@ pub fn suspends(key: &str) -> bool {
         // messages — `listenReceive`'s wait from the other end. By prefix for
         // `HostListen`'s reason.
         || key.starts_with("host.HostWebSocketClient.")
+        // Starting a program and waiting for it is the longest wait a process
+        // can make on purpose. The effect has one method, so this is a
+        // `matches!` arm rather than a prefix — but it is written as a prefix
+        // for `HostFs`'s reason, since a second method here would want the same
+        // answer on the day it lands.
+        || key.starts_with("host.HostSpawn.")
         || matches!(
             key,
             "host.HostNet.fetch"

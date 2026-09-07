@@ -1,10 +1,10 @@
-error: "core/fs" has no member `copy` [no-such-member]
-  --> cmd/namespace_member_missing/main.buri:12:14
+error: "core/fs" has no member `chmod` [no-such-member]
+  --> cmd/namespace_member_missing/main.buri:14:14
    |
-12 |   let _ = fs.copy(ctx, filepath.of(ctx, "wal"), filepath.of(ctx, "wal.bak"));
-   |              ^^^^
+14 |   let _ = fs.chmod(ctx, filepath.of(ctx, "wal"));
+   |              ^^^^^
    |
-   = the module exports 18 names
+   = the module exports 31 names
    = fix: correct the member name, or check `buri docs core/fs`
 
      What to do
