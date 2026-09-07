@@ -11,10 +11,11 @@
 
 from "core/effect" import { Alloc, Clock };
 from "core/host/testing" import { alloc, clock };
+from "core/math" import * as math;
 from "core/num" import * as num;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
-from "core/time" import { Duration, Instant };
+from "core/time" import { Duration, Instant, Monotonic };
 
 // --- constructors --------------------------------------------------------------
 
@@ -248,4 +249,118 @@ test "a deadline read off the clock" {
     assert.isFalse(time.now(ctx).hasPassed(deadline));
     time.sleep(dial, time.millis(1));
     assert.isTrue(time.now(ctx).hasPassed(deadline));
+}
+
+// --- ZERO, and the fractional constructor -------------------------------------------
+
+test "ZERO is no length at all, and the identity for adding" {
+    assert.eq(time.ZERO.0, 0);
+    assert.isTrue(time.ZERO.isZero());
+    assert.isFalse(time.ZERO.isNegative());
+    assert.eq(time.ZERO.add(time.seconds(3)), time.seconds(3));
+    assert.eq(time.seconds(3).sub(time.seconds(3)), time.ZERO);
+    assert.eq(time.nanos(0), time.ZERO);
+}
+
+test "secondsFloat takes a fraction of a second" {
+    assert.eq(time.secondsFloat(0.25), time.millis(250));
+    assert.eq(time.secondsFloat(1.5), time.millis(1500));
+    assert.eq(time.secondsFloat(0.0), time.ZERO);
+    assert.eq(time.secondsFloat(0.0 - 0.25), time.millis(0 - 250));
+    assert.eq(time.secondsFloat(1e-9), time.nanos(1));
+    // Finer than a nanosecond truncates toward zero.
+    assert.eq(time.secondsFloat(1e-10), time.ZERO);
+}
+
+
+test "a fraction no Duration can hold saturates, and a NaN is nothing" {
+    assert.eq(time.secondsFloat(1e30), Duration(num.maxValue<I64>()));
+    assert.eq(time.secondsFloat(0.0 - 1e30), Duration(num.minValue<I64>()));
+    assert.eq(time.secondsFloat(1.0 / 0.0), Duration(num.maxValue<I64>()));
+    assert.eq(time.secondsFloat(0.0 - 1.0 / 0.0), Duration(num.minValue<I64>()));
+    assert.eq(time.secondsFloat(0.0 / 0.0), time.ZERO);
+    // A count of seconds whose nanoseconds are not exact still converts.
+    assert.eq(time.secondsFloat(0.1), time.millis(100));
+}
+
+
+test "asSecondsFloat inverts secondsFloat" {
+    assert.approxEq(time.seconds(3).asSecondsFloat(), 3.0, 1e-9);
+    assert.approxEq(time.millis(250).asSecondsFloat(), 0.25, 1e-9);
+    assert.approxEq(time.ZERO.asSecondsFloat(), 0.0, 1e-9);
+    assert.approxEq(time.millis(0 - 1500).asSecondsFloat(), 0.0 - 1.5, 1e-9);
+    assert.approxEq(time.secondsFloat(0.125).asSecondsFloat(), 0.125, 1e-9);
+}
+
+// --- dividing, and the ratio between two lengths ----------------------------------
+
+test "divide is mul's inverse and truncates toward zero" {
+    assert.eq(time.seconds(6).divide(2), time.seconds(3));
+    assert.eq(time.seconds(3).mul(4).divide(4), time.seconds(3));
+    assert.eq(time.nanos(7).divide(2), time.nanos(3));
+    assert.eq(time.nanos(0 - 7).divide(2), time.nanos(0 - 3));
+    assert.eq(time.nanos(7).divide(0 - 2), time.nanos(0 - 3));
+    assert.eq(time.ZERO.divide(5), time.ZERO);
+    assert.eq(time.seconds(3).divide(1), time.seconds(3));
+}
+
+test "a ratio is a number rather than a length" {
+    assert.approxEq(time.seconds(3).ratio(time.seconds(1)), 3.0, 1e-9);
+    assert.approxEq(time.millis(500).ratio(time.seconds(1)), 0.5, 1e-9);
+    assert.approxEq(time.ZERO.ratio(time.seconds(1)), 0.0, 1e-9);
+    assert.approxEq(time.seconds(0 - 3).ratio(time.seconds(1)), 0.0 - 3.0, 1e-9);
+    // Nothing goes into no time at all a definite number of times.
+    assert.isTrue(math.isInfinite(time.seconds(1).ratio(time.ZERO)));
+    assert.isTrue(math.isNan(time.ZERO.ratio(time.ZERO)));
+}
+
+// --- the monotonic clock ------------------------------------------------------------
+
+test "the test clock moves both its readings together" {
+    let ctx = context {
+        Clock: clock(),
+    };
+    let started = time.monotonic(ctx);
+    assert.eq(started.0, 0);
+    time.sleep(ctx, time.millis(250));
+    assert.eq(time.elapsed(ctx, started), time.millis(250));
+    // And the wall clock agrees, because it is the same reading.
+    assert.eq(time.now(ctx).0, 250);
+}
+
+test "elapsed is the difference between two readings" {
+    let ctx = context {
+        Clock: clock(),
+    };
+    let first = time.monotonic(ctx);
+    time.sleep(ctx, time.seconds(1));
+    let second = time.monotonic(ctx);
+    assert.eq(second.duration(first), time.seconds(1));
+    // The other way round is the same length, negated.
+    assert.eq(first.duration(second), time.seconds(0 - 1));
+    assert.eq(first.duration(first), time.ZERO);
+    // And a reading taken now is no time after itself.
+    assert.eq(time.elapsed(ctx, time.monotonic(ctx)), time.ZERO);
+}
+
+test "a monotonic reading orders and compares" {
+    let ctx = context {
+        Clock: clock(),
+    };
+    let first = time.monotonic(ctx);
+    time.sleep(ctx, time.millis(5));
+    let second = time.monotonic(ctx);
+    assert.gt(second, first);
+    assert.notEq(first, second);
+    assert.eq(first, Monotonic(0));
+    assert.eq(second, Monotonic(5_000_000));
+}
+
+test "a clock the test moves by hand moves the monotonic reading too" {
+    let ctx = context {
+        Clock: clock().at(1_000),
+    };
+    assert.eq(time.now(ctx).0, 1_000);
+    assert.eq(time.monotonic(ctx).0, 1_000_000_000);
+    assert.eq(time.elapsed(ctx, Monotonic(0)), time.seconds(1));
 }

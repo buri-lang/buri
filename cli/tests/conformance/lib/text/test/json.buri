@@ -257,3 +257,145 @@ test "an accessor for the wrong shape is None rather than an error" {
     assert.isTrue(n.at(0).isNone());
     assert.eq(assert.some(n.asNum()), 1.0);
 }
+
+// --- asInt, asObject, keys and path ---------------------------------------------
+
+test "asInt takes a whole number and refuses everything else" {
+    assert.eq(parsed("7").asInt(), .Some(7));
+    // JSON has one number type, so `7` and `7.0` are the same document.
+    assert.eq(parsed("7.0").asInt(), .Some(7));
+    assert.eq(parsed("-7").asInt(), .Some(0 - 7));
+    assert.eq(parsed("0").asInt(), .Some(0));
+    assert.eq(parsed("7.5").asInt(), .None);
+    // Bigger than an Int holds.
+    assert.eq(parsed("1e300").asInt(), .None);
+    // And nothing that is not a number is one.
+    assert.eq(parsed("\"7\"").asInt(), .None);
+    assert.eq(parsed("null").asInt(), .None);
+    assert.eq(parsed("[7]").asInt(), .None);
+}
+
+test "asObject is asArray's twin" {
+    let doc = parsed("{\"a\":1,\"b\":2}");
+    assert.len(assert.some(doc.asObject()), 2);
+    assert.eq(assert.some(parsed("{}").asObject()).len(), 0);
+    assert.eq(parsed("[1]").asObject(), .None);
+    assert.eq(parsed("1").asObject(), .None);
+}
+
+test "keys are the object's own, in document order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(parsed("{\"b\":1,\"a\":2}").keys(ctx), ["b", "a"]);
+    assert.isEmpty(parsed("{}").keys(ctx));
+    // Anything that is not an object has no keys rather than an error.
+    assert.isEmpty(parsed("[1,2]").keys(ctx));
+    assert.isEmpty(parsed("null").keys(ctx));
+}
+
+test "path walks a chain of keys" {
+    let doc = parsed("{\"user\":{\"name\":\"buri\",\"tags\":[\"a\"]}}");
+    assert.eq(
+        assert.some(doc.path(["user", "name"]).andThen(fn(v) => v.asStr())),
+        "buri",
+    );
+    // An empty chain is this value.
+    assert.eq(assert.some(doc.path([])), doc);
+    // A key that is not there, and a step through something that is not an
+    // object, are both .None rather than a crash.
+    assert.eq(doc.path(["user", "age"]), .None);
+    assert.eq(doc.path(["user", "tags", "0"]), .None);
+    assert.eq(doc.path(["nobody", "name"]), .None);
+    assert.eq(parsed("[1]").path(["a"]), .None);
+}
+
+// --- stringifyPretty and stringifySorted -----------------------------------------
+
+test "pretty printing lays a document out over lines" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        json.stringifyPretty(ctx, parsed("{\"a\":1,\"b\":[2,3]}"), 2),
+        "{\n  \"a\": 1,\n  \"b\": [\n    2,\n    3\n  ]\n}",
+    );
+    // Four spaces, and the nesting compounds.
+    assert.eq(
+        json.stringifyPretty(ctx, parsed("{\"a\":{\"b\":1}}"), 4),
+        "{\n    \"a\": {\n        \"b\": 1\n    }\n}",
+    );
+}
+
+test "an empty array and an empty object have nothing to lay out" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(json.stringifyPretty(ctx, parsed("[]"), 2), "[]");
+    assert.eq(json.stringifyPretty(ctx, parsed("{}"), 2), "{}");
+    assert.eq(json.stringifyPretty(ctx, parsed("{\"a\":[]}"), 2), "{\n  \"a\": []\n}");
+    // A scalar is a scalar at any indent.
+    assert.eq(json.stringifyPretty(ctx, parsed("1"), 2), "1");
+    assert.eq(json.stringifyPretty(ctx, parsed("null"), 2), "null");
+    assert.eq(json.stringifyPretty(ctx, parsed("\"hi\""), 2), "\"hi\"");
+}
+
+test "a zero or negative indent still puts one value on a line" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(json.stringifyPretty(ctx, parsed("[1,2]"), 0), "[\n1,\n2\n]");
+    assert.eq(json.stringifyPretty(ctx, parsed("[1,2]"), 0 - 3), "[\n1,\n2\n]");
+}
+
+test "a pretty rendering parses back to the value it came from" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let doc = parsed("{\"a\":[1,{\"b\":null,\"c\":[true,false]}],\"d\":\"x\"}");
+    assert.eq(assert.ok(json.parse(ctx, json.stringifyPretty(ctx, doc, 2))), doc);
+}
+
+test "sorting keys makes two orderings of one document render the same" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = parsed("{\"b\":1,\"a\":2}");
+    let other = parsed("{\"a\":2,\"b\":1}");
+    assert.notEq(json.stringify(ctx, one), json.stringify(ctx, other));
+    assert.eq(json.stringifySorted(ctx, one), json.stringifySorted(ctx, other));
+    assert.eq(json.stringifySorted(ctx, one), "{\"a\":2,\"b\":1}");
+}
+
+test "sorting reaches every depth and leaves array order alone" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        json.stringifySorted(ctx, parsed("{\"b\":{\"d\":1,\"c\":2},\"a\":[3,1,2]}")),
+        "{\"a\":[3,1,2],\"b\":{\"c\":2,\"d\":1}}",
+    );
+    // Inside an array too.
+    assert.eq(
+        json.stringifySorted(ctx, parsed("[{\"b\":1,\"a\":2}]")),
+        "[{\"a\":2,\"b\":1}]",
+    );
+    assert.eq(json.stringifySorted(ctx, parsed("{}")), "{}");
+    assert.eq(json.stringifySorted(ctx, parsed("1")), "1");
+}
+
+test "sorting is by Str order, and stable where two keys are equal" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Uppercase sorts before lowercase, which is scalar order and not a locale's.
+    assert.eq(
+        json.stringifySorted(ctx, parsed("{\"b\":1,\"B\":2,\"a\":3}")),
+        "{\"B\":2,\"a\":3,\"b\":1}",
+    );
+    // A duplicate key keeps the order it arrived in.
+    assert.eq(
+        json.stringifySorted(ctx, parsed("{\"a\":1,\"a\":2}")),
+        "{\"a\":1,\"a\":2}",
+    );
+}

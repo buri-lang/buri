@@ -1,0 +1,7 @@
+// The core/uuid conformance package.
+//
+// Two seeded doubles make the generators checkable: `entropy()` draws the same
+// octets on both backends, and `clock()` is at whatever the test puts it at. So
+// a version 4 and a version 7 identifier both have an answer that can be written
+// down, and the value crossing the runtime — sixteen octets in, thirty-six
+// characters out — is asserted rather than assumed.

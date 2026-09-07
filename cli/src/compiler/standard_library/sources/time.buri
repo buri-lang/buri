@@ -139,12 +139,16 @@ export fn hours(n: Int): Duration {
 /// answer that is not a lie.
 export fn secondsFloat(seconds: Float): Duration {
     let nanos = seconds * 1_000_000_000.0;
-    if (nanos >= 9_223_372_036_854_775_807.0) {
-        Duration(9_223_372_036_854_775_807)
-    } else if (nanos <= -9_223_372_036_854_775_807.0 - 1.0) {
-        Duration(-9_223_372_036_854_775_807 - 1)
-    } else if (nanos == nanos) {
+    // The in-range test comes first, and the last arm is the one nothing else
+    // caught. A NaN is not less than and not greater than anything, so it lands
+    // there whatever the comparison does with it — and never reaches the
+    // conversion, which has no answer for it.
+    if (nanos > -9_223_372_036_854_775_807.0 - 1.0 && nanos < 9_223_372_036_854_775_807.0) {
         Duration(nanos.wrapToI64())
+    } else if (nanos > 0.0) {
+        Duration(9_223_372_036_854_775_807)
+    } else if (nanos < 0.0) {
+        Duration(-9_223_372_036_854_775_807 - 1)
     } else {
         ZERO
     }
