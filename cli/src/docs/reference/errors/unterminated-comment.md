@@ -11,14 +11,10 @@ error: unterminated block comment [unterminated-comment]
 
 ## What to do
 
-Close it with `*/`. Block comments nest, so each `/*` needs one.
-
-## Why
-
-Nesting is what lets you comment out a region that already contains a comment.
-It costs you this: the lexer counts, so a missing `*/` swallows the rest of the
-file instead of stopping at the first one it finds. That is why the error points
-at where the comment opened rather than where the file ran out.
+Close it with `*/`. Nesting lets you comment out a region that already contains
+a comment, and the cost is that the lexer counts: a missing `*/` swallows the
+rest of the file. That is why the error points at where the comment opened
+rather than where the file ran out.
 
 ## A program that provokes it
 

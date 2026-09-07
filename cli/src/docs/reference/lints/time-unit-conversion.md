@@ -6,10 +6,10 @@ note: "`core/time`'s `Duration` is the length itself — `time.millis(n)`, `time
 fix: build a `Duration` and let the unit live in the type rather than in the name
 ---
 A count of milliseconds in an `I64` means something only because of what you
-called it. The name has to carry the unit — `IDLE_TIMEOUT_MILLIS`, `nanos`,
-`elapsedMs` — and every boundary between two units is a multiply somebody wrote
-out by hand. Every one of those is a place the unit can be dropped, doubled or
-overflowed with the type system saying nothing.
+called it — `IDLE_TIMEOUT_MILLIS`, `nanos`, `elapsedMs` — and every boundary
+between two units is a multiply somebody wrote out by hand. Every one is a place
+the unit can be dropped, doubled or overflowed with the type system saying
+nothing.
 
 `core/time` has the type that carries it:
 
@@ -28,17 +28,12 @@ and its siblings — for the one case that really is arithmetic on a raw count.
 Two things come with the type, and they are why this is a lint rather than a
 style note:
 
-- **The arithmetic saturates.** Overflow is undefined behaviour, and a deadline
-  is where a program can least afford it. The shape this replaces is a
-  `checkedMul` out to nanoseconds, then a `checkedSub` against now, then a
-  decision taken from whichever sign survived — written out once per package
-  that needs a timeout. `Duration` saturates, so a length too large to hold is
-  the largest length rather than a negative one, and the whole check is
-  `now.hasPassed(deadline)`.
+- **The arithmetic saturates.** A length too large to hold is the largest
+  length rather than a negative one, so a deadline cannot overflow into the
+  past, and the whole check is `now.hasPassed(deadline)`.
 - **The unit stops being a naming convention.** `Duration` and `Instant` are
   different types on purpose: a length can be added to a point, two points make
-  a length, and two points added together are a type error rather than a bug
-  found in production.
+  a length, and two points added together are a type error.
 
 This rule fires on a constant *named* as a conversion — `NANOS_PER_MILLISECOND`,
 `MILLIS_PER_SECOND` — and on a count of milliseconds multiplied by a million in

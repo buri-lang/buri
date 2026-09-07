@@ -10,11 +10,6 @@ error: this pattern does not match every value of its type [refutable-pattern]
     What to do
     ──────────
 
-    Use match, which makes you say what the other cases do.
-
-    Why
-    ───
-
-    A let binds unconditionally, and there is no exception to throw when the
-    value does not fit. So its pattern has to be one that cannot fail.
+    Use match. There is no exception to throw when the value does not fit, so
+    the other cases have to be written out.
 
