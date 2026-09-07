@@ -1332,13 +1332,6 @@ fn collect_consuming(
         _ => {}
     });
     // The returned value, through whatever tail position leads to it.
-    //
-    // A tail that is a **projection** keeps a piece of its root, which takes
-    // the whole for the `Match` arm's reason one screen up: the piece outlives
-    // the call, so the value it was read out of is this body's to account for.
-    // `nextLine(ctx, acc): Out` answering `acc.0` is the shape, and answering
-    // it as a borrow is what made the `Out` it hands back a second reference —
-    // marked, and then copied by the next push into it.
     for t in tails(body) {
         // A tail that is a **projection of something counted** keeps a piece of
         // its root, and keeping a piece takes the whole for the `Match` arm's
@@ -3380,7 +3373,7 @@ fn dies_here(e: &Expr, owned: &HashSet<LocalId>, live: &Live) -> bool {
 /// The local a **field path** starts at: `s`, `s.a`, `s.a.1`, and nothing that
 /// reads a second local on the way.
 ///
-/// [`borrowed_root`]'s narrower twin, for [`Scan::reads_no_reference`], which
+/// [`borrowed_root`]'s narrower twin, for [`Scan::no_reference_path`], which
 /// takes a local out of a live set and so has to know that the path named that
 /// local and no other. `xs[i]` and `f(x).n` name two.
 fn field_root(e: &Expr) -> Option<LocalId> {
