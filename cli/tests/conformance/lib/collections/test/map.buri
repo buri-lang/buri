@@ -10,6 +10,7 @@ from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/map" import * as map;
 from "core/map" import { Map };
+from "core/order" import { Eq, Hash };
 from "core/set" import * as set;
 from "core/testing/assert" import * as assert;
 
@@ -545,4 +546,66 @@ test "frequencies is a histogram of the list" {
     assert.eq(assert.some(f.get(3)), 3);
     assert.eq(f.len(), 3);
     assert.isTrue(map.frequencies(ctx, list.empty<Str>()).isEmpty());
+}
+
+// --- a list built inside the call that folds it -------------------------------
+//
+// `map.of(ctx, xs.map(ctx, f))` hands `list.map`'s result element the type
+// `(K, V)` out of `map.of`'s own signature before the lambda is looked at, so
+// the lambda's body is the only thing in the program that says what `K` and
+// `V` are. Every case below therefore asserts **sizes only**: a `get` with an
+// `Int` argument would pin `K` from the outside and the case would stop asking
+// the question. Naming the list first is the same program and has to answer
+// the same.
+
+/// A fold onto a persistent map, written by hand rather than taken from
+/// `core/map`, so the rule holds for a program that writes its own.
+fn keyedBy<K: Hash + Eq, V, C: Alloc>(ctx: C, entries: [(K, V)]): Map<K, V> {
+    entries.foldCtx(ctx, fn(c, acc, e) => acc.insert(c, e.0, e.1), map.empty<K, V>())
+}
+
+test "map.of over a list mapped inside the call keeps every entry" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(map.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
+    assert.eq(
+        map.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).keys(ctx).len(),
+        40,
+    );
+    let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
+    assert.eq(map.of(ctx, named).len(), 40);
+}
+
+test "the same for mapCtx and filterMap" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        map.of(ctx, list.range(ctx, 0, 40).mapCtx(ctx, fn(_c, i) => (i, i))).len(),
+        40,
+    );
+    assert.eq(
+        map
+            .of(ctx, list.range(ctx, 0, 40).filterMap(ctx, fn(i) => .Some((i, i))))
+            .len(),
+        40,
+    );
+}
+
+test "a hand-written fold onto a map answers the same" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(keyedBy(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
+    let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
+    assert.eq(keyedBy(ctx, named).len(), 40);
+}
+
+test "set.of over a list mapped inside the call keeps every item" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(), 40);
+    assert.eq(set.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => i)).len(), 40);
 }
