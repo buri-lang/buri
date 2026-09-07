@@ -685,6 +685,34 @@ pub const ENTRIES: &[Entry] = &[
     cx(e("actor.replyOpen", "buri_rt_actor_reply_open", Ret::Scalar), 0),
     cx(e("actor.replyPut", "buri_rt_actor_reply_put", Ret::Opt), 0),
     cx(e("actor.replyTake", "buri_rt_actor_reply_take", Ret::Opt), 0),
+    // -- core/tasks's scopes (F8) --------------------------------------------
+    //
+    // Six rows, the nine above read a second time: a spawned task crosses as a
+    // one-element `[Carried<fn(C) => ()>]`, the runtime holds the block and
+    // hands it back, and nothing about the closure is described. So no stride,
+    // no glue, no descriptor and no entry thunk — which is what makes
+    // background work land without [`Extra::Step`] growing a second shape. The
+    // task is *entered* by `core/tasks::running`, in Buri, through
+    // `Tasks.parallel`.
+    //
+    // The fourth column is `0` on every row for the actor block's reason:
+    // `core/tasks` declares these as `fn <name><C: Tasks, ...>(ctx: C, ...)`,
+    // so argument 0 is the context and the C signature has no parameter for
+    // it.
+    //
+    // `scopeRound` answers a `[Int]` and carries no [`Extra::Element`], which
+    // is `list.range`'s row exactly: the element type is fixed, so there is no
+    // `T` for a stride to describe. The two `Bool`s are [`Ret::Scalar`] and
+    // cross as a `u8`, which is `str.startsWith`'s shape.
+    //
+    // The bodies are in `cli/runtime/rt.rs` behind feature `net`, so
+    // `runtime_native::net_intrinsic` names this family too.
+    cx(e("tasks.scopeOpen", "buri_rt_tasks_scope_open", Ret::Scalar), 0),
+    cx(e("tasks.scopePush", "buri_rt_tasks_scope_push", Ret::Opt), 0),
+    cx(e("tasks.scopeRound", "buri_rt_tasks_scope_round", Ret::Out), 0),
+    cx(e("tasks.scopeTaskAt", "buri_rt_tasks_scope_task_at", Ret::Opt), 0),
+    cx(e("tasks.scopeEnter", "buri_rt_tasks_scope_enter", Ret::Scalar), 0),
+    cx(e("tasks.scopeLeave", "buri_rt_tasks_scope_leave", Ret::Scalar), 0),
     // -- core/host/testing's stateful half -----------------------------------
     //
     // `core/host`'s names for a test source, over one handle table.
@@ -1178,10 +1206,11 @@ mod tests {
         }
         // A scan that matched nothing would pass every assertion above.
         assert!(checked > 140, "only {checked} rows were read against a declaration");
-        // Twenty-nine until F6, and the nine `core/actor` rows are the jump:
-        // every one of them is a module function whose first parameter is the
-        // context, which is the second of the two shapes below.
-        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 38);
+        // Twenty-nine until F6, then the nine `core/actor` rows, then
+        // `core/tasks`'s six: every one of the fifteen is a module function
+        // whose first parameter is the context, which is the second of the two
+        // shapes below.
+        assert_eq!(ENTRIES.iter().filter(|e| e.ctx.is_some()).count(), 44);
     }
 
     /// The two shapes the column takes, by example, so that the indices are

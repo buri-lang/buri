@@ -1,0 +1,49 @@
+# `core/tasks`'s background half, driven the way a user drives it: a library
+# with work in it, an application that opens one scope and spawns that work into
+# it, and `buri test` — which on a toolchain with a native backend links a real
+# binary and runs it.
+#
+# The conformance corpus holds `scope` and `spawn`'s semantics and holds them on
+# every backend, and its build file says `platforms: [JS]` so that the reference
+# run stays the reference one. What it cannot say is what a person gets: a
+# package that exposes a `run` and cannot spawn it, an application that can, and
+# one command. That is this case.
+#
+# The last step is the negative twin the corpus rule asks for. What is flipped
+# is the scope's own promise — that everything spawned has finished by the time
+# it returns — because that is the claim the whole feature is, and a green suite
+# proves nothing about a failure mode nobody has seen fail.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a scope waits for a socket loop and a timer, a handler spawns into it later, and the double picks the order"
+
+run {
+  args: ["test", "//lib/page", "--force"]
+  exit: 0
+  golden: "pass.txt"
+}
+
+# And again, from the cache: nothing about a scope is a fact about the machine.
+run {
+  args: ["test", "//lib/page"]
+  exit: 0
+  golden: "cached.txt"
+}
+
+# The negative twin. A scope returns when its body *and every task spawned into
+# it* have finished, so the assertion that would hold if it returned early is
+# the body's line alone. The report that records the difference is what says
+# the waiting is real rather than asserted.
+edit {
+  file: "lib/page/test/feed.buri"
+  replace: "        \"mounted\\nframe a\\nframe b\\nsocket closed\\nsessions expired at 300000\\n\","
+  with: "        \"mounted\\n\","
+}
+
+run {
+  args: ["test", "//lib/page", "--force"]
+  exit: 1
+  golden: "refused.txt"
+}

@@ -1,6 +1,13 @@
 //! core/tasks — running a piece of a program more than once at a time.
 //!
-//! One function. `parallel(ctx, items, f)` runs `f` over every item and answers
+//! Two shapes, and they answer two questions. `parallel` runs a list of work and
+//! waits for all of it. `scope` and `spawn` start work that runs *beside* the
+//! code that started it, and close over it: a scope returns when its body and
+//! every task spawned into it have finished.
+//!
+//! ## `parallel`
+//!
+//! `parallel(ctx, items, f)` runs `f` over every item and answers
 //! the results **in the items' order**, whatever order the work finished in,
 //! and hands each call the item's own index.
 //!
@@ -26,10 +33,12 @@
 //! the first says who does the scheduling, the second says what the work is done
 //! with.
 //!
-//! There is no detached spawn and no handle to join. Every task has finished
-//! before `parallel` returns, so a task cannot outlive the context that granted
-//! it. That keeps "a program that never names `host.fs` cannot read a file" true
-//! of the program's lifetime and not only of its call graph.
+//! Every task has finished before `parallel` returns, so a task cannot outlive
+//! the context that granted it. That keeps "a program that never names
+//! `host.fs` cannot read a file" true of the program's lifetime and not only of
+//! its call graph. `scope`, below, buys background work without giving that up:
+//! the waiting moves from the call to the scope, and there is still no handle
+//! to join and nothing that outlives the scope it was spawned into.
 //!
 //! How much of it actually runs at once is a property of the platform, and
 //! deliberately not of the signature:
@@ -79,7 +88,84 @@
 //! ```
 //!
 //! prints `0:a 1:b 2:c` — the items' order, whichever task finished first.
+//!
+//! ## `scope` and `spawn`
+//!
+//! `parallel` is for work you have a list of. Background work is not that
+//! shape: a socket loop, a retry, a timer that fires in five minutes. Those
+//! start once and run beside everything else.
+//!
+//! `scope(ctx, body)` opens a place for that work and closes it. `spawn(ctx,
+//! scope, f)` puts one task there. The scope returns when the body **and every
+//! task spawned into it** have finished, so nothing runs after the call that
+//! opened it — the same promise `parallel` makes, moved from the call to the
+//! scope.
+//!
+//! ```buri
+//! from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//! from "core/tasks" import * as tasks;
+//! from "core/time" import * as time;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Clock: host.clock,
+//!         Stdout: host.stdout,
+//!         Tasks: host.tasks,
+//!     };
+//!     let _ = tasks.scope(ctx, fn(c, here) => {
+//!         let _ = tasks.spawn(c, here, fn(c2) => {
+//!             let _ = time.sleepMs(c2, 5);
+//!             let _ = io.println(c2, "the timer fired").ignore();
+//!             ()
+//!         });
+//!         io.println(c, "the body is done").ignore()
+//!     });
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! **A timer is a task that sleeps.** There is no `Timer` type and no
+//! `setTimeout`: `clock.sleepMillis` already waits, and a task is already the
+//! thing that waits without holding up the code around it. So the five-minute
+//! timer above is five lines of ordinary program, and cancelling it is
+//! cancelling a task.
+//!
+//! **`Scope` is inert.** It holds no context, so a lambda may capture one (SPEC
+//! 10.6) — which is what lets an interface hand a scope to a handler that will
+//! spawn into it later. That is the whole reason it is a value and not a
+//! receiver.
+//!
+//! **A library cannot spawn.** It exposes a `run` and the application spawns
+//! it, because a scope is the application's to open. `core/net/server`'s `run`
+//! is already that shape.
+//!
+//! **Stopping is cooperative.** There is no `cancel`, and there is deliberately
+//! nothing to add one to. A task ends when its own body ends, so a loop stops
+//! by finding its socket closed, or by asking an actor whether to carry on.
+//! Anything else would mean unwinding a task from outside it, and an abort in
+//! this language is a write to standard error and an exit (SPEC 6.9) rather
+//! than something a second task can survive.
+//!
+//! ### When a spawned task actually runs
+//!
+//! The same table as `parallel`, for the same reason: the scope's *promise* is
+//! that everything has finished when it returns, and the overlap is the
+//! platform's business. A scope collects what was spawned and runs a round of
+//! it through `parallel`, then another round for whatever those tasks spawned,
+//! until nothing is waiting. So on JavaScript two spawned tasks overlap, on a
+//! native `--release` build they run on carriers of their own, and under
+//! `buri run` they run one after another in the order they were spawned.
+//!
+//! A task spawned **after** its scope's body has returned — which on a page is
+//! what a handler does — runs on the task that spawned it, because the scope's
+//! own drain has already ended. A page is the outer scope and it closes when
+//! the page does; nothing else keeps it alive, and nothing needs to
+//! (`design/native/DECISIONS.md`).
 
+from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc, Tasks };
 
 /// Runs `f` over every item and answers the results in the items' order.
@@ -96,3 +182,202 @@ export fn parallel<C: Alloc + Tasks, A, B>(
 ): [B] {
     ctx.parallel(ctx, items, f)
 }
+
+// --- Background work ----------------------------------------------------------
+
+/// Where spawned tasks run, and what waits for them.
+///
+/// Inert data: one handle the runtime issued, and no context. A lambda may
+/// capture one (SPEC 10.6), which is what lets a page hand a scope to a
+/// handler that spawns into it later.
+///
+/// The handle stays this module's own, for `core/actor`'s reason: a scope is
+/// the authority to spawn, not the number that authority is spelled with, and
+/// nothing outside here could do anything with an `Int` the runtime issued.
+export struct Scope(Int);
+
+/// Opens a scope, runs `body` in it, and answers what `body` answered — once
+/// every task spawned into it has finished.
+///
+/// The body is handed the caller's whole context and the scope, in that order.
+/// Nothing spawned here outlives this call, which is `parallel`'s promise at a
+/// larger grain: a task cannot outlive the context that granted it.
+///
+/// A body that spawns nothing is an ordinary call with an extra argument, and
+/// costs one round through the runtime to find that nothing is waiting.
+export fn scope<C: Alloc + Tasks, A>(ctx: C, body: fn(C, Scope) => A): A {
+    let here = Scope(scopeOpen(ctx));
+    let run = body;
+    let answer = run(ctx, here);
+    let _ = draining(ctx, here);
+    let _ = resting(ctx, here);
+    answer
+}
+
+/// Starts `f` in `scope`, and answers without waiting for it.
+///
+/// `f` is handed the caller's whole context, so a task may do anything the code
+/// around it could and nothing more — `parallel`'s rule, and for the same
+/// reason: a lambda may not capture an effect-carrying value (SPEC 10.6).
+///
+/// `core/alloc`'s `copyAcross` deep-copies the task **out of every arena**
+/// before it is queued, because the runtime holds it past this call. Without
+/// it a task spawned inside an `alloc.scoped` body would reach the runtime in
+/// pages the scope is about to unmap. `core/actor`'s four crossings take the
+/// same copy for the same reason.
+///
+/// A spawn that arrives while the scope's own drain is running is picked up by
+/// that drain. One that arrives after it has ended — which on a page is what a
+/// handler does — runs here, on the task that spawned it.
+export fn spawn<C: Alloc + Tasks>(ctx: C, scope: Scope, f: fn(C) => ()): () {
+    let _ = scopePush(ctx, scope.0, alloc.copyAcross([carried(f)]));
+    match (scopeEnter(ctx, scope.0)) {
+        false => (),
+        true => {
+            let _ = draining(ctx, scope);
+            resting(ctx, scope)
+        },
+    }
+}
+
+// --- The drain ----------------------------------------------------------------
+//
+// Two functions and a wrapper, and between them they are the whole of the
+// scheduling. `draining` is a self tail call, so a scope that runs a million
+// tasks uses one frame (`middle/tail_calls.rs`; design/non-goals.md has no
+// loops).
+
+/// Every task waiting in `scope`, and everything those tasks spawn, run to the
+/// end.
+///
+/// One **round** at a time: the runtime moves what is waiting into the round
+/// and answers that round's indices, `parallel` runs them, and whatever they
+/// spawned is the next round. So a task spawned by a task is waited for, and
+/// the overlap inside a round is `parallel`'s — carriers on a native release
+/// build, one `Promise.all` on JavaScript, index order under `buri run`.
+fn draining<C: Alloc + Tasks>(ctx: C, scope: Scope): () {
+    let round = scopeRound(ctx, scope.0);
+    match (round.isEmpty()) {
+        true => (),
+        false => {
+            let _ = parallel(ctx, round, fn(c, i, at) => running(c, scope, at));
+            draining(ctx, scope)
+        },
+    }
+}
+
+/// Gives the drain up, and takes it back where something arrived while it was
+/// being given up.
+///
+/// The one race this module has: a task that spawns just as the drain is
+/// ending would otherwise wait for a drain that has already stopped. So
+/// `scopeLeave` answers whether anything is waiting, and this takes the drain
+/// back when it is.
+fn resting<C: Alloc + Tasks>(ctx: C, scope: Scope): () {
+    match (scopeLeave(ctx, scope.0)) {
+        false => (),
+        true => {
+            match (scopeEnter(ctx, scope.0)) {
+                false => (),
+                true => {
+                    let _ = draining(ctx, scope);
+                    resting(ctx, scope)
+                },
+            }
+        },
+    }
+}
+
+/// The round's task at `at`, run once.
+///
+/// `false` where the slot is already empty, which nothing in this module does
+/// twice — the round's indices are handed out once each. Answering a `Bool`
+/// rather than `()` keeps `parallel`'s result element above zero bytes.
+fn running<C: Alloc + Tasks>(ctx: C, scope: Scope, at: Int): Bool {
+    match (taking(ctx, scope, at)) {
+        .None => false,
+        .Some(held) => {
+            match (held.first()) {
+                .None => false,
+                .Some(carrier) => {
+                    let task = carrier.value;
+                    let _ = task(ctx);
+                    true
+                },
+            }
+        },
+    }
+}
+
+/// The round's task at `at`, **at the type it was spawned at**.
+///
+/// `core/actor`'s "taking a block back" rule, at this module's one site: the
+/// entries are type-erased at the key, so the type argument written at the
+/// call is the only thing that says what the block holds and the compiler
+/// generates the release from it. A bare `scopeTaskAt` here would leave `T`
+/// determined by nothing and release a block that lets go of nothing.
+fn taking<C: Tasks>(ctx: C, scope: Scope, at: Int): Option<[Carried<fn(C) => ()>]> {
+    scopeTaskAt(ctx, scope.0, at)
+}
+
+/// One task on its way through the runtime.
+///
+/// `core/actor`'s `Carried`, at this module's one crossing and for its
+/// reasons. A `[T]` is two words whatever `T` is (VALUE-MODEL.md §4), so
+/// nothing about the element crosses and the runtime needs no stride, no glue
+/// and no descriptor to hold a task, queue it and give it back. The `Int` is
+/// there to be *some* bytes: a `[T]` whose element occupies none has no block
+/// at all, and `first` would answer `.None` at any index.
+struct Carried<T> {
+    /// Zero, always.
+    pad: Int,
+    /// The task itself.
+    value: T,
+}
+
+/// A task, wrapped for the crossing.
+fn carried<T>(value: T): Carried<T> {
+    Carried { pad: 0, value: value }
+}
+
+// --- The runtime's half -------------------------------------------------------
+//
+// Six operations, and the two that move a task move a **whole block** — a
+// one-element `[Carried<fn(C) => ()>]` — for `core/actor`'s reason: that is
+// what makes them implementable against a runtime compiled once that knows no
+// Buri type. `middle/monomorphize.rs`'s `GENERIC_INTRINSICS` records the
+// argument, and `cli/runtime/lib.rs` §3 the ownership rule they amend.
+//
+// **The runtime never calls one of these tasks.** It holds the block, hands it
+// back, and `running` above enters it — which is what lets this land without
+// the boundary `cli/runtime/rt.rs` §2 still calls undefined: a step whose
+// closure outlives the call that handed it over. The closure outlives the call
+// here as a *value*, not as a C function pointer.
+//
+// Each one is bound by `Tasks`, for `core/list`'s reason: the authority is in
+// the signature and the key is the module's. There is no second implementation
+// of a queue for a test to bind, and the one decision a double would make —
+// the order the tasks run in — is `parallel`'s, one level up, where
+// `core/host/testing`'s `tasks()` already makes it.
+
+/// A fresh scope, and its handle. The caller is its drain until it leaves.
+fn scopeOpen<C: Tasks>(ctx: C): Int;
+
+/// Queues one task and answers how many are now waiting. `.None` for a handle
+/// naming no scope, and the block is not taken on that path.
+fn scopePush<C: Tasks, T>(ctx: C, handle: Int, task: [Carried<T>]): Option<Int>;
+
+/// Moves everything waiting into a round and answers that round's indices.
+/// An empty list where nothing is waiting, which is what ends the drain.
+fn scopeRound<C: Tasks>(ctx: C, handle: Int): [Int];
+
+/// Takes the round's task at `index`, once. `.None` where it is already taken.
+fn scopeTaskAt<C: Tasks, T>(ctx: C, handle: Int, index: Int): Option<[Carried<T>]>;
+
+/// Becomes the scope's drain, where it has none. `false` where somebody else
+/// already is, and that somebody will pick up what this caller queued.
+fn scopeEnter<C: Tasks>(ctx: C, handle: Int): Bool;
+
+/// Gives the drain up, and answers whether anything is waiting — which is a
+/// task that arrived while the drain was ending, and has to be taken back up.
+fn scopeLeave<C: Tasks>(ctx: C, handle: Int): Bool;

@@ -1803,6 +1803,193 @@ pub unsafe extern "C" fn buri_rt_actor_reply_take(handle: i64, out: *mut BuriLis
     crate::BURI_OK
 }
 
+// ---------------------------------------------------------------------------
+// `core/tasks` — the scope a task is spawned into
+// ---------------------------------------------------------------------------
+//
+// Six exported entries, and they are the `core/actor` exception a second time
+// over: a scope is a place a task waits between the `spawn` that queued it and
+// the drain that runs it, so `lib.rs` §3's third bullet is amended for these as
+// well. Everything that made the actor entries expressible makes these
+// expressible — a task crosses as a one-element `[T]`, which is `{ ptr, len }`
+// whatever `T` is (VALUE-MODEL.md §4), so nothing about the closure reaches
+// this file: no stride, no glue, no descriptor, and above all no way to call
+// it.
+//
+// **That last part is the point.** This file never enters a spawned task.
+// `core/tasks::running` does, in Buri, at the type the task was spawned at, and
+// reaches it through `Tasks.parallel` — the boundary that already exists. So
+// background work lands without the one thing §2 still calls undefined, a step
+// record outliving the call that built it: a spawned closure outlives its call
+// here as a *value* on the heap, not as a C function pointer and a stack
+// scratch record.
+//
+// The scheduling is `core/tasks`'s, in Buri, exactly as the mailbox's is
+// `core/actor`'s. This file holds a queue, a round and one flag.
+
+/// One scope: what is waiting, what this round handed out, and who is draining.
+struct ScopePlace {
+    /// Spawned and not yet in a round, oldest first.
+    waiting: VecDeque<Held>,
+    /// The round `scopeRound` last cut, by index. An entry becomes `None` when
+    /// `scopeTaskAt` hands it back, which is once.
+    round: Vec<Option<Held>>,
+    /// Whether somebody is running this scope's drain. `scopeOpen` answers a
+    /// scope whose opener is, which is what keeps a `spawn` inside the body from
+    /// running its task before the body has finished.
+    draining: bool,
+}
+
+/// Every scope a program has opened, by handle.
+///
+/// A `Vec` and an index, as the mailboxes are, and **nothing is ever removed**.
+/// A scope is not closed: `core/tasks::scope` returns when its body and every
+/// task spawned into it have finished, and the handle stays valid so that a task
+/// spawned later — which on a page is what a handler does — still names
+/// somewhere to go. A page is the outer scope and it closes when the page does,
+/// so what is left here is one empty queue per `scope` call and the process is
+/// what reclaims it.
+static SCOPES: Mutex<Vec<ScopePlace>> = Mutex::new(Vec::new());
+
+fn scopes() -> MutexGuard<'static, Vec<ScopePlace>> {
+    match SCOPES.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// The scope a handle names, or nothing.
+///
+/// [`at`]'s reason, one table over: a handle that names no scope cannot arise
+/// from a program, because `core/tasks` mints every one of them and keeps the
+/// `Int` private, so this answers `None` rather than aborting.
+fn scope_at(table: &mut [ScopePlace], handle: i64) -> Option<&mut ScopePlace> {
+    usize::try_from(handle).ok().and_then(move |i| table.get_mut(i))
+}
+
+/// `tasks.scopeOpen(ctx) -> Int` — a fresh scope, already being drained by
+/// whoever opened it.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_scope_open() -> i64 {
+    let mut table = scopes();
+    table.push(ScopePlace { waiting: VecDeque::new(), round: Vec::new(), draining: true });
+    (table.len() - 1) as i64
+}
+
+/// `tasks.scopePush(ctx, handle, task) -> Option<Int>` — how many are waiting.
+///
+/// The block is taken ([`Held::keep`]) only on the success path, so a handle
+/// naming no scope leaves the caller's own reference to release, which is
+/// [`buri_rt_actor_mailbox_push`]'s rule.
+///
+/// # Safety
+/// `ptr` is null or a live `[Carried<T>]` block the caller owns; `out` is
+/// writable and aligned for an `i64`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_tasks_scope_push(
+    handle: i64,
+    ptr: *mut u8,
+    len: u64,
+    out: *mut i64,
+) -> i32 {
+    let mut table = scopes();
+    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    place.waiting.push_back(Held::keep(BuriList { ptr, len }));
+    let waiting = place.waiting.len() as i64;
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(waiting) };
+    crate::BURI_OK
+}
+
+/// `tasks.scopeRound(ctx, handle) -> [Int]` — this round's indices.
+///
+/// Everything waiting becomes the round, and the answer is `0 .. n`. An empty
+/// list is what ends `core/tasks::draining`, so a scope with nothing in it costs
+/// one call.
+///
+/// The round replaces whatever the last one left, which is nothing: every index
+/// of a round is handed out exactly once, and `core/tasks` runs all of them
+/// before it cuts the next.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_tasks_scope_round(handle: i64, out: *mut BuriList) {
+    let round = {
+        let mut table = scopes();
+        match scope_at(&mut table, handle) {
+            None => 0,
+            Some(place) => {
+                place.round = place.waiting.drain(..).map(Some).collect();
+                place.round.len()
+            }
+        }
+    };
+    let list = crate::list::block(round, 8);
+    for i in 0..round {
+        // SAFETY: `i * 8` is inside the block just allocated, and its payload is
+        // 16-aligned so every `i64` slot is aligned.
+        unsafe { list.ptr.add(i.saturating_mul(8)).cast::<i64>().write(i as i64) };
+    }
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(list) }
+}
+
+/// `tasks.scopeTaskAt(ctx, handle, index) -> Option<[Carried<T>]>` — the round's
+/// task, once.
+///
+/// The reference `scopePush` took is given away here, which is what balances the
+/// count: every task queued reaches exactly one `running`.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_tasks_scope_task_at(
+    handle: i64,
+    index: i64,
+    out: *mut BuriList,
+) -> i32 {
+    let mut table = scopes();
+    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    let Ok(at) = usize::try_from(index) else { return 0 };
+    let Some(slot) = place.round.get_mut(at) else { return 0 };
+    let Some(held) = slot.take() else { return 0 };
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(held.give()) };
+    crate::BURI_OK
+}
+
+/// `tasks.scopeEnter(ctx, handle) -> Bool` — become the drain, where it has
+/// none.
+///
+/// `false` where somebody already is, and that somebody is what will run what
+/// this caller queued: it cuts another round before it leaves.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_scope_enter(handle: i64) -> u8 {
+    let mut table = scopes();
+    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    if place.draining {
+        return 0;
+    }
+    place.draining = true;
+    1
+}
+
+/// `tasks.scopeLeave(ctx, handle) -> Bool` — give the drain up, and say whether
+/// anything arrived while it was being given up.
+///
+/// The flag and the queue are read under one lock, which is what makes the
+/// answer safe to act on: a `spawn` that got in before this call left something
+/// waiting and could not have entered, and one that gets in after finds no drain
+/// and enters.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_tasks_scope_leave(handle: i64) -> u8 {
+    let mut table = scopes();
+    let Some(place) = scope_at(&mut table, handle) else { return 0 };
+    place.draining = false;
+    u8::from(!place.waiting.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
