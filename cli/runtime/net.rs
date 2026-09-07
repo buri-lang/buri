@@ -7236,6 +7236,69 @@ mod tests {
         close(handle);
     }
 
+    /// A listener that completes one handshake by hand and then hands the wire
+    /// to `tungstenite` as a **server** with no limits of its own.
+    ///
+    /// The acceptor next door will not do for the row below. Its own framing
+    /// refuses to *write* a message larger than the plan's limit, so a client
+    /// that ignored its inbound ceiling entirely would still see the socket
+    /// end — and the row would pass while asserting nothing. This peer will
+    /// write anything.
+    #[cfg(feature = "net")]
+    fn one_unbounded_peer(
+        message: String,
+    ) -> (u16, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
+        let port = listener.local_addr().expect("the bound port").port();
+        let serving = std::thread::spawn(move || {
+            let Ok((mut stream, _from)) = listener.accept() else { return };
+            let _read = stream.set_read_timeout(Some(PROMPTLY));
+            let _written = stream.set_write_timeout(Some(PROMPTLY));
+            let mut head: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 512];
+            while find(&head, b"\r\n\r\n").is_none() {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+                }
+            }
+            let text = String::from_utf8_lossy(&head).into_owned();
+            let Some(offered) = text
+                .lines()
+                .filter_map(|line| line.split_once(':'))
+                .find(|(name, _)| name.trim().eq_ignore_ascii_case("sec-websocket-key"))
+                .map(|(_, value)| value.trim().to_string())
+            else {
+                return;
+            };
+            let accept = tungstenite::handshake::derive_accept_key(offered.as_bytes());
+            let answer = format!(
+                "HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\n\
+                 connection: Upgrade\r\nsec-websocket-accept: {accept}\r\n\r\n"
+            );
+            if stream.write_all(answer.as_bytes()).is_err() {
+                return;
+            }
+            let _flushed = stream.flush();
+            // Field by field, and both limits lifted: what this peer is for is
+            // writing a message the *client* has to decide about.
+            let mut config = tungstenite::protocol::WebSocketConfig::default();
+            config.max_message_size = None;
+            config.max_frame_size = None;
+            let mut framing = tungstenite::WebSocket::from_raw_socket(
+                stream,
+                tungstenite::protocol::Role::Server,
+                Some(config),
+            );
+            let _sent = framing.send(tungstenite::Message::Text(message.into()));
+            let _flushed = framing.flush();
+            // Stay until the client goes, so the message is not thrown away by
+            // a reset on the way out.
+            while framing.read().is_ok() {}
+        });
+        (port, serving)
+    }
+
     /// **A message larger than this runtime will read ends the socket rather
     /// than growing to fit it.**
     ///
@@ -7247,33 +7310,17 @@ mod tests {
     ///
     /// What a program sees is a close with 1006, which is `.Abnormal`: the far
     /// side broke the connection as far as this end is concerned, and there was
-    /// no close frame to say otherwise. The row beside it is the message one
-    /// octet under the ceiling, which arrives whole — so what is asserted is
-    /// the ceiling and not merely that something large fails.
+    /// no close frame to say otherwise. The row beside it is the message
+    /// exactly *at* the ceiling, which arrives whole — so what is asserted is
+    /// the number and not merely that something large fails.
     #[cfg(feature = "net")]
     #[test]
     fn a_message_past_the_inbound_ceiling_ends_the_dialled_socket() {
         for (size, over) in [(BODY_LIMIT, false), (BODY_LIMIT + 1, true)] {
-            let plan = socket_plan(None);
-            let (handle, port, _handlers) =
-                bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
-            let dialling = std::thread::spawn(move || {
-                client::connect(&format!("ws://127.0.0.1:{port}/socket"))
-            });
-            let server = upgraded_socket(handle);
-            let dialled = dialling
-                .join()
-                .expect("the dialling thread finished")
-                .expect("a handshake this acceptor completed")
+            let (port, serving) = one_unbounded_peer("z".repeat(size));
+            let dialled = client::connect(&format!("ws://127.0.0.1:{port}/socket"))
+                .expect("a handshake this peer completed")
                 .socket;
-
-            // The server queues the message and then asks what arrived, which
-            // is what writes it: `send` never waits on either half of this
-            // wire.
-            sockets::send_text(server, &"z".repeat(size));
-            let pumping =
-                std::thread::spawn(move || received_within(server, handle, SOCKET_DEADLINE));
-
             let got = dialled_within(dialled, SOCKET_DEADLINE).expect("an answer either way");
             if over {
                 assert_eq!(
@@ -7292,8 +7339,7 @@ mod tests {
                 sockets::close(dialled, 1000, "done");
                 let _ended = dialled_within(dialled, SOCKET_DEADLINE);
             }
-            let _pumped = pumping.join().expect("the server's receive finished");
-            close(handle);
+            serving.join().expect("the peer finished");
         }
     }
 
