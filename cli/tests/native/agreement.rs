@@ -3404,6 +3404,77 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **A task spawned inside an arena runs after that arena is gone.**
+///
+/// `core/tasks` says `copyAcross` deep-copies the task out of every arena
+/// before it is queued, "because the runtime holds it past this call". This is
+/// the program that reaches that: the scope is opened outside the arena, so the
+/// body of `alloc.scoped` is not the drain and the task it spawns only runs
+/// once the arena has been released — and the closure's captured string was
+/// built in pages the arena is about to unmap.
+///
+/// `churn` is `cli/tests/conformance/lib/actor/test/scoped.buri`'s, and for the
+/// reason its header gives: a released arena block of exactly one standard
+/// block goes back to a pool rather than to the kernel, so the value that
+/// crosses is 70 000 bytes and the eight small scopes are what hand the pooled
+/// pages out again. Without both halves a dangling read is a gamble rather than
+/// a fault.
+///
+/// On JavaScript there is no arena and no page to take away, and the row still
+/// says what the answer is.
+#[test]
+fn a_task_spawned_inside_an_arena_keeps_what_it_captured_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.spawn inside an arena",
+        r#"
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+
+/// Bigger than one standard arena block, so its mapping is unmapped rather than
+/// pooled.
+let LOOSE: Int = 70000;
+
+/// Scopes that map and release pages of their own, so an arena the spawn left
+/// behind is one this allocator is entitled to hand out again.
+fn churn<C: Alloc>(ctx: C): Int {
+  let small = [1, 2, 3, 4, 5, 6, 7, 8].mapCtx(ctx, fn(k, n) => {
+    alloc.scoped(k, fn(c) => "z".repeat(c, 40 + n).len())
+  });
+  let large = alloc.scoped(ctx, fn(c) => "y".repeat(c, LOOSE).len());
+  small.len() + large
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+  let _ = tasks.scope(ctx, fn(c, here) => {
+    // The scope's body is the drain, so this spawn queues rather than running:
+    // the task is entered after `alloc.scoped` below has answered.
+    let built = alloc.scoped(c, fn(d) => {
+      let big = "s".repeat(d, LOOSE);
+      let _ = tasks.spawn(d, here, fn(e) => {
+        let _ = io.println(e, "the task read ${big.len()}").ignore();
+        ()
+      });
+      big.len()
+    });
+    let _ = churn(c);
+    io.println(c, "the arena built ${built}").ignore()
+  });
+  .Ok(())
+}
+"#,
+        "the arena built 70000\nthe task read 70000\n",
+    );
+}
+
 /// **The edges of a scope, on every backend**: a body that gives up, a scope
 /// inside a scope, and an actor whose step spawns.
 ///
