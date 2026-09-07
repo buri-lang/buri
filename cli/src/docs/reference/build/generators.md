@@ -109,9 +109,11 @@ asked for.
 A diagnostic carrying an origin is reported at that span of that input. One
 carrying none lands on the `generators` entry that ran the tool.
 
-A tool that exits non-zero, writes nothing, or writes something that is not a
-response is [`generator-failed`](../errors/generator-failed.md). A tool built
-from the target that declares it is
+A tool that exits non-zero, is killed by a signal, writes nothing, or writes
+something that is not a response is
+[`generator-failed`](../errors/generator-failed.md) — with the status or the
+signal, and the tail of standard error, in the note. A tool built from the
+target that declares it is
 [`generator-cycle`](../errors/generator-cycle.md).
 
 ## The cache
