@@ -23,7 +23,6 @@ function __cmd_x_main_buri$main(){
   let $t1;
   if(parsed_2[0]===0){
     const pair_3=parsed_2[1];
-    $share(pair_3);
     const $t4=__cmd_x_main_buri$eval(pair_3[0]);
     if($t4[0]===0){
       $t1='value '+String($t4[1])+' depth '+String(__cmd_x_main_buri$depth(pair_3[0]));

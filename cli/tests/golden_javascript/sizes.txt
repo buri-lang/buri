@@ -12,7 +12,7 @@ generics: 2897 bytes artifact, 1102 generated
 guards: 2522 bytes artifact, 562 generated
 int_match: 2664 bytes artifact, 807 generated
 interpolation: 2655 bytes artifact, 1017 generated
-interpreter: 5946 bytes artifact, 7474 generated
+interpreter: 5936 bytes artifact, 7454 generated
 json_derive: 10629 bytes artifact, 4500 generated
 literals: 2942 bytes artifact, 869 generated
 nested_match: 2693 bytes artifact, 1129 generated
@@ -36,5 +36,5 @@ ui_styles_dynamic: 21564 bytes artifact, 1397 generated
 ui_theme: 19782 bytes artifact, 4248 generated
 ui_theme_and_computed: 23097 bytes artifact, 1109 generated
 
-total: 209331 bytes artifact, 63484 generated
+total: 209321 bytes artifact, 63464 generated
 largest function: 3507 bytes, ui_styles_dynamic/$tree_declare
