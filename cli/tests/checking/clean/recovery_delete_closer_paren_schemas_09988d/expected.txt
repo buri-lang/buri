@@ -1,0 +1,12 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:22:70
+   |
+22 |     proto.generate(ctx, FILE, schema.parse(ctx, text, FILE).schema, [)
+   |                                                                      ^
+   |
+  --> main.buri:22:69
+   |
+22 |     proto.generate(ctx, FILE, schema.parse(ctx, text, FILE).schema, [)
+   |                                                                     ^ opened here
+   |
+   = fix: write `]` here

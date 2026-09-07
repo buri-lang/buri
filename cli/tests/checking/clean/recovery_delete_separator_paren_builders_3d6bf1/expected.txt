@@ -1,7 +1,0 @@
-error: a function parameter ends with `,` [missing-separator]
-  --> main.buri:16:32
-   |
-16 | export fn hole<C: Alloc>(ctx: C inner: Str): Str {
-   |                                ^
-   |
-   = fix: write `,` here

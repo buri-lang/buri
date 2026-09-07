@@ -1,0 +1,21 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:45:22
+   |
+45 |         Alloc: alloc(,
+   |                      ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:58:1
+   |
+58 | 
+   | ^
+   |
+  --> main.buri:43:74
+   |
+43 | test "a schema the reader refuses answers its diagnostics and no module" {
+   |                                                                          ^ opened here
+   |
+   = fix: write `}` here

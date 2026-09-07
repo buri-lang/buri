@@ -1,0 +1,12 @@
+error: this `match` scrutinee is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:51:39
+   |
+51 |     match (bytes.fromUtf8(ctx, octets)extra ) {
+   |                                       ^^^^^
+   |
+  --> main.buri:51:11
+   |
+51 |     match (bytes.fromUtf8(ctx, octets)extra ) {
+   |           ^ opened here
+   |
+   = fix: write `)` here

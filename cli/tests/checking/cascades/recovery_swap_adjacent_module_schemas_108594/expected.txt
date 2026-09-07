@@ -1,0 +1,37 @@
+error: expected a declaration, found `FILE` [unexpected-token]
+  --> main.buri:15:8
+   |
+15 | export FILE let: Str = "lib/wire/point.proto";
+   |        ^^^^
+   |
+   = expected: a declaration
+   = actual: `FILE`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: there is nothing named `FILE` in scope [unresolved-name]
+  --> main.buri:22:25
+   |
+22 |     proto.generate(ctx, FILE, schema.parse(ctx, text, FILE).schema, [])
+   |                         ^^^^
+   |
+   = fix: declare `FILE`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `FILE` in scope [unresolved-name]
+  --> main.buri:22:55
+   |
+22 |     proto.generate(ctx, FILE, schema.parse(ctx, text, FILE).schema, [])
+   |                                                       ^^^^
+   |
+   = fix: declare `FILE`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `FILE` in scope [unresolved-name]
+  --> main.buri:33:25
+   |
+33 |     proto.generate(ctx, FILE, schema.parse(ctx, text, FILE).schema, [
+   |                         ^^^^
+   |
+   = fix: declare `FILE`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `FILE` in scope [unresolved-name]
+  --> main.buri:33:55
+   |
+33 |     proto.generate(ctx, FILE, schema.parse(ctx, text, FILE).schema, [
+   |                                                       ^^^^
+   |
+   = fix: declare `FILE`, or import it — a name is in scope only from this module's own declarations and its imports

@@ -1,0 +1,12 @@
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:30:5
+   |
+30 |     ;
+   |     ^
+   |
+  --> main.buri:18:27
+   |
+18 |     let request = Request {
+   |                           ^ opened here
+   |
+   = fix: write `}` here
