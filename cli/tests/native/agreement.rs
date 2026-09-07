@@ -3454,6 +3454,81 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **Stopping is cooperative**, and this is what that looks like on every
+/// backend: a spawned loop asks an actor whether to carry on, and ends when it
+/// is told not to.
+///
+/// `core/tasks` has no `cancel` and deliberately nothing to add one to, so the
+/// module's answer to "how do I stop a background task" is this program. It is
+/// also the one shape that puts the two concurrency modules inside each other —
+/// a `sendMessage` on a task the scope's drain is running — and the pair have
+/// to agree about it wherever they both exist.
+#[test]
+fn a_spawned_loop_stops_when_its_actor_says_so_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.scope with an actor",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+
+enum Ask {
+  MayI,
+}
+
+enum Turn {
+  Carry,
+  Stop,
+}
+
+fn gate<C: Alloc + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
+  Actor {
+    state: turns,
+    step: fn(c, left, message) => {
+      match (left > 0) {
+        true => Stepped { state: left - 1, answer: .Carry },
+        false => Stepped { state: left, answer: .Stop },
+      }
+    },
+  }
+}
+
+fn frames<C: Alloc + Stdout + Tasks>(
+  ctx: C,
+  keeper: Address<C, Int, Ask, Turn>,
+  n: Int,
+): () {
+  match (keeper.sendMessage(ctx, .MayI)) {
+    .Ok(.Carry) => {
+      let _ = io.println(ctx, "frame ${n}").ignore();
+      frames(ctx, keeper, n + 1)
+    },
+    _stopped => {
+      let _ = io.println(ctx, "the loop stopped").ignore();
+      ()
+    },
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let keeper = actor.start(ctx, gate(3));
+  let _ = tasks.scope(ctx, fn(c, here) => {
+    let _ = tasks.spawn(c, here, fn(c2) => frames(c2, keeper, 0));
+    ()
+  });
+  let _ = keeper.stop(ctx).ignore();
+  .Ok(())
+}
+"#,
+        "frame 0\nframe 1\nframe 2\nthe loop stopped\n",
+    );
+}
+
 /// A task that aborts stops the program, with the same message and the same
 /// status on every backend — and with what was printed before it flushed.
 ///
