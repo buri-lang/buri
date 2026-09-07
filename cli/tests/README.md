@@ -226,6 +226,16 @@ stands in its place: it drives the real front end over a real `server.bind`-and-
 `run` source and asks the refusal's own seam what it would say, recording the
 eight intrinsic keys such a program actually reaches.
 
+**Two reactive-graph claims stop at tier 5, because the language will not let a
+program make them.** A memo's and a watcher's body receive a `Scope`, which
+grants reading the graph and nothing else — so no Buri source can write a signal
+from inside a computation, and none can create a node there either. The step
+budget a runaway update meets, and the disposal of what the previous run
+created, are therefore unreachable from `conformance/lib/ui/` and live in
+`cli/runtime/ui.rs`, where both ends of the graph are. Everything a program
+*can* express about the graph is in the conformance corpus and runs on both
+backends.
+
 ## Running them
 
 ```
