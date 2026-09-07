@@ -1,0 +1,18 @@
+// CRASH: division by zero
+//
+// `Duration.divide` is `/` over the nanoseconds, and `/` by zero aborts (SPEC
+// 6.2). The doc comment says so; this is the sentence being true.
+from "core/effect" import { Alloc, Env, Stdout };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/time" import * as time;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
+  // The program's own argument count, so nothing here folds to a constant.
+  let zero = env.args(ctx).len();
+  let split = time.seconds(10).divide(zero);
+  let _ = io.println(ctx, "${split.millis()}").ignore();
+  .Ok(())
+}
