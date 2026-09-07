@@ -84,6 +84,33 @@ run {
   golden: "after_run.txt"
 }
 
+# The tool is in the key beside the inputs. Editing the generator re-runs it and
+# rebuilds everything that read its modules, with no source of this repository
+# touched — which is the half a run that only ever edits an input cannot show.
+edit {
+  file: "cmd/gen/main.buri"
+  replace: "let ${split.0}: Int = ${value};"
+  with: "let ${split.0}: Int = ${value * 2};"
+}
+
+run {
+  args: ["build", "//cmd/app", "--explain"]
+  exit: 0
+  golden: "after_tool_edit.txt"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "after_tool_run.txt"
+}
+
+edit {
+  file: "cmd/gen/main.buri"
+  replace: "let ${split.0}: Int = ${value * 2};"
+  with: "let ${split.0}: Int = ${value};"
+}
+
 # A generated module is internal to the rule that declared the generator:
 # another package reaches it the way it reaches any other internal module,
 # through `lib.buri`.
