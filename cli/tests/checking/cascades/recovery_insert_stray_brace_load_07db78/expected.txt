@@ -1,0 +1,22 @@
+error: this statement has type `I64`, not `()` [statement-not-unit]
+  --> main.buri:20:5
+   |
+20 |     n * extra 2
+   |     ^^^^^^^^^
+   |
+   = only an expression whose type is `()` may stand alone; bind anything else
+   = fix: bind it with `let _ = ...;`
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:20:9
+   |
+20 |     n * extra 2
+   |         ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:20:14
+   |
+20 |     n * extra 2
+   |              ^
+   |
+   = fix: write `;` here

@@ -1,0 +1,92 @@
+# **`core/lazy` splits an artifact.** A page loads its editor lazily, and the
+# editor and the string only the editor builds are not in the page's bytes.
+#
+#   * **The chunk is a file beside the module**, `page.0.mjs`, which is the name
+#     the module derives from its own `import.meta.url` at run time.
+#   * **The split is real**, read off both files: the marker only the editor
+#     reaches is in the chunk and not in the page, and the page's own marker is
+#     in the page and not in the chunk.
+#   * **A page is still a page.** The shell and the module are what they were;
+#     a chunk is a fourth file, not a different kind of output.
+#   * **Both files are functions of their inputs alone**, which is the claim
+#     `--check-reproducible` makes and which a new file could quietly fall out
+#     of.
+#
+# Then the refusal: a `load` of something that is not the name of a function.
+#
+# When the chunk is fetched is not something a build can show, so it is not
+# here: `language::conformance::a_chunk_is_fetched_only_where_the_program_asks_for_it`
+# drives the artifact from a `.mjs` and asks that.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a lazily loaded function ships in a chunk beside the module, and not in it"
+
+run {
+  args: ["build", "//cmd/page"]
+  exit: 0
+  golden: "built.txt"
+}
+
+# What the editor builds is in the chunk...
+file {
+  path: ".buri/out/web/cmd/page/page.0.mjs"
+  contains: "ONLY_IN_THE_CHUNK"
+}
+
+# ...and not in the page.
+file {
+  path: ".buri/out/web/cmd/page/page.mjs"
+  absent: "ONLY_IN_THE_CHUNK"
+}
+
+# The page's own half is where it always was, so the split moved the editor
+# rather than everything.
+file {
+  path: ".buri/out/web/cmd/page/page.mjs"
+  contains: "ONLY_IN_THE_PAGE"
+}
+
+file {
+  path: ".buri/out/web/cmd/page/page.0.mjs"
+  absent: "ONLY_IN_THE_PAGE"
+}
+
+# The chunk hands itself the page's bindings rather than importing them back: a
+# static import of a module that is mid-evaluation is a page that never starts.
+file {
+  path: ".buri/out/web/cmd/page/page.0.mjs"
+  contains: "$bind"
+}
+
+file {
+  path: ".buri/out/web/cmd/page/page.0.mjs"
+  absent: "import.meta.url"
+}
+
+# A page is still a shell, a module and — here — a chunk.
+file {
+  path: ".buri/out/web/cmd/page/page.html"
+  contains: "page.mjs"
+}
+
+# Built twice from two fresh sessions with the cache off. A chunk is a file the
+# build writes, so it is compared byte for byte like the other three.
+run {
+  args: ["build", "//cmd/page", "--check-reproducible"]
+  exit: 0
+}
+
+# The refusal: `load` needs a body to move, so it takes the name of a function
+# and nothing else.
+edit {
+  file: "cmd/page/main.buri"
+  replace: "lazy.load(editor)"
+  with: "lazy.load(fn(c, rows) => editor(c, rows))"
+}
+
+run {
+  args: ["build", "//cmd/page"]
+  exit: 1
+  golden: "not_a_function.txt"
+}
