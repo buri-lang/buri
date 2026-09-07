@@ -1,22 +1,20 @@
 # User interfaces
 
-The `ui/*` modules are the reactivity vocabulary: a much larger surface than
-`core/*`, and a different kind of thing. They are part of
+The `ui/*` modules are the reactivity vocabulary. They are part of
 [the standard library](../reference/standard-library.md), ship with the
 toolchain, and are never listed in a `dependencies`.
 
 `ui/effect` declares `Watch` and `Ui`, the `Scope` a reactive closure is handed,
 and the `Event` a handler is handed. Requests are not among them: a page asks
-for `core/effect`'s `Net` like every other platform, and writes the answer on
-the line after the question. `ui/signal` is `Signal<T>` — `get`, `set`,
-`update` — plus `signal` and `watch`. `ui/prop` is `Prop<T>` and `memo`.
-`ui/testing` is a headless platform and a renderer for looking at what a tree
-became, and only a test source may import it.
+for `core/effect`'s `Net` like every other platform. `ui/signal` is `Signal<T>` —
+`get`, `set`, `update` — plus `signal` and `watch`. `ui/prop` is `Prop<T>` and
+`memo`. `ui/testing` is a headless platform and a renderer for looking at what a
+tree became, and only a test source may import it.
 
 The whole of it rests on one idea: **a signal handle is inert data, and the
 authority to read or write it travels through `ctx`**, the same split `Alloc`
-and `Region` use. So an event handler may capture a `Signal<T>`, and the handler
-takes its context as a parameter rather than closing over one.
+and `Region` use. So an event handler may capture a `Signal<T>`, and takes its
+context as a parameter rather than closing over one.
 
 ```buri
 from "ui/effect" import { Ui };
@@ -38,25 +36,21 @@ export fn addOne<C: Ui>(clicks: Signal<Int>): Node<C> {
 | `memo(ctx, f)` | O(1) to declare — `f` does not run until something reads it, and then only after a cell it actually read has changed |
 | `watch(ctx, f)` | runs once now, and once per batch in which something it read changed |
 
-Tracking is automatic and exact. Every run collects the dependencies afresh, so
-a read behind an `if` subscribes to the branch taken and not to the other one.
-Writing a value identical to the one already there is not a change, and re-runs
-nothing.
+Tracking is automatic and exact: every run collects the dependencies afresh, so
+a read behind an `if` subscribes to the branch taken and not the other. Writing
+a value identical to the one already there re-runs nothing.
 
 ## The tree
 
 `ui/node` is what an interface *is*: `Node<C>`, eighteen `Role`s, and the
 seventeen functions that build one. `ui/style` is how a container arranges and
 paints what is inside it. `mount`, the eighteenth function, puts a tree on the
-screen and leaves it there.
-
-Two rules run through the vocabulary and are worth knowing before you read it.
+screen. Two rules run through the vocabulary.
 
 **Meaning is the role and arrangement is the style.** `region(.List, ...)` says
 what a group of children *is*, so a screen reader announces a list of five
-items. `.Layout(.Row)` says only how it is arranged, and means nothing to
-anybody but a display. No constructor is named after an HTML element, and there
-is no tag-string escape hatch.
+items. `.Layout(.Row)` says only how it is arranged. No constructor is named
+after an HTML element, and there is no tag-string escape hatch.
 
 **A parameter an assistive technology cannot do without is a parameter.**
 `image` takes its `alt`, `link` its `dest`, and `field` and `toggle` their
@@ -74,40 +68,35 @@ put reactivity in the tree, and each re-runs the smallest thing it can:
 | `computed(build)` | the subtree `build` answers, when anything `build` read changes. The coarse instrument: reach for a `Prop` on a leaf when only a string is changing |
 | `each(items, key, row)` | O(n) in the list, and **no row that is still there**: a row is keyed, so a reorder moves it and never rebuilds it. That is what keeps the focus, the scroll position and the computations inside a row alive |
 
-`choose` was first written `when`, which it cannot be. `when` is a reserved
-word, held for a language feature nobody has taken yet, so no function may be
-called one.
+The conditional is `choose` rather than `when`, because `when` is a reserved
+word and no function may be called one.
 
 Handlers — `button`'s `onPress` and `form`'s `onSubmit` — take their context as
 a parameter, because a lambda may not capture one, and the runtime hands each
 the very context the tree was mounted with. Everything one press writes is one
 update: the handler runs inside a transaction, so three writes cause one pass
 over the watchers rather than three. A field and a toggle have no change event
-at all. They are bound to a `Signal`, and what the reader typed is in it.
+at all — they are bound to a `Signal`, and what the reader typed is in it.
 
 ## Styling, and the two tiers a style can be in
 
 `ui/style` is 45 properties and five ways of composing them. Every property is
 one value applied to one element, none is named after a CSS declaration, and
-there is no `margin`. `Gap`, stacks and `AlignCross` replace it, and edges are
-logical (`.Start`, `.End`) rather than left and right, so a right-to-left page
-is right by construction.
-
-The part worth understanding is where a style *goes*.
+there is no `margin`: `Gap`, stacks and `AlignCross` replace it. Edges are
+logical (`.Start`, `.End`) rather than left and right, so a right-to-left page is
+right by construction. What matters is where a style *goes*.
 
 **Static — everything except `Computed`.** The compiler evaluates it, turns each
 distinct property value into one atomic class, and writes the classes into a
 stylesheet that ships with the artifact. `.Padding(.Px(8))` is `.p-8` wherever it
 was written, in whichever module, so two packages that ask for the same padding
-get one class and one rule without having seen each other. Nothing is generated
-at run time, ever.
+get one class and one rule. Nothing is generated at run time.
 
 Two constructors exist only in this tier, because neither has an inline form:
 
 - `On(State, [Style])` is a pseudo-class — hover, focus, pressed, disabled,
-  checked. **This is why hover is not an event.** A pseudo-class costs nothing,
-  needs no signal write on a mouse move, survives into an email's `<style>`
-  block, and maps to a native pressed or focused trait.
+  checked. **This is why hover is not an event.** It costs nothing, needs no
+  signal write on a mouse move, and maps to a native pressed or focused trait.
 - `At(Screen, [Style])` is a breakpoint, from one of four widths upwards.
   Mobile-first: the media queries are written in ascending order, so a larger
   tier overrides a smaller one by position, and there is never a maximum-width
@@ -118,9 +107,8 @@ stylesheet, and when `cond` changes the runtime picks one of two precomputed
 class strings.
 
 **Computed — `Computed(fn(Scope) => [Style])`.** For a value a signal drives: a
-drag, a cursor-follow, an animation. It is applied inline to the element and
-re-serialised on every change, and it is deliberately absent from the
-stylesheet. Reach for it last.
+drag, a cursor-follow, an animation. It is applied inline and re-serialised on
+every change, and never reaches the stylesheet. Reach for it last.
 
 A style the compiler cannot evaluate — one built out of a function's parameters,
 or out of a value it had to read — is **not an error**. It degrades to the same
@@ -133,23 +121,21 @@ or the compiler rejects the program
 compiler resolves them, and the element carries one class rather than two that
 fight. When a style *arrives as a parameter* — the overridable-component case —
 the runtime resolves it with a scan over `(slot, class)` pairs the compiler
-assigned. That scan can only ever choose between classes already in the sheet.
-Between two *different* properties that touch the same declaration, say
-`Padding` and `PaddingX`, the order the variants are declared in decides. That
-is the order the sheet is written in, and the narrower property is always
-declared later.
+assigned, which can only choose between classes already in the sheet. Between
+two *different* properties that touch the same declaration, say `Padding` and
+`PaddingX`, the order the variants are declared in decides, and the narrower
+property is always declared later.
 
 Constant folding is what makes design tokens work. `.Background(Token.Surface.color())`
-is a *call*, not a literal, and it still reaches the stylesheet. The extractor
+is a *call*, not a literal, and it still reaches the stylesheet: the extractor
 inlines any function that is pure by its signature — no `ctx`, no
-effect-carrying `self`, no allocator — which is a question about a signature and
-not about a body.
+effect-carrying `self`, no allocator.
 
 ## Design tokens, and why exhaustiveness is the whole contract
 
 A design token is a name whose value the app decides. Every package that uses
 tokens declares its own closed vocabulary as an ordinary enum, with a
-constructor answering a colour. A library and an app follow the same rules:
+constructor answering a colour:
 
 ```buri
 from "core/effect" import { Alloc };
@@ -210,35 +196,28 @@ export fn main(): Result<(), Str> {
 ```
 
 `style.token` answers a `Color.Token`, which holds an opaque reference and
-nothing else. So a library's styles name only the library's own vocabulary,
-`Style` never learns about any package's token type, and a definition site is
-type-safe: `.Background(Token.Surface.color())` cannot name a token that does
-not exist.
-
-The app closes the loop at mount, with **one theme per package it uses**: the
-package's `themed` applied to the app's mapping, all of them in the list
-`mount` takes.
+nothing else, so a library's styles name only its own vocabulary and
+`.Background(Token.Surface.color())` cannot name a token that does not exist. The
+app closes the loop at mount, with **one theme per package it uses**: the
+package's `themed` applied to the app's mapping, all of them in the list `mount`
+takes.
 
 **Exhaustiveness is the compatibility contract.** The day `cardlib` adds a
 token, that `match` stops covering its type, and every consumer fails to compile
 until it says what the new token is worth
 ([`match-not-exhaustive`](../reference/errors/match-not-exhaustive.md)). No
-registry, no schema language, no default. A token nobody mapped would be a
-variable the page never defines, and a silently unpainted element is what this
-refuses.
+registry, no schema language, no default.
 
-Chains resolve at mount, in one step. A library's token to the app's token to a
-colour is followed until it reaches a value, and the value is what the page
-reads.
+Chains resolve at mount, in one step: a library's token to the app's token to a
+colour is followed until it reaches a value.
 
 **On the web, a token is a namespaced custom property.** A class in the
 stylesheet reads `var(--cardlib-surface)`, where the namespace is the package,
-so a library's tokens and an app's can never collide. The compiler therefore
-decides the class, and the class does not depend on what the token turns out to
-be worth. A theme is a `:root` block of values, written once at mount.
+so a library's tokens and an app's can never collide. The class therefore does
+not depend on what the token turns out to be worth, and a theme is a `:root`
+block of values written once at mount.
 
 That is what makes dark mode free. `theme.switching(condition, whenTrue,
 whenFalse)` takes a `Prop<Bool>`: a signal the app writes, a stored preference,
-a media query bridged into one. When it changes, the runtime writes the block of
-values again. No class changes, no element is touched, and the stylesheet is not
-involved at all.
+a media query bridged into one. When it changes the runtime writes the block of
+values again. No class changes, no element is touched.
