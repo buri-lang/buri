@@ -1,0 +1,137 @@
+//! ui/web — a website: rendered on the server, resumed on the page.
+//!
+//! A website in Buri is one binary with two entries. A worker answers the
+//! request: it builds the tree, renders it to HTML, and sends the document with
+//! the state it rendered from embedded in it. A page picks that document up: it
+//! takes over the markup the worker sent and reads the state back out.
+//!
+//! ```buri
+//! from "core/effect" import { Alloc };
+//! from "core/json" import { Json };
+//! from "core/net/http" import { Response };
+//! from "core/net/http" import * as http;
+//! from "ui/node" import { Node };
+//! from "ui/node" import * as ui;
+//! from "ui/prop" import { Prop };
+//! from "ui/web" import * as web;
+//!
+//! /// The whole site, as one function of the path. The worker calls it with
+//! /// `.Const(request.path())`; the page calls it with `web.route(ctx)`.
+//! fn page<C>(path: Prop<Str>): Node<C> {
+//!     ui.region(.Main, [], [ui.heading(1, path)])
+//! }
+//!
+//! fn answer<C: Alloc>(ctx: C, path: Str, state: Json): Response {
+//!     http.html(ctx, web.shell(ctx, web.render(page(.Const(path))), state))
+//! }
+//! ```
+//!
+//! **There is one renderer.** `render` is the one `mount` uses, pointed at a
+//! document the runtime supplies rather than at a browser's, so what the worker
+//! writes is what the page would have built. A second renderer would be a
+//! second thing to be right.
+//!
+//! **Routing is ordinary Buri.** There is no route table and no matcher here:
+//! a page function takes the path as a `Prop<Str>` and matches on it. The
+//! worker passes `.Const(request.path())`, which reads once and registers
+//! nothing; the page passes `route`, which re-runs what read it when the reader
+//! navigates. One function serves both.
+//!
+//! Everything here is JavaScript's. A native artifact has no document under it
+//! and no address bar over it, so a native build that reaches one of these
+//! stops at code generation naming the operation.
+
+from "core/effect" import { Alloc };
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "ui/effect" import { Location, Ui, Watch };
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+
+// --- The server's half ---------------------------------------------------------
+
+/// The tree as HTML: every element in order, every prop read once, every style
+/// on the element it belongs to.
+///
+/// Takes no context, and cannot need one. Every constructor in `ui/node` is
+/// unbounded in `C`, so a subtree that is built here can do nothing with the
+/// context it is handed — and a handler is not called at all, because what this
+/// answers is text.
+///
+/// Reactivity is resolved rather than registered: a `Computed` prop is read
+/// once, a `choose` renders the branch its condition takes, and an `each`
+/// renders the rows the list has. Nothing this registers outlives the call.
+export fn render<C>(root: Node<C>): Str;
+
+/// The document `body` goes in, with `state` embedded in it for the page to
+/// pick up.
+///
+/// The state is written as JSON in a `<script id="buri-state">`, which is inert
+/// — a browser neither runs it nor renders it — and `resume` is what reads it
+/// back. Every `<` in it is written `\u003c`, which JSON reads back as `<`,
+/// so a string holding `</script>` closes nothing.
+///
+/// The stylesheet the compiler extracted goes in the head. A resumed page keeps
+/// the styles the server sent it, so nothing is injected on the other side.
+export fn shell<C: Alloc>(ctx: C, body: Str, state: Json): Str {
+    let embedded = json.stringify(ctx, state).replace(ctx, "<", "\\u003c");
+    let sheet = stylesheet();
+    let styles = if (sheet == "") {
+        ""
+    } else {
+        ["<style>", sheet, "</style>"].join(ctx, "")
+    };
+    [
+        "<!doctype html>\n<html>\n<head><meta charset=\"utf-8\" />",
+        styles,
+        "</head>\n<body>",
+        body,
+        "<script id=\"buri-state\" type=\"application/json\">",
+        embedded,
+        "</script></body>\n</html>\n",
+    ].join(ctx, "")
+}
+
+/// The stylesheet the compiler extracted for this artifact.
+///
+/// Private: a program styles a tree and does not write a stylesheet, so the one
+/// place this belongs is the document `shell` builds.
+fn stylesheet(): Str;
+
+// --- The page's half -----------------------------------------------------------
+
+/// Takes over the page the server sent.
+///
+/// The markup stays exactly as it arrived — nothing here renders, and nothing
+/// re-renders what the server already wrote — and the state `shell` embedded is
+/// picked up, where `state` reads it.
+///
+/// `.Err` is for a platform with nowhere to resume: a browser whose document
+/// has no body yet, or a JavaScript host with no document at all.
+export fn resume<C: Ui>(ctx: C): Result<(), Str>;
+
+/// The state the server embedded, as the JSON text `shell` was given.
+///
+/// `.None` before `resume` has run, and on a page no server rendered. Read it
+/// with `json.parse` and `json.decode`, which is the same pair the worker
+/// encoded it with.
+export fn state<C: Ui>(ctx: C): Option<Str>;
+
+/// The path of the page's address now, as `/guide/routing`.
+///
+/// Read inside a computation this is `route`, and read outside one it is a
+/// plain answer. Both are the same cell.
+export fn path<C: Location + Watch>(ctx: C): Str {
+    ctx.read(ctx.path())
+}
+
+/// The path, as a value that varies.
+///
+/// This is the argument a page function takes, and it is what makes navigation
+/// a re-render of the smallest thing that read it rather than a fresh page:
+/// `choose`, `computed` and every prop built out of this re-run when the reader
+/// navigates, and nothing else does.
+export fn route<C: Location>(ctx: C): Prop<Str> {
+    let id = ctx.path();
+    .Computed(fn(scope) => scope.read(id))
+}

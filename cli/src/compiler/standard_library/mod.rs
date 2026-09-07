@@ -241,6 +241,11 @@ pub const MODULES: &[StdModule] = &[
     m("ui/theme", include_str!("sources/ui_theme.buri")),
     m("ui/node", include_str!("sources/ui_node.buri")),
     m("ui/testing", include_str!("sources/ui_testing.buri")),
+    // A website: the same tree, rendered to HTML on a worker and resumed on
+    // the page. Not a platform module — it declares no effect; `Location` is
+    // `ui/effect`'s, beside the two graph effects, because that is the module a
+    // platform's host implements.
+    m("ui/web", include_str!("sources/web.buri")),
 ];
 
 /// The module-path roots the standard library owns.
@@ -575,6 +580,17 @@ const HOST_GRANTS: &[HostGrant] = &[
         platforms: &[Platform::Web],
         because: "reading the reactive graph is meaningless where nothing writes it",
     },
+    // WEB alone, and the worker row is deliberately not widened. A worker is
+    // handed a request and reads the path off it — `Request.path`, which is a
+    // field of a value and no authority at all — so the one platform with an
+    // address of its own is the one with an address bar.
+    HostGrant {
+        effect: "`Location`",
+        exports: &["HostLocation", "location"],
+        platforms: &[Platform::Web],
+        because: "only a page has an address bar; a worker reads the path off the request it \
+                  was handed",
+    },
 ];
 
 /// The grant a `core/host` export belongs to, or `None` for a name that is not
@@ -722,6 +738,10 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Ui", "write", "ui/signal", "aSignal.set(ctx, value)"),
     w("Ui", "memo", "ui/prop", "prop.memo(ctx, compute)"),
     w("Ui", "watch", "ui/signal", "signal.watch(ctx, run)"),
+    // The address bar. Its one method answers a cell, and the door that turns
+    // that into something a tree can hold is `route`; `web.path(ctx)` is the
+    // same cell read once.
+    w("Location", "path", "ui/web", "web.route(ctx)"),
 ];
 
 /// The door onto one effect method, or `None` for a name this table has never
