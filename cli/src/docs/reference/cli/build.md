@@ -1,9 +1,13 @@
 ## What it does
 
-Compiles the targets you name. A binary produces an artifact under
-`.buri/out/<platform>/<package>/`. A library has no artifact of its own, so
-building one type-checks it: `buri build //lib/money` asks "is this library
-correct?"
+Compiles the targets you name. A binary produces one artifact per output, under
+`.buri/out/<platform>/<package>/`, named after the package's directory — or
+after the output's `entry` where it names one. A library has no artifact of its
+own, so building one type-checks it: `buri build //lib/money` asks "is this
+library correct?"
+
+`--output=<selector>` builds one of them: `js`, `web`, `cloudflare-worker`,
+`linux/x86_64`.
 
 With no target argument it builds the whole repository: bare `buri build` is
 `buri build //...`, from any directory in it.
@@ -29,7 +33,7 @@ is never quiet for a reason nothing on the screen gives.
 ## Caching
 
 A build is a set of actions. Each action's key covers the toolchain version, the
-build mode, the platform, and the content of every input. A build reads back any
+build mode, the platform, the entry, and the content of every input. A build reads back any
 action whose key is already in the cache rather than running it, so a second
 build of an unchanged tree does no work. Keys are content-addressed, so moving
 the checkout, or building the same commit on another machine, hits the same

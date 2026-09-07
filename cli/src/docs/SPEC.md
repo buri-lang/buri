@@ -2203,14 +2203,20 @@ export fn main(): Result<(), Str> {
 - `main` must take no parameters and declare no generic parameters.
 - `main` must return `Result<(), Str>`.
 - `.Ok(())` exits 0. `.Err(msg)` prints `msg` to stderr and exits 1.
-- `main`'s body is the only place in a program that may construct a context
-  (Section 11.3), and only the module exporting `main` may import `core/host`
-  (Section 10.3). The context `main` builds is the program's complete effect
+- An **entry's** body is the only place in a program that may construct a context
+  (Section 11.3), and only the module exporting it may import `core/host`
+  (Section 10.3). The context an entry builds is that artifact's complete effect
   budget.
 
-`main` receives nothing and mints what it needs, so there is no fake to pass it
-and nothing in it worth testing. Put logic you want to test in a function `main`
-calls, taking an ordinary bounded `ctx`
+An entry is a function a build file's `outputs` names, and `main` is the one it
+names by default. A binary may declare several — a page entering at `main` and a
+worker at `fetch`, out of one module — and each platform fixes the signature of
+the entry it calls
+([`cli/src/docs/reference/build/build-files.md`](./cli/src/docs/reference/build/build-files.md)).
+
+An entry receives nothing it can be handed a double for, so there is no fake to
+pass it and nothing in it worth testing. Put logic you want to test in a function
+it calls, taking an ordinary bounded `ctx`
 ([`cli/src/docs/reference/build/testing.md`](./cli/src/docs/reference/build/testing.md)).
 
 ### 11.1 Standard library conventions
@@ -2455,7 +2461,7 @@ own, and either may start from another and change one line.
 
 | | `context` declaration | Constructing one |
 |---|---|---|
-| The module exporting `main` | yes | only inside `main`'s body |
+| The module exporting `main` | yes | only inside an entry's body |
 | A test source | yes | anywhere in the file |
 | A test-only module (a `testing` path segment) | yes, and may be exported | anywhere in the file |
 | Anywhere else | no | no |

@@ -7,11 +7,16 @@ With no target argument it matches the whole repository, so bare `buri run`
 works in a repository that declares one binary. Where it matches several, the
 error names them and you pick.
 
+A binary with several outputs runs the host's own platform where this toolchain
+can build for it, and a page or a script otherwise. It never runs a
+`CLOUDFLARE_WORKER` output: a worker is called by its platform, once per
+request, so there is nothing to start.
+
 ## Authority
 
 This is the one command that starts a process with real authority. It runs
 outside the build graph, with the real filesystem and the real environment.
 
-The context its `main` builds still bounds what the program can do. A program
-whose `main` never names `host.net` cannot open a socket, because nothing
+The context its entry builds still bounds what the program can do. A program
+whose entry never names `host.net` cannot open a socket, because nothing
 anywhere in it can obtain a value bounded by `Net`.
