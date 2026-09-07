@@ -133,3 +133,10 @@ A repository tool is built for `JS` and run under the JavaScript runtime,
 whatever the tool's own `outputs` say. A generator runs on the machine doing the
 build, and an `.mjs` is the one artifact every host can produce and run without
 a linker.
+
+A generator the toolchain ships takes the same path. `std/codegen/proto` is a
+Buri program — `core/codegen`'s `run` over the `emit` the standard library
+exports — compiled to an `.mjs` the first time a build needs it, kept under
+`.buri/out/toolchain`, and handed a request on standard input like any other
+tool. There is no second path for it, which is the point: the `.proto`
+generator is the worked example of this page rather than an exception to it.

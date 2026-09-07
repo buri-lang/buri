@@ -261,6 +261,23 @@ pub fn run_snippet_in(
     name: &str,
     text: &str,
 ) -> Result<String, Diagnostics> {
+    let (source, chunks) = compile_snippet_js(ws, map, name, text)?;
+    execute(name, &source, &chunks)
+}
+
+/// The same up to running it: the JavaScript a snippet that exports `main`
+/// compiles to.
+///
+/// [`run_snippet_in`] is this and then a subprocess. `build::generators` is the
+/// other caller — the generator this toolchain ships is a Buri program that
+/// imports `std/codegen/proto`, and this is what turns it into an artifact the
+/// build can hand a request on standard input.
+pub fn compile_snippet_js(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    name: &str,
+    text: &str,
+) -> Result<(String, Vec<String>), Diagnostics> {
     let mut cache = crate::parsing::parser::Cache::new();
     let analysis =
         analyze_snippet_in(ws, map, &mut cache, name, text, crate::compiler::modules::Role::Entry);
@@ -284,14 +301,13 @@ pub fn run_snippet_in(
         return Err(diags);
     }
     let flags = crate::commands::arguments::Flags::default();
-    let (source, chunks) = actions::emit_all(
+    actions::emit_all(
         &mut program,
         &analysis.checked.tables,
         crate::compiler::backend::Target { platform: crate::build::buildfile::Platform::Js, arch: None },
         &flags,
         &mut diags,
-    )?;
-    execute(name, &source, &chunks)
+    )
 }
 
 /// Writes the emitted module to a scratch file and runs it under the JS
