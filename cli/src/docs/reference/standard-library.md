@@ -804,7 +804,10 @@ cannot configure it. **The actor steps on the task that drives it.**
 `sendMessage` runs the mailbox down before it answers, and `stop` before it runs
 `onStop`. So an actor is not yet a way to get work done in the background. A
 step that sends to its own actor gets `.Err(.Stopped)` rather than waiting for
-itself, and the message it posted is stepped once the step returns.
+itself, and the message it posted is stepped once the step returns. That is also
+the only way to reach the bound, since nothing drains while a step holds the
+state, so a step that posts a sixty-fifth message waits for room nobody is
+coming to make.
 
 `core/net/http` documents `Request` and `Response`, the two types `Net.fetch`
 speaks in. It re-exports them from `core/effect`, where the effect's own

@@ -55,10 +55,16 @@ release's own account of the toolchain, and each is a page here too, starting
 with [the language skill](../reference/skills/buri-language.md).
 
 `buri init` never writes over your work. A `REPO.buri` at the target, or above
-it, stops the command — a repository inside another one is not a root. A
-`.gitignore` already at the target is the one exception, since `git init` first
-is the ordinary way to start; there `buri init` appends its entries below your
-lines.
+it, stops the command — a repository inside another one is not a root. So does
+any other file it was about to write.
+
+Your `.gitignore` is the one exception, since `git init` first is the ordinary
+way to start:
+
+```text
+updated .gitignore   your lines kept, the build's entries appended below them
+kept .gitignore      it already ignored everything the build writes
+```
 
 ## Skills in a repository you already have
 

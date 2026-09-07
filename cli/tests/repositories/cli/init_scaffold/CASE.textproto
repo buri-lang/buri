@@ -1,0 +1,45 @@
+# `buri init` in a directory that is not a repository yet: the scaffold lands,
+# the ignore file lands with it, and the unrelated file already there is left
+# alone.
+#
+# The second run is the other half. A repository is a starting point rather
+# than something a release keeps in step, so re-running stops at exit 2 — and
+# the ignore file is read back afterwards against the same golden, because "it
+# refused" and "it refused without touching anything" are different claims.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# and not a Buri file — nor is repo/ below a Buri repository, which is what
+# `not_a_repository` says.
+
+doc: "init writes the scaffold and an ignore file, and a second run changes nothing"
+
+# `buri init` refuses at a `REPO.buri` and anywhere inside one, so the tree
+# it starts from is deliberately not a repository.
+not_a_repository: true
+
+run {
+  args: ["init"]
+  exit: 0
+  golden: "wrote.txt"
+}
+
+file {
+  path: ".gitignore"
+  golden: "ignore.txt"
+}
+
+run {
+  args: ["init"]
+  exit: 2
+  golden: "refused.txt"
+}
+
+file {
+  path: ".gitignore"
+  golden: "ignore.txt"
+}
+
+file {
+  path: "notes.txt"
+  golden: "notes.txt"
+}

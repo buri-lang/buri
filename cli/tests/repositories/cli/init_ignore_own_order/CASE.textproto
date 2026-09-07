@@ -1,0 +1,26 @@
+# The same entries, written in somebody else's order, among their own comments
+# and with a stray space after one of them. Entries are matched whole line by
+# whole line and trimmed, so all of them count and nothing is appended — an
+# ignore file is a set, and repeating `out` under a heading of ours would be
+# noise in a file the user reads.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# and not a Buri file — nor is repo/ below a Buri repository, which is what
+# `not_a_repository` says.
+
+doc: "ignore entries count wherever they sit, whatever follows them on the line"
+
+# `buri init` refuses at a `REPO.buri` and anywhere inside one, so the tree
+# it starts from is deliberately not a repository.
+not_a_repository: true
+
+run {
+  args: ["init"]
+  exit: 0
+  golden: "kept.txt"
+}
+
+file {
+  path: ".gitignore"
+  golden: "ignore.txt"
+}

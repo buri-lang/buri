@@ -115,6 +115,10 @@
 //! The message is not lost: the loop already running steps it before it puts
 //! the state back.
 //!
+//! That is also the only way to fill the mailbox, which holds sixty-four:
+//! nothing drains while a step holds the state. A step that posts a
+//! sixty-fifth message waits there for room nobody is coming to make.
+//!
 //! An actor does not run *between* the calls that drive it, so it is not yet a
 //! way to get work done in the background.
 //!
