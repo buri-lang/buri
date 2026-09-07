@@ -3235,6 +3235,13 @@ function $dom_escape(text, quotes) {
   return out;
 }
 
+// The elements this vocabulary writes that hold nothing. A trailing slash
+// closes one of these and *nothing else*: an HTML parser reads `<div />` as an
+// opening `<div>` and puts everything after it inside, so an empty region
+// written that way swallows the rest of the page. Every other name gets its
+// closing tag, empty or not.
+const $DOM_VOID = { img: true, input: true, hr: true };
+
 function $dom_markup(node) {
   if (node.kind === 2) return "";
   if (node.kind === 1) return $dom_escape(node.data, false);
@@ -3243,6 +3250,9 @@ function $dom_markup(node) {
     out += " " + name + '="' + $dom_escape(node.attributes[name], true) + '"';
   }
   if (node.classes !== "") out += ' class="' + $dom_escape(node.classes, true) + '"';
+  // What is typed into a `textarea` is its text and not an attribute, which is
+  // the one element where the two spellings are not the same markup.
+  if (node.name === "textarea") return out + ">" + $dom_escape(node.value, false) + "</textarea>";
   if (node.value !== "") out += ' value="' + $dom_escape(node.value, true) + '"';
   if (node.checked) out += " checked";
   const styles = Object.keys(node.styles);
@@ -3251,9 +3261,10 @@ function $dom_markup(node) {
     for (const property of styles) parts.push(property + ": " + node.styles[property]);
     out += ' style="' + $dom_escape(parts.join("; "), true) + '"';
   }
+  if ($DOM_VOID[node.name]) return out + " />";
   let inner = "";
   for (const child of node.children) inner += $dom_markup(child);
-  return inner === "" ? out + " />" : out + ">" + inner + "</" + node.name + ">";
+  return out + ">" + inner + "</" + node.name + ">";
 }
 
 // Every run of text, in order. Separate runs stay separate, because two runs

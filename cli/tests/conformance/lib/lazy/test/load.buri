@@ -34,6 +34,36 @@ fn deep(n: Int): Int {
     onlyDeepReachesThis(onlyDeepReachesThis(n))
 }
 
+/// Loaded from inside something that was itself loaded. A chunk may hold a
+/// `load` of its own, so this is a chunk fetched from inside a chunk.
+fn inner(n: Int): Int {
+    n * 3
+}
+
+fn outer(n: Int): Int {
+    let f = lazy.load(inner);
+    f(n) + 1
+}
+
+/// Reached from two `load`s, which is what puts it in two chunks.
+fn shared(n: Int): Int {
+    n - 1
+}
+
+fn left(n: Int): Int {
+    shared(n) * 10
+}
+
+fn right(n: Int): Int {
+    shared(n) * 100
+}
+
+/// A `load` written inside a body, so that it runs once per call.
+fn doubled(n: Int): Int {
+    let f = lazy.load(double);
+    f(n)
+}
+
 test "load answers a function that computes what the original computes" {
     let f = lazy.load(double);
     assert.eq(f(21), 42);
@@ -67,6 +97,26 @@ test "a loaded function is a value, so it can be passed on" {
     };
     let f = lazy.load(double);
     assert.eq([1, 2, 3].map(ctx, f), [2, 4, 6]);
+}
+
+test "a loaded function may load another" {
+    let f = lazy.load(outer);
+    assert.eq(f(5), 16);
+    // And the inner one on its own answers what it always did.
+    assert.eq(lazy.load(inner)(5), 15);
+}
+
+test "two loads that reach one helper both answer through it" {
+    let a = lazy.load(left);
+    let b = lazy.load(right);
+    assert.eq(a(3), 20);
+    assert.eq(b(3), 200);
+}
+
+test "a load written inside a body runs every time that body runs" {
+    // The module's own sentence: a `load` at the top of a body fetches the
+    // chunk every time that body runs, and answers the same function each time.
+    assert.eq(doubled(1) + doubled(2) + doubled(3), 12);
 }
 
 test "loading something the program already calls answers it unchanged" {
