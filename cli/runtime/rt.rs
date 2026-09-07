@@ -2585,92 +2585,252 @@ mod tests {
 
     /// **Two tasks that wait, wait at the same time.** The slice's whole point.
     ///
-    /// Two steps that each sleep 100 ms answer in a little over 100 ms rather
-    /// than in 200: the sleep is [`park_on`]'s and the two carriers are two
-    /// threads. Sequentially this is 200 ms and the bound below fails, which is
-    /// what makes it a test of the scheduler rather than of the clock.
+    /// Asked as a **rendezvous** and not as a stopwatch. Each step says it has
+    /// arrived and then waits for the other one, so an answer with nobody
+    /// giving up is two tasks that were in flight together — a pair that ran
+    /// one after another could not produce it, because the first would be
+    /// waiting for a step that has not started.
     ///
-    /// **D4's acceptance case, and its number moves in neither G3 nor B9.** It
-    /// was green under the baton — a step that waits was already giving the
-    /// baton up — so the ~100 ms it measures is the same ~100 ms before and
-    /// after, and that is the point of re-running it here rather than of
-    /// changing it. B9 changes what the two waiting steps *cost* — two saved
-    /// stack pointers rather than two threads — and deliberately not what they
-    /// take.
+    /// The wait goes through [`park_on`], which is the door
+    /// `Clock::sleepMillis` waits at (`host.rs`), so what overlaps here is two
+    /// *parked* tasks and not two blocked threads. That is B9's sentence about
+    /// this case, now asserted rather than implied: what two waiting steps cost
+    /// is two saved stacks, so a test that insisted on two threads would be
+    /// testing the old price.
     ///
-    /// The upper bound is generous — 100 ms of real waiting plus the whole of a
-    /// loaded machine's scheduling — because the failure it guards against is
-    /// *doubling*, and a bound tight enough to catch a millisecond of jitter
-    /// would fail under `cargo test`'s own parallelism instead.
+    /// **It used to be a clock**: two 100 ms sleeps under a 190 ms bound. That
+    /// bound is a statement about the machine, and the machine can always be
+    /// slower than it — it failed in a container held to a core and a half with
+    /// the rest of the suite running, where the sleeps did overlap and the
+    /// scheduling around them took the other 90 ms. The only clock left is a
+    /// **liveness** bound on how long a side waits before giving up, which a
+    /// loaded machine makes late rather than wrong.
+    ///
+    /// **The canary is the second half.** Without it this would pass on a
+    /// runtime that ran the two steps one at a time and answered anyway, so the
+    /// same steps go through `in_order` and exactly one of them must fail to
+    /// meet. Its bound is short and the shortness cannot change its answer: a
+    /// step that only runs after this one returns has not arrived yet, however
+    /// long this one waits. The concurrent arm's bound is generous for the
+    /// opposite reason — there the wait ends when the other task arrives, so
+    /// the number is headroom and nothing else.
+    ///
+    /// D4's acceptance case, and the sibling of
+    /// `the_steps_of_one_fan_out_compute_at_the_same_time`: that one is the
+    /// same question for steps that **compute**, where the wait is a spin
+    /// because a computing step never leaves its carrier.
     #[test]
     fn two_tasks_that_wait_overlap() {
         // The fan-out draws on the carrier pool, which every other case
         // that reads it takes this lock for.
         let _alone = alone();
-        unsafe extern "C" fn nap(_: *mut u8, index: u64, _: *const u8, out: *mut u8) {
-            crate::buri_rt_host_clock_sleep_millis(100);
+        const BOTH: usize = 2;
+        /// Headroom for a machine to start the second task, spent only when
+        /// there is no second task to start.
+        const TOGETHER: Duration = Duration::from_secs(10);
+        /// Paid in full by the canary, whose answer no bound can change.
+        const APART: Duration = Duration::from_millis(100);
+
+        struct Meeting {
+            /// How many steps have said they are here.
+            arrived: AtomicUsize,
+            /// How many stopped waiting for the other one.
+            gave_up: AtomicUsize,
+            /// How long a step waits before it does.
+            within: Duration,
+        }
+
+        unsafe extern "C" fn meet(state: *mut u8, index: u64, _: *const u8, out: *mut u8) {
+            // SAFETY: the test hands a live `Meeting` and an `i64` slot.
+            let meeting = unsafe { &*state.cast::<Meeting>() };
+            meeting.arrived.fetch_add(1, Ordering::SeqCst);
+            // The sleep is built inside the future rather than handed to
+            // `park_on` ready-made, for `host.rs`'s reason: a `tokio` timer
+            // registers where it is constructed, and this thread is in no
+            // runtime context until `park_on` enters one.
+            let met = park_on(async {
+                let deadline = Instant::now() + meeting.within;
+                while meeting.arrived.load(Ordering::SeqCst) < BOTH {
+                    if Instant::now() >= deadline {
+                        return false;
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                true
+            });
+            if !met {
+                meeting.gave_up.fetch_add(1, Ordering::SeqCst);
+            }
             // SAFETY: an `i64` slot of the answer.
             unsafe { out.cast::<i64>().write(index as i64) }
         }
-        let src: [i64; 2] = [0, 0];
-        let started = Instant::now();
-        // SAFETY: two `i64`s in, two `i64`s out.
-        let got =
-            unsafe { steps_of(src.as_ptr().cast(), 2, nap, std::ptr::null_mut(), 8, 8, true) };
-        let waited = started.elapsed();
+
+        fn meeting(within: Duration) -> Meeting {
+            Meeting {
+                arrived: AtomicUsize::new(0),
+                gave_up: AtomicUsize::new(0),
+                within,
+            }
+        }
+
+        let src: [i64; BOTH] = [0, 0];
+
+        // Together: both arrive, neither gives up.
+        let together = meeting(TOGETHER);
+        // SAFETY: two `i64`s in, two out, and `together` outlives the call.
+        let got = unsafe {
+            steps_of(
+                src.as_ptr().cast(),
+                BOTH,
+                meet,
+                (&raw const together).cast_mut().cast(),
+                8,
+                8,
+                true,
+            )
+        };
         // SAFETY: two `i64`s were written there.
-        assert_eq!(unsafe { i64s(&got, 2) }, vec![0, 1]);
+        let answers = unsafe { i64s(&got, BOTH) };
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(got.ptr) };
-        assert!(waited >= Duration::from_millis(100), "{waited:?} is not a sleep at all");
-        assert!(waited < Duration::from_millis(190), "{waited:?}: the two sleeps did not overlap");
+        assert_eq!(answers, vec![0, 1], "the items' order");
+        assert_eq!(
+            together.gave_up.load(Ordering::SeqCst),
+            0,
+            "a step waited {TOGETHER:?} for the other one and it never came: two tasks that wait \
+             are being run one after another",
+        );
+
+        // Apart: the same steps in order, where the first cannot be met.
+        let apart = meeting(APART);
+        // SAFETY: two `i64`s in, two out, and `apart` outlives the call.
+        let got = unsafe {
+            steps_of(
+                src.as_ptr().cast(),
+                BOTH,
+                meet,
+                (&raw const apart).cast_mut().cast(),
+                8,
+                8,
+                false,
+            )
+        };
+        // SAFETY: two `i64`s were written there.
+        let answers = unsafe { i64s(&got, BOTH) };
+        // SAFETY: the only reference.
+        unsafe { crate::memory::buri_rt_free(got.ptr) };
+        assert_eq!(answers, vec![0, 1], "the items' order");
+        assert_eq!(
+            apart.gave_up.load(Ordering::SeqCst),
+            1,
+            "the same two steps run one after another and somebody was still met, so the \
+             rendezvous above is not what proved they overlapped",
+        );
     }
 
     /// The answer is in the **items'** order even when the work is not.
     ///
-    /// Each step sleeps for as long as its index is early, so the tasks finish
-    /// in reverse; the case asserts both halves — that completion really was
-    /// reversed, so the ordering claim is tested rather than accidentally
-    /// satisfied, and that the `[B]` is in index order anyway.
+    /// The steps finish backwards, and they do it **by agreement rather than by
+    /// a clock**: each one waits until every step after it has finished before
+    /// it finishes itself, so index 3 goes first and index 0 goes last on any
+    /// machine. It used to be four sleeps — 80, 60, 40 and 20 ms — which asked
+    /// a loaded scheduler to keep four tasks 20 ms apart, and that is the bet
+    /// `two_tasks_that_wait_overlap` used to make beside it and lost.
+    ///
+    /// Both halves are still here. That completion really was out of order, so
+    /// the ordering claim is tested rather than accidentally satisfied; and
+    /// that the `[B]` is in index order anyway. `gave_up` is the third: it says
+    /// the chain was kept, so a runtime that ran the steps one at a time — and
+    /// could therefore not arrange any completion order at all — is a sentence
+    /// here rather than a hung suite.
+    ///
+    /// The wait is [`park_on`]'s, so a step holds no carrier while it waits for
+    /// the one after it, and four steps that all wait need four carriers no
+    /// more than two do.
     #[test]
     fn a_fan_out_answers_in_the_items_order() {
         // The fan-out draws on the carrier pool, which every other case
         // that reads it takes this lock for.
         let _alone = alone();
-        /// The indices in the order their steps *finished*.
-        struct Finished(Mutex<Vec<u64>>);
-        unsafe extern "C" fn backwards(state: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
-            crate::buri_rt_host_clock_sleep_millis(20 * (4 - index as i64));
-            // SAFETY: the test hands a live `Finished`, an `i64` element and an
-            // `i64` slot.
-            unsafe {
-                let done = &*state.cast::<Finished>();
-                match done.0.lock() {
-                    Ok(mut seen) => seen.push(index),
-                    Err(poisoned) => poisoned.into_inner().push(index),
-                }
-                out.cast::<i64>().write(arg.cast::<i64>().read() * 10 + index as i64);
-            }
+        const STEPS: usize = 4;
+        /// Liveness only: the wait ends when the step after this one finishes.
+        const WITHIN: Duration = Duration::from_secs(10);
+
+        /// The indices in the order their steps *finished*, and the chain that
+        /// decides that order.
+        struct Backwards {
+            seen: Mutex<Vec<u64>>,
+            finished: AtomicUsize,
+            gave_up: AtomicUsize,
         }
-        let src: [i64; 4] = [1, 2, 3, 4];
-        let done = Finished(Mutex::new(Vec::new()));
-        // SAFETY: four `i64`s in, four out, and `done` outlives the call.
+        unsafe extern "C" fn backwards(state: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
+            // SAFETY: the test hands a live `Backwards`, an `i64` element and
+            // an `i64` slot.
+            let chain = unsafe { &*state.cast::<Backwards>() };
+            // How many steps finish before this one: every later index, so the
+            // last step waits for nobody and the first waits for all of them.
+            let after_me = STEPS - 1 - index as usize;
+            // Through `park_on` and its timer, the way `Clock::sleepMillis`
+            // waits, so a step that is waiting is parked rather than sitting on
+            // a carrier. The sleep is built inside the future for `host.rs`'s
+            // reason: a `tokio` timer registers where it is constructed.
+            let kept = park_on(async {
+                let deadline = Instant::now() + WITHIN;
+                while chain.finished.load(Ordering::SeqCst) < after_me {
+                    // A step that has already given up is one whose turn will
+                    // never come, so the rest stop waiting for it: one failure
+                    // costs one timeout instead of one each.
+                    if Instant::now() >= deadline || chain.gave_up.load(Ordering::SeqCst) > 0 {
+                        return false;
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                true
+            });
+            if !kept {
+                chain.gave_up.fetch_add(1, Ordering::SeqCst);
+            }
+            // Recorded before the count is raised, so the step waiting on this
+            // one cannot record itself first.
+            match chain.seen.lock() {
+                Ok(mut seen) => seen.push(index),
+                Err(poisoned) => poisoned.into_inner().push(index),
+            }
+            chain.finished.fetch_add(1, Ordering::SeqCst);
+            // SAFETY: an `i64` element and an `i64` slot of the answer.
+            unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() * 10 + index as i64) }
+        }
+        let src: [i64; STEPS] = [1, 2, 3, 4];
+        let chain = Backwards {
+            seen: Mutex::new(Vec::new()),
+            finished: AtomicUsize::new(0),
+            gave_up: AtomicUsize::new(0),
+        };
+        // SAFETY: four `i64`s in, four out, and `chain` outlives the call.
         let got = unsafe {
             steps_of(
                 src.as_ptr().cast(),
-                4,
+                STEPS,
                 backwards,
-                (&raw const done).cast_mut().cast(),
+                (&raw const chain).cast_mut().cast(),
                 8,
                 8,
                 true,
             )
         };
         // SAFETY: four `i64`s were written there.
-        assert_eq!(unsafe { i64s(&got, 4) }, vec![10, 21, 32, 43], "the items' order");
+        let answers = unsafe { i64s(&got, STEPS) };
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(got.ptr) };
-        let seen = match done.0.lock() {
+        assert_eq!(answers, vec![10, 21, 32, 43], "the items' order");
+        assert_eq!(
+            chain.gave_up.load(Ordering::SeqCst),
+            0,
+            "a step waited {WITHIN:?} for the one after it and it never finished: the four are \
+             not in flight together, so the completion order below is not the one this case \
+             arranged",
+        );
+        let seen = match chain.seen.lock() {
             Ok(seen) => seen.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
         };
