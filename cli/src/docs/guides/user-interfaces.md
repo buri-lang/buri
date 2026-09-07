@@ -292,6 +292,10 @@ The rest is short:
   tree. A hovered card and a resting one are two snapshots of one tree.
 - The viewport is 800x600 CSS pixels, always.
 - A snapshot name is a file name: never empty, never holding a path separator.
+  It names one file, so two `snapshot` calls with one name share one golden and
+  the last `--update` wins.
+- `.FontSize` and `.LineHeight` bottom out at one pixel. Zero is a size a
+  program may ask for and not a picture anyone can compare.
 - `ui/node`'s `describe(ctx, root, state)` answers the scene document `snapshot`
   paints — every prop read, every style expanded, every child in order. Print it
   when a snapshot surprises you.
