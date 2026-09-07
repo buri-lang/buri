@@ -1312,17 +1312,37 @@ pub unsafe extern "C" fn buri_rt_host_spawn_process(
         // SAFETY: the caller promises a writable destination.
         Err(e) => return unsafe { fail(&e, out_err) },
     };
-    if let Some(mut pipe) = child.stdin.take() {
-        // A child that never reads its input closes the pipe, and writing into
-        // a closed pipe is that child's choice rather than a failure of the
-        // run — so the write is dropped and the exit code is the answer.
-        let _ = pipe.write_all(&input);
-    }
+    // **The input goes down its own thread.** `wait_with_output` is what drains
+    // the child's two streams, and a pipe holds about 64 kilobytes: a program
+    // that wrote the whole input first would stop as soon as the child had
+    // written that much back, with each side waiting for the other to read.
+    // `core/process`'s `run` promises both streams are read while the child
+    // runs, and this is what keeps the promise.
+    //
+    // A child that never reads its input closes the pipe, and writing into a
+    // closed pipe is that child's choice rather than a failure of the run — so
+    // the write is dropped and the exit code is the answer.
+    let feeding = child.stdin.take().map(|mut pipe| {
+        std::thread::spawn(move || {
+            let _ = pipe.write_all(&input);
+            // Dropping the pipe closes it, which is the child's end of input.
+        })
+    });
     let done = match child.wait_with_output() {
         Ok(done) => done,
         // SAFETY: as above.
-        Err(e) => return unsafe { fail(&e, out_err) },
+        Err(e) => {
+            if let Some(handle) = feeding {
+                let _ = handle.join();
+            }
+            return unsafe { fail(&e, out_err) };
+        }
     };
+    if let Some(handle) = feeding {
+        // The child has gone, so the writer is finished or holding a pipe
+        // nobody reads: either way the join is immediate.
+        let _ = handle.join();
+    }
     let value = BuriOutput {
         code: exit_code(&done.status),
         stdout: list_of_bytes(&done.stdout),
