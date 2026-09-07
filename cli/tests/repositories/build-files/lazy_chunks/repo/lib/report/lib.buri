@@ -1,0 +1,17 @@
+// A library that splits itself. `load` is not the binary's alone: a library
+// says which of its own halves is worth a file, and the binary that depends on
+// it gets the chunk without writing anything.
+from "core/effect" import { Alloc };
+from "core/lazy" import * as lazy;
+from "core/str" import * as str;
+
+fn wide<C: Alloc>(ctx: C, rows: Int): Str {
+    str.format(ctx, "ONLY_IN_THE_LIBRARY_CHUNK ${rows}")
+}
+
+/// The report, over `rows` rows. What actually builds it arrives when this is
+/// called and not before.
+export fn render<C: Alloc>(ctx: C, rows: Int): Str {
+    let build = lazy.load(wide);
+    build(ctx, rows)
+}

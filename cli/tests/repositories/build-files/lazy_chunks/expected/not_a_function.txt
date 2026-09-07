@@ -1,7 +1,7 @@
 error: `load` takes the name of a function, and this is a function value [lazy-not-a-function]
-  --> cmd/page/main.buri:23:26
+  --> cmd/page/main.buri:26:26
    |
-23 |     let open = lazy.load(fn(c, rows) => editor(c, rows));
+26 |     let open = lazy.load(fn(c, rows) => editor(c, rows));
    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ nothing to move into a chunk
    |
    = fix: name a function: `lazy.load(adminPage)`

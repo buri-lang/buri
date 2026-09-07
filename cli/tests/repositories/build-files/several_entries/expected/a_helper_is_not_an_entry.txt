@@ -1,0 +1,80 @@
+.buri/out/web/cmd/site/site.mjs (N bytes)
+error: `ui` implements `Ui`, which is not allowed on the CLOUDFLARE_WORKER platform [effect-not-on-platform]
+  --> cmd/site/main.buri:12:18
+   |
+12 |     let _ = host.ui;
+   |                  ^^
+   |
+   = a platform is the set of effects its host exports; the reactive graph drives a document, and only a page has one
+   = fix: drop `Ui` from the context, or build this target for a platform that grants it: WEB
+
+     What to do
+     ──────────
+
+     Drop the effect from the context, or build this target for a platform that
+     grants it. If the fix names no platform to build for, no platform grants
+     the effect yet, and dropping it is the whole fix.
+
+     The error lands on the import when the program imported the name directly,
+     and on the member reference when the host came in as * as host — a
+     namespace import names no effect, so there is nothing to refuse until the
+     program reaches for a member.
+
+     Which platforms it is checked against
+     ─────────────────────────────────────
+
+     - A build producing one output is checked against that output, so
+     buri build --output=js on a binary that also declares WEB compiles only the
+     JS one. A snippet pinned with platform= on its fence works the same way.
+
+     - An entry's own body is checked against the outputs that enter through
+     *that* entry, plus every platform its suite names in test.platforms. So a
+     binary whose page enters at main and whose worker enters at fetch may bind
+     Ui: host.ui in main and Net: host.net in fetch, and neither refuses the
+     other.
+
+     - Anywhere else in `main.buri` — a helper, a top-level named import — is
+     checked against every platform the outputs name, because any of them may
+     reach it. So a binary declaring [MACOS, WEB] whose helper binds FsRead:
+     host.fs is refused, naming WEB.
+
+     - Every other module is checked against the platforms **its own rule
+     declared**. A rule that declared none is never checked, because a library
+     that says nothing about platforms is platform-generic.
+
+     An effect type is never platform-bound. from "core/fs" import { FsRead } is
+     legal on every platform, a page included, and so is core/host/testing's
+     double for every effect. A platform binds the host half — the value main
+     binds.
+
+     Why
+     ───
+
+     A platform *is* the set of effects its host exports, so a platform that
+     does not grant an effect exports no name for it. The check needs only the
+     build file and the import line, both of which the editor has, so the
+     language server reports it as you type. The refusals that stay late —
+     native-run-not-available, cryptography-not-available,
+     networking-not-available — are about what *this toolchain* was built with
+     instead.
+
+     An effect nobody grants yet gets the same sentence, from an empty row in
+     the same table. Listen is granted on LINUX and MACOS, where holding a port
+     open is a native program's authority, and never will be on JS, WEB or
+     CLOUDFLARE_WORKER. A row says who grants an effect now, not when the rest
+     will fill — and it can widen too: Sockets was granted with Listen and only
+     with it, until WebSocketClient let a page get a socket without accepting
+     one.
+
+     Tasks shows the other direction. It landed granted by nobody, then on the
+     platforms that are not a page, and now on every one — one edit to one row
+     each time, and nothing to change in a program already written against the
+     signature.
+
+     A program that provokes it
+     ──────────────────────────
+
+     The same source under platform: WEB compiles and mounts. platform=JS tells
+     the documentation harness which output to check the snippet as; without one
+     it checks with the whole host granted.
+

@@ -1,1 +1,2 @@
 .buri/out/web/cmd/page/page.mjs (N bytes)
+.buri/out/cloudflare-worker/cmd/page/fetch.mjs (N bytes)
