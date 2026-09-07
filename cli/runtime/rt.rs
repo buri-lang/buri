@@ -2730,49 +2730,107 @@ mod tests {
 
     /// The answer is in the **items'** order even when the work is not.
     ///
-    /// Each step sleeps for as long as its index is early, so the tasks finish
-    /// in reverse; the case asserts both halves — that completion really was
-    /// reversed, so the ordering claim is tested rather than accidentally
-    /// satisfied, and that the `[B]` is in index order anyway.
+    /// The steps finish backwards, and they do it **by agreement rather than by
+    /// a clock**: each one waits until every step after it has finished before
+    /// it finishes itself, so index 3 goes first and index 0 goes last on any
+    /// machine. It used to be four sleeps — 80, 60, 40 and 20 ms — which asked
+    /// a loaded scheduler to keep four tasks 20 ms apart, and that is the bet
+    /// `two_tasks_that_wait_overlap` used to make beside it and lost.
+    ///
+    /// Both halves are still here. That completion really was out of order, so
+    /// the ordering claim is tested rather than accidentally satisfied; and
+    /// that the `[B]` is in index order anyway. `gave_up` is the third: it says
+    /// the chain was kept, so a runtime that ran the steps one at a time — and
+    /// could therefore not arrange any completion order at all — is a sentence
+    /// here rather than a hung suite.
+    ///
+    /// The wait is [`park_on`]'s, so a step holds no carrier while it waits for
+    /// the one after it, and four steps that all wait need four carriers no
+    /// more than two do.
     #[test]
     fn a_fan_out_answers_in_the_items_order() {
         // The fan-out draws on the carrier pool, which every other case
         // that reads it takes this lock for.
         let _alone = alone();
-        /// The indices in the order their steps *finished*.
-        struct Finished(Mutex<Vec<u64>>);
-        unsafe extern "C" fn backwards(state: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
-            crate::buri_rt_host_clock_sleep_millis(20 * (4 - index as i64));
-            // SAFETY: the test hands a live `Finished`, an `i64` element and an
-            // `i64` slot.
-            unsafe {
-                let done = &*state.cast::<Finished>();
-                match done.0.lock() {
-                    Ok(mut seen) => seen.push(index),
-                    Err(poisoned) => poisoned.into_inner().push(index),
-                }
-                out.cast::<i64>().write(arg.cast::<i64>().read() * 10 + index as i64);
-            }
+        const STEPS: usize = 4;
+        /// Liveness only: the wait ends when the step after this one finishes.
+        const WITHIN: Duration = Duration::from_secs(10);
+
+        /// The indices in the order their steps *finished*, and the chain that
+        /// decides that order.
+        struct Backwards {
+            seen: Mutex<Vec<u64>>,
+            finished: AtomicUsize,
+            gave_up: AtomicUsize,
         }
-        let src: [i64; 4] = [1, 2, 3, 4];
-        let done = Finished(Mutex::new(Vec::new()));
-        // SAFETY: four `i64`s in, four out, and `done` outlives the call.
+        unsafe extern "C" fn backwards(state: *mut u8, index: u64, arg: *const u8, out: *mut u8) {
+            // SAFETY: the test hands a live `Backwards`, an `i64` element and
+            // an `i64` slot.
+            let chain = unsafe { &*state.cast::<Backwards>() };
+            // How many steps finish before this one: every later index, so the
+            // last step waits for nobody and the first waits for all of them.
+            let after_me = STEPS - 1 - index as usize;
+            // Through `park_on` and its timer, the way `Clock::sleepMillis`
+            // waits, so a step that is waiting is parked rather than sitting on
+            // a carrier. The sleep is built inside the future for `host.rs`'s
+            // reason: a `tokio` timer registers where it is constructed.
+            let kept = park_on(async {
+                let deadline = Instant::now() + WITHIN;
+                while chain.finished.load(Ordering::SeqCst) < after_me {
+                    // A step that has already given up is one whose turn will
+                    // never come, so the rest stop waiting for it: one failure
+                    // costs one timeout instead of one each.
+                    if Instant::now() >= deadline || chain.gave_up.load(Ordering::SeqCst) > 0 {
+                        return false;
+                    }
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                true
+            });
+            if !kept {
+                chain.gave_up.fetch_add(1, Ordering::SeqCst);
+            }
+            // Recorded before the count is raised, so the step waiting on this
+            // one cannot record itself first.
+            match chain.seen.lock() {
+                Ok(mut seen) => seen.push(index),
+                Err(poisoned) => poisoned.into_inner().push(index),
+            }
+            chain.finished.fetch_add(1, Ordering::SeqCst);
+            // SAFETY: an `i64` element and an `i64` slot of the answer.
+            unsafe { out.cast::<i64>().write(arg.cast::<i64>().read() * 10 + index as i64) }
+        }
+        let src: [i64; STEPS] = [1, 2, 3, 4];
+        let chain = Backwards {
+            seen: Mutex::new(Vec::new()),
+            finished: AtomicUsize::new(0),
+            gave_up: AtomicUsize::new(0),
+        };
+        // SAFETY: four `i64`s in, four out, and `chain` outlives the call.
         let got = unsafe {
             steps_of(
                 src.as_ptr().cast(),
-                4,
+                STEPS,
                 backwards,
-                (&raw const done).cast_mut().cast(),
+                (&raw const chain).cast_mut().cast(),
                 8,
                 8,
                 true,
             )
         };
         // SAFETY: four `i64`s were written there.
-        assert_eq!(unsafe { i64s(&got, 4) }, vec![10, 21, 32, 43], "the items' order");
+        let answers = unsafe { i64s(&got, STEPS) };
         // SAFETY: the only reference.
         unsafe { crate::memory::buri_rt_free(got.ptr) };
-        let seen = match done.0.lock() {
+        assert_eq!(answers, vec![10, 21, 32, 43], "the items' order");
+        assert_eq!(
+            chain.gave_up.load(Ordering::SeqCst),
+            0,
+            "a step waited {WITHIN:?} for the one after it and it never finished: the four are \
+             not in flight together, so the completion order below is not the one this case \
+             arranged",
+        );
+        let seen = match chain.seen.lock() {
             Ok(seen) => seen.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
         };
