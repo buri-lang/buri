@@ -826,7 +826,13 @@ fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(): Client<C, Int> {
   Client {
     url: "wss://example.test/feed",
     onOpen: fn(c, socket, response) => {
-      let _said = io.println(c, "page opened ${response.status}").ignore();
+      // **What a page knows about its own handshake, which is two fields.**
+      // The browser's `WebSocket` never shows the response, so `Connected`
+      // carries the negotiated subprotocol and extensions and nothing else —
+      // where a native program gets the head the server sent. This is the one
+      // of the two a program actually reads.
+      let spoke = response.header("sec-websocket-protocol").withDefault("none");
+      let _said = io.println(c, "page opened ${response.status} ${spoke}").ignore();
       let _sent = socket.send(c, .Text("subscribe"));
       0
     },
@@ -901,7 +907,9 @@ console.log(log.join("\n"));
 
     for line in [
         "mounted",
-        "page opened 101",
+        // `feed.v1` is what the double negotiated, and the empty `extensions`
+        // beside it is why there is exactly one header rather than two.
+        "page opened 101 feed.v1",
         "page heard text 3 one",
         // A message of nothing and a message of octets, both of which a page
         // is owed and neither of which is a `.Text` of three characters.
@@ -1102,7 +1110,11 @@ fn silent<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str): Client<C, In
 ///   reads back off the wire as 1000.
 ///
 /// The second session is a connection that breaks: the far side goes without a
-/// close frame, and the program is told `.Abnormal`.
+/// close frame, and the program is told `.Abnormal`. The third is the one place
+/// a page's close differs from a native program's: the program hangs up with
+/// `.GoingAway`, and what the far side is told is **1000**, because the
+/// browser's `WebSocket.close` throws on every code but 1000 and the private
+/// range.
 ///
 /// **Why the program closes rather than the server, unlike the native row.**
 /// The two engines this suite runs on do not agree about a close they were
@@ -1132,6 +1144,7 @@ from "core/env" import * as env;
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
+from "core/net/server" import { CloseReason };
 from "core/net/websocket" import * as websocket;
 from "core/net/websocket" import { Client };
 from "core/str" import * as str;
@@ -1142,6 +1155,7 @@ fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(
   url: Str,
   large: Int,
   hangUpAt: Int,
+  saying: CloseReason,
 ): Client<C, Int> {
   Client {
     url: url,
@@ -1161,7 +1175,7 @@ fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(
         .Binary(data) => io.println(c, "binary ${data.len()}").ignore(),
       };
       let next = seen + 1;
-      let _closed = if (next == hangUpAt) { socket.close(c, .Normal) } else { () };
+      let _closed = if (next == hangUpAt) { socket.close(c, saying) } else { () };
       next
     },
     onClose: fn(c, _socket, seen, reason) => {
@@ -1176,8 +1190,9 @@ fn dialling<C: Alloc + Sockets + Stdout + WebSocketClient>(
   url: Str,
   large: Int,
   hangUpAt: Int,
+  saying: CloseReason,
 ): () {
-  match (websocket.connect(ctx, feed(url, large, hangUpAt))) {
+  match (websocket.connect(ctx, feed(url, large, hangUpAt, saying))) {
     .Err(e) => {
       let _said = io.println(ctx, "refused ${e.cause}").ignore();
       ()
@@ -1206,8 +1221,12 @@ export fn main(): Result<(), Str> {
   // sends nothing large, because what it is about is the ending and a second
   // seventy-kilobyte round trip through an engine's own `WebSocket` is seconds
   // of this suite's budget for a claim the first session already made.
-  let _first = dialling(ctx, url, large, 7);
-  let _second = dialling(ctx, url, 0, 7);
+  let _first = dialling(ctx, url, large, 7, .Normal);
+  let _second = dialling(ctx, url, 0, 7, .Normal);
+  // And a third, which hangs up on the first message with a reason that is not
+  // `.Normal`. What the far side is told is the platform's decision, and this
+  // is where a page differs from a native program.
+  let _third = dialling(ctx, url, 0, 1, .GoingAway);
   .Ok(())
 }
 "#,
@@ -1249,6 +1268,8 @@ export fn main(): Result<(), Str> {
     ]);
     let mut second = saying();
     second.extend([Step::Text(String::from("bye")), Step::Drop]);
+    let mut third = saying();
+    third.extend([Step::Text(String::from("go")), Step::Bye(1000)]);
     // The second session's six are the same six shapes with nothing large in
     // them, which is what its `large` of zero collapses the two big ones to.
     let small = || {
@@ -1261,7 +1282,7 @@ export fn main(): Result<(), Str> {
             Heard::Binary(Vec::new()),
         ]
     };
-    let serving = crate::harness::websocket::serving(vec![first, second]);
+    let serving = crate::harness::websocket::serving(vec![first, second, third]);
     let port = serving.port;
 
     let out = Command::new(js_runtime())
@@ -1284,7 +1305,8 @@ export fn main(): Result<(), Str> {
             "opened 101\ntext 0 \ntext 1 x\ntext {LARGE} {large}\nbinary 0\nbinary 1\n\
              binary {LARGE}\ntext 12 h\u{e9}llo \u{1f30a} done\n\
              closed after 7 .Normal\nended .Normal\n\
-             opened 101\ntext 3 bye\nclosed after 1 .Abnormal\nended .Abnormal\n"
+             opened 101\ntext 3 bye\nclosed after 1 .Abnormal\nended .Abnormal\n\
+             opened 101\ntext 2 go\nclosed after 1 .Normal\nended .Normal\n"
         ),
         "a frame was lost, a ping reached the program, or an ending was read as \
          the wrong one:\n{stderr}"
@@ -1302,9 +1324,18 @@ export fn main(): Result<(), Str> {
     let mut first_heard = said();
     // `.Normal` is 1000 on the wire, and this is the far side reading it.
     first_heard.push(Heard::Closed(Some(1000)));
+    let mut third_heard = small();
+    // **And `.GoingAway` is 1000 here too, which is the divergence.** A page's
+    // `WebSocket.close` accepts 1000 and the private range 3000–4999 and throws
+    // on everything else, so `runtime.js` sends 1000 rather than losing the
+    // close — and the program is handed `.Normal` back, because 1000 is what
+    // the engine then reports. A native program's far side reads 1001, which
+    // `native::e2e::a_client_carries_every_size_and_is_told_nothing_of_a_ping`
+    // asserts; `design/native/DECISIONS.md` carries the row.
+    third_heard.push(Heard::Closed(Some(1000)));
     assert_eq!(
         heard,
-        vec![first_heard, small()],
+        vec![first_heard, small(), third_heard],
         "what the client wrote is not what the far side read.\nit said:\n{stdout}"
     );
 }

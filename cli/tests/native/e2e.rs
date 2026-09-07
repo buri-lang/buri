@@ -2803,12 +2803,17 @@ fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str, large: Int): Cl
             let _bytes = socket.send(c, .Binary(list.repeat(c, 7, large)));
             0
         },
-        onMessage: fn(c, _socket, seen, message) => {
+        onMessage: fn(c, socket, seen, message) => {
             let _said = match (message) {
                 .Text(text) => io.println(c, "text ${text.len()} ${text}").ignore(),
                 .Binary(data) => io.println(c, "binary ${data.len()}").ignore(),
             };
-            seen + 1
+            let next = seen + 1;
+            // The seventh is the last the far side sends, and this end hangs up
+            // on it — with a reason that is not the default one, so the number
+            // that goes out is a number this program chose.
+            let _closed = if (next == 7) { socket.close(c, .GoingAway) } else { () };
+            next
         },
         onClose: fn(c, _socket, seen, reason) => {
             io.println(c, "closed after ${seen} ${reason}").ignore()
@@ -2866,9 +2871,13 @@ export fn main(): Result<(), Str> {
 ///   pings, the program is told nothing, and the socket goes on working — which
 ///   the message *after* the ping is the evidence for.
 /// * **A fragmented message is one message.** Three frames go out — one text
-///   with `FIN` clear and two continuations — and `onMessage` runs once with
-///   the whole of it. The payload is not ASCII, so a reassembly that cut a
-///   multi-octet character in half would print something else.
+///   with `FIN` clear and two continuations, cut in the middle of two
+///   characters — and `onMessage` runs once with the whole of it. A reassembly
+///   that decoded each frame on its own would print something else.
+/// * **A close this end started carries the code this end chose.** The program
+///   hangs up with `.GoingAway`, the far side reads 1001 off the wire, and
+///   `onClose` is handed `.GoingAway` back. The row above is every close that
+///   comes *in*; this is the one that goes out.
 #[test]
 fn a_client_carries_every_size_and_is_told_nothing_of_a_ping() {
     unless_ready!();
@@ -2903,7 +2912,9 @@ fn a_client_carries_every_size_and_is_told_nothing_of_a_ping() {
                 .map(|piece| piece.to_vec())
                 .collect(),
         ),
-        Step::Close(Some(1000)),
+        // The program hangs up on the seventh message; this reads the close it
+        // sent and answers it.
+        Step::Bye(1000),
     ]]);
     let port = serving.port;
     let said = dialled_client_rounds(&client, port, LARGE);
@@ -2919,7 +2930,7 @@ fn a_client_carries_every_size_and_is_told_nothing_of_a_ping() {
     // three fragments cut two of those characters in half.
     let wanted = format!(
         "text 0 \ntext 1 x\ntext {LARGE} {large}\nbinary 0\nbinary 1\nbinary {LARGE}\n\
-         text 12 h\u{e9}llo \u{1f30a} done\nclosed after 7 .Normal\nended .Normal\n"
+         text 12 h\u{e9}llo \u{1f30a} done\nclosed after 7 .GoingAway\nended .GoingAway\n"
     );
     assert_eq!(
         said.stdout, wanted,
@@ -2936,6 +2947,11 @@ fn a_client_carries_every_size_and_is_told_nothing_of_a_ping() {
             Heard::Binary(Vec::new()),
             Heard::Binary(vec![7]),
             Heard::Binary(vec![7; LARGE]),
+            // **The close code a program chose, as the far side read it.**
+            // `.GoingAway` is 1001, and a native client writes the number
+            // whole — which is the half of the mapping the row above cannot
+            // see, because there every close came *in*.
+            Heard::Closed(Some(1001)),
         ]],
         "what the client wrote is not what the far side read.\nthe client said:\n{}",
         said.stdout
@@ -2985,6 +3001,93 @@ fn a_server_that_answers_nothing_at_all_is_a_socket_that_never_opened() {
     assert!(
         !said.stdout.contains("client opened") && !said.stdout.contains("client closed"),
         "a hook ran for a socket that never opened.\nthe client said:\n{}",
+        said.stdout
+    );
+}
+
+/// A client whose `onOpen` divides by zero.
+///
+/// The socket opens, the hook runs, and the hook aborts — which is the only way
+/// a Buri hook can fail, because the language has no exceptions and nothing can
+/// catch an abort.
+fn aborting_client() -> String {
+    String::from(
+        r#"from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Env: host.env,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        WebSocketClient: host.websocketClient,
+    };
+    let port = env.args(ctx).first().withDefault("0");
+    let zero = port.len() - port.len();
+    let dialled = websocket.connect(ctx, Client {
+        url: str.format(ctx, "ws://127.0.0.1:${port}/socket"),
+        onOpen: fn(c, _socket, _response) => {
+            let _said = io.println(c, "the hook ran").ignore();
+            // Not a literal, so it is a division the front end cannot fold
+            // away: the port's own length, minus itself.
+            1 / zero
+        },
+        onMessage: fn(_c, _socket, seen, _message) => seen + 1,
+        onClose: fn(c, _socket, _seen, _reason) => io.println(c, "closed").ignore(),
+    });
+    let _said = match (dialled) {
+        .Err(e) => io.println(ctx, "refused ${e.cause}").ignore(),
+        .Ok(reason) => io.println(ctx, "ended ${reason}").ignore(),
+    };
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **A hook that aborts aborts the program, and `connect` does not swallow
+/// it.**
+///
+/// The negative twin of every row above, and the only failure a *hook* has:
+/// the language has no exceptions and nothing catches an abort, so a hook that
+/// divides by zero is a process that stops with the message
+/// `cli/tests/crash/` pins for that operation and a status that is not zero.
+///
+/// It matters that this is asserted rather than assumed, because `connect` is a
+/// loop with the hooks inside it: a runtime that ran a hook behind a boundary
+/// which turned a fault into a value would print `ended` and exit `0`, and
+/// every row above would still be green.
+#[test]
+fn a_hook_that_aborts_stops_the_program_rather_than_the_socket() {
+    unless_ready!();
+    let client = built("e2e-client-hook-aborts", &aborting_client());
+    let serving = crate::websocket::serving(vec![vec![
+        crate::websocket::Step::Text(String::from("never read")),
+        crate::websocket::Step::Close(Some(1000)),
+    ]]);
+    let port = serving.port;
+    let said = dialled_client(&client, port);
+    let _sessions = serving.heard();
+    assert_ne!(said.status, 0, "an abort inside a hook exited 0.\nstdout:\n{}", said.stdout);
+    assert!(
+        said.stderr.contains("division by zero"),
+        "the abort did not name what went wrong.\nstderr:\n{}",
+        said.stderr
+    );
+    assert!(
+        said.stdout.contains("the hook ran"),
+        "the hook never ran, so this row proved nothing about a hook.\nstdout:\n{}",
+        said.stdout
+    );
+    assert!(
+        !said.stdout.contains("ended") && !said.stdout.contains("closed"),
+        "`connect` answered for a program that had already stopped.\nstdout:\n{}",
         said.stdout
     );
 }
