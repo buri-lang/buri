@@ -850,10 +850,17 @@ fn show(id: &str, presentation: &Presentation) -> i32 {
         }
     }
     eprintln!("error: there is no documentation topic `{id}`");
-    let all: Vec<Entry> = sources.iter().flat_map(|s| s.entries()).collect();
-    let ids: Vec<&str> = all.iter().map(|e| e.id.as_str()).collect();
-    if let Some(near) = crate::build::buildfile::nearest(id, &ids) {
-        eprintln!("  = did you mean `{near}`?");
+    // A module this library used to have has a known answer, and the nearest
+    // id by edit distance is not it: `core/char` is two letters from
+    // `core/actor` and five from the module it became.
+    if let Some(now) = crate::compiler::standard_library::retired(id) {
+        eprintln!("  = `{id}` is now `{now}`");
+    } else {
+        let all: Vec<Entry> = sources.iter().flat_map(|s| s.entries()).collect();
+        let ids: Vec<&str> = all.iter().map(|e| e.id.as_str()).collect();
+        if let Some(near) = crate::build::buildfile::nearest(id, &ids) {
+            eprintln!("  = did you mean `{near}`?");
+        }
     }
     eprintln!("  = `buri docs` lists every topic; `buri docs search <words>` looks inside them");
     2
