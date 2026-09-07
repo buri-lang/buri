@@ -2,47 +2,35 @@
 //!
 //! Only the module that exports `main` may import `core/host`. This is the same
 //! surface for a test source, and the `testing` segment in the path is the whole
-//! of that rule (SPEC 4.1.1). The two restrictions have the same shape, so
-//! between them they still name every place in a program where authority can
-//! enter.
+//! of that rule (SPEC 4.1.1).
 //!
 //! Every name here is `core/host`'s name — `alloc`, `stdout`, `stderr`,
 //! `stdin`, `fs`, `net`, `clock`, `rand`, `entropy`, `env`, `proc`, `sockets` —
-//! but **called** rather than referred to.
-//! `core/host`'s `clock` is one clock because a process has one. `clock()` is a
-//! fresh one every call, so what one test does to it is invisible to the next.
-//! That is the whole reason these are functions and `core/host`'s are `let`s.
+//! but **called** rather than referred to. `core/host`'s `clock` is one clock
+//! because a process has one. `clock()` is a fresh one every call, so what one
+//! test does to it is invisible to the next.
 //!
 //! Configuration is a **method on the value that answers a new handle**:
 //! `clock().at(1000)`, `rand().seed(7)`,
 //! `env().variables([...]).arguments([...])`.
-//! There is no second, free-function spelling of any of them. A reader who knows
-//! `clock()` should not have to learn another name to start it somewhere else,
-//! and a chain reads in the order it is applied.
+//! There is no free-function spelling of any of them.
 //!
 //! Most structs carry an `I64` handle rather than their state. A captured stdout
-//! accumulates what a test writes to it, and Buri has no mutation. So the state
-//! lives on the runner's side and the value here names it: `$t.h` in
-//! `backend/js/runtime.js` on one backend, `TABLE` in `cli/runtime/testing.rs` on
-//! the other. That is one design written twice, because the *program* is what has
-//! to behave identically.
+//! accumulates what a test writes to it, and Buri has no mutation, so the state
+//! lives on the runner's side and the value here names it.
 //!
-//! `TestNet` is the exception, and the exception is the rule read carefully. Its
-//! configuration is a **responder**, which is behaviour rather than state, and
-//! behaviour is precisely what a runner written in Rust and JavaScript cannot
-//! hold on a program's behalf. It carries the function itself, `fetch` is a Buri
-//! body, and no runtime table names `fetch` at all. `TestNet`'s own documentation
-//! has the two reasons in full. It carries a handle beside the responder, and
-//! that is the same rule rather than an exception to it: the handle names its
-//! **log**, and a log is state.
+//! `TestNet` is the exception. Its configuration is a **responder**, which is
+//! behaviour rather than state, and behaviour is what a runner written in Rust
+//! and JavaScript cannot hold for a program. So it carries the function itself
+//! and `fetch` is a Buri body. The handle beside the responder names its **log**,
+//! and a log is state like any other.
 //!
-//! `TestFs` is the second value that is not a bare handle, and the second reason
-//! is the first one read again. A fault plan holds `IoError` *values* and
-//! `IoError.Other` carries a `Str`, which `cli/runtime/lib.rs` §2.1 has no way to
-//! hand back across a row. So the plan travels in the program, and the twelve
-//! methods of `FsRead` and `FsWrite` are Buri bodies over rows that take the
-//! handle. The runner holds what it can: the log, the files, and which entries of
-//! the plan have fired.
+//! `TestFs` is the second value that is not a bare handle. A fault plan holds
+//! `IoError` *values* and `IoError.Other` carries a `Str`, which
+//! `cli/runtime/lib.rs` §2.1 cannot hand back across a row. So the plan travels
+//! in the program, and the twelve methods of `FsRead` and `FsWrite` are Buri
+//! bodies over rows that take the handle. The runner holds the log, the files,
+//! and which entries of the plan have fired.
 //!
 //! **One `TestFs` implements both effects, and a context that reads and writes
 //! has to bind that one value to both names.** Two `fs()` calls are two
@@ -62,18 +50,15 @@
 //! ## The call log
 //!
 //! `TestFs`, `TestNet` and `TestStdin` each keep every call made through the
-//! handle, and `calls()` answers them **in the order they completed**. What a
-//! test asserts on is still the outcome — the return value, `snapshot()`,
-//! `captured()` — and the log is for the assertions those cannot make: that a
-//! cache was consulted once and not twice, that nothing was written at all, that
-//! a retry went to the same URL. One `Call` record per double, built by a
-//! constructor named after the method it records, compared by `Eq` and printed by
-//! `Show`.
+//! handle, and `calls()` answers them **in the order they completed**. The log is
+//! for the assertions an outcome cannot make: that a cache was consulted once and
+//! not twice, that nothing was written at all, that a retry went to the same URL.
+//! One `Call` record per double, built by a constructor named after the method it
+//! records, compared by `Eq` and printed by `Show`.
 //!
-//! `TestProc` is the other type with no state, for the plainer reason: it has
-//! nothing to read back. `exitWith` absorbs the call so that a test which exits
-//! keeps running, and what a test asserts is what it does *after* the exit — so
-//! there is nothing left for the runner to hold, and no row either.
+//! `TestProc` has nothing to read back. `exitWith` absorbs the call so that a
+//! test which exits keeps running, and what a test asserts is what it does
+//! *after* the exit.
 //!
 //! ## The fault plan
 //!
@@ -85,27 +70,20 @@
 //! environment and failure comes from the plan**: `files` and `respond` say what
 //! a call finds, and nothing else in the module says what a call answers.
 //!
-//! **A fault whose call never happens fails the test.** The program cannot check
-//! that claim for itself — the block has returned by the time anyone could — so
-//! the runner checks it. `buri_rt_test_leave(index)` runs after every `test` body
-//! and reports the plans declared inside it that have entries nothing fired. It
-//! is the reason `TestFs` and `TestNet` each carry two things, a handle and a
-//! plan, and the reason `faults` hands the runner a rendering of each entry as it
-//! installs it.
+//! **A fault whose call never happens fails the test.** The runner checks it
+//! after every `test` body and reports the plans with entries nothing fired.
 //!
 //! ## A socket with no network behind it
 //!
 //! `sockets()` is the one double a program takes a **handle out of**: `open()`
-//! mints a `Socket` and `sent()` reads back `[(Socket, Message)]`. Every other
-//! double here is configured with values a test wrote down; a socket is the one
-//! thing in `core/net/server` a test cannot write down, because a `Socket` a
-//! program invents names nothing, which is the point of the type.
+//! mints a `Socket` and `sent()` reads back `[(Socket, Message)]`. A socket is
+//! the one thing in `core/net/server` a test cannot write down for itself,
+//! because a `Socket` a program invents names nothing.
 //!
-//! It is only the writing half. Reading a socket belongs to `Listen`, a fake
-//! acceptor is a value a test writes for itself, and that module's own
-//! documentation has the argument. What this closes is the gap that argument
-//! leaves: a hand-written `Sockets` records nothing, because an effect method
-//! takes only `self` and `self` is immutable.
+//! It is only the writing half. Reading a socket belongs to `Listen`, and a fake
+//! acceptor is a value a test writes for itself. What this closes is the other
+//! half: a hand-written `Sockets` records nothing, because an effect method takes
+//! only `self` and `self` is immutable.
 //!
 //! ## The order the work happens in
 //!
@@ -116,33 +94,21 @@
 //! value a test writes down: program order by default, `anyOrder()` for one
 //! seeded order, and `everyOrder()` for all of them. `everyOrder()` re-runs the
 //! `test` body once per completion order, so the assertion at the end of it is an
-//! assertion about every order rather than about one. A seed is the order's own
-//! number, so a failure names a line that replays it.
+//! assertion about every order. A seed is the order's own number, so a failure
+//! names a line that replays it.
 //!
-//! **It covers `scope` and `spawn` too, and needs no second builder to.** A
-//! scope collects what was spawned and runs a round of it through
-//! `Tasks.parallel`, so the order the double chooses for a `parallel` is the
-//! order the spawned tasks run in, and `calls()` reports them the way it reports
-//! any others. Nothing here waits on real time either: a task that sleeps sleeps
-//! on `clock()`, which moves a counter.
+//! **It covers `scope` and `spawn` too.** A scope collects what was spawned and
+//! runs a round of it through `Tasks.parallel`, so the order the double chooses
+//! for a `parallel` is the order the spawned tasks run in. Nothing here waits on
+//! real time either: a task that sleeps sleeps on `clock()`, which moves a
+//! counter.
 //!
-//! ## `arguments`, and the name that had to move to make room for it
+//! ## `arguments`
 //!
-//! Every builder here is spelled exactly as the design note writes it, and
-//! `arguments` is the one that cost something. A type's methods are one map keyed
-//! by name — an `impl Env for TestEnv` method registers into it through the same
-//! call an inherent one does. The arity and the return type separate nothing, so
-//! `Env`'s reader and this builder cannot both be `arguments`. Behind that they
-//! would mangle to one intrinsic key and one C symbol in each of the two runtime
-//! tables.
-//!
-//! So **the reader moved**. `core/effect`'s `Env` declares `args(self): [Str]`
-//! now, the name a program already used: `core/env` has always exported
-//! `args(ctx)` and was the only caller of the method. That leaves
-//! `TestEnv.arguments([Str])` as the builder. The reader is on the effect and the
-//! builder is on the double, so the two never meet on one type anyway. What they
-//! were competing for was the name, and the name went to the surface a test
-//! writes.
+//! A type's methods are one map keyed by name, so `Env`'s reader and this
+//! builder cannot both be `arguments`. The reader is `args(self): [Str]` on
+//! `core/effect`'s `Env` — the name `core/env` already used — which leaves
+//! `TestEnv.arguments([Str])` as the builder.
 
 from "core/effect" import {
     Alloc, Clock, Connected, Entropy, Env, Frame, Header, IoError, Method, Net,
@@ -155,9 +121,8 @@ from "core/effect" import {
 from "core/fs" import { FsRead, FsWrite };
 
 // The one module above `core/effect` this one imports, and it is the surface
-// rather than the authority. `Socket` and `Message` are inert data that
-// `core/net/server` declares. A double whose readers spoke in `Int`s and framing
-// tags would be a double a test had to translate out of.
+// rather than the authority: `Socket` and `Message` are inert data that
+// `core/net/server` declares.
 from "core/net/server" import { Message, Socket };
 from "core/path" import { Path };
 
@@ -167,8 +132,7 @@ from "core/path" import { Path };
 ///
 /// The one double with no state at all. The charge comes from the *types*
 /// (`core/effect`'s `Alloc`), so `allocate` answers the byte count it was asked
-/// for and the handle names nothing. Both native backends open-code it for
-/// exactly that reason.
+/// for and the handle names nothing.
 export struct TestAlloc(I64);
 
 impl Alloc for TestAlloc {
@@ -179,16 +143,14 @@ export fn alloc(): TestAlloc;
 
 // --- Output -------------------------------------------------------------------
 
-/// Captured, and never printed. `captured` is the only way to read it back,
-/// which makes a test's output something to assert on rather than something to
-/// watch scroll past — a failing test says so through its assertion.
+/// Captured, and never printed. `captured` is the only way to read it back, so a
+/// test's output is something to assert on rather than something to watch scroll
+/// past.
 export struct TestStdout(I64);
 
 impl Stdout for TestStdout {
-    /// Always `.Ok(())`. A captured stream is a buffer the runner owns, so there
-    /// is nothing here to fail — and the `Result` is still in the signature,
-    /// because the effect declares it and a test writes the same line a program
-    /// does.
+    /// Always `.Ok(())`: a captured stream is a buffer the runner owns, so there
+    /// is nothing here to fail.
     fn print(self, text: Template): Result<(), IoError>;
 
     fn println(self, text: Template): Result<(), IoError>;
@@ -217,8 +179,7 @@ impl Stderr for TestStderr {
 export fn stderr(): TestStderr;
 
 impl TestStderr {
-    /// Everything written to this stream so far. The same name `TestStdout`
-    /// carries: two types, one question, and the receiver says which stream.
+    /// Everything written to this stream so far.
     export fn captured(self): Str;
 }
 
@@ -227,9 +188,8 @@ impl TestStderr {
 /// End of input, until a test says otherwise: `readLine` and `readBytes` both
 /// answer `.None`.
 ///
-/// `core/host`'s `stdin` is the process's, which a test must never read — a suite
-/// that blocked on a pipe nobody was writing to would hang rather than fail. This
-/// one is a fixture, and the default fixture is the empty one.
+/// `core/host`'s `stdin` is the process's, which a test must never read: a suite
+/// that blocked on a pipe nobody was writing to would hang rather than fail.
 export struct TestStdin(I64);
 
 impl Stdin for TestStdin {
@@ -246,11 +206,10 @@ impl TestStdin {
 
     /// A **new** stdin reading those octets, then end of input.
     ///
-    /// `lines` and `bytes` **replace** each other rather than composing the way
-    /// `TestEnv`'s two builders do, and that is the difference between two axes
-    /// and one. A stream is either the lines a test wrote or the octets it wrote,
-    /// and a stdin built from octets answers `.None` to `readLine`. The last
-    /// builder in the chain is the stream.
+    /// `lines` and `bytes` **replace** each other rather than composing. A stream
+    /// is either the lines a test wrote or the octets it wrote, so a stdin built
+    /// from octets answers `.None` to `readLine`, and the last builder in the
+    /// chain is the stream.
     export fn bytes(self, b: [U8]): TestStdin;
 
     /// Every read made through this handle, in the order they completed.
@@ -268,26 +227,20 @@ impl TestStdin {
 /// filesystem's does — so `writeFileBytes` of a byte a text encoding cannot carry
 /// reads back through `readFileBytes` unchanged.
 ///
-/// An in-memory filesystem is thinner than a real one in two places, both
-/// observable and both deliberate. It is a flat map of paths, so the parents of a
-/// fixture's path are not directories until `makeDir` says so; and `sync` has
-/// nothing to flush, so it is `.Ok` for any path that exists. Everything else —
-/// append creating a file, rename replacing one, removing what is not there —
-/// answers exactly what a real filesystem answers, which is what lets one
-/// conformance block run against both.
+/// An in-memory filesystem is thinner than a real one in two observable places.
+/// It is a flat map of paths, so the parents of a fixture's path are not
+/// directories until `makeDir` says so; and `sync` has nothing to flush, so it is
+/// `.Ok` for any path that exists. Everything else — append creating a file,
+/// rename replacing one, removing what is not there — answers exactly what a real
+/// filesystem answers.
 ///
 /// ## Two fields, for `TestNet`'s reason
 ///
 /// `handle` names the runner-side state — the files, the attenuation, the log,
-/// and the plan's own bookkeeping — and `faults` is the **plan itself**, which
-/// stays in the program. A fault carries an `IoError`, and `IoError.Other`
-/// carries a `Str`. `cli/runtime/lib.rs` §2.1 names an error variant by its index
-/// and restricts that variant to carrying no fields, so a row could not hand the
-/// value back even if the runner held it. So the plan is a Buri value, the match
-/// is the `Eq` the `FsCall` records derive, and every method here is a body that
-/// asks the plan before it calls its row. The runner keeps what a failure message
-/// needs and which entries have fired, which is the one half of `faults` a
-/// program cannot remember for itself.
+/// and the plan's own bookkeeping — and `plan` is the fault plan, which stays in
+/// the program because `cli/runtime/lib.rs` §2.1 cannot hand an error variant
+/// with a field back across a row. So the match is the `Eq` the `FsCall` records
+/// derive, and every method here asks the plan before it calls its row.
 export struct TestFs {
     handle: I64,
     plan: [FsFault],
@@ -302,9 +255,9 @@ impl FsRead for TestFs {
         }
     }
 
-    /// The one method of the filesystem that cannot fail, and so the one no fault
-    /// can ever fire on. A plan naming it is a plan whose call never happens,
-    /// which the post-condition reports at the end of the block.
+    /// The one method of the filesystem that cannot fail, so no fault ever fires
+    /// on it. A plan naming it is a plan whose call never happens, which fails the
+    /// test at the end of the block.
     fn fileExists(self, path: Path): Bool {
         fsFileExists(self.handle, path.text())
     }
@@ -368,9 +321,7 @@ impl FsWrite for TestFs {
         }
     }
 
-    /// Empty directories only, as a real filesystem's `rmdir(2)` is. The flat map
-    /// has no containment, so the double answers "empty" off the same two lists
-    /// `readDir` reads.
+    /// Empty directories only, as a real filesystem's `rmdir(2)` is.
     fn removeDir(self, path: Path): Result<(), IoError> {
         let at = path.text();
         match (self.planned(removeDir(at))) {
@@ -417,18 +368,15 @@ impl TestFs {
     /// A **new** handle onto the *same* files, through which every write fails
     /// with `.ReadOnly`.
     ///
-    /// An attenuator as a method rather than as a wrapper type, and it keeps what
-    /// made a wrapper a wrapper. It holds the inner filesystem rather than a copy
-    /// of it, so a read through the attenuated handle sees whatever that
-    /// filesystem holds *now*. It forwards `readFile`, `fileExists`, `readDir`,
-    /// `readFileBytes` and `syncFile` — `sync` is not a write and there is
-    /// nothing this could be hiding — and refuses the six that write.
+    /// It holds the inner filesystem rather than a copy of it, so a read through
+    /// the attenuated handle sees whatever that filesystem holds *now*. It
+    /// forwards `readFile`, `fileExists`, `readDir`, `readFileBytes` and
+    /// `syncFile` — `sync` is not a write — and refuses the six that write.
     ///
     /// It attenuates *this* filesystem and no other. A test that wants to
-    /// attenuate a filesystem of its own writes the wrapper, an ordinary
-    /// `impl<C: FsWrite> FsWrite for Wrapper<C>` that needs nothing from this
-    /// module (SPEC 10.8). It is eight methods rather than twelve, because the
-    /// reading half is a second effect it can simply not implement.
+    /// attenuate a filesystem of its own writes an ordinary
+    /// `impl<C: FsWrite> FsWrite for Wrapper<C>`, which needs nothing from this
+    /// module (SPEC 10.8).
     export fn readOnly(self): TestFs {
         TestFs { handle: fsReadOnly(self.handle), plan: self.plan }
     }
@@ -447,15 +395,13 @@ impl TestFs {
     /// is not performed — nothing is written and nothing is removed — and it is
     /// still a call, so `calls()` has it.
     ///
-    /// **A fault whose call never happens fails the test.** A plan is a claim
-    /// about what the code under test does, and a claim nothing exercised is one
-    /// the next change to that code will quietly stop being true. The runner
-    /// checks it at the end of the block, so an unconsumed fault is a failure with
-    /// the fault's own spelling in it rather than a test that passed.
+    /// **A fault whose call never happens fails the test.** The runner checks it
+    /// at the end of the block, and an unconsumed fault is a failure with the
+    /// fault's own spelling in it.
     ///
-    /// `faults` **replaces** rather than composing, as `respond` does and for the
-    /// same reason: two plans for one call have no answer to which of them wins.
-    /// The plan it replaced is retired, and its promise with it.
+    /// `faults` **replaces** rather than composing, as `respond` does: two plans
+    /// for one call have no answer to which of them wins. The plan it replaced is
+    /// retired, and its promise with it.
     export fn faults(self, plan: [FsFault]): TestFs {
         let handle = fsWithPlan(self.handle);
         let _ = describeFsPlan(handle, plan, 0);
@@ -464,20 +410,17 @@ impl TestFs {
 
     /// What this filesystem holds at `path`, or `.Err(.NotFound)`.
     ///
-    /// The same answer `readFile` gives, reachable without `FsRead`. A test
-    /// asserting on what a function *wrote* is reading an environment back rather
-    /// than performing an effect, and should not have to bind one to do it. A
-    /// read-back is not a call, and no fault fires on one.
+    /// The same answer `readFile` gives, reachable without `FsRead`, because
+    /// reading an environment back is not performing an effect. A read-back is not
+    /// a call, and no fault fires on one.
     export fn read(self, path: Str): Result<Str, IoError> {
         fsRead(self.handle, path)
     }
 
     /// Every file, as text, **sorted by path**.
     ///
-    /// Sorted rather than in the order the writes happened, because the order of
-    /// the writes is `calls()`'s question and the contents is this one's. A test
-    /// that asserted on insertion order would fail the day a function under test
-    /// reordered two writes that do not interact.
+    /// Sorted rather than in the order the writes happened: the order of the
+    /// writes is `calls()`'s question and the contents is this one's.
     ///
     /// A directory `makeDir` created holds no octets and is not a file, so it is
     /// not here; `readDir` is the question it answers.
@@ -499,11 +442,9 @@ impl TestFs {
 
     /// The plan's answer for a call about to be made, recorded and consumed.
     ///
-    /// The log is what counts the matching calls. That makes `failsOnCall`'s
-    /// `nth` a number the test can check for itself: it is this call's position
-    /// among the matching entries `calls()` will report. The empty
-    /// plan is answered without reading the log at all, which is every test that
-    /// names no fault.
+    /// The log is what counts the matching calls, so `failsOnCall`'s `nth` is
+    /// this call's position among the matching entries `calls()` will report. An
+    /// empty plan is answered without reading the log at all.
     fn planned(self, call: FsCall): Option<IoError> {
         if (self.plan.len() == 0) {
             .None
@@ -524,9 +465,9 @@ impl TestFs {
 /// marked as fired.
 ///
 /// The first, so a plan is read in the order it was written. Every entry sees the
-/// same `nth` — the count of matching *calls*, not of the calls this entry
-/// answered — so a plan of `failsOnCall(1, a)` and `failsOnCall(2, b)` over one
-/// call fails the first with `a` and the second with `b`.
+/// same `nth` — the count of matching *calls* — so a plan of `failsOnCall(1, a)`
+/// and `failsOnCall(2, b)` over one call fails the first with `a` and the second
+/// with `b`.
 fn chosenFsFault(
     handle: I64,
     plan: [FsFault],
@@ -562,10 +503,8 @@ fn countingFsCalls(log: [FsCall], call: FsCall, i: Int): Int {
 /// Tells the runner what each fault of the plan reads like in a failure message,
 /// in the order the plan lists them.
 ///
-/// One call per entry rather than one call with the list, because the list is a
-/// list of Buri values and what crosses is text and two numbers — the whole of
-/// what a message needs. Walking it here costs one row per fault at the moment a
-/// test declares the plan, which is once per double.
+/// One call per entry rather than one call with the list, because what crosses is
+/// text and two numbers — the whole of what a message needs.
 fn describeFsPlan(handle: I64, plan: [FsFault], i: Int): () {
     match (plan.get(i)) {
         .None => (),
@@ -630,11 +569,9 @@ fn fsWithPlan(handle: I64): I64;
 /// The call half of one fault, as a failure message spells it: the `FsCall`'s
 /// three fields.
 ///
-/// Two rows for one entry, and the split is the frame-threaded backend's:
-/// `stencil/abi.rs`'s `MAX_INT_ARGS` is ten, and a `Str` is three of them
-/// (`lib.rs` §2 rule 1), so a row carrying a call *and* an error would be fifteen.
-/// `faultFails` is the other half and is shared with the network, which is what
-/// the split turned out to be worth.
+/// Two rows for one entry, because a row carrying a call *and* an error would be
+/// past the ten integer arguments one call has. `faultFails` is the other half,
+/// shared with the network.
 fn addFsFault(handle: I64, name: Str, path: Str, body: Str): ();
 
 /// The failure half of the fault just added: the call number `failsOnCall` named
@@ -661,8 +598,7 @@ fn fsCalls(handle: I64): [FsCall];
 ///
 /// Free functions rather than methods on `TestFs`, because a `TestFs` is a handle
 /// *and* a plan and an argument is flattened into its leaves: a row taking `self`
-/// would be handed three values where it expects one. `TestNet.calls` is the same
-/// shape, and landed for the same reason.
+/// would be handed three values where it expects one.
 fn fsReadFile(handle: I64, path: Str): Result<Str, IoError>;
 
 fn fsWriteFile(handle: I64, path: Str, body: Str): Result<(), IoError>;
@@ -693,45 +629,30 @@ fn fsSyncFile(handle: I64, path: Str): Result<(), IoError>;
 ///
 /// The default is `.Err(.Refused)` and not a stub `200`: a test that reaches the
 /// network by accident should say so at its assertion rather than pass on an
-/// answer nobody wrote. A test that wants the refusal and nothing else binds
-/// `net()` and says no more.
+/// answer nobody wrote.
 ///
 /// ## The one double whose configuration is not a handle
 ///
-/// Every other type in this module is a newtype over an `I64` naming runner-side
-/// state, because its state is *state* — a transcript that grows, a clock that
-/// advances, a filesystem that is written to. A responder is not state, it is
-/// **behaviour**, and behaviour is the one thing the runner cannot hold:
+/// A responder is not state, it is **behaviour**, and the runner cannot hold it.
+/// Invoking a function value would mean calling back into monomorphized Buri with
+/// a `Request` the archive had rebuilt, and the answer would have to cross as a
+/// `Result<Response, NetError>`, which `cli/runtime/lib.rs` §2.1 refuses: it
+/// restricts an error variant to carrying no fields, and `NetError` carries a
+/// `Str` on `BadUrl` and on `Transport`.
 ///
-///  * A function value is `{ code, env }` (`design/native/VALUE-MODEL.md` §7).
-///    To invoke one, the archive would have to call back into monomorphized Buri
-///    with a `Request` it had rebuilt itself. That is a calling convention
-///    neither `cli/runtime` nor `backend/js/runtime.js` has, and one no other
-///    entry needs.
-///  * The answer would have to cross as a `Result<Response, NetError>`, and that
-///    is the wall `host.HostNet.fetch` already stands at. `Ret::Res` names the
-///    error variant by index and `cli/runtime/lib.rs` §2.1 restricts that variant
-///    to carrying no fields, while `NetError` carries a `Str` on `BadUrl` and on
-///    `Transport`. Both runtime tables say so where that key is listed as absent.
-///
-/// So `fetch` is a Buri body that calls the responder directly, and neither table
-/// names it. What makes that safe rather than a hole is SPEC 10.6: a lambda may
-/// not capture an effect-carrying value. So a
-/// `fn(Request) => Result<Response, NetError>` is a pure function of the request
-/// and of nothing else, which is exactly what a fake server is.
+/// So `fetch` is a Buri body that calls the responder directly, and neither
+/// runtime table names it. SPEC 10.6 is what makes that safe: a lambda may not
+/// capture an effect-carrying value, so a
+/// `fn(Request) => Result<Response, NetError>` is a pure function of the request.
 ///
 /// The consequence for whoever writes one: a responder cannot take `ctx`, so it
 /// cannot call `http.text(ctx, ...)` inside itself. It can build a `Response`
-/// literal, because a list literal needs no context; and it can **capture** a
-/// `Response` the test built before it, because a response is plain data. Both
+/// literal, and it can **capture** a `Response` the test built before it. Both
 /// spellings are in `docs/reference/build/testing.md`.
 ///
-/// It carries a handle as well, and that is not a contradiction: the responder is
-/// the behaviour and the handle names the **log**, which is state like any other.
-/// `calls()` reads it. The third field is the **fault plan**, which is in the
-/// value for the second of the two reasons above read once more — a `NetError`
-/// carries a `Str` on two variants, so the plan's errors could not come back out
-/// of a row.
+/// The handle beside the responder names the **log**, which `calls()` reads. The
+/// third field is the **fault plan**, in the value because a `NetError` carries a
+/// `Str` on two variants and could not come back out of a row.
 export struct TestNet {
     handle: I64,
     responder: fn(Request) => Result<Response, NetError>,
@@ -741,11 +662,10 @@ export struct TestNet {
 impl Net for TestNet {
     /// The plan first, the responder second, and the log last.
     ///
-    /// The plan first because a failure the test asked for is not a failure of the
-    /// responder's. A request the plan fails never reaches it, which makes
-    /// `respond` and `faults` two answers to two different questions rather than
-    /// two answers to one. The log last for `calls()`'s reason: a call is recorded
-    /// on the way out. A failed request is a request, so both paths record.
+    /// A request the plan fails never reaches the responder, so `respond` and
+    /// `faults` answer two different questions. The log is last because a call is
+    /// recorded on the way out, and a failed request is a request, so both paths
+    /// record.
     fn fetch(self, request: Request): Result<Response, NetError> {
         let answer: Result<Response, NetError> = match (self.planned(fetch(request))) {
             .Some(error) => .Err(error),
@@ -781,17 +701,17 @@ fn netRebind(handle: I64): I64;
 fn netWithPlan(handle: I64): I64;
 
 /// The call half of one fault of a network's plan. The URL and not the whole
-/// request — matching is `NetCall`'s `Eq` and reads every field, and a message
-/// that named every header would be a paragraph. `faultFails` is the other half,
-/// shared with the filesystem.
+/// request, because a message that named every header would be a paragraph;
+/// matching still reads every field, through `NetCall`'s `Eq`. `faultFails` is
+/// the other half, shared with the filesystem.
 fn addNetFault(handle: I64, url: Str): ();
 
 /// One request, recorded after the responder has answered it.
 ///
-/// The request arrives in pieces because that is what crossing costs: a `Method`
-/// is its variant index by the time the runner sees it (`methodCode`), and the
-/// runner puts the four of them back together on the way out. It is the same four
-/// values `core/host`'s real `fetch` hands over, in the same order.
+/// The request arrives in pieces: a `Method` is its variant index by the time the
+/// runner sees it (`methodCode`), and the runner puts the four values back
+/// together on the way out. They are the four `core/host`'s real `fetch` hands
+/// over, in the same order.
 fn recordFetch(handle: I64, method: Int, url: Str, headers: [Header], body: [U8]): ();
 
 /// A `Method`'s index in its own declaration order, which `core/effect` states is
@@ -834,12 +754,10 @@ impl TestNet {
     /// A **new** network answering through this function, which is handed every
     /// request the code under test makes and either answers it or fails it.
     ///
-    /// One responder, not a routing table. A responder that answers two URLs
-    /// differently matches on `request.path()` — or on `request.method`, or on
-    /// `request.header(...)` — and a test that wanted a table would have to learn
-    /// a second vocabulary to say what `match` already says. `respond` therefore
-    /// **replaces** rather than composing: two responders for one request have no
-    /// answer to which of them wins.
+    /// One responder, not a routing table: a responder that answers two URLs
+    /// differently matches on `request.path()`, on `request.method`, or on
+    /// `request.header(...)`. `respond` **replaces** rather than composing, since
+    /// two responders for one request have no answer to which of them wins.
     export fn respond(
         self,
         responder: fn(Request) => Result<Response, NetError>,
@@ -868,9 +786,9 @@ impl TestNet {
 
     /// Every request made through this handle, in the order they were answered.
     ///
-    /// `respond` mints a fresh log along with the network it answers, for the
-    /// reason every builder in this module answers a new handle: a network that
-    /// shared its receiver's log would report calls made to a different network.
+    /// `respond` mints a fresh log along with the network it answers: a network
+    /// that shared its receiver's log would report calls made to a different
+    /// network.
     export fn calls(self): [NetCall] {
         netCalls(self.handle)
     }
@@ -889,10 +807,8 @@ impl TestNet {
     }
 }
 
-/// `chosenFsFault`, for the network. The two are one rule written at two types: a
-/// `Call` is compared by the `Eq` it derives, and there is no `Fault<C, E>` to
-/// write it once with, because a `calls()` answering one list cannot hold two
-/// error types.
+/// `chosenFsFault`, for the network. One rule written at two types, because a
+/// `calls()` answering one list cannot hold two error types.
 fn chosenNetFault(
     handle: I64,
     plan: [NetFault],
@@ -944,11 +860,9 @@ fn describeNetPlan(handle: I64, plan: [NetFault], i: Int): () {
 
 /// The log itself, read by the handle rather than by the value that names it.
 ///
-/// `TestNet` is the one double whose value is not a bare handle: the responder is
-/// its second field. An argument is flattened into its leaves, so a method taking
-/// `self` would hand the runner a closure it has no use for and could not name.
-/// Every other `calls()` is a row; this one is a Buri body over a row that takes
-/// the handle.
+/// An argument is flattened into its leaves, so a method taking `self` would hand
+/// the runner the responder closure as well. Every other `calls()` is a row; this
+/// one is a Buri body over a row that takes the handle.
 fn netCalls(handle: I64): [NetCall];
 
 // --- Clock --------------------------------------------------------------------
@@ -996,15 +910,12 @@ impl TestRand {
 /// to answer `Entropy` predictably.
 ///
 /// `core/effect`'s `Entropy` promises octets nobody can guess, and a test needs
-/// the opposite: the same octets every run, so a sealed value written into an
-/// assertion keeps matching. The two are reconciled the way every other
-/// capability here is — the *program* never binds this, and the test binds
-/// nothing else. A test source is the only place `entropy()` can be named, and
-/// `core/host`'s `entropy` is the only thing a program can name.
+/// the opposite: the same octets every run. A test source is the only place
+/// `entropy()` can be named, and `core/host`'s `entropy` is the only thing a
+/// program can name.
 ///
 /// The sequence is `rand()`'s, byte for byte and seed for seed, and it is the
-/// same sequence on both backends — which is what makes a token minted here
-/// something an assertion can be written against.
+/// same sequence on both backends.
 export struct TestEntropy(I64);
 
 impl Entropy for TestEntropy {
@@ -1047,18 +958,10 @@ impl TestEnv {
 /// take every block after it with it, and the runner would report a suite that
 /// stopped rather than a function that exited.
 ///
-/// ## The double with nothing to read back
-///
-/// `proc()` has no readers, and that is the whole of it. What a test asserts about
-/// a function that exits is that the *test* carried on — which the assertions
-/// after the call say, and which no method on this type could say better. An exit
-/// code kept where nothing can read it would be state held for its own sake, so
-/// it is not held: `exitWith` absorbs the call and answers `()`.
-///
-/// That makes this the second double with no runner-side state and no row in
-/// either runtime table, for the plainer of `TestNet`'s two reasons. The handle
-/// names nothing, the way `TestAlloc`'s does — and, as both native backends say
-/// where they open-code that one, zero is as good a name as any.
+/// `proc()` has no readers. What a test asserts about a function that exits is
+/// that the *test* carried on, which the assertions after the call say. The exit
+/// code is not kept, so this double has no runner-side state and its handle names
+/// nothing.
 export struct TestProc(I64);
 
 impl Proc for TestProc {
@@ -1078,50 +981,39 @@ export fn proc(): TestProc {
 ///
 /// A program that holds a `Socket` and pushes on it — an actor a hook handed one
 /// to, a room that broadcasts to everybody in it — is bounded by `Sockets` and by
-/// nothing else. That is what the inert handle in `core/net/server` was for. So
-/// it can be tested with no listener, no port, no client and no server at all.
-/// `sockets().open()` is a socket, a `send` on it is recorded, and `sent()` is the
-/// whole of what the far side would have received.
+/// nothing else, so it can be tested with no listener, no port, no client and no
+/// server. `sockets().open()` is a socket, a `send` on it is recorded, and
+/// `sent()` is the whole of what the far side would have received.
 ///
-/// **This is not half a pair, and `Listen` deliberately has no double.** Reading
-/// from a socket is `Listen`'s authority and writing on one is `Sockets`' —
-/// `effect Sockets`' own header draws that line — and the two need different
-/// things from a test. A fake acceptor is a value a test writes for itself,
-/// because what it answers is the test's own decision; `lib/semantics`' `Scripted`
-/// is one. What cannot be written by hand is *this* half. An effect method takes
-/// only `self` and `self` is immutable, so a hand-written `Sockets` can record
-/// nothing at all, and a recording double is a handle into runner-side state by
-/// construction.
+/// **`Listen` deliberately has no double.** Reading from a socket is `Listen`'s
+/// authority and writing on one is `Sockets`'. A fake acceptor is a value a test
+/// writes for itself; `lib/semantics`' `Scripted` is one. This half cannot be
+/// written by hand, because an effect method takes only `self` and `self` is
+/// immutable, so a hand-written `Sockets` records nothing.
 ///
-/// **Nothing here waits.** The real `socketSendText` promises never to wait — it
-/// takes a lock, pushes onto a queue and returns — so a double that records the
-/// push and returns keeps the same promise with no queue behind it. There is no
-/// deadline, no timeout and no thread anywhere in this double.
+/// **Nothing here waits.** The real `socketSendText` never waits either, so a
+/// double that records the push and returns keeps the same promise. There is no
+/// deadline, no timeout and no thread in it.
 export struct TestSockets(I64);
 
 impl Sockets for TestSockets {
     /// Recorded, and read back by `sent` as a `.Text`.
     ///
-    /// **Dropped where the socket is not an open one of this double's**, which is
-    /// three things deliberately made alike: a handle a program invented, a socket
-    /// this double closed, and a socket another `sockets()` minted. The first two
-    /// are `effect Sockets`' own sentence: "a handle that names no open socket is
-    /// treated as one that has already gone". The third is what makes two doubles
-    /// in one test two worlds, exactly as two `fs()` calls are two filesystems.
+    /// **Dropped where the socket is not an open one of this double's**: a handle
+    /// a program invented, a socket this double closed, and a socket another
+    /// `sockets()` minted are all treated alike. Two doubles in one test are two
+    /// worlds, exactly as two `fs()` calls are two filesystems.
     fn socketSendText(self, socket: Int, text: Str): ();
 
-    /// The same, read back as a `.Binary`. Two operations rather than one with a
-    /// choice of payload, because the effect declares two.
+    /// The same, read back as a `.Binary`.
     fn socketSendBytes(self, socket: Int, body: [U8]): ();
 
     /// Closes the socket, so that `isOpen` answers `false` and every later send
     /// through it is dropped.
     ///
-    /// **The code and the phrase are not kept**, for `TestProc.exitWith`'s reason:
-    /// they are what the *far side* is told, there is no far side, and a number
-    /// held where nothing can read it is state kept for its own sake. What a close
-    /// does here is close, and that is what the two readers report — `isOpen`
-    /// directly, and `sent` by not growing.
+    /// **The code and the phrase are not kept**: they are what the far side is
+    /// told, and there is no far side. What a close does here is close, which
+    /// `isOpen` reports directly and `sent` reports by not growing.
     fn socketClose(self, socket: Int, code: Int, reason: Str): ();
 }
 
@@ -1136,10 +1028,8 @@ impl TestSockets {
     /// to an actor. The number inside it is this runner's, so two sockets are
     /// never equal and a socket is never equal to one another `sockets()` minted.
     ///
-    /// A **method** rather than a builder, and the difference is worth naming:
-    /// every builder in this module answers a *new double*, and this answers a new
-    /// **socket** of the double it was called on. `sockets()` is the value a
-    /// context binds, and it does not move when a socket opens.
+    /// A **method** rather than a builder: it answers a new socket of the double
+    /// it was called on, and the double itself does not move.
     export fn open(self): Socket {
         Socket(socketsOpen(self.0))
     }
@@ -1147,18 +1037,13 @@ impl TestSockets {
     /// Every message pushed on a socket of this double's, oldest first.
     ///
     /// Both framings in one list and in one order, because that is the order the
-    /// far side would have seen them in — and a broadcast that reached two sockets
-    /// is two entries here, which is the whole assertion such a test wants to
-    /// make.
+    /// far side would have seen them in. A broadcast that reached two sockets is
+    /// two entries here.
     ///
-    /// The pair is built **in Buri**, out of a struct the runner hands over. That
-    /// is `core/effect`'s `Received` for `Received`'s reason: `cli/runtime/lib.rs`
-    /// §2.1 gives a non-enum value its own out-pointer and it crosses whole, so
-    /// the runner writes one flat shape and the program reads the enum it wanted.
-    /// The context `map` asks for is this module's own `alloc()`, which both
-    /// native backends open-code to a handle that names nothing. It charges
-    /// nothing and reads nothing, so this reader stays a reader, taking `self` and
-    /// no context like every other one here.
+    /// The pair is built **in Buri**, out of a flat struct the runner hands over,
+    /// which is how a non-enum value crosses whole (`cli/runtime/lib.rs` §2.1).
+    /// The context `map` asks for is this module's own `alloc()`, which charges
+    /// nothing, so this stays a reader taking `self` and no context.
     export fn sent(self): [(Socket, Message)] {
         socketsSent(self.0).map(alloc(), fn(one) => (Socket(one.socket), framed(one)))
     }
@@ -1166,12 +1051,11 @@ impl TestSockets {
     /// Whether that socket is still one this double will accept a message for.
     ///
     /// `false` for a socket this double closed, and `false` for a handle it never
-    /// minted — which is `socketSendText`'s three cases asked directly rather than
-    /// inferred from a `sent()` that did not grow.
+    /// minted.
     ///
     /// **A question about this socket, and never a count of the open ones.** A
     /// count would be a claim about the whole runner, and the blocks of a suite
-    /// share a process, so it would pass or fail depending on what ran beside it.
+    /// share a process.
     export fn isOpen(self, socket: Socket): Bool {
         socketsIsOpen(self.0, socket.0)
     }
@@ -1184,8 +1068,8 @@ impl TestSockets {
     /// — gets a second session rather than a socket that was already spent.
     ///
     /// Two `dialling` calls are two clients on one double, and two `sockets()`
-    /// calls are two worlds — exactly as two `fs()` calls are two filesystems.
-    /// See `TestWebSocketClient` for what the client does with the script.
+    /// calls are two worlds. See `TestWebSocketClient` for what the client does
+    /// with the script.
     export fn dialling(self, messages: [Message]): TestWebSocketClient {
         TestWebSocketClient(socketsDialling(self.0, messages))
     }
@@ -1195,9 +1079,8 @@ impl TestSockets {
 /// two payload fields of which a framing names one.
 ///
 /// Private, because `sent` is the surface and this is only the crossing. `Frame`
-/// is `core/effect`'s, so the tag the runner writes is one the acceptor and this
-/// double already agree on; its `.Closed` is unreachable here, because only the
-/// two sends ever write this log.
+/// is `core/effect`'s, and its `.Closed` is unreachable here, because only the two
+/// sends ever write this log.
 struct Sent {
     socket: Int,
     frame: Frame,
@@ -1234,14 +1117,11 @@ fn socketsIsOpen(handle: I64, socket: Int): Bool;
 /// **It is minted by a `sockets()` rather than minting sockets of its own.** The
 /// socket `connect` gets is one of that double's, so everything a program pushes
 /// is recorded by its `sent()` and a program that closes shows up in its
-/// `isOpen`. That is `effect Sockets`' own division — reading a socket is one
-/// authority and writing on it is another — with a double on each side of it, and
-/// it is why this type implements `WebSocketClient` and nothing else.
+/// `isOpen`. This type implements `WebSocketClient` and nothing else.
 ///
-/// It is a method on `TestSockets` and not a builder of its own for a reason the
-/// language decides rather than this module: a `TestSockets` carries an effect,
-/// so it may be passed only as `ctx` or as `self` (`effect-param-not-ctx`), and
-/// `self` is the one of those two that is not a lie about what the call does.
+/// It is a method on `TestSockets` rather than a builder of its own because a
+/// `TestSockets` carries an effect, so it may be passed only as `ctx` or as
+/// `self` (`effect-param-not-ctx`).
 ///
 /// ```buri ignore why="a test source is the one place a `test` block is legal, and this file is not one"
 /// from "core/effect" import { Sockets, WebSocketClient };
@@ -1277,11 +1157,10 @@ impl WebSocketClient for TestWebSocketClient {
     /// **A second dial is a second session**, with the script back at its first
     /// message, so a reconnect loop reads the same frames it read the first time.
     ///
-    /// **A URL that is not `ws://` or `wss://` is `.Err(.Unsupported)`**, which
-    /// is the one refusal this double can honestly produce, and it is the cause a
-    /// real client gives a scheme it cannot speak. A test that wants to check
-    /// what its program does when the socket never opens writes a URL that cannot
-    /// be dialled, and gets the same `ServeError` a real refusal has.
+    /// **A URL that is not `ws://` or `wss://` is `.Err(.Unsupported)`**, the
+    /// cause a real client gives a scheme it cannot speak. A test that wants to
+    /// check what its program does when the socket never opens writes a URL that
+    /// cannot be dialled.
     fn connectSocket(self, url: Str): Result<Connected, ServeError>;
 
     /// The next scripted message, as `.Text` or `.Binary`.
@@ -1304,22 +1183,19 @@ derive Eq, Show for FsCall;
 //
 // One record per double, and one constructor per method. A `Call` is what was
 // asked and never what came back: the answer is the return value the test
-// already has, and a log that carried it would be a second, weaker way to
-// assert on it.
+// already has.
 
 /// One call to a `TestFs`, as `calls()` reports it and as a test writes it down.
 ///
 /// A record with private fields, so the constructors below are the only way to
-/// build one and a call in a test reads as the call the code under test made.
-/// `derive Eq` is what an assertion compares — two calls differ as soon as an
-/// argument does — and `derive Show` is what a failing one prints, because
-/// `assert.eq` renders both sides through the generated `Show`.
+/// build one. `derive Eq` is what an assertion compares — two calls differ as
+/// soon as an argument does — and `derive Show` is what a failing one prints.
 ///
 /// One record rather than an enum of eleven variants. Every method of `Fs` takes
 /// a path and at most one thing more, so `path` is the first argument and `body`
 /// the second — the text written, `renameFile`'s destination, or the empty string
 /// where the method takes only a path. Octets are recorded as **the text they
-/// spell**, which is `snapshot()`'s rule and is here for `snapshot()`'s reason.
+/// spell**, as `snapshot()` records them.
 export struct FsCall {
     name: Str,
     path: Str,
@@ -1347,8 +1223,8 @@ export fn readDir(path: Str): FsCall {
     FsCall { name: "readDir", path: path, body: "" }
 }
 
-/// A `readFileBytes(path)`, as a call. The same path `readFile` would name and a
-/// different call, because a program that asked for octets asked for octets.
+/// A `readFileBytes(path)`, as a call. The same path `readFile` would name, and a
+/// different call.
 export fn readFileBytes(path: Str): FsCall {
     FsCall { name: "readFileBytes", path: path, body: "" }
 }
@@ -1392,19 +1268,16 @@ export fn syncFile(path: Str): FsCall {
 /// The text these octets spell, exactly as `readFile` reads back what
 /// `writeFileBytes` wrote.
 ///
-/// Lossy, and lossy on purpose: a log records what a program asked to write, and
-/// a fixture that is not text is still a call that was made. It is the runner's
-/// decode rather than `core/bytes`' because a constructor takes no context — a
-/// test writing a call down is not performing an effect.
+/// Lossy on purpose: a log records what a program asked to write, and a fixture
+/// that is not text is still a call that was made. It is the runner's decode
+/// rather than `core/bytes`', because a constructor takes no context.
 fn spelled(body: [U8]): Str;
 
 derive Eq, Show for NetCall;
 /// One request made through a `TestNet`.
 ///
-/// The whole request, because `Net` has one method and it takes one value: there
-/// is nothing to project away, and two requests that differ in a header are two
-/// calls. `Request` derives `Eq` and `Show` itself, so this one is those two
-/// derives wearing a name that says which double it came from.
+/// The whole request, because `Net` has one method and it takes one value: two
+/// requests that differ in a header are two calls.
 export struct NetCall(Request);
 
 /// A `fetch(request)`, as a call.
@@ -1435,29 +1308,20 @@ export fn readBytes(n: Int): StdinCall {
 // --- The fault plan -----------------------------------------------------------
 //
 // A plan is a list of faults and a fault is a call and an error. Success comes
-// from the environment — `files`, `respond` — and failure comes from here, which
-// is what keeps the two readable side by side: a fixture says what is there and
-// a plan says what breaks.
+// from the environment — `files`, `respond` — and failure comes from here.
 //
-// One `Fault` record per double, as there is one `Call` record per double, and
-// for the same reason. The note's `Call<Result<R, E>>` cannot be taken
-// literally: a `calls()` answering one list cannot hold eleven result types, and
-// a phantom parameter would have to be erased before a log could be written. A
+// One `Fault` record per double, as there is one `Call` record per double. A
 // double's error type is fixed by the double, so `FsCall::fails` takes an
-// `IoError`, `NetCall::fails` takes a `NetError`, and neither needs a type
-// parameter at all.
+// `IoError` and `NetCall::fails` takes a `NetError`.
 //
-// Neither record derives anything. A `Call` derives `Eq` because a plan matches
-// with it and `Show` because `assert.eq` renders with it. A `Fault` is matched
-// by its call, and the runner prints it from the pieces `addFsFault` sends, so
-// deriving here would generate two functions per program that nothing calls.
+// Neither `Fault` record derives anything: a fault is matched by its call, and
+// the runner prints it from the pieces `addFsFault` sends.
 
 /// One planned failure of a `TestFs`.
 ///
 /// `nth` is the call number `failsOnCall` named, counted from one over the
 /// matching calls, and **zero for `fails`**, which is every call. Zero rather than
-/// an `Option<Int>` because zero is not a call number — there is no zeroth call —
-/// so the two spellings cannot be confused and the record stays flat.
+/// an `Option<Int>` because there is no zeroth call, so the record stays flat.
 export struct FsFault {
     call: FsCall,
     error: IoError,
@@ -1474,8 +1338,7 @@ impl FsCall {
     /// other one is answered by the filesystem.
     ///
     /// The *matching* call: a plan that fails the second `appendFile("wal", b)`
-    /// counts appends of `b` to `wal` and not calls in general, so a read between
-    /// two writes does not move the number.
+    /// counts appends of `b` to `wal` and not calls in general.
     export fn failsOnCall(self, nth: Int, error: IoError): FsFault {
         FsFault { call: self, error: error, nth: nth }
     }
@@ -1509,48 +1372,34 @@ impl NetCall {
 /// in the order the items are written.
 ///
 /// `Tasks.parallel` promises its *results* in the items' order and promises
-/// nothing about the order the work happens in, which is the one thing about a
-/// concurrent program a test cannot otherwise pin down. This double makes that
-/// order a value: `tasks()` runs the tasks in program order, `anyOrder()` runs
-/// them in one seeded order, and `everyOrder()` runs the whole `test` body once
-/// per completion order. Nothing here is concurrent — a double that raced would be
-/// the thing it exists to remove — so a task runs to completion before the next
-/// one starts, and `calls()` reports them in that order.
+/// nothing about the order the work happens in. This double makes that order a
+/// value: `tasks()` runs the tasks in program order, `anyOrder()` runs them in one
+/// seeded order, and `everyOrder()` runs the whole `test` body once per completion
+/// order. Nothing here is concurrent, so a task runs to completion before the next
+/// one starts and `calls()` reports them in that order.
 ///
 /// **A task `core/tasks`'s `spawn` queued is one of them.** A scope runs a round
-/// of what was spawned through `Tasks.parallel`, so this is the double that
-/// decides which spawned task goes first, and a test of background work writes
-/// that order down instead of hoping for it.
+/// of what was spawned through `Tasks.parallel`, so this double decides which
+/// spawned task goes first.
 ///
 /// ## The seed is the order's own number
 ///
 /// There are `n!` orders of `n` tasks, and a seed is which of them, counted from
 /// zero in the order the orders themselves sort in: `seed(0)` is program order,
 /// `seed(1)` swaps the last two, and the last seed is the reverse. So a seed
-/// **replays** rather than merely re-randomising: `everyOrder`'s fourth run and
-/// `seed(3)` are the same order, which is what lets a failure report name one line
-/// a reader can paste back. A seed past the last one wraps, so a number derived
-/// from a program's content is a legal seed at every length.
+/// **replays**: `everyOrder`'s fourth run and `seed(3)` are the same order. A seed
+/// past the last one wraps, so any number is a legal seed at every length.
 ///
 /// `anyOrder()` with no seed is the order **this suite's own content** names: the
-/// runner derives it from the suite's action key, the hash of every source in its
-/// closure that the result cache is already keyed on. So the order a suite
-/// schedules in changes exactly when the verdict that order produced stops being
-/// reusable, and never on a run that changed nothing. It is deliberately not a
-/// random one: a suite whose result changed between two runs of the same program
-/// could not be cached, and a failure nobody can reproduce is a failure nobody
-/// fixes. A block that means one particular order says `seed(n)`; the failure
-/// report names the seed that replays the one it hit.
+/// runner derives it from the suite's action key, the hash the result cache is
+/// already keyed on. So the order a suite schedules in changes exactly when the
+/// verdict that order produced stops being reusable, and never on a run that
+/// changed nothing. A block that means one particular order says `seed(n)`, and
+/// the failure report names the seed that replays the one it hit.
 ///
-/// ## A bare handle, where `TestFs` and `TestNet` carry two things
-///
-/// Those two hold their fault plan in the program because a plan carries an
-/// `IoError` or a `NetError`, and `cli/runtime/lib.rs` §2.1 cannot hand an error
-/// variant with a field back across a row. A task has no error to carry —
-/// `parallel` answers `[B]` and every `B` comes from the closure — so a fault here
-/// is an *index*, a count and a sentence, all three of which cross. The runner
-/// therefore does the matching as well as the promising, and this value is the
-/// handle and nothing else.
+/// A task has no error to carry — `parallel` answers `[B]` — so a fault here is an
+/// *index*, a count and a sentence, all three of which cross the boundary. This
+/// double is a bare handle where `TestFs` and `TestNet` carry a plan as well.
 export struct TestTasks(I64);
 
 impl Tasks for TestTasks {
@@ -1558,16 +1407,12 @@ impl Tasks for TestTasks {
     /// in the items' order.
     ///
     /// The runtime drives the walk, through the same closure trampoline
-    /// `host.HostTasks.parallel` uses (`backend/intrinsic_keys.rs`'s `step_call`)
-    /// and for the reason that mechanism exists. This double's job is the *order*,
-    /// and choosing one is the runtime's. So the double runs the **same** boundary
-    /// the real implementation runs, which makes a test of a program through this
-    /// an honest test of the program through that.
+    /// `host.HostTasks.parallel` uses, so a test through this double crosses the
+    /// same boundary the real implementation crosses.
     ///
     /// `ctx` is the caller's whole context and is what every step is handed —
-    /// `Tasks`' own promise, and the same parameter the real implementation takes.
-    /// A `Buri` body could supply it too (`SerialTasks` in the conformance corpus
-    /// does); what it could not supply is the order.
+    /// `Tasks`' own promise, and the same parameter the real implementation
+    /// takes.
     fn parallel<C, A, B>(self, ctx: C, items: [A], f: fn(C, Int, A) => B): [B];
 }
 
@@ -1579,45 +1424,39 @@ impl TestTasks {
     ///
     /// The default seed is the reverse of program order; `seed(n)` names another.
     /// One order per run of the body, not one per `parallel`: two fan-outs of the
-    /// same length in one block are scheduled the same way, so a test that asserts
-    /// on both is asserting about one decision rather than two.
+    /// same length in one block are scheduled the same way.
     export fn anyOrder(self): TestTasks;
 
     /// A **new** scheduler that runs the whole `test` body once per completion
     /// order — `n!` times for a `parallel` over `n` items.
     ///
-    /// The body, not the fan-out: a task's effects are the point, and re-running
-    /// only the loop would re-run them against a filesystem the last order had
-    /// already written to. Every run therefore builds its own doubles from the
-    /// same lines, which is what makes the runs independent and what makes the
-    /// assertion at the end of the body an assertion about *every* order.
+    /// The body, not the fan-out: every run builds its own doubles from the same
+    /// lines, so the runs are independent and the assertion at the end of the body
+    /// is an assertion about *every* order.
     ///
-    /// Six items are 720 runs of the body and seven are 5040, so this refuses above
-    /// six and says so. A fan-out that wide is `anyOrder`'s question.
+    /// Six items are 720 runs of the body and seven are 5040, so this **refuses
+    /// above six** and says so. A fan-out that wide is `anyOrder`'s question.
     ///
     /// The first failing order ends the block, because a failed assertion is an
-    /// abort and there is nothing to catch (SPEC 6.9) — so the report names the
-    /// order that failed and the seed that replays it, and the orders after it do
-    /// not run.
+    /// abort and there is nothing to catch (SPEC 6.9). The report names the order
+    /// that failed and the seed that replays it, and the orders after it do not
+    /// run.
     export fn everyOrder(self): TestTasks;
 
     /// A **new** scheduler at that seed — the order's own number, counted from
     /// zero, wrapping past the last.
     ///
-    /// This is `anyOrder` with the choice named, and it is what a failure report
-    /// prints for a reader to paste back: `seed(3)` is `everyOrder`'s fourth run,
-    /// exactly.
+    /// `anyOrder` with the choice named, and what a failure report prints for a
+    /// reader to paste back: `seed(3)` is `everyOrder`'s fourth run, exactly.
     export fn seed(self, n: Int): TestTasks;
 
     /// A **new** scheduler failing the tasks this plan names — and a promise that
     /// every one of them is reached.
     ///
     /// A task has no error channel to answer through, so a task the plan fails is
-    /// a task that ends the program — which is what a task that died would do to
-    /// the run for real. A fault is therefore a call and a **reason**, and the
-    /// block fails with that reason where a real one would have failed with a
-    /// stack. The tasks scheduled before it have run and had their effects; the
-    /// ones after it have not started.
+    /// a task that ends the program. A fault is therefore a call and a **reason**,
+    /// and the block fails with that reason. The tasks scheduled before it have run
+    /// and had their effects; the ones after it have not started.
     ///
     /// The rules are `TestFs::faults`' rules. `task(k).fails(why)` fails that task
     /// every time it is reached, and `task(k).failsOnCall(n, why)` the `n`th time,
@@ -1633,24 +1472,19 @@ impl TestTasks {
 
     /// Every task this scheduler ran, in the order they completed.
     ///
-    /// The order the *work* happened in, which is what this double exists to
-    /// choose and the only place it is observable: the result list is in the items'
-    /// order whatever this says. A task the plan failed is not here, because it
-    /// never completed — and the block it ended has no assertion left to read this
-    /// with anyway.
+    /// The order the *work* happened in, which is the only place that order is
+    /// observable: the result list is in the items' order whatever this says. A
+    /// task the plan failed is not here, because it never completed.
     export fn calls(self): [TaskCall];
 
     /// Which run of the `test` body this is, counted from one.
     ///
-    /// One for a block that is not being re-run, so a test that reads it under
-    /// `tasks()` or `anyOrder()` reads the truth rather than a special case. Under
-    /// `everyOrder` it is the number of the order this run is using, plus one —
-    /// `seed(runs() - 1)` is this run's order.
+    /// One for a block that is not being re-run. Under `everyOrder` it is the
+    /// number of the order this run is using, plus one — `seed(runs() - 1)` is this
+    /// run's order.
     ///
-    /// The answer is the **block**'s rather than this handle's: the body's runs are
-    /// the runner's bookkeeping, and a block with two schedulers in it is still one
-    /// block being run again. It is a method because that is how a test reaches it,
-    /// not because the handle decides it.
+    /// The answer is the **block**'s rather than this handle's, so a block with two
+    /// schedulers in it is still one block being run again.
     export fn runs(self): Int;
 
     /// How many runs of the body there will be: `n!` under `everyOrder` once a
@@ -1671,9 +1505,7 @@ impl TestTasks {
 
 /// Hands the runner each entry of a plan as it is installed.
 ///
-/// `describeFsPlan`'s walk. It is a walk here rather than a list crossing whole
-/// because a `[TaskFault]` is a list of records holding a `Str`, and one row per
-/// entry is the shape the other two doubles already use.
+/// `describeFsPlan`'s walk, one row per entry.
 fn describeTaskPlan(ctx: TestTasks, plan: [TaskFault], i: Int): () {
     match (plan.get(i)) {
         .None => (),
@@ -1689,10 +1521,9 @@ derive Eq, Show for TaskCall;
 /// as a plan names it.
 ///
 /// The index and not the item: a task is identified by where it is in the fan-out,
-/// which is the one thing every task of every `parallel` has and the only thing
-/// the effect's signature promises about it (`f` is handed the index). An item
-/// would have to be `Show`n to be recorded and `Eq` to be matched, and `parallel`
-/// bounds neither.
+/// which is the only thing the effect's signature promises about it. An item would
+/// have to be `Show`n to be recorded and `Eq` to be matched, and `parallel` bounds
+/// neither.
 export struct TaskCall {
     index: Int,
 }
