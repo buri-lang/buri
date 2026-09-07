@@ -65,6 +65,11 @@ comparing, and clears any diff left from an earlier run:
 buri test //lib/cardlib --update
 ```
 
+It records what it cannot read, so a golden that was never recorded and one
+that is half a file both come back as whatever was painted. What it will not
+record is a name that is not a file name — that fails under `--update` exactly
+as it fails without it, because recording it would write outside the package.
+
 Read the new PNGs in the diff before you commit them — recording a golden is
 the whole review. The
 [user interfaces guide](../../guides/user-interfaces.md#snapshots) covers what
