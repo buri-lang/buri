@@ -782,6 +782,10 @@ mod tests {
             if let Some(bytes) = answer {
                 let _sent = socket.write_all(bytes);
                 let _flushed = socket.flush();
+                // `Connection: close` is what this client asks for and EOF is
+                // what ends its read, so an answer that is never followed by a
+                // close is a stall of a different kind.
+                let _closed = socket.shutdown(std::net::Shutdown::Write);
             }
             // Held until the closure returns, so the stalling connection is open
             // for the whole of the request that is meant to time out.
@@ -797,10 +801,14 @@ mod tests {
             let _held = peer.join().expect("the peer thread");
             (answer, took)
         });
+        let ended_as = match &stalling.0 {
+            Ok(response) => format!("a {} answer", response.status),
+            Err(NetFail::Timeout) => "a Timeout".to_string(),
+            Err(other) => format!("{}", other.message()),
+        };
         assert!(
             matches!(stalling.0, Err(NetFail::Timeout)),
-            "a server that never answers is a Timeout, not {:?}",
-            stalling.0.map(|r| r.status)
+            "a server that never answers ended as {ended_as}"
         );
         assert!(stalling.1 < SOON, "the request ran {:?}", stalling.1);
 
@@ -811,7 +819,7 @@ mod tests {
                     Some(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nhi"),
                 )
             });
-            let answer = fetch_within(bound(30_000), 0, &url, &[], b"");
+            let answer = fetch_within(bound(10_000), 0, &url, &[], b"");
             let _held = peer.join().expect("the peer thread");
             answer
         });
@@ -820,6 +828,9 @@ mod tests {
                 assert_eq!(response.status, 200);
                 assert_eq!(response.body, b"hi");
             }
+            Err(NetFail::Timeout) => panic!("a server that answered was read as Timeout"),
+            Err(NetFail::Refused) => panic!("a server that answered was read as Refused"),
+            Err(NetFail::Aborted) => panic!("a server that answered was read as Aborted"),
             Err(e) => panic!("a server that answered was read as {}", e.message()),
         }
     }
