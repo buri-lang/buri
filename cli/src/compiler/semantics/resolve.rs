@@ -3702,6 +3702,7 @@ struct Frozen { at: I64 }
 impl Clock for Frozen {
   fn nowMillis(self): I64 { self.at }
   fn sleepMillis(self, millis: Int): () { () }
+  fn monotonicNanoseconds(self): I64 { self.at }
 }
 
 context Deep {

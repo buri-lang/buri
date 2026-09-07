@@ -589,6 +589,10 @@ impl<C: Clock> Clock for Scoped<C> {
     fn sleepMillis(self, millis: Int): () {
         self.0.sleepMillis(millis)
     }
+
+    fn monotonicNanoseconds(self): I64 {
+        self.0.monotonicNanoseconds()
+    }
 }
 
 impl<C: Rand> Rand for Scoped<C> {

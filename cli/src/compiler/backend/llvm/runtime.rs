@@ -440,6 +440,12 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Void,
     },
     Entry {
+        key: "host.HostClock.monotonicNanoseconds",
+        symbol: "buri_rt_host_clock_monotonic_nanoseconds",
+        args: &[Arg::Dropped],
+        ret: Ret::Scalar,
+    },
+    Entry {
         key: "host.HostRand.nextInt",
         symbol: "buri_rt_host_rand_next_int",
         args: &[Arg::Dropped, Arg::Scalar, Arg::Scalar],
@@ -1675,6 +1681,12 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_testing_test_clock_sleep_millis",
         args: &[Arg::Scalar, Arg::Scalar],
         ret: Ret::Void,
+    },
+    Entry {
+        key: "host_testing.TestClock.monotonicNanoseconds",
+        symbol: "buri_rt_host_testing_test_clock_monotonic_nanoseconds",
+        args: &[Arg::Scalar],
+        ret: Ret::Scalar,
     },
     Entry {
         key: "host_testing.rand",

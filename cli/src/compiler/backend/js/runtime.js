@@ -2243,6 +2243,19 @@ async function $host_HostClock_sleepMillis(self, ms) {
   return 0;
 }
 
+// A clock that only goes forward. `performance.now()` is milliseconds with a
+// fraction, and it is what node, Bun and every browser agree on; its zero is
+// wherever the host put it, which is exactly what `Monotonic` promises nothing
+// about. `Date.now()` is the fallback for a host that has no `performance`, and
+// it is a worse answer rather than no answer: it steps when the wall clock does.
+function $host_HostClock_monotonicNanoseconds(self) {
+  const ms =
+    typeof performance === "object" && performance !== null
+      ? performance.now()
+      : Date.now();
+  return BigInt(Math.round(ms * 1e6));
+}
+
 function $host_HostRand_nextInt(self, lo, hi) {
   if (hi <= lo) $abort("random range is empty");
   const span = Number(hi - lo);
@@ -5356,6 +5369,13 @@ function $host_testing_TestClock_nowMillis(self) {
 function $host_testing_TestClock_sleepMillis(self, ms) {
   $slot(self).now += ms;
   return 0;
+}
+
+// One reading, two clocks: the monotonic side is the millisecond side in
+// nanoseconds, so `sleepMillis` moves both together and a test can assert an
+// elapsed measurement without waiting for one.
+function $host_testing_TestClock_monotonicNanoseconds(self) {
+  return $slot(self).now * 1000000n;
 }
 
 // The same xorshift32 steps as `cli/runtime/testing.rs`'s `next`, so a seeded

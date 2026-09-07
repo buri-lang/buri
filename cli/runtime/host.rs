@@ -907,6 +907,25 @@ pub extern "C" fn buri_rt_host_clock_sleep_millis(millis: i64) {
     }
 }
 
+/// `Clock::monotonicNanoseconds` — nanoseconds off a clock that only goes
+/// forward.
+///
+/// The zero is this process's first reading of it, which is the whole of what
+/// the effect promises: the number means nothing on its own and only a
+/// difference of two of them does. `std::time::Instant` has no epoch to hand
+/// out, so the baseline is taken once here and every reading is measured from
+/// it.
+///
+/// It saturates at `i64::MAX`, which is 292 years of nanoseconds. Nothing is
+/// going to reach it, and a wrap would make a later reading smaller than an
+/// earlier one — the one thing this must never do.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_clock_monotonic_nanoseconds() -> i64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    let start = START.get_or_init(std::time::Instant::now);
+    i64::try_from(start.elapsed().as_nanos()).unwrap_or(i64::MAX)
+}
+
 /// `Rand::nextInt` — uniform in `lo ..< hi`.
 ///
 /// An empty range aborts with `random range is empty`, byte for byte what

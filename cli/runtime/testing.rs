@@ -1484,6 +1484,16 @@ pub extern "C" fn buri_rt_host_testing_test_clock_sleep_millis(handle: i64, mill
     advance(handle, millis);
 }
 
+/// `TestClock::monotonicNanoseconds` — the same reading, in nanoseconds.
+///
+/// One slot, two clocks. A test clock that moved its two readings separately
+/// would let a test assert an elapsed time the wall clock disagreed with, and
+/// the double would be teaching something no real clock does.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_host_testing_test_clock_monotonic_nanoseconds(handle: i64) -> i64 {
+    buri_rt_host_testing_test_clock_now_millis(handle).saturating_mul(1_000_000)
+}
+
 /// `rand()` — seeded at zero, and a zero state is a fixed point of xorshift,
 /// so it becomes one. `seed(0)` reaches the same state by the same rule.
 ///
