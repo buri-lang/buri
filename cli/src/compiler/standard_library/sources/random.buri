@@ -5,12 +5,9 @@
 //! effect. `Gen` takes a seed and performs nothing. It is an ordinary value,
 //! you thread it through a program the way you thread any other value, and the
 //! same seed gives the same sequence on every backend, in every process,
-//! forever.
-//!
-//! The second door is what a simulator needs and could not have. A
-//! deterministic simulation reproduces a failure by replaying a seed, so its
-//! generator cannot be an effect somebody handed it. Before `Gen`, the only way
-//! to get one was to write splitmix64 by hand, which is what people did.
+//! forever. That second door is what a deterministic simulation needs: it
+//! reproduces a failure by replaying a seed, so its generator cannot be an
+//! effect somebody handed it.
 //!
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
@@ -36,19 +33,17 @@
 //! 4 1
 //! ```
 //!
-//! **This module promises uniformity, and nothing else.** Neither door keeps a
-//! secret. The host's `Rand` is xoshiro256++ natively and `Math.random` on
-//! JavaScript. `Gen` is splitmix64, published here in full. An observer who has
-//! seen enough output of any of them can predict the rest, and for `Gen`
-//! "enough" is one draw. That is the right property for a shuffle, a sample, a
-//! jittered retry and a test that has to fail the same way twice.
+//! **This module promises uniformity, and nothing else.** The host's `Rand` is
+//! xoshiro256++ natively and `Math.random` on JavaScript. `Gen` is splitmix64,
+//! published here in full. An observer who has seen enough output of any of them
+//! can predict the rest, and for `Gen` "enough" is one draw. That is the right
+//! property for a shuffle, a sample, a jittered retry and a test that has to
+//! fail the same way twice.
 //!
 //! It is the **wrong** property for anything an attacker would like to guess —
 //! a session token, a password reset link, a nonce, a key. Those want
 //! [`core/crypto`](./crypto.buri)'s `randomBytes` and `token`, the platform's
-//! cryptographic generator behind the `Entropy` effect. They are separate
-//! effects so a program says which one it meant, and so the seeded doubles a
-//! test binds cannot silently stand in for the other.
+//! cryptographic generator behind the `Entropy` effect.
 
 from "core/bits" import * as bits;
 from "core/effect" import { Alloc, Rand };
@@ -68,29 +63,23 @@ export fn float<C: Rand>(ctx: C): Float {
 
 /// `count` uniform octets.
 ///
-/// The loop a program was writing by hand — `random.int(ctx, 0, 256)`, `count`
-/// times — written once. A negative count gives the empty list, which is what
-/// `list.range` already answers for a range that runs backwards.
+/// A negative count gives the empty list.
 ///
-/// **Not a key, and not a token.** Every word of this module's header applies
-/// to these octets: uniform, and predictable. Reach for `crypto.randomBytes`
-/// when they must not be guessable.
+/// **Not a key, and not a token.** These octets are uniform and predictable.
+/// Reach for `crypto.randomBytes` when they must not be guessable.
 export fn bytes<C: Alloc + Rand>(ctx: C, count: Int): [U8] {
     list.range(ctx, 0, count).mapCtx(ctx, fn(c, _i) => c.nextInt(0, 256).wrapToU8())
 }
 
 // --- A generator that is a value --------------------------------------------------
 
-/// splitmix64's increment. It is **odd**, which is the load-bearing half: an
-/// odd increment on sixty-four bits reaches every state exactly once, so the
-/// period is the whole of 2^64. Which odd number it is comes from the golden
-/// ratio, and that half is the paper's.
+/// splitmix64's increment. It is **odd**, so it reaches every state on
+/// sixty-four bits exactly once and the period is the whole of 2^64.
 let GOLDEN: U64 = 11400714819323198485;
 
-/// The two multipliers of splitmix64's finalizer, from the same paper
-/// (Steele, Lea and Flood, *Fast Splittable Pseudorandom Number Generators*).
-/// The state is an ordinary counter. All the quality lives in these three lines
-/// of avalanche, which is why the constants are the algorithm.
+/// The two multipliers of splitmix64's finalizer (Steele, Lea and Flood, *Fast
+/// Splittable Pseudorandom Number Generators*). The state is an ordinary
+/// counter; all the quality lives in the avalanche.
 let MIX_ONE: U64 = 13787848793156543929;
 
 let MIX_TWO: U64 = 10723151780598845931;
@@ -104,23 +93,18 @@ derive Eq, Show for Gen;
 /// A pure, seeded, splittable generator.
 ///
 /// splitmix64: one 64-bit counter, advanced by an odd constant, run through
-/// three rounds of avalanche. Both of this repository's simulators wrote this
-/// generator out by hand. It is here so they stop — and so they stop writing it
-/// *differently*, which is what actually happened.
+/// three rounds of avalanche.
 ///
 /// **Every method answers a value and the next generator**, because a step has
-/// nowhere else to be recorded. That is the whole cost of a generator that is a
-/// value, and also the whole benefit: a signature shows what a function draws,
-/// two calls with one `Gen` return the same number, and a run replays from a
-/// seed rather than from a log.
+/// nowhere else to be recorded. So a signature shows what a function draws, two
+/// calls with one `Gen` return the same number, and a run replays from a seed
+/// rather than from a log.
 ///
-/// **The state is exported.** It is no secret — a single draw reveals it to
-/// anybody who wants it, which is what "not cryptographic" means — and a
+/// **The state is exported.** It is no secret — a single draw reveals it — and a
 /// simulator that records `g.0` beside a failure can resume exactly there.
 ///
-/// It deliberately does **not** implement `Rand`. `Rand` is an effect, its
-/// methods take no generator and answer none, and a `Gen` that implemented it
-/// would have to hide a step somewhere.
+/// It does **not** implement `Rand`, whose methods take no generator and answer
+/// none.
 export struct Gen(export U64);
 
 /// The generator for a seed. Every `Int` is a seed, zero and negative ones
@@ -132,12 +116,10 @@ export fn seeded(seed: Int): Gen {
 /// A generator seeded from the platform, for a program that wants a *different*
 /// run each time and pure draws within it.
 ///
-/// Four sixteen-bit draws rather than one full-width one, and that is not
-/// fussiness. `Rand.nextInt` over the whole of `Int` gives a different amount
-/// of randomness on the two backends — `Math.random` has 53 bits to give and
-/// the range wants 64 — so a seed taken that way would quietly have eleven bits
-/// less than it looks like on JavaScript. Sixteen at a time is exact
-/// everywhere.
+/// Four sixteen-bit draws rather than one full-width one. `Rand.nextInt` over
+/// the whole of `Int` wants 64 bits and `Math.random` has 53, so a seed taken
+/// that way would quietly be eleven bits short on JavaScript. Sixteen at a time
+/// is exact everywhere.
 ///
 /// The seed this drew is `g.0`, so a run that wants to be replayable prints it.
 export fn gen<C: Rand>(ctx: C): Gen {
@@ -150,9 +132,8 @@ export fn gen<C: Rand>(ctx: C): Gen {
 
 /// One step: advance the counter, then avalanche a copy of it.
 ///
-/// What comes back is the *counter*, never the output, which keeps the period
-/// at a full 2^64 — the outputs are a permutation of the counters, and feeding
-/// one back would fold the cycle.
+/// What comes back is the *counter*, never the output, which keeps the period at
+/// a full 2^64.
 fn step(g: Gen): (U64, Gen) {
     let state = g.0.wrappingAdd(GOLDEN);
     let a = (state ^ bits.shrU64(state, 30)).wrappingMul(MIX_ONE);
@@ -162,9 +143,8 @@ fn step(g: Gen): (U64, Gen) {
 
 /// Draws until one lands inside the largest whole multiple of `span`.
 ///
-/// Tail-recursive, and it terminates with probability 1 in the only sense that
-/// matters: `threshold` is below `span`, so it rejects at most `span / 2^64` of
-/// the draws, which for every range a program will write is none of them.
+/// Tail-recursive. `threshold` is below `span`, so it rejects at most
+/// `span / 2^64` of the draws.
 fn rejecting(g: Gen, threshold: U64): (U64, Gen) {
     let (x, next) = step(g);
     if (x >= threshold) { (x, next) } else { rejecting(next, threshold) }
@@ -173,19 +153,13 @@ fn rejecting(g: Gen, threshold: U64): (U64, Gen) {
 impl Gen {
     /// Uniform in `[lo, hi)`, with no modulo bias.
     ///
-    /// `x % span` is uniform only when `span` divides `2^64`, and it does not:
-    /// the low `2^64 % span` values come up one time more often than the rest.
-    /// This is the standard fix — reject the draws in that leftover prefix,
-    /// then take the remainder. It lives here rather than at each call site
-    /// because a hand-written bounded draw is exactly where the bias keeps
-    /// showing up.
+    /// `x % span` is uniform only when `span` divides `2^64`: otherwise the low
+    /// `2^64 % span` values come up one time more often than the rest. This
+    /// rejects the draws in that leftover prefix, then takes the remainder.
     ///
     /// **An empty range answers `lo` and does not step the generator.**
-    /// `random.int` aborts on one, since it performs an effect and has a
-    /// process to stop. This is a pure function in a simulator's inner loop,
-    /// and the two properties worth having there are that it is total and that
-    /// it consumes nothing. `lo` is the answer because `[lo, lo)` is where an
-    /// empty range collapses.
+    /// `random.int` aborts on one instead, since it performs an effect and has a
+    /// process to stop.
     export fn nextInt(self, lo: Int, hi: Int): (Int, Gen) {
         if (hi <= lo) {
             (lo, self)
@@ -199,9 +173,8 @@ impl Gen {
         }
     }
 
-    /// Uniform in `[0.0, 1.0)`, with 53 bits of mantissa — the same interval
-    /// and the same granularity `float(ctx)` promises, so a program that scales
-    /// one is scaling the same shape.
+    /// Uniform in `[0.0, 1.0)`, with 53 bits of mantissa — the same interval and
+    /// granularity `float(ctx)` promises.
     export fn nextFloat(self): (Float, Gen) {
         let (x, next) = step(self);
         (bits.shrU64(x, 11).toF64() / TWO_TO_53, next)
@@ -210,9 +183,7 @@ impl Gen {
     /// The top bit of one draw.
     ///
     /// The top rather than the bottom because splitmix64's finalizer ends in
-    /// `x ^ (x >> 31)`, which leaves the high bits the most mixed. `x % 2` is
-    /// the shape that has bitten people in generators whose low bit has a short
-    /// period.
+    /// `x ^ (x >> 31)`, which leaves the high bits the most mixed.
     export fn nextBool(self): (Bool, Gen) {
         let (x, next) = step(self);
         (bits.shrU64(x, 63) == 1, next)
@@ -221,10 +192,9 @@ impl Gen {
     /// `count` octets, eight to a draw, least-significant first.
     ///
     /// Eight per draw rather than one, so a kilobyte of fixture costs 128 steps
-    /// and not 1024. That makes these *not* the octets `nextInt(0, 256)` eight
-    /// times would give. That is the honest consequence of the choice, and why
-    /// it is written down: a sequence recorded from one is not a sequence the
-    /// other reproduces.
+    /// and not 1024. These are therefore *not* the octets `nextInt(0, 256)`
+    /// eight times would give: a sequence recorded from one is not a sequence
+    /// the other reproduces.
     ///
     /// A negative count gives the empty list.
     export fn nextBytes<C: Alloc>(self, ctx: C, count: Int): ([U8], Gen) {
@@ -238,18 +208,11 @@ impl Gen {
     /// the second, which makes the parent's sequence independent of how many
     /// children it made.
     ///
-    /// This is what the fourteen salt constants in the storage simulator stood
-    /// in for, and it beats salting in the way that matters: nobody has to
-    /// invent a constant, and two streams cannot end up with the same one by
-    /// accident.
-    ///
-    /// **What it does not promise.** splitmix64 with a fixed increment has one
-    /// cycle, so a child's stream is the parent's own, entered at a different
-    /// point. The offset is a draw's worth of distance, which is astronomical
-    /// and is not infinite. That is the standard property of a fixed-increment
-    /// splittable generator. It is fine for a simulation. It would not be fine
-    /// for anything needing the streams to be *provably* disjoint, and nothing
-    /// in this module claims that.
+    /// **The streams are not provably disjoint.** splitmix64 with a fixed
+    /// increment has one cycle, so a child's stream is the parent's own, entered
+    /// a draw's worth of distance away. That distance is astronomical, not
+    /// infinite. Fine for a simulation; not enough where disjointness has to be
+    /// guaranteed.
     export fn split(self): (Gen, Gen) {
         let (seed, next) = step(self);
         (Gen(seed), next)
