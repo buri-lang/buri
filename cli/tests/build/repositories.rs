@@ -85,9 +85,15 @@ fn proto_schemas() {
 /// `generator_tools` is what an entry may *name*: no tool, a generator this
 /// toolchain does not ship, a label that is no binary, an input that is not
 /// there, and `proto_sources` on a binary.
+///
+/// `origins_at_the_edges` is the third: an origin is a byte range in a file,
+/// and the ends of one are where a caret is easiest to get wrong. Five spans —
+/// the first byte, the last byte, one that begins where the file ends, one well
+/// past it, and one naming a file the repository does not have — over a
+/// two-line input, a one-byte input, and an empty one.
 #[test]
 fn generators() {
-    run_corpus(&tests_dir().join("repositories/generators"), "generators", 5);
+    run_corpus(&tests_dir().join("repositories/generators"), "generators", 6);
 }
 
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own
