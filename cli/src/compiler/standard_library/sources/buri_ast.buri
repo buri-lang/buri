@@ -2809,6 +2809,12 @@ struct Prep {
 /// *program*: `language::round_trip` rewrites the whole conformance repository
 /// through this pair and runs it.
 ///
+/// **It reads the grammar and nothing else.** Where a source is well-formed
+/// text and ill-formed *program* — `export fn` on a method that satisfies a
+/// trait, a `test` outside a test source, a `//!` after the first declaration —
+/// this answers a tree and the compiler is what says no. So a `.Ok` here is not
+/// a promise that the source compiles.
+///
 /// Reading costs one `[Char]` of the source, one `[Token]`, and a walk.
 export fn parse<C: Alloc>(
     ctx: C,
