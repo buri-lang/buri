@@ -1440,6 +1440,13 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
 /// different `Func` slots, and that difference is the whole point of asking
 /// the question here rather than at the signature.
 ///
+/// Two keys wait on **this program** rather than on the world —
+/// `Tasks.parallel` and the scheduler double beneath it — and they are here
+/// for the consequence rather than for the cause: the call does not return
+/// until a step has finished, and a step may itself sleep, dial a socket or
+/// ask an actor. A double that answered before its step had is the one place
+/// where a test could read less than the program did.
+///
 /// Everything absent is *not* suspending, so an omission is the direction that
 /// costs correctness rather than performance. That is why the whole
 /// `host.HostFs`/`host.HostFs` surface is in by prefix rather than
