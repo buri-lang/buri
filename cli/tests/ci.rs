@@ -681,6 +681,84 @@ fn no_runner_config_promises_a_cap_nothing_reads() {
     );
 }
 
+/// **The cap can tell a child that is working from one that is stuck.**
+///
+/// The other half of the test above. `hang.rs` proves the cap fires on a child
+/// that is doing nothing; this proves it leaves alone one that is doing
+/// something and saying nothing about it, which is what a `buri build` of a
+/// fifty-thousand-arm match looks like from outside. Before the cap read
+/// processor time, run 34121595426's arm64 leg killed exactly that build at
+/// five minutes for being quiet.
+///
+/// `yes` burns a core and the shell that started it only waits, so the work is
+/// a **grandchild's** — the shape of every build in this suite, where `buri`
+/// spends its time waiting on `bun`, on `cc` or on a linker. Both pipes are
+/// closed: silence is the point.
+///
+/// Here rather than beside the cap, because a test with a real process in it
+/// pays real seconds and `hang.rs` is compiled into all thirteen test binaries.
+/// The rule itself is proved there, fed by hand, in microseconds
+/// (`hang::hang_tests::work_is_a_reading_that_moved`).
+#[test]
+fn the_hang_cap_leaves_a_busy_child_alone() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    let cap = Duration::from_secs(1);
+    let started = Instant::now();
+    let mut child = Command::new("sh")
+        .arg("-c")
+        .arg("yes > /dev/null & busy=$!; sleep 2; kill $busy; wait")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("`sh` is on PATH");
+    let status = hang::wait_capped(&mut child, "a busy grandchild", cap);
+
+    assert!(status.success(), "the shell holding the busy grandchild failed on its own: {status}");
+    let ran = started.elapsed();
+    assert!(
+        ran > cap,
+        "the child stopped after {ran:?}, inside one cap period, so the cap was never reached and \
+         this test asserted nothing about it"
+    );
+    println!("a busy, silent tree survived {ran:?} of a {cap:?} cap");
+}
+
+/// The reading the cap is built on answers on this host, and rises with work.
+///
+/// The test above would pass on a host where `cpu_time` answered nothing at all
+/// — the cap would be back to a wall clock, and a child that finishes inside it
+/// is not killed either way. This is what says the mechanism is connected, and
+/// it is what fails the day a host stops reporting what a process has spent.
+///
+/// Works until the reading moves rather than for a fixed time: a hundred-hertz
+/// clock does not tick for a thread that has had no processor, and this suite
+/// runs on machines carrying sixteen tests on four cores.
+#[test]
+fn the_processor_time_reading_rises_with_the_work() {
+    use std::time::{Duration, Instant};
+
+    let me = std::process::id();
+    let before = hang::cpu_time(me).expect("this host reports what a process has spent");
+    let until = Instant::now() + Duration::from_secs(60);
+    let mut n: u64 = 1;
+    let mut after = before;
+    while after <= before && Instant::now() < until {
+        for _ in 0..200_000 {
+            n = n.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        }
+        after = hang::cpu_time(me).expect("this host still reports it");
+    }
+    assert_ne!(n, 0);
+    assert!(
+        after > before,
+        "a minute of arithmetic did not move this process's reading off {before:?}, so the hang \
+         cap has nothing to tell a stuck child from a busy one by"
+    );
+    println!("the reading moved from {before:?} to {after:?}");
+}
+
 /// The packages of the workspace, as `directory -> package name`.
 ///
 /// Two files rather than one: the root manifest says which directories are
@@ -847,6 +925,12 @@ fn every_deferral_names_a_job_that_still_asks_for_it() {
 
 #[path = "harness/ci.rs"]
 mod ci;
+
+// The per-invocation cap itself, for the two tests above that drive it. This
+// file is the only binary that reaches for it directly: everywhere else it is
+// `harness/mod.rs`'s, one level under `run_in`.
+#[path = "harness/hang.rs"]
+mod hang;
 
 /// This assertion is about a runner, and this host is not one.
 fn only_on_a_runner(what: &str) -> bool {
