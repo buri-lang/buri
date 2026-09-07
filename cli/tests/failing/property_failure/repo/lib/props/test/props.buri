@@ -1,0 +1,34 @@
+// Four properties that do not hold, one per shape `core/testing/check` can
+// report: a scalar case, a list case, a property that fails on the very first
+// draw, and one that holds for a while first.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/testing/check" import * as check;
+
+test "a draw under a hundred is under fifty" {
+    check.forAll(check.int(0, 100), fn(n) => n < 50);
+}
+
+test "nothing is ever drawn" {
+    check.forAll(check.int(0, 100), fn(_n) => false);
+}
+
+test "a drawn list is empty" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 9), 4), fn(_c, xs) => {
+        xs.isEmpty()
+    });
+}
+
+test "a drawn list is sorted already" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 9), 4), fn(_c, xs) => {
+        xs.isSortedBy(fn(a, b) => a.compare(b))
+    });
+}

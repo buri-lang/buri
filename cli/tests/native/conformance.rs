@@ -301,6 +301,12 @@ const PACKAGES: &[Case] = &[
     // in 320. Every one of these files holds a `[Item]`, because that is what
     // a module is. They run on the reference backend, and they come back here
     // when the frame grows.
+    // The exception among them, and it is in: `tokenize` answers a `[Token]`,
+    // whose element is a small enum, a `Str` and two `Int`s. Nothing in this
+    // file builds a declaration, so the frame limit below does not reach it —
+    // and running it here is what says a lexer that a generator depends on
+    // reads the same bytes under both backends, spans and all.
+    included("buri_ast/tokens.buri"),
     excluded(
         "buri_ast/anchors.buri",
         "an `ast.Item` is 448 bytes and the stencil backend stages a `[T]` \
@@ -490,6 +496,15 @@ const PACKAGES: &[Case] = &[
     // of which this backend has, and the failing half is
     // `cli/tests/failing/assertion_kinds` on the reference backend.
     included("data/assertions.buri"),
+    // `core/testing/check`, whose whole surface is ordinary Buri over a
+    // function value and `core/random`'s `Gen`: a generator is a closure this
+    // backend already returns from a function, and the counterexample it
+    // reports goes through `assert.none`, which is `failExpected` — the same
+    // door `data/assertions.buri` uses. The draws are the point of running it
+    // here: a seeded sequence that came out differently under two backends
+    // would make every property test unreplayable, and this file pins the
+    // numbers.
+    included("data/properties.buri"),
     included("data/optionresult.buri"),
     included("data/patterns.buri"),
     // `core/character`'s eight, which used to be excluded as "a

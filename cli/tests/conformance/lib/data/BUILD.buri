@@ -9,6 +9,7 @@ library {
             "test/patterns.buri",
             "test/optionresult.buri",
             "test/assertions.buri",
+            "test/properties.buri",
             "test/steps.buri",
         ]
 
