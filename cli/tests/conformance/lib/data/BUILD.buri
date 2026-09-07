@@ -11,6 +11,8 @@ library {
             "test/assertions.buri",
             "test/properties.buri",
             "test/steps.buri",
+            "test/characters.buri",
+            "test/unicode.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

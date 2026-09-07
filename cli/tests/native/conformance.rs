@@ -27,12 +27,12 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Fifty-four of the seventy-five files are in it** — the number the harness
+//! **Fifty-six of the seventy-seven files are in it** — the number the harness
 //! prints, re-derived from it rather than incremented by hand, and one the
 //! prose has drifted from more than once. The ordinals in the paragraphs below
 //! record *when* a file joined the set and are not a running total of it;
-//! `text/path.buri`, `text/hex.buri` and `cli/arguments.buri` are the
-//! latest, and their own entries say why they are in.
+//! `data/characters.buri` and `data/unicode.buri` are the
+//! latest, and their own entry says why they are in.
 //! `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
 //! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
@@ -512,6 +512,12 @@ const PACKAGES: &[Case] = &[
     // exposes; `cli/runtime/character.rs` carries it, generated from the
     // engine the JavaScript backend runs on, and says so.
     included("data/strings.buri"),
+    // `core/character`'s classifiers and `core/str`'s Unicode four, whose tables are
+    // *Buri* — string literals `unicode_tables.py` writes into `character.buri` and
+    // `str.buri` — so nothing here asks the backend for anything the string and
+    // list entries did not already answer.
+    included("data/characters.buri"),
+    included("data/unicode.buri"),
     // `core/character`'s eight, which used to be "a General Category table
     // Rust does not expose" and now is `cli/runtime/character.rs` — a table
     // this repository carries, generated from the engine the JavaScript

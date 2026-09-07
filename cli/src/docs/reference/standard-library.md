@@ -42,6 +42,16 @@ struct, so every operation in `core/simd` is pure.
 `Option`, `Result`, `Order` and the comparison and operator traits are in the
 prelude, so `derive Eq for Point;` works in a module that imports nothing.
 
+**An argument is evaluated whether it is needed or not**, so each eager
+combinator has a deferred twin: `withDefaultWith`, `orElse` and `okOrWith` on
+`Option`, and `withDefaultWith`, `orElse` and `orElseCtx` on `Result`. Both
+carry `mapOr`, which maps and defaults in one step at a type that need not be an
+`Option` or a `Result`, and an `isSomeAnd`/`isOkAnd` that asks the predicate only
+when there is a value. `Result.fold` takes both halves onto one type and
+`errToOption` keeps the half `toOption` throws away. `option.flatten` takes one
+`Option` off a nested one, `option.zip` answers both values or neither, and
+`toList` is the one-or-none list `filterMap` wants.
+
 **A comparator is a value, and `core/order` builds one.** `order.by` takes the
 key. `order.chain` takes the tie-breaks in priority order. `order.reverseIf`
 takes the direction from the data. So a sort key with three columns and a `DESC`
@@ -70,6 +80,41 @@ unordered, so it answers `.Equal` for a pair it could not order.
   and the two disagree above the basic multilingual plane. `<`, `[Str].sort`,
   `core/order`'s `str` and an `OrdMap<Str, _>`'s key order all use that one
   comparison.
+
+  Beside them: `stripPrefix` and `stripSuffix` for the trim-if-present form,
+  `lastIndexOf`, `splitOnceFromEnd` and `indexOfFrom` for the searches a parser
+  writes second, `trimAny` and its two halves for a set of characters rather
+  than whitespace, `splitLimit`, `count`, `replaceFirst`, `reverse`,
+  `indexWhere`, `indexOfAny`, `isBlank` and `words`. `utf8Length` and
+  `utf16Length` count the two units `len` does not — bytes on the wire, and the
+  code units a language server's positions are in. `dedent`, `indent` and `wrap`
+  lay text out; `fromIntGrouped` and `fromFloatFixed` render numbers with
+  thousands separators and a fixed number of decimals.
+
+- **Unicode past the scalar lives in `core/str` too.** `graphemes` and
+  `graphemeCount` are UAX #29's extended grapheme clusters — what a reader calls
+  characters — so an emoji with a skin tone, a flag's two regional indicators
+  and an Indic conjunct each count as one. `normalize(ctx, form)` is UAX #15's
+  four forms, and `caseFold` is **full** case folding, so `"ß"` folds to `"ss"`
+  where `equalsIgnoreCase`'s simple folding says the two differ.
+
+  These read tables generated at **Unicode 16.0** by
+  `cli/src/compiler/standard_library/unicode_tables.py`, which is checked in
+  beside the sources it writes, so a build needs no network. The tables are Buri
+  string literals — 139 thousand characters in `core/str` and 7 thousand in
+  `core/char` — and a program that never calls these carries none of them.
+  Everything here walks the string and probes a table per scalar; the three that
+  take a context unpack each table once per call, and `graphemeCount` is pure
+  and cannot, so `graphemes(ctx).len()` is the cheaper count where a context is
+  at hand.
+
+- **`core/char`** — one scalar's own questions. `isDigit`, `isAlpha` and
+  `isSpace` were always here; `isAscii`, `isControl`, `isPunctuation`,
+  `isPrintable`, `isNewline` and `utf8Length` are the rest of the set.
+  `isPunctuation` is General Category `P`, so a symbol — `+`, `<`, `$` — is not
+  punctuation. `isPrintable` is everything outside categories `C` and `Z` plus
+  the space, which is Python's `str.isprintable`. `isNewline` is the seven line
+  terminators, the distinction `isSpace` cannot make.
 
 - **`core/bytes`** — UTF-8, hex, base64, varints. These are free functions
   rather than methods on `[U8]`, because you may only declare a method in its
@@ -242,6 +287,23 @@ context. Beside them in `core/list`: `removeAt`, `windows`, `generate`,
 `uniqueBy`, `isSortedBy`, `maxBy`/`minBy` and `compareBy`. `uniqueBy` keeps the
 first of each equal class, so it costs O(n²) in comparisons. Where the order may
 change, `sortBy` and a walk is the O(n log n) answer.
+
+**The index, the position and the two ends.** `mapIndexed`, `foldIndexed`,
+`filterIndexed` and `indexed` hand the step the element's position.
+`takeWhile`/`dropWhile` cut at the first refusal, `chunks` groups without
+overlapping where `windows` slides, `partition` answers both sides in one pass,
+and `insertAt`, `replaceAt`, `updateAt` and `pushFront` are the edits. Searching
+runs both ways: `findLast` and `findLastIndex` from the end, `indexOf` and
+`lastIndexOf` at an `Eq` element, `startsWith` and `endsWith` over a whole
+sublist. On a list that is already sorted, `binarySearch` and `binarySearchBy`
+are O(log n) and their `.Err` carries the insertion point, and `partitionPoint`
+counts the leading run in the same time. `scan` keeps a fold's working, `reduce`
+seeds it with the first element, `splitAt` and `splitFirst` cut, `unzip` and
+`zipWith` pair, `chunkBy` and `deduplicateBy` work on neighbouring runs, and
+`intersperse` puts a separator between them. `unfold` builds a list from a seed
+and `rangeBy` counts with a stride. `product`, `mean`, `median` and `sumOf`
+finish it — `mean` is on `[Int]` and `meanFloat` on `[Float]`, because one
+method name resolves once for `[T]`.
 
 **Grouping answers a map, so it lives with the map.** `map.groupBy(ctx, xs,
 key)` and `ordmap.groupBy` collect the elements under each key, `indexBy` keeps

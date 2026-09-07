@@ -6,6 +6,8 @@
 //! harmless, and making it an error would put `option.ignore` in front of half
 //! the standard library for no safety gain (SPEC 5.7.1).
 
+from "core/effect" import { Alloc };
+
 // Structural, so `Option<T>` compares and renders whenever `T` does. Without
 // this no struct with an `Option` field could derive `Eq` either.
 derive Eq, Ord, Show, Hash for Option;
@@ -91,5 +93,130 @@ impl<T> Option<T> {
             .Some(v) => .Some(v),
             .None => other,
         }
+    }
+
+    /// `map` and `withDefault` in one step, so the two sides may have different
+    /// types and neither has to be an `Option`.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let found: Option<Int> = .Some(3);
+    ///     let missing: Option<Int> = .None;
+    ///     let _ = io
+    ///         .println(
+    ///             ctx,
+    ///             "${found.mapOr(0, fn(n) => n * 10)} ${missing.mapOr(0, fn(n) => n * 10)}",
+    ///         )
+    ///         .ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// 30 0
+    /// ```
+    export fn mapOr<U>(self, fallback: U, transform: fn(T) => U): U {
+        match (self) {
+            .Some(v) => transform(v),
+            .None => fallback,
+        }
+    }
+
+    /// `withDefault` for a fallback you would rather not compute. The argument
+    /// to `withDefault` is evaluated whether or not it is needed; this one runs
+    /// only when the value is absent.
+    export fn withDefaultWith(self, fallback: fn() => T): T {
+        match (self) {
+            .Some(v) => v,
+            .None => fallback(),
+        }
+    }
+
+    /// `or`, with the alternative deferred — `or`'s argument is evaluated
+    /// eagerly, so a second lookup written with `or` happens every time.
+    export fn orElse(self, alternative: fn() => Option<T>): Option<T> {
+        match (self) {
+            .Some(v) => .Some(v),
+            .None => alternative(),
+        }
+    }
+
+    /// `okOr` with the error deferred, for a message that costs an allocation
+    /// to build.
+    export fn okOrWith<E>(self, error: fn() => E): Result<T, E> {
+        match (self) {
+            .Some(v) => .Ok(v),
+            .None => .Err(error()),
+        }
+    }
+
+    /// Whether the value is present *and* answers the predicate. An absent
+    /// value is `false` without the predicate running.
+    export fn isSomeAnd(self, predicate: fn(T) => Bool): Bool {
+        match (self) {
+            .Some(v) => predicate(v),
+            .None => false,
+        }
+    }
+
+    /// One element, or none — the shape that lets a `[Option<T>]` become a
+    /// `[T]` through `filterMap` or `flatten`.
+    ///
+    /// It names `Alloc` because the result's length depends on the value, even
+    /// though both lengths are known: SPEC 10.5 asks about the answer, not
+    /// about the code.
+    export fn toList<C: Alloc>(self, ctx: C): [T] {
+        let none: [T] = [];
+        match (self) {
+            .Some(v) => none.push(ctx, v),
+            .None => none,
+        }
+    }
+}
+
+/// One `Option` out of two. `andThen(fn(x) => x)` says the same thing, and this
+/// says it without the identity function.
+export fn flatten<T>(nested: Option<Option<T>>): Option<T> {
+    match (nested) {
+        .Some(inner) => inner,
+        .None => .None,
+    }
+}
+
+/// Both values, or neither. The pair a validation reaches for once it has two
+/// optional fields and needs them together.
+///
+/// ```buri run
+/// from "core/effect" import { Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/option" import * as option;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Stdout: host.stdout,
+///     };
+///     let absent: Option<Str> = .None;
+///     let both = option.zip(.Some(1), .Some("a"));
+///     let neither = option.zip(.Some(1), absent);
+///     let _ = io.println(ctx, "${both.isSome()} ${neither.isSome()}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// true false
+/// ```
+export fn zip<T, U>(first: Option<T>, second: Option<U>): Option<(T, U)> {
+    match ((first, second)) {
+        (.Some(a), .Some(b)) => .Some((a, b)),
+        _ => .None,
     }
 }
