@@ -212,3 +212,104 @@ test "a stop discards nothing, because every send already ran" {
     assert.eq(counted.stop(ctx), .Ok(()));
     assert.eq(sink.captured(), "final 123\n");
 }
+
+// -----------------------------------------------------------------------------
+// A step that sends to the actor that is running it
+// -----------------------------------------------------------------------------
+//
+// The two types below are how a program reaches that at all. A step cannot name
+// its own address — the address is what `start` answers, and a state or a
+// message that held one would be a type defined in terms of itself. So the
+// *message* carries a function instead, built where the address already is, and
+// the step calls it. `fn(C) => Int` names no actor, so nothing here is
+// recursive.
+
+enum Reentrant<C> {
+    /// Call this, and answer what it said.
+    Reenter(fn(C) => Int),
+    Tick,
+    Get,
+}
+
+derive Eq, Show for Reentered;
+enum Reentered {
+    Ticked,
+    Reentered(Int),
+    Count(Int),
+}
+
+fn reentrant<C: Alloc + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
+    Actor {
+        state: 0,
+        step: fn(c, count, message) => {
+            match (message) {
+                .Reenter(f) => {
+                    let call = f;
+                    Stepped { state: count, answer: .Reentered(call(c)) }
+                },
+                .Tick => Stepped { state: count + 1, answer: .Ticked },
+                .Get => Stepped { state: count, answer: .Count(count) },
+            }
+        },
+    }
+}
+
+test "a step that sends to its own actor is refused, and the message still arrives" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    let counted = actor.start(ctx, reentrant());
+    // The step holds the state while it runs, so the send below posts its
+    // message and then finds nothing to step it with. Taking the state stays
+    // non-blocking, so the answer is `.Err(.Stopped)` rather than a deadlock.
+    let refused = counted.sendMessage(
+        ctx,
+        .Reenter(fn(c) => {
+            match (counted.sendMessage(c, .Tick)) {
+                .Ok(_answered) => 1,
+                .Err(_gone) => 0,
+            }
+        }),
+    );
+    assert.eq(refused, .Ok(.Reentered(0)));
+    // Refused is not lost. The `.Tick` is in the mailbox, and the loop that was
+    // already running steps it — once — before it puts the state back.
+    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(1)));
+    assert.eq(counted.stop(ctx), .Ok(()));
+}
+
+test "a step fills the mailbox to its bound, and every message still arrives" {
+    let ctx = context {
+        Alloc: alloc(),
+        Tasks: tasks(),
+    };
+    // Sixty-four posts with nothing draining between them, which is the only
+    // way a program reaches the bound: every other send runs the mailbox down
+    // before it answers. Sixty-four is what fits, and all sixty-four are
+    // stepped when the step that posted them returns.
+    let filled = actor.start(ctx, reentrant());
+    let fanned = filled.sendMessage(ctx, .Reenter(fn(c) => ticks(c, filled, 64)));
+    assert.eq(fanned, .Ok(.Reentered(0)));
+    assert.eq(filled.sendMessage(ctx, .Get), .Ok(.Count(64)));
+    assert.eq(filled.stop(ctx), .Ok(()));
+}
+
+/// Posts `left` ticks and answers how many of them were stepped on the spot,
+/// which is none of them: the caller is the step that holds the state.
+fn ticks<C: Alloc + Tasks>(
+    ctx: C,
+    address: Address<C, Int, Reentrant<C>, Reentered>,
+    left: Int,
+): Int {
+    match (left <= 0) {
+        true => 0,
+        false => {
+            let stepped = match (address.sendMessage(ctx, .Tick)) {
+                .Ok(_answered) => 1,
+                .Err(_gone) => 0,
+            };
+            stepped + ticks(ctx, address, left - 1)
+        },
+    }
+}
