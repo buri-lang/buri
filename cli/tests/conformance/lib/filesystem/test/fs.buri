@@ -336,8 +336,36 @@ test "a fault fires on the method it names" {
         assert.err(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
         .ReadOnly,
     );
-    // The plan failed the call, so nothing was written and the call is still
-    // one the log has.
+}
+
+test "a call the plan failed writes nothing" {
+    let files = disk()
+        .files([("a", "A")])
+        .faults([copyFile("a", "b").fails(.ReadOnly)]);
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: files,
+        FsWrite: files,
+    };
+    assert.eq(
+        assert.err(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
+        .ReadOnly,
+    );
     assert.eq(files.snapshot(), [("a", "A")]);
+}
+
+test "a call the plan failed is still a call the log has" {
+    let files = disk()
+        .files([("a", "A")])
+        .faults([copyFile("a", "b").fails(.ReadOnly)]);
+    let ctx = context {
+        Alloc: alloc(),
+        FsRead: files,
+        FsWrite: files,
+    };
+    assert.eq(
+        assert.err(fs.copy(ctx, path.of(ctx, "a"), path.of(ctx, "b"))),
+        .ReadOnly,
+    );
     assert.eq(files.calls(), [copyFile("a", "b")]);
 }

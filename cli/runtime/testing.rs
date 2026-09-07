@@ -3037,8 +3037,14 @@ pub unsafe extern "C" fn buri_rt_host_testing_note_fs_call(
     });
 }
 
-/// The eleven names an `FsCall` can carry, which are the eleven methods of `Fs`.
-const FS_CALL_NAMES: [&str; 11] = [
+/// The names an `FsCall` can carry, which are the sixteen methods of `FsRead`
+/// and `FsWrite`.
+///
+/// **Every one of them, or a fault on the missing one records a call with no
+/// name.** `removeDir` was absent for as long as this list was eleven long, and
+/// the symptom is quiet: the plan fires, the answer is right, and `calls()`
+/// reports an entry no constructor can match.
+const FS_CALL_NAMES: [&str; 16] = [
     "readFile",
     "writeFile",
     "fileExists",
@@ -3048,8 +3054,13 @@ const FS_CALL_NAMES: [&str; 11] = [
     "appendFile",
     "renameFile",
     "removeFile",
+    "removeDir",
     "makeDir",
     "syncFile",
+    "metadata",
+    "readRange",
+    "realPath",
+    "copyFile",
 ];
 
 // ---------------------------------------------------------------------------
