@@ -23,7 +23,7 @@ from "core/path" import { Path };
 
 // One `Request` now. `ui/effect` used to declare a second — the callback-shaped
 // client's, aliased here to `UiRequest` — and it went when `Fetch` did.
-from "ui/effect" import { Scope, Ui, Watch };
+from "ui/effect" import { Location, Scope, Ui, Watch };
 
 export struct HostAlloc {}
 
@@ -266,6 +266,18 @@ impl Watch for HostWatch {
     fn read<T>(self, id: Int): T;
 }
 
+/// The address bar. A page binds it to route on the path it was opened at and
+/// to re-route when the reader navigates.
+///
+/// **Granted on WEB alone**, because nothing else has one. A worker reads the
+/// path off the request it was handed, which is `Request.path` and no authority
+/// at all.
+export struct HostLocation {}
+
+impl Location for HostLocation {
+    fn path(self): Int;
+}
+
 export let alloc: HostAlloc = HostAlloc { };
 
 export let stdout: HostStdout = HostStdout { };
@@ -299,3 +311,5 @@ export let websocketClient: HostWebSocketClient = HostWebSocketClient { };
 export let ui: HostUi = HostUi { };
 
 export let watch: HostWatch = HostWatch { };
+
+export let location: HostLocation = HostLocation { };
