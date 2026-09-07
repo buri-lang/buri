@@ -6,30 +6,22 @@
 //! effect-carrying, so they may be passed only as `self` or `ctx` (SPEC 10.1,
 //! 10.2).
 //!
-//! Everything here rests on one idea: **a signal handle is inert data, and the
-//! authority to read or write it travels through `ctx`.** That is the split
-//! `Alloc` and `Region` already use — the handle is the reference, the context
-//! is the effect. `Signal<T>` and `Prop<T>`, in `ui/signal` and `ui/prop`, are
-//! ordinary capturable data; nothing in them can do anything without one of
-//! the effects below.
+//! **A signal handle is inert data, and the authority to read or write it
+//! travels through `ctx`.** `Signal<T>` and `Prop<T>`, in `ui/signal` and
+//! `ui/prop`, are ordinary capturable data; nothing in them can do anything
+//! without one of the effects below.
 //!
 //! A signal identifier is an `Int` here rather than a `Signal<T>` because this
 //! module is the boundary with the runtime, which holds one graph of untyped
 //! cells. The typed handle is built on top, in ordinary Buri.
 //!
-//! **Requests are not here.** There used to be a third effect, `Fetch`. It
-//! existed because `Net.fetch` blocked, and a blocked page is a frozen one, so
-//! it took a callback and answered later. A suspending call no longer blocks
-//! anything, so a page asks for `Net` like every other platform and writes the
-//! answer on the line after the question. The callback shape, the second
-//! `Request`, the second error enum and the `Aborted` that only it had are all
-//! gone. `NetError.Aborted` is where that last one lives now.
+//! A page asks for `Net` like every other platform: there is no fetch effect
+//! here.
 
 /// Reading signals, alone.
 ///
-/// Separate from `Ui` so a computation can hold read authority and provably
-/// nothing else. A `fn(Scope) => T` can observe the graph and cannot change it,
-/// which is what makes a derivation safe to re-run whenever the runtime likes.
+/// Separate from `Ui` so a computation can hold read authority and nothing else.
+/// A `fn(Scope) => T` can observe the graph and cannot change it.
 export effect Watch {
     /// The current value of the cell `id` names.
     ///
@@ -40,10 +32,8 @@ export effect Watch {
 
 /// Creating and writing signals, and registering computations.
 ///
-/// `read` appears here as well as on `Watch` because writing is no substitute
-/// for reading. `Signal.update` reads the old value and writes a new one, and it
-/// takes the effect that can write. An implementor of `Ui` grants strictly more
-/// than one of `Watch`.
+/// An implementor of `Ui` grants strictly more than one of `Watch`, so `read`
+/// appears here too.
 export effect Ui {
     /// A fresh cell holding `initial`. The returned `Int` names it for the
     /// lifetime of the program.
@@ -67,11 +57,9 @@ export effect Ui {
 /// The one concrete implementor of `Watch`, minted only by the runtime when it
 /// evaluates a reactive closure.
 ///
-/// Concrete so that closure types can name it, which is what keeps `Prop` free
-/// of a *context* type parameter and will keep `Style` free of one. Its field is
-/// private, so no program can build one. It implements an effect, so it is
-/// effect-carrying and may only arrive as `ctx`. A signature taking a `Scope` is
-/// visibly effectful.
+/// Concrete so that closure types can name it, which keeps `Prop` and `Style`
+/// free of a context type parameter. Its field is private, so no program can
+/// build one, and it is effect-carrying, so it may only arrive as `ctx`.
 export struct Scope(Int);
 
 impl Watch for Scope {
@@ -80,17 +68,11 @@ impl Watch for Scope {
 
 /// Something a reader did.
 ///
-/// Opaque in this version, on purpose. A handler that later wants to know
-/// *where* a press landed, or whether a modifier key was down, gains an accessor
-/// rather than a new signature. The vocabulary has two shapes of handler — a
-/// press, on a button, and a submission, on a form — and both receive one of
-/// these.
-///
-/// A change is not among them, and that is no omission: a field and a toggle
-/// bind to a `Signal`, so what the reader typed is already in the signal. Hover,
-/// focus and pressed are missing too. They are appearance rather than events, so
-/// they belong to `ui/style`. A hover that wrote a signal would put a render in
-/// the path of every mouse move.
+/// Opaque in this version. There are two shapes of handler — a press, on a
+/// button, and a submission, on a form — and both receive one of these. There is
+/// no change handler: a field and a toggle bind to a `Signal`, so what the
+/// reader typed is already there. Hover, focus and pressed are appearance, so
+/// they live in `ui/style`.
 ///
 /// Holds no authority, so a lambda may capture one. Its field is private, so
 /// only the runtime can mint one.
@@ -102,11 +84,9 @@ export struct Event(Int);
 /// handed a request and reads the path off that, and a native program has
 /// neither.
 ///
-/// One method, and it answers a cell rather than a string, for the reason every
-/// identifier in this module is an `Int`: this is the boundary with the
-/// runtime, which holds one graph of untyped cells. `ui/web`'s `path` reads it
-/// and `ui/web`'s `route` wraps it in a `Prop`, so a computation that read the
-/// path re-runs when the reader navigates and nothing else does.
+/// It answers a cell rather than a string. `ui/web`'s `path` reads it and
+/// `ui/web`'s `route` wraps it in a `Prop`, so a computation that read the path
+/// re-runs when the reader navigates and nothing else does.
 export effect Location {
     /// The cell holding the path of the page's address, as `/guide/routing`.
     /// The runtime writes it when the reader navigates.

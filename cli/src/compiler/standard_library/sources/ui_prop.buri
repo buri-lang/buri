@@ -1,14 +1,11 @@
 //! ui/prop — a value that may vary.
 //!
-//! One convention runs through the whole user-interface vocabulary: wherever a
-//! value can vary, there is a `Computed` variant taking `fn(Scope) => X`. The
-//! runtime supplies the `Scope` at evaluation time, and the closure can never
-//! capture one.
+//! Wherever a value can vary, there is a `Computed` variant taking
+//! `fn(Scope) => X`. The runtime supplies the `Scope` at evaluation time, and
+//! the closure can never capture one.
 //!
-//! A component cannot tell which variant it got. Props are uniform over
-//! reactivity and distinct over writability: a component that may write takes
-//! the `Signal` itself, or a callback. `Const` is a visible constructor, so a
-//! static prop registers nothing in the runtime graph at all.
+//! A component cannot tell which variant it got. One that may write takes the
+//! `Signal` itself, or a callback.
 //!
 //! `memo` lives here rather than in `ui/signal` because it returns a `Prop`,
 //! and a module may not import the module that imports it.
@@ -29,11 +26,6 @@ export enum Prop<T> {
 
 impl<T> Prop<T> {
     /// The current value.
-    ///
-    /// Takes a `Scope` rather than any `C: Watch` because `Computed` holds a
-    /// `fn(Scope) => T` and has to call it. That is the whole reason `Scope` is a
-    /// concrete type rather than a type parameter, and it is what keeps `Prop`
-    /// and `Style` free of a context parameter.
     export fn read(self, ctx: Scope): T {
         match (self) {
             .Const(v) => v,
@@ -47,14 +39,13 @@ impl<T> Prop<T> {
 /// changes.
 ///
 /// Lazy: `compute` does not run here, and a memo nothing ever reads never runs.
-/// Once read, it re-runs only when a cell it actually read is written. So a
-/// memo that reads one of two cells depending on a third subscribes to the
-/// third and to the branch it took, not to the branch it skipped.
+/// Once read, it re-runs only when a cell it actually read is written. A memo
+/// that reads one of two cells depending on a third subscribes to the third and
+/// to the branch it took, not to the branch it skipped.
 ///
-/// The `Prop` it answers is a `Computed` that reads the memo's own cell, so a
-/// computation reading it subscribes to the memo rather than to the memo's
-/// sources. That is the whole of the caching: the sources move, the memo
-/// recomputes once, and everything downstream sees one change.
+/// Whatever reads the memo subscribes to the memo, not to its sources. So when
+/// the sources move, the memo recomputes once and everything downstream sees
+/// one change.
 export fn memo<C: Ui, T>(ctx: C, compute: fn(Scope) => T): Prop<T> {
     let id = ctx.memo(compute);
     .Computed(fn(scope) => scope.read(id))
