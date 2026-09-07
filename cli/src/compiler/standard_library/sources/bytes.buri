@@ -98,33 +98,39 @@ export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
 /// hi� 3
 /// ```
 export fn fromUtf8Lossy<C: Alloc>(ctx: C, bytes: [U8]): Str {
-    str.fromChars(ctx, lossy(ctx, bytes, 0, list.empty<Char>()))
+    // The substitution happens in the *octets*, and `fromUtf8` then reads them.
+    // What `cleaned` answers is valid UTF-8 by construction, so the decoder
+    // cannot refuse it and the fallback is unreachable. Building the octets
+    // rather than a `[Char]` keeps one decoder in the module: this walk decides
+    // what is a sequence, and the intrinsic decides what the string is.
+    fromUtf8(ctx, cleaned(ctx, bytes, 0, list.empty<U8>())).withDefault("")
 }
 
-let REPLACEMENT: Char = '�';
+/// U+FFFD's own UTF-8 encoding, which is what a bad sequence becomes.
+let REPLACEMENT: [U8] = [0xef, 0xbf, 0xbd];
 
-/// One scalar value per step, or one replacement character and the length of the
-/// maximal subpart that failed. Tail-recursive over the whole input.
-fn lossy<C: Alloc>(ctx: C, b: [U8], i: Int, acc: [Char]): [Char] {
+/// The input with every maximal subpart that is not a valid sequence swapped for
+/// U+FFFD. Tail-recursive over the whole run.
+fn cleaned<C: Alloc>(ctx: C, b: [U8], i: Int, acc: [U8]): [U8] {
     if (i >= b.len()) {
         acc
     } else {
         let lead = b.get(i).withDefault(0).toI64();
         if (lead < 0x80) {
-            lossy(ctx, b, i + 1, acc.push(ctx, scalar(lead)))
+            cleaned(ctx, b, i + 1, acc.push(ctx, b.get(i).withDefault(0)))
         } else {
             let width = sequenceWidth(lead);
             let taken = valid(b, i, width);
             if (taken == width) {
-                lossy(ctx, b, i + width, acc.push(ctx, scalar(assemble(b, i, width))))
+                cleaned(ctx, b, i + width, acc.concat(ctx, b.slice(ctx, i, i + width)))
             } else {
                 // The maximal subpart: what was consumed before the byte that
                 // did not belong, and never fewer than one byte.
-                lossy(
+                cleaned(
                     ctx,
                     b,
                     i + if (taken < 1) { 1 } else { taken },
-                    acc.push(ctx, REPLACEMENT),
+                    acc.concat(ctx, REPLACEMENT),
                 )
             }
         }
@@ -188,37 +194,6 @@ fn continuations(b: [U8], i: Int, width: Int, low: Int, high: Int, at: Int): Int
         } else {
             continuations(b, i, width, low, high, at + 1)
         }
-    }
-}
-
-/// The code point a checked sequence spells.
-fn assemble(b: [U8], i: Int, width: Int): Int {
-    let lead = b.get(i).withDefault(0).toI64();
-    let head = if (width == 2) {
-        lead % 32
-    } else if (width == 3) {
-        lead % 16
-    } else {
-        lead % 8
-    };
-    tail(b, i, width, 1, head)
-}
-
-fn tail(b: [U8], i: Int, width: Int, at: Int, acc: Int): Int {
-    if (at >= width) {
-        acc
-    } else {
-        tail(b, i, width, at + 1, acc * 64 + b.get(i + at).withDefault(0).toI64() % 64)
-    }
-}
-
-/// The character a code point names, or the replacement character when it names
-/// none. Every caller has already checked the ranges, so the second arm is
-/// unreachable.
-fn scalar(code: Int): Char {
-    match (code.wrapToU32().toChar()) {
-        .Ok(c) => c,
-        .Err(_e) => REPLACEMENT,
     }
 }
 

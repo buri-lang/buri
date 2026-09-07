@@ -2,7 +2,7 @@ library {
     sources: []
 
     test {
-        sources: ["test/uuid.buri"]
+        sources: ["test/uuid.buri", "test/hashing.buri"]
 
         # The reference run, on the reference backend: `native::conformance`
         # drives these same files through the stencil backend

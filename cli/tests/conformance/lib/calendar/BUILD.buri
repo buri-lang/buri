@@ -4,6 +4,7 @@ library {
     test {
         sources: [
             "test/date.buri",
+            "test/fractions.buri",
             "test/duration.buri",
             "test/timestamps.buri",
         ]
