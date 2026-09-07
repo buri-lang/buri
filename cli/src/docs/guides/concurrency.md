@@ -170,6 +170,11 @@ The mailbox holds sixty-four messages and is not configurable. A send runs the
 mailbox down before it answers, so the bound is what limits how much work may
 wait for a driver busy somewhere else.
 
+The one way a program reaches the bound is a step posting to its own actor,
+because nothing drains while a step holds the state. Keep a step's fan-out at
+sixty-four or under: a sixty-fifth message from there waits for room nobody is
+coming to make.
+
 ## `sendMessage` and `stop`
 
 ```buri run use=books
