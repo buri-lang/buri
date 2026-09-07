@@ -3894,8 +3894,8 @@ fn a_socket_counts_the_messages_it_was_sent() {
 /// is exactly what this shows — a broadcast happens *when somebody publishes*,
 /// on the publisher's worker, because an actor steps on the task that drives
 /// it — and what F7 adds is that the other socket's bytes still go out, because
-/// a `send` is a queue and a byte on a pipe rather than a write somebody has to
-/// be waiting for.
+/// a socket `send` is a queue and a byte on a pipe rather than a write somebody
+/// has to be waiting for.
 ///
 /// **This row is LLVM's alone.** Two sockets open at once is two workers, and
 /// the frame-threaded backend runs a `parallel` in index order because a
@@ -3917,9 +3917,9 @@ fn a_broadcast_actor_reaches_a_socket_it_did_not_publish_on() {
     // A `Joined` is posted by `onOpen`, which runs after the `101` the client
     // read — so "both clients have connected" does not mean "both are in the
     // room". What does mean it is a publish that came back: the first client
-    // says something and hears its own echo, which is an `ask` that drained the
-    // mailbox, so by the time the second client publishes its own `Joined` is
-    // in front of its `Publish` on the same worker's queue.
+    // says something and hears its own echo, and a send that answered is a send
+    // whose mailbox ran down, so by the time the second client publishes its own
+    // `Joined` is in front of its `Publish` on the same worker's queue.
     let mut first = crate::shared::Talking::to(port);
     first.say("one");
     let alone = first.heard();

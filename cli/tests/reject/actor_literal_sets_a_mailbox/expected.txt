@@ -1,7 +1,7 @@
 error: `Actor` has no field `mailbox` [no-such-field]
-  --> cmd/actor_literal_sets_a_mailbox/main.buri:24:9
+  --> cmd/actor_literal_sets_a_mailbox/main.buri:22:9
    |
-24 |         mailbox: .Some(8),
+22 |         mailbox: .Some(8),
    |         ^^^^^^^
    |
    = fix: check the spelling, or name a field the type declares

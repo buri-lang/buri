@@ -12,7 +12,7 @@
 // conformance.rs` runs this same file through the copy-and-patch backend.
 
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Reply };
+from "core/actor" import { Actor, Stepped };
 from "core/alloc" import * as alloc;
 from "core/crypto" import * as crypto;
 from "core/effect" import {
@@ -2445,36 +2445,38 @@ test "faults replaces, and a plan it replaced claims nothing" {
 
 /// The room from `core/net/server`'s WebSocket section, as a protocol.
 ///
-/// `Publish` carries a `Reply<Int>` and the publisher **asks**, which is not
-/// decoration: `core/actor`'s `send` posts and runs the mailbox down only when
-/// it found the mailbox crowded, so a room driven by `send` alone would step
-/// nothing until something else drove it. The ask is what runs it, and the
-/// answer is how many sockets the message reached.
+/// Every message answers the room's size, and a `Publish` answers how many
+/// sockets it reached — so a publisher gets a receipt rather than a promise.
 enum Room {
     Joined(Socket),
     Left(Socket),
-    Publish(Message, Reply<Int>),
+    Publish(Message),
 }
 
 /// An actor holding everybody in the room, pushing to all of them on a publish.
 ///
 /// Bounded by `Sockets` and by nothing else beyond what an actor needs, which
 /// is the whole claim: this is a socket program with no server in it.
-fn room<C: Alloc + Sockets + Tasks>(): Actor<C, [Socket], Room> {
+fn room<C: Alloc + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {
     Actor {
         state: [],
         step: fn(c, members, message) => {
             match (message) {
-                .Joined(socket) => members.push(c, socket),
-                .Left(socket) => members.filter(c, fn(m) => m != socket),
-                .Publish(m, reply) => {
+                .Joined(socket) => {
+                    let joined = members.push(c, socket);
+                    Stepped { state: joined, answer: joined.len() }
+                },
+                .Left(socket) => {
+                    let left = members.filter(c, fn(m) => m != socket);
+                    Stepped { state: left, answer: left.len() }
+                },
+                .Publish(m) => {
                     let _pushed = members.foldCtx(
                         c,
                         fn(inner, _sofar, socket) => socket.send(inner, m),
                         (),
                     );
-                    let _answered = reply.answer(c, members.len());
-                    members
+                    Stepped { state: members, answer: members.len() }
                 },
             }
         },
@@ -2565,24 +2567,17 @@ test "a broadcast actor reaches every socket in the room, with no server at all"
     let first = s.open();
     let second = s.open();
     let members = actor.start(ctx, room());
-    let _joinedFirst = members.send(ctx, .Joined(first));
-    let _joinedSecond = members.send(ctx, .Joined(second));
-    // The receipt is the count, and the ask is what ran the mailbox down: two
-    // sockets joined, so a publish reached two.
-    assert.eq(
-        assert.ok(members.ask(ctx, fn(reply) => .Publish(.Text("hi"), reply))),
-        2,
-    );
+    let _joinedFirst = members.sendMessage(ctx, .Joined(first));
+    let _joinedSecond = members.sendMessage(ctx, .Joined(second));
+    // The receipt is the count: two sockets joined, so a publish reached two.
+    assert.eq(assert.ok(members.sendMessage(ctx, .Publish(.Text("hi")))), 2);
     // And the socket that did **not** publish heard it, which is the whole of
     // what a broadcast is. With a server this needed two workers and a real
     // client; with the double it is one block on every backend.
     assert.eq(s.sent(), [(first, Message.Text("hi")), (second, Message.Text("hi"))]);
     // Somebody leaves, and the next publish reaches one.
-    let _left = members.send(ctx, .Left(first));
-    assert.eq(
-        assert.ok(members.ask(ctx, fn(reply) => .Publish(.Text("bye"), reply))),
-        1,
-    );
+    let _left = members.sendMessage(ctx, .Left(first));
+    assert.eq(assert.ok(members.sendMessage(ctx, .Publish(.Text("bye")))), 1);
     assert.eq(s.sent(), [
         (first, Message.Text("hi")),
         (second, Message.Text("hi")),
@@ -2601,17 +2596,14 @@ test "a socket the room closed is one a later broadcast does not reach" {
     let staying = s.open();
     let going = s.open();
     let members = actor.start(ctx, room());
-    let _joinedStaying = members.send(ctx, .Joined(staying));
-    let _joinedGoing = members.send(ctx, .Joined(going));
+    let _joinedStaying = members.sendMessage(ctx, .Joined(staying));
+    let _joinedGoing = members.sendMessage(ctx, .Joined(going));
     let _closed = going.close(ctx, .GoingAway);
     // The room still counts two members — it was never told — and the message
     // still reaches only one. That is the platform's own rule reaching a
     // program that did not think about it, which is the divergence a double
     // exists to keep out.
-    assert.eq(
-        assert.ok(members.ask(ctx, fn(reply) => .Publish(.Text("room"), reply))),
-        2,
-    );
+    assert.eq(assert.ok(members.sendMessage(ctx, .Publish(.Text("room")))), 2);
     assert.eq(s.sent(), [(staying, Message.Text("room"))]);
     let _stopped = members.stop(ctx);
 }

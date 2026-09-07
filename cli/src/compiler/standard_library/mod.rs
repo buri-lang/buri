@@ -779,11 +779,10 @@ mod tests {
     /// The mailbox bound is one number, written twice, and the two spellings
     /// must agree.
     ///
-    /// `core/actor` enforces the bound — `send` runs the mailbox down when a
-    /// post reaches it — and `cli/runtime/rt.rs` refuses to take a message past
-    /// it. A bound only one side knew would be a bound the other could not
-    /// respect: an actor that filled up would wait on the runtime for a drain
-    /// the driver was never going to do.
+    /// `cli/runtime/rt.rs` refuses to take a message past the bound, and
+    /// `core/actor` is where the number a reader of the module is told about
+    /// lives. A number quoted in the documentation that could drift from the
+    /// one the runtime enforces is a claim nobody can check.
     ///
     /// Read out of the two sources rather than shared as a constant, because
     /// they are two crates that never link against each other — the archive is

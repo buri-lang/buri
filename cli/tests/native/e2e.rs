@@ -1691,51 +1691,59 @@ fn an_early_return_releases_what_the_function_still_owns() {
 
 
 // ---------------------------------------------------------------------------
-// An actor stopped with its mailbox full
+// Everything an actor's messages and answers carried
 // ---------------------------------------------------------------------------
 
-/// A program that posts messages carrying **program-built** strings and then
-/// stops the actor without ever driving it, so every one of them is discarded
-/// rather than delivered.
+/// A program that sends messages carrying **program-built** strings to an actor
+/// that answers with built strings of its own, and then stops it.
 ///
 /// Three things are load-bearing.
 ///
 /// * **The payloads are built rather than written.** A literal lives in the
 ///   artifact's constant pool and is `IMMORTAL` (VALUE-MODEL.md 5.2), so a
 ///   payload nobody released would still balance. `repeat` allocates.
-/// * **Nothing drives the actor.** `send` runs the mailbox down only when a
-///   post reaches the bound, and the bound is `core/actor`'s `MAILBOX` of 64 —
-///   so four posts and no `ask` leave four messages waiting for a `stop` that
-///   throws them away.
-/// * **The state is a built string too**, and one message *is* delivered
-///   before them, so the row says the discard path is clean without saying the
-///   delivery path is broken.
-fn undelivered_messages() -> String {
+/// * **Every crossing is here.** The state `start` moves in, the message
+///   `sendMessage` posts, the state the step puts back, and the answer that
+///   comes out through a reply slot — four blocks per send, all of them the
+///   runtime's between two calls.
+/// * **The state the stop hands back is a built string too**, so the closing
+///   path is in the count as well as the sending one.
+fn actor_payloads() -> String {
     String::from(
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Reply };
+from "core/actor" import { Actor, Stepped, Stopped };
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 enum Note {
     Put(Str),
-    Get(Reply<Str>),
+    Get,
 }
 
-fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Note> {
+enum Noted {
+    Stored,
+    Held(Str),
+}
+
+fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Note, Noted> {
     Actor {
         state: initial,
         step: fn(c, held, message) => {
             match (message) {
-                .Put(next) => next,
-                .Get(reply) => {
-                    let _ = reply.answer(c, held).ignore();
-                    held
-                },
+                .Put(next) => Stepped { state: next, answer: .Held(held) },
+                .Get => Stepped { state: held, answer: .Held(held) },
             }
         },
+    }
+}
+
+fn size(answered: Result<Noted, Stopped>): Int {
+    match (answered) {
+        .Ok(.Held(s)) => s.len(),
+        .Ok(.Stored) => -1,
+        .Err(_gone) => -1,
     }
 }
 
@@ -1746,15 +1754,14 @@ export fn main(): Result<(), Str> {
         Tasks: host.tasks,
     };
     let address = actor.start(ctx, keeper("s".repeat(ctx, 7000)));
-    // Delivered: the step keeps this one, and the `ask` drives the mailbox.
-    let _ = address.send(ctx, .Put("d".repeat(ctx, 7000))).ignore();
-    let seen = address.ask(ctx, fn(reply) => .Get(reply));
-    let _ = io.println(ctx, "delivered ${seen.withDefault("").len()}").ignore();
-    // Undelivered: four more posts, no drive, and then the mailbox closes.
-    let _ = address.send(ctx, .Put("a".repeat(ctx, 70000))).ignore();
-    let _ = address.send(ctx, .Put("b".repeat(ctx, 60000))).ignore();
-    let _ = address.send(ctx, .Put("c".repeat(ctx, 50000))).ignore();
-    let _ = address.send(ctx, .Put("e".repeat(ctx, 40000))).ignore();
+    // The answer carries the state back out through a reply slot.
+    let _ = io.println(ctx, "delivered ${size(address.sendMessage(ctx, .Get))}").ignore();
+    // Four more, each one a block in and the one it replaced back out.
+    let _ = address.sendMessage(ctx, .Put("a".repeat(ctx, 70000))).ignore();
+    let _ = address.sendMessage(ctx, .Put("b".repeat(ctx, 60000))).ignore();
+    let _ = address.sendMessage(ctx, .Put("c".repeat(ctx, 50000))).ignore();
+    let _ = address.sendMessage(ctx, .Put("e".repeat(ctx, 40000))).ignore();
+    let _ = io.println(ctx, "held ${size(address.sendMessage(ctx, .Get))}").ignore();
     let _ = io.println(ctx, "stopped ${address.stop(ctx).isOk()}").ignore();
     .Ok(())
 }
@@ -1762,25 +1769,27 @@ export fn main(): Result<(), Str> {
     )
 }
 
-/// **An actor stopped with messages still waiting gives back everything those
-/// messages were carrying.**
+/// **An actor gives back everything its messages, its answers and its state
+/// were carrying.**
 ///
-/// `stop` closes the mailbox and drops what is left in it, and dropping a
-/// message has to release the payload inside it and not only the block it
-/// arrived in. This program leaked one block per undelivered message — 220 000
-/// bytes of `Str` — until `core/actor` stopped popping the mailbox at a type
-/// nothing determined: a discard loop never looks inside what it drops, so the
-/// checker resolved the message type to `()`, and the release generated for a
-/// carrier of `()` frees the block and lets go of nothing inside it.
+/// Four blocks cross per send and the runtime holds each of them past the call
+/// that handed it over, so a release the compiler generated at the wrong type
+/// frees the block and lets go of nothing inside it. That is a real defect this
+/// row caught: `stop` popped the mailbox at a type nothing determined — a
+/// discard loop never looks inside what it drops — and every undelivered
+/// message's payload leaked. A single-driver program can no longer leave a
+/// message waiting for `stop` to discard, because `sendMessage` runs the
+/// mailbox down before it answers, so what this row now counts is the four
+/// crossings a send makes and the state the stop hands back.
 ///
 /// It is here rather than beside a backend because what it asserts is
 /// behaviour: both native pipelines run this row, and the runtime's own audit
 /// is what answers it. `BURI_RT_HEAP_REPORT` is the audit saying so out loud —
 /// a silent pass and a heap check that never ran look the same otherwise.
 #[test]
-fn an_actor_stopped_with_messages_waiting_leaks_none_of_them() {
+fn an_actor_leaks_none_of_what_its_messages_and_answers_carried() {
     unless_ready!();
-    let binary = built("e2e-actor-undelivered", &undelivered_messages());
+    let binary = built("e2e-actor-payloads", &actor_payloads());
     let out = std::process::Command::new(&binary)
         .env("BURI_RT_HEAP_CHECK", "1")
         .env("BURI_RT_HEAP_REPORT", "1")
@@ -1795,7 +1804,7 @@ fn an_actor_stopped_with_messages_waiting_leaks_none_of_them() {
     );
     assert_eq!(
         stdout.lines().collect::<Vec<_>>(),
-        vec!["delivered 7000", "stopped true"],
+        vec!["delivered 7000", "held 40000", "stopped true"],
         "stderr:\n{stderr}"
     );
     assert!(

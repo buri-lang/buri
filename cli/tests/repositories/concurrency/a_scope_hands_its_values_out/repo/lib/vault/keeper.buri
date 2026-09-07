@@ -2,7 +2,7 @@
 // own, which is what makes a crossing that forgot to copy a fault rather than
 // a gamble.
 
-from "core/actor" import { Actor, Reply };
+from "core/actor" import { Actor, Stepped };
 from "core/effect" import { Alloc, Tasks };
 
 /// Bigger than one standard arena block, so a value this long is given a
@@ -22,20 +22,23 @@ export enum Keep {
     /// Replaces it with one the *step* builds, so the crossing under test is
     /// the one that puts a state back rather than the one that posts.
     Grow,
-    Get(Reply<Str>),
+    Get,
 }
 
-export fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep> {
+derive Eq, Show for Kept;
+export enum Kept {
+    Stored,
+    Held(Str),
+}
+
+export fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep, Kept> {
     Actor {
         state: initial,
         step: fn(c, held, message) => {
             match (message) {
-                .Put(next) => next,
-                .Grow => big(c, "g"),
-                .Get(reply) => {
-                    let _ = reply.answer(c, held).ignore();
-                    held
-                },
+                .Put(next) => Stepped { state: next, answer: .Stored },
+                .Grow => Stepped { state: big(c, "g"), answer: .Stored },
+                .Get => Stepped { state: held, answer: .Held(held) },
             }
         },
     }

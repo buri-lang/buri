@@ -3358,13 +3358,12 @@ export fn main(): Result<(), Str> {
 /// struct and how a niche `Option<[T]>` is spelled, so one green pipeline says
 /// nothing about the other.
 ///
-/// Five claims in eight lines of output: two sends and an `ask` see the state
-/// the sends left; the mailbox holds three messages until the `ask` runs them
-/// down, in the order they were sent; sixty-five posts and nothing that asks
-/// leave the sixty-fifth for `stop` to discard, because the post that found the
-/// box at its bound ran all sixty-four down; `onStop` runs once with the final
-/// state, and the three actors' hooks answer their own numbers; and every
-/// operation after `stop` — a `send`, an `ask`, and a second `stop` — is `.Err`.
+/// Five claims in eight lines of output: a send sees the state the sends before
+/// it left; three sends arrive in the order they were sent; sixty-five sends all
+/// arrive and leave nothing for `stop` to discard, because every one of them ran
+/// the mailbox down before it answered; `onStop` runs once with the final state,
+/// and the three actors' hooks answer their own numbers; and every operation
+/// after `stop` — a send and a second `stop` — is `.Err`.
 #[test]
 fn an_actor_counts_the_same_on_every_backend() {
     rows_or_skip!();
@@ -3372,26 +3371,28 @@ fn an_actor_counts_the_same_on_every_backend() {
         "actor counter",
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Address, Reply, Stopped };
+from "core/actor" import { Actor, Address, Stepped, Stopped };
 from "core/effect" import { Alloc, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 enum CounterMessage {
   Add(Int),
-  Get(Reply<Int>),
+  Get,
 }
 
-fn counter<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage> {
+enum CounterAnswer {
+  Done,
+  Count(Int),
+}
+
+fn counter<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAnswer> {
   Actor {
     state: 0,
     step: fn(c, count, message) => {
       match (message) {
-        .Add(n) => count + n,
-        .Get(reply) => {
-          let _ = reply.answer(c, count).ignore();
-          count
-        },
+        .Add(n) => Stepped { state: count + n, answer: .Done },
+        .Get => Stepped { state: count, answer: .Count(count) },
       }
     },
     onStop: .Some(fn(c, last) => io.println(c, "stopped at ${last}").ignore()),
@@ -3400,15 +3401,23 @@ fn counter<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage> {
 
 fn pump<C: Alloc + Stdout + Tasks>(
   ctx: C,
-  address: Address<C, Int, CounterMessage>,
+  address: Address<C, Int, CounterMessage, CounterAnswer>,
   left: Int,
 ): () {
   match (left <= 0) {
     true => (),
     false => {
-      let _ = address.send(ctx, .Add(1)).ignore();
+      let _ = address.sendMessage(ctx, .Add(1)).ignore();
       pump(ctx, address, left - 1)
     },
+  }
+}
+
+fn total(r: Result<CounterAnswer, Stopped>): Int {
+  match (r) {
+    .Ok(.Count(n)) => n,
+    .Ok(_other) => -1,
+    .Err(_e) => -1,
   }
 }
 
@@ -3419,25 +3428,22 @@ export fn main(): Result<(), Str> {
     Tasks: host.tasks,
   };
 
-  // Two posts and an ask: the ask is what runs them down, so the answer is the
-  // state the sends left.
+  // Two sends and a third that reads: each one runs the mailbox down, so the
+  // answer is the state the sends before it left.
   let counted = actor.start(ctx, counter());
-  let _ = counted.send(ctx, .Add(1)).ignore();
-  let _ = counted.send(ctx, .Add(2)).ignore();
-  let total = counted.ask(ctx, fn(reply) => .Get(reply));
-  let _ = io.println(ctx, "total ${total.withDefault(-1)}").ignore();
+  let _ = counted.sendMessage(ctx, .Add(1)).ignore();
+  let _ = counted.sendMessage(ctx, .Add(2)).ignore();
+  let _ = io.println(ctx, "total ${total(counted.sendMessage(ctx, .Get))}").ignore();
 
-  // Three posts, under the bound, so nothing is stepped until the `ask` asks.
+  // Three sends, and the answer is the order they were written in.
   let queued = actor.start(ctx, counter());
-  let _ = queued.send(ctx, .Add(10)).ignore();
-  let _ = queued.send(ctx, .Add(20)).ignore();
-  let _ = queued.send(ctx, .Add(30)).ignore();
-  let batched = queued.ask(ctx, fn(reply) => .Get(reply));
-  let _ = io.println(ctx, "batched ${batched.withDefault(-1)}").ignore();
+  let _ = queued.sendMessage(ctx, .Add(10)).ignore();
+  let _ = queued.sendMessage(ctx, .Add(20)).ignore();
+  let _ = queued.sendMessage(ctx, .Add(30)).ignore();
+  let _ = io.println(ctx, "batched ${total(queued.sendMessage(ctx, .Get))}").ignore();
 
-  // Sixty-five posts and nothing that asks: the sixty-fourth found the box at
-  // its bound and ran every waiting message down, and the sixty-fifth is what
-  // the `stop` discards.
+  // Sixty-five sends, past the mailbox's sixty-four: every one of them ran the
+  // box down before it answered, so the stop finds nothing to discard.
   let filled = actor.start(ctx, counter());
   let _ = pump(ctx, filled, 65);
   let _ = filled.stop(ctx).ignore();
@@ -3446,8 +3452,8 @@ export fn main(): Result<(), Str> {
   let _ = queued.stop(ctx).ignore();
 
   // Everything after the stop is `.Err(.Stopped)`, including a second stop.
-  let _ = io.println(ctx, "after ${gone(counted.send(ctx, .Add(1)))}").ignore();
-  let _ = io.println(ctx, "asked ${gone2(counted.ask(ctx, fn(reply) => .Get(reply)))}").ignore();
+  let _ = io.println(ctx, "after ${gone2(counted.sendMessage(ctx, .Add(1)))}").ignore();
+  let _ = io.println(ctx, "asked ${gone2(counted.sendMessage(ctx, .Get))}").ignore();
   let _ = io.println(ctx, "again ${gone(counted.stop(ctx))}").ignore();
   .Ok(())
 }
@@ -3459,14 +3465,14 @@ fn gone(r: Result<(), Stopped>): Str {
   }
 }
 
-fn gone2(r: Result<Int, Stopped>): Str {
+fn gone2(r: Result<CounterAnswer, Stopped>): Str {
   match (r) {
     .Ok(_ok) => "ran",
     .Err(_e) => "stopped",
   }
 }
 "#,
-        "total 3\nbatched 60\nstopped at 64\nstopped at 3\nstopped at 60\n\
+        "total 3\nbatched 60\nstopped at 65\nstopped at 3\nstopped at 60\n\
          after stopped\nasked stopped\nagain stopped\n",
     );
 }
@@ -3496,7 +3502,7 @@ fn an_actor_driven_inside_a_scope_keeps_its_values_on_every_backend() {
         "actor in a scope",
         r#"
 from "core/actor" import * as actor;
-from "core/actor" import { Actor, Address, Reply, Stopped };
+from "core/actor" import { Actor, Address, Stepped, Stopped };
 from "core/alloc" import * as alloc;
 from "core/alloc" import { Scoped };
 from "core/effect" import { Alloc, Stdout, Tasks };
@@ -3505,19 +3511,21 @@ from "core/io" import * as io;
 
 enum Keep {
   Put(Str),
-  Get(Reply<Str>),
+  Get,
 }
 
-fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep> {
+enum Kept {
+  Stored,
+  Held(Str),
+}
+
+fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep, Kept> {
   Actor {
     state: initial,
     step: fn(c, held, message) => {
       match (message) {
-        .Put(next) => next,
-        .Get(reply) => {
-          let _ = reply.answer(c, held).ignore();
-          held
-        },
+        .Put(next) => Stepped { state: next, answer: .Stored },
+        .Get => Stepped { state: held, answer: .Held(held) },
       }
     },
   }
@@ -3528,7 +3536,7 @@ fn keeper<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Keep> {
 /// reaches an actor that was started inside a scope.
 struct Escaped<C> {
   scope: Scoped<C>,
-  address: Address<Scoped<C>, Str, Keep>,
+  address: Address<Scoped<C>, Str, Keep, Kept>,
 }
 
 /// Bigger than one arena block, so its mapping is unmapped rather than pooled.
@@ -3536,10 +3544,11 @@ fn big<C: Alloc>(ctx: C, unit: Str): Str {
   unit.repeat(ctx, 70000)
 }
 
-fn same(got: Result<Str, Stopped>, want: Str): Str {
+fn same(got: Result<Kept, Stopped>, want: Str): Str {
   match (got) {
     .Err(_e) => "stopped",
-    .Ok(s) => {
+    .Ok(.Stored) => "different",
+    .Ok(.Held(s)) => {
       match (s == want) {
         true => "same",
         false => "different",
@@ -3563,11 +3572,11 @@ export fn main(): Result<(), Str> {
   };
 
   // Three crossings inside one scope: the state `start` moves in, the message
-  // `send` posts, and the state `drive` puts back after the `ask` steps it.
+  // `sendMessage` posts, and the state `drive` puts back after the step ran.
   let out = alloc.scoped(ctx, fn(c) => {
     let address = actor.start(c, keeper(big(c, "s")));
-    let _ = address.send(c, .Put(big(c, "m"))).ignore();
-    let _ = address.ask(c, fn(reply) => .Get(reply)).ignore();
+    let _ = address.sendMessage(c, .Put(big(c, "m"))).ignore();
+    let _ = address.sendMessage(c, .Get).ignore();
     Escaped { scope: c, address: address }
   });
 
@@ -3579,7 +3588,7 @@ export fn main(): Result<(), Str> {
   let large = alloc.scoped(ctx, fn(s) => "y".repeat(s, 70000).len());
   let _ = io.println(ctx, "churned ${churned.len()} ${large}").ignore();
 
-  let answered = out.address.ask(out.scope, fn(reply) => .Get(reply));
+  let answered = out.address.sendMessage(out.scope, .Get);
   let want = big(ctx, "m");
   let _ = io.println(ctx, "state ${same(answered, want)}").ignore();
   let _ = io.println(ctx, "stop ${ended(out.address.stop(out.scope))}").ignore();

@@ -7,7 +7,7 @@ from "core/alloc" import { Scoped };
 from "core/effect" import { Alloc, Tasks };
 from "core/host/testing" import { alloc as testAlloc, tasks };
 from "core/testing/assert" import * as assert;
-from "//lib/vault" import { big, Keep, keeper, LOOSE };
+from "//lib/vault" import { big, Keep, keeper, Kept, LOOSE };
 
 /// A scope's context and an address minted inside it, carried out together.
 ///
@@ -16,7 +16,7 @@ from "//lib/vault" import { big, Keep, keeper, LOOSE };
 /// afterwards is for the body to hand that context back out.
 struct Escaped<C> {
     scope: Scoped<C>,
-    address: Address<Scoped<C>, Str, Keep>,
+    address: Address<Scoped<C>, Str, Keep, Kept>,
 }
 
 /// Scopes that map and release pages of their own, so a carrier that outlived
@@ -48,22 +48,22 @@ test "an actor started inside a scope still has the state it started with" {
         Escaped { scope: c, address: actor.start(c, keeper(big(c, "s"))) }
     });
     let _ = churn(ctx);
-    assert.eq(out.address.ask(out.scope, fn(reply) => .Get(reply)), .Ok(big(ctx, "s")));
+    assert.eq(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "s"))));
     assert.eq(out.address.stop(out.scope), .Ok(()));
 }
 
-test "a message sent inside a scope is stepped correctly afterwards" {
+test "a message sent inside a scope is stepped correctly" {
     let ctx = context {
         Alloc: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
         let address = actor.start(c, keeper(""));
-        let _ = address.send(c, .Put(big(c, "m"))).ignore();
+        let _ = address.sendMessage(c, .Put(big(c, "m"))).ignore();
         Escaped { scope: c, address: address }
     });
     let _ = churn(ctx);
-    assert.eq(out.address.ask(out.scope, fn(reply) => .Get(reply)), .Ok(big(ctx, "m")));
+    assert.eq(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "m"))));
     assert.eq(out.address.stop(out.scope), .Ok(()));
 }
 
@@ -74,12 +74,11 @@ test "a state a step built inside a scope survives the scope" {
     };
     let out = alloc.scoped(ctx, fn(c) => {
         let address = actor.start(c, keeper(""));
-        let _ = address.send(c, .Grow).ignore();
-        let _ = address.ask(c, fn(reply) => .Get(reply)).ignore();
+        let _ = address.sendMessage(c, .Grow).ignore();
         Escaped { scope: c, address: address }
     });
     let _ = churn(ctx);
-    assert.eq(out.address.ask(out.scope, fn(reply) => .Get(reply)), .Ok(big(ctx, "g")));
+    assert.eq(out.address.sendMessage(out.scope, .Get), .Ok(.Held(big(ctx, "g"))));
     assert.eq(out.address.stop(out.scope), .Ok(()));
 }
 
@@ -90,26 +89,26 @@ test "a scope answers what it asked an actor inside it" {
     };
     let out = alloc.scoped(ctx, fn(c) => {
         let address = actor.start(c, keeper(""));
-        let _ = address.send(c, .Put(big(c, "a"))).ignore();
-        let answered = address.ask(c, fn(reply) => .Get(reply));
+        let _ = address.sendMessage(c, .Put(big(c, "a"))).ignore();
+        let answered = address.sendMessage(c, .Get);
         let _ = address.stop(c).ignore();
         answered
     });
     let _ = churn(ctx);
-    assert.eq(out, .Ok(big(ctx, "a")));
+    assert.eq(out, .Ok(.Held(big(ctx, "a"))));
 }
 
-test "a message a later stop discards was copied too" {
+test "an actor a scope minted is stopped correctly afterwards" {
     let ctx = context {
         Alloc: testAlloc(),
         Tasks: tasks(),
     };
     let out = alloc.scoped(ctx, fn(c) => {
         let address = actor.start(c, keeper(""));
-        let _ = address.send(c, .Put(big(c, "d"))).ignore();
+        let _ = address.sendMessage(c, .Put(big(c, "d"))).ignore();
         Escaped { scope: c, address: address }
     });
     let _ = churn(ctx);
     assert.eq(out.address.stop(out.scope), .Ok(()));
-    assert.eq(out.address.send(out.scope, .Put("late")), .Err(.Stopped));
+    assert.eq(out.address.sendMessage(out.scope, .Put("late")), .Err(.Stopped));
 }
