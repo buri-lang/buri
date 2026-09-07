@@ -806,24 +806,6 @@ impl Workspace {
 
     // -- platforms ----------------------------------------------------------
 
-    /// The platforms a rule's **own** build file commits it to, or `None` when
-    /// it commits it to none.
-    ///
-    /// This is deliberately not [`Workspace::platforms`]. That one answers
-    /// "may this be built for X" and treats unset as "all", which is the right
-    /// answer for a policy check and the wrong one for a compile error: a
-    /// library that says nothing about platforms is platform-generic, and a
-    /// diagnostic that read the whole-closure intersection would refuse code
-    /// on behalf of a platform nobody in the tree ever asked for. So a rule
-    /// that declares nothing gets `None` and is never checked
-    /// (`reference/build/build-files.md` §Platforms and effects).
-    ///
-    /// - A **binary** commits to the platforms its `outputs` name. Every one
-    ///   of them has to compile, so the set is a conjunction.
-    /// - A **library** commits to its `platforms` field, narrowed by the
-    ///   `requires.platforms` of the tags it carries — the same two sources
-    ///   [`Workspace::platforms`] reads, asked of this rule alone rather than
-    ///   of its closure.
     /// Every entry a binary's `outputs` name, in declaration order.
     ///
     /// This is what makes the `core/host` check per entry rather than per
@@ -853,6 +835,24 @@ impl Workspace {
             .collect()
     }
 
+    /// The platforms a rule's **own** build file commits it to, or `None` when
+    /// it commits it to none.
+    ///
+    /// This is deliberately not [`Workspace::platforms`]. That one answers
+    /// "may this be built for X" and treats unset as "all", which is the right
+    /// answer for a policy check and the wrong one for a compile error: a
+    /// library that says nothing about platforms is platform-generic, and a
+    /// diagnostic that read the whole-closure intersection would refuse code
+    /// on behalf of a platform nobody in the tree ever asked for. So a rule
+    /// that declares nothing gets `None` and is never checked
+    /// (`reference/build/build-files.md` §Platforms and effects).
+    ///
+    /// - A **binary** commits to the platforms its `outputs` name. Every one
+    ///   of them has to compile, so the set is a conjunction.
+    /// - A **library** commits to its `platforms` field, narrowed by the
+    ///   `requires.platforms` of the tags it carries — the same two sources
+    ///   [`Workspace::platforms`] reads, asked of this rule alone rather than
+    ///   of its closure.
     pub fn declared_platforms(&self, target: TargetId) -> Option<BTreeSet<Platform>> {
         let pkg = self.package(target.package);
         match target.kind {
