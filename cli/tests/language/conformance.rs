@@ -749,3 +749,229 @@ console.log(document.body.markup);
         "the website lost a half:\n{stderr}"
     );
 }
+
+/// **A page spawns after `main` returned**, and a worker spawns inside its
+/// `fetch` — the two platforms `core/tasks` reached when `Tasks` was granted
+/// everywhere.
+///
+/// The conformance corpus says what a scope promises and says it on the
+/// reference backend; the repository case beside it says what a person gets
+/// from `buri test`. Neither can ask the question a page asks, because a page's
+/// interesting spawn happens *after* `main` has returned — from a handler the
+/// mounted tree is holding — and no `buri` command runs a page. So this is the
+/// platform's own side of it, driven from one JavaScript module: a document
+/// double the tree mounts into, a click fired at the button it registered, and
+/// the worker's `fetch` called the way a worker runtime calls one.
+///
+/// Five claims, one printed line each:
+///
+///  * the worker's scope waits for the task it spawned, and answers after it;
+///  * the page mounts and `main` returns, with nothing spawned yet;
+///  * a click spawns into the `Scope` the handler captured, and the task runs —
+///    which is the shape `design/native/DECISIONS.md`'s "a scope stays open for
+///    the life of the program" row is about;
+///  * and the timer inside that task **waited**: the wall clock moved by at
+///    least the sleep, so `clock.sleepMillis` is a wait on a page rather than a
+///    number the runtime pretends to have honoured.
+#[test]
+fn a_page_spawns_from_a_handler_after_main_returned() {
+    let scratch = Scratch::repo("web-spawn");
+    scratch.write(
+        "cmd/page/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: WEB, entry: \"main\" },\n        \
+         { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        "cmd/page/main.buri",
+        r#"
+from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc, Clock, Request, Response, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/http" import * as http;
+from "core/tasks" import * as tasks;
+from "core/tasks" import { Scope };
+from "core/time" import * as time;
+from "ui/effect" import { Ui, Watch };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/signal" import * as signal;
+from "ui/signal" import { Signal };
+
+/// The page: a button that opens a socket later, and the line the socket
+/// writes when it does.
+///
+/// The handler captures the scope and the cell, which is what `Scope` being
+/// inert buys — neither carries a context, so a lambda may hold both.
+fn page<C: Alloc + Clock + Tasks + Ui>(ctx: C, here: Scope, status: Signal<Str>): Node<C> {
+    ui.column([], [
+        ui.button(.Const("open"), fn(c, event) => {
+            let _ = tasks.spawn(c, here, fn(c2) => {
+                let _ = time.sleepMs(c2, 20);
+                let _ = status.set(c2, "the socket opened");
+                ()
+            });
+            ()
+        }),
+        ui.text(.Cell(status)),
+    ])
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+        Ui: host.ui,
+        Watch: host.watch,
+    };
+    let status = signal.signal(ctx, "waiting");
+    tasks.scope(ctx, fn(c, here) => {
+        let _ = io.println(c, "mounted").ignore();
+        ui.mount(c, page(c, here, status), [])
+    })
+}
+
+/// The worker's half: one request, answered after the work spawned into the
+/// scope has finished.
+///
+/// The line is written as bytes rather than printed, because a worker's
+/// process does not end when `fetch` does and a buffered line would still be
+/// waiting when the platform read the answer.
+export fn fetch(request: Request): Response {
+    let ctx = context {
+        Alloc: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let _ = tasks.scope(ctx, fn(c, here) => {
+        let _ = tasks.spawn(c, here, fn(c2) => {
+            let _ = time.sleepMs(c2, 20);
+            let _ = io.writeBytes(c2, bytes.toUtf8(c2, "the worker's task ran\n")).ignore();
+            ()
+        });
+        ()
+    });
+    http.text(ctx, "served")
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/page"]).ok();
+
+    // The document is the browser's half, and the smallest one the renderer
+    // works against: three constructors, the four moves a tree makes, and a
+    // place to hang a listener. `$shim` is deliberately absent — this is the
+    // real-document path, the one a browser runs.
+    let driver = scratch.write(
+        "drive.mjs",
+        r##"
+class Element_ {
+  constructor(name) {
+    this.nodeName = name;
+    this.childNodes = [];
+    this.parentNode = null;
+    this.listeners = {};
+    this.attributes = {};
+    this.className = "";
+    this.data = "";
+    this.textContent = "";
+    this.style = { cssText: "", setProperty() {} };
+  }
+  get nextSibling() {
+    const parent = this.parentNode;
+    if (parent === null) return null;
+    const at = parent.childNodes.indexOf(this);
+    return at < 0 || at + 1 >= parent.childNodes.length ? null : parent.childNodes[at + 1];
+  }
+  setAttribute(name, value) {
+    this.attributes[name] = value;
+  }
+  addEventListener(type, handler) {
+    this.listeners[type] = handler;
+  }
+  appendChild(node) {
+    return this.insertBefore(node, null);
+  }
+  insertBefore(node, before) {
+    if (node.parentNode !== null) node.parentNode.removeChild(node);
+    node.parentNode = this;
+    const at =
+      before === null || before === undefined
+        ? this.childNodes.length
+        : this.childNodes.indexOf(before);
+    this.childNodes.splice(at, 0, node);
+    return node;
+  }
+  removeChild(node) {
+    const at = this.childNodes.indexOf(node);
+    if (at >= 0) this.childNodes.splice(at, 1);
+    node.parentNode = null;
+    return node;
+  }
+}
+
+const text_ = (node) =>
+  node.childNodes.length === 0 ? node.data : node.childNodes.map(text_).join("");
+const find_ = (node, wanted) => {
+  if (node.listeners[wanted] !== undefined) return node;
+  for (const child of node.childNodes) {
+    const hit = find_(child, wanted);
+    if (hit !== null) return hit;
+  }
+  return null;
+};
+
+globalThis.document = {
+  body: new Element_("body"),
+  head: new Element_("head"),
+  createElement: (name) => new Element_(name),
+  createTextNode: (data) => Object.assign(new Element_("#text"), { data }),
+  createComment: () => new Element_("#comment"),
+  getElementById: () => null,
+};
+
+// The worker first, called the way its platform calls it.
+const worker = await import("./.buri/out/cloudflare-worker/cmd/page/fetch.mjs");
+const answer = await worker.default.fetch(new Request("https://example.com/"));
+console.log(`${answer.status} ${await answer.text()}`);
+
+// Then the page, on top of the document above. `main` mounts and returns.
+await import("./.buri/out/web/cmd/page/main.mjs");
+console.log(`before the click: ${text_(document.body)}`);
+
+// The click. Nothing waits for the handler — a listener answers at once and
+// the task it spawned is the event loop's, which is the whole claim.
+const started = Date.now();
+find_(document.body, "click").listeners.click({});
+
+// Polled rather than slept for: the wait ends when the page says so, and the
+// deadline is there to fail rather than to hang.
+const deadline = started + 30000;
+while (text_(document.body).indexOf("the socket opened") < 0 && Date.now() < deadline) {
+  await new Promise((wake) => setTimeout(wake, 5));
+}
+console.log(`after the click: ${text_(document.body)}`);
+console.log(`the timer waited: ${Date.now() - started >= 20}`);
+"##,
+    );
+
+    let out = Command::new(js_runtime())
+        .arg(&driver)
+        .output()
+        .expect("the javascript runtime runs");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "the page did not answer:\n{stdout}{stderr}");
+    assert_eq!(
+        stdout,
+        "the worker's task ran\n\
+         200 served\n\
+         mounted\n\
+         before the click: openwaiting\n\
+         after the click: openthe socket opened\n\
+         the timer waited: true\n",
+        "a spawn on a page or in a worker did not run:\n{stderr}"
+    );
+}
