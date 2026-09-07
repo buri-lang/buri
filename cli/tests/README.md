@@ -655,6 +655,24 @@ the language:
 - **`format --check` reports without rewriting**, and formatting is a fixed
   point.
 
+It also holds **the driven modules**, which are the top of what a page and a
+worker can be asked. No `buri` command runs either — a worker is called by its
+platform and a page needs a document — so these build the artifact and then do
+what the platform does: import the worker's default export and hand `fetch` a
+real `Request`, or import the page's module on top of a document holding what
+the worker sent. `DOCUMENT_DOUBLE` is that document, shared by every row that
+needs one: it parses the way a browser parses — one run of text per run,
+entities read back, an element left open unless HTML says it holds nothing — and
+counts every node the page asks it for, so "the page built nothing" is a number.
+`a_resumed_page_takes_the_markup_a_browser_would_have_handed_it` perturbs that
+markup one way per scenario, which is how one build asks fourteen questions.
+
+A real browser is not here, for `design/native/DECISIONS.md`'s reason — nothing
+in this repository can pin a Chromium build. The double is checked against one
+by hand instead: serve the worker's document with the page's module beside it and
+run `chrome-headless-shell --dump-dom` over it. That is what found the empty
+`class` and `style` attributes a resume used to write.
+
 `native/agreement.rs` is the one such check outside `language/conformance.rs`,
 and it is about the *pair* of backends. It compiles a single `.buri` source
 through `actions::prepare` and `backend::select` twice — JavaScript under `bun`,
