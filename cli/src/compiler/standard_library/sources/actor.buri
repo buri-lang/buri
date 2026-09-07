@@ -122,13 +122,11 @@
 //! exactly once. `sendMessage` sees the state its own message left behind. And
 //! `onStop` runs once with the final state.
 //!
-//! A step that sends to the actor running it is the one case where a post
-//! succeeds and nothing steps it here: the state is out, taking it does not
-//! wait, and the send is answered `.Err(.Stopped)` rather than waiting for
-//! itself. The message is not lost — the loop already running steps it before
-//! it puts the state back — and nothing else drains a mailbox while a step
-//! holds the state, which makes this the one shape that reaches the bound
-//! below.
+//! A step that sends to the actor running it gets `.Err(.Stopped)`. The state
+//! is out and taking it does not wait, so the send does not wait for itself.
+//! The message is not lost: the loop already running steps it before it puts
+//! the state back. Nothing else drains a mailbox while a step holds the state,
+//! which makes this the one shape a program can fill the bound below with.
 //!
 //! What it costs today is that an actor does not run *between* the calls that
 //! drive it, so an actor is not yet a way to get work done in the background.
