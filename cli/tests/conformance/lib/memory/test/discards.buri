@@ -1,0 +1,180 @@
+// A `let` gives back what it does not keep.
+//
+// `middle::rc` releases a value through a *name* — a local, or the node that
+// produced a temporary. A destructuring `let` used to leave the positions its
+// pattern skipped with neither: `let (q, _) = nextToken(ctx, p)` takes the
+// pair the call answered, hands element 0 to `q`, and element 1 went nowhere.
+// Nothing released it, so every discarded token in the `.proto` reader kept
+// the `Str` it carried — thirteen blocks of `proto_schema/refusals.buri`, all
+// of them one or two bytes of punctuation.
+//
+// **The assertions here are answers, and the leak is the harness's question.**
+// A leaked block changes no answer, so on the reference backend this file only
+// says the values are right; `native::conformance` runs the same blocks under
+// `BURI_RT_HEAP_CHECK` and that is where a skipped position that nobody freed
+// fails. Which is why every value below is *grown* rather than written as a
+// literal — a literal lives in the constant pool (VALUE-MODEL.md §5.2) and is
+// never a block anybody has to give back.
+//
+// The last section is the other direction. Naming a skipped position is only
+// right if the name is not a *second* one for a value something else already
+// releases, so those cases read the value again after destructuring it: an
+// over-release is a use-after-free, which the heap check's quarantine stops
+// with a different message than a leak.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+
+derive Eq, Show for Token;
+/// One token, the shape the `.proto` reader steps over: a word this program
+/// built, and an end nobody has to give back.
+enum Token {
+    Word(Str),
+    End,
+}
+
+derive Eq, Show for Pair;
+struct Pair {
+    kept: Int,
+    dropped: Str,
+}
+
+/// A string this program grew, rather than one the compiler interned.
+fn grown<C: Alloc>(ctx: C, s: Str): Str {
+    s.concat(ctx, "")
+}
+
+/// A list this program grew, for a skipped position of another counted shape.
+fn grownList<C: Alloc>(ctx: C, n: Int): [Int] {
+    list
+        .range(ctx, 0, n)
+        .foldCtx(ctx, fn(c, acc: [Int], i) => acc.push(c, i), list.empty())
+}
+
+/// The reader's own shape: a cursor, and the token it just read.
+fn next<C: Alloc>(ctx: C, at: Int, word: Str): (Int, Token) {
+    (at + 1, Token.Word(grown(ctx, word)))
+}
+
+// -----------------------------------------------------------------------------
+// A position the pattern skips
+// -----------------------------------------------------------------------------
+
+test "a tuple element the pattern skips is given back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // `skipStatement`, in one line: step over a token and keep only where the
+    // cursor now is.
+    let (at, _) = next(ctx, 0, "message");
+    assert.eq(at, 1);
+}
+
+test "the skipped element may be the first one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let (_, t) = (grown(ctx, "syntax"), 7);
+    assert.eq(t, 7);
+}
+
+test "a skipped element is given back however many there are" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let (_, n, _) = (grown(ctx, "extend"), 2, grownList(ctx, 3));
+    assert.eq(n, 2);
+}
+
+test "a struct field the pattern skips is given back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let Pair { kept, dropped: _ } = Pair { kept: 4, dropped: grown(ctx, "group") };
+    assert.eq(kept, 4);
+}
+
+test "a skipped position nested under a kept one is given back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let (n, (_, m)) = (1, (grown(ctx, "optional"), 2));
+    assert.eq(n + m, 3);
+}
+
+test "the value being destructured may be a local rather than a call" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let token = next(ctx, 0, "required");
+    let (at, _) = token;
+    assert.eq(at, 1);
+}
+
+test "a payload the pattern never reaches is given back with its token" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Two of them, because the reader peeks and then consumes: one call's
+    // answer is looked at and the other's is thrown away whole.
+    let (peeked, t) = next(ctx, 0, "service");
+    let (consumed, _) = next(ctx, peeked, "service");
+    assert.eq(consumed, 2);
+    assert.eq(t, Token.Word("service"));
+}
+
+test "a `let` that keeps nothing at all is still a statement that gives back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Nothing is bound, so there is nothing to name — the value is the
+    // statement's own temporary, and the statement drops it.
+    let (_, _) = next(ctx, 0, "public");
+    let _ = next(ctx, 0, "public");
+    assert.eq(1, 1);
+}
+
+// -----------------------------------------------------------------------------
+// And not twice
+// -----------------------------------------------------------------------------
+
+test "a skipped position of a value still in use is not given back twice" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let token = next(ctx, 0, "reserved");
+    let (at, _) = token;
+    // The destructuring above is not the last read of `token`, so it took a
+    // count of its own rather than the one `token` holds.
+    assert.eq(at, 1);
+    assert.eq(token.1, Token.Word("reserved"));
+}
+
+test "a skipped field of a struct still in use is not given back twice" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let p = Pair { kept: 9, dropped: grown(ctx, "extensions") };
+    let Pair { kept, dropped: _ } = p;
+    assert.eq(kept, 9);
+    assert.eq(p.dropped, "extensions");
+}
+
+test "the same position skipped in a loop is given back every time round" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let steps = list
+        .range(ctx, 0, 8)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Int, _i) => {
+                let (at, _) = next(c, acc, "map");
+                at
+            },
+            0,
+        );
+    assert.eq(steps, 8);
+}
