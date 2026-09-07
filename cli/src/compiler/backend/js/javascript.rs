@@ -882,13 +882,12 @@ impl Printer {
                 let p = op.prec();
                 self.expr(lhs, p);
                 self.out.push_str(op.text());
-                // `a - -b` and `a + +b` need the space back.
-                let needs_space = matches!(op, BinOp::Sub | BinOp::Add)
-                    && matches!(
-                        &**rhs,
-                        Expr::Unary { op: UnOp::Neg, .. } | Expr::Num(_)
-                    )
-                    && starts_with_sign(rhs);
+                // `a - -b` and `a + +b` need the space back — `starts_with_sign`
+                // says which right operands begin with one, and a negative
+                // `BigInt` literal is one of them: `0n - -1n` printed as
+                // `0n--1n` is the decrement operator and does not parse.
+                let needs_space =
+                    matches!(op, BinOp::Sub | BinOp::Add) && starts_with_sign(rhs);
                 if needs_space {
                     self.out.push(' ');
                 }
@@ -3996,6 +3995,27 @@ const $c = 1;
     fn negative_operands_keep_their_space() {
         let e = Expr::bin(BinOp::Sub, Expr::ident("a"), Expr::un(UnOp::Neg, Expr::ident("b")));
         assert_eq!(p(e), "a- -b;");
+    }
+
+    /// A negative literal on the right of `-` or `+` needs the same space, and
+    /// a `BigInt` one is still a literal: `0n--1n` is the decrement operator and
+    /// does not parse. `checkedNegate` at a 128-bit width is written `0 - x` and
+    /// is where a folded negative literal actually lands there.
+    #[test]
+    fn a_negative_literal_keeps_its_space_at_every_width() {
+        let big = Expr::bin(
+            BinOp::Sub,
+            Expr::BigInt("0".into()),
+            Expr::BigInt("-170141183460469231731687303715884105728".into()),
+        );
+        assert_eq!(p(big), "0n- -170141183460469231731687303715884105728n;");
+        let small = Expr::bin(BinOp::Sub, Expr::Num(0.0), Expr::Num(-128.0));
+        assert_eq!(p(small), "0- -128;");
+        let added = Expr::bin(BinOp::Add, Expr::ident("a"), Expr::BigInt("-1".into()));
+        assert_eq!(p(added), "a+ -1n;");
+        // A positive one needs nothing.
+        let plain = Expr::bin(BinOp::Sub, Expr::BigInt("0".into()), Expr::BigInt("1".into()));
+        assert_eq!(p(plain), "0n-1n;");
     }
 
     #[test]

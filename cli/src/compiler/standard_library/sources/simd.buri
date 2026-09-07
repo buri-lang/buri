@@ -324,14 +324,15 @@ impl F32x4 {
     /// ```
     ///
     /// A horizontal reduction, like `sum`, so it is the one shape a vector unit
-    /// is bad at. `min` is the lane-wise pair.
+    /// is bad at.
     ///
-    /// Comparison is `<`, which is false at `NaN` either side, so a `NaN` lane
-    /// does not win and does not poison the answer.
+    /// **A `NaN` lane is passed over.** `minLane` answers the smallest of the
+    /// lanes that are numbers, wherever in the vector the `NaN`s sit, and a
+    /// `NaN` only when every lane is one. The lane-wise `min` does *not* do
+    /// this: it is written as one comparison a vector unit has an instruction
+    /// for, so a `NaN` in its argument comes straight through.
     export fn minLane(self): Float {
-        let a = if (self.x < self.y) { self.x } else { self.y };
-        let b = if (self.z < self.w) { self.z } else { self.w };
-        if (a < b) { a } else { b }
+        smaller(smaller(self.x, self.y), smaller(self.z, self.w))
     }
 
     /// The largest of the four lanes.
@@ -344,11 +345,9 @@ impl F32x4 {
     /// }
     /// ```
     ///
-    /// `minLane`'s twin, and a `NaN` lane behaves the same way there.
+    /// `minLane`'s twin, and a `NaN` lane is passed over there too.
     export fn maxLane(self): Float {
-        let a = if (self.x > self.y) { self.x } else { self.y };
-        let b = if (self.z > self.w) { self.z } else { self.w };
-        if (a > b) { a } else { b }
+        larger(larger(self.x, self.y), larger(self.z, self.w))
     }
 
     /// `self * multiplier + addend`, lane by lane.
@@ -391,6 +390,20 @@ impl F32x4 {
             w: laneToInt(self.w),
         }
     }
+}
+
+/// The smaller of two lanes, with a `NaN` passed over rather than answered.
+///
+/// Both comparisons are false at a `NaN` either side, so neither branch picks
+/// one and the third test says which of the two to keep. Two `NaN`s leave a
+/// `NaN`, which is the only answer there is.
+fn smaller(a: Float, b: Float): Float {
+    if (a < b) { a } else if (b < a) { b } else if (math.isNan(a)) { b } else { a }
+}
+
+/// `smaller`, the other way round.
+fn larger(a: Float, b: Float): Float {
+    if (a > b) { a } else if (b > a) { b } else if (math.isNan(a)) { b } else { a }
 }
 
 /// One lane's float truncated to an `Int`, saturating rather than wrapping.

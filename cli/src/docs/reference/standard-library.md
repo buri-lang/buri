@@ -379,7 +379,9 @@ decides for itself what to do with the remainder. `mulAdd` is the multiply and
 the add written together and rounds **twice**: a fused multiply-add rounds once
 and would answer different bits on a machine that has the instruction.
 `F32x4.toInt` saturates rather than failing, because a lane has nowhere to put
-an error.
+an error. `minLane` and `maxLane` reduce across the four and pass a `NaN` lane
+over, answering one only when every lane is one; the lane-wise `min` and `max`
+are a single comparison each and let one through.
 
 [`core/bigint`](../../compiler/standard_library/sources/bigint.buri) is an
 integer with no width. Sign and magnitude over base-`2^24` limbs, pure Buri,

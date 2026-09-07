@@ -424,3 +424,58 @@ test "the U64 counts agree with the Int ones on the same sixty-four bits" {
         bits.trailingZeros(num.minValue<I64>()),
     );
 }
+
+// --- Every rotate at the two counts either end of the range -----------------------
+//
+// A rotate takes a count from zero up to one below its own width. Zero is the
+// identity and the width less one is the largest turn there is; a count *at* or
+// past the width, or below zero, aborts, and `cli/tests/crash/rotate_*.buri`
+// are the programs that prove it — an abort ends the process, so it cannot be
+// asserted from inside a `test` block.
+
+test "every rotate at a count of zero is the identity" {
+    let byte: U8 = 203;
+    let word: U32 = 3735928559;
+    let wide: U64 = 1311768467463790320;
+    assert.eq(bits.rotateLeftU8(byte, 0), byte);
+    assert.eq(bits.rotateRightU8(byte, 0), byte);
+    assert.eq(bits.rotateLeftU32(word, 0), word);
+    assert.eq(bits.rotateRightU32(word, 0), word);
+    assert.eq(bits.rotateLeftU64(wide, 0), wide);
+    assert.eq(bits.rotateRightU64(wide, 0), wide);
+    assert.eq(bits.rotateLeft(-1, 0), -1);
+    assert.eq(bits.rotateRight(num.minValue<I64>(), 0), num.minValue<I64>());
+}
+
+test "every rotate at one below its own width turns the other way by one" {
+    // The largest count each width takes. It is the inverse of a single turn,
+    // which is the property that says the count wrapped inside the *right*
+    // width rather than inside sixty-four.
+    let byte: U8 = 203;
+    let word: U32 = 3735928559;
+    let wide: U64 = 1311768467463790320;
+    assert.eq(bits.rotateLeftU8(byte, 7), bits.rotateRightU8(byte, 1));
+    assert.eq(bits.rotateRightU8(byte, 7), bits.rotateLeftU8(byte, 1));
+    assert.eq(bits.rotateLeftU32(word, 31), bits.rotateRightU32(word, 1));
+    assert.eq(bits.rotateRightU32(word, 31), bits.rotateLeftU32(word, 1));
+    assert.eq(bits.rotateLeftU64(wide, 63), bits.rotateRightU64(wide, 1));
+    assert.eq(bits.rotateRightU64(wide, 63), bits.rotateLeftU64(wide, 1));
+    assert.eq(bits.rotateLeft(-3, 63), bits.rotateRight(-3, 1));
+}
+
+test "every rotate leaves zero and an all-ones word alone at every count" {
+    // Nothing to move: whichever way the bits go they land on the same value,
+    // at every count the width takes.
+    let zeroByte: U8 = 0;
+    let onesByte: U8 = 255;
+    let zeroWide: U64 = 0;
+    assert.eq(bits.rotateLeftU8(zeroByte, 7), 0);
+    assert.eq(bits.rotateRightU8(zeroByte, 3), 0);
+    assert.eq(bits.rotateLeftU8(onesByte, 7), 255);
+    assert.eq(bits.rotateRightU8(onesByte, 1), 255);
+    assert.eq(bits.rotateLeftU32(num.maxValue<U32>(), 31), num.maxValue<U32>());
+    assert.eq(bits.rotateRightU64(zeroWide, 63), 0);
+    assert.eq(bits.rotateLeftU64(num.maxValue<U64>(), 63), num.maxValue<U64>());
+    assert.eq(bits.rotateLeft(-1, 63), -1);
+    assert.eq(bits.rotateRight(0, 63), 0);
+}
