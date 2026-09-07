@@ -2,20 +2,18 @@
 
 One binary. It builds, runs, tests, formats, lints, generates build files,
 answers questions about the graph, serves this documentation, and hosts the
-language server. There is no second tool to install, no package manager, no task
-runner, and no configuration of the CLI itself beyond
-[`repo-config.md`](./build/repo-config.md).
+language server. There is no second tool to install and no configuration of the
+CLI itself beyond [`repo-config.md`](./build/repo-config.md).
 
 Each command's synopsis and flag table comes from the table that dispatches it,
 so neither can describe a flag the binary rejects or omit one it accepts. This
-page covers what every command shares: how you name a target, what the two
-global flags do, what the exit codes mean, and the shape of a diagnostic.
+page covers what every command shares.
 
 ## Naming targets
 
 Target arguments take labels and patterns: `//lib/money`, `//cmd/server`,
 `//lib/...`, `//...`. A label names a package and every target in it. Leave the
-argument off and the command covers the whole repository. Bare means `//...`,
+argument off and the command covers the whole repository: bare means `//...`,
 and the directory you happen to be standing in never changes what a command
 means. Run as many commands at once as you like; a file lock serializes cache
 writes.
@@ -62,15 +60,14 @@ error: expected `I32`, found `I64`
 | **fix** | the edit that resolves it |
 
 An error that is not a mismatch drops `expected` and `actual` — a duplicate
-declaration has no "expected". It never drops `fix`. A diagnostic that cannot
-say what to do about it is not finished, and the reject corpus in
+declaration has no "expected". It never drops `fix`, and the reject corpus in
 `cli/tests/reject/` checks that case by case.
 
 Every compile error carries a code in brackets after the message, and every code
 has a page. Read one with `buri docs error <code>`, or list them all with
 `buri docs error`. Each page holds a program that provokes the error, and the
 test suite checks that it still does. `buri lint` findings carry a code the same
-way, and the lints have their own pages.
+way.
 
 ### `--error-format=json`
 
