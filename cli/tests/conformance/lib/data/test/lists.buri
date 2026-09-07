@@ -7,6 +7,7 @@
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
+from "core/math" import * as math;
 from "core/order" import * as order;
 from "core/str" import * as str;
 from "core/testing/assert" import * as assert;
@@ -2136,4 +2137,267 @@ test "median is the middle, or the mean of the two middles" {
 test "sumOf adds a number read off each element" {
     assert.eq(["a", "bb"].sumOf(fn(s) => s.len()), 3);
     assert.eq(list.empty<Str>().sumOf(fn(s) => s.len()), 0);
+}
+
+// --- The three sizes ------------------------------------------------------------
+//
+// Every verb above has an empty case beside it. These are the other two: a list
+// of one, where a fold that starts from `last()` and a group that never closes
+// both show, and a list long enough that a recursion growing the stack per
+// element would not come back.
+
+test "the new verbs on a list of one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = [7];
+    assert.eq(one.flatMap(ctx, fn(n) => [n, n]), [7, 7]);
+    assert.eq(one.mapIndexed(ctx, fn(i, n) => i + n), [7]);
+    assert.eq(one.foldIndexed(fn(acc, i, n) => acc + i + n, 0), 7);
+    assert.eq(one.filterIndexed(ctx, fn(i, _n) => i == 0), [7]);
+    assert.eq(one.indexed(ctx).len(), 1);
+    assert.eq(one.takeWhile(ctx, fn(n) => n < 9), [7]);
+    assert.isEmpty(one.dropWhile(ctx, fn(n) => n < 9));
+    assert.eq(one.chunks(ctx, 3).len(), 1);
+    assert.eq(assert.some(one.chunks(ctx, 3).get(0)), [7]);
+    let sides = one.partition(ctx, fn(n) => n > 0);
+    assert.eq(sides.0, [7]);
+    assert.isEmpty(sides.1);
+    assert.eq(one.scan(ctx, fn(acc, n) => acc + n, 1), [8]);
+    assert.eq(assert.some(one.reduce(fn(a, b) => a + b)), 7);
+    assert.eq(one.chunkBy(ctx, fn(a, b) => a == b).len(), 1);
+    assert.eq(one.deduplicateBy(ctx, fn(a, b) => a == b), [7]);
+    assert.eq(one.intersperse(ctx, 0), [7]);
+    assert.eq(one.zipWith(ctx, [1, 2], fn(a, b) => a + b), [8]);
+    assert.eq(one.sumOf(fn(n) => n), 7);
+    assert.eq(one.product(), 7);
+    assert.eq(assert.some(one.mean()), 7.0);
+    let pairs = one.indexed(ctx).unzip(ctx);
+    assert.eq(pairs.0, [0]);
+    assert.eq(pairs.1, [7]);
+    assert.eq(assert.ok(one.binarySearch(7)), 0);
+    assert.eq(assert.err(one.binarySearch(8)), 1);
+    assert.eq(one.partitionPoint(fn(n) => n < 9), 1);
+    assert.eq(assert.some(one.findLast(fn(n) => n == 7)), 7);
+}
+
+// Five hundred is past every other list in this file, and past the point where
+// a per-element frame would show. Each answer is one a shorter list could not
+// have got right by accident.
+test "the new verbs on five hundred elements" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = list.range(ctx, 0, 500);
+    assert.eq(xs.len(), 500);
+    assert.eq(xs.flatMap(ctx, fn(n) => [n]).len(), 500);
+    assert.eq(xs.flatMap(ctx, fn(n) => if (n % 2 == 0) { [n] } else { [] }).len(), 250);
+    assert.isTrue(xs.mapIndexed(ctx, fn(i, n) => i - n).all(fn(d) => d == 0));
+    assert.eq(xs.foldIndexed(fn(acc, i, n) => acc + i - n, 0), 0);
+    assert.eq(xs.filterIndexed(ctx, fn(i, _n) => i % 2 == 0).len(), 250);
+    assert.eq(xs.indexed(ctx).len(), 500);
+    assert.eq(xs.takeWhile(ctx, fn(n) => n < 300).len(), 300);
+    assert.eq(xs.dropWhile(ctx, fn(n) => n < 300).len(), 200);
+    // Five hundred is not a multiple of seven, so the last group is short.
+    let groups = xs.chunks(ctx, 7);
+    assert.eq(groups.len(), 72);
+    assert.eq(assert.some(groups.get(71)).len(), 3);
+    assert.eq(groups.sumOf(fn(g) => g.len()), 500);
+    let sides = xs.partition(ctx, fn(n) => n % 2 == 0);
+    assert.eq(sides.0.len(), 250);
+    assert.eq(sides.1.len(), 250);
+    assert.eq(xs.insertAt(ctx, 250, -1).len(), 501);
+    assert.eq(xs.insertAt(ctx, 250, -1).get(250), .Some(-1));
+    assert.eq(xs.replaceAt(ctx, 499, -1).last(), .Some(-1));
+    assert.eq(xs.updateAt(ctx, 0, fn(n) => n + 1000).first(), .Some(1000));
+    assert.eq(xs.pushFront(ctx, -1).first(), .Some(-1));
+    assert.eq(xs.getOr(499, -1), 499);
+    assert.eq(xs.getOr(500, -1), -1);
+    assert.eq(assert.ok(xs.binarySearch(321)), 321);
+    assert.eq(assert.err(xs.binarySearch(500)), 500);
+    assert.eq(xs.partitionPoint(fn(n) => n < 321), 321);
+    assert.eq(assert.some(xs.findLast(fn(n) => n % 100 == 0)), 400);
+    assert.eq(assert.some(xs.findLastIndex(fn(n) => n % 100 == 0)), 400);
+    assert.eq(assert.some(xs.indexOf(499)), 499);
+    assert.eq(assert.some(xs.lastIndexOf(0)), 0);
+    assert.isTrue(xs.startsWith(list.range(ctx, 0, 10)));
+    assert.isTrue(xs.endsWith(list.range(ctx, 490, 500)));
+    assert.eq(xs.scan(ctx, fn(acc, n) => acc + n, 0).last(), .Some(124750));
+    assert.eq(assert.some(xs.reduce(fn(a, b) => a + b)), 124750);
+    let halves = xs.splitAt(ctx, 250);
+    assert.eq(halves.0.len(), 250);
+    assert.eq(halves.1.len(), 250);
+    assert.eq(assert.some(xs.splitFirst(ctx)).1.len(), 499);
+    assert.eq(xs.intersperse(ctx, -1).len(), 999);
+    assert.eq(xs.chunkBy(ctx, fn(a, b) => a / 10 == b / 10).len(), 50);
+    assert.eq(xs.deduplicateBy(ctx, fn(a, b) => a / 10 == b / 10).len(), 50);
+    let unzipped = xs.indexed(ctx).unzip(ctx);
+    assert.eq(unzipped.0, xs);
+    assert.eq(unzipped.1, xs);
+    assert.eq(xs.zipWith(ctx, xs, fn(a, b) => a + b).last(), .Some(998));
+    assert.eq(xs.sumOf(fn(n) => n), 124750);
+    assert.eq(assert.some(xs.mean()), 249.5);
+    let counted = list.unfold(ctx, 0, fn(n) => {
+        if (n >= 500) { .None } else { .Some((n, n + 1)) }
+    });
+    assert.eq(counted, xs);
+    assert.eq(list.rangeBy(ctx, 0, 500, 1), xs);
+    assert.eq(list.rangeBy(ctx, 499, -1, -1), xs.reverse(ctx));
+}
+
+// A median over an even and an odd length, both long enough that the middle is
+// not the element the list was built around.
+test "median over a long list is the middle of the sorted order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let odd = list.range(ctx, 0, 101).map(ctx, fn(n) => n.toF64()).reverse(ctx);
+    assert.eq(assert.some(odd.median(ctx)), 50.0);
+    let even = list.range(ctx, 0, 100).map(ctx, fn(n) => n.toF64()).reverse(ctx);
+    assert.eq(assert.some(even.median(ctx)), 49.5);
+}
+
+// --- What the documented weak claims say ----------------------------------------
+
+// `binarySearchBy` and `binarySearch` want a sorted list, and the doc comment
+// says what an unsorted one gets: "a position rather than a promise". Not a
+// refusal and not an abort — so the claim worth pinning is that every answer is
+// still an index the list has room for, whatever order the elements are in.
+test "binarySearch on an unsorted list answers a position, not a promise" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let jumbled = [5, 1, 9, 3, 7, 2, 8, 4, 6, 0];
+    let outside = list
+        .range(ctx, -2, 12)
+        .filter(ctx, fn(needle) => {
+            let at = match (jumbled.binarySearch(needle)) {
+                .Ok(i) => i,
+                .Err(i) => i,
+            };
+            at < 0 || at > jumbled.len()
+        });
+    assert.isEmpty(outside);
+    // A hit it does report is a real one, even here.
+    match (jumbled.binarySearch(7)) {
+        .Ok(at) => assert.eq(jumbled.get(at), .Some(7)),
+        .Err(at) => assert.isTrue(at >= 0 && at <= jumbled.len()),
+    };
+    // The empty list and the singleton are the two shapes with no order to get
+    // wrong.
+    assert.eq(assert.err(list.empty<Int>().binarySearch(1)), 0);
+    assert.eq(assert.err([2].binarySearch(1)), 0);
+    assert.eq(assert.err([2].binarySearch(3)), 1);
+}
+
+// `median` sorts, and `sort` has no order to work with once a `NaN` is in the
+// list — which is what the doc comment says leaves "the answer with it". What
+// stays true is that a list with something in it still answers `.Some`.
+test "median of a list holding a NaN still answers something" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let nan = 0.0 / 0.0;
+    assert.isTrue(math.isNan(assert.some([nan].median(ctx))));
+    assert.isTrue(math.isNan(assert.some([nan, nan].median(ctx))));
+    assert.isTrue([1.0, nan, 3.0].median(ctx).isSome());
+    assert.isTrue([1.0, nan, 3.0, 4.0].median(ctx).isSome());
+    // And an empty list is still nothing, NaN or no NaN.
+    assert.none(list.empty<Float>().median(ctx));
+}
+
+// `unfold` is bounded by its step and by nothing else, which the doc comment
+// says outright. A step that stops at once, at one, and after five hundred is
+// the whole of what can be asserted about the bound.
+test "unfold is bounded by its step alone" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let once: [Int] = list.unfold(ctx, 1, fn(n) => {
+        if (n > 1) { .None } else { .Some((n, n + 1)) }
+    });
+    assert.eq(once, [1]);
+    let long = list.unfold(ctx, 0, fn(n) => {
+        if (n >= 500) { .None } else { .Some((n * 2, n + 1)) }
+    });
+    assert.eq(long.len(), 500);
+    assert.eq(long.last(), .Some(998));
+}
+
+// --- Indices outside the list, at both ends -------------------------------------
+
+// `insertAt` clamps, `replaceAt` and `updateAt` refuse, `getOr` falls back and
+// `splitAt` gives one whole side. The cases above take each one index past the
+// end; these take them as far as an `Int` goes, because a clamp written as
+// `index > len` and one written as a modulus part company there.
+test "the index verbs hold far outside the list" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = [1, 2, 3];
+    assert.eq(xs.insertAt(ctx, 1000000, 9), [1, 2, 3, 9]);
+    assert.eq(xs.insertAt(ctx, -1000000, 9), [9, 1, 2, 3]);
+    assert.eq(xs.replaceAt(ctx, 1000000, 9), xs);
+    assert.eq(xs.replaceAt(ctx, -1000000, 9), xs);
+    assert.eq(xs.updateAt(ctx, 1000000, fn(n) => n * 10), xs);
+    assert.eq(xs.updateAt(ctx, -1000000, fn(n) => n * 10), xs);
+    assert.eq(xs.getOr(1000000, 0), 0);
+    assert.eq(xs.getOr(-1000000, 0), 0);
+    let past = xs.splitAt(ctx, 1000000);
+    assert.eq(past.0, xs);
+    assert.isEmpty(past.1);
+    let before = xs.splitAt(ctx, -1000000);
+    assert.isEmpty(before.0);
+    assert.eq(before.1, xs);
+    // The same six on the empty list, where there is no index that is inside.
+    let none = list.empty<Int>();
+    assert.eq(none.insertAt(ctx, -1, 9), [9]);
+    assert.eq(none.insertAt(ctx, 1, 9), [9]);
+    assert.isEmpty(none.replaceAt(ctx, 0, 9));
+    assert.isEmpty(none.updateAt(ctx, 0, fn(n) => n));
+    assert.eq(none.getOr(0, 9), 9);
+    let neither = none.splitAt(ctx, 5);
+    assert.isEmpty(neither.0);
+    assert.isEmpty(neither.1);
+}
+
+// `updateAt` never calls its step for an index outside the list, which is what
+// tells it from a `get`-then-`replaceAt` that would.
+test "updateAt outside the list does not run its step" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let ran = [1, 2].updateAt(ctx, 5, fn(_n) => 0 - 1).contains(0 - 1);
+    assert.isFalse(ran);
+}
+
+// --- chunks and rangeBy at their refused arguments -------------------------------
+
+test "chunks of one is one group per element, and of the length is one group" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = [1, 2, 3];
+    assert.eq(xs.chunks(ctx, 1).len(), 3);
+    assert.eq(xs.chunks(ctx, 3).len(), 1);
+    assert.eq(assert.some(xs.chunks(ctx, 3).get(0)), xs);
+    assert.eq(xs.chunks(ctx, 4).len(), 1);
+    assert.isEmpty(list.empty<Int>().chunks(ctx, 0));
+    assert.isEmpty(list.empty<Int>().chunks(ctx, -3));
+}
+
+test "rangeBy with a step of zero is empty in either direction and at either bound" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isEmpty(list.rangeBy(ctx, 0, 10, 0));
+    assert.isEmpty(list.rangeBy(ctx, 10, 0, 0));
+    assert.isEmpty(list.rangeBy(ctx, 0, 0, 0));
+    // A negative step that has to move away from the bound stops at once, and
+    // one that steps past it stops before it rather than on it.
+    assert.eq(list.rangeBy(ctx, 10, 0, -4), [10, 6, 2]);
+    assert.eq(list.rangeBy(ctx, 0, 10, 4), [0, 4, 8]);
+    assert.eq(list.rangeBy(ctx, 0, 1, -1), []);
+    assert.eq(list.rangeBy(ctx, 1, 1, -1), []);
+    assert.eq(list.rangeBy(ctx, 1, 0, -1), [1]);
 }
