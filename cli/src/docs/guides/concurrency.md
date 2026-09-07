@@ -119,10 +119,9 @@ run one after another under `buri run`. A task spawned *after* the body has
 returned — which on a page is what a handler does — runs on the task that
 spawned it.
 
-That sequential row has a consequence worth knowing before you meet it: under
-`buri run` a spawned task that never ends starves the ones behind it. A socket
-loop spawned first holds the carrier, so the timer spawned after it never
-starts. Build with `--release` or run on JavaScript and both run.
+That last row has a consequence: under `buri run` a task that never ends starves
+the ones behind it. Spawn a socket loop and then a timer, and the timer never
+starts. Build with `--release`, or run on JavaScript, and both run.
 
 ## An actor is a value
 
