@@ -556,6 +556,27 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Dropped, Arg::Scalar, Arg::Scalar, Arg::Str],
         ret: Ret::Void,
     },
+    // -- WebSocketClient, the other way to come by a socket -----------------
+    //
+    // `listenUpgrade` and `listenReceive` from the client's end, and shaped
+    // like them. `connectSocket` takes the URL as an `Arg::Str` and answers a
+    // `Connected` whole through the out-pointer; `connectReceive` takes the
+    // socket handle and answers the *same* `Received` a server's socket does,
+    // because a dialled socket and an accepted one are one value in one table
+    // in `cli/runtime/net.rs`. That is also why the three `Sockets` rows above
+    // needed nothing added to write on a client socket.
+    Entry {
+        key: "host.HostWebSocketClient.connectSocket",
+        symbol: "buri_rt_host_web_socket_client_connect_socket",
+        args: &[Arg::Dropped, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host.HostWebSocketClient.connectReceive",
+        symbol: "buri_rt_host_web_socket_client_connect_receive",
+        args: &[Arg::Dropped, Arg::Scalar],
+        ret: Ret::Res,
+    },
     // -- core/alloc's counters ----------------------------------------------
     //
     // `GeneralPurpose`, `Arena` and `FixedBuffer` carry a handle into a table
@@ -1744,6 +1765,32 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_host_testing_test_sockets_socket_close",
         args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar, Arg::Str],
         ret: Ret::Void,
+    },
+    // `sockets().dialling(messages)` — a client with a script instead of a
+    // network, and three rows: the mint and the client's two effect methods.
+    //
+    // The client mints its socket on the `TestSockets` that made it, which is
+    // why it needs no `Sockets` implementation of its own: a program's
+    // `socket.send` is recorded by that double's `sent()` and its `close` shows
+    // up in `isOpen`. The script crosses as an `Arg::List` of `Message`, which
+    // the archive reads by tag exactly as it reads a `[Serve]` plan.
+    Entry {
+        key: "host_testing.socketsDialling",
+        symbol: "buri_rt_host_testing_sockets_dialling",
+        args: &[Arg::Scalar, Arg::List],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "host_testing.TestWebSocketClient.connectSocket",
+        symbol: "buri_rt_host_testing_test_web_socket_client_connect_socket",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Res,
+    },
+    Entry {
+        key: "host_testing.TestWebSocketClient.connectReceive",
+        symbol: "buri_rt_host_testing_test_web_socket_client_connect_receive",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Res,
     },
     // The one key here that no Buri declaration produces: `middle::monomorphize`
     // emits it after every `test` body, so that "a fault whose call never

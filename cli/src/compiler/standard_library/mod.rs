@@ -202,6 +202,13 @@ pub const MODULES: &[StdModule] = &[
     // level down: a socket's own loop is Buri's, its state is a local threaded
     // through a tail call, and the runtime holds a queue rather than a value.
     m("core/net/server", include_str!("sources/server.buri")),
+    // The client half of the socket story, and a separate module for the reason
+    // `core/net/http` and `core/net/server` are separate: dialling out and
+    // accepting in are two authorities. It is `core/net/server`'s three hooks
+    // over `core/net/server`'s own `Socket`, `Message` and `CloseReason`, which
+    // it re-exports rather than declaring again — one program can serve on one
+    // end and dial on the other, and the two ends use one vocabulary.
+    m("core/net/websocket", include_str!("sources/websocket.buri")),
     m("core/proc", include_str!("sources/proc.buri")),
     // Not a platform module: it *names* `Tasks` in its bounds rather than
     // declaring or implementing it, exactly as `core/fs` names `Fs`. The
@@ -529,12 +536,30 @@ const HOST_GRANTS: &[HostGrant] = &[
         because: "holding a port open is a native program's authority; a page is served \
                   rather than serving, and its host has no way to accept a connection",
     },
+    // `Sockets` is no longer half of the server pair, and this row moving is
+    // the whole of what F8 changed in this table. There are two ways to come by
+    // a socket now: `Listen` accepts one, and `WebSocketClient` dials one. A
+    // page cannot do the first and does the second every day, so the authority
+    // to *write* on a socket belongs wherever either half is — which today is
+    // everywhere. What used to be here read "a page neither accepts connections
+    // nor holds one to push on", and it was true until a page could dial.
     HostGrant {
         effect: "`Sockets`",
         exports: &["HostSockets", "sockets"],
-        platforms: &[Platform::Linux, Platform::Macos],
-        because: "writing to an open socket is granted with `Listen`, and a page neither \
-                  accepts connections nor holds one to push on",
+        platforms: EVERY_PLATFORM,
+        because: "a socket is come by two ways — accepted or dialled — and every platform \
+                  can dial one",
+    },
+    // Dialling somebody else's socket, which is what a page does. Holding a
+    // port open is the authority `Listen` withholds from a page; nothing about
+    // this one is a server's, so it is granted on every platform. On WEB both
+    // methods suspend without holding the event loop, which is exactly what let
+    // `Net` onto a page.
+    HostGrant {
+        effect: "`WebSocketClient`",
+        exports: &["HostWebSocketClient", "websocketClient"],
+        platforms: EVERY_PLATFORM,
+        because: "dialling out is not accepting in, and every platform can dial",
     },
     HostGrant {
         effect: "`Ui`",
@@ -678,6 +703,13 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Sockets", "socketSendText", "core/net/server", "aSocket.send(ctx, .Text(text))"),
     w("Sockets", "socketSendBytes", "core/net/server", "aSocket.send(ctx, .Binary(bytes))"),
     w("Sockets", "socketClose", "core/net/server", "aSocket.close(ctx, aCloseReason)"),
+    w("WebSocketClient", "connectSocket", "core/net/websocket", "websocket.connect(ctx, aClient)"),
+    w(
+        "WebSocketClient",
+        "connectReceive",
+        "core/net/websocket",
+        "websocket.connect(ctx, aClient)",
+    ),
     // `ui/*`. A signal handle is inert data and the authority travels through
     // the context, so the door for reading and writing one is a method on the
     // handle that *takes* the context — which is already the shape this rule
@@ -1044,40 +1076,44 @@ mod tests {
         assert!(host_withholds(Platform::Web, "fs"), "a page still has no filesystem");
     }
 
-    /// `Listen` and `Sockets` are granted on the two native platforms, never
-    /// on a page, and always by *the same* set of platforms as each other.
+    /// `Listen` is granted on the two native platforms and never on a page;
+    /// `Sockets` is granted exactly where a socket can be come by.
     ///
-    /// The pairing is the invariant worth asserting. "I accept connections"
-    /// and "I can write to open sockets" are the two halves of being a server:
-    /// a platform granting only the first could accept a websocket upgrade and
-    /// then never answer on it, and one granting only the second would hand
-    /// out an authority over sockets nothing there can produce. Nothing but
-    /// this test enforces it, because the pairing is a claim about two rows
-    /// and a row cannot say anything about its neighbour.
+    /// The pairing this used to assert — that `Listen` and `Sockets` are
+    /// granted by the same set — was the right invariant while accepting a
+    /// connection was the only way to get a socket. It is not any more.
+    /// `WebSocketClient` dials one, a page can dial, and so the authority to
+    /// *write* on a socket now belongs wherever **either** half is. That union
+    /// is the invariant, and it still fails in both directions: a platform that
+    /// can obtain a socket and cannot write on it would hand out a handle
+    /// nothing can use, and one that can write and cannot obtain one would hand
+    /// out an authority over sockets it can never mint.
     ///
-    /// The withholding half is asserted **by platform** rather than by
-    /// emptiness, because `JS` and `WEB` are a permanent no and not a
-    /// not-yet — a page is served rather than serving. That is the difference
-    /// between this row and every other one that varies: `Fs` is absent from
-    /// `WEB` because a page has no filesystem *today*, and these two are
-    /// absent because a page is not a server.
-    ///
-    /// It is also the first row whose platform list is neither everything, nor
-    /// the three non-page platforms, nor `WEB` alone — so it is asserted
-    /// literally rather than against a neighbour's list the way `Tasks`' is.
+    /// `Listen`'s own half is asserted literally, because `LINUX, MACOS` is
+    /// still a permanent no for a page rather than a not-yet: a page is served
+    /// rather than serving.
     #[test]
-    fn the_server_effects_are_granted_together_and_never_on_a_page() {
+    fn a_platform_that_can_reach_a_socket_can_write_on_one() {
         let listen = host_grant_of("listen").expect("`listen` is in the grant table");
         let sockets = host_grant_of("sockets").expect("`sockets` is in the grant table");
+        let client =
+            host_grant_of("websocketClient").expect("`websocketClient` is in the grant table");
         assert_eq!(listen.effect, "`Listen`");
         assert_eq!(sockets.effect, "`Sockets`");
-        assert_eq!(
-            listen.platforms, sockets.platforms,
-            "`Listen` is granted by [{}] and `Sockets` by [{}]; being a server is one \
-             authority in two halves and a platform has both or neither",
-            listen.platforms_phrase(),
-            sockets.platforms_phrase()
-        );
+        assert_eq!(client.effect, "`WebSocketClient`");
+        for platform in Platform::ALL {
+            let reachable =
+                listen.platforms.contains(&platform) || client.platforms.contains(&platform);
+            assert_eq!(
+                sockets.platforms.contains(&platform),
+                reachable,
+                "`{}` grants `Sockets` where it can reach no socket, or reaches one it \
+                 cannot write on: `Listen` is granted by [{}] and `WebSocketClient` by [{}]",
+                platform.proto(),
+                listen.platforms_phrase(),
+                client.platforms_phrase()
+            );
+        }
         assert_eq!(
             listen.platforms,
             &[Platform::Linux, Platform::Macos],
@@ -1085,7 +1121,7 @@ mod tests {
             listen.platforms_phrase()
         );
         for platform in [Platform::Js, Platform::Web] {
-            for name in ["HostListen", "listen", "HostSockets", "sockets"] {
+            for name in ["HostListen", "listen"] {
                 assert!(
                     host_withholds(platform, name),
                     "`{}` grants `{name}`; a page is served rather than serving, and that is \
@@ -1094,11 +1130,11 @@ mod tests {
                 );
             }
         }
-        for platform in [Platform::Linux, Platform::Macos] {
-            for name in ["HostListen", "listen", "HostSockets", "sockets"] {
+        for platform in Platform::ALL {
+            for name in ["HostSockets", "sockets", "HostWebSocketClient", "websocketClient"] {
                 assert!(
                     !host_withholds(platform, name),
-                    "`{}` withholds `{name}`, which `cli/runtime/net.rs` implements",
+                    "`{}` withholds `{name}`, which every platform answers",
                     platform.proto()
                 );
             }
