@@ -394,3 +394,28 @@ test "the unary operators print in front of their operand" {
     let flipped = ex(.Unary(.BitNot, [ex(.Unary(.Neg, [id("n")]))]));
     assert.eq(ast.print(ctx, letOf(flipped)).text, "let X: Int = ~(-n);\n");
 }
+
+// --- what an `else` may hold ----------------------------------------------------
+
+test "an else that is neither a block nor an if is wrapped in braces" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // `If`'s third position is an expression, and `else c` is not Buri. A tree
+    // holds no parse error, so the printer may not write one.
+    let e = ex(.If([id("a")], [block([], [id("b")])], [id("c")]));
+    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = if (a) { b } else { c };\n");
+}
+
+test "an else that is an if is the chain, unwrapped" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let last = ex(.Block(block([], [ex(.Int(3))])));
+    let inner = ex(.If([id("b")], [block([], [ex(.Int(2))])], [last]));
+    let e = ex(.If([id("a")], [block([], [ex(.Int(1))])], [inner]));
+    assert.eq(
+        ast.print(ctx, letOf(e)).text,
+        "let X: Int = if (a) { 1 } else if (b) { 2 } else { 3 };\n",
+    );
+}

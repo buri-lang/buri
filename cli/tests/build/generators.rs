@@ -363,6 +363,46 @@ fn firstInput(request: Json): Option<Str> {
 }
 "#;
 
+// ---------------------------------------------------------------------------
+// What the printer wrote
+// ---------------------------------------------------------------------------
+
+/// **The printer wrote exactly the file a person would have written.**
+///
+/// `repositories/generators/the_printer_round_trips` runs the same function
+/// twice — printed out of a `core/buri/ast` tree, and hand-written beside it —
+/// and asserts they compute the same answers. That is the claim that matters,
+/// and it is blind to layout: a printer that emitted every declaration on one
+/// line would still pass it.
+///
+/// This is the other half, and it is one comparison. `lib/wire/twin.buri` is a
+/// source of this repository, so `language::corpus::…_is_formatted` holds it to
+/// what `buri format` writes; asserting the tool's module text equals it byte
+/// for byte therefore says **`print` writes source the formatter leaves
+/// alone**, which is `core/buri/ast`'s own promise and had nothing behind it.
+///
+/// The fixture is where it is because a repository case cannot ask this: the
+/// generated text is never a file, so there is nothing for a `file` step to
+/// name.
+#[test]
+fn the_printers_text_is_the_file_beside_it_byte_for_byte() {
+    let fixture = tests_dir().join("repositories/generators/the_printer_round_trips/repo");
+    let scratch = Scratch::copy_of("generators-printed-text", &fixture);
+    scratch.run(&["build", "//cmd/gen"]).ok();
+
+    let request = buri::build::generators::Request::default();
+    let response = buri::build::generators::run_artifact(&scratch.artifact("cmd/gen"), &request)
+        .expect("the generator answers");
+    let printed = &response.modules.first().expect("one module").text;
+    let twin = std::fs::read_to_string(fixture.join("lib/wire/twin.buri")).expect("the twin");
+    assert_eq!(
+        printed, &twin,
+        "`print` and `buri format` disagree about the same module; the first \
+         difference is at byte {:?}",
+        printed.bytes().zip(twin.bytes()).position(|(a, b)| a != b)
+    );
+}
+
 /// Every `.mjs` under `.buri/out/toolchain/`, sorted.
 fn toolchain_artifacts(scratch: &Scratch) -> Vec<std::path::PathBuf> {
     let dir = scratch.path(".buri/out/toolchain");

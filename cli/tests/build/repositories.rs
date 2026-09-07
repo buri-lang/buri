@@ -91,9 +91,18 @@ fn proto_schemas() {
 /// the first byte, the last byte, one that begins where the file ends, one well
 /// past it, and one naming a file the repository does not have — over a
 /// two-line input, a one-byte input, and an empty one.
+///
+/// `the_printer_round_trips` is the fourth, and it is about `core/buri/ast`
+/// rather than about the rule: a generator builds a module out of nodes,
+/// `core/codegen` prints it, the compiler parses and checks the text, and the
+/// program that runs it gets the same answers as a byte-identical module a
+/// person wrote by hand. Between the two halves it reaches every construct
+/// `std/codegen/proto` never writes, so a node kind the printer wrote wrongly
+/// fails as a program that does not compile rather than as a string nobody
+/// re-read.
 #[test]
 fn generators() {
-    run_corpus(&tests_dir().join("repositories/generators"), "generators", 6);
+    run_corpus(&tests_dir().join("repositories/generators"), "generators", 7);
 }
 
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own

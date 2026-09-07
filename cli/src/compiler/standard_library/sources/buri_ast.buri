@@ -1596,7 +1596,20 @@ fn elseLinks<C: Alloc>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): Out {
                     let body = emit(ctx, branch(ctx, head, then, broken), "else ");
                     elseLinks(ctx, owe(ctx, body, started.at, e.origin), rest, broken)
                 },
-                _other => expr(ctx, out, e),
+                // An `else` takes a block or another `if`, so anything else is
+                // wrapped in braces rather than written bare. `else .Line(n)`
+                // is not Buri, and a printer that wrote one would be emitting
+                // a parse error out of a tree that cannot hold one.
+                _other => {
+                    let started = ready(ctx, out);
+                    let wrapped = Block { stmts: [], tail: [e], origin: e.origin };
+                    owe(
+                        ctx,
+                        branchBlock(ctx, started, wrapped, broken),
+                        started.at,
+                        e.origin,
+                    )
+                },
             }
         },
     }

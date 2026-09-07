@@ -1,1 +1,1 @@
-from "//lib/wire/units" export { plate, Plate };
+from "//lib/wire/units" export { Plate, plate };
