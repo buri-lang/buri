@@ -128,6 +128,13 @@ pub const MODULES: &[StdModule] = &[
     m("core/bitset", include_str!("sources/bitset.buri")),
     m("core/json", include_str!("sources/json.buri")),
     m("core/proto", include_str!("sources/proto.buri")),
+    // The grammar as data, and the printer that turns it back into source. A
+    // generator builds one of these rather than a string, so it cannot emit a
+    // parse error, and every node carries the input span it came from.
+    m("core/buri/ast", include_str!("sources/buri_ast.buri")),
+    // What a generator is: `main` names `Stdin` and `Stdout` and nothing else,
+    // so a generator cannot read the clock or the filesystem.
+    m("core/codegen", include_str!("sources/codegen.buri")),
     m("core/map", include_str!("sources/map.buri")),
     m("core/set", include_str!("sources/set.buri")),
     m("core/ordmap", include_str!("sources/ordmap.buri")),
