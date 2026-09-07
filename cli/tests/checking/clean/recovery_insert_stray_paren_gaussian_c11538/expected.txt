@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:65:29
+   |
+65 |     assert.isTrue(draws.any(, fn(x) => x < -1.0));
+   |                             ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

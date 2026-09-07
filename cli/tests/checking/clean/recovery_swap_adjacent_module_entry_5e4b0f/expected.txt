@@ -1,9 +1,0 @@
-error: expected a string literal, found `{` [unexpected-token]
-  --> main.buri:14:6
-   |
-14 | test { "one module per input, named after the schema, reaching the others"
-   |      ^
-   |
-   = expected: a string literal
-   = actual: `{`
-   = fix: quote it, as in `"core/list"`

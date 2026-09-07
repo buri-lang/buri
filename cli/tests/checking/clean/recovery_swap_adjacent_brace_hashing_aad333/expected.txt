@@ -1,0 +1,9 @@
+error: expected `{`, found `Alloc` [unexpected-token]
+  --> main.buri:31:9
+   |
+31 |         Alloc: alloc(),
+   |         ^^^^^
+   |
+   = expected: `{`
+   = actual: `Alloc`
+   = fix: write `{` here

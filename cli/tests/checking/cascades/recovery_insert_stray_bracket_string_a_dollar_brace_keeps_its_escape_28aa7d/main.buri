@@ -1,0 +1,5 @@
+export fn f(): [Str] {
+  // `\${` opens a hole, so the backslash is the whole difference between a
+  // string and a template. Every other `$` is an ordinary character.
+  ["a\${x}b", "$4.00", extra "$.tags[2]", "ends in a $"]
+}

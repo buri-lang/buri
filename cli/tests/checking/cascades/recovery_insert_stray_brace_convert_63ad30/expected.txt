@@ -1,0 +1,23 @@
+error: "core/testing/assert" has no member `extra` [no-such-member]
+  --> main.buri:31:12
+   |
+31 |     assert.extra eq(got.lane(3), 3);
+   |            ^^^^^
+   |
+   = the module exports 22 names
+   = fix: correct the member name, or check `buri docs core/testing/assert`
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:31:17
+   |
+31 |     assert.extra eq(got.lane(3), 3);
+   |                 ^
+   |
+   = fix: write `;` here
+error: there is nothing named `eq` in scope [unresolved-name]
+  --> main.buri:31:18
+   |
+31 |     assert.extra eq(got.lane(3), 3);
+   |                  ^^
+   |
+   = did you mean `Eq`?
+   = fix: correct the spelling, or declare it

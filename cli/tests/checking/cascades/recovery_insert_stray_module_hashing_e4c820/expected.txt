@@ -1,0 +1,107 @@
+error: expected `;`, found `,` [unexpected-token]
+  --> main.buri:12:38
+   |
+12 | from "core/bigint" import * as bigint, ;
+   |                                      ^
+   |
+   = expected: `;`
+   = actual: `,`
+   = fix: write `;` here
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:21:15
+   |
+21 |     assert.eq(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42")).hash());
+   |               ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:21:49
+   |
+21 |     assert.eq(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42")).hash());
+   |                                                 ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: `_1` has no method `hash` [no-such-method]
+  --> main.buri:21:74
+   |
+21 |     assert.eq(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42")).hash());
+   |                                                                          ^^^^
+   |
+   = fix: check the spelling, or declare it in `impl _1 { ... }` in that type's own module — a method may not be added from anywhere else
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:22:15
+   |
+22 |     assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5)).hash());
+   |               ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:22:37
+   |
+22 |     assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5)).hash());
+   |                                     ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:24:9
+   |
+24 |         bigint.of(2).power(ctx, 100).hash(),
+   |         ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:25:21
+   |
+25 |         assert.some(bigint.parse(ctx, "1267650600228229401496703205376")).hash(),
+   |                     ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: `_4` has no method `hash` [no-such-method]
+  --> main.buri:25:75
+   |
+25 |         assert.some(bigint.parse(ctx, "1267650600228229401496703205376")).hash(),
+   |                                                                           ^^^^
+   |
+   = fix: check the spelling, or declare it in `impl _4 { ... }` in that type's own module — a method may not be added from anywhere else
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:36:18
+   |
+36 |     assert.notEq(bigint.of(42), bigint.of(-42));
+   |                  ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:36:33
+   |
+36 |     assert.notEq(bigint.of(42), bigint.of(-42));
+   |                                 ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:37:18
+   |
+37 |     assert.notEq(bigint.of(42).hash(), bigint.of(-42).hash());
+   |                  ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:37:40
+   |
+37 |     assert.notEq(bigint.of(42).hash(), bigint.of(-42).hash());
+   |                                        ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:38:18
+   |
+38 |     assert.notEq(bigint.of(1).hash(), bigint.of(2).hash());
+   |                  ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `bigint` in scope [unresolved-name]
+  --> main.buri:38:39
+   |
+38 |     assert.notEq(bigint.of(1).hash(), bigint.of(2).hash());
+   |                                       ^^^^^^
+   |
+   = fix: declare `bigint`, or import it — a name is in scope only from this module's own declarations and its imports

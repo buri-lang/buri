@@ -1,0 +1,30 @@
+error: expected `U64`, found `BigInt` [type-mismatch]
+  --> main.buri:22:37
+   |
+22 |     assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5).hash());
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the parameter type is `U64`
+   |
+   = expected: `U64`
+   = actual: `BigInt`
+   = fix: produce a `U64` here, or change what surrounds it to accept a `BigInt`
+error: expected `BigInt`, found `U64` [type-mismatch]
+  --> main.buri:22:59
+   |
+22 |     assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5).hash());
+   |                                                           ^^^^^^^^^^^^^^^^^^^ the parameter type is `BigInt`
+   |
+   = expected: `BigInt`
+   = actual: `U64`
+   = fix: produce a `BigInt` here, or change what surrounds it to accept a `U64`
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:22:79
+   |
+22 |     assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5).hash());
+   |                                                                               ^
+   |
+  --> main.buri:22:14
+   |
+22 |     assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5).hash());
+   |              ^ opened here
+   |
+   = fix: write `)` here

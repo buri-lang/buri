@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:30:28
+   |
+30 |     assert.eq(got.lane(2), , num.minValue<I64>());
+   |                            ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:53:52
+   |
+53 |     let draws = many(ctx, random.seeded(2), 400, [];
+   |                                                    ^
+   |
+  --> main.buri:53:21
+   |
+53 |     let draws = many(ctx, random.seeded(2), 400, [];
+   |                     ^ opened here
+   |
+   = fix: write `)` here

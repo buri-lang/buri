@@ -1,0 +1,39 @@
+// `Hash` on a `BigInt`, and nothing else.
+//
+// A file of its own because of which backends run it. A `BigInt` is a sign and
+// a `[Int]`, so its derived `Hash` bottoms out at `deriveArrayHash` — one of
+// the derive leaves the stencil backend has no body for yet
+// (`cli/tests/native/conformance.rs`). Nothing else in `core/bigint` reaches a
+// derive over an array, so `bigint.buri` next door stays in the native set.
+//
+// `core/decimal`'s hash is two `Int`s and needs no such leaf; it is asserted in
+// `decimal.buri` with the rest of that type.
+
+from "core/bigint" import * as bigint;
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+
+test "hash follows equality" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.of(42).hash(), assert.some(bigint.parse(ctx "42")).hash());
+    assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5)).hash());
+    assert.eq(
+        bigint.of(2).power(ctx, 100).hash(),
+        assert.some(bigint.parse(ctx, "1267650600228229401496703205376")).hash(),
+    );
+}
+
+test "two different numbers do not share the canonical shape" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Not a claim about collisions — a hash may collide — but about the *shape*:
+    // `42` and `-42` differ in the sign field, so their hashes are drawn from
+    // different inputs.
+    assert.notEq(bigint.of(42), bigint.of(-42));
+    assert.notEq(bigint.of(42).hash(), bigint.of(-42).hash());
+    assert.notEq(bigint.of(1).hash(), bigint.of(2).hash());
+}

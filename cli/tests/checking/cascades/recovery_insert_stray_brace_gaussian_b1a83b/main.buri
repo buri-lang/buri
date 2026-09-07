@@ -1,0 +1,85 @@
+// core/random — `nextGaussian`, the one draw that is not uniform.
+//
+// A file of its own because it reaches `math.ln`, one of `core/math`'s thirteen
+// transcendentals — so it is held out of the native set for
+// `numbers/floats.buri`'s reason exactly (`cli/tests/native/conformance.rs`).
+// `draws.buri` next door is the rest of `core/random`'s new surface and reaches
+// none of them.
+//
+// What is asserted is the *shape* of the distribution rather than a value: the
+// polar method is a rejection loop, so what it returns for a given seed is a
+// fact about splitmix64 and about `ln`, and the second of those is what this
+// file is here to keep away from the native suites.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/math" import * as math;
+from "core/random" import * as random;
+from "core/random" import { Gen };
+from "core/testing/assert" import * as assert;
+
+test "a seed replays its own draw" {
+    let (a, _) = random.seeded(7).nextGaussian();
+    let (b, _) = random.seeded(7).nextGaussian();
+    assert.eq(a, b);
+    assert.isTrue(math.isFinite(a));
+}
+
+test "a draw steps the generator" {
+    let g = random.seeded(3);
+    let (_, after) = g.nextGaussian();
+    assert.notEq(after, g);
+    let (first, next) = g.nextGaussian();
+    let (second, _) = next.nextGaussian();
+    assert.notEq(first, second);
+}
+
+test "the draws are centred on zero" {
+    let ctx = context {
+        Alloc: alloc(),
+    extra };
+    let draws = many(ctx, random.seeded(1), 400, []);
+    let mean = draws.sumFloat() / 400.0;
+    // Four hundred draws of unit deviation put the mean inside 0.2 with room to
+    // spare; the seed is fixed, so this is a fact rather than a coin toss.
+    assert.isTrue(math.isCloseAbsolute(mean, 0.0, 0.2));
+}
+
+test "the draws have a deviation of about one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let draws = many(ctx, random.seeded(2), 400, []);
+    let mean = draws.sumFloat() / 400.0;
+    let spread = draws.map(ctx, fn(x) => (x - mean) * (x - mean)).sumFloat() / 400.0;
+    assert.isTrue(math.isCloseAbsolute(math.sqrt(spread), 1.0, 0.2));
+}
+
+test "the draws land on both sides and reach past one deviation" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let draws = many(ctx, random.seeded(5), 200, []);
+    assert.isTrue(draws.any(fn(x) => x > 1.0));
+    assert.isTrue(draws.any(fn(x) => x < -1.0));
+    // And almost never past four, which is what "standard normal" means.
+    assert.eq(draws.count(fn(x) => math.absFloat(x) > 4.0), 0);
+}
+
+test "a scaled draw moves the mean and the spread with it" {
+    let (z, _) = random.seeded(11).nextGaussian();
+    let shifted = 100.0 + z * 15.0;
+    assert.isTrue(math.isFinite(shifted));
+    assert.isTrue(math.isCloseAbsolute(shifted, 100.0, 15.0 * 5.0));
+}
+
+/// `count` draws, threaded through the generator.
+fn many<C: Alloc>(ctx: C, g: Gen, count: Int, acc: [Float]): [Float] {
+    if (count <= 0) {
+        acc
+    } else {
+        let (x, next) = g.nextGaussian();
+        many(ctx, next, count - 1, acc.push(ctx, x))
+    }
+}

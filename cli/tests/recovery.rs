@@ -411,7 +411,14 @@ fn ceiling(invariant: &str, row: &str) -> usize {
         // up with one point of room, which is what the row should have carried
         // the first time — a `Sample::Whole` ceiling has no *draw* to cover, but
         // it still has a corpus that gets edited.
-        ("a syntax error stays a syntax error", "delete-closer") => 14,
+        // Re-read when the standard-library gap wave landed — new conformance
+        // packages for url, csv, compression, http, unicode, bignum, the collections
+        // and the property tester, and the numeric and string modules that grew
+        // behind them. The same reason as every re-read above: no parser change is
+        // in those merges, and the population grew by files dense in closers (a
+        // vector table is a literal inside a call inside an assertion). 220 of
+        // 1560 is 14.1%, and fifteen is that rounded up.
+        ("a syntax error stays a syntax error", "delete-closer") => 15,
         ("a syntax error stays a syntax error", "delete-separator ()") => 3,
         // The same one case, at this invariant: see the note on the row above.
         ("a syntax error stays a syntax error", "delete-separator []") => 2,

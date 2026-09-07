@@ -1,0 +1,9 @@
+error: expected `{`, found `,` [unexpected-token]
+  --> main.buri:34:52
+   |
+34 | test "toFloat and toInt round-trip a whole number" , {
+   |                                                    ^
+   |
+   = expected: `{`
+   = actual: `,`
+   = fix: write `{` here

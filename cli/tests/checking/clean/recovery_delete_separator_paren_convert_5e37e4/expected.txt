@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:26:29
+   |
+26 |     let far = simd.f32x4(nan 1.0e300, -1.0e300, 3.0);
+   |                             ^
+   |
+   = fix: write `,` here

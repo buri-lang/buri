@@ -1,0 +1,21 @@
+error: `i32x4` takes 4 arguments, but 3 were given [wrong-argument-count]
+  --> main.buri:19:56
+   |
+19 |     assert.eq(simd.f32x4(1.9, -1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0@ , 7));
+   |                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 4
+   = actual: 3
+   = fix: pass exactly 4
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:19:75
+   |
+19 |     assert.eq(simd.f32x4(1.9, -1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0@ , 7));
+   |                                                                           ^
+   |
+  --> main.buri:19:66
+   |
+19 |     assert.eq(simd.f32x4(1.9, -1.9, 0.0, 7.0).toInt(), simd.i32x4(1, -1, 0@ , 7));
+   |                                                                  ^ opened here
+   |
+   = fix: write `)` here

@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:72:35
+   |
+72 |     let shifted = 100.0 + z * 15.0
+   |                                   ^
+   |
+   = fix: write `;` here
