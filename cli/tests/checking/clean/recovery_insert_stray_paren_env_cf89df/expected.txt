@@ -1,9 +1,0 @@
-error: expected an expression, found `,` [unexpected-token]
-  --> main.buri:19:42
-   |
-19 |     assert.eq(env.currentDirectory(ctx), , path.of(ctx, "/"));
-   |                                          ^
-   |
-   = expected: an expression
-   = actual: `,`
-   = fix: write a value here

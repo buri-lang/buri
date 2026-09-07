@@ -1,7 +1,0 @@
-error: a context binding ends with `,` [missing-separator]
-  --> main.buri:54:23
-   |
-54 |         Alloc: alloc()
-   |                       ^
-   |
-   = fix: write `,` here

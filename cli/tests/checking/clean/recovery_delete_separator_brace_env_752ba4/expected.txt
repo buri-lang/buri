@@ -1,7 +1,0 @@
-error: a statement ends with `;` [missing-terminator]
-  --> main.buri:52:67
-   |
-52 |     assert.eq(env.temporaryDirectory(bare), path.of(bare, "/tmp"))
-   |                                                                   ^
-   |
-   = fix: write `;` here

@@ -40,6 +40,24 @@ test "an empty line is a line" {
     assert.eq(io.readAll(ctx)"\nb\n" ,);
 }
 
+test "a carriage return stays on the line it ended" {
+    // `readLine` cuts at `\n`, so a stream written by a Windows editor keeps
+    // its `\r`. A filter that must not change one octet reads `readAllBytes`.
+    let ctx = context {
+        Alloc: alloc(),
+        Stdin: stdin().lines(["one\r", "two\r"]),
+    };
+    assert.eq(io.readAll(ctx), "one\r\ntwo\r");
+}
+
+test "readAll carries whatever the line held" {
+    let ctx = context {
+        Alloc: alloc(),
+        Stdin: stdin().lines(["café", "\ttabbed", "a b  c"]),
+    };
+    assert.eq(io.readAll(ctx), "café\n\ttabbed\na b  c");
+}
+
 test "readAll leaves the stream at its end" {
     let ctx = context {
         Alloc: alloc(),
@@ -63,6 +81,24 @@ test "no octets at all is the empty list" {
         Stdin: stdin().bytes([]),
     };
     assert.isEmpty(io.readAllBytes(ctx));
+}
+
+test "a NUL is an octet like any other, and so is an unpaired one" {
+    // Nothing here decodes: a zero in the middle does not end the input, and
+    // an octet no UTF-8 sequence could carry comes back as itself.
+    let ctx = context {
+        Alloc: alloc(),
+        Stdin: stdin().bytes([104, 0, 105, 255, 0]),
+    };
+    assert.eq(io.readAllBytes(ctx), [104, 0, 105, 255, 0]);
+}
+
+test "input with no newline at its end is all of the input" {
+    let ctx = context {
+        Alloc: alloc(),
+        Stdin: stdin().bytes([97, 10, 98]),
+    };
+    assert.eq(io.readAllBytes(ctx), [97, 10, 98]);
 }
 
 test "readAllBytes leaves the stream at its end" {

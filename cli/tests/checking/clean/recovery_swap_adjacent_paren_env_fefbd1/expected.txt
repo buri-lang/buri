@@ -1,7 +1,0 @@
-error: a tuple element ends with `,` [missing-separator]
-  --> main.buri:55:44
-   |
-55 |         Env: testEnv().variables([("TMPDIR""/scratch/" ,)]),
-   |                                            ^
-   |
-   = fix: write `,` here
