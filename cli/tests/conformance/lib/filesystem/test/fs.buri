@@ -13,8 +13,8 @@ from "core/effect" import { Alloc, Entropy, Env };
 from "core/fs" import * as fs;
 from "core/fs" import { FsRead, FsWrite };
 from "core/host/testing" import {
-    alloc, copyFile, entropy, env, fs as disk, metadata, readDir, readRange,
-    realPath, removeFile,
+    alloc, copyFile, entropy, env, fs as disk, metadata, readDir, readRange, realPath,
+    removeFile,
 };
 from "core/path" import * as path;
 from "core/testing/assert" import * as assert;
@@ -491,10 +491,7 @@ test "the current directory canonicalizes and `..` has nothing to resolve to" {
     };
     assert.eq(assert.ok(fs.canonicalize(ctx, path.of(ctx, "."))), path.of(ctx, "."));
     assert.eq(assert.err(fs.canonicalize(ctx, path.of(ctx, ".."))), .NotFound);
-    assert.eq(
-        assert.err(fs.canonicalize(ctx, path.of(ctx, "a/../a"))),
-        .NotFound,
-    );
+    assert.eq(assert.err(fs.canonicalize(ctx, path.of(ctx, "a/../a"))), .NotFound);
 }
 
 test "a temporary directory is under TMPDIR and exists once it is made" {
