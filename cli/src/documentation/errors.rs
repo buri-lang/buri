@@ -136,6 +136,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("generator-cycle", "A generator's tool is not built from what it generates", &["build/generators"]),
     e!("generator-diagnostic", "A generator reports under a code the catalogue has", &["build/generators"]),
     e!("generator-failed", "A generator answers with a response", &["build/generators"]),
+    e!("generator-module-taken", "A generated module has a name nothing else uses", &["build/generators"]),
     e!("generator-without-a-tool", "A generator names the program that runs it", &["build/generators"]),
     e!("generic-effect-unsupported", "A trait or an effect takes no type parameters of its own"),
     e!("host-import", "`core/host` is imported by the module that exports `main`", &["build/hermeticity"]),

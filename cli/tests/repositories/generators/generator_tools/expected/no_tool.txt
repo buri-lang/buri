@@ -1,0 +1,8 @@
+error: this `generators` entry names no tool [generator-without-a-tool]
+ --> lib/wire/BUILD.buri:3:9
+  |
+3 |         { inputs: ["point.proto"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = a generator is its tool, so an entry without one names nothing the build could run
+  = fix: add `tool:` — a `//label` naming a binary in this repository, or `std/codegen/proto`

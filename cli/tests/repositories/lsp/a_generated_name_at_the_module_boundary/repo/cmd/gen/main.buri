@@ -1,0 +1,139 @@
+//! A generator that writes a type and a value of it, both anchored on the line
+//! of the input they came from.
+//!
+//! A line reads `Type name value`. What it prints is a struct declaration and a
+//! `let` holding one, so the module carries a *type* as well as a name — which
+//! is what a type-definition request needs something to answer with.
+
+from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdin: host.stdin,
+        Stdout: host.stdout,
+    };
+    let line = io.readLine(ctx).okOr("the generator was handed no request")?;
+    let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
+    let inputs = allInputs(ctx, request).okOr("the request names no input")?;
+    io
+        .println(ctx, "${json.stringify(ctx, respond(ctx, inputs))}")
+        .mapErr(fn(_e) => "could not write the response")
+}
+
+/// One declaration read off one line: the text to print, and where it came
+/// from.
+struct Read {
+    file: Str,
+    text: Str,
+    start: Int,
+    end: Int,
+}
+
+fn respond<C: Alloc>(ctx: C, inputs: [(Str, Str)]): Json {
+    let reads = inputs.mapCtx(ctx, fn(c, i) => readsOf(c, i.0, i.1)).flatten(ctx);
+    let source = reads.mapCtx(ctx, fn(_c, r) => r.text).join(ctx, "");
+    .Object([
+        (
+            "modules",
+            .Array([
+                .Object([
+                    ("name", .Str("units")),
+                    ("text", .Str(source)),
+                    ("anchors", .Array(anchorsOf(ctx, reads))),
+                ]),
+            ]),
+        ),
+        ("diagnostics", .Array(list.empty())),
+    ])
+}
+
+fn readsOf<C: Alloc>(ctx: C, path: Str, text: Str): [Read] {
+    text.lines(ctx).filterMapCtx(ctx, fn(c, line) => declaration(c, path, text, line))
+}
+
+/// `Type name value` becomes a struct and a value of it.
+fn declaration<C: Alloc>(ctx: C, path: Str, whole: Str, line: Str): Option<Read> {
+    let trimmed = line.trim();
+    let words = trimmed.split(ctx, " ");
+    let ty = words.get(0)?;
+    let name = words.get(1)?;
+    let value = words.get(2)?.toInt()?;
+    let start = whole.indexOf(trimmed)?;
+    let body = str.format(ctx, "export struct ${ty} {\n    export size: Int,\n}\n\n");
+    let held = str.format(
+        ctx,
+        "export let ${name}: ${ty} = ${ty} { size: ${value} };\n",
+    );
+    .Some(Read {
+        file: path,
+        text: body.concat(ctx, held),
+        start: start,
+        end: start + trimmed.len(),
+    })
+}
+
+/// One anchor per declaration, covering everything it printed.
+fn anchorsOf<C: Alloc>(ctx: C, reads: [Read]): [Json] {
+    reads.foldCtx(
+        ctx,
+        fn(c, acc: (Int, [Json]), r) => {
+            (acc.0 + r.text.len(), acc.1.push(c, anchor(r, acc.0)))
+        },
+        (0, list.empty()),
+    ).1
+}
+
+fn anchor(r: Read, start: Int): Json {
+    .Object([
+        ("start", .Num(start.toF64())),
+        ("end", .Num((start + r.text.len()).toF64())),
+        ("file", .Str(r.file)),
+        (
+            "span",
+            .Object([("start", .Num(r.start.toF64())), ("end", .Num(r.end.toF64()))]),
+        ),
+    ])
+}
+
+fn allInputs<C: Alloc>(ctx: C, request: Json): Option<[(Str, Str)]> {
+    field(request, "inputs")
+        .andThen(fn(v) => asArray(v))
+        .andThenCtx(ctx, fn(c, items) => {
+            items.mapOptionCtx(c, fn(_c, pair) => asPair(pair))
+        })
+}
+
+fn field(value: Json, name: Str): Option<Json> {
+    match (value) {
+        .Object(fields) => fields.find(fn(f) => f.0 == name).map(fn(f) => f.1),
+        _ => .None,
+    }
+}
+
+fn asArray(value: Json): Option<[Json]> {
+    match (value) {
+        .Array(items) => .Some(items),
+        _ => .None,
+    }
+}
+
+fn asStr(value: Json): Option<Str> {
+    match (value) {
+        .Str(s) => .Some(s),
+        _ => .None,
+    }
+}
+
+fn asPair(value: Json): Option<(Str, Str)> {
+    let items = asArray(value)?;
+    let path = items.get(0).andThen(fn(v) => asStr(v))?;
+    let text = items.get(1).andThen(fn(v) => asStr(v))?;
+    .Some((path, text))
+}
