@@ -2,21 +2,20 @@
 //!
 //! A `Signal<T>` is an index into the runtime's graph and nothing else. It
 //! holds no authority, so a lambda may capture one — that is what makes event
-//! handlers expressible — and every operation on it takes the context that
-//! grants the authority it needs: `Watch` to read, `Ui` to write.
+//! handlers expressible. Every operation takes the context granting the
+//! authority it needs: `Watch` to read, `Ui` to write.
 //!
-//! Tracking is automatic. The runtime knows which computation is running, so
-//! `get` inside one records an edge from the cell to it, and a write marks
-//! everything that read the cell out of date. The runtime collects dependencies
-//! afresh on every run, so it tracks a read behind an `if` exactly: the branch
-//! not taken creates no edge.
+//! Tracking is automatic. `get` inside a computation records an edge from the
+//! cell to it, and a write marks everything that read the cell out of date. The
+//! runtime collects dependencies afresh on every run, so a read behind an `if`
+//! is tracked exactly: the branch not taken creates no edge.
 
 from "ui/effect" import { Scope, Ui, Watch };
 
 /// An index into the runtime graph.
 ///
-/// Phantom in `T`: the value lives in the graph, not here. That is why holding
-/// one carries no authority, and why capturing one needs no bound on `T`.
+/// The value lives in the graph, not here. Holding one carries no authority,
+/// and capturing one needs no bound on `T`.
 export struct Signal<T>(Int);
 
 impl<T> Signal<T> {
@@ -36,11 +35,9 @@ impl<T> Signal<T> {
 
     /// Replaces the value with a function of the old one.
     ///
-    /// Takes `Ui` rather than `Watch` because it writes. The read it does on the
-    /// way records no dependency, and not by exception: there is nothing to
-    /// record it against. The runtime tracks against the running computation, a
-    /// computation gets a `Scope`, and a `Scope` cannot write. So `update` can
-    /// only be called from outside a computation.
+    /// The read it does on the way records no dependency. A computation only
+    /// ever gets a `Scope`, which cannot write, so `update` is callable only
+    /// from outside a computation.
     export fn update<C: Ui>(self, ctx: C, f: fn(T) => T): () {
         ctx.write(self.0, f(ctx.read(self.0)))
     }
@@ -55,8 +52,7 @@ export fn signal<C: Ui, T>(ctx: C, initial: T): Signal<T> {
 /// value: once now, and again whenever anything it read changes.
 ///
 /// Named `watch` rather than `effect` because `effect` is a keyword. The closure
-/// receives a `Scope`, so it can only *read* the graph. That is what makes it
-/// safe to re-run at a time the program did not choose.
+/// receives a `Scope`, so it can only *read* the graph.
 export fn watch<C: Ui>(ctx: C, run: fn(Scope) => ()): () {
     ctx.watch(run)
 }

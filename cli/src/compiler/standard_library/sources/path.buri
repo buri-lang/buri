@@ -2,27 +2,17 @@
 //!
 //! Every `Path` comes out of [`of`], and that is the whole promise: **every
 //! `Path` is spelled one way**. `"logs//app/"`, `"logs/./app"` and
-//! `"logs/app"` are the same path and compare equal. The spelling gets settled
-//! once, at the boundary where text becomes a path, instead of at every place
-//! that later compares two of them.
+//! `"logs/app"` are the same path and compare equal.
 //!
-//! Everything in `core/fs` takes one. A filesystem call that took a `Str`
-//! would take *any* `Str`, including the one that four `${dir}/${name}`
-//! interpolations built with a separator too many. The file it failed to open
-//! would come back `.NotFound` — the same answer a genuinely missing file
-//! gives. The type moves that mistake from the failure to the call.
+//! Everything in `core/fs` takes one, so a `${dir}/${name}` with a separator
+//! too many is caught at the call rather than coming back `.NotFound`.
 //!
 //! ## What normalizing does, and what it won't do
 //!
 //! [`of`] drops empty components and `.` components, drops a trailing
-//! separator, and keeps a leading one. It does **not** resolve `..`.
-//!
-//! That second half is the interesting one. Turning `a/../b` into `b` looks
-//! like more of the same tidying, but it isn't. If `a` is a symbolic link,
-//! `a/../b` and `b` name two different files, so a normalizer that resolved
-//! `..` would quietly rewrite one into the other. So `..` is a component like
-//! any other. It survives, it compares equal to itself, and what it means is
-//! the filesystem's business, not this module's.
+//! separator, and keeps a leading one. It does **not** resolve `..`. If `a` is
+//! a symbolic link, `a/../b` and `b` name two different files, so `..` stays a
+//! component like any other and what it means is the filesystem's business.
 //!
 //! ## Pure and allocating, as everywhere else
 //!
@@ -62,18 +52,15 @@ from "core/str" import * as str;
 derive Eq, Show for Path;
 /// A filesystem path, in the one spelling [`of`] gives it.
 ///
-/// You can't reach the text as a field, and that's the invariant: this value
-/// came through [`of`], so nothing downstream has to ask whether it did.
-/// [`Path::text`] hands the spelling back when you need a `Str` — a log line,
-/// an error message, a wire format.
+/// You can't reach the text as a field, so nothing downstream has to ask
+/// whether this came through [`of`]. [`Path::text`] hands the spelling back
+/// when you need a `Str`.
 export struct Path(Str);
 
 /// The path this text spells, normalized.
 ///
-/// Total: it refuses no text, because a filesystem refuses to be asked about
-/// no text. The empty string becomes `"."`, the directory a relative path is
-/// relative to, because `""` names nothing on any platform and `"."` is what
-/// the program that wrote it meant.
+/// Total: it refuses no text. The empty string becomes `"."`, the directory a
+/// relative path is relative to.
 ///
 /// ```buri run
 /// from "core/effect" import { Alloc, Stdout };
@@ -150,8 +137,7 @@ impl Path {
     /// The spelling, for the places that need a `Str`.
     ///
     /// A view into the path rather than a copy, so it's pure. What comes back
-    /// is normalized, which makes it safe to hand to something that will join
-    /// more text onto it.
+    /// is normalized.
     export fn text(self): Str {
         self.0
     }
@@ -169,10 +155,8 @@ impl Path {
     ///
     /// **`join` appends an absolute `other`, it doesn't substitute it.** The
     /// root never changes: `path.of(ctx, "/srv").join(ctx, "/etc")` is
-    /// `/srv/etc`. The other behaviour, where an absolute argument silently
-    /// replaces the receiver, is how a program that joins a user's string onto
-    /// its own directory ends up reading `/etc/passwd`. A caller that meant the
-    /// other path is already holding it.
+    /// `/srv/etc`. Substituting is how a program that joins a user's string
+    /// onto its own directory ends up reading `/etc/passwd`.
     ///
     /// ```buri run
     /// from "core/effect" import { Alloc, Stdout };
@@ -204,15 +188,11 @@ impl Path {
 
     /// The directory this path sits in: everything before its last component.
     ///
-    /// A relative path of one component answers `.`, because the directory
-    /// holding `app.log` is the one a relative path is relative to, and `.`
-    /// names it. `.None` is for the two paths that name no containing
-    /// directory at all: the root, which is above everything, and `.` itself,
-    /// whose parent would have to be invented as `..`.
+    /// A relative path of one component answers `.`. `.None` is for the two
+    /// paths that name no containing directory: the root and `.` itself.
     ///
     /// Lexical, like the rest of this module. The parent of `a/..` is `a`:
-    /// `parent` drops the last component, and `..` is a component. See the
-    /// module header for why it doesn't resolve `..`.
+    /// `parent` drops the last component, and `..` is a component.
     ///
     /// ```buri run
     /// from "core/effect" import { Alloc, Stdout };
@@ -258,8 +238,8 @@ impl Path {
     /// The last component, when that component names a file.
     ///
     /// `.None` for the root and for `.`, which have no last component, and for
-    /// a path ending in `..`, whose last component names no file — where the
-    /// path gets resolved from decides which directory that is, not the path.
+    /// a path ending in `..`, which names a directory the path alone cannot
+    /// decide.
     export fn fileName(self): Option<Str> {
         let last = lastComponent(self.0);
         if (last == "" || last == "." || last == "..") { .None } else { .Some(last) }
@@ -326,11 +306,11 @@ impl Path {
     ///
     /// This is how you name a temporary beside a file — `fs.writeAtomic` names
     /// its scratch file this way — so it appends to the *whole* name rather
-    /// than replacing the extension. `data.db` and `data.log` want two
-    /// different temporaries, and `withExtension` would give them one.
+    /// than replacing the extension. `data.db` and `data.log` get two different
+    /// temporaries.
     ///
-    /// `.None` where there is no last component to append to, which is the
-    /// root and `.`: a temporary beside the root is not a thing to write.
+    /// `.None` where there is no last component to append to: the root and
+    /// `.`.
     export fn withSuffix<C: Alloc>(self, ctx: C, suffix: Str): Option<Path> {
         match (self.fileName()) {
             .None => .None,
@@ -342,8 +322,7 @@ impl Path {
     /// separator.
     ///
     /// `/a/b` and `a/b` answer the same two, and [`Path::isAbsolute`] tells
-    /// them apart — the root is not a component, it's where the walk starts.
-    /// The root and `.` answer the empty list.
+    /// them apart. The root and `.` answer the empty list.
     export fn components<C: Alloc>(self, ctx: C): [Str] {
         named(ctx, self.0)
     }

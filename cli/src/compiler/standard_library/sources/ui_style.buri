@@ -5,11 +5,11 @@
 //! That is what lets a pure component describe its appearance and hand the
 //! description to whoever renders it.
 //!
-//! Two things this vocabulary refuses, both deliberate. **No property is named
-//! after a CSS declaration**: `AlignMain` and `AlignCross` name the axis rather
-//! than the writing direction, so a right-to-left page and a column stack mean
-//! the same thing by them. And **arrangement is style while meaning is the
-//! role**, so nothing here says what a region *is*. `ui/node` owns that.
+//! **No property is named after a CSS declaration**: `AlignMain` and
+//! `AlignCross` name the axis rather than the writing direction, so a
+//! right-to-left page and a column stack mean the same thing by them. And
+//! **arrangement is style while meaning is the role**, so nothing here says what
+//! a region *is*. `ui/node` owns that.
 //!
 //! ## Two tiers, and where each one ends up
 //!
@@ -24,23 +24,22 @@
 //!
 //! **Computed** is the other tier: a value a signal drives — a drag, a
 //! cursor-follow, an animation. It applies inline, per element, and gets
-//! re-serialised on every change. It never reaches the stylesheet. Reach for
-//! the static tier first.
+//! re-serialised on every change. It never reaches the stylesheet. Reach for the
+//! static tier first.
 //!
 //! A style the compiler cannot evaluate — one built out of a function's
 //! parameters, say — is not an error. It degrades to the same inline
-//! application `Computed` gets. `On` and `At` are the two exceptions: they have
+//! application `Computed` gets. `On` and `At` are the exceptions: they have
 //! nowhere to degrade *to*, so the compiler rejects a program that writes one
-//! out of values it cannot know statically rather than ignoring it silently.
+//! out of values it cannot know statically.
 //!
 //! ## Design tokens
 //!
 //! A colour may be a `Token` — a name whose value the app decides at mount.
 //! `token(namespace, name)` is the constructor a package builds its own closed
-//! token enum on, and the reference it holds is opaque, so this module never
-//! learns about any package's token type. In the static tier a token lowers to
-//! a namespaced custom property. That is why a class does not depend on what a
-//! token turns out to be worth, and why switching a theme changes no class.
+//! token enum on, and the reference it holds is opaque. In the static tier a
+//! token lowers to a namespaced custom property, so a class does not depend on
+//! what a token turns out to be worth and switching a theme changes no class.
 //! `ui/theme` is the other half.
 //!
 //! ## Conflict resolution
@@ -65,17 +64,15 @@ from "ui/prop" import { Prop };
 ///
 /// Its field is private, so only this module — and the compiler, which writes
 /// one wherever a style folded — can mint one. That keeps `Style::Extracted`
-/// unwritable now that an exported enum exports every variant it has: the
-/// variant is reachable, its payload is not. Same shape as `ui/effect`'s
-/// `Scope` and `Event`, for the same reason.
+/// unwritable: the variant is reachable, its payload is not.
 export struct Classes([(Int, Str)]);
 
 impl Classes {
     /// The pairs, in the order the compiler wrote them. Last slot wins.
     ///
-    /// Reading them is not minting one: the field stays private, so a program
-    /// still cannot build a `Classes` and still cannot write an `Extracted`.
-    /// `ui/node`'s `describe` needs this to put the classes in a scene.
+    /// Reading them is not minting one: a program still cannot build a
+    /// `Classes`. `ui/node`'s `describe` needs this to put the classes in a
+    /// scene.
     export fn pairs(self): [(Int, Str)] {
         self.0
     }
@@ -109,16 +106,15 @@ export enum Style {
     /// precomputed class strings.
     When(Prop<Bool>, [Style], [Style]),
     /// Styles derived from whatever the closure reads. Applied inline and
-    /// re-serialised on every change, never in the stylesheet — which is why it
-    /// is the last resort rather than the first.
+    /// re-serialised on every change, never in the stylesheet, so it is the last
+    /// resort rather than the first.
     Computed(fn(Scope) => [Style]),
     /// **Compiler-produced, and the one variant a program cannot write.** Holds
     /// the pairs a static style was extracted into: a conflict slot, and the name
     /// of a class that is already in the stylesheet. Last slot wins.
     ///
     /// Its payload is a `Classes`, whose field is private, so a class name
-    /// reaches an element only by having been emitted — which is the whole of
-    /// "nothing is generated at run time".
+    /// reaches an element only by having been emitted.
     Extracted(Classes),
 
     /// How this container arranges its children.
@@ -299,8 +295,7 @@ export enum Color {
 /// and the token's own name inside that package.
 ///
 /// Its fields are private, so `token` below is the only way to make one and a
-/// `Theme` is the only way to say what one is worth. That keeps `Style` from
-/// ever learning about any package's token type: a library styles itself
+/// `Theme` is the only way to say what one is worth. A library styles itself
 /// against its own closed enum, and only a reference crosses the boundary.
 export struct TokenReference(Str, Str);
 
@@ -308,8 +303,6 @@ impl TokenReference {
     /// The package the token belongs to.
     ///
     /// With `name` below, this is the custom property `--namespace-name`.
-    /// `ui/node`'s `describe` writes that into a scene the same way the
-    /// stylesheet writes it into a rule.
     export fn namespace(self): Str {
         self.0
     }
@@ -324,15 +317,13 @@ impl TokenReference {
 ///
 /// This is the constructor a package builds its token vocabulary on. A package
 /// declares `enum Token { Surface, OnSurface }` and an `impl Token` whose
-/// `color` answers `style.token("cardlib", "surface")` for each variant. The
-/// enum is closed and the reference is opaque, so a library's styles name only
-/// the library's own vocabulary.
+/// `color` answers `style.token("cardlib", "surface")` for each variant.
 ///
 /// `namespace` is the package the token belongs to and `name` is its own name.
-/// Together they become the custom property `--namespace-name`, which is why a
-/// library's tokens can never collide with an app's. Both read best as plain
-/// letters and digits. A name with anything else in it still works, but the
-/// class the compiler derives from it falls back to a digest.
+/// Together they become the custom property `--namespace-name`, so a library's
+/// tokens can never collide with an app's. Keep both to plain letters and
+/// digits: a name with anything else still works, but the class the compiler
+/// derives from it falls back to a digest.
 export fn token(namespace: Str, name: Str): Color {
     .Token(TokenReference(namespace, name))
 }
@@ -370,8 +361,8 @@ export enum Axis {
 }
 
 /// One edge of a box, named by where it is in the reading order rather than by
-/// where it is on the screen — so a right-to-left page comes out right by
-/// construction, not by a second stylesheet.
+/// where it is on the screen, so a right-to-left page comes out right by
+/// construction.
 export enum Edge {
     /// The top.
     Top,
@@ -404,7 +395,7 @@ export enum Screen {
 ///
 /// This is why hover is not an event. A pseudo-class costs nothing, survives
 /// into an email's `<style>` block, and maps to a native pressed or focused
-/// trait. A signal write per mouse move does none of the three.
+/// trait.
 export enum State {
     /// A pointer is over it.
     Hover,
@@ -432,8 +423,7 @@ export enum Position {
 /// How heavy text is.
 ///
 /// Named rather than numeric, because a name is what a font family actually
-/// has. A weight of 637 maps to nothing on any platform; `Semibold` maps to a
-/// face on every one.
+/// has.
 export enum Weight {
     /// Body text.
     Regular,

@@ -4,8 +4,7 @@
 //! with the program's own name already dropped. This is the opinionated half.
 //! One `Cli` value carries the flags, the subcommands, *and the function each
 //! subcommand runs*, so parsing, `--help`, `--version` and the error message a
-//! bad command line earns all read off the same declaration and cannot drift
-//! apart.
+//! bad command line earns all read off one declaration.
 //!
 //! ```buri run
 //! from "core/cli" import * as cli;
@@ -108,23 +107,19 @@
 //! A value taken from the *next* token may be anything that does not begin
 //! with `--`, so `--out -` and `--n -1` both work, and `--out --help` is
 //! `MissingValue` rather than an `--out` whose value is `--help`. Short flags
-//! do not cluster: `-ab` is an unknown flag, not `-a -b`, because a cluster
-//! turns ambiguous the moment one of its letters takes a value.
+//! do not cluster: `-ab` is an unknown flag, not `-a -b`.
 //!
 //! `--help` and `--version` are recognized wherever a flag may appear, and
 //! neither is an error. They answer with *text*, which `run` prints, and they
 //! answer where they are read — so `hi greet --help` never reaches the missing
 //! `<name>` under it. They are the two long names a spec cannot take; `-h` and
-//! `-v` are a spec's own to spend. Nothing below the runner reaches a `Stdout`,
-//! which keeps the whole parse at the `Alloc` tier.
+//! `-v` are a spec's own to spend.
 //!
 //! ## Nothing at all is a question
 //!
-//! **An empty argument list prints the help and answers `.Ok(())`.** A tool
-//! invoked with nothing to do is asking what it can do, and answering with an
-//! error and a usage block is a worse version of the same page. Global flags
-//! and *then* nothing is different — `hi --shout` named no command and meant
-//! to — so that is an error with the usage under it and exit 1.
+//! **An empty argument list prints the help and answers `.Ok(())`.** Global
+//! flags and *then* nothing is different — `hi --shout` named no command and
+//! meant to — so that is an error with the usage under it and exit 1.
 //!
 //! ## Testing a spec
 //!
@@ -192,26 +187,17 @@
 //! ## What is not here
 //!
 //! **The parsed arguments are not a struct of your fields.** `Arguments` hands
-//! back `Option<Str>` and the caller reaches for `str.toInt`. A *typed* handler
-//! would need this module to build a type out of a value, and `derive` only
-//! attaches a conformance to a type that already exists
-//! (`design/non-goals.md`). Generics cannot do it either: one `Cli` holds a
-//! list of commands, so every command in it would have to be the same type,
-//! which is exactly what a per-command argument struct is not. A type-safe
-//! handler wants reflection or macros, and this language has neither. The whole
-//! gap is the two lines that read `Arguments` into your own struct at the top
-//! of a handler.
+//! back `Option<Str>` and the caller reaches for `str.toInt`. A typed handler
+//! would want reflection or macros, and this language has neither
+//! (`design/non-goals.md`). Read `Arguments` into your own struct at the top of
+//! a handler.
 //!
-//! **This module does not merge the environment for you.** A tool whose
-//! `--dir` falls back to `$BURI_DIR` merges `env.get` into the value it read
-//! here itself, because the precedence rule is a decision — the flag over the
-//! variable, or the variable over the flag, or the variable only when the flag
-//! is absent *and* the file is missing — and a default that guesses is a
-//! default that is wrong somewhere.
+//! **This module does not merge the environment for you.** A tool whose `--dir`
+//! falls back to `$BURI_DIR` merges `env.get` in itself, because the precedence
+//! rule is a decision only that tool can make.
 //!
 //! **There is no `argv[0]`.** Both hosts drop the program's own name before a
-//! Buri program sees it, so `Cli.name` is what `--help` calls the program. It
-//! is a field because nothing can recover it.
+//! Buri program sees it, so `Cli.name` is what `--help` calls the program.
 
 from "core/effect" import { Alloc, Env, Stderr, Stdout };
 from "core/env" import * as env;
@@ -257,8 +243,8 @@ export struct Flag {
 ///
 /// Declaring them is what makes `Arguments.arg("file")` work, and what makes a
 /// missing one an error rather than a `.None` a handler has to notice. A
-/// command that takes an unbounded list of them — every file on the line —
-/// declares none and reads `Arguments.positionals` instead.
+/// command that takes an unbounded list of them declares none and reads
+/// `Arguments.positionals` instead.
 export struct Arg {
     /// Spelled without the angle brackets; `--help` adds those.
     export name: Str,
@@ -273,9 +259,8 @@ export struct Arg {
 /// `C` is the caller's own context, exactly like `core/net/server`'s
 /// `Server.onRequest`. A handler may do anything the context it was written
 /// beside can do — print, read a file, `proc.exit` — and `core/cli` never
-/// learns what that is. It appears only where a caller must *supply* a
-/// context, so a `Command<C>` is data rather than a second context (SPEC
-/// 10.2).
+/// learns what that is. A `Command<C>` is data rather than a second context
+/// (SPEC 10.2).
 export struct Command<C> {
     /// What is written on the command line to choose it.
     export name: Str,
@@ -311,9 +296,7 @@ export struct Cli<C> {
 
 /// What one command line said, read back by name.
 ///
-/// The fields are not exported: which table a flag landed in implements "what
-/// was written" rather than being it, and the five accessors below are the
-/// whole of it.
+/// The fields are not exported. The five accessors below are the whole of it.
 export struct Arguments {
     values: Map<Str, Str>,
     switches: Set<Str>,
@@ -370,7 +353,7 @@ enum ParseError {
 ///
 /// `--help` and `--version` answer *here* rather than printing, which keeps
 /// `parse` and everything under it at the `Alloc` tier. The runner is the only
-/// thing in this module that needs a `Stdout`.
+/// thing here that needs a `Stdout`.
 enum Selection<C> {
     Fire { command: Command<C>, arguments: Arguments },
     Print(Str),
@@ -401,10 +384,9 @@ struct Step {
 
 /// Read the arguments, parse them, and fire the command they name.
 ///
-/// The one call a `main` needs, and the only exported function in this module.
-/// Everything else it would have exported is reachable through this one, and a
-/// test reaches it by handing `core/host/testing`'s environment double an argv
-/// of its own (see the module header).
+/// The one call a `main` needs, and the only exported function here. A test
+/// reaches it by handing `core/host/testing`'s environment double an argv of its
+/// own (see the module header).
 ///
 /// `.Ok(())` is exit 0. A parse error goes to stderr with the usage under it
 /// and comes back as `.Err`, which `main`'s contract turns into exit 1
@@ -413,8 +395,7 @@ export fn run<C: Alloc + Env + Stderr + Stdout>(ctx: C, spec: Cli<C>): Result<()
     fire(ctx, spec, env.args(ctx))
 }
 
-/// `run`, with the arguments given rather than read. Private on purpose: it is
-/// the same function minus the one authority `run` holds, and a caller with an
+/// `run`, with the arguments given rather than read. Private: a caller with an
 /// argv in hand is a test, which `core/host/testing` already serves.
 fn fire<C: Alloc + Stderr + Stdout>(
     ctx: C,
@@ -622,10 +603,9 @@ fn tail<C: Alloc, X>(
     }
 }
 
-/// `--help` and `--version` are the two long names a spec cannot take, because
-/// every reader already knows them. This reads the name alone, so `--help=x` is
-/// still `--help` rather than `UnexpectedValue`, and a short flag is never one
-/// of them — `-h` and `-v` are a spec's to spend.
+/// `--help` and `--version` are the two long names a spec cannot take. This
+/// reads the name alone, so `--help=x` is still `--help` rather than
+/// `UnexpectedValue`, and a short flag is never one of them.
 fn reserved(long: Option<Str>): Option<Str> {
     match (long) {
         .None => .None,
@@ -1041,8 +1021,7 @@ fn flagColumn<C: Alloc>(ctx: C, flag: Flag): Str {
 }
 
 /// Two columns, indented two and separated by two, with the left one padded to
-/// the widest entry in *this* table — so every page's columns line up and no
-/// page's depend on another's.
+/// the widest entry in *this* table.
 fn table<C: Alloc>(ctx: C, rows: [(Str, Str)]): Str {
     let width = rows.foldCtx(
         ctx,
