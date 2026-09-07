@@ -1106,6 +1106,14 @@ fn the_stencil_libraries_are_real() {
 /// search would match a path or a piece of prose that happens to carry a crate's
 /// name, and the assertion below turns on a crate being *absent*, which is
 /// exactly where a false positive would be a red run about nothing.
+///
+/// **The member-name headers are dropped, and that is not tidying.** `nm` prints
+/// `<member>.o:` before each member's symbols, and since the runtime went to
+/// thin LTO every crate is a member of its own — so `quinn` appears in the
+/// output of an archive that carries no quinn *symbol*, and every crate the
+/// assertions below want present is present by filename whether its code
+/// survived or not. Both halves of the test would then be reading a directory
+/// listing. A symbol line never ends in a colon; a header always does.
 fn archive_symbols() -> String {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("ci-archive");
     std::fs::create_dir_all(&dir).unwrap();
@@ -1113,9 +1121,14 @@ fn archive_symbols() -> String {
     std::fs::write(&path, buri::compiler::backend::runtime_native::ARCHIVE).unwrap();
     for tool in ["nm", "llvm-nm"] {
         let Ok(out) = std::process::Command::new(tool).arg(&path).output() else { continue };
-        let text = String::from_utf8_lossy(&out.stdout).to_string();
-        if !text.trim().is_empty() {
-            return text;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let symbols = text
+            .lines()
+            .filter(|line| !line.trim_end().ends_with(':'))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if !symbols.trim().is_empty() {
+            return symbols;
         }
     }
     panic!(
@@ -1155,17 +1168,21 @@ fn archive_symbols() -> String {
 ///   feature off it must be absent on every host — the crate is not in the tree
 ///   at all. With the feature on, what happens next is the linker's:
 ///
-///   * On **macOS**, fat LTO drops it whole. Nothing but `net.rs`'s `size_of`
-///     names it, so the h3 archive carries no `quinn` symbol and is 9 147 960
-///     bytes against the `net` one's 9 146 416 — a QUIC implementation for
-///     1 544 bytes.
+///   * On **macOS**, LTO drops it whole — thin still does, which was measured
+///     when the profile changed. Nothing but `net.rs`'s `size_of` names it, so
+///     the h3 archive carries no `quinn` symbol: with cargo and rustc 1.91.1
+///     it is 10 030 832 bytes against the `net` one's 10 026 288, a QUIC
+///     implementation for 4 544 bytes. What thin LTO did change is that every
+///     crate is now an archive *member* of its own, which is why
+///     [`archive_symbols`] drops the member-name headers before anything here
+///     reads them.
 ///   * On **Linux**, it does not. The ELF archive keeps quinn's symbol names,
 ///     which is what turned the first h3 CI leg red against an assertion ported
 ///     from a shell script that had only ever been true on Darwin.
 ///
 ///   Both directions are asserted on both platforms, because either of them
 ///   changing is a fact worth a red X: the day the Linux archive stops carrying
-///   quinn is the day fat LTO started dropping it there too, and the day macOS
+///   quinn is the day LTO started dropping it there too, and the day macOS
 ///   starts carrying it is the day something first CALLED into it — which is
 ///   the slice the size budget below is waiting for.
 /// * **The entropy door.** With `crypto` the archive exports
@@ -1193,11 +1210,14 @@ fn the_runtime_archive_is_real() {
     // **`net-h3` is held to the SAME number, and that is a measured claim rather
     // than an omission.** A separate, larger h3 budget would be a number with
     // nothing behind it, and it would hide exactly the growth this one catches:
-    // on macOS the h3 archive is 9 147 960 bytes against the `net` one's
-    // 9 146 416 — a QUIC implementation for 1 544 bytes, because nothing but
-    // `net.rs`'s `size_of` names it — and on Linux, where quinn's symbols do
-    // survive, the h3 archive is still inside the number below. The slice that
-    // first CALLS into quinn is the one that comes back here and moves it.
+    // on macOS the h3 archive is 10 030 832 bytes against the `net` one's
+    // 10 026 288 — a QUIC implementation for 4 544 bytes, because nothing but
+    // `net.rs`'s `size_of` names it. That pair was taken with cargo and rustc
+    // 1.91.1, which is why both sit below the totals in the next paragraph: a
+    // 1.93 archive carries a much larger `compiler_builtins`. On Linux, where
+    // quinn's symbols do survive, the h3 archive is still inside the number
+    // below. The slice that first CALLS into quinn is the one that comes back
+    // here and moves it.
     //
     // **Both numbers moved for the painter, and the macOS one is the measured
     // total.** `cli/runtime/paint.rs` links `taffy`, `cosmic-text` and
@@ -1212,6 +1232,17 @@ fn the_runtime_archive_is_real() {
     // 12 272 088 before it: a few hundred lines of `Vec` walking, three
     // integer blur passes, and no new dependency.
     //
+    // **Then thin LTO moved both numbers again, and the macOS one is
+    // measured.** `cli/runtime/manifest.toml`'s `[profile.release]` was
+    // `lto = "fat"` until the painter made that one serial process most of a
+    // toolchain install; the profile block there argues the change and carries
+    // the timings. Thin optimizes across the same whole program — every claim
+    // below about what the archive does and does not carry was re-checked and
+    // still holds — but it internalizes and merges less, so the archive grows:
+    // on aarch64-apple-darwin, the same tree and the same rustc, 12 285 120
+    // bytes became **14 509 536**, +2 224 416. 15 MiB is the re-statement and
+    // leaves 7.7 % of the margin.
+    //
     // **The Linux number is a measured delta on an earlier measured base, and
     // that is weaker than the line above.** No macOS host can link `ring`'s C
     // for musl, so the whole archive cannot be built here. What can be, and
@@ -1220,9 +1251,20 @@ fn the_runtime_archive_is_real() {
     // it, so **+4 381 806** — 1.43x the Darwin delta, which is ELF's price for
     // the same code. On the 13 688 588 the last Linux measurement left
     // (BUILD-AND-WATCH.md §3.3.1's container, plus F7's WebSockets) that is
-    // about 18.1 MB, and 19 MiB is the re-statement. The next slice to touch
+    // about 18.1 MB, and 19 MiB was the re-statement. The next slice to touch
     // this owes the container a real total.
-    let budget = if cfg!(target_os = "macos") { 13_107_200 } else { 19_922_944 };
+    //
+    // **Thin LTO moved the Linux number the same derived way, and the ratio
+    // under it IS measured.** The same `net`-off cross-build to
+    // `aarch64-unknown-linux-musl`, under both settings: 13 996 800 bytes fat
+    // against 15 692 388 thin, so **1.12x** — smaller than Darwin's 1.18x for
+    // the same change. On the 18.1 MB above that is about 20.3 MB. 22 MiB is
+    // the re-statement and the margin is wider than this file usually allows,
+    // deliberately: the base is an estimate rather than a measurement, and the
+    // largest total consistent with the 19 MiB budget having been green is
+    // 19.9 MB, which the same ratio takes to 22.3 MB. A container measurement
+    // replaces the whole paragraph with one number.
+    let budget = if cfg!(target_os = "macos") { 15_728_640 } else { 23_068_672 };
     assert!(
         rt::ARCHIVE.len() <= budget,
         "libburi_rt.a is {} bytes, over the {budget}-byte budget for this platform. Every buri \
@@ -1290,14 +1332,14 @@ fn the_runtime_archive_is_real() {
          \n\
          The four states, all measured:\n  \
            net-h3 off, any host  — absent: the crate is not in the tree at all.\n  \
-           net-h3 on,  macOS     — absent: nothing but `net.rs`'s `size_of` names it, so fat LTO \
-         drops it whole and the archive grows 1 544 bytes.\n  \
+           net-h3 on,  macOS     — absent: nothing but `net.rs`'s `size_of` names it, so LTO \
+         drops it whole and the archive grows 4 544 bytes.\n  \
            net-h3 on,  Linux     — present: the ELF archive keeps its symbol names.\n\
          \n\
          An unexpected PRESENT with the feature off means a crate was added to \
          cli/runtime/manifest.toml without an argument for it. An unexpected present on macOS \
          means something first CALLED into quinn, which is the slice that also re-measures the \
-         size budget above. An unexpected ABSENT on Linux means fat LTO started dropping it \
+         size budget above. An unexpected ABSENT on Linux means LTO started dropping it \
          there too, which is good news and a stale assertion: re-measure and move this line.",
         if carries("quinn") { "carries" } else { "carries no" },
         std::env::consts::OS,
