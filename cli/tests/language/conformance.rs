@@ -906,18 +906,22 @@ fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(): Client<C, Int> {
   Client {
     url: "wss://example.test/feed",
     onOpen: fn(c, socket, response) => {
-      let _said = io.println(c, "page opened ${response.status}").ignore();
+      // **What a page knows about its own handshake, which is two fields.**
+      // The browser's `WebSocket` never shows the response, so `Connected`
+      // carries the negotiated subprotocol and extensions and nothing else —
+      // where a native program gets the head the server sent. This is the one
+      // of the two a program actually reads.
+      let spoke = response.header("sec-websocket-protocol").withDefault("none");
+      let _said = io.println(c, "page opened ${response.status} ${spoke}").ignore();
       let _sent = socket.send(c, .Text("subscribe"));
       0
     },
     onMessage: fn(c, _socket, seen, message) => {
-      match (message) {
-        .Text(text) => {
-          let _said = io.println(c, "page heard ${text}").ignore();
-          seen + 1
-        },
-        .Binary(_data) => seen,
-      }
+      let _said = match (message) {
+        .Text(text) => io.println(c, "page heard text ${text.len()} ${text}").ignore(),
+        .Binary(data) => io.println(c, "page heard binary ${data.len()}").ignore(),
+      };
+      seen + 1
     },
     onClose: fn(c, _socket, seen, reason) => {
       io.println(c, "page closed after ${seen} ${reason}").ignore()
@@ -952,7 +956,13 @@ globalThis.WebSocket = class {
     setTimeout(tick, 30);
     setTimeout(() => this.onmessage({ data: "one" }), 40);
     setTimeout(tick, 50);
-    setTimeout(() => this.onclose({ code: 1000, wasClean: true }), 60);
+    // Nothing, and octets. A frame of length zero is a message a page is owed
+    // like any other, and a binary one arrives as the `ArrayBuffer` the
+    // runtime asked `binaryType` for.
+    setTimeout(() => this.onmessage({ data: "" }), 60);
+    setTimeout(() => this.onmessage({ data: new Uint8Array([1, 2, 3]).buffer }), 70);
+    // Not 1000, so the reason the page reads had to come off the event.
+    setTimeout(() => this.onclose({ code: 1001, wasClean: true }), 80);
   }
   send(data) {
     log.push(`sent ${data}`);
@@ -977,10 +987,16 @@ console.log(log.join("\n"));
 
     for line in [
         "mounted",
-        "page opened 101",
-        "page heard one",
-        "page closed after 1 .Normal",
-        "page ended .Normal",
+        // `feed.v1` is what the double negotiated, and the empty `extensions`
+        // beside it is why there is exactly one header rather than two.
+        "page opened 101 feed.v1",
+        "page heard text 3 one",
+        // A message of nothing and a message of octets, both of which a page
+        // is owed and neither of which is a `.Text` of three characters.
+        "page heard text 0 ",
+        "page heard binary 3",
+        "page closed after 3 .GoingAway",
+        "page ended .GoingAway",
     ] {
         assert!(stdout.contains(line), "the page never said `{line}`:\n{stdout}{stderr}");
     }
@@ -1146,7 +1162,266 @@ fn silent<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str): Client<C, In
     );
 }
 
-/// A worker that dials a socket while answering a request.
+/// **The JavaScript backend's client, against a real socket, with a real
+/// engine's `WebSocket` under it.**
+///
+/// The row above is the refusals; this is the exchange. It matters that both
+/// exist, because on `JS` and `WEB` this toolchain writes no framing at all —
+/// the platform's own `WebSocket` owns the handshake, the masking, the ping and
+/// the reassembly — so what `runtime.js` is responsible for is the *queue* over
+/// it: a frame that lands while nobody is asking must be answered by the next
+/// `connectReceive` rather than lost between two of them.
+///
+/// That is what the far side is built to break. `harness::websocket` writes
+/// eight things back to back, faster than a program that awaits one at a time
+/// can consume them, so a runtime that awaited the event instead of a queue
+/// would lose every frame but the first.
+///
+/// The rest of the first session is the surface a page shares with a native
+/// program:
+///
+/// * both framings, and payloads of nothing, of one octet, and of past the
+///   point where a frame's length stops fitting in two;
+/// * a ping the program is never told about, with the message after it as the
+///   evidence that the socket lived through it;
+/// * a fragmented message, cut mid-character, which arrives as one message with
+///   its multi-octet characters intact;
+/// * a close the **program** started, which is `.Normal` and which the far side
+///   reads back off the wire as 1000.
+///
+/// The second session is a connection that breaks: the far side goes without a
+/// close frame, and the program is told `.Abnormal`. The third is the one place
+/// a page's close differs from a native program's: the program hangs up with
+/// `.GoingAway`, and what the far side is told is **1000**, because the
+/// browser's `WebSocket.close` throws on every code but 1000 and the private
+/// range.
+///
+/// **Why the program closes rather than the server, unlike the native row.**
+/// The two engines this suite runs on do not agree about a close they were
+/// *sent*. Against the same server, `node` reports 1001 cleanly and `bun`
+/// reports 1000 with `wasClean: false` — which this runtime reads as 1006 and a
+/// program reads as `.Abnormal`. That is the engine's own `WebSocket` and
+/// nothing this toolchain writes, it is the same shape as the accept-key
+/// disagreement already recorded, and it lives in `design/native/DECISIONS.md`
+/// as a row rather than here as an assertion two engines answer differently.
+/// The two endings this row *does* assert are the two they agree on.
+#[test]
+fn a_javascript_client_carries_every_shape_over_a_real_socket() {
+    use crate::harness::websocket::{Heard, Step};
+    const LARGE: usize = 70000;
+    /// Sixteen octets and twelve characters, two of which take more than one.
+    const SPANS: &[u8] = "h\u{e9}llo \u{1f30a} done".as_bytes();
+    let scratch = Scratch::repo("js-dial-exchange");
+    scratch.write(
+        "cmd/dial/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: JS, entry: \"main\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        "cmd/dial/main.buri",
+        r#"
+from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/net/server" import { CloseReason };
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+from "core/str" import * as str;
+
+/// Say six things of every shape, print every one that comes back, and hang up
+/// once `hangUpAt` of them have.
+fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(
+  url: Str,
+  large: Int,
+  hangUpAt: Int,
+  saying: CloseReason,
+): Client<C, Int> {
+  Client {
+    url: url,
+    onOpen: fn(c, socket, response) => {
+      let _said = io.println(c, "opened ${response.status}").ignore();
+      let _empty = socket.send(c, .Text(""));
+      let _one = socket.send(c, .Text("x"));
+      let _many = socket.send(c, .Text("a".repeat(c, large)));
+      let _none = socket.send(c, .Binary([]));
+      let _byte = socket.send(c, .Binary([7]));
+      let _bytes = socket.send(c, .Binary(list.repeat(c, 7, large)));
+      0
+    },
+    onMessage: fn(c, socket, seen, message) => {
+      let _said = match (message) {
+        .Text(text) => io.println(c, "text ${text.len()} ${text}").ignore(),
+        .Binary(data) => io.println(c, "binary ${data.len()}").ignore(),
+      };
+      let next = seen + 1;
+      let _closed = if (next == hangUpAt) { socket.close(c, saying) } else { () };
+      next
+    },
+    onClose: fn(c, _socket, seen, reason) => {
+      io.println(c, "closed after ${seen} ${reason}").ignore()
+    },
+  }
+}
+
+/// One dial, and the line that says how it ended.
+fn dialling<C: Alloc + Sockets + Stdout + WebSocketClient>(
+  ctx: C,
+  url: Str,
+  large: Int,
+  hangUpAt: Int,
+  saying: CloseReason,
+): () {
+  match (websocket.connect(ctx, feed(url, large, hangUpAt, saying))) {
+    .Err(e) => {
+      let _said = io.println(ctx, "refused ${e.cause}").ignore();
+      ()
+    },
+    .Ok(reason) => {
+      let _said = io.println(ctx, "ended ${reason}").ignore();
+      ()
+    },
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Env: host.env,
+    Sockets: host.sockets,
+    Stdout: host.stdout,
+    WebSocketClient: host.websocketClient,
+  };
+  let args = env.args(ctx);
+  let port = args.get(0).withDefault("0");
+  let large = args.get(1).withDefault("0").toInt().withDefault(0);
+  let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
+  // The first session hangs up on the seventh message; the second never
+  // reaches its number, so what ends it is the far side going. The second
+  // sends nothing large, because what it is about is the ending and a second
+  // seventy-kilobyte round trip through an engine's own `WebSocket` is seconds
+  // of this suite's budget for a claim the first session already made.
+  let _first = dialling(ctx, url, large, 7, .Normal);
+  let _second = dialling(ctx, url, 0, 7, .Normal);
+  // And a third, which hangs up on the first message with a reason that is not
+  // `.Normal`. What the far side is told is the platform's decision, and this
+  // is where a page differs from a native program.
+  let _third = dialling(ctx, url, 0, 1, .GoingAway);
+  .Ok(())
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/dial"]).ok();
+
+    // The six the program sends, read back off the wire masked and whole; then
+    // six back the other way, written without waiting for anybody.
+    let saying = || {
+        vec![
+            Step::Hear,
+            Step::Hear,
+            Step::Hear,
+            Step::Hear,
+            Step::Hear,
+            Step::Hear,
+        ]
+    };
+    let mut first = saying();
+    first.extend([
+        Step::Text(String::new()),
+        Step::Text(String::from("x")),
+        Step::Text("a".repeat(LARGE)),
+        Step::Binary(Vec::new()),
+        Step::Binary(vec![7]),
+        Step::Binary(vec![7; LARGE]),
+        Step::Ping(b"beat".to_vec()),
+        // Cut at octet 2 and octet 9, which is the middle of the `\u{e9}` and
+        // the middle of the `\u{1f30a}`: neither piece is text on its own.
+        Step::Fragments(
+            [&SPANS[..2], &SPANS[2..9], &SPANS[9..]]
+                .iter()
+                .map(|piece| piece.to_vec())
+                .collect(),
+        ),
+        // The program hangs up on the seventh message; this reads that close
+        // and answers it.
+        Step::Bye(1000),
+    ]);
+    let mut second = saying();
+    second.extend([Step::Text(String::from("bye")), Step::Drop]);
+    let mut third = saying();
+    third.extend([Step::Text(String::from("go")), Step::Bye(1000)]);
+    // The second session's six are the same six shapes with nothing large in
+    // them, which is what its `large` of zero collapses the two big ones to.
+    let small = || {
+        vec![
+            Heard::Text(String::new()),
+            Heard::Text(String::from("x")),
+            Heard::Text(String::new()),
+            Heard::Binary(Vec::new()),
+            Heard::Binary(vec![7]),
+            Heard::Binary(Vec::new()),
+        ]
+    };
+    let serving = crate::harness::websocket::serving(vec![first, second, third]);
+    let port = serving.port;
+
+    let out = Command::new(js_runtime())
+        .arg(scratch.path(".buri/out/js/cmd/dial/main.mjs"))
+        .arg(port.to_string())
+        .arg(LARGE.to_string())
+        .output()
+        .expect("the javascript runtime runs");
+    let heard = serving.heard();
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "the client did not finish:\n{stdout}{stderr}");
+    let large = "a".repeat(LARGE);
+    // `Str::len` counts Unicode scalar values, so the fragmented message is
+    // twelve of them and not the sixteen octets it took on the wire — and the
+    // three fragments cut two of those characters in half.
+    assert_eq!(
+        stdout,
+        format!(
+            "opened 101\ntext 0 \ntext 1 x\ntext {LARGE} {large}\nbinary 0\nbinary 1\n\
+             binary {LARGE}\ntext 12 h\u{e9}llo \u{1f30a} done\n\
+             closed after 7 .Normal\nended .Normal\n\
+             opened 101\ntext 3 bye\nclosed after 1 .Abnormal\nended .Abnormal\n\
+             opened 101\ntext 2 go\nclosed after 1 .Normal\nended .Normal\n"
+        ),
+        "a frame was lost, a ping reached the program, or an ending was read as \
+         the wrong one:\n{stderr}"
+    );
+    let said = || {
+        vec![
+            Heard::Text(String::new()),
+            Heard::Text(String::from("x")),
+            Heard::Text("a".repeat(LARGE)),
+            Heard::Binary(Vec::new()),
+            Heard::Binary(vec![7]),
+            Heard::Binary(vec![7; LARGE]),
+        ]
+    };
+    let mut first_heard = said();
+    // `.Normal` is 1000 on the wire, and this is the far side reading it.
+    first_heard.push(Heard::Closed(Some(1000)));
+    let mut third_heard = small();
+    // **And `.GoingAway` is 1000 here too, which is the divergence.** A page's
+    // `WebSocket.close` accepts 1000 and the private range 3000–4999 and throws
+    // on everything else, so `runtime.js` sends 1000 rather than losing the
+    // close — and the program is handed `.Normal` back, because 1000 is what
+    // the engine then reports. A native program's far side reads 1001, which
+    // `native::e2e::a_client_carries_every_size_and_is_told_nothing_of_a_ping`
+    // asserts; `design/native/DECISIONS.md` carries the row.
+    third_heard.push(Heard::Closed(Some(1000)));
+    assert_eq!(
+        heard,
+        vec![first_heard, small(), third_heard],
+        "what the client wrote is not what the far side read.\nit said:\n{stdout}"
+    );
+}
+
+/// A worker that dials a socket while answering a request — five times, and
+/// each dial ends a different way.
 ///
 /// `WebSocketClient` and `Sockets` are granted on `CLOUDFLARE_WORKER` like every
 /// other platform, and this is what that grant buys: a worker handed a request
@@ -1156,6 +1431,24 @@ fn silent<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str): Client<C, In
 /// `Request`, a real `Response` — with the same `WebSocket` double the page row
 /// uses. A worker parks on the dial exactly as a page does, which is what
 /// `$fetchEntry` awaiting the entry is for.
+///
+/// **Five requests rather than one, because a browser has five endings and one
+/// request only reaches the first of them.** The engine hands a page one `close`
+/// event and one `error` event, and what they *mean* depends entirely on whether
+/// the socket had opened yet — so the same two events are four different answers
+/// and there is no other way to reach three of them:
+///
+/// | The event | Before the socket opened | After |
+/// |---|---|---|
+/// | `close` with a code | the handshake failed: `.Err` | that code's `CloseReason` |
+/// | `close` with no code | the handshake failed: `.Err` | 1005, which is `.Abnormal` |
+/// | `error` | the handshake failed: `.Err` | 1006, which is `.Abnormal` |
+///
+/// So the five sessions are: a clean close with `1000`, a close with no code, an
+/// `error` on an open socket, an `error` before the handshake finished, and a
+/// `close` before it finished. The last two are the two sentences a program is
+/// given for a socket that never opened, and no hook runs for either — which is
+/// the absence of a `sent` line in the log.
 #[test]
 fn a_worker_dials_a_socket_while_it_answers_a_request() {
     let scratch = Scratch::repo("worker-dials");
@@ -1198,13 +1491,12 @@ fn relaying<C: Alloc + Sockets + WebSocketClient>(path: Str): Client<C, Int> {
       0
     },
     onMessage: fn(c, socket, seen, message) => {
-      match (message) {
-        .Text(text) => {
-          let _sent = socket.send(c, .Text(str.format(c, "heard ${text}")));
-          seen + 1
-        },
-        .Binary(_data) => seen,
-      }
+      let said = match (message) {
+        .Text(text) => str.format(c, "heard text ${text.len()}:${text}"),
+        .Binary(data) => str.format(c, "heard binary ${data.len()}"),
+      };
+      let _sent = socket.send(c, .Text(said));
+      seen + 1
     },
     onClose: fn(_c, _socket, _seen, _reason) => (),
   }
@@ -1218,19 +1510,50 @@ fn relaying<C: Alloc + Sockets + WebSocketClient>(path: Str): Client<C, Int> {
         r#"
 import worker from "./.buri/out/cloudflare-worker/cmd/relay/fetch.mjs";
 
+// Five dials, five endings, one script each. Everything is on a timer, so the
+// worker parks on each step and nothing here runs unless the event loop is
+// free — a `connect` that held it would not reach the open, let alone the
+// close.
+const scripts = [
+  // A socket that opened, carried three messages of three shapes, and closed
+  // normally. The empty text is a message like any other; the binary one
+  // arrives as the `ArrayBuffer` the runtime asked `binaryType` for.
+  (ws) => {
+    setTimeout(() => ws.onopen({}), 5);
+    setTimeout(() => ws.onmessage({ data: "pong" }), 10);
+    setTimeout(() => ws.onmessage({ data: "" }), 15);
+    setTimeout(() => ws.onmessage({ data: new Uint8Array([1, 2, 3]).buffer }), 20);
+    setTimeout(() => ws.onclose({ code: 1000, wasClean: true }), 25);
+  },
+  // A close carrying no code at all, which RFC 6455 calls 1005.
+  (ws) => {
+    setTimeout(() => ws.onopen({}), 5);
+    setTimeout(() => ws.onclose({ wasClean: true }), 10);
+  },
+  // An error on a socket that was open, which is the connection breaking:
+  // 1006, and there is no close frame to say otherwise.
+  (ws) => {
+    setTimeout(() => ws.onopen({}), 5);
+    setTimeout(() => ws.onerror({}), 10);
+  },
+  // The same two events before the handshake finished, which are not endings
+  // at all — they are a socket that never opened.
+  (ws) => {
+    setTimeout(() => ws.onerror({}), 5);
+  },
+  (ws) => {
+    setTimeout(() => ws.onclose({ code: 1006, wasClean: false }), 5);
+  },
+];
+
 const log = [];
-let live = null;
+let at = 0;
 globalThis.WebSocket = class {
   constructor(url) {
     log.push(`dialled ${url}`);
     this.protocol = "";
     this.extensions = "";
-    live = this;
-    // The whole exchange, on timers: the worker parks on each step, so nothing
-    // here runs unless the event loop is free.
-    setTimeout(() => live.onopen({}), 5);
-    setTimeout(() => live.onmessage({ data: "pong" }), 15);
-    setTimeout(() => live.onclose({ code: 1000, wasClean: true }), 25);
+    scripts[at++](this);
   }
   send(data) {
     log.push(`sent ${data}`);
@@ -1240,8 +1563,10 @@ globalThis.WebSocket = class {
   }
 };
 
-const answer = await worker.fetch(new Request("https://example.com/rooms/9"));
-console.log(`${answer.status} ${await answer.text()}`);
+for (const path of ["/rooms/9", "/b", "/c", "/d", "/e"]) {
+  const answer = await worker.fetch(new Request(`https://example.com${path}`));
+  console.log(`${answer.status} ${await answer.text()}`);
+}
 console.log(log.join("\n"));
 "#,
     );
@@ -1256,10 +1581,23 @@ console.log(log.join("\n"));
     assert_eq!(
         stdout,
         "200 ended .Normal\n\
+         200 ended .Abnormal\n\
+         200 ended .Abnormal\n\
+         200 no socket: the connection failed before the handshake finished\n\
+         200 no socket: the socket closed before the handshake finished\n\
          dialled wss://example.test/relay\n\
          sent asking /rooms/9\n\
-         sent heard pong\n",
-        "a worker did not dial, or lost what it heard:\n{stderr}"
+         sent heard text 4:pong\n\
+         sent heard text 0:\n\
+         sent heard binary 3\n\
+         dialled wss://example.test/relay\n\
+         sent asking /b\n\
+         dialled wss://example.test/relay\n\
+         sent asking /c\n\
+         dialled wss://example.test/relay\n\
+         dialled wss://example.test/relay\n",
+        "a worker did not dial, lost what it heard, or read an ending as the \
+         wrong one:\n{stderr}"
     );
 }
 

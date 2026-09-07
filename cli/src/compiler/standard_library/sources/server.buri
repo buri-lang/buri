@@ -870,6 +870,10 @@ impl Socket {
     ///
     /// The socket's own worker hears too: its `onClose` runs with the reason
     /// the far side agreed on, which for a close this end started is this one.
+    ///
+    /// **On `JS` and `WEB` every reason but `.Normal` reaches the far side as
+    /// `.Normal`**, because that is all a browser's `WebSocket` will send —
+    /// `Sockets.socketClose` has the whole of it.
     export fn close<C: Sockets>(self, ctx: C, reason: CloseReason): () {
         ctx.socketClose(self.0, codeOf(reason), phraseOf(reason))
     }
