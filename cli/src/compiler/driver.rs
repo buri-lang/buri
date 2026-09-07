@@ -73,6 +73,88 @@ pub fn analyze_all(
     Analysis { loaded, checked, diagnostics: diags }
 }
 
+/// Loads one unit and checks the bodies the *repository* wrote, leaving the
+/// standard library's own bodies unchecked.
+///
+/// Everything else is the whole closure exactly as [`analyze`] has it: every
+/// module is loaded and parsed, and every signature, type, trait, impl,
+/// module-level `let` and `context` — the standard library's included — is
+/// elaborated, because that is what a repository body is checked *against*.
+/// What is skipped is step 5 for the modules that ship inside this binary.
+///
+/// Nothing is lost by skipping them. A standard library body can only report a
+/// diagnostic if the standard library itself is broken, and a broken one is a
+/// broken *toolchain*: its text is compiled into this executable and cannot
+/// move while the process runs, `buri version --self-check` reads all of it
+/// ([`analyze_stdlib`]), and `analyze_std_module` checks each module the way a
+/// program reaches it. So a repository asking what is wrong with *its* files
+/// was type-checking a thousand function bodies per compilation to be told
+/// what the toolchain's own tests already say.
+///
+/// What comes back is byte-identical for every repository file —
+/// `tests/language/scoped_bodies.rs` holds that over every fixture repository
+/// — because this is [`analyze_bodies_in`] with the repository's files named,
+/// and that equality is the property that pass already has.
+///
+/// **Not for a build.** `middle::monomorphize` walks the body of every
+/// function an entry point reaches, and most of those are the standard
+/// library's. A build wants [`analyze`].
+pub fn analyze_program(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    unit: &Unit,
+) -> Analysis {
+    let mut diags = Diagnostics::new();
+    let loaded = {
+        let mut loader = Loader::new(ws, map, &mut diags, cache);
+        loader.load_unit(unit);
+        loader.finish()
+    };
+    let files = repository_files(&loaded);
+    let checked = Checker::new(&loaded, ws, &mut diags).checking(Bodies::In(files)).run();
+    diags.sort(map);
+    Analysis { loaded, checked, diagnostics: diags }
+}
+
+/// The same, over several units batched into one compilation. See
+/// [`analyze_all`] for what batching means and [`analyze_program`] for what is
+/// left unchecked.
+pub fn analyze_program_all(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    cache: &mut crate::parsing::parser::Cache,
+    units: &[Unit],
+) -> Analysis {
+    let mut diags = Diagnostics::new();
+    let loaded = {
+        let mut loader = Loader::new(ws, map, &mut diags, cache);
+        for unit in units {
+            loader.load_unit(unit);
+        }
+        loader.finish()
+    };
+    let files = repository_files(&loaded);
+    let checked = Checker::new(&loaded, ws, &mut diags).checking(Bodies::In(files)).run();
+    diags.sort(map);
+    Analysis { loaded, checked, diagnostics: diags }
+}
+
+/// Every file in the closure that the standard library did not supply.
+///
+/// By module path against the library's own table rather than by
+/// [`Role`](crate::compiler::modules::Role): a documentation snippet is loaded
+/// as `Role::Std` so that it may show a signature with no body, and a snippet
+/// is the one thing a doc harness is asking about.
+fn repository_files(loaded: &Loaded) -> Vec<FileId> {
+    loaded
+        .modules
+        .iter()
+        .filter(|m| crate::compiler::standard_library::find(&m.path).is_none())
+        .map(|m| m.file)
+        .collect()
+}
+
 /// Loads and checks one unit, but type-checks only the bodies written in
 /// `files`.
 ///

@@ -173,6 +173,13 @@ pub fn findings_for_target(
 
 /// The whole front end over one target's closure, as the rules below ask about
 /// it: no output, and the tests included.
+///
+/// The standard library's own bodies are not checked
+/// (`driver::analyze_program`). Every rule below asks about a file the
+/// repository wrote — the report names a line a person can open — so a body
+/// that ships inside this binary was never going to appear in one. The
+/// language server's lint pass rides the same analysis, which is what keeps
+/// the two reports the same set.
 pub fn analysis_of(
     session: &mut Session,
     target: TargetId,
@@ -180,7 +187,7 @@ pub fn analysis_of(
     // A lint is not a build, so it does not refuse a program for an output it
     // was not asked about. See `Unit::platform`.
     let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
-    crate::compiler::driver::analyze(
+    crate::compiler::driver::analyze_program(
         Some(&session.workspace),
         &mut session.map,
         &mut session.parsed,
