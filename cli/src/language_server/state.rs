@@ -1016,6 +1016,7 @@ impl State {
             // The editor is not building an output, and a file open in it
             // belongs to every output its target declares. See `Unit::platform`.
             platform: None,
+            entry: None,
             // A test source is a source an editor opens like any other, so the
             // server would be blind in exactly the files most often edited.
             with_tests: true,
@@ -1078,7 +1079,7 @@ impl State {
         }
 
         let mut session = self.overlaid_session(&root)?;
-        let unit = Unit { target, platform: None, with_tests: true };
+        let unit = Unit { target, platform: None, entry: None, with_tests: true };
         // The file as the loader will name it. A file the editor has open is
         // already in the map, layered over the disk by `overlaid_session`; one
         // it does not is seeded here with the same bytes the loader would have
@@ -1149,7 +1150,7 @@ impl State {
             .workspace
             .targets()
             .into_iter()
-            .map(|target| Unit { target: Some(target), platform: None, with_tests: true })
+            .map(|target| Unit { target: Some(target), platform: None, entry: None, with_tests: true })
             .collect();
         self.work.analyses = self.work.analyses.saturating_add(1);
         let analysis = crate::compiler::driver::analyze_all(

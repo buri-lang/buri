@@ -2126,6 +2126,41 @@ async function $host_HostNet_fetch(self, request) {
   }
 }
 
+// A worker's entry, behind the one crossing it needs.
+//
+// The platform calls this per request with its own `Request` and sends what it
+// answers, so the module's default export is the whole of the artifact's
+// surface. What crosses is `$host_HostNet_fetch`'s crossing in reverse: a Buri
+// `Request` is `[method, url, headers, body]` and a `Response` is
+// `[status, headers, body]`, a `Header` is `[name, value]`, a payloadless enum
+// is its variant index, and a `[U8]` is an ordinary array of numbers.
+//
+// The body is read for every method that may carry one. `GET` and `HEAD` never
+// do, and asking a platform for the body of one is an error rather than an
+// empty answer.
+//
+// `await`ed unconditionally: an entry that never parks answers a plain value,
+// and awaiting one costs a microtask on a path that is already asynchronous.
+async function $fetchEntry(entry, request) {
+  const method = $HTTP_METHOD.indexOf(request.method);
+  const headers = [];
+  for (const [name, value] of request.headers) headers.push([name, value]);
+  const carries = request.method !== "GET" && request.method !== "HEAD";
+  const body = carries
+    ? Array.from(new Uint8Array(await request.arrayBuffer()))
+    : [];
+  const answer = await entry([
+    BigInt(method < 0 ? 0 : method),
+    request.url,
+    headers,
+    body,
+  ]);
+  return new Response(new Uint8Array(answer[2]), {
+    status: Number(answer[0]),
+    headers: Array.from(answer[1], (h) => [h[0], h[1]]),
+  });
+}
+
 function $host_HostClock_nowMillis(self) {
   return BigInt(Date.now());
 }

@@ -416,6 +416,7 @@ impl Workspace {
                 target: Some(target),
                 // A reference page is not an output. See `Unit::platform`.
                 platform: None,
+                entry: None,
                 with_tests: false,
             };
             let analysis =

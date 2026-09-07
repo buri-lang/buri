@@ -809,6 +809,26 @@ impl Workspace {
     ///   `requires.platforms` of the tags it carries — the same two sources
     ///   [`Workspace::platforms`] reads, asked of this rule alone rather than
     ///   of its closure.
+    /// Every `(entry, platform)` a binary's `outputs` name, in declaration
+    /// order.
+    ///
+    /// This is what makes the `core/host` check per entry rather than per
+    /// target. A binary with a page and a worker in it declares two entries,
+    /// and a `host.ui` inside the page's entry is checked against WEB alone —
+    /// the worker never reaches it, and refusing it on the worker's behalf
+    /// would refuse a program that is correct.
+    ///
+    /// Empty for a library, and for a binary that declares no `outputs`.
+    pub fn declared_entries(&self, target: TargetId) -> Vec<(String, Platform)> {
+        if target.kind != RuleKind::Binary {
+            return Vec::new();
+        }
+        let Some(bin) = self.package(target.package).build.binary.as_ref() else {
+            return Vec::new();
+        };
+        bin.outputs.iter().map(|o| (o.entry_name().to_string(), o.platform())).collect()
+    }
+
     pub fn declared_platforms(&self, target: TargetId) -> Option<BTreeSet<Platform>> {
         let pkg = self.package(target.package);
         match target.kind {

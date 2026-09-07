@@ -130,8 +130,8 @@ message Binary {
   // it is built for.
   repeated string tags = 3;
 
-  // What to produce. One artifact per entry, and the whole graph is checked
-  // once per entry, because each entry names a different platform.
+  // What to produce. One artifact per output, and the whole graph is checked
+  // once per output, because each one names a platform and an entry of its own.
   repeated Output outputs = 4;
 
   // Tests that exercise this binary through `main.buri`.
@@ -143,15 +143,31 @@ message Output {
   // closure that declares `platforms` must admit it.
   Platform platform = 1;
 
-  // Ignored, and must be unset, when platform is JS or WEB.
+  // Ignored, and must be unset, when the platform is JS, WEB or
+  // CLOUDFLARE_WORKER.
   Arch arch = 2;
+
+  // The exported function of `main.buri` this artifact enters through. Unset
+  // means `main`.
+  //
+  // One binary, several ways in: a page enters through `main` and a worker
+  // through `fetch`, out of one set of sources. Each entry builds its own
+  // context, is checked against its own platform's `core/host` grants, and is
+  // the root of its own dead-code elimination — so neither artifact holds what
+  // only the other reaches.
+  //
+  // The platform fixes the signature. LINUX, MACOS, JS and WEB take
+  // `fn <entry>(): Result<(), Str>`; CLOUDFLARE_WORKER takes
+  // `fn <entry>(request: Request): Response`. The wrong shape is a type error.
+  string entry = 5;
 
   // Artifact filename. Defaults to the package's directory name (plus `.mjs`
   // for JS and WEB).
   string artifact_name = 3;
 
-  // Rejected when platform is WEB: a page is always an ES module, which is
-  // what a browser's `<script type="module">` loads.
+  // Rejected when the platform is WEB or CLOUDFLARE_WORKER: both are always ES
+  // modules, which is what a browser's `<script type="module">` loads and what
+  // a worker runtime imports.
   JsOptions js = 4;
 }
 
@@ -168,6 +184,12 @@ enum Platform {
   // loads them. Grants the reactive graph (`Ui`, `Watch`); grants no
   // filesystem, standard input, environment or process to exit.
   WEB = 4;
+  // A Cloudflare Worker: one `.mjs` whose default export the worker runtime
+  // calls per request. The entry is `fn fetch(request: Request): Response`.
+  // Grants a clock, randomness and outbound requests; grants no filesystem,
+  // standard input, environment, process to exit, port to hold open or
+  // document.
+  CLOUDFLARE_WORKER = 5;
 }
 
 enum Arch {
