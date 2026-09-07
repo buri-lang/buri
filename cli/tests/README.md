@@ -339,8 +339,8 @@ skip.
 ### The runtime crate's tests are run by a test
 
 `cargo test -p buri` cannot reach the `cli/runtime` cargo package, so
-`native::runtime::the_runtime_crate_answers_its_own_tests` runs its ninety-seven
-assertions instead. It shells a nested `cargo test` against the package
+`native::runtime::the_runtime_crate_answers_its_own_tests` runs its three
+hundred assertions instead. It shells a nested `cargo test` against the package
 `cli/build.rs` assembles in `$OUT_DIR`, with the same features the archive
 beside this binary was built with. That cold-compiles tokio and rustls the first
 time — about ten seconds here, a minute on a cold runner — into a target
