@@ -1,0 +1,7 @@
+error: an import declaration ends with `;` [missing-terminator]
+  --> main.buri:13:34
+   |
+13 | from "core/uuid" import * as uuid
+   |                                  ^
+   |
+   = fix: write `;` here

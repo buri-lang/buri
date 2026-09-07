@@ -1,7 +1,0 @@
-error: an import declaration ends with `;` [missing-terminator]
-  --> main.buri:10:42
-   |
-10 | from "core/codegen" import { Diagnostic }
-   |                                          ^
-   |
-   = fix: write `;` here

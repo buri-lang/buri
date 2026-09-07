@@ -1,0 +1,23 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:26:16
+   |
+26 |         Alloc: ? alloc(),
+   |                ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:31:17
+   |
+31 |         .insert(ctx, id, "ada")
+   |                 ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:32:17
+   |
+32 |         .insert(ctx, uuid.zero(), "nil");
+   |                 ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

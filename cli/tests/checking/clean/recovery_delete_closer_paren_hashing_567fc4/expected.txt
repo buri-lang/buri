@@ -1,0 +1,21 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:20:32
+   |
+20 |     assert.eq(uuid.zero().hash(, uuid.zero().hash());
+   |                                ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:39:1
+   |
+39 | 
+   | ^
+   |
+  --> main.buri:16:64
+   |
+16 | test "equal identifiers hash alike, and different ones do not" {
+   |                                                                ^ opened here
+   |
+   = fix: write `}` here

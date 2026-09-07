@@ -1,0 +1,7 @@
+error: an array element ends with `,` [missing-separator]
+  --> main.buri:38:38
+   |
+38 |         Stdin: stdin().lines(["", "b" ""]),
+   |                                      ^
+   |
+   = fix: write `,` here
