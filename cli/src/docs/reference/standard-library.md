@@ -58,7 +58,8 @@ unordered, so it answers `.Equal` for a pair it could not order.
 [`core/json`](../../compiler/standard_library/sources/json.buri),
 [`core/proto`](../../compiler/standard_library/sources/proto.buri),
 [`core/buri/ast`](../../compiler/standard_library/sources/buri_ast.buri),
-[`core/codegen`](../../compiler/standard_library/sources/codegen.buri).
+[`core/codegen`](../../compiler/standard_library/sources/codegen.buri),
+[`std/codegen/proto/schema`](../../compiler/standard_library/sources/codegen_proto_schema.buri).
 
 - **`core/str`** — a `Str` measures in Unicode scalar values everywhere. `len`
   counts them, `charAt` and `slice` index by them, and `compare` orders by them.
@@ -161,6 +162,20 @@ unordered, so it answers `.Equal` for a pair it could not order.
   request to read or the line was not one; returning that from `main` is how a
   generator fails visibly. Costs one parse of the request line plus one `print`
   per module — O(n) in the text read and the text written.
+
+- **`std/codegen/proto/schema`** — a reader for `.proto` schemas, and the front
+  half of the `std/codegen/proto` generator. `parse` answers what a file
+  declares plus every diagnostic about it, each carrying the span in the schema
+  that a `codegen.Diagnostic` points at. **One edition**: a schema says
+  `edition = "2026";`, and `syntax = "proto3"`, proto2 and older editions are
+  refused rather than read loosely. So is everything the mapping cannot express
+  — `service`, `extend`, `group`, `map<>`, the removed labels, `import public`,
+  and each unimplementable `features` value — refused *by name*, because a
+  construct silently ignored makes a file mean something other than what it
+  says. `option` and `reserved` are skipped. Costs one pass over the text, O(n),
+  plus one `Int` per character: a span is measured in bytes and a `Str` in
+  scalar values, so the offsets are computed once rather than per diagnostic.
+  [The proto reference](./build/proto.md) is the mapping it feeds.
 
 ## Collections
 

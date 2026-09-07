@@ -1,0 +1,14 @@
+// The `.proto` schema reader: what a schema declares, and what it refuses.
+//
+// `std/codegen/proto/schema` is the front half of the generator that turns a
+// schema into a module, so what it reads decides what somebody else's program
+// finds in the bytes. Two files: one for the declarations a well-formed schema
+// makes, one for every construct the reader refuses by name.
+//
+// Each refusal is asserted on its *code* and on the text its span covers,
+// because a diagnostic filed under the wrong code has no page and one pointing
+// at the wrong token sends a person to the wrong line.
+
+from "//lib/proto_schema/helpers.buri" export {
+    at, FILE, HEAD, lines, pointsAt, read, under, withEdition,
+};
