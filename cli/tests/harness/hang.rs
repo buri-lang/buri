@@ -19,18 +19,22 @@
 //! test whatever else is in flight, so the report names the test, the argv, and
 //! how long it waited — which is the whole of what the deleted config claimed.
 //!
-//! `fuzz.rs::run_watched` is the local precedent and stays where it is: it caps
-//! the toolchain at thirty seconds and turns a hang into a *finding* about the
-//! input rather than a failure of the suite, which is a different sentence from
-//! the one below and belongs to that suite.
+//! **`fuzz.rs` asks the same question and writes a different sentence.** A
+//! toolchain that stops answering is a failed test here and a *finding about
+//! the input* there, so that suite calls [`watch`] — this wait without the
+//! panic on the end of it — and words the verdict into the case it records.
+//! It used to keep three wall clocks of its own, and a wall clock reported a
+//! stencil program that passes alone in under a second as a hang, on a machine
+//! that was merely busy.
 //!
-//! **Not** an in-process deadlock, and not a `Command` a suite spawns for
-//! itself: `native/` builds and links its own artifacts, `fuzz.rs` and
-//! `build/hermeticity.rs` shell their own tools. Nothing in libtest tells a
+//! **Not** an in-process deadlock, and not, on its own, a `Command` a suite
+//! spawns for itself: `native/` builds and links its own artifacts, and
+//! `build/hermeticity.rs` shells its own tools. Nothing in libtest tells a
 //! watchdog which test is on which thread — the name is only knowable *inside*
 //! the test, which is why the cap lives at the call and not in a thread above
 //! it — so a cap over those would either name nothing or be one wrapper per
-//! spawn site. The outer bound for everything this does not cover is the job's
+//! spawn site. A suite that wants the rule over its own spawns asks for it, as
+//! `fuzz.rs` does. The outer bound for everything nothing covers is the job's
 //! `timeout-minutes`, which `cli/tests/ci.rs` now requires of every job.
 //!
 //! ## Stuck, not slow: what the cap actually measures
@@ -72,10 +76,26 @@
 //! `sleep` never does. On a host that will not say, the cap is the wall clock
 //! it always was.
 //!
-//! What this gives up is the runaway that *spins*: a child looping forever
-//! while burning a core is never killed here. The job's `timeout-minutes` ends
-//! that one, as it already had to for an in-process deadlock, which this never
-//! covered either.
+//! What this rule gives up is the runaway that *spins*: a child looping for
+//! ever while burning a core is working by every reading, so nothing above
+//! kills it. The job's `timeout-minutes` ends that one for the suites here, as
+//! it already had to for an in-process deadlock, which this never covered
+//! either.
+//!
+//! ## The ceiling, for a caller that must catch one anyway
+//!
+//! A caller that cannot leave the spinner to the job passes a **ceiling on
+//! processor time** as [`watch`]'s last argument, and `fuzz.rs` is the caller
+//! that does: its minimiser deletes a token and writes a program that loops for
+//! ever, and "this input loops for ever" is a finding that suite has to record
+//! rather than a job for GitHub to kill. A ceiling on the *work* is the right
+//! bound there and a wall clock is not — what a loaded machine changes is how
+//! long the work takes, never how much of it there is, so a busy tree crosses a
+//! ceiling at the same reading on an idle host and a hammered one.
+//!
+//! The number is the caller's, because an honest one is a function of the work:
+//! a build's ceiling and a generated program's are three orders of magnitude
+//! apart. `fuzz.rs` states its three and what they were measured against.
 //!
 //! ## The numbers
 //!
@@ -180,7 +200,23 @@ impl Progress {
 }
 
 /// Wait for a child, killing it and panicking once it has gone a whole `cap`
-/// without spending processor time.
+/// asleep and spending nothing.
+///
+/// [`watch`] with the suite's own answer to a killed child on the end of it: a
+/// panic in the test's own thread, so libtest names the test.
+pub fn wait_capped(child: &mut Child, what: &str, cap: Duration) -> ExitStatus {
+    match watch(child, what, cap, None) {
+        Ok(status) => status,
+        Err(killed) => panic!("{}", report(&killed)),
+    }
+}
+
+/// Wait for a child, killing it once it is stuck — or, where a caller names a
+/// `ceiling`, once its tree has spent more processor time than that.
+///
+/// `Ok` is a child that stopped on its own, whatever it exited with. `Err` is a
+/// child this function killed, carrying the evidence for why; the caller
+/// decides whether that is a failed test or a finding.
 ///
 /// Polled with a backoff rather than blocked on, because a blocking `wait` is
 /// exactly what has no deadline. From 200µs, doubling, topping out at 10ms: a
@@ -190,7 +226,17 @@ impl Progress {
 /// the process it is waiting on. Measured, because the alternative is a tax on
 /// every invocation in the suite: the `failing` corpus runs within a percent of
 /// what it did before the cap went in.
-pub fn wait_capped(child: &mut Child, what: &str, cap: Duration) -> ExitStatus {
+///
+/// The ceiling is asked at each reading and before the idle rule, so a tree
+/// that is over both is reported as the runaway it is rather than as a
+/// deadlock. Nothing is asked of a host that will not answer, so a ceiling
+/// there is simply never reached.
+pub fn watch(
+    child: &mut Child,
+    what: &str,
+    cap: Duration,
+    ceiling: Option<Duration>,
+) -> Result<ExitStatus, Killed> {
     let pid = child.id();
     let start = Instant::now();
     let (busy, every) = (busy_enough(cap), sample_every(cap));
@@ -199,24 +245,44 @@ pub fn wait_capped(child: &mut Child, what: &str, cap: Duration) -> ExitStatus {
     let mut nap = Duration::from_micros(200);
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => return status,
+            Ok(Some(status)) => return Ok(status),
             Err(e) => panic!("waiting for `{what}`: {e}"),
             Ok(None) => {}
         }
         let now = Instant::now();
         if now >= progress.next {
             progress.next = now + every;
-            progress.note(now, look(pid), busy);
+            let reading = look(pid);
+            if let (Some(seen), Some(ceiling)) = (reading, ceiling) {
+                if seen.spent >= ceiling {
+                    stop(child);
+                    return Err(Killed {
+                        what: what.to_string(),
+                        ran: start.elapsed(),
+                        why: Why::Burned { spent: seen.spent, ceiling },
+                    });
+                }
+            }
+            progress.note(now, reading, busy);
         }
         let idle = now.saturating_duration_since(progress.at);
         if idle >= cap {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("{}", report(what, start.elapsed(), idle, progress.spent));
+            stop(child);
+            return Err(Killed {
+                what: what.to_string(),
+                ran: start.elapsed(),
+                why: Why::Stuck { idle, spent: progress.spent },
+            });
         }
         std::thread::sleep(nap.min(cap.saturating_sub(idle)));
         nap = (nap * 2).min(Duration::from_millis(10));
     }
+}
+
+/// Kill a child and reap it, so a verdict leaves nothing behind.
+fn stop(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 /// Spawn, drain both pipes, and wait under the cap — `Command::output` with a
@@ -265,48 +331,89 @@ impl Pipe {
     }
 }
 
-/// The sentence a killed child leaves behind.
+/// A child [`watch`] killed, and the evidence for the verdict.
+///
+/// The evidence is in the value rather than only in a printed line, because
+/// the two callers print different sentences around it — a failed test here, a
+/// recorded finding in `fuzz.rs` — and neither should have to re-measure what
+/// the wait already knew.
+#[derive(Debug)]
+pub struct Killed {
+    /// What was being run, for the sentence.
+    what: String,
+    /// How long it had been running when it was killed.
+    ran: Duration,
+    why: Why,
+}
+
+/// The two ways [`watch`] ends a child.
+#[derive(Debug)]
+enum Why {
+    /// Asleep and spending nothing for a whole cap period: how long that had
+    /// been going on, and what the tree had spent by the time it stopped
+    /// spending. `spent` is `None` on a host that answers neither question,
+    /// where the rule degrades to the wall clock it used to be everywhere.
+    Stuck { idle: Duration, spent: Option<Duration> },
+    /// Past a caller's ceiling on processor time: what the tree had spent, and
+    /// the ceiling it went past.
+    Burned { spent: Duration, ceiling: Duration },
+}
+
+impl Killed {
+    /// What was killed and why, with the numbers a reader needs to disagree.
+    ///
+    /// One sentence of verdict and then the evidence, in the words both
+    /// callers use — so a fuzz finding and a failed test say the same thing
+    /// about the same fact and only differ in what follows.
+    pub fn verdict(&self) -> String {
+        let (what, ran) = (&self.what, self.ran.as_secs_f64());
+        match self.why {
+            Why::Stuck { idle, spent: Some(spent) } => format!(
+                "`{what}` was asleep and spending nothing for {:.1}s, so it was killed. It had \
+                 been running {ran:.1}s, and its process tree had used {:.1}s of processor time. \
+                 A tree that is neither running nor waiting to run is stuck rather than slow — a \
+                 deadlock, a read on a socket nothing is answering, or a wait on a child that \
+                 already died. A starved machine does not look like this: a process queued for a \
+                 core still reads as runnable, which is what this is asking.",
+                idle.as_secs_f64(),
+                spent.as_secs_f64()
+            ),
+            Why::Stuck { idle, spent: None } => format!(
+                "`{what}` did not stop within {:.1}s, so it was killed. This host reports neither \
+                 a process's run state nor its processor time, so the bound here is a plain wall \
+                 clock and a machine slow enough can trip it.",
+                idle.as_secs_f64()
+            ),
+            Why::Burned { spent, ceiling } => format!(
+                "`{what}` used {:.1}s of processor time, past a ceiling of {:.1}s, so it was \
+                 killed after {ran:.1}s of running. It was working the whole time: a program \
+                 looping for ever is busy rather than stuck, so the only bound that catches one \
+                 is a bound on the work it does. Nothing here is a wall clock, so a loaded \
+                 machine reaches this at the same reading an idle one does.",
+                spent.as_secs_f64(),
+                ceiling.as_secs_f64()
+            ),
+        }
+    }
+}
+
+/// The sentence a killed child leaves behind, for the suite that treats one as
+/// a failed test.
 ///
 /// The test's name is read off the thread libtest runs it on, so it is in the
 /// panic itself and not only in libtest's summary line — a `--nocapture` run
 /// interleaves every binary's output, and "which test was that" is the first
 /// thing a reader of one asks.
-///
-/// The evidence comes with it: how long the command ran, how long it went
-/// without the processor, and what its tree had spent by the time it stopped
-/// spending. A reader who thinks the verdict is wrong needs those three numbers
-/// to say so.
-fn report(what: &str, ran: Duration, idle: Duration, spent: Option<Duration>) -> String {
+fn report(killed: &Killed) -> String {
     let thread = std::thread::current();
     let who = thread.name().unwrap_or("an unnamed thread");
-    let evidence = match spent {
-        Some(spent) => format!(
-            "It had been running {:.1}s, and its process tree had used {:.1}s of processor time. \
-             For the last {:.1}s of that, every process in it was asleep and none of them spent \
-             anything.",
-            ran.as_secs_f64(),
-            spent.as_secs_f64(),
-            idle.as_secs_f64()
-        ),
-        None => format!(
-            "It had been running {:.1}s. This host reports neither a process's run state nor its \
-             processor time, so the cap here is the wall clock it used to be everywhere, and a \
-             machine slow enough can trip it.",
-            ran.as_secs_f64()
-        ),
-    };
     format!(
-        "the hang cap fired: `{what}` was asleep and spending nothing for {:.1}s and was \
-         killed.\n\
+        "the hang cap fired: {}\n\
          \n\
-         The test is `{who}`. {evidence} A tree that is neither running nor waiting to run is \
-         stuck rather than slow — a deadlock, a read on a socket nothing is answering, or a wait \
-         on a child that already died. A starved machine does not look like this: a process that \
-         is queued for a core still reads as runnable, which is what this cap is asking. \
-         Reproduce it with that argv alone; `BURI_HANG_SECS` moves the cap. Without this the job \
-         would have run to its `timeout-minutes` and been killed by GitHub with no test named at \
-         all.",
-        idle.as_secs_f64()
+         The test is `{who}`. Reproduce it with that argv alone; `BURI_HANG_SECS` moves the cap. \
+         Without this the job would have run to its `timeout-minutes` and been killed by GitHub \
+         with no test named at all.",
+        killed.verdict()
     )
 }
 
