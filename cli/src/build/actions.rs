@@ -1781,10 +1781,15 @@ pub fn chunk_paths(module: &Path, chunks: &[String]) -> Vec<(PathBuf, String)> {
 
 /// The chunks of one build, as the single blob the cache stores them under.
 ///
-/// Length-prefixed rather than joined by a separator: a chunk is generated
-/// JavaScript and there is no byte sequence it cannot contain.
+/// A count, then each chunk's byte length and its bytes. Length-prefixed rather
+/// than joined by a separator, because a chunk is generated JavaScript and there
+/// is no byte sequence it cannot contain — and it starts with the count so that
+/// a program with no chunks still writes something. An empty cache entry is
+/// indistinguishable from an interrupted write, which is a claim
+/// `hermeticity::two_concurrent_builds_leave_the_cache_intact` makes of every
+/// entry there is.
 fn encode_chunks(chunks: &[String]) -> Vec<u8> {
-    let mut out = Vec::new();
+    let mut out = format!("{}\n", chunks.len()).into_bytes();
     for c in chunks {
         out.extend_from_slice(format!("{}\n", c.len()).as_bytes());
         out.extend_from_slice(c.as_bytes());
@@ -1795,16 +1800,23 @@ fn encode_chunks(chunks: &[String]) -> Vec<u8> {
 /// The inverse. `None` for a blob this toolchain did not write, which a caller
 /// reads as a cache miss rather than as an empty set of chunks.
 fn decode_chunks(bytes: &[u8]) -> Option<Vec<String>> {
-    let mut rest = bytes;
+    let (count, mut rest) = frame(bytes)?;
+    let count: usize = count.parse().ok()?;
     let mut out = Vec::new();
-    while !rest.is_empty() {
-        let end = rest.iter().position(|b| *b == b'\n')?;
-        let len: usize = std::str::from_utf8(rest.get(..end)?).ok()?.parse().ok()?;
-        let body = rest.get(end.checked_add(1)?..)?;
+    for _ in 0..count {
+        let (len, body) = frame(rest)?;
+        let len: usize = len.parse().ok()?;
         out.push(String::from_utf8(body.get(..len)?.to_vec()).ok()?);
         rest = body.get(len..)?;
     }
     Some(out)
+}
+
+/// One newline-terminated number, and everything after it.
+fn frame(bytes: &[u8]) -> Option<(&str, &[u8])> {
+    let end = bytes.iter().position(|b| *b == b'\n')?;
+    let head = std::str::from_utf8(bytes.get(..end)?).ok()?;
+    Some((head, bytes.get(end.checked_add(1)?..)?))
 }
 
 pub fn web_companions(module: &Path, output: &Output, stylesheet: &str) -> Vec<(PathBuf, String)> {

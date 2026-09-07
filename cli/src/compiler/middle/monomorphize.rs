@@ -2738,6 +2738,7 @@ mod tests {
         host.HostWatch.read \
         host_testing.TestTasks.parallel \
         json.decode \
+        lazy.load \
         list.all list.any list.concat list.count list.drop list.empty \
         list.filter list.filterCtx list.find list.findIndex list.flatten \
         list.fold list.foldCtx list.foldResult list.foldResultCtx list.get \
