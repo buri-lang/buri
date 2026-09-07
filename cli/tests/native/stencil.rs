@@ -1844,6 +1844,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "data/optionresult.buri",
     "data/ordering.buri",
     "data/patterns.buri",
+    "data/properties.buri",
     "data/steps.buri",
     "data/strings.buri",
     "lazy/load.buri",
