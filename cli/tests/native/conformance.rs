@@ -27,7 +27,7 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Forty-six of the fifty-five files are in it** — the number the harness
+//! **Fifty-four of the seventy-five files are in it** — the number the harness
 //! prints, re-derived from it rather than incremented by hand, and one the
 //! prose has drifted from more than once. The ordinals in the paragraphs below
 //! record *when* a file joined the set and are not a running total of it;
@@ -452,6 +452,14 @@ const PACKAGES: &[Case] = &[
     // native set from the day it was written.
     included("collections/ordmap.buri"),
     included("data/lists.buri"),
+    // The same combinators with a step that **waits**, which is a native case
+    // in the way `actor/counter.buri` is: on JavaScript the file is about the
+    // `await` the combinator now puts around its step, and here it is about
+    // the answer being the same without one. A `*Ctx` step reaching
+    // `sendMessage` is `core/list`'s open-coded loops and the closure
+    // trampoline both calling into `core/actor`'s runtime entries, and those
+    // are in both tables already.
+    included("data/steps.buri"),
     // `core/order`'s combinators and comparison on `[T]`. Every one of them is
     // ordinary Buri over a function value, and the file's `sortBy` and
     // `[T].compare` are what `data/lists.buri` and `codegen/ordering.buri`

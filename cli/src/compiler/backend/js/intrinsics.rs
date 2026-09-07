@@ -13,7 +13,19 @@ use crate::compiler::semantics::types::Prim;
 use crate::compiler::middle::monomorphize::Func;
 
 impl<'a> Gen<'a> {
-    pub(crate) fn intrinsic(&mut self, key: &str, args: &[Expr], f: &Func) -> Option<Expr> {
+    /// The body of one intrinsic instantiation.
+    ///
+    /// `slot` is that instantiation's [`crate::compiler::middle::monomorphize::Program::funcs`]
+    /// index rather than whatever the emitter is in the middle of, because a
+    /// combinator's answer depends on the **step it was handed** and an
+    /// inlined intrinsic is emitted from its caller's body.
+    pub(crate) fn intrinsic(
+        &mut self,
+        slot: usize,
+        key: &str,
+        args: &[Expr],
+        f: &Func,
+    ) -> Option<Expr> {
         let parts: Vec<&str> = key.split('.').collect();
         match parts.as_slice() {
             ["num", ty, name] => return self.numeric(ty, name, args),
@@ -34,8 +46,20 @@ impl<'a> Gen<'a> {
                 ],
             ));
         }
-        // Everything else is a runtime function of the same name.
+        // Everything else is a runtime function of the same name — or, where
+        // this instantiation's **step waits**, of the same name with `Await`
+        // after it.
+        //
+        // The suffix is the whole of the convention, and the runtime is what
+        // decides it applies: `$list_mapCtx` runs its step and moves on,
+        // `$list_mapCtxAwait` awaits it, and a key with no twin has only the
+        // one body however it was called. Which of the two this is comes from
+        // `middle::rc`'s `can_park` column — the same column that puts the
+        // `await` at the call site and prints this wrapper `async` — so the
+        // two ends of the call cannot disagree.
         let name = format!("${}", key.replace('.', "_"));
+        let awaiting = format!("{name}Await");
+        let name = if self.parks(slot) && self.runtime_has(&awaiting) { awaiting } else { name };
         if self.runtime_has(&name) {
             let mut all = args.to_vec();
             if let Some(d) = f.desc {
