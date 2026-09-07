@@ -2,7 +2,7 @@ library {
     sources: []
 
     test {
-        sources: ["test/simd.buri"]
+        sources: ["test/simd.buri", "test/convert.buri"]
 
         # The reference run, on the reference backend: `native::conformance`
         # drives these same files through the stencil backend

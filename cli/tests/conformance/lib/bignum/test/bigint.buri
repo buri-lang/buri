@@ -388,14 +388,6 @@ test "equality is numeric because the shape is canonical" {
     assert.eq(bigint.of(2).power(ctx, 100), bigint.of(2).power(ctx, 100));
 }
 
-test "hash follows equality" {
-    let ctx = context {
-        Alloc: alloc(),
-    };
-    assert.eq(bigint.of(42).hash(), assert.some(bigint.parse(ctx, "42")).hash());
-    assert.eq(bigint.zero().hash(), bigint.of(5).sub(ctx, bigint.of(5)).hash());
-}
-
 test "order is numeric and not the field order a derive would give" {
     let ctx = context {
         Alloc: alloc(),

@@ -611,6 +611,38 @@ const PACKAGES: &[Case] = &[
     // `crypto/sha256.buri` is — a second implementation of an algorithm both
     // backends have to agree about, with every answer written into the file.
     included("random/gen.buri"),
+    // The three draws from a list. Ordinary Buri over `[T]` and `core/ordmap`,
+    // reaching no host: `nextShuffle` is Fisher-Yates over the tree, and the
+    // two doors are one algorithm. In for `random/gen.buri`'s reason — a
+    // sequence both backends have to agree about, with every property written
+    // into the file.
+    included("random/draws.buri"),
+    excluded(
+        "random/gaussian.buri",
+        "`nextGaussian` is the polar method, which reaches `math.ln` — one of \
+             `core/math`'s thirteen transcendentals, held out here for \
+             `numbers/floats.buri`'s reason exactly",
+    ),
+    // `core/bigint` and `core/decimal`: pure Buri over `Int` and `[Int]`, with
+    // no host anywhere in either. Every answer in both files is a number
+    // somebody else published — known factorials, powers, modular
+    // exponentiations, and the rounding a column of money wants — which is
+    // `crypto/sha256.buri`'s reason for being in the native set.
+    included("bignum/bigint.buri"),
+    included("bignum/decimal.buri"),
+    excluded(
+        "bignum/hashing.buri",
+        "`deriveArrayHash` — a `BigInt` is a sign and a `[Int]`, so its derived \
+             `Hash` bottoms out at the one derive leaf over an array this \
+             backend has no body for. Nothing else in the module reaches it",
+    ),
+    excluded(
+        "vectors/convert.buri",
+        "`F32x4.toInt`, which truncates a `Float` into an `Int` — a conversion \
+             whose *source* is a float, which is what holds \
+             `numbers/conversions.buri` out. The rest of `core/simd` needs no \
+             such conversion",
+    ),
     included("text/bytes.buri"),
     // Hexadecimal across four modules — `char.fromDigit`, `num.toHex`,
     // `str.toRadix` and `core/bytes`' pair. Every conversion in it is exact, so
