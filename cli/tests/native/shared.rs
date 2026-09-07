@@ -1576,7 +1576,15 @@ impl Talking {
         let mut head = Vec::new();
         let mut byte = [0u8; 1];
         loop {
-            let read = socket.read(&mut byte).expect("the upgrade response");
+            // A read with a timeout is not restarted after a signal, so an
+            // `Interrupted` here is the syscall's, not the server's.
+            let read = loop {
+                match socket.read(&mut byte) {
+                    Ok(n) => break n,
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => panic!("the upgrade response: {e}"),
+                }
+            };
             assert_eq!(read, 1, "the server closed during the handshake");
             head.push(byte[0]);
             if head.ends_with(b"\r\n\r\n") {
@@ -1681,6 +1689,7 @@ impl Talking {
             match self.socket.read(&mut chunk) {
                 Ok(0) => return None,
                 Ok(read) => self.over.extend_from_slice(&chunk[..read]),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => return None,
             }
         }
