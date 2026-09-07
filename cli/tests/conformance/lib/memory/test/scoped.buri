@@ -100,7 +100,13 @@ impl Listen for OneShot {
     fn listenRequest(self, connection: Int): Result<Request, ServeError> {
         match (connection) {
             7 => {
-                .Ok(Request { method: .Get, url: SERVED_URL, headers: [], body: [] })
+                .Ok(Request {
+                    method: .Get,
+                    url: SERVED_URL,
+                    headers: [],
+                    body: [],
+                    timeoutMillis: 0,
+                })
             },
             _ => .Err(ServeError { cause: .Closed, detail: "" }),
         }
@@ -251,7 +257,13 @@ fn touchedEveryFile<C: Alloc + FsRead + FsWrite>(ctx: C): Int {
 }
 
 fn status<C: Net>(ctx: C): Int {
-    let request = Request { method: .Get, url: "http://x/", headers: [], body: [] };
+    let request = Request {
+        method: .Get,
+        url: "http://x/",
+        headers: [],
+        body: [],
+        timeoutMillis: 0,
+    };
     match (http.send(ctx, request)) {
         .Ok(response) => response.status,
         .Err(_e) => 0,
@@ -669,12 +681,14 @@ test "a request handler wrapped in a scope is an ordinary call" {
         url: "index.html",
         headers: [],
         body: [],
+        timeoutMillis: 0,
     });
     let absent = dispatch(ctx, Request {
         method: .Get,
         url: "nope",
         headers: [],
         body: [],
+        timeoutMillis: 0,
     });
 
     assert.eq(found.status, 200);

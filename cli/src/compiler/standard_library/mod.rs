@@ -128,6 +128,7 @@ pub const MODULES: &[StdModule] = &[
     m("core/heap", include_str!("sources/heap.buri")),
     m("core/bitset", include_str!("sources/bitset.buri")),
     m("core/json", include_str!("sources/json.buri")),
+    m("core/csv", include_str!("sources/csv.buri")),
     m("core/proto", include_str!("sources/proto.buri")),
     // The grammar as data, and the printer that turns it back into source. A
     // generator builds one of these rather than a string, so it cannot emit a
@@ -147,6 +148,10 @@ pub const MODULES: &[StdModule] = &[
     m("core/ordmap", include_str!("sources/ordmap.buri")),
     m("core/ordset", include_str!("sources/ordset.buri")),
     m("core/bytes", include_str!("sources/bytes.buri")),
+    // DEFLATE and gzip, and pure Buri all the way down: there is no compression
+    // crate in the runtime's manifest to bind to, and the archive's own
+    // hand-written deflate is the PNG writer's and answers to no Buri name.
+    m("core/compression", include_str!("sources/compression.buri")),
     m("core/hash", include_str!("sources/hash.buri")),
     m("core/crypto", include_str!("sources/crypto.buri")),
     m("core/math", include_str!("sources/math.buri")),
@@ -199,6 +204,11 @@ pub const MODULES: &[StdModule] = &[
     m("core/time", include_str!("sources/time.buri")),
     m("core/date", include_str!("sources/date.buri")),
     m("core/random", include_str!("sources/random.buri")),
+    // Percent-encoding and a `Url`, and neither half of `core/net` owns it: a
+    // `Url` is a type with methods, where `core/net/http` re-exports `Request`
+    // rather than declaring one. Pure Buri over strings, so it names no effect
+    // and a program that never parses a URL does not pay to load it.
+    m("core/net/url", include_str!("sources/url.buri")),
     m("core/net/http", include_str!("sources/http.buri")),
     // The other half of being a server: `Server`, `bind`, `run`, `serve`, and
     // the accept loop those three are written out of. The loop is Buri rather

@@ -1031,7 +1031,13 @@ impl Listen for OneShotListen {
     fn listenRequest(self, connection: Int): Result<Request, ServeError> {
         match (connection) {
             7 => {
-                .Ok(Request { method: .Get, url: self.bindsTo, headers: [], body: [] })
+                .Ok(Request {
+                    method: .Get,
+                    url: self.bindsTo,
+                    headers: [],
+                    body: [],
+                    timeoutMillis: 0,
+                })
             },
             _ => .Err(ServeError { cause: .Closed, detail: "" }),
         }
@@ -1120,7 +1126,13 @@ impl Listen for PoolListen {
     fn listenRequest(self, connection: Int): Result<Request, ServeError> {
         match (connection) {
             7 => {
-                .Ok(Request { method: .Get, url: self.bindsTo, headers: [], body: [] })
+                .Ok(Request {
+                    method: .Get,
+                    url: self.bindsTo,
+                    headers: [],
+                    body: [],
+                    timeoutMillis: 0,
+                })
             },
             _ => .Err(ServeError { cause: .Closed, detail: "" }),
         }
@@ -1305,7 +1317,13 @@ export fn serveOnce<C: Alloc + Listen + Net + Sockets + Tasks>(ctx: C, url: Str)
     let _sentBytes = forged.send(ctx, .Binary([]));
     let _closed = forged.close(ctx, .Normal);
     let fetched = match (
-        http.send(ctx, Request { method: .Get, url: url, headers: [], body: [] })
+        http.send(ctx, Request {
+            method: .Get,
+            url: url,
+            headers: [],
+            body: [],
+            timeoutMillis: 0,
+        })
     ) {
         .Ok(reply) => reply.status,
         .Err(_) => 0,

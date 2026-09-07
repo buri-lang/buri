@@ -1,0 +1,9 @@
+error: expected a function body, found `extra` [unexpected-token]
+  --> main.buri:23:26
+   |
+23 | export fn delete(): Char extra {
+   |                          ^^^^^
+   |
+   = expected: a function body
+   = actual: `extra`
+   = fix: write `{ ... }` after the return type

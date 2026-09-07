@@ -1,0 +1,23 @@
+error: a match arm ends with `,` [missing-separator]
+ --> main.buri:4:18
+  |
+4 |         '\\' => 5'\'' , => 6, '"' => 7,
+  |                  ^
+  |
+  = fix: write `,` here
+error: a match arm is `pattern => expression` [missing-arrow]
+ --> main.buri:4:22
+  |
+4 |         '\\' => 5'\'' , => 6, '"' => 7,
+  |                      ^
+  |
+  = fix: write `=>` here
+error: expected a pattern, found `=>` [unexpected-token]
+ --> main.buri:4:25
+  |
+4 |         '\\' => 5'\'' , => 6, '"' => 7,
+  |                         ^^
+  |
+  = expected: a pattern
+  = actual: `=>`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`

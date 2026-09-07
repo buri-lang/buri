@@ -782,6 +782,15 @@ export struct Request {
     export url: Str,
     export headers: [Header],
     export body: [U8],
+    /// How long `Net.fetch` may take on this request, in milliseconds, counting
+    /// every step: the name lookup, the connect, the TLS handshake and each read
+    /// and write. **Zero is the platform's own bound**, which is what every
+    /// request that has not asked for one carries.
+    ///
+    /// Milliseconds and not a `Duration`, because `core/time` names `Clock` and
+    /// so sits above this module — the same reason `Clock.sleepMillis` counts in
+    /// milliseconds and `time.sleep` takes the `Duration`.
+    export timeoutMillis: Int,
 }
 
 derive Eq, Show for Response;
@@ -843,31 +852,57 @@ impl Request {
     /// because `set-cookie` legitimately repeats.
     export fn withHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Request {
         Request {
-            method: self.method,
-            url: self.url,
+            ..self,
             headers: self
                 .headers
                 .push(ctx, Header { name: name.toLower(ctx), value: value }),
-            body: self.body,
+        }
+    }
+
+    /// Every value under this name, in the order they arrived.
+    ///
+    /// `header` answers the first, which is right for every field but the ones
+    /// that legitimately repeat — `set-cookie` on the way back, and a client
+    /// sending `accept` twice on the way out.
+    export fn headerValues<C: Alloc>(self, ctx: C, name: Str): [Str] {
+        self.headers.filterMap(ctx, fn(h) => matching(h, name))
+    }
+
+    /// The same request with exactly one header under this name: every earlier
+    /// one is dropped, and this value is appended.
+    ///
+    /// `withHeader` appends and never replaces, so this is the other half — and
+    /// the only way to change a field you have already set.
+    export fn setHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Request {
+        let lower = name.toLower(ctx);
+        Request {
+            ..self,
+            headers: self
+                .headers
+                .filter(ctx, fn(h) => h.name != lower)
+                .push(ctx, Header { name: lower, value: value }),
         }
     }
 
     export fn withMethod(self, method: Method): Request {
-        Request {
-            method: method,
-            url: self.url,
-            headers: self.headers,
-            body: self.body,
-        }
+        Request { ..self, method: method }
     }
 
     export fn withBody(self, body: [U8]): Request {
-        Request {
-            method: self.method,
-            url: self.url,
-            headers: self.headers,
-            body: body,
-        }
+        Request { ..self, body: body }
+    }
+
+    /// The same request, bounded. `millis` at or below zero puts the platform's
+    /// own bound back.
+    ///
+    /// **Every platform honours it.** A native `fetch` bounds the lookup, the
+    /// connect, the handshake and each read and write by it; a JavaScript one
+    /// aborts the request when it runs out. Either way an expired request is
+    /// `.Err(.Timeout)`.
+    ///
+    /// A `Duration` converts: `request.withTimeout(time.seconds(5).millis())`.
+    export fn withTimeout(self, millis: Int): Request {
+        Request { ..self, timeoutMillis: if (millis > 0) { millis } else { 0 } }
     }
 }
 
@@ -897,6 +932,25 @@ impl Response {
         }
     }
 
+    /// Every value under this name, in the order they arrived —
+    /// `Request.headerValues`, on the other message.
+    export fn headerValues<C: Alloc>(self, ctx: C, name: Str): [Str] {
+        self.headers.filterMap(ctx, fn(h) => matching(h, name))
+    }
+
+    /// The same response with exactly one header under this name.
+    /// `Request.setHeader`, on the other message.
+    export fn setHeader<C: Alloc>(self, ctx: C, name: Str, value: Str): Response {
+        let lower = name.toLower(ctx);
+        Response {
+            ..self,
+            headers: self
+                .headers
+                .filter(ctx, fn(h) => h.name != lower)
+                .push(ctx, Header { name: lower, value: value }),
+        }
+    }
+
     export fn withStatus(self, status: Int): Response {
         Response { status: status, headers: self.headers, body: self.body }
     }
@@ -904,4 +958,9 @@ impl Response {
     export fn withBody(self, body: [U8]): Response {
         Response { status: self.status, headers: self.headers, body: body }
     }
+}
+
+/// One header's value when its name matches, for the two `headerValues`.
+fn matching(field: Header, name: Str): Option<Str> {
+    if (field.name == name) { .Some(field.value) } else { .None }
 }

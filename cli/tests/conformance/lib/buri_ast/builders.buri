@@ -10,9 +10,9 @@ from "core/buri/ast" import * as ast;
 from "core/effect" import { Alloc };
 from "core/str" import * as str;
 
-/// The text of a template hole, built rather than written: a `Str` literal
-/// holding those two characters is a literal `buri format` cannot print back,
-/// and every source in this repository is formatted.
+/// The text of a template hole, built rather than written: `${` inside a
+/// literal here would open a hole rather than name one, and the escape that
+/// stops it — `\${` — reads worse than the two characters joined.
 export fn hole<C: Alloc>(ctx: C, inner: Str): Str {
     "$".concat(ctx, "{").concat(ctx, inner).concat(ctx, "}")
 }

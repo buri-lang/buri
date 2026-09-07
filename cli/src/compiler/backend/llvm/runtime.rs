@@ -1553,11 +1553,11 @@ pub const ENTRIES: &[Entry] = &[
     // state, so the handle naming it is minted here (`alloc.newCounter`'s
     // shape), written by `recordFetch` once the responder has answered, and read
     // back by `netCalls`. `recordFetch` is handed `Request` flattened by §2 rule
-    // 1: the method's variant index as an `Int`, the URL's three leaves, and two
-    // `(ptr, len)` pairs — `buri_rt_host_net_fetch`'s argument list without its
-    // answer. `netCalls` takes the handle rather than the `TestNet`, because
-    // that value carries the responder too and an argument crosses as its
-    // leaves.
+    // 1: the method's variant index as an `Int`, the URL's three leaves, two
+    // `(ptr, len)` pairs and the bound in milliseconds —
+    // `buri_rt_host_net_fetch`'s argument list without its answer. `netCalls`
+    // takes the handle rather than the `TestNet`, because that value carries the
+    // responder too and an argument crosses as its leaves.
     Entry {
         key: "host_testing.spelled",
         symbol: "buri_rt_host_testing_spelled",
@@ -1573,7 +1573,7 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         key: "host_testing.recordFetch",
         symbol: "buri_rt_host_testing_record_fetch",
-        args: &[Arg::Scalar, Arg::Scalar, Arg::Str, Arg::List, Arg::List],
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Str, Arg::List, Arg::List, Arg::Scalar],
         ret: Ret::Void,
     },
     Entry {

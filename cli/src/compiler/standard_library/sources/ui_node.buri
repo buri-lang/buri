@@ -517,7 +517,7 @@ fn textLine<C: Alloc>(ctx: C, depth: Int, content: Str): Str {
     let body = content
         .replace(ctx, "\\", "\\\\")
         .replace(ctx, "\n", "\\n")
-        .replace(ctx, "", "\\r");
+        .replace(ctx, "\r", "\\r");
     str.format(ctx, "t ${depth} ${body}")
 }
 
