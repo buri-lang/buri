@@ -1,13 +1,14 @@
 # Tasks and actors
 
 Two modules cover concurrency, and they answer two different questions.
-`core/tasks` runs a piece of a program more than once at a time. `core/actor`
-keeps state that outlives one call. Both carry `Tasks` in their bounds, because
-running a program's own work concurrently is authority. A signature that names
-it says the caller was granted that right, so a reader looking for what a
-program can do finds it where they look for everything else.
+`core/tasks` runs a piece of a program more than once at a time, and runs work
+in the background. `core/actor` keeps state that outlives one call. Both carry
+`Tasks` in their bounds, because running a program's own work concurrently is
+authority. A signature that names it says the caller was granted that right, so
+a reader looking for what a program can do finds it where they look for
+everything else.
 
-## `parallel` is the whole of `core/tasks`
+## `parallel` runs a list of work
 
 ```buri run
 from "core/effect" import { Alloc, Stdout, Tasks };
@@ -45,10 +46,10 @@ carried, so a task may do anything its caller could and nothing it could not. It
 arrives as a parameter rather than by capture because a lambda may not capture
 an effect-carrying value ([effects](../language/effects.md)).
 
-There is no detached spawn and no handle to join: every task has finished before
-`parallel` returns. That is what keeps "a program that never names
-`host.fs` cannot read a file" true of the program's lifetime and not only of
-its call graph.
+Every task has finished before `parallel` returns, so nothing outlives the
+context that granted it. That keeps "a program that never names `host.fs`
+cannot read a file" true of the program's lifetime and not only of its call
+graph.
 
 How much of it actually overlaps is the platform's business, and deliberately
 not the signature's:
@@ -60,6 +61,71 @@ not the signature's:
 | Native, `buri run` | Sequential, in index order, on the calling carrier |
 
 All three answer the same list, which is the point of fixing the order.
+
+## `scope` and `spawn` run work in the background
+
+A socket that stays open, a retry, a timer. That work is not a list, and
+`parallel` is the wrong shape for it: it starts once and runs beside everything
+else.
+
+`scope` opens a place for it, `spawn` puts one task there, and the scope returns
+once the body and every task spawned into it have finished.
+
+```buri run
+from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Clock: host.clock,
+        Stdout: host.stdout,
+        Tasks: host.tasks,
+    };
+    let _ = tasks.scope(ctx, fn(c, here) => {
+        tasks.spawn(c, here, fn(c2) => {
+            let _ = time.sleepMs(c2, 5);
+            let _ = io.println(c2, "the timer fired").ignore();
+            ()
+        })
+    });
+    let _ = io.println(ctx, "the scope is closed").ignore();
+    .Ok(())
+}
+```
+
+```stdout
+the timer fired
+the scope is closed
+```
+
+**A timer is a task that sleeps.** There is no `Timer` type and no
+`setTimeout` — `sleepMs` already waits, and a task is already the thing that
+waits without holding up the code around it.
+
+**`Scope` is inert.** It holds no context, so a lambda may capture one, and an
+interface can hand a scope to a handler that spawns into it later. That is what
+makes a page work: `mount` returns, `main` returns, and a click still opens a
+socket in the scope the page was built in.
+
+**A library cannot spawn.** It exposes a `run` and the application spawns it,
+because a scope is the application's to open.
+
+**Stopping is cooperative.** There is no `cancel`. A task ends when its own body
+ends, so a loop stops by finding its socket closed, or by asking an actor
+whether to carry on. An abort is a write to standard error and an exit
+([effects](../language/effects.md)), never something a second task survives.
+
+When a spawned task actually runs is the same table as `parallel`'s, for the
+same reason: a scope collects what was spawned and runs a round of it, then
+another round for whatever those tasks spawned, until nothing is waiting. So two
+spawned tasks overlap on JavaScript, get a carrier each under `--release`, and
+run one after another under `buri run`. A task spawned *after* the body has
+returned — which on a page is what a handler does — runs on the task that
+spawned it.
 
 ## An actor is a value
 
@@ -211,7 +277,10 @@ test "a recorded amount is added to the running total" {
 being an omission: a mailbox is a queue, the order is the order, and the one
 thing a double would decide is decided in Buri where a test can read it.
 `core/tasks` does have one. `tasks()` makes the order the work runs in a value
-the test writes down, with `anyOrder()`, `seed(n)` and `everyOrder()`. Both are
+the test writes down, with `anyOrder()`, `seed(n)` and `everyOrder()` — and it
+covers a spawned task too, because a scope runs its round through
+`Tasks.parallel`. So a test of background work asserts an order it chose rather
+than one it hoped for, and no test here waits on real time. Both are
 [testing your code](./testing.md).
 
 ## Next

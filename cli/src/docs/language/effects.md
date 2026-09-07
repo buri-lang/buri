@@ -301,11 +301,11 @@ an **effect type** is platform-bound: `from "core/fs" import { FsRead }` is lega
 everywhere, a page included, because a bound demands an implementation rather
 than being one.
 
-`Tasks` — "run this over every item at once" — is granted on `LINUX`, `MACOS` and
-`JS`, and withheld from `WEB`. That is the same three platforms as `FsRead`,
-`FsWrite`, `Stdin`, `Env` and `Proc`, withheld for a reason of the same kind.
-`parallel` returns only when the last task has finished, and a page has an
-interface a wait is visible in. A page's concurrency is its event loop.
+`Tasks` — "run this concurrently" — is granted everywhere, `WEB` included. It
+was withheld from the page until `core/tasks` gained a `scope`, because
+`parallel` returns only when the last task has finished and a page has an
+interface a wait is visible in. What answers that is `spawn`: a page's
+concurrency is its event loop, and a task is what a program puts on one.
 
 The context above reads files and cannot write one: `host.fs` is nowhere in
 it, so nothing it reaches can be bounded by `FsWrite`. Binding one half of the
@@ -326,10 +326,10 @@ knowing, because it is how the last two arrived.
 declared first and granted by nobody, a row with an empty platform list. So its
 signature could be written, reviewed and documented before there was a scheduler
 to argue with, and every `Tasks: host.tasks` was refused everywhere with that
-reason rather than with "no such name". Granting it was an edit to that one row.
-Nothing changed for a program already written against the signature, and no
-second mechanism — no "not implemented" flag, no feature gate — was ever
-involved.
+reason rather than with "no such name". Granting it was an edit to that one row,
+and widening it to the page later was another. Nothing changed for a program
+already written against the signature, and no second mechanism — no "not
+implemented" flag, no feature gate — was ever involved.
 
 `Listen` and `Sockets` — "I accept connections" and "I can write to open
 sockets" — came the same way. They also show a platform list that is neither

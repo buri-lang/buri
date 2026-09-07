@@ -279,10 +279,9 @@ does not.
 | Effect | Granted on |
 |---|---|
 | `Listen`, `Sockets` | `LINUX`, `MACOS` |
-| `Tasks` | `LINUX`, `MACOS`, `JS` |
 
-Under `platform: WEB` the compiler refuses this program twice, on the two lines
-that asked:
+Under `platform: WEB` the compiler refuses this program on the line that asked
+for a listener. `Tasks` is granted everywhere, so it is not one of them:
 
 ```text
 $ buri build //cmd/server
@@ -294,14 +293,6 @@ error: `listen` implements `Listen`, which is not allowed on the WEB platform [e
    |
    = a platform is the set of effects its host exports; holding a port open is a native program's authority; a page is served rather than serving, and its host has no way to accept a connection
    = fix: drop `Listen` from the context, or build this target for a platform that grants it: LINUX, MACOS
-error: `tasks` implements `Tasks`, which is not allowed on the WEB platform [effect-not-on-platform]
-  --> cmd/server/main.buri:59:21
-   |
-59 |         Tasks: host.tasks,
-   |                     ^^^^^
-   |
-   = a platform is the set of effects its host exports; `parallel` returns only when the last task has finished, which freezes a page; a page's concurrency is its event loop, and the effect that reaches it lands with the servers
-   = fix: drop `Tasks` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS
 ```
 
 The compiler checks each entry of `outputs` against the whole graph separately,
