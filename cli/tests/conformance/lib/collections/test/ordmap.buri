@@ -10,6 +10,7 @@
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
+from "core/order" import { Eq, Hash };
 from "core/ordmap" import * as ordmap;
 from "core/ordmap" import { OrdMap };
 from "core/ordset" import * as ordset;
@@ -1005,4 +1006,38 @@ test "an ordered countBy over one element and over three hundred" {
     let many = ordmap.countBy(ctx, list.range(ctx, 0, 900), fn(i: Int) => i % 300);
     assert.eq(many.keys(ctx), list.range(ctx, 0, 300));
     assert.isTrue(list.range(ctx, 0, 300).all(fn(k) => many.get(k) == .Some(3)));
+}
+
+// --- a list built inside the call that folds it -------------------------------
+//
+// The `map.of` rule, one module over: `ordmap.of(ctx, xs.map(ctx, f))` gives
+// `list.map`'s result element the type `(K, V)` out of `ordmap.of`'s signature
+// before the lambda is looked at, so the lambda's body is the only thing that
+// says what `K` and `V` are. Sizes only, for the reason
+// `collections/map.buri` gives at the same case.
+
+test "ordmap.of over a list mapped inside the call keeps every entry" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        ordmap.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(),
+        40,
+    );
+    assert.eq(
+        ordmap.of(ctx, list.range(ctx, 0, 40).mapCtx(ctx, fn(_c, i) => (i, i))).len(),
+        40,
+    );
+    let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
+    assert.eq(ordmap.of(ctx, named).len(), 40);
+}
+
+test "ordset.of over a list mapped inside the call keeps every item" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        ordset.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(),
+        40,
+    );
 }
