@@ -200,6 +200,7 @@ unordered, so it answers `.Equal` for a pair it could not order.
 
 [`core/list`](../../compiler/standard_library/sources/list.buri),
 [`core/queue`](../../compiler/standard_library/sources/queue.buri),
+[`core/heap`](../../compiler/standard_library/sources/heap.buri),
 [`core/map`](../../compiler/standard_library/sources/map.buri),
 [`core/set`](../../compiler/standard_library/sources/set.buri),
 [`core/ordmap`](../../compiler/standard_library/sources/ordmap.buri),
@@ -212,6 +213,7 @@ module states its cost rather than leaving you to guess:
 | | Lookup | Insert | Note |
 |---|---|---|---|
 | `core/queue` | O(1) | O(1) amortized | Banker's deque: two lists, the front reversed. The reversal makes both ends an append. |
+| `core/heap` | O(1) `peek` | O(1) `push` | A pairing heap, smallest first. `merge` is O(1) and `pop` is O(log n) amortized. It holds duplicates, which is why it is not an `OrdSet`. |
 | `core/map`, `core/set` | O(1) expected | O(b) in buckets | Buckets of association lists. Grows and rehashes past a load factor of 4. **Iteration order is unspecified and will change.** |
 | `core/ordmap`, `core/ordset` | O(log n) | O(log n) | A persistent B-tree, seven entries to a node. **Iteration runs in key order.** `range` and `prefix` scan at O(log n + m) rather than filtering over everything. |
 | `core/bitset` | O(1) | O(n/32) | 32 bits to an `Int` word. 32 and not 64 because `Int` is signed, and a bit in position 63 would make every shift a question about sign extension. |
@@ -233,12 +235,33 @@ first of each equal class, so it costs O(n²) in comparisons. Where the order ma
 change, `sortBy` and a walk is the O(n log n) answer.
 
 **Grouping answers a map, so it lives with the map.** `map.groupBy(ctx, xs,
-key)` and `ordmap.groupBy` collect the elements under each key, and `indexBy`
-keeps one element per key. They are free functions because `core/list` sits at
-the bottom of the dependency order and cannot name a map. `OrdMap.alter` is
-insert, replace and remove in one call, which is what a counter needs.
-`OrdMap.mapValues` puts every value through a function without touching the
-keys, rebuilding the tree as it goes, which costs O(n log n).
+key)` and `ordmap.groupBy` collect the elements under each key, `indexBy` keeps
+one element per key, and `countBy` counts them without building the groups.
+`map.frequencies` is `countBy` with the element as its own key. They are free
+functions because `core/list` sits at the bottom of the dependency order and
+cannot name a map. `alter` is insert, replace and remove in one call, which is
+what a counter needs; both maps have it. `mapValues` puts every value through a
+function without touching the keys, and `filterMapValues` drops the ones it
+answers nothing for. `merge` is right-biased and `mergeWith` decides a key that
+is in both. `filter`, `pop`, `takeKeys` and `dropKeys` are the rest.
+`OrdMap.popFirst` and `popLast` take an entry off an end in **one descent**,
+where `first` and then `remove` is two — which is what a sorted work queue does
+on every step — and `floor` and `ceiling` answer the nearest key at or below, or
+at or above, which `range` cannot.
+
+**Beside the set operations.** `symmetricDifference` is the members in exactly
+one side, `isSupersetOf` is `isSubsetOf` read from the other end, and
+`isDisjointFrom` answers without building the intersection — `intersect` then
+`isEmpty` allocates a whole set to ask a yes-or-no question. `set.distinct` and
+`distinctBy` drop later duplicates and keep the order, in O(n) against
+`core/list`'s `uniqueBy`, which asks about everything already kept and costs
+O(n²); they are free functions for `groupBy`'s reason. `core/ordset` has the
+same six over `Ord`, plus `floor` and `ceiling`.
+
+**Walking a `BitSet` one bit at a time.** `firstSet` and `nextSet` read words
+and skip an empty one whole, so finding a member costs O(n/32) rather than
+`toList`'s whole-set allocation. `toggle`, `complement` and `setRange` are
+word-at-a-time too, and each stops at the capacity rather than at the word.
 
 `Queue`, `Map`, `Set`, `OrdMap`, `OrdSet` and `BitSet` provide `equals` rather
 than deriving `Eq`, because a derived `Eq` would compare the *representation*.
