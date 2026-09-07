@@ -110,14 +110,11 @@ fn meld<T: Ord, C: Alloc>(ctx: C, a: Tree<T>, b: Tree<T>): Tree<T> {
 fn mergePairs<T: Ord, C: Alloc>(ctx: C, children: [Tree<T>]): Tree<T> {
     let paired = list
         .range(ctx, 0, (children.len() + 1) / 2)
-        .mapCtx(
-            ctx,
-            fn(c, i) => {
-                let first = children.get(i * 2).withDefault(.Empty);
-                let second = children.get(i * 2 + 1).withDefault(.Empty);
-                meld(c, first, second)
-            },
-        );
+        .mapCtx(ctx, fn(c, i) => {
+            let first = children.get(i * 2).withDefault(.Empty);
+            let second = children.get(i * 2 + 1).withDefault(.Empty);
+            meld(c, first, second)
+        });
     paired
         .reverse(ctx)
         .foldCtx(ctx, fn(c, acc: Tree<T>, one) => meld(c, one, acc), .Empty)
@@ -169,10 +166,7 @@ impl<T: Ord> Heap<T> {
             .Empty => .None,
             .Node(x, children) => {
                 .Some(
-                    (
-                        x,
-                        Heap { root: mergePairs(ctx, children), size: self.size - 1 },
-                    ),
+                    (x, Heap { root: mergePairs(ctx, children), size: self.size - 1 }),
                 )
             },
         }
@@ -181,10 +175,7 @@ impl<T: Ord> Heap<T> {
     /// Both heaps' elements, duplicates kept. O(1): one comparison between the
     /// two roots.
     export fn merge<C: Alloc>(self, ctx: C, other: Heap<T>): Heap<T> {
-        Heap {
-            root: meld(ctx, self.root, other.root),
-            size: self.size + other.size,
-        }
+        Heap { root: meld(ctx, self.root, other.root), size: self.size + other.size }
     }
 
     /// Every element, smallest first. O(n log n): it is `pop` until empty.

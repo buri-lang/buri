@@ -254,7 +254,9 @@ impl BitSet {
         } else {
             let next = list
                 .range(ctx, 0, words.len())
-                .map(ctx, fn(j) => words.get(j).withDefault(0) | rangeMask(low, high, j));
+                .map(ctx, fn(j) => {
+                    words.get(j).withDefault(0) | rangeMask(low, high, j)
+                });
             BitSet { words: next, capacity: capacity }
         }
     }
