@@ -1,0 +1,32 @@
+error: expected 2 arguments, found 3 [argument-count-mismatch]
+  --> main.buri:49:15
+   |
+49 |     assert.eq(f(extra ctx, 7), "n is 7");
+   |               ^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:49:17
+   |
+49 |     assert.eq(f(extra ctx, 7), "n is 7");
+   |                 ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:49:22
+   |
+49 |     assert.eq(f(extra ctx, 7), "n is 7");
+   |                      ^
+   |
+   = fix: write `,` here
+error: expected `I64`, found `a context` [type-mismatch]
+  --> main.buri:49:23
+   |
+49 |     assert.eq(f(extra ctx, 7), "n is 7");
+   |                       ^^^ the parameter type is `I64`
+   |
+   = expected: `I64`
+   = actual: `a context`
+   = fix: produce a `I64` here, or change what surrounds it to accept a `a context`
