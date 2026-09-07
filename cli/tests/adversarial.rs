@@ -33,6 +33,7 @@
 )]
 mod harness;
 use harness::*;
+use std::os::unix::fs::PermissionsExt;
 
 /// Asserts the toolchain stopped the way a program stops, rather than the way
 /// one dies.
@@ -276,21 +277,92 @@ fn an_else_if_chain_compiles_at_the_size_generated_code_reaches() {
 /// overflowed the stack; two thousand now build.
 #[test]
 fn a_protobuf_schema_with_many_fields_builds() {
-    let s = Scratch::repo("adversarial-proto");
+    let s = wide_schema_repo("adversarial-proto", 2_000);
+    let run = s.run(&["build", "//lib/big"]);
+    survived(&run, "a schema with two thousand fields");
+    run.ok();
+}
+
+/// The same schema, with the JavaScript runtime given a quarter of a megabyte
+/// of stack instead of the several it usually has.
+///
+/// **The generator that reads a `.proto` is a Buri program, so a schema's size
+/// must not be a stack depth in it.** It was: the printer in `core/buri/ast`
+/// recursed into the `else` of a chain, two frames a field, so two thousand
+/// fields wanted a megabyte of stack — and the host with the least of it lost.
+/// CI's arm64 Linux leg answered "the generator produced no response" for a
+/// schema every other host built.
+///
+/// The count and the cap are a pair: the old shape needed four times this to
+/// print two thousand fields, and the walk that replaced it needs no more for
+/// two thousand than for two.
+#[test]
+fn a_protobuf_schema_builds_on_a_small_stack() {
+    let s = wide_schema_repo("adversarial-proto-stack", 2_000);
+    let Some(shim) = small_stack_runtime(SMALL_STACK) else {
+        eprintln!("the JavaScript runtime is neither bun nor node; running it uncapped");
+        s.run(&["build", "//lib/big"]).ok();
+        return;
+    };
+    let run = s.run_with_env(&["build", "//lib/big"], &[("BURI_JS", &shim)]);
+    survived(&run, "a schema with two thousand fields on a quarter-megabyte stack");
+    run.ok();
+}
+
+/// A repository of one library whose only source is a `.proto` of `fields`
+/// `int32`s, handed to the generator this toolchain ships.
+fn wide_schema_repo(name: &str, fields: usize) -> Scratch {
+    let s = Scratch::repo(name);
     s.write(
         "lib/big/BUILD.buri",
         "library {\n  generators: [{ tool: \"std/codegen/proto\", inputs: [\"big.proto\"] }]\n}\n",
     );
     s.write("lib/big/lib.buri", "from \"//lib/big/big.proto\" export { M };\n");
-    let fields: String =
-        (0..2_000).map(|i| format!("  int32 f{i} = {};\n", i + 1)).collect();
+    let lines: String = (0..fields).map(|i| format!("  int32 f{i} = {};\n", i + 1)).collect();
     s.write(
         "lib/big/big.proto",
-        &format!("edition = \"2026\";\n\npackage big.v1;\n\nmessage M {{\n{fields}}}\n"),
+        &format!("edition = \"2026\";\n\npackage big.v1;\n\nmessage M {{\n{lines}}}\n"),
     );
-    let run = s.run(&["build", "//lib/big"]);
-    survived(&run, "a schema with two thousand fields");
-    run.ok();
+    s
+}
+
+/// The stack a generator has to answer any schema in.
+const SMALL_STACK: usize = 256 * 1024;
+
+/// A shim for the JavaScript runtime that caps its stack, as an absolute path
+/// for `BURI_JS`.
+///
+/// A wrapper script rather than a flag, because the build spawns a generator
+/// with an environment it built itself — `build::spawn::command` clears the
+/// inherited one — so a cap has to travel inside the program rather than
+/// around it. `bun` takes one from JavaScriptCore's own knob and `node` has a
+/// flag; the real runtime is named by absolute path, because the shim runs
+/// with no `PATH` to look it up on.
+fn small_stack_runtime(bytes: usize) -> Option<String> {
+    let runtime = js_runtime();
+    let real = which(&runtime)?;
+    let body = match runtime.as_str() {
+        "bun" => format!("BUN_JSC_maxPerThreadStackUsage={bytes} exec {real} \"$@\"\n"),
+        "node" => format!("exec {real} --stack-size={} \"$@\"\n", bytes / 1024),
+        _other => return None,
+    };
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("small-stack-{runtime}-{}.sh", std::process::id()));
+    std::fs::write(&path, format!("#!/bin/sh\n{body}")).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    Some(path.display().to_string())
+}
+
+/// `bun` -> `/usr/local/bin/bun`, the way `build::spawn::resolve` does it.
+fn which(program: &str) -> Option<String> {
+    if program.contains(std::path::MAIN_SEPARATOR) {
+        return Some(program.to_string());
+    }
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|d| d.join(program))
+        .find(|p| p.is_file())
+        .map(|p| p.display().to_string())
 }
 
 /// One arm per variant of a wide enum: flat source, but the JavaScript backend

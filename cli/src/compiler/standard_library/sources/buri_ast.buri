@@ -559,7 +559,14 @@ export struct Printed {
 /// from "core/effect" import { Alloc };
 /// ```
 export fn print<C: Alloc>(ctx: C, m: Module): Printed {
-    let empty = Out { pieces: [], at: 0, anchors: [], indent: 0, pending: false };
+    let empty = Out {
+        pieces: [],
+        at: 0,
+        anchors: [],
+        owed: [],
+        indent: 0,
+        pending: false,
+    };
     let out = printModule(ctx, empty, m);
     Printed {
         text: out.pieces.join(ctx, ""),
@@ -583,10 +590,16 @@ fn anchorOrder(a: Anchor, b: Anchor): Order {
 ///
 /// `pending` is a line break whose indentation has not been written yet, so a
 /// line nothing follows carries no trailing spaces.
+///
+/// `owed` is where an `if`/`else if` chain keeps the links it has written and
+/// not yet anchored: every link of a chain ends where the chain does, so their
+/// ends are known only once the walk is over. [`elseChain`] owns it, empties
+/// it, and hands it back.
 struct Out {
     pieces: [Str],
     at: Int,
     anchors: [Anchor],
+    owed: [(Int, Origin)],
     indent: Int,
     pending: Bool,
 }
@@ -1535,6 +1548,15 @@ fn branch<C: Alloc>(ctx: C, out: Out, blocks: [Block], broken: Bool): Out {
     )
 }
 
+/// An `if`/`else if`/`else` chain, written link by link.
+///
+/// **A chain is as long as whatever wrote it made it, so printing one may not
+/// spend stack on its length.** A generated protobuf decoder is one link per
+/// field of its message, and a printer that recursed into the `else` — which
+/// this one did — asked the JavaScript runtime for two frames a field. Two
+/// thousand fields wanted a megabyte of stack, and a runtime holding less
+/// printed nothing at all rather than refusing a schema it could not take. The
+/// links are walked instead, so what a chain costs is its text.
 fn ifChain<C: Alloc>(
     ctx: C,
     out: Out,
@@ -1545,32 +1567,64 @@ fn ifChain<C: Alloc>(
     let broken = ifForces(cond, then, otherwise);
     let head = emit(ctx, exprList(ctx, emit(ctx, out, "if ("), cond), ") ");
     let body = branch(ctx, head, then, broken);
-    otherwise.foldCtx(
-        ctx,
-        fn(c, o, e) => elseTail(c, o, e, broken),
-        emit(ctx, body, "else "),
-    )
+    elseChain(ctx, emit(ctx, body, "else "), otherwise, broken)
 }
 
-fn elseTail<C: Alloc>(ctx: C, out: Out, e: Expr, broken: Bool): Out {
-    match (e.kind) {
-        .Block(b) => {
-            let started = ready(ctx, out);
-            let written = branchBlock(ctx, started, b, broken);
-            anchor(ctx, written, started.at, e.origin)
+/// The `else` tail of a chain, and the anchors its links were owed.
+///
+/// A link's anchor covers the whole of the rest of the chain — the `else if` a
+/// reader sees is a nested `if` in the tree — and nothing is written after a
+/// chain's last link, so every one of those ends at the same offset. The links
+/// are collected on the way through and anchored here, at the end the walk
+/// arrived at.
+///
+/// The pending links live on `Out` rather than in an accumulator beside it,
+/// because a chain inside a chain's branch has links of its own: this empties
+/// the seat before the walk and puts the outer chain's back afterwards.
+fn elseChain<C: Alloc>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): Out {
+    let outer = out.owed;
+    let walked = elseLinks(ctx, Out { ..out, owed: [] }, otherwise, broken);
+    let links = walked.owed;
+    let restored = Out { ..walked, owed: outer };
+    links.foldCtx(ctx, fn(c, o, l) => anchor(c, o, l.0, l.1), restored)
+}
+
+/// One link written, then the next — a self tail call, which is a loop by the
+/// time it runs (SPEC 8.3).
+fn elseLinks<C: Alloc>(ctx: C, out: Out, otherwise: [Expr], broken: Bool): Out {
+    match (otherwise.first()) {
+        .None => out,
+        .Some(e) => {
+            match (e.kind) {
+                .Block(b) => {
+                    let started = ready(ctx, out);
+                    owe(ctx, branchBlock(ctx, started, b, broken), started.at, e.origin)
+                },
+                .If(cond, then, rest) => {
+                    let started = ready(ctx, out);
+                    let head = emit(
+                        ctx,
+                        exprList(ctx, emit(ctx, started, "if ("), cond),
+                        ") ",
+                    );
+                    let body = emit(ctx, branch(ctx, head, then, broken), "else ");
+                    elseLinks(ctx, owe(ctx, body, started.at, e.origin), rest, broken)
+                },
+                _other => expr(ctx, out, e),
+            }
         },
-        .If(cond, then, otherwise) => {
-            let started = ready(ctx, out);
-            let head = emit(ctx, exprList(ctx, emit(ctx, started, "if ("), cond), ") ");
-            let body = branch(ctx, head, then, broken);
-            let written = otherwise.foldCtx(
-                ctx,
-                fn(c, o, x) => { elseTail(c, o, x, broken) },
-                emit(ctx, body, "else "),
-            );
-            anchor(ctx, written, started.at, e.origin)
-        },
-        _other => expr(ctx, out, e),
+    }
+}
+
+/// One link, remembered until the chain it belongs to ends.
+///
+/// The same test [`anchor`] makes, made before the offset is kept rather than
+/// after: a node nobody can point at is owed nothing.
+fn owe<C: Alloc>(ctx: C, out: Out, start: Int, source: Origin): Out {
+    if (source.file == "") {
+        out
+    } else {
+        Out { ..out, owed: out.owed.push(ctx, (start, source)) }
     }
 }
 
@@ -1801,7 +1855,7 @@ fn stmtForces(s: Stmt): Bool {
 fn ifForces(cond: [Expr], then: [Block], otherwise: [Expr]): Bool {
     cond.any(fn(e) => forces(e))
         || then.any(fn(b) => branchForces(b))
-        || otherwise.any(fn(e) => elseForces(e))
+        || elseForces(otherwise)
 }
 
 /// An `if` branch is laid out by the chain rather than as a block expression,
@@ -1812,11 +1866,28 @@ fn branchForces(b: Block): Bool {
         || b.tail.any(fn(e) => forces(e))
 }
 
-fn elseForces(e: Expr): Bool {
-    match (e.kind) {
-        .Block(b) => branchForces(b),
-        .If(cond, then, otherwise) => ifForces(cond, then, otherwise),
-        _other => forces(e),
+/// The `else` tail of a chain, walked rather than recursed into, for the
+/// reason [`elseChain`] gives: a chain that breaks nowhere near its head is
+/// still a chain, and asking about one may not cost a frame per link.
+fn elseForces(otherwise: [Expr]): Bool {
+    match (otherwise.first()) {
+        .None => false,
+        .Some(e) => {
+            match (e.kind) {
+                .Block(b) => branchForces(b),
+                .If(cond, then, rest) => {
+                    if (
+                        cond.any(fn(x) => forces(x))
+                            || then.any(fn(b) => branchForces(b))
+                    ) {
+                        true
+                    } else {
+                        elseForces(rest)
+                    }
+                },
+                _other => forces(e),
+            }
+        },
     }
 }
 
