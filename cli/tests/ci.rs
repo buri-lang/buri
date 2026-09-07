@@ -683,36 +683,75 @@ fn no_runner_config_promises_a_cap_nothing_reads() {
 
 /// **The cap can tell a child that is working from one that is stuck.**
 ///
-/// The other half of the test above. `hang.rs` proves the cap fires on a child
-/// that is doing nothing; this proves it leaves alone one that is doing
-/// something and saying nothing about it, which is what a `buri build` of a
-/// fifty-thousand-arm match looks like from outside. Before the cap read
-/// processor time, run 34121595426's arm64 leg killed exactly that build at
-/// five minutes for being quiet.
+/// The discriminator itself, asked of two real processes and nothing else. A
+/// shell spinning in userspace must read as runnable and a `sleep` must not —
+/// on any machine, at any load, because being queued for a core is not a
+/// quantity. That is the fact the cap rests on, and asserting it directly is
+/// what stops the two cases below from resting on how much processor time a
+/// loaded machine happened to hand out.
 ///
-/// `yes` burns a core and the shell that started it only waits, so the work is
-/// a **grandchild's** — the shape of every build in this suite, where `buri`
-/// spends its time waiting on `bun`, on `cc` or on a linker. Both pipes are
-/// closed: silence is the point.
+/// It reads a *tree*: the `sh` in front of each of these execs its command, so
+/// what is being read is the one process, and
+/// `the_hang_cap_kills_a_tree_that_is_only_sleeping` is the case with a
+/// generation under it.
 ///
-/// Here rather than beside the cap, because a test with a real process in it
-/// pays real seconds and `hang.rs` is compiled into all thirteen test binaries.
-/// The rule itself is proved there, fed by hand, in microseconds
-/// (`hang::hang_tests::work_is_a_reading_that_moved`).
+/// Both waits are bounded and generous. Neither is a timing assertion — a
+/// spinner that is not runnable within a minute of being spawned is a broken
+/// reading, not a slow machine.
+#[test]
+fn the_reading_tells_a_spinning_child_from_a_sleeping_one() {
+    use std::time::{Duration, Instant};
+
+    let mut spinner = silently("while :; do :; done");
+    let mut sleeper = silently("sleep 600");
+    let (spinning, sleeping) = (spinner.id(), sleeper.id());
+
+    let runnable = |pid: u32, want: bool| {
+        let until = Instant::now() + Duration::from_secs(60);
+        loop {
+            let look = hang::look(pid).expect("this host reports what a process is doing");
+            if look.runnable == want {
+                return look;
+            }
+            assert!(
+                Instant::now() < until,
+                "a minute of asking and `{pid}` never read as runnable = {want}: the hang cap \
+                 has nothing to tell a busy tree from a stuck one by"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+    let busy = runnable(spinning, true);
+    let idle = runnable(sleeping, false);
+
+    let _ = spinner.kill();
+    let _ = spinner.wait();
+    let _ = sleeper.kill();
+    let _ = sleeper.wait();
+    println!("a spinner reads {busy:?}; a sleeper reads {idle:?}");
+}
+
+/// **A child that is working is not killed for being quiet**, however little of
+/// the machine it is getting.
+///
+/// What a `buri build` of a fifty-thousand-arm match looks like from outside,
+/// and what run 34121595426's arm64 leg killed at five minutes for being quiet.
+/// The work is a **grandchild's** — the shape of every build in this suite,
+/// where `buri` waits on `bun`, on `cc` or on a linker — and both pipes are
+/// closed, so silence is the whole of what the cap can see.
+///
+/// **Deterministic under any load**, which the first version of this was not:
+/// it spun with `yes`, whose writes this machine can block, and it asked the
+/// cap to notice processor time, which a starved or lagging reading may report
+/// as none. A shell looping in userspace is runnable at every instant it
+/// exists, and runnable is the half of the rule that is not a quantity.
 #[test]
 fn the_hang_cap_leaves_a_busy_child_alone() {
-    use std::process::{Command, Stdio};
     use std::time::{Duration, Instant};
 
     let cap = Duration::from_secs(1);
     let started = Instant::now();
-    let mut child = Command::new("sh")
-        .arg("-c")
-        .arg("yes > /dev/null & busy=$!; sleep 2; kill $busy; wait")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .expect("`sh` is on PATH");
+    let mut child = silently("while :; do :; done & busy=$!; sleep 2; kill $busy; wait");
     let status = hang::wait_capped(&mut child, "a busy grandchild", cap);
 
     assert!(status.success(), "the shell holding the busy grandchild failed on its own: {status}");
@@ -725,38 +764,59 @@ fn the_hang_cap_leaves_a_busy_child_alone() {
     println!("a busy, silent tree survived {ran:?} of a {cap:?} cap");
 }
 
-/// The reading the cap is built on answers on this host, and rises with work.
+/// **And a tree that is only sleeping is still killed.**
 ///
-/// The test above would pass on a host where `cpu_time` answered nothing at all
-/// — the cap would be back to a wall clock, and a child that finishes inside it
-/// is not killed either way. This is what says the mechanism is connected, and
-/// it is what fails the day a host stops reporting what a process has spent.
+/// The other side of the case above, and the one that stops the tree walk from
+/// making everything unkillable: the same two generations, with the grandchild
+/// asleep instead of working. Nothing here is runnable and nothing spends
+/// anything, which is the whole of what "stuck" means to this cap.
 ///
-/// Works until the reading moves rather than for a fixed time: a hundred-hertz
-/// clock does not tick for a thread that has had no processor, and this suite
-/// runs on machines carrying sixteen tests on four cores.
+/// `hang.rs`'s own `the_cap_fires_and_names_what_it_killed` is the one-process
+/// version. This is the one that would still pass if the walk stopped at the
+/// child, and fail if a sleeping *tree* were mistaken for a busy one.
 #[test]
-fn the_processor_time_reading_rises_with_the_work() {
-    use std::time::{Duration, Instant};
+fn the_hang_cap_kills_a_tree_that_is_only_sleeping() {
+    use std::time::Duration;
 
-    let me = std::process::id();
-    let before = hang::cpu_time(me).expect("this host reports what a process has spent");
-    let until = Instant::now() + Duration::from_secs(60);
-    let mut n: u64 = 1;
-    let mut after = before;
-    while after <= before && Instant::now() < until {
-        for _ in 0..200_000 {
-            n = n.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
-        }
-        after = hang::cpu_time(me).expect("this host still reports it");
-    }
-    assert_ne!(n, 0);
+    let cap = Duration::from_secs(1);
+    let mut child = silently("sleep 600 & wait");
+    let id = child.id();
+    let fired = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        hang::wait_capped(&mut child, "a sleeping tree", cap)
+    }));
+
+    let panic = fired.expect_err("a tree that sleeps for ten minutes outlives a one-second cap");
+    let said = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or("");
     assert!(
-        after > before,
-        "a minute of arithmetic did not move this process's reading off {before:?}, so the hang \
-         cap has nothing to tell a stuck child from a busy one by"
+        said.contains("the hang cap fired") && said.contains("a sleeping tree"),
+        "the cap fired and did not say what it killed: {said:?}"
     );
-    println!("the reading moved from {before:?} to {after:?}");
+    assert!(
+        said.contains("the_hang_cap_kills_a_tree_that_is_only_sleeping"),
+        "the cap fired and did not name the test it fired in: {said:?}"
+    );
+    let alive = std::process::Command::new("kill")
+        .args(["-0", &id.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .expect("`kill` is on PATH");
+    assert!(!alive.success(), "the cap fired and left process {id} running");
+}
+
+/// One shell running `script`, with both pipes closed.
+fn silently(script: &str) -> std::process::Child {
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("`sh` is on PATH")
 }
 
 /// The packages of the workspace, as `directory -> package name`.
