@@ -1,0 +1,246 @@
+// core/uuid — the identifier, and the two ways to mint one.
+//
+// The property is the round trip: `parse` of `text` is the identifier, and
+// `text` of `parse` is the string. The refusals are the other half — a `Uuid` is
+// meant to be proof the octets are well formed, so anything that is not sixteen
+// well-formed octets has to be turned away.
+//
+// The minted values are asserted exactly, which is only possible because both
+// doubles are seeded. That makes them agreement rows as well: the same octets
+// come out of the runtime on every backend.
+
+from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc, Clock, Entropy };
+from "core/host/testing" import { alloc, clock, entropy };
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "core/uuid" import * as uuid;
+from "core/uuid" import { Uuid };
+
+let CANONICAL: Str = "550e8400-e29b-41d4-a716-446655440000";
+
+// --- parse and text --------------------------------------------------------------
+
+test "the canonical spelling round-trips" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.some(uuid.parse(CANONICAL)).text(ctx), CANONICAL);
+    assert.eq(assert.some(uuid.parse(CANONICAL)).0, [
+        85,
+        14,
+        132,
+        0,
+        226,
+        155,
+        65,
+        212,
+        167,
+        22,
+        68,
+        102,
+        85,
+        68,
+        0,
+        0,
+    ]);
+}
+
+test "uppercase reads, and comes back lowercase" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let upper = "550E8400-E29B-41D4-A716-446655440000";
+    assert.eq(assert.some(uuid.parse(upper)), assert.some(uuid.parse(CANONICAL)));
+    assert.eq(assert.some(uuid.parse(upper)).text(ctx), CANONICAL);
+}
+
+test "text is thirty-six characters with hyphens in four places" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let rendered = uuid.zero().text(ctx);
+    assert.eq(rendered.len(), 36);
+    assert.eq(rendered.charAt(8), .Some('-'));
+    assert.eq(rendered.charAt(13), .Some('-'));
+    assert.eq(rendered.charAt(18), .Some('-'));
+    assert.eq(rendered.charAt(23), .Some('-'));
+}
+
+test "anything that is not the canonical shape is refused" {
+    // Too short, too long, no hyphens, hyphens in the wrong places.
+    assert.none(uuid.parse(""));
+    assert.none(uuid.parse("550e8400-e29b-41d4-a716-44665544000"));
+    assert.none(uuid.parse("550e8400-e29b-41d4-a716-4466554400000"));
+    assert.none(uuid.parse("550e8400e29b41d4a716446655440000"));
+    assert.none(uuid.parse("550e840-0e29b-41d4-a716-446655440000"));
+    // The right length with a hyphen in a hex position.
+    assert.none(uuid.parse("550e8400-e29b-41d4-a716-4466554400-0"));
+    // A character that is not a hex digit.
+    assert.none(uuid.parse("550e8400-e29b-41d4-a716-44665544000g"));
+    assert.none(uuid.parse("g50e8400-e29b-41d4-a716-446655440000"));
+    // Braces and the URN prefix are other spellings, and this reads one.
+    assert.none(uuid.parse("{550e8400-e29b-41d4-a716-446655440000}"));
+    assert.none(uuid.parse("urn:uuid:550e8400-e29b-41d4-a716-4466"));
+}
+
+// --- zero and fromBytes ------------------------------------------------------------
+
+test "the nil identifier is sixteen zero octets" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(uuid.zero().text(ctx), "00000000-0000-0000-0000-000000000000");
+    assert.eq(uuid.zero().0, list.repeat(ctx, 0, 16));
+    // And it reads back, so the nil identifier is not a special case.
+    assert.eq(assert.some(uuid.parse(uuid.zero().text(ctx))), uuid.zero());
+}
+
+test "fromBytes takes sixteen octets and no other count" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let raw = assert.some(uuid.parse(CANONICAL)).0;
+    assert.eq(assert.some(uuid.fromBytes(raw)).text(ctx), CANONICAL);
+    assert.none(uuid.fromBytes(list.empty<U8>()));
+    assert.none(uuid.fromBytes(list.repeat(ctx, 0, 15)));
+    assert.none(uuid.fromBytes(list.repeat(ctx, 0, 17)));
+    assert.eq(assert.some(uuid.fromBytes(list.repeat(ctx, 0, 16))), uuid.zero());
+}
+
+test "the octets and the text are two views of one value" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let id = assert.some(uuid.parse(CANONICAL));
+    assert.eq(bytes.toHex(ctx, id.0), id.text(ctx).replace(ctx, "-", ""));
+}
+
+// --- version 4 ---------------------------------------------------------------------
+
+test "version 4 stamps the version and variant over the entropy" {
+    let ctx = context {
+        Alloc: alloc(),
+        Entropy: entropy(),
+    };
+    // The seeded generator's first sixteen octets are
+    // 2101c54fd1d01ab22574cb378aaef5b1, with octet 6 and octet 8 overwritten.
+    assert.eq(uuid.version4(ctx).text(ctx), "2101c54f-d1d0-4ab2-a574-cb378aaef5b1");
+}
+
+test "every version 4 identifier has the version and variant RFC 9562 fixes" {
+    let ctx = context {
+        Alloc: alloc(),
+        Entropy: entropy(),
+    };
+    let ids = list.range(ctx, 0, 8).mapCtx(ctx, fn(c, _i) => uuid.version4(c));
+    let stamped = ids.mapCtx(ctx, fn(c, id) => {
+        let rendered = id.text(c);
+        rendered.charAt(14) == .Some('4') && isVariant(rendered.charAt(19))
+    });
+    assert.isTrue(stamped.all(fn(ok) => ok));
+    // The generator is drawn down rather than restarted, so no two are equal.
+    assert.eq(ids.uniqueBy(ctx, fn(a, b) => a.compare(b)).len(), 8);
+}
+
+/// The variant nibble is `8`, `9`, `a` or `b` — the top two bits of octet 8 set
+/// to `10`.
+fn isVariant(c: Option<Char>): Bool {
+    c == .Some('8') || c == .Some('9') || c == .Some('a') || c == .Some('b')
+}
+
+// --- version 7 ---------------------------------------------------------------------
+
+test "version 7 puts the milliseconds at the front" {
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock().at(1_755_265_500_000),
+        Entropy: entropy(),
+    };
+    assert.eq(uuid.version7(ctx).text(ctx), "0198adfa-0360-7ab2-a574-cb378aaef5b1");
+}
+
+test "the epoch is all zeros at the front" {
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock(),
+        Entropy: entropy(),
+    };
+    assert.eq(uuid.version7(ctx).text(ctx), "00000000-0000-7ab2-a574-cb378aaef5b1");
+}
+
+test "two made at different times sort in the order they were made" {
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock().at(1_000),
+        Entropy: entropy(),
+    };
+    let first = uuid.version7(ctx);
+    let second = uuid.version7(ctx);
+    // The clock has not moved, so the timestamps are equal and only the random
+    // tail separates them — which is what RFC 9562 says about one millisecond.
+    assert.eq(first.0.take(ctx, 6), second.0.take(ctx, 6));
+
+    let later = context {
+        Alloc: alloc(),
+        Clock: clock().at(2_000),
+        Entropy: entropy(),
+    };
+    let after = uuid.version7(later);
+    assert.gt(after, first);
+    // And the text sorts the same way the octets do, which is the whole point.
+    assert.isTrue(first.text(ctx) < after.text(later));
+}
+
+test "a version 7 identifier carries the version and variant too" {
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock().at(1_755_265_500_000),
+        Entropy: entropy(),
+    };
+    let rendered = uuid.version7(ctx).text(ctx);
+    assert.eq(rendered.charAt(14), .Some('7'));
+    assert.isTrue(isVariant(rendered.charAt(19)));
+    assert.eq(rendered.len(), 36);
+}
+
+test "a minted identifier reads back" {
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock().at(1_755_265_500_000),
+        Entropy: entropy(),
+    };
+    let four = uuid.version4(ctx);
+    let seven = uuid.version7(ctx);
+    assert.eq(assert.some(uuid.parse(four.text(ctx))), four);
+    assert.eq(assert.some(uuid.parse(seven.text(ctx))), seven);
+    assert.notEq(four, seven);
+}
+
+// --- the traits ----------------------------------------------------------------------
+
+test "Show is the canonical spelling and not the octets" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let id = assert.some(uuid.parse(CANONICAL));
+    assert.eq(id.show(ctx), CANONICAL);
+    // A hand-written `Show` names a context, which an interpolation hole cannot
+    // reach, so the call is written out.
+    assert.eq(
+        str.format(ctx, "id=${id.show(ctx)}"),
+        "id=550e8400-e29b-41d4-a716-446655440000",
+    );
+}
+
+test "two identifiers compare and order" {
+    let small = uuid.zero();
+    let big = assert.some(uuid.parse(CANONICAL));
+    assert.eq(small, uuid.zero());
+    assert.notEq(small, big);
+    assert.lt(small, big);
+    assert.gt(big, small);
+    // Order is octet order, so the octets and the text agree about it.
+    assert.isTrue(small.0.compare(big.0) == Order.Less);
+}

@@ -2759,6 +2759,7 @@ struct Ticker {
 impl Clock for Ticker {
   fn nowMillis(self): I64 { self.at }
   fn sleepMillis(self, millis: Int): () { () }
+  fn monotonicNanoseconds(self): I64 { self.at }
 }
 
 fn show<C: Alloc>(ctx: C, xs: [Str]): Str { xs.join(ctx, ",") }

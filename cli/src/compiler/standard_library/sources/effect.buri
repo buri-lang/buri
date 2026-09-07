@@ -101,6 +101,18 @@ export effect Net {
 export effect Clock {
     fn nowMillis(self): I64;
     fn sleepMillis(self, millis: Int): ();
+
+    /// A reading off a clock that only ever goes forward, in nanoseconds.
+    ///
+    /// **The number means nothing on its own.** Its zero is wherever the
+    /// platform put it — process start, machine start — so the only thing to do
+    /// with two readings is subtract them. `core/time`'s `Monotonic` is the type
+    /// that says so.
+    ///
+    /// This is what an elapsed measurement wants, and `nowMillis` is not: wall
+    /// time steps when NTP corrects it and can step backwards, and it counts
+    /// whole milliseconds.
+    fn monotonicNanoseconds(self): I64;
 }
 
 /// Uniform numbers, and **only** uniform ones.

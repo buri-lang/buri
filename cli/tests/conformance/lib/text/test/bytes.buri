@@ -341,3 +341,222 @@ test "a reader is a value, so two of them compare" {
     assert.eq(bytes.reader([1, 2]), bytes.readerAt([1, 2], 0));
     assert.notEq(bytes.reader([1, 2]), bytes.readerAt([1, 2], 1));
 }
+
+// --- base64url ---------------------------------------------------------------------
+//
+// The URL-safe alphabet and no padding, which is what a JWT, a signed cookie and
+// a URL-safe id all use. The pairs below are the ones where the two alphabets
+// actually differ: bytes that produce a `+` or a `/`, and lengths that produce a
+// `=`.
+
+test "the URL-safe alphabet writes - and _ where the standard one writes + and /" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bytes.toBase64(ctx, [251, 255]), "+/8=");
+    assert.eq(bytes.toBase64Url(ctx, [251, 255]), "-_8");
+    assert.eq(bytes.toBase64(ctx, [251, 255, 190]), "+/++");
+    assert.eq(bytes.toBase64Url(ctx, [251, 255, 190]), "-_--");
+    assert.eq(bytes.toBase64(ctx, [251, 239, 190, 0]), "++++AA==");
+    assert.eq(bytes.toBase64Url(ctx, [251, 239, 190, 0]), "----AA");
+}
+
+test "base64url drops the padding at every remainder" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bytes.toBase64Url(ctx, list.empty<U8>()), "");
+    assert.eq(bytes.toBase64Url(ctx, [251]), "-w");
+    assert.eq(bytes.toBase64Url(ctx, [251, 255]), "-_8");
+    assert.eq(bytes.toBase64Url(ctx, [251, 255, 190]), "-_--");
+}
+
+test "text and bytes both round-trip through base64url" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let raw = bytes.toUtf8(ctx, "hi €");
+    assert.eq(assert.ok(bytes.fromBase64Url(ctx, bytes.toBase64Url(ctx, raw))), raw);
+    assert.eq(
+        assert.ok(bytes.fromBase64Url(ctx, bytes.toBase64Url(ctx, [251, 239, 190, 0]))),
+        [251, 239, 190, 0],
+    );
+    assert.eq(assert.ok(bytes.fromBase64Url(ctx, "")), list.empty<U8>());
+}
+
+test "base64url reads a padded spelling too, and refuses an impossible length" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(assert.ok(bytes.fromBase64Url(ctx, "-_8=")), [251, 255]);
+    assert.eq(assert.ok(bytes.fromBase64Url(ctx, "-_8")), [251, 255]);
+    // One character past a group of four is a length no base64 has.
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "-_8-_")), DecodeError(5));
+    // The two alphabets do not read each other.
+    assert.eq(assert.err(bytes.fromBase64Url(ctx, "+/8=")), DecodeError(0));
+    assert.eq(assert.err(bytes.fromBase64(ctx, "-_8=")), DecodeError(0));
+}
+
+// --- lossy UTF-8 -----------------------------------------------------------------
+//
+// One replacement character per maximal subpart, which is the rule `fromUtf8`
+// refuses to guess at and the one every browser follows.
+
+test "valid text is unchanged, and the empty input is empty" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bytes.fromUtf8Lossy(ctx, bytes.toUtf8(ctx, "hi €")), "hi €");
+    assert.eq(bytes.fromUtf8Lossy(ctx, list.empty<U8>()), "");
+}
+
+test "a truncated sequence costs one replacement, not one per byte" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The euro sign is e2 82 ac; two thirds of it is one bad character.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [104, 105, 226, 130]).len(), 3);
+    assert.eq(bytes.fromUtf8Lossy(ctx, [226, 130]).len(), 1);
+    // And what follows it is read normally.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [226, 130, 33]).len(), 2);
+}
+
+test "an overlong encoding, a surrogate and a stray continuation each replace" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // c0 af is an overlong `/`: the lead byte leads nothing at all.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [192, 175]).len(), 2);
+    // ed a0 80 is a lone surrogate: the second byte is out of range for ed, so
+    // all three bytes replace separately.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [237, 160, 128]).len(), 3);
+    // A continuation byte with no lead.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [128]).len(), 1);
+    // f5 and up is past U+10FFFF.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [245, 128, 128, 128]).len(), 4);
+}
+
+test "lossy and strict agree on every input strict accepts" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let cases = ["", "a", "é", "€", "😀", "mixed: a é € 😀"];
+    let same = cases.mapCtx(ctx, fn(c, text) => {
+        bytes.fromUtf8Lossy(c, bytes.toUtf8(c, text)) == text
+    });
+    assert.isTrue(same.all(fn(ok) => ok));
+    // A four-byte sequence, byte for byte.
+    assert.eq(bytes.fromUtf8Lossy(ctx, [240, 159, 152, 128]), "😀");
+}
+
+// --- searching, splitting and joining --------------------------------------------
+
+test "indexOf finds the first match, and nothing when there is none" {
+    assert.eq(bytes.indexOf([1, 2, 3, 2, 3], [2, 3]), .Some(1));
+    assert.eq(bytes.indexOf([1, 2, 3], [3]), .Some(2));
+    assert.eq(bytes.indexOf([1, 2, 3], [4]), .None);
+    // A needle longer than the haystack cannot be in it.
+    assert.eq(bytes.indexOf([1], [1, 2]), .None);
+    // The empty needle is at the start.
+    assert.eq(bytes.indexOf([1, 2], list.empty<U8>()), .Some(0));
+    assert.eq(bytes.indexOf(list.empty<U8>(), list.empty<U8>()), .Some(0));
+    assert.eq(bytes.indexOf(list.empty<U8>(), [1]), .None);
+}
+
+test "indexOfFrom starts where it is told" {
+    assert.eq(bytes.indexOfFrom([1, 2, 3, 2, 3], [2, 3], 2), .Some(3));
+    assert.eq(bytes.indexOfFrom([1, 2, 3, 2, 3], [2, 3], 4), .None);
+    // A negative start reads as zero rather than indexing backwards.
+    assert.eq(bytes.indexOfFrom([1, 2, 3], [1], 0 - 5), .Some(0));
+    // Past the end: nothing, except an empty needle, which is everywhere.
+    assert.eq(bytes.indexOfFrom([1, 2, 3], [1], 99), .None);
+    assert.eq(bytes.indexOfFrom([1, 2, 3], list.empty<U8>(), 3), .Some(3));
+}
+
+test "startsWith and endsWith, including the empty and equal cases" {
+    assert.isTrue(bytes.startsWith([1, 2, 3], [1, 2]));
+    assert.isFalse(bytes.startsWith([1, 2, 3], [2]));
+    assert.isTrue(bytes.startsWith([1, 2, 3], list.empty<U8>()));
+    assert.isTrue(bytes.startsWith([1, 2, 3], [1, 2, 3]));
+    assert.isFalse(bytes.startsWith([1], [1, 2]));
+    assert.isTrue(bytes.endsWith([1, 2, 3], [2, 3]));
+    assert.isFalse(bytes.endsWith([1, 2, 3], [2]));
+    assert.isTrue(bytes.endsWith([1, 2, 3], list.empty<U8>()));
+    assert.isTrue(bytes.endsWith(list.empty<U8>(), list.empty<U8>()));
+    assert.isFalse(bytes.endsWith(list.empty<U8>(), [1]));
+}
+
+test "split gives one more piece than there are separators" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bytes.split(ctx, [1, 0, 2, 0, 3], [0]), [[1], [2], [3]]);
+    // Empty pieces are pieces: a leading and a trailing separator each make one.
+    assert.eq(bytes.split(ctx, [0, 1, 0], [0]), [
+        list.empty<U8>(),
+        [1],
+        list.empty<U8>(),
+    ]);
+    // No separator at all is one piece, which is the whole input.
+    assert.eq(bytes.split(ctx, [1, 2], [9]), [[1, 2]]);
+    assert.eq(bytes.split(ctx, list.empty<U8>(), [0]), [list.empty<U8>()]);
+    // An empty separator would cut everywhere, so it cuts nowhere.
+    assert.eq(bytes.split(ctx, [1, 2], list.empty<U8>()), [[1, 2]]);
+    // A multi-byte separator, which is what a multipart boundary is.
+    assert.eq(bytes.split(ctx, [1, 13, 10, 2], [13, 10]), [[1], [2]]);
+}
+
+test "join puts the separator between and not around" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bytes.join(ctx, [[1], [2], [3]], [0]), [1, 0, 2, 0, 3]);
+    assert.eq(bytes.join(ctx, [[1, 2]], [0]), [1, 2]);
+    assert.eq(bytes.join(ctx, list.empty<[U8]>(), [0]), list.empty<U8>());
+    // An empty first piece must not swallow its separator.
+    assert.eq(bytes.join(ctx, [list.empty<U8>(), [1]], [0]), [0, 1]);
+    assert.eq(bytes.join(ctx, [[1], [2]], list.empty<U8>()), [1, 2]);
+}
+
+test "join inverts split when no piece holds the separator" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let original: [U8] = [1, 13, 10, 2, 3, 13, 10, 4];
+    let separator: [U8] = [13, 10];
+    assert.eq(
+        bytes.join(ctx, bytes.split(ctx, original, separator), separator),
+        original,
+    );
+}
+
+// --- sixteen bits ------------------------------------------------------------------
+
+test "two octets, both ends first" {
+    assert.eq(bytes.fromU16BigEndian(258), [1, 2]);
+    assert.eq(bytes.fromU16LittleEndian(258), [2, 1]);
+    assert.eq(bytes.fromU16BigEndian(0), [0, 0]);
+    // The whole width, including the top bit.
+    assert.eq(bytes.fromU16BigEndian(65535), [255, 255]);
+    assert.eq(bytes.fromU16BigEndian(32768), [128, 0]);
+    assert.eq(bytes.fromU16LittleEndian(32768), [0, 128]);
+}
+
+test "sixteen bits round-trip in both orders" {
+    assert.eq(bytes.toU16BigEndian(bytes.fromU16BigEndian(65535), 0), .Some(65535));
+    assert.eq(
+        bytes.toU16LittleEndian(bytes.fromU16LittleEndian(65535), 0),
+        .Some(65535),
+    );
+    assert.eq(bytes.toU16BigEndian([1, 2], 0), .Some(258));
+    assert.eq(bytes.toU16LittleEndian([1, 2], 0), .Some(513));
+}
+
+test "reading sixteen bits past the end is .None rather than a short number" {
+    assert.eq(bytes.toU16BigEndian([1], 0), .None);
+    assert.eq(bytes.toU16BigEndian([1, 2], 1), .None);
+    assert.eq(bytes.toU16LittleEndian([1, 2], 0 - 1), .None);
+    assert.eq(bytes.toU16BigEndian(list.empty<U8>(), 0), .None);
+    // An offset reads from where it points.
+    assert.eq(bytes.toU16BigEndian([9, 1, 2], 1), .Some(258));
+}

@@ -104,6 +104,8 @@ impl Clock for HostClock {
     fn nowMillis(self): I64;
 
     fn sleepMillis(self, millis: Int): ();
+
+    fn monotonicNanoseconds(self): I64;
 }
 
 export struct HostRand {}

@@ -428,6 +428,104 @@ export fn stringify<C: Alloc>(ctx: C, v: Json): Str {
     }
 }
 
+/// The same value over several lines, `indent` spaces to a level.
+///
+/// An empty array and an empty object stay `[]` and `{}` — there is nothing to
+/// put on a line of its own. A negative `indent` reads as zero, which still puts
+/// every element on its own line.
+///
+/// ```buri run
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/json" import * as json;
+/// from "core/json" import { Json };
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let doc = Json.Object([("id", Json.Num(7.0)), ("tags", Json.Array([]))]);
+///     let _ = io.println(ctx, json.stringifyPretty(ctx, doc, 2)).ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// {
+///   "id": 7,
+///   "tags": []
+/// }
+/// ```
+export fn stringifyPretty<C: Alloc>(ctx: C, value: Json, indent: Int): Str {
+    laidOut(ctx, value, if (indent < 0) { 0 } else { indent }, 0)
+}
+
+fn laidOut<C: Alloc>(ctx: C, v: Json, indent: Int, depth: Int): Str {
+    match (v) {
+        .Array(items) => {
+            if (items.isEmpty()) {
+                "[]"
+            } else {
+                let inner = " ".repeat(ctx, indent * (depth + 1));
+                let outer = " ".repeat(ctx, indent * depth);
+                let parts = items.mapCtx(ctx, fn(c, item) => {
+                    str.format(c, "${inner}${laidOut(c, item, indent, depth + 1)}")
+                });
+                str.format(ctx, "[\n${parts.join(ctx, ",\n")}\n${outer}]")
+            }
+        },
+        .Object(entries) => {
+            if (entries.isEmpty()) {
+                "{}"
+            } else {
+                let inner = " ".repeat(ctx, indent * (depth + 1));
+                let outer = " ".repeat(ctx, indent * depth);
+                let parts = entries.mapCtx(ctx, fn(c, e) => {
+                    let (k, item) = e;
+                    let rendered = laidOut(c, item, indent, depth + 1);
+                    str.format(c, "${inner}${quote(c, k)}: ${rendered}")
+                });
+                str.format(ctx, "{\n${parts.join(ctx, ",\n")}\n${outer}}")
+            }
+        },
+        _ => stringify(ctx, v),
+    }
+}
+
+/// The compact rendering with every object's keys in `Str` order, at every
+/// depth.
+///
+/// Two documents that differ only in key order render the same, which is what a
+/// golden file or a digest over a document needs. Array order is data and is
+/// left alone. Duplicate keys keep the order they arrived in, because the sort
+/// is stable.
+export fn stringifySorted<C: Alloc>(ctx: C, value: Json): Str {
+    stringify(ctx, byKey(ctx, value))
+}
+
+fn byKey<C: Alloc>(ctx: C, v: Json): Json {
+    match (v) {
+        .Array(items) => Json.Array(items.mapCtx(ctx, fn(c, item) => byKey(c, item))),
+        .Object(entries) => {
+            Json.Object(
+                entries
+                    .mapCtx(ctx, fn(c, e) => {
+                        let (k, item) = e;
+                        (k, byKey(c, item))
+                    })
+                    .sortBy(ctx, fn(a, b) => {
+                        let (ka, _va) = a;
+                        let (kb, _vb) = b;
+                        ka.compare(kb)
+                    }),
+            )
+        },
+        _ => v,
+    }
+}
+
 /// A number, the way JSON writes one.
 ///
 /// `str.fromFloat` renders a whole number as `3.0`. JSON has one number type
@@ -524,11 +622,65 @@ impl Json {
         }
     }
 
+    /// The number as an `Int`, if this is a number and a whole one an `Int`
+    /// holds. `7` and `7.0` are the same document, so both answer `.Some(7)`;
+    /// `7.5` and `1e300` answer `.None`.
+    ///
+    /// Every number in a `Json` is a `Float`, so this is the conversion an
+    /// integer field pays either way. Doing it here means paying it once and
+    /// finding out whether it was one.
+    export fn asInt(self): Option<Int> {
+        match (self) {
+            .Num(x) => {
+                match (x.toI64()) {
+                    .Ok(n) => if (n.toF64() == x) { .Some(n) } else { .None },
+                    .Err(_e) => .None,
+                }
+            },
+            _ => .None,
+        }
+    }
+
     export fn asArray(self): Option<[Json]> {
         match (self) {
             .Array(items) => .Some(items),
             _ => .None,
         }
+    }
+
+    /// The entries in document order, if this is an object — `asArray`'s twin.
+    export fn asObject(self): Option<[(Str, Json)]> {
+        match (self) {
+            .Object(entries) => .Some(entries),
+            _ => .None,
+        }
+    }
+
+    /// The object's keys in the order the document wrote them. Anything that is
+    /// not an object has none, so this is empty rather than `.None`.
+    export fn keys<C: Alloc>(self, ctx: C): [Str] {
+        match (self) {
+            .Object(entries) => {
+                entries.map(ctx, fn(e) => {
+                    let (k, _v) = e;
+                    k
+                })
+            },
+            _ => list.empty<Str>(),
+        }
+    }
+
+    /// `get` down a chain of keys: `doc.path(["user", "name"])` says what
+    /// `doc.get("user").andThen(fn(v) => v.get("name"))` says. An empty chain
+    /// answers this value.
+    ///
+    /// Objects only — a number in the chain is `.None`, because an array index
+    /// is `at` and this takes keys.
+    export fn path(self, keys: [Str]): Option<Json> {
+        keys.fold(
+            fn(found: Option<Json>, key) => found.andThen(fn(v) => v.get(key)),
+            .Some(self),
+        )
     }
 
     export fn isNull(self): Bool {

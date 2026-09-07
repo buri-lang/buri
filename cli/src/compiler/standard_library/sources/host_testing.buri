@@ -877,12 +877,18 @@ fn netCalls(handle: I64): [NetCall];
 
 /// Starts at zero and advances only when the test advances it. `sleepMillis`
 /// advances it without sleeping, which is the whole point of a test clock.
+///
+/// **One reading, two clocks.** `monotonicNanoseconds` is `nowMillis` in
+/// nanoseconds, so advancing the clock advances both together and a test can
+/// assert an elapsed measurement without waiting for one.
 export struct TestClock(I64);
 
 impl Clock for TestClock {
     fn nowMillis(self): I64;
 
     fn sleepMillis(self, millis: Int): ();
+
+    fn monotonicNanoseconds(self): I64;
 }
 
 export fn clock(): TestClock;
