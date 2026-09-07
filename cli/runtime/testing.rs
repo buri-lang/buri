@@ -2019,23 +2019,20 @@ unsafe fn script_of(ptr: *const u8, len: u64) -> Vec<Scripted> {
     out
 }
 
-/// `websocketClient(sockets, messages)` — a client that will deliver those
-/// messages on a socket of that double's.
+/// `TestSockets::dialling(messages)` — a client that will deliver those messages
+/// on a socket of that double's.
 ///
 /// # Safety
-/// The `[Message]` must be live; `out` writable and aligned for an `i64`.
+/// The `[Message]` must be live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_websocket_client(
+pub unsafe extern "C" fn buri_rt_host_testing_sockets_dialling(
     sockets: i64,
     ptr: *const u8,
     len: u64,
-    out: *mut i64,
-) {
+) -> i64 {
     // SAFETY: forwarded.
     let script = unsafe { script_of(ptr, len) };
-    let handle = install(Slot::Client { owner: sockets, socket: None, script, next: 0 });
-    // SAFETY: the caller promises a writable destination.
-    unsafe { out.write(handle) }
+    install(Slot::Client { owner: sockets, socket: None, script, next: 0 })
 }
 
 /// Whether a URL is one this double will pretend to dial.

@@ -121,7 +121,8 @@ from "core/effect" import {
 from "core/net/server" import { CloseReason, Message, Socket };
 
 from "core/effect" export { Connected, Response, ServeError };
-from "core/net/server" export { CloseReason, Message, Socket, errorText };
+
+from "core/net/server" export { CloseReason, errorText, Message, Socket };
 
 /// A client, whole: where to dial, and the three hooks over the socket it gets.
 ///
@@ -193,15 +194,11 @@ fn opened<C: WebSocketClient, S>(
 ): CloseReason {
     let socket = Socket(connected.socket);
     let open = client.onOpen;
-    let state = open(
-        ctx,
-        socket,
-        Response {
-            status: connected.status,
-            headers: connected.headers,
-            body: connected.body,
-        },
-    );
+    let state = open(ctx, socket, Response {
+        status: connected.status,
+        headers: connected.headers,
+        body: connected.body,
+    });
     pumping(ctx, client, socket, state)
 }
 
@@ -243,7 +240,12 @@ fn stepped<C: WebSocketClient, S>(
         },
         .Binary => {
             let step = client.onMessage;
-            pumping(ctx, client, socket, step(ctx, socket, state, .Binary(received.data)))
+            pumping(
+                ctx,
+                client,
+                socket,
+                step(ctx, socket, state, .Binary(received.data)),
+            )
         },
     }
 }

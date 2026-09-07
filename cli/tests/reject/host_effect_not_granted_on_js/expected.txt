@@ -103,14 +103,20 @@ error: `ui` implements `Ui`, which is not allowed on the JS platform [effect-not
      Editing that one row granted it on three, and programs written against the
      signature it was reviewed with started compiling.
 
-     An empty list still promises nothing about filling. Listen and Sockets show
-     what that looks like once the runtime arrives. Both landed declared and
-     granted by nobody. Both are granted now on LINUX and MACOS, because holding
-     a port open is a native program's authority. Neither will ever be granted
-     on JS or WEB, because a page is served rather than serving and its host
-     cannot accept a connection. Half of that row filled and the other half
-     never will. The row says who grants the effect now and the reason says why.
-     Nothing in it was ever a schedule.
+     An empty list still promises nothing about filling. Listen shows what that
+     looks like once the runtime arrives. It landed declared and granted by
+     nobody, and it is granted now on LINUX and MACOS, because holding a port
+     open is a native program's authority. It will never be granted on JS or
+     WEB, because a page is served rather than serving and its host cannot
+     accept a connection. Half of that row filled and the other half never will.
+     The row says who grants the effect now and the reason says why. Nothing in
+     it was ever a schedule.
+
+     A row can also *widen*, and Sockets is the one that did. It was granted
+     with Listen and only with it, because a page neither accepted connections
+     nor held one to push on. Then WebSocketClient landed and a page could dial
+     one, so the reason no longer held and the row now names every platform.
+     What changed was the reason, not the mechanism.
 
      A program that provokes it
      ──────────────────────────

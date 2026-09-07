@@ -195,6 +195,47 @@ path is an ordinary request that reaches `onRequest`, upgrade headers and all,
 so the rest of a WebSocket server's URL space still routes the way the `match`
 above routes it.
 
+### Dial one instead
+
+The other end of the same socket is `core/net/websocket`, and it is the same
+three hooks. `connect` dials, runs them, and answers the `CloseReason` the
+socket ended with.
+
+```buri
+# from "core/effect" import { ServeError, Sockets, WebSocketClient };
+# from "core/net/server" import { CloseReason };
+# from "core/net/websocket" import * as websocket;
+# from "core/net/websocket" import { Client };
+
+/// Subscribes once, then counts every frame the server pushes back.
+fn following<C: Sockets + WebSocketClient>(ctx: C): Result<CloseReason, ServeError> {
+    websocket.connect(ctx, Client {
+        url: "ws://127.0.0.1:3000/socket",
+        onOpen: fn(c, socket, _response) => {
+            let _sent = socket.send(c, .Text("subscribe"));
+            0
+        },
+        onMessage: fn(_c, _socket, seen, _message) => seen + 1,
+        onClose: fn(_c, _socket, _seen, _reason) => (),
+    })
+}
+```
+
+The context grants `WebSocketClient` for the dialling and `Sockets` for the
+pushing, and every platform grants both — a page can dial even though it can
+never listen. `connect` returns when the socket closes, so reconnecting is a
+loop around it with `time.sleepMs` in the retry rather than a field on the
+`Client`. An `.Err` is a socket that never opened; a socket that opened and then
+ended is an `.Ok` carrying the reason.
+
+`onOpen` is handed the `Response` that opened the socket, where the server's is
+handed the `Request` that asked. That is where a negotiated subprotocol arrives,
+and it is the only shape difference between the two ends.
+
+Testing one needs no network. `sockets().dialling([.Text("hi")])` is a client
+with a script instead of a server, and the pushes your hooks make land in that
+`sockets()` double's `sent()`.
+
 ## Stopping
 
 `SIGTERM` and `SIGINT` do not kill a program holding a port. The platform stops
