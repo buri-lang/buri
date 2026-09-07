@@ -1423,3 +1423,304 @@ test "fromFloatFixed hands back what has no digits" {
     assert.eq(str.fromFloatFixed(ctx, up, 2), str.fromFloat(ctx, up));
     assert.eq(str.fromFloatFixed(ctx, -up, 2), str.fromFloat(ctx, -up));
 }
+
+// --- wrap at the widths that have no room ----------------------------------------
+
+// A width of one leaves no room for a gap, so no two words ever share a line —
+// and a word of one character still gets its own line rather than being
+// packed. `line.len() + 1 + word.len() <= width` is the sum that decides it,
+// and one is the smallest width where the `+ 1` is the whole of the answer.
+test "wrap at a width of one is one word per line" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a b c".wrap(ctx, 1), ["a", "b", "c"]);
+    assert.eq("ab c".wrap(ctx, 1), ["ab", "c"]);
+    assert.eq("a".wrap(ctx, 1), ["a"]);
+    assert.isEmpty("".wrap(ctx, 1));
+}
+
+test "wrap at a width of zero or less is one word per line too" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a b c".wrap(ctx, 0), ["a", "b", "c"]);
+    assert.eq("a b c".wrap(ctx, -10), ["a", "b", "c"]);
+    assert.isEmpty("".wrap(ctx, 0));
+    assert.isEmpty("   ".wrap(ctx, 0));
+}
+
+// A word wider than the line overflows rather than being cut, and it does not
+// drag its neighbours with it: the line before it closes and the line after it
+// starts fresh.
+test "wrap overflows a long word without cutting it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("aaaaaaaa".wrap(ctx, 3), ["aaaaaaaa"]);
+    assert.eq("x aaaaaaaa y".wrap(ctx, 3), ["x", "aaaaaaaa", "y"]);
+    assert.eq("aaaaaaaa bb".wrap(ctx, 3), ["aaaaaaaa", "bb"]);
+    // A word exactly the width still fits, and one a scalar wider does not.
+    assert.eq("abc de".wrap(ctx, 3), ["abc", "de"]);
+    assert.eq("ab cd".wrap(ctx, 5), ["ab cd"]);
+    assert.eq("ab cde".wrap(ctx, 5), ["ab", "cde"]);
+}
+
+// The input's own whitespace is not kept: `wrap` is `words` and a fill, so
+// every gap comes back as one space whatever it was.
+test "wrap keeps no whitespace of its own" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("  a\t\tb\n\nc  ".wrap(ctx, 99), ["a b c"]);
+    assert.eq("a  b".wrap(ctx, 4), ["a b"]);
+}
+
+// --- dedent where the whitespace is not all one character -------------------------
+
+// The margin is counted in characters, so a tab counts one and a space counts
+// one. Two lines indented by a tab and by two spaces have margins of one and
+// two, and the common margin is one — which cuts the tab off the first line and
+// one of the two spaces off the second.
+test "dedent counts the margin in characters, not in columns" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("\ta\n  b".dedent(ctx), "a\n b");
+    assert.eq("  a\n\tb".dedent(ctx), " a\nb");
+    // All tabs, so the answer is the one a column count would also give.
+    assert.eq("\t\ta\n\t\t\tb".dedent(ctx), "a\n\tb");
+    // A tab inside the margin is margin, and one past it is text.
+    assert.eq("  \ta\n  \tb".dedent(ctx), "a\nb");
+    assert.eq("  a\tb\n  c".dedent(ctx), "a\tb\nc");
+}
+
+test "dedent leaves text with no margin alone, and empties an all-blank block" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a\nb".dedent(ctx), "a\nb");
+    assert.eq(" \n\t\n  ".dedent(ctx), "\n\n");
+    assert.eq("   ".dedent(ctx), "");
+    assert.eq("\t".dedent(ctx), "");
+    // One line is a block too.
+    assert.eq("    only".dedent(ctx), "only");
+    assert.eq("only".dedent(ctx), "only");
+}
+
+test "indent takes an empty prefix and a prefix of its own" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a\nb".indent(ctx, ""), "a\nb");
+    assert.eq("a".indent(ctx, "    "), "    a");
+    // A line that is whitespace is not empty, so it takes the prefix.
+    assert.eq("a\n \nb".indent(ctx, "> "), "> a\n>  \n> b");
+    // Round trip: indenting and dedenting a block with one margin is identity.
+    let block = "one\n  two\nthree";
+    assert.eq(block.indent(ctx, "    ").dedent(ctx), block);
+}
+
+// --- The searches at their edges ---------------------------------------------------
+
+test "the prefix and suffix verbs at the two degenerate arguments" {
+    assert.eq(assert.some("abc".stripPrefix("")), "abc");
+    assert.eq(assert.some("abc".stripSuffix("")), "abc");
+    assert.eq(assert.some("abc".stripPrefix("abc")), "");
+    assert.eq(assert.some("abc".stripSuffix("abc")), "");
+    assert.none("abc".stripPrefix("abcd"));
+    assert.none("abc".stripSuffix("abcd"));
+    assert.eq(assert.some("".stripPrefix("")), "");
+    assert.none("".stripPrefix("a"));
+}
+
+test "lastIndexOf and splitOnceFromEnd on what is not there" {
+    assert.none("abc".lastIndexOf("z"));
+    assert.none("abc".lastIndexOf("abcd"));
+    assert.none("".lastIndexOf("a"));
+    assert.eq(assert.some("".lastIndexOf("")), 0);
+    assert.none("abc".splitOnceFromEnd("z"));
+    let halves = assert.some("a.b.c".splitOnceFromEnd("."));
+    assert.eq(halves.0, "a.b");
+    assert.eq(halves.1, "c");
+    // A separator at either end leaves an empty half.
+    let leading = assert.some(".abc".splitOnceFromEnd("."));
+    assert.eq(leading.0, "");
+    assert.eq(leading.1, "abc");
+    let trailing = assert.some("abc.".splitOnceFromEnd("."));
+    assert.eq(trailing.0, "abc");
+    assert.eq(trailing.1, "");
+}
+
+test "indexOfFrom past the end and at it" {
+    assert.none("abcabc".indexOfFrom("a", 6));
+    assert.none("abcabc".indexOfFrom("a", 1000));
+    assert.eq(assert.some("abcabc".indexOfFrom("a", 3)), 3);
+    assert.none("abcabc".indexOfFrom("a", 4));
+    assert.none("abcabc".indexOfFrom("z", 0));
+    // The empty needle is found where the search starts.
+    assert.eq(assert.some("abc".indexOfFrom("", 2)), 2);
+}
+
+test "count on what cannot be counted" {
+    assert.eq("abc".count("z"), 0);
+    assert.eq("abc".count("abcd"), 0);
+    assert.eq("".count("a"), 0);
+    assert.eq("".count(""), 0);
+    assert.eq("aaa".count("a"), 3);
+    assert.eq("aaaa".count("aa"), 2);
+    assert.eq("aaaaa".count("aa"), 2);
+}
+
+test "trimAny with nothing to trim by, and with everything" {
+    assert.eq("abc".trimAny(""), "abc");
+    assert.eq("".trimAny("ab"), "");
+    assert.eq("aaa".trimAny("a"), "");
+    assert.eq("aXa".trimStartAny("a"), "Xa");
+    assert.eq("aXa".trimEndAny("a"), "aX");
+    // The set is scalars, so a multi-scalar grapheme is not one member of it.
+    assert.eq("😀a😀".trimAny("😀"), "a");
+}
+
+test "indexOfAny and indexWhere when nothing matches" {
+    assert.none("abc".indexOfAny(""));
+    assert.none("abc".indexOfAny("xyz"));
+    assert.none("".indexOfAny("a"));
+    assert.eq(assert.some("abc".indexOfAny("cb")), 1);
+    assert.none("abc".indexWhere(fn(c) => c.isDigit()));
+    assert.none("".indexWhere(fn(_c) => true));
+    assert.eq(assert.some("ab1".indexWhere(fn(c) => c.isDigit())), 2);
+}
+
+test "isBlank over the whitespace that is not a space" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue("".isBlank());
+    assert.isTrue(" \t\n".isBlank());
+    assert.isTrue(str.fromChars(ctx, ['\r', '\n']).isBlank());
+    assert.isFalse("a".isBlank());
+    assert.isFalse(" a ".isBlank());
+    // A non-breaking space is whitespace to `isSpace`, and so to `trim`.
+    assert.isTrue(" ".isBlank());
+}
+
+test "equalsIgnoreCase and startsWithIgnoreCase at the lengths that decide" {
+    assert.isTrue("".equalsIgnoreCase(""));
+    assert.isFalse("a".equalsIgnoreCase(""));
+    assert.isFalse("".equalsIgnoreCase("a"));
+    assert.isFalse("abc".equalsIgnoreCase("abcd"));
+    assert.isTrue("ÄÖÜ".equalsIgnoreCase("äöü"));
+    assert.isTrue("abc".startsWithIgnoreCase(""));
+    assert.isTrue("".startsWithIgnoreCase(""));
+    assert.isFalse("".startsWithIgnoreCase("a"));
+    assert.isFalse("ab".startsWithIgnoreCase("abc"));
+    assert.isTrue("ABC".startsWithIgnoreCase("abc"));
+}
+
+test "splitLimit at one, at the number of pieces, and past it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("a,b,c".splitLimit(ctx, ",", 1), ["a,b,c"]);
+    assert.eq("a,b,c".splitLimit(ctx, ",", 3), ["a", "b", "c"]);
+    assert.eq("a,b,c".splitLimit(ctx, ",", 9), ["a", "b", "c"]);
+    assert.eq("".splitLimit(ctx, ",", 3), [""]);
+    assert.isEmpty("a,b".splitLimit(ctx, ",", 0));
+    assert.isEmpty("a,b".splitLimit(ctx, ",", -1));
+}
+
+test "replaceFirst when the needle is the whole string, and when it is absent" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("abc".replaceFirst(ctx, "abc", "z"), "z");
+    assert.eq("abc".replaceFirst(ctx, "z", "y"), "abc");
+    assert.eq("aaa".replaceFirst(ctx, "a", ""), "aa");
+    assert.eq("".replaceFirst(ctx, "a", "b"), "");
+    assert.eq("abc".replaceFirst(ctx, "", "z"), "abc");
+}
+
+test "reverse of nothing, of one, and of what is not on the plane" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("".reverse(ctx), "");
+    assert.eq("a".reverse(ctx), "a");
+    assert.eq("😀b".reverse(ctx), "b😀");
+    assert.eq("abc".reverse(ctx).reverse(ctx), "abc");
+}
+
+test "words of one word, and of text that is all separators" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq("one".words(ctx), ["one"]);
+    assert.eq("  one  ".words(ctx), ["one"]);
+    assert.isEmpty("".words(ctx));
+    assert.isEmpty(" \t\n ".words(ctx));
+    assert.eq("a\tb\nc".words(ctx), ["a", "b", "c"]);
+}
+
+// --- The whole of core/str over a long string ------------------------------------
+
+// Eight hundred scalars, which is past every other string in this file and past
+// the point where a search that walked the whole string per position would
+// show.
+test "the searching and counting verbs over eight hundred scalars" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let text = "ab".repeat(ctx, 400);
+    assert.eq(text.len(), 800);
+    assert.eq(text.count("ab"), 400);
+    assert.eq(text.count("ba"), 399);
+    assert.eq(assert.some(text.lastIndexOf("ab")), 798);
+    assert.eq(assert.some(text.indexOfFrom("b", 700)), 701);
+    assert.eq(assert.some(text.stripPrefix("ab")).len(), 798);
+    assert.eq(assert.some(text.stripSuffix("ab")).len(), 798);
+    assert.eq(text.utf8Length(), 800);
+    assert.eq(text.utf16Length(), 800);
+    assert.eq(text.reverse(ctx), "ba".repeat(ctx, 400));
+    assert.eq(text.splitLimit(ctx, "a", 3).len(), 3);
+    assert.eq(text.replaceFirst(ctx, "ab", "").len(), 798);
+    assert.isFalse(text.isBlank());
+    assert.eq(assert.some(text.indexWhere(fn(c) => c == 'b')), 1);
+    // And a long block of lines through the layout verbs.
+    let block = "  line\n".repeat(ctx, 200);
+    assert.eq(block.dedent(ctx).lines(ctx).len(), 201);
+    assert.eq(block.indent(ctx, "> ").lines(ctx).len(), 201);
+    assert.eq("word ".repeat(ctx, 100).wrap(ctx, 9).len(), 50);
+}
+
+// --- fromIntGrouped and fromFloatFixed at their ends -------------------------------
+
+test "fromIntGrouped over every group boundary" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.fromIntGrouped(ctx, 1, ","), "1");
+    assert.eq(str.fromIntGrouped(ctx, 12, ","), "12");
+    assert.eq(str.fromIntGrouped(ctx, 123, ","), "123");
+    assert.eq(str.fromIntGrouped(ctx, 1234, ","), "1,234");
+    assert.eq(str.fromIntGrouped(ctx, 12345, ","), "12,345");
+    assert.eq(str.fromIntGrouped(ctx, 123456, ","), "123,456");
+    assert.eq(str.fromIntGrouped(ctx, 1234567890, ","), "1,234,567,890");
+    assert.eq(str.fromIntGrouped(ctx, -1000, ","), "-1,000");
+    assert.eq(str.fromIntGrouped(ctx, 0, ""), "0");
+    // A separator of more than one scalar goes in whole.
+    assert.eq(str.fromIntGrouped(ctx, 1234567, " and "), "1 and 234 and 567");
+}
+
+test "fromFloatFixed asked for many digits, and for a whole number" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(str.fromFloatFixed(ctx, 1.5, 0), "2");
+    assert.eq(str.fromFloatFixed(ctx, 1.0, 0), "1");
+    assert.eq(str.fromFloatFixed(ctx, -1.0, 0), "-1");
+    assert.eq(str.fromFloatFixed(ctx, 1.0, 10), "1.0000000000");
+    assert.eq(str.fromFloatFixed(ctx, 0.0, 0), "0");
+    assert.eq(str.fromFloatFixed(ctx, 100.0, 2), "100.00");
+    assert.eq(str.fromFloatFixed(ctx, 0.001, 2), "0.00");
+}

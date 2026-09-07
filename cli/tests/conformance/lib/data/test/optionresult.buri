@@ -806,3 +806,155 @@ test "isOkAnd asks the predicate only when there is a value" {
     assert.isFalse(ok.isOkAnd(fn(v) => v == 3));
     assert.isFalse(bad.isOkAnd(fn(_v) => true));
 }
+
+// --- What the lazy halves are for -------------------------------------------------
+//
+// `withDefault` and `or` take a value, so their fallback runs whichever way the
+// Option went — the four cases above say so with a `Stdin` double. The `*With`
+// and `*Else` forms take a function so that it does not, and that is the whole
+// reason they exist. A lambda may not capture a context (SPEC 11.2), so the
+// double cannot be used here; a step that fails an assertion the moment it runs
+// is the same proof without one.
+
+/// Fails the test it is called from. Every use below is a step that must not
+/// run, so a green case is a step that did not.
+fn neverRun(): Int {
+    assert.isTrue(false);
+    0
+}
+
+/// `neverRun` where a `Str` is wanted.
+fn neverRunText(): Str {
+    assert.isTrue(false);
+    ""
+}
+
+test "withDefaultWith leaves its fallback unrun for a Some" {
+    let some: Option<Int> = .Some(1);
+    assert.eq(some.withDefaultWith(fn() => neverRun()), 1);
+    let none: Option<Int> = .None;
+    assert.eq(none.withDefaultWith(fn() => 9), 9);
+}
+
+test "orElse leaves its alternative unrun for a Some" {
+    let some: Option<Int> = .Some(1);
+    assert.eq(assert.some(some.orElse(fn() => .Some(neverRun()))), 1);
+}
+
+test "okOrWith leaves its error unbuilt for a Some" {
+    let some: Option<Int> = .Some(1);
+    assert.eq(assert.ok(some.okOrWith(fn() => neverRunText())), 1);
+}
+
+test "isSomeAnd does not ask its predicate for a None" {
+    let none: Option<Int> = .None;
+    assert.isFalse(none.isSomeAnd(fn(_n) => neverRun() == 0));
+}
+
+// `mapOr` is the mirror image: the transform is a function and runs only for a
+// `Some`, and the fallback is a value, so it is built either way. The second
+// half is what a `Stdin` double can still see, because the eager argument sits
+// at the call site rather than inside a lambda.
+test "mapOr runs its transform only for a Some" {
+    let none: Option<Int> = .None;
+    assert.eq(none.mapOr(0, fn(_n) => neverRun()), 0);
+}
+
+test "mapOr builds its fallback whichever way the Option went" {
+    let ctx = context {
+        Stdin: stdin().lines(["untouched"]),
+    };
+    let some: Option<Int> = .Some(1);
+    assert.eq(some.mapOr(eagerDefault(ctx), fn(n) => n * 10), 10);
+    // The fallback was never wanted, and was built anyway.
+    assert.none(io.readLine(ctx));
+}
+
+test "result withDefaultWith leaves its fallback unrun for an Ok" {
+    let ok: Result<Int, Str> = .Ok(1);
+    assert.eq(ok.withDefaultWith(fn(_e) => neverRun()), 1);
+}
+
+test "result orElse leaves its alternative unrun for an Ok" {
+    let ok: Result<Int, Str> = .Ok(1);
+    assert.eq(assert.ok(ok.orElse(fn(_e) => .Ok(neverRun()))), 1);
+}
+
+test "result orElseCtx leaves its alternative unrun for an Ok" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let ok: Result<Int, Str> = .Ok(1);
+    assert.eq(assert.ok(ok.orElseCtx(ctx, fn(_c, _e) => .Ok(neverRun()))), 1);
+}
+
+test "fold runs one half and not the other" {
+    let ok: Result<Int, Str> = .Ok(1);
+    assert.eq(ok.fold(fn(v) => v, fn(_e) => neverRun()), 1);
+    let bad: Result<Int, Str> = .Err("no");
+    assert.eq(bad.fold(fn(_v) => neverRun(), fn(_e) => 0 - 1), 0 - 1);
+}
+
+test "result mapOr runs its transform only for an Ok" {
+    let bad: Result<Int, Str> = .Err("no");
+    assert.eq(bad.mapOr(0, fn(_v) => neverRun()), 0);
+}
+
+test "isOkAnd does not ask its predicate for an Err" {
+    let bad: Result<Int, Str> = .Err("no");
+    assert.isFalse(bad.isOkAnd(fn(_v) => neverRun() == 0));
+}
+
+// The negative twin: `neverRun` really does fail a test when it runs, so the
+// green cases above are green because nothing called it.
+test "the unrun step is one that would have been noticed" {
+    let none: Option<Int> = .None;
+    assert.eq(none.mapOr(7, fn(_n) => 0), 7);
+    let some: Option<Int> = .Some(1);
+    assert.eq(assert.some(some.orElse(fn() => .Some(2))), 1);
+}
+
+// --- The nested and empty shapes ---------------------------------------------------
+
+test "flatten is one layer only, and takes the empty layer from either side" {
+    let deep: Option<Option<Option<Int>>> = .Some(.Some(.Some(1)));
+    assert.eq(assert.some(assert.some(option.flatten(deep))), 1);
+    let middle: Option<Option<Option<Int>>> = .Some(.Some(.None));
+    assert.none(assert.some(option.flatten(middle)));
+    // Flattening twice reaches the value.
+    assert.eq(assert.some(option.flatten(option.flatten(deep))), 1);
+}
+
+test "zip and toList over the shapes a caller actually holds" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // A tuple zips like anything else, because nothing is looked into.
+    let left: Option<(Int, Int)> = .Some((1, 2));
+    let right: Option<Str> = .Some("a");
+    let pair = assert.some(option.zip(left, right));
+    assert.eq((pair.0).1, 2);
+    assert.eq(pair.1, "a");
+    // `toList` and `zip` agree about how many values there are.
+    let some: Option<Int> = .Some(1);
+    let none: Option<Int> = .None;
+    assert.eq(some.toList(ctx).len(), 1);
+    assert.eq(none.toList(ctx).len(), 0);
+    assert.eq(option.zip(some, some).toList(ctx).len(), 1);
+    assert.eq(option.zip(some, none).toList(ctx).len(), 0);
+    // A list of Options collapses through `toList` into the values that are there.
+    let holes: [Option<Int>] = [.Some(1), .None, .Some(3)];
+    assert.eq(holes.flatMapCtx(ctx, fn(c, o) => o.toList(c)), [1, 3]);
+}
+
+test "errToOption and toOption are the two halves of the same Result" {
+    let ok: Result<Int, Str> = .Ok(2);
+    let bad: Result<Int, Str> = .Err("no");
+    assert.isTrue(ok.toOption().isSome());
+    assert.isTrue(ok.errToOption().isNone());
+    assert.isTrue(bad.toOption().isNone());
+    assert.isTrue(bad.errToOption().isSome());
+    // Exactly one half of each is there.
+    assert.isFalse(ok.toOption().isSome() == ok.errToOption().isSome());
+    assert.isFalse(bad.toOption().isSome() == bad.errToOption().isSome());
+}

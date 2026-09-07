@@ -546,3 +546,166 @@ test "frequencies is a histogram of the list" {
     assert.eq(f.len(), 3);
     assert.isTrue(map.frequencies(ctx, list.empty<Str>()).isEmpty());
 }
+
+// --- Where the combiner does not run ----------------------------------------------
+
+/// Fails the test it is called from. `mergeWith` may only reach for it where a
+/// key is in both maps, so a green case is a combiner that stayed put.
+fn neverCombined(_a: Int, _b: Int): Int {
+    assert.isTrue(false);
+    0
+}
+
+test "mergeWith over disjoint keys never combines anything" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = map.of(ctx, [("a", 1), ("b", 2)]);
+    let b = map.of(ctx, [("c", 3), ("d", 4)]);
+    let both = a.mergeWith(ctx, b, neverCombined);
+    assert.eq(both.len(), 4);
+    assert.eq(assert.some(both.get("a")), 1);
+    assert.eq(assert.some(both.get("d")), 4);
+}
+
+test "mergeWith with the empty map on either side never combines anything" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.of(ctx, [("a", 1)]);
+    let none = map.empty<Str, Int>();
+    assert.isTrue(m.mergeWith(ctx, none, neverCombined).equals(ctx, m));
+    assert.isTrue(none.mergeWith(ctx, m, neverCombined).equals(ctx, m));
+    assert.isTrue(none.mergeWith(ctx, none, neverCombined).isEmpty());
+}
+
+test "mergeWith over the same map combines every key" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.of(ctx, [("a", 1), ("b", 2)]);
+    let doubled = m.mergeWith(ctx, m, fn(x, y) => x + y);
+    assert.eq(doubled.len(), 2);
+    assert.eq(assert.some(doubled.get("a")), 2);
+    assert.eq(assert.some(doubled.get("b")), 4);
+}
+
+// --- alter, over the four things it can do ----------------------------------------
+
+test "alter leaves the map alone when it hands back what it was given" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.of(ctx, [("a", 1), ("b", 2)]);
+    let same = m.alter(ctx, "a", fn(v) => v);
+    assert.isTrue(same.equals(ctx, m));
+    let absent = m.alter(ctx, "z", fn(v) => v);
+    assert.isTrue(absent.equals(ctx, m));
+    // And the map it was called on is untouched either way.
+    assert.eq(m.len(), 2);
+}
+
+// The counter idiom the method exists for, run until the map has to grow.
+test "alter counts three hundred keys from nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let counted = list
+        .range(ctx, 0, 900)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Map<Int, Int>, i) => {
+                acc.alter(c, i % 300, fn(v) => .Some(v.withDefault(0) + 1))
+            },
+            map.empty<Int, Int>(),
+        );
+    assert.eq(counted.len(), 300);
+    assert.isTrue(list.range(ctx, 0, 300).all(fn(k) => counted.get(k) == .Some(3)));
+    // Removing every key with `alter` empties it again.
+    let drained = list
+        .range(ctx, 0, 300)
+        .foldCtx(
+            ctx,
+            fn(c, acc: Map<Int, Int>, k) => acc.alter(c, k, fn(_v) => .None),
+            counted,
+        );
+    assert.isTrue(drained.isEmpty());
+}
+
+// --- pop, takeKeys and dropKeys at their edges -------------------------------------
+
+test "popping the only entry leaves the empty map" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = map.of(ctx, [("a", 1)]);
+    let (value, rest) = assert.some(one.pop(ctx, "a"));
+    assert.eq(value, 1);
+    assert.isTrue(rest.isEmpty());
+    assert.isTrue(map.empty<Str, Int>().pop(ctx, "a").isNone());
+    // The map it came from still has the entry: a map is a value.
+    assert.eq(one.len(), 1);
+}
+
+test "takeKeys and dropKeys given nothing, everything, and a repeated key" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let m = map.of(ctx, [("a", 1), ("b", 2), ("c", 3)]);
+    assert.isTrue(m.takeKeys(ctx, list.empty<Str>()).isEmpty());
+    assert.isTrue(m.dropKeys(ctx, list.empty<Str>()).equals(ctx, m));
+    assert.isTrue(m.takeKeys(ctx, ["a", "b", "c"]).equals(ctx, m));
+    assert.isTrue(m.dropKeys(ctx, ["a", "b", "c"]).isEmpty());
+    // A key named twice is one entry, and one named that is not there is none.
+    assert.eq(m.takeKeys(ctx, ["a", "a", "z"]).len(), 1);
+    assert.eq(m.dropKeys(ctx, ["a", "a", "z"]).len(), 2);
+    // On the empty map both answer the empty map.
+    let none = map.empty<Str, Int>();
+    assert.isTrue(none.takeKeys(ctx, ["a"]).isEmpty());
+    assert.isTrue(none.dropKeys(ctx, ["a"]).isEmpty());
+}
+
+// --- mapValues and filterMapValues over what they may not touch ---------------------
+
+test "mapValues and filterMapValues on a map of one, and on a large one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = map.of(ctx, [("a", 1)]);
+    assert.eq(assert.some(one.mapValues(ctx, fn(v) => v * 10).get("a")), 10);
+    assert.eq(one.filterMapValues(ctx, fn(_v) => .None).len(), 0);
+    assert.eq(assert.some(one.filterMapValues(ctx, fn(v) => .Some(v)).get("a")), 1);
+    // The entries are named rather than built inside the call. Written as one
+    // expression, `map.of(ctx, xs.map(ctx, f))` answers a map of one entry on
+    // the native backends and the right one on JavaScript, which is a defect in
+    // the toolchain rather than in this module.
+    let entries = list.range(ctx, 0, 300).map(ctx, fn(i) => (i, i));
+    let big = map.of(ctx, entries);
+    assert.eq(big.mapValues(ctx, fn(v) => v + 1).len(), 300);
+    assert.eq(
+        big
+            .filterMapValues(ctx, fn(v) => if (v % 2 == 0) { .Some(v) } else { .None })
+            .len(),
+        150,
+    );
+    // A filter that keeps everything is the map it started from.
+    assert.isTrue(big.filterMapValues(ctx, fn(v) => .Some(v)).equals(ctx, big));
+}
+
+// --- countBy and frequencies at the sizes -------------------------------------------
+
+test "countBy and frequencies over one element and over three hundred" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = map.countBy(ctx, ["ant"], fn(w: Str) => w.len());
+    assert.eq(one.len(), 1);
+    assert.eq(assert.some(one.get(3)), 1);
+    assert.isTrue(map.frequencies(ctx, list.empty<Int>()).isEmpty());
+    assert.eq(assert.some(map.frequencies(ctx, [7]).get(7)), 1);
+    let many = map.frequencies(ctx, list.range(ctx, 0, 900).map(ctx, fn(i) => i % 300));
+    assert.eq(many.len(), 300);
+    assert.isTrue(list.range(ctx, 0, 300).all(fn(k) => many.get(k) == .Some(3)));
+    // Every count adds up to the list it counted.
+    assert.eq(many.values(ctx).sum(), 900);
+}

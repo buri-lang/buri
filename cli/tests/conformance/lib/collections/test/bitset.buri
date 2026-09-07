@@ -402,3 +402,121 @@ test "a range set bit by bit is the same set" {
     assert.isTrue(byRange.equals(ctx, byBit));
     assert.eq(byRange.count(), 166);
 }
+
+// --- setRange where there is no range to set ----------------------------------------
+
+// A start at or past the end sets nothing, whatever the two numbers are. The
+// clamp turns a negative start into zero and an end past the capacity into the
+// capacity, so a range wholly below zero or wholly above the capacity has to
+// collapse after the clamp rather than before it.
+test "setRange with nothing between its bounds sets nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let none = bitset.empty(ctx, 64);
+    assert.isTrue(none.setRange(ctx, 5, 5).isEmpty());
+    assert.isTrue(none.setRange(ctx, 5, 4).isEmpty());
+    assert.isTrue(none.setRange(ctx, 64, 64).isEmpty());
+    assert.isTrue(none.setRange(ctx, 100, 5).isEmpty());
+    // Wholly below zero: the start clamps up to zero and the end stays behind it.
+    assert.isTrue(none.setRange(ctx, -10, -1).isEmpty());
+    assert.isTrue(none.setRange(ctx, -10, 0).isEmpty());
+    // Wholly past the capacity: the end clamps down and the start stays ahead.
+    assert.isTrue(none.setRange(ctx, 70, 100).isEmpty());
+    assert.isTrue(none.setRange(ctx, 64, 100).isEmpty());
+    // A reversed range over a set that already holds bits leaves them alone.
+    let held = bitset.of(ctx, 64, [3, 40]);
+    assert.eq(held.setRange(ctx, 40, 3).toList(ctx), [3, 40]);
+    assert.eq(held.setRange(ctx, -1, -1).toList(ctx), [3, 40]);
+}
+
+test "setRange of exactly one bit, and of exactly the capacity" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bitset.empty(ctx, 64).setRange(ctx, 0, 1).toList(ctx), [0]);
+    assert.eq(bitset.empty(ctx, 64).setRange(ctx, 63, 64).toList(ctx), [63]);
+    assert.eq(bitset.empty(ctx, 64).setRange(ctx, 31, 32).toList(ctx), [31]);
+    assert.eq(bitset.empty(ctx, 64).setRange(ctx, 32, 33).toList(ctx), [32]);
+    // The whole capacity, which is every word full.
+    let full = bitset.empty(ctx, 64).setRange(ctx, 0, 64);
+    assert.eq(full.count(), 64);
+    assert.isTrue(full.complement(ctx).isEmpty());
+    // A capacity that is not a whole number of words stops at the capacity.
+    let odd = bitset.empty(ctx, 5).setRange(ctx, 0, 5);
+    assert.eq(odd.toList(ctx), [0, 1, 2, 3, 4]);
+    assert.eq(odd.count(), 5);
+}
+
+// --- firstSet, nextSet, toggle and complement at the edges ---------------------------
+
+test "firstSet and nextSet on a set of one bit at either end" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let low = bitset.of(ctx, 64, [0]);
+    assert.eq(assert.some(low.firstSet()), 0);
+    assert.isTrue(low.nextSet(0).isNone());
+    let high = bitset.of(ctx, 64, [63]);
+    assert.eq(assert.some(high.firstSet()), 63);
+    assert.eq(assert.some(high.nextSet(0)), 63);
+    assert.isTrue(high.nextSet(63).isNone());
+    // A scan started past the capacity, and one started below zero.
+    assert.eq(assert.some(high.nextSet(-5)), 63);
+    assert.isTrue(high.nextSet(1000).isNone());
+    assert.isTrue(bitset.empty(ctx, 0).firstSet().isNone());
+    assert.isTrue(bitset.empty(ctx, 0).nextSet(0).isNone());
+}
+
+test "toggle at the ends of the capacity, and twice over" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let s = bitset.empty(ctx, 64);
+    assert.eq(s.toggle(ctx, 0).toList(ctx), [0]);
+    assert.eq(s.toggle(ctx, 63).toList(ctx), [63]);
+    assert.isTrue(s.toggle(ctx, 64).isEmpty());
+    assert.isTrue(s.toggle(ctx, -1).isEmpty());
+    // Twice is back where it started, whichever way round.
+    assert.isTrue(s.toggle(ctx, 7).toggle(ctx, 7).isEmpty());
+    let held = bitset.of(ctx, 64, [7]);
+    assert.eq(held.toggle(ctx, 7).toggle(ctx, 7).toList(ctx), [7]);
+    // And a capacity of zero has nothing to toggle.
+    assert.isTrue(bitset.empty(ctx, 0).toggle(ctx, 0).isEmpty());
+}
+
+test "complement of a set of one, and of the whole capacity" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = bitset.of(ctx, 4, [2]);
+    assert.eq(one.complement(ctx).toList(ctx), [0, 1, 3]);
+    assert.isTrue(one.complement(ctx).complement(ctx).equals(ctx, one));
+    // A capacity of zero has nothing on either side.
+    assert.isTrue(bitset.empty(ctx, 0).complement(ctx).isEmpty());
+    // A complement never reaches past the capacity, even where the word does.
+    let narrow = bitset.empty(ctx, 3).complement(ctx);
+    assert.eq(narrow.toList(ctx), [0, 1, 2]);
+    assert.isFalse(narrow.has(3));
+    assert.eq(narrow.capacity, 3);
+}
+
+// The four scanning verbs over a set big enough to span several words, held to
+// the list they are supposed to replace.
+test "the scan agrees with toList over a thousand bits" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let members = list.range(ctx, 0, 1000).filterCtx(ctx, fn(_c, i) => i % 37 == 0);
+    let s = bitset.of(ctx, 1000, members);
+    assert.eq(s.toList(ctx), members);
+    assert.eq(s.count(), members.len());
+    assert.eq(s.firstSet(), members.first());
+    // Every member's successor is the next one in the list, and the last has none.
+    assert.isTrue(members.all(fn(m) => s.nextSet(m) == members.find(fn(x) => x > m)));
+    assert.isTrue(s.nextSet(999).isNone());
+    // The complement is everything else, and toggling every member empties it.
+    assert.eq(s.complement(ctx).count(), 1000 - members.len());
+    let cleared = members.foldCtx(ctx, fn(c, acc: BitSet, m) => acc.toggle(c, m), s);
+    assert.isTrue(cleared.isEmpty());
+}
