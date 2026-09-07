@@ -19,6 +19,10 @@ mod case;
 pub mod ci;
 pub mod hang;
 pub mod sweep;
+// The far side of a `core/net/websocket` row: a hand-written server, because a
+// client needs somebody to dial and this repository may not depend on an RFC
+// 6455 crate outside the runtime archive.
+pub mod websocket;
 pub use case::{
     load_case, no_golden_has_collapsed, run_case, run_corpus, Case, Step,
     A_RUN_THAT_ASSERTED_NOTHING,

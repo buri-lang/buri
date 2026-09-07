@@ -3634,6 +3634,13 @@ mod client {
     /// `http.rs`'s `Url` in shape and in refusals, written again here rather
     /// than made public there: two schemes, a default port each, no userinfo,
     /// and a target that is `/` when the URL named none.
+    ///
+    /// **One clause it has that `http.rs`'s does not**: a bracketed IPv6
+    /// literal. `ws://[::1]:9000/socket` is a URL a program on a
+    /// dual-stack host writes, and a page's own `WebSocket` dials it, so the
+    /// natives answering "there is no address for `[:`" would have been a
+    /// divergence a program could see. [`parse`] takes the brackets off for
+    /// the address and keeps them on for the `host` field.
     struct Dialled<'a> {
         authority: &'a str,
         host: &'a str,
@@ -3679,19 +3686,49 @@ mod client {
                 format!("userinfo in a URL is not supported: {url}"),
             ));
         }
-        let (host, port) = match authority.rsplit_once(':') {
-            Some((h, p)) => match p.parse::<u16>() {
-                Ok(n) => (h, n),
-                Err(_) => {
+        // 80 and 443, which are `ws://` and `wss://`'s defaults because they
+        // are HTTP's: the handshake is an HTTP request.
+        let default = if tls { 443 } else { 80 };
+        let port_of = |text: &str| {
+            text.parse::<u16>().map_err(|_| {
+                ServeErr::new(
+                    ServeFail::Transport,
+                    format!("the port in this URL is not a port: {url}"),
+                )
+            })
+        };
+        let (host, port) = if let Some(after_bracket) = authority.strip_prefix('[') {
+            // **An IPv6 literal is bracketed, and the brackets come off here.**
+            // RFC 3986 §3.2.2 brackets one because its own separator is a
+            // colon, so `rsplit_once(':')` below reads `[::1]` as a host of
+            // `[:` and a port of `1]` — which is why this arm exists rather
+            // than the address falling through it. What `resolve` wants is the
+            // address a `parse::<IpAddr>()` accepts, which is the text between
+            // the brackets; what the `host` field wants is the authority whole,
+            // brackets and all, which is what RFC 9110 §7.2 says a `host`
+            // header carries.
+            let Some((inside, after)) = after_bracket.split_once(']') else {
+                return Err(ServeErr::new(
+                    ServeFail::Transport,
+                    format!("the bracketed host in this URL never closes: {url}"),
+                ));
+            };
+            let port = match after.strip_prefix(':') {
+                Some(text) => port_of(text)?,
+                None if after.is_empty() => default,
+                None => {
                     return Err(ServeErr::new(
                         ServeFail::Transport,
                         format!("the port in this URL is not a port: {url}"),
                     ));
                 }
-            },
-            // 80 and 443, which are `ws://` and `wss://`'s defaults because
-            // they are HTTP's: the handshake is an HTTP request.
-            None => (authority, if tls { 443 } else { 80 }),
+            };
+            (inside, port)
+        } else {
+            match authority.rsplit_once(':') {
+                Some((h, p)) => (h, port_of(p)?),
+                None => (authority, default),
+            }
         };
         Ok(Dialled {
             authority,
@@ -7009,5 +7046,350 @@ mod tests {
         let mut posted = head(&[]);
         posted.method = 2;
         assert!(upgrade_key(&posted).is_none());
+    }
+
+    /// The same one-shot server, with the request head it read handed back.
+    ///
+    /// [`one_answer`] throws the request away because the two refusals it
+    /// serves are about the *answer*. The URL rows below are about what this
+    /// client **asked**, so they need the head.
+    #[cfg(feature = "net")]
+    fn one_answer_heard(
+        answer: &'static str,
+    ) -> (u16, std::thread::JoinHandle<String>) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
+        let port = listener.local_addr().expect("the bound port").port();
+        let serving = std::thread::spawn(move || {
+            let Ok((mut stream, _from)) = listener.accept() else { return String::new() };
+            let _read = stream.set_read_timeout(Some(PROMPTLY));
+            let _written = stream.set_write_timeout(Some(PROMPTLY));
+            let mut head: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 512];
+            while find(&head, b"\r\n\r\n").is_none() {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+                }
+            }
+            let _written = stream.write_all(answer.as_bytes());
+            let _flushed = stream.flush();
+            String::from_utf8_lossy(&head).into_owned()
+        });
+        (port, serving)
+    }
+
+    /// **What a URL's parts become on the wire**: the path and the query are
+    /// the request target, the port is the authority's and the `host` field's,
+    /// and a URL that named no path asks about `/`.
+    ///
+    /// The four rows are the four places a URL can carry something. A client
+    /// that dropped the query would authenticate nothing where the token is in
+    /// it — which is the arrangement `Client.url`'s own documentation tells a
+    /// program to use, because a page cannot send a header — and a client that
+    /// sent no `host` would be refused by every virtual host on the internet.
+    ///
+    /// The answer is a `404` in every case, because what is under test is the
+    /// question rather than the reply.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_dialled_url_carries_its_path_its_query_and_its_port() {
+        let refusal = "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n";
+        for (path, target) in [
+            ("/rooms/9", "/rooms/9"),
+            ("/rooms/9?token=abc&since=7", "/rooms/9?token=abc&since=7"),
+            ("/", "/"),
+            // No path at all. RFC 9112 §3.2 says the request target of a URL
+            // that named none is `/`, which is what a browser sends too.
+            ("", "/"),
+        ] {
+            let (port, serving) = one_answer_heard(refusal);
+            let _refused = client::connect(&format!("ws://127.0.0.1:{port}{path}"))
+                .expect_err("a 404 is not an upgrade");
+            let head = serving.join().expect("the server finished");
+            assert!(
+                head.starts_with(&format!("GET {target} HTTP/1.1\r\n")),
+                "the request line for `{path}` was:\n{head}"
+            );
+            assert!(
+                head.to_ascii_lowercase().contains(&format!("host: 127.0.0.1:{port}\r\n")),
+                "the `host` field carries the authority the URL named, port and all:\n{head}"
+            );
+        }
+    }
+
+    /// **A bracketed IPv6 literal is a host this client dials.**
+    ///
+    /// `[::1]:9000` is one authority with four colons in it, so the ordinary
+    /// "split at the last colon" reads a host of `[:` and a port of `1]`. What
+    /// a program gets from that is "there is no address for `[:`", which names
+    /// nothing it wrote — and a page's own `WebSocket` dials the same URL
+    /// happily, so the natives refusing it is a divergence a program can see.
+    ///
+    /// The row is loopback over IPv6, which is the address the URL a program
+    /// actually writes names. A host with no IPv6 loopback cannot answer the
+    /// question, so it is skipped by *not binding* rather than asserted around:
+    /// the bind is the probe.
+    ///
+    /// The negative twin is beside it: brackets that never close are refused
+    /// naming that, rather than dialled as a host called `[::1`.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_bracketed_ipv6_host_is_dialled_and_an_unclosed_bracket_is_refused() {
+        assert!(
+            client::connect("ws://[::1:9000/socket")
+                .expect_err("brackets that never close")
+                .detail
+                .contains("never closes"),
+            "an unclosed bracket is refused by name"
+        );
+        assert_eq!(
+            client::connect("ws://[::1]:not-a-port/socket").expect_err("a bad port").cause,
+            ServeFail::Transport
+        );
+
+        let Ok(listener) = TcpListener::bind(("::1", 0)) else {
+            // No IPv6 loopback on this host. Nothing to say, and nothing to
+            // pretend: the other half of this row already ran.
+            return;
+        };
+        let port = listener.local_addr().expect("the bound port").port();
+        let serving = std::thread::spawn(move || {
+            let Ok((mut stream, _from)) = listener.accept() else { return String::new() };
+            let _read = stream.set_read_timeout(Some(PROMPTLY));
+            let mut head: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 512];
+            while find(&head, b"\r\n\r\n").is_none() {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+                }
+            }
+            let _written = stream.write_all(
+                b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+            );
+            let _flushed = stream.flush();
+            String::from_utf8_lossy(&head).into_owned()
+        });
+        let refused = client::connect(&format!("ws://[::1]:{port}/socket"))
+            .expect_err("a 404 is not an upgrade");
+        let head = serving.join().expect("the server finished");
+        assert!(
+            refused.detail.contains("404"),
+            "the dial reached the listener and read its answer: {}",
+            refused.detail
+        );
+        assert!(
+            head.to_ascii_lowercase().contains(&format!("host: [::1]:{port}\r\n")),
+            "the `host` field keeps the brackets RFC 9110 §7.2 asks for:\n{head}"
+        );
+    }
+
+    /// **A dialled socket's outbound buffer is sixty-four deep, and filling it
+    /// closes the socket.**
+    ///
+    /// The accepted half's row is
+    /// [`a_full_outbound_buffer_closes_the_socket_and_says_so`], and it sets
+    /// the depth in the server's plan. A *dialled* socket has no plan to read a
+    /// number out of, so the number is the runtime's own `SOCKET_BUFFER` — and
+    /// this row is what says which number that is, from the outside: sixty-four
+    /// messages fit and the sixty-fifth does not.
+    ///
+    /// Nothing flushes the queue, because nothing asks the socket what arrived:
+    /// `send` never waits, so the whole of the queue is still there when the
+    /// last one lands. The close it produces carries [`OVERFLOWED`], a negative
+    /// number no peer can forge, which reaches a program as `.Overflow`.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_dialled_socket_that_fills_its_outbound_buffer_closes_and_says_so() {
+        let plan = socket_plan(None);
+        let (handle, port, _handlers) =
+            bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
+        let dialling = std::thread::spawn(move || {
+            client::connect(&format!("ws://127.0.0.1:{port}/socket"))
+        });
+        let _server = upgraded_socket(handle);
+        let dialled = dialling
+            .join()
+            .expect("the dialling thread finished")
+            .expect("a handshake this acceptor completed")
+            .socket;
+
+        // Exactly the bound, and then one more. Nothing has received on this
+        // socket, so nothing has been written and the queue is as deep as the
+        // sends were.
+        for at in 0..SOCKET_BUFFER {
+            sockets::send_text(dialled, &format!("message {at}"));
+        }
+        assert!(
+            sockets::is_open(dialled),
+            "sixty-four messages is the bound and not past it: the socket closed early"
+        );
+        sockets::send_text(dialled, "the one that does not fit");
+
+        let closed = dialled_within(dialled, SOCKET_DEADLINE).expect("the overflow, as a close");
+        assert_eq!(closed.frame, 2, "an overflow ends the socket");
+        assert_eq!(
+            closed.code, OVERFLOWED,
+            "an overflow is the platform's own reason and not a wire code"
+        );
+        assert!(!sockets::is_open(dialled), "the dialled socket was not retired");
+        close(handle);
+    }
+
+    /// **A message larger than this runtime will read ends the socket rather
+    /// than growing to fit it.**
+    ///
+    /// A dialled socket has no `Serve` plan, so its inbound ceiling is
+    /// [`BODY_LIMIT`] — the same eight mebibytes the acceptor refuses an
+    /// over-large request body with. Unset, it would be `tungstenite`'s
+    /// sixty-four, which is a peer deciding how much memory this process
+    /// spends; the point of the number is that the *peer* cannot choose it.
+    ///
+    /// What a program sees is a close with 1006, which is `.Abnormal`: the far
+    /// side broke the connection as far as this end is concerned, and there was
+    /// no close frame to say otherwise. The row beside it is the message one
+    /// octet under the ceiling, which arrives whole — so what is asserted is
+    /// the ceiling and not merely that something large fails.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_message_past_the_inbound_ceiling_ends_the_dialled_socket() {
+        for (size, over) in [(BODY_LIMIT, false), (BODY_LIMIT + 1, true)] {
+            let plan = socket_plan(None);
+            let (handle, port, _handlers) =
+                bind("127.0.0.1", 0, &plan, -1, 20_000).expect("a bound port");
+            let dialling = std::thread::spawn(move || {
+                client::connect(&format!("ws://127.0.0.1:{port}/socket"))
+            });
+            let server = upgraded_socket(handle);
+            let dialled = dialling
+                .join()
+                .expect("the dialling thread finished")
+                .expect("a handshake this acceptor completed")
+                .socket;
+
+            // The server queues the message and then asks what arrived, which
+            // is what writes it: `send` never waits on either half of this
+            // wire.
+            sockets::send_text(server, &"z".repeat(size));
+            let pumping =
+                std::thread::spawn(move || received_within(server, handle, SOCKET_DEADLINE));
+
+            let got = dialled_within(dialled, SOCKET_DEADLINE).expect("an answer either way");
+            if over {
+                assert_eq!(
+                    got.frame, 2,
+                    "a message past the ceiling was accepted: {} octets arrived",
+                    got.text.len()
+                );
+                assert_eq!(
+                    got.code, NO_CLOSE_FRAME,
+                    "a peer that overran the ceiling ends the socket abnormally"
+                );
+                assert!(!sockets::is_open(dialled), "the dialled socket was not retired");
+            } else {
+                assert_eq!(got.frame, 0, "a message *at* the ceiling is a message");
+                assert_eq!(got.text.len(), size, "and it crossed whole");
+                sockets::close(dialled, 1000, "done");
+                let _ended = dialled_within(dialled, SOCKET_DEADLINE);
+            }
+            let _pumped = pumping.join().expect("the server's receive finished");
+            close(handle);
+        }
+    }
+
+    /// **A scheme that does not match the port is refused, both ways round.**
+    ///
+    /// The scheme decides exactly one thing in this file — whether the socket
+    /// is wrapped before a byte of the handshake crosses it — so the two ways
+    /// to get it wrong are the two halves of this row:
+    ///
+    /// * `ws://` at a TLS listener writes a plaintext `GET` where a
+    ///   `ClientHello` was expected. The server answers an alert and goes, and
+    ///   what the client has is not a handshake response.
+    /// * `wss://` at a plaintext listener starts a TLS handshake nobody
+    ///   answers, and the failure is `tls.rs`'s, carried across as a
+    ///   `ServeError` because `WebSocketClient` answers one of those.
+    ///
+    /// Both are `.Transport`: a fact about this attempt, and not about what
+    /// this platform can speak. That distinction is the one
+    /// `design/native/DECISIONS.md` keeps `.Unsupported` for, and a row that
+    /// only checked "it failed" would not see it move.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_scheme_that_does_not_match_the_port_is_refused_either_way() {
+        use crate::tls::tests as fixture;
+        let _trusting = fixture::trust_lock();
+        let leaf = fixture::bundle("mismatch-leaf", fixture::LEAF_PEM);
+        let key = fixture::bundle("mismatch-key", fixture::LEAF_KEY_PEM);
+        fixture::trust(&fixture::bundle("mismatch-ca", fixture::CA_PEM));
+        let config = crate::tls::server_config(&leaf, &key, Vec::new())
+            .expect("the fixture certificate and the key that signed it");
+        let (tls_port, listeners) = fixture::loopback();
+        let serving = std::thread::spawn(move || {
+            let Some(sock) = fixture::accept_within(&listeners, PROMPTLY) else { return };
+            let _read = sock.set_read_timeout(Some(PROMPTLY));
+            let _written = sock.set_write_timeout(Some(PROMPTLY));
+            let Ok(conn) = rustls::ServerConnection::new(std::sync::Arc::new(config)) else {
+                return;
+            };
+            let mut stream = rustls::StreamOwned::new(conn, sock);
+            // The handshake fails on the first record, which is a plaintext
+            // `GET`. Reading is what makes it happen, and what it answers is
+            // an alert this side does not have to look at.
+            let mut chunk = [0u8; 512];
+            let _read = stream.read(&mut chunk);
+        });
+        let plaintext_at_tls = client::connect(&format!("ws://localhost:{tls_port}/socket"))
+            .expect_err("a plaintext handshake at a TLS port");
+        assert_eq!(
+            plaintext_at_tls.cause,
+            ServeFail::Transport,
+            "a port that would not speak this protocol is a fact about the attempt: {}",
+            plaintext_at_tls.detail
+        );
+        serving.join().expect("the TLS listener finished");
+
+        // And the other way: TLS at a listener that speaks none. It accepts,
+        // reads the `ClientHello`, and goes — so the handshake ends at once
+        // rather than against the thirty-second deadline.
+        //
+        // **`127.0.0.1` and not `localhost`**, unlike the half above, and the
+        // difference is the whole of the tls-hang doctrine: `loopback()` binds
+        // both families because a *name* is what the other half dials, and a
+        // single listener reached by a name is a server on one family and a
+        // client on the other. This half dials an address literal, so there is
+        // no name to disagree about. rustls checks a certificate against an IP
+        // the same way it checks one against a name, and there is no
+        // certificate here to check anyway.
+        let plain = TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
+        let plain_port = plain.local_addr().expect("the bound port").port();
+        plain.set_nonblocking(true).expect("a listener that can give up");
+        let hanging_up = std::thread::spawn(move || {
+            let until = Instant::now() + PROMPTLY;
+            while Instant::now() < until {
+                match plain.accept() {
+                    Ok((mut stream, _from)) => {
+                        let _blocking = stream.set_nonblocking(false);
+                        let _read = stream.set_read_timeout(Some(PROMPTLY));
+                        let mut chunk = [0u8; 512];
+                        let _hello = stream.read(&mut chunk);
+                        return;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(_) => return,
+                }
+            }
+        });
+        let tls_at_plaintext = client::connect(&format!("wss://127.0.0.1:{plain_port}/socket"))
+            .expect_err("a TLS handshake at a plaintext port");
+        assert_eq!(
+            tls_at_plaintext.cause,
+            ServeFail::Transport,
+            "a TLS handshake nobody answered is a fact about the attempt: {}",
+            tls_at_plaintext.detail
+        );
+        hanging_up.join().expect("the plaintext listener finished");
     }
 }
