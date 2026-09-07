@@ -16,7 +16,9 @@ fn hex<C: Alloc>(ctx: C): Str {
 /// The worker's entry. A page and a worker get no standard output, so the
 /// answer travels back as the response body.
 export fn handle(_request: Request): Response {
-    let ctx = context { Alloc: host.alloc };
+    let ctx = context {
+        Alloc: host.alloc,
+    };
     http.text(ctx, hex(ctx))
 }
 
