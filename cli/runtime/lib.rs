@@ -48,6 +48,15 @@
 //!     `runtime.js`'s `$t.h`, and here it is one table. `alloc()`
 //!     is the exception in both and both backends open-code it, because it
 //!     reads no state;
+//!   * **the reactive graph, the themes and the headless `Ui`** ([`ui`]) — the
+//!     `$ui_*` half of `backend/js/runtime.js`. Cells holding bytes at the
+//!     caller's stride, lazy memos, eager watchers, one queue with a step
+//!     budget, and the `:root` block a theme list resolves to. It is here for
+//!     [`testing`]'s reason rather than a new one — a graph is mutable process
+//!     state outliving every expression that touches it — and the bodies it
+//!     runs arrive as §2 rule 5's entry thunk, exactly as `Tasks.parallel`'s
+//!     steps do. The DOM shim stays in JavaScript; nothing in that file
+//!     renders anything;
 //!   * **128-bit arithmetic** — [`buri_rt_i128_divmod`], [`buri_rt_i128_checked`]
 //!     and [`buri_rt_i128_saturating`], at the bottom of this file. They are
 //!     here for one reason: the overflow test both backends use at 64 bits is
@@ -601,6 +610,12 @@ mod list;
 mod math;
 mod memory;
 mod net;
+/// The renderer: a scene document and a stylesheet in, PNG bytes out. Behind
+/// the `paint` feature because its three crates are, and it is in `default`
+/// for `net`'s reason — a toolchain that could not paint would make
+/// `ui/testing`'s `snapshot` a build-flag question for every user.
+#[cfg(feature = "paint")]
+mod paint;
 mod rng;
 /// The carrier runtime — the tokio handle, the carrier pool, the task table
 /// and the stack switch a park is made of. (The run baton this line used to
@@ -614,6 +629,12 @@ pub mod rt;
 /// nothing to switch.
 #[cfg(feature = "net")]
 mod switch;
+/// `ui/testing`'s `snapshot`: paint the scene `ui/node`'s `describe` wrote,
+/// then compare it against the golden or record it. Three `Str`s in and
+/// nothing out, and a changed snapshot is reported as a failed assertion
+/// rather than as a toolchain fault. Behind `paint` because the painter is.
+#[cfg(feature = "paint")]
+mod snapshot;
 mod testing;
 mod text;
 /// TLS for `http`'s `https://` half. Behind the `net` feature because it *is*
@@ -621,6 +642,7 @@ mod text;
 /// name (see §8).
 #[cfg(feature = "net")]
 mod tls;
+mod ui;
 mod value;
 
 pub use abort::*;

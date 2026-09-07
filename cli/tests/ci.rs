@@ -1054,7 +1054,28 @@ fn the_runtime_archive_is_real() {
     // `net.rs`'s `size_of` names it — and on Linux, where quinn's symbols do
     // survive, the h3 archive is still inside the number below. The slice that
     // first CALLS into quinn is the one that comes back here and moves it.
-    let budget = if cfg!(target_os = "macos") { 9_536_512 } else { 14_680_064 };
+    //
+    // **Both numbers moved for the painter, and the macOS one is the measured
+    // total.** `cli/runtime/paint.rs` links `taffy`, `cosmic-text` and
+    // `tiny-skia` and bundles three Roboto faces, and on
+    // aarch64-apple-darwin the archive went from 9 147 720 bytes to
+    // 12 221 408 — **+3 073 688**, of which 135 740 is the fonts and the rest
+    // is code, three quarters of it `cosmic-text`'s shaping stack and Unicode
+    // tables. 12.5 MiB is the re-statement, and the archive stands at
+    // 12 238 768 with `core/tasks`'s six scope entries in it, which leaves
+    // 6.6 % of the margin.
+    //
+    // **The Linux number is a measured delta on an earlier measured base, and
+    // that is weaker than the line above.** No macOS host can link `ring`'s C
+    // for musl, so the whole archive cannot be built here. What can be, and
+    // was, is the painter's own cost on `aarch64-unknown-linux-musl` with the
+    // networking off: 9 562 484 bytes without `paint` against 13 944 290 with
+    // it, so **+4 381 806** — 1.43x the Darwin delta, which is ELF's price for
+    // the same code. On the 13 688 588 the last Linux measurement left
+    // (BUILD-AND-WATCH.md §3.3.1's container, plus F7's WebSockets) that is
+    // about 18.1 MB, and 19 MiB is the re-statement. The next slice to touch
+    // this owes the container a real total.
+    let budget = if cfg!(target_os = "macos") { 13_107_200 } else { 19_922_944 };
     assert!(
         rt::ARCHIVE.len() <= budget,
         "libburi_rt.a is {} bytes, over the {budget}-byte budget for this platform. Every buri \
@@ -1210,6 +1231,13 @@ fn the_published_crate_ships_the_runtime() {
         "switch_macos_arm64.s",
         "switch_linux_arm64.s",
         "switch_linux_x86_64.s",
+        // And the three faces `paint.rs` reaches through `include_bytes!`, for
+        // the same reason and with the same failure: a snapshot suite has no
+        // fonts, so a toolchain installed from a tarball would fail here rather
+        // than paint badly.
+        "fonts/Roboto-Regular.ttf",
+        "fonts/Roboto-Bold.ttf",
+        "fonts/Roboto-Italic.ttf",
     ] {
         let wanted = format!("runtime/{name}");
         assert!(

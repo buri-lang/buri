@@ -8,8 +8,9 @@ toolchain, and are never listed in a `dependencies`.
 and the `Event` a handler is handed. Requests are not among them: a page asks
 for `core/effect`'s `Net` like every other platform. `ui/signal` is `Signal<T>` —
 `get`, `set`, `update` — plus `signal` and `watch`. `ui/prop` is `Prop<T>` and
-`memo`. `ui/testing` is a headless platform and a renderer for looking at what a
-tree became, and only a test source may import it.
+`memo`. `ui/testing` is a headless platform, a renderer for looking at what a
+tree became, and `snapshot`, which paints one and holds it to a golden PNG. Only
+a test source may import it.
 
 The whole of it rests on one idea: **a signal handle is inert data, and the
 authority to read or write it travels through `ctx`**, the same split `Alloc`
@@ -221,3 +222,76 @@ That is what makes dark mode free. `theme.switching(condition, whenTrue,
 whenFalse)` takes a `Prop<Bool>`: a signal the app writes, a stored preference,
 a media query bridged into one. When it changes the runtime writes the block of
 values again. No class changes, no element is touched.
+
+## Snapshots
+
+`ui/testing`'s `snapshot` paints a tree and compares the PNG, byte for byte,
+against a golden checked in beside the suite:
+
+```buri role=test
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/testing" import { headless, snapshot };
+
+fn card<C>(name: Prop<Str>): Node<C> {
+    ui.stack([.Padding(.Px(8))], [ui.text(name)])
+}
+
+test "the card" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "card", card(.Const("Ada")), .Hover);
+}
+```
+
+```sh
+buri test //lib/cardlib --update    record test/__snapshots__/card.png
+buri test //lib/cardlib             compare against it
+```
+
+A mismatch fails the test:
+
+```text
+the snapshot "card" changed: see test/__snapshots__/card.diff.png
+```
+
+That file is the golden washed out, with every differing pixel in magenta. The
+next `--update` clears it.
+
+**The toolchain paints it — no browser, no window, and no markup anywhere near
+a snapshot file.** `taffy` lays out, `cosmic-text` shapes, `tiny-skia` paints,
+and three Roboto faces ship with the toolchain. No system font is ever loaded,
+hinting is off, layout rounds in exactly one place, and the PNG encoder is
+written for this. So the same tree paints the same bytes on Linux and on macOS,
+the comparison needs no tolerance, and a golden is worth checking in.
+
+**Snapshots run natively.** A suite that says `test { platforms: [JS] }` fails
+the call, because the JavaScript runtime has no painter:
+
+```text
+the snapshot "card" was not painted: snapshots run natively, and this suite is JS
+```
+
+The rest is short:
+
+- The context binds `Alloc` as well as `Ui`, because building the scene builds a
+  string. The signature is
+  `snapshot<C: Alloc + Ui>(ctx: C, name: Str, root: Node<C>, state: State): ()`.
+- `state` is `ui/style`'s `State`, and it applies to **every** element in the
+  tree. A hovered card and a resting one are two snapshots of one tree.
+- The viewport is 800x600 CSS pixels, always.
+- A snapshot name is a file name: never empty, never holding a path separator.
+- `ui/node`'s `describe(ctx, root, state)` answers the scene document `snapshot`
+  paints — every prop read, every style expanded, every child in order. Print it
+  when a snapshot surprises you.
+
+Two things the painter does not do yet, and both show up in a picture. A
+`box-shadow`'s blur radius paints nothing: you get the offset, spread rectangle
+in its colour. And `overflow: hidden` clips to the box's rectangle, ignoring its
+radius.

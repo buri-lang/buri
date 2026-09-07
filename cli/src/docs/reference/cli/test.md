@@ -48,6 +48,28 @@ a backend nobody chose, turning a named gap into a wrong answer. A suite that
 belongs on JavaScript says so with `test { platforms: [JS] }`; anything else is
 a toolchain bug worth hearing about.
 
+**A `platforms: [JS]` suite cannot paint a snapshot.** There is no painter in
+the JavaScript runtime, so a `snapshot` call there fails the test saying so.
+
+## Snapshots
+
+`ui/testing`'s `snapshot` paints a tree and compares the PNG against a golden in
+the package's `test/__snapshots__/`. A mismatch fails the test like any other
+assertion and writes `<name>.diff.png` beside the golden, showing where the two
+disagree.
+
+`--update` records what each `snapshot` painted as its golden instead of
+comparing, and clears any diff left from an earlier run:
+
+```sh
+buri test //lib/cardlib --update
+```
+
+Read the new PNGs in the diff before you commit them — recording a golden is
+the whole review. The
+[user interfaces guide](../../guides/user-interfaces.md#snapshots) covers what
+the painter does and does not do.
+
 ## Watching
 
 With `--watch`, `buri test` runs the same invocation again every time one of its

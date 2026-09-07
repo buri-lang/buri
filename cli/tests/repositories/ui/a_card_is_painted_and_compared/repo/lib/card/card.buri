@@ -1,0 +1,17 @@
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+
+/// A name on a card: a heading, a run of text, and enough style to have
+/// something to paint.
+export fn card<C>(name: Prop<Str>): Node<C> {
+    ui.column(
+        [
+            .Padding(.Px(16)),
+            .Background(.Rgb(240, 240, 245)),
+            .Radius(.Px(8)),
+            .Gap(.Px(8)),
+        ],
+        [ui.heading(2, .Const("Card")), ui.text(name)],
+    )
+}

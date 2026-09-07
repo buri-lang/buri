@@ -972,7 +972,11 @@ fn the_runtime_crate_answers_its_own_tests() {
         cargo.arg("--offline");
     }
     if !net() {
-        cargo.arg("--no-default-features");
+        // `paint` back on top, because `cli/build.rs` never turns it off: the
+        // painter is pure Rust and needs no dependency tree to fetch and no C
+        // compiler, so the fallback a degraded host takes still carries it, and
+        // a nested run without it would be testing a different archive.
+        cargo.args(["--no-default-features", "--features", "paint"]);
     }
     if h3() {
         cargo.args(["--features", "net-h3"]);

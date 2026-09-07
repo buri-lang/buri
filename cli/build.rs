@@ -736,6 +736,11 @@ fn copy_if_different(from: &Path, to: &Path) {
 /// beside them, and the removal of anything left over from a previous build —
 /// a source file deleted from `cli/runtime/` must not go on being compiled out
 /// of a stale `OUT_DIR`.
+///
+/// `fonts/` is the one subdirectory that comes too. `paint.rs` reaches the
+/// three bundled faces through `include_bytes!`, which resolves against the
+/// assembled package and not against `cli/runtime/` — the same reason
+/// `switch.rs`'s `.s` files are copied.
 fn assemble(runtime: &Path, out_dir: &Path) -> PathBuf {
     let pkg = out_dir.join("rt-pkg");
     if let Err(e) = std::fs::create_dir_all(&pkg) {
@@ -762,6 +767,8 @@ fn assemble(runtime: &Path, out_dir: &Path) -> PathBuf {
         }
     }
 
+    copy_tree(&runtime.join("fonts"), &pkg.join("fonts"));
+
     if let Ok(existing) = std::fs::read_dir(&pkg) {
         for entry in existing.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
@@ -771,6 +778,39 @@ fn assemble(runtime: &Path, out_dir: &Path) -> PathBuf {
         }
     }
     pkg
+}
+
+/// Copies one flat directory of files, and removes what is no longer in it.
+///
+/// [`assemble`]'s loop over `cli/runtime/` for a subdirectory, with the same
+/// two properties: `copy_if_different` leaves an unchanged file's mtime alone,
+/// so a rerun of this script does not rebuild the runtime, and a file deleted
+/// upstream is deleted here rather than going on being compiled.
+fn copy_tree(from: &Path, to: &Path) {
+    let entries = match std::fs::read_dir(from) {
+        Ok(e) => e,
+        Err(e) => fail(&format!("could not read {}: {e}", from.display())),
+    };
+    if let Err(e) = std::fs::create_dir_all(to) {
+        fail(&format!("could not create {}: {e}", to.display()));
+    }
+    let mut wanted: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        if !entry.path().is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        copy_if_different(&entry.path(), &to.join(&name));
+        wanted.push(name);
+    }
+    if let Ok(existing) = std::fs::read_dir(to) {
+        for entry in existing.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if entry.path().is_file() && !wanted.contains(&name) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
 }
 
 /// A `cargo` for the assembled package, with the parent invocation's state
@@ -1328,6 +1368,13 @@ fn runtime_archive(manifest: &Path) {
     if crypto {
         features.push("crypto");
     }
+    // `paint` unconditionally, and it is the one feature with no environment
+    // variable behind it. The other three can be turned off because each costs
+    // something a host might not be able to pay - a dependency tree to fetch, a
+    // C compiler for `ring`. The painter is three pure-Rust crates and a font,
+    // so the fallback path a host with no `cc` takes keeps it, and
+    // `ui/testing`'s `snapshot` works on every toolchain this script can build.
+    features.push("paint");
 
     // The command line is built **before** the freshness question rather than
     // after it, because it is one of the things the stamp is a digest of: the

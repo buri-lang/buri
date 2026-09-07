@@ -1803,6 +1803,60 @@ pub const ENTRIES: &[Entry] = &[
     // And the other half of it, emitted after: whether to run this body again,
     // which is how `TestTasks.everyOrder` reruns it once per completion order.
     Entry { key: "test.replay", symbol: TEST_REPLAY, args: &[Arg::Scalar], ret: Ret::Scalar },
+    // -- the reactive graph, and the snapshot it paints ----------------------
+    //
+    // `runtime_table.rs`'s group of the same name argues the set. What is
+    // different here is only the column this table has and that one does not:
+    // the `Arg::Spilled` that hands a bare `T` over by address, and the
+    // `Arg::Stride`/`Arg::Retain` pair after it.
+    //
+    // `Arg::Spilled` is the reason `signal` and `write` need no widening in
+    // this backend: it already remembers the argument's own type. The two
+    // `read`s do — `generic_element` answers with a result's element, and here
+    // the result *is* the type — and that is the one line this slice added to
+    // `emit.rs`.
+    Entry {
+        key: "ui_node.rootScope",
+        symbol: "buri_rt_ui_node_root_scope",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_effect.Scope.read",
+        symbol: "buri_rt_ui_effect_scope_read",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.headless",
+        symbol: "buri_rt_ui_testing_headless",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.Headless.signal",
+        symbol: "buri_rt_ui_testing_headless_signal",
+        args: &[Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_testing.Headless.read",
+        symbol: "buri_rt_ui_testing_headless_read",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.Headless.write",
+        symbol: "buri_rt_ui_testing_headless_write",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_testing.paint",
+        symbol: "buri_rt_ui_testing_paint",
+        args: &[Arg::Str, Arg::Str, Arg::Str],
+        ret: Ret::Void,
+    },
 ];
 
 pub fn entry(key: &str) -> Option<&'static Entry> {
@@ -2233,12 +2287,23 @@ mod tests {
     /// which the C boundary does not diagnose.
     #[test]
     fn stride_and_retain_come_in_pairs_behind_a_generic() {
+        use crate::compiler::backend::runtime_table;
         for e in ENTRIES {
             let strides = e.args.iter().filter(|a| **a == Arg::Stride).count();
             let retains = e.args.iter().filter(|a| **a == Arg::Retain).count();
             assert_eq!(strides, retains, "{}", e.key);
+            // A row may name its `T` in the **result** rather than in an
+            // argument, and then there is no `Arg::Elems` and no `Arg::Spilled`
+            // to see: `ui_effect.Scope.read` and `ui_testing.Headless.read` are
+            // both `fn(id: Int) -> T`. The other table marks exactly the rows
+            // that carry the pair with `Extra::Element`, so that is what is
+            // asked rather than a second column here — and it keeps the claim
+            // as strong as it was, since a row with a stride and no mark
+            // anywhere still fails.
+            let by_result = runtime_table::entry(e.key)
+                .is_some_and(|shared| shared.extra == runtime_table::Extra::Element);
             let generic =
-                e.args.iter().any(|a| matches!(a, Arg::Elems | Arg::Spilled));
+                e.args.iter().any(|a| matches!(a, Arg::Elems | Arg::Spilled)) || by_result;
             // [`Arg::Step`] carries **both** of its strides itself, because a
             // step reads one element type and writes another and `Arg::Stride`
             // names exactly one. So a row with a step is generic and has no
@@ -2297,5 +2362,54 @@ mod tests {
             checked += 1;
         }
         assert!(checked > 20, "only {checked} contexts were checked against both tables");
+    }
+
+    /// The two tables agree about the **generic pair** as well: a key the other
+    /// table marks `Extra::Element` carries exactly one [`Arg::Stride`] and one
+    /// [`Arg::Retain`] here, and a key it marks `Entry::by_ref` spills that
+    /// argument here.
+    ///
+    /// It is the same claim as the row above, one column over, and it exists
+    /// because nothing else asks it. `ui/effect`'s graph is where the two
+    /// tables could most easily drift: those keys name their `T` in a bare
+    /// argument or in the result rather than as a `[T]`'s element, so each
+    /// backend had to widen its own "which type is `T`" answer, and two
+    /// widenings that disagreed would be a stride from one type and a retain
+    /// from another — a call that links, runs, and frees the wrong block.
+    #[test]
+    fn an_entry_carries_the_generic_pair_the_other_table_asks_for() {
+        use crate::compiler::backend::runtime_table::{self, Extra};
+        let mut checked = 0usize;
+        for shared in runtime_table::ENTRIES {
+            let Some(here) = ENTRIES.iter().find(|e| e.key == shared.key) else { continue };
+            if shared.extra != Extra::Element {
+                continue;
+            }
+            assert_eq!(
+                here.args.iter().filter(|a| **a == Arg::Stride).count(),
+                1,
+                "{}: the other table asks for a stride and this one carries none, or two",
+                shared.key
+            );
+            assert_eq!(
+                here.args.iter().filter(|a| **a == Arg::Retain).count(),
+                1,
+                "{}: the other table asks for a retain and this one carries none, or two",
+                shared.key
+            );
+            if let Some(at) = shared.by_ref {
+                assert_eq!(
+                    here.args.get(at),
+                    Some(&Arg::Spilled),
+                    "{}: argument {at} crosses by address and this table does not spill it",
+                    shared.key
+                );
+            }
+            checked += 1;
+        }
+        // Twelve today. A floor rather than a count, so that a new generic
+        // row is not a failing test, and not `> 0`, so that a table that
+        // stopped naming them is.
+        assert!(checked >= 12, "only {checked} generic entries were checked against both tables");
     }
 }
