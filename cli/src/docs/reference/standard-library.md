@@ -377,7 +377,8 @@ log record where four would do. [`core/hash`](#checksums) covers that case.
 [`ui/prop`](../../compiler/standard_library/sources/ui_prop.buri),
 [`ui/node`](../../compiler/standard_library/sources/ui_node.buri),
 [`ui/style`](../../compiler/standard_library/sources/ui_style.buri),
-[`ui/theme`](../../compiler/standard_library/sources/ui_theme.buri) and
+[`ui/theme`](../../compiler/standard_library/sources/ui_theme.buri),
+[`ui/web`](../../compiler/standard_library/sources/web.buri) and
 [`ui/testing`](../../compiler/standard_library/sources/ui_testing.buri) are the
 second reserved root. They have a page of their own:
 [user interfaces](../guides/user-interfaces.md).
@@ -386,6 +387,42 @@ Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
 to a scene document, and `ui/testing`'s `snapshot` paints that document and
 holds the PNG to a golden checked in beside the suite. The toolchain paints it
 itself, so neither needs a browser.
+
+`ui/web` is the same tree on a server. A worker renders it to HTML and sends
+the state it rendered from with it; the page takes that markup over and reads
+the state back out.
+
+```buri
+from "core/effect" import { Alloc };
+from "core/json" import { Json };
+from "core/net/http" import * as http;
+from "core/net/http" import { Response };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/prop" import { Prop };
+from "ui/web" import * as web;
+
+fn page<C>(path: Prop<Str>): Node<C> {
+    ui.region(.Main, [], [ui.heading(1, path)])
+}
+
+fn answer<C: Alloc>(ctx: C, path: Str, state: Json): Response {
+    http.html(ctx, web.shell(ctx, web.render(page(.Const(path))), state))
+}
+```
+
+`render` takes no context and cannot need one: every constructor in `ui/node` is
+unbounded in `C`, so nothing in a tree can act while it is being written out.
+`shell` puts the state in an inert `<script id="buri-state">` and the compiler's
+stylesheet in the head. On the page, `web.resume(ctx)` picks that state up —
+`web.state(ctx)` reads it — and renders nothing, so the reader keeps looking at
+the markup that arrived.
+
+Routing is a match. A page function takes the path as a `Prop<Str>`: the worker
+passes `.Const(request.path())` and the page passes `web.route(ctx)`, which is
+the address bar as a cell. `Location` is granted on WEB alone, and it is what
+makes navigating re-run the smallest thing that read the path.
+[Build a website](../guides/websites.md) walks both halves end to end.
 
 ## The platform
 
@@ -678,7 +715,7 @@ each answer a *new* message, so you assemble a request by chaining and never by
 mutation. The language has no associated functions, since a function inside an
 `impl` block takes `self`, so the constructors are free functions:
 `http.request`, `http.textRequest`, `http.status`, `http.ok`, `http.text`,
-`http.json`.
+`http.json`, `http.html`.
 
 `core/host/testing` is `core/host`'s surface for a test. It has the same names —
 `alloc`, `stdout`, `stderr`, `stdin`, `fs`, `net`, `clock`, `rand`, `entropy`,

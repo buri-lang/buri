@@ -5307,3 +5307,75 @@ function $lazy(n, env) {
   }
   return $lazyChunks[n];
 }
+
+// --- A website ----------------------------------------------------------------
+//
+// `ui/web`: the tree rendered to HTML on a worker, and what the page does with
+// the document that arrives. There is no second renderer here — `$tree_render`
+// is the one `mount` uses, pointed at the substitute document — so what a
+// worker writes is what the page would have built.
+
+// The page's side of `resume`, and the address bar's cell. Both are per
+// artifact: a page resumes once, and there is one address bar.
+const $ui_web = { state: undefined, location: -1 };
+
+function $ui_web_stylesheet() {
+  return $ui_sheet;
+}
+
+function $ui_web_render(root) {
+  // What a render registers is per-request bookkeeping: the tree is thrown away
+  // with the answer, and a worker's module state outlives the request. So the
+  // cells this made go with it.
+  const before = $ui.nodes.length;
+  const host = $dom_make(0, "root");
+  // No context. A handler is never called here — what this answers is text —
+  // and every constructor that receives one is unbounded in it, so nothing on
+  // this path can do anything with a context at all.
+  $tree_render(null, root, host, null);
+  let out = "";
+  for (const child of host.children) out += $dom_markup(child);
+  $ui.nodes.length = before;
+  return out;
+}
+
+// The state the server embedded, read off the document the browser parsed.
+// `undefined` — `None` — where there is no document, which is every JavaScript
+// host that is not a browser, and where the server sent none.
+function $ui_web_embedded() {
+  if (typeof document === "undefined" || !document.getElementById) return undefined;
+  const holder = document.getElementById("buri-state");
+  if (holder === null || holder === undefined) return undefined;
+  return holder.textContent;
+}
+
+function $ui_web_resume(ctx) {
+  const body = $dom_body();
+  if (!body) return $err("there is nowhere to resume: this platform has no document");
+  // Nothing is rendered and nothing is removed: the markup the server sent is
+  // the markup the reader keeps looking at.
+  $ui_web.state = $ui_web_embedded();
+  return $ok(0);
+}
+
+function $ui_web_state(ctx) {
+  return $ui_web.state;
+}
+
+// The address bar, as one cell of the graph. Made on first ask, so a page that
+// never routes registers nothing, and written from `popstate` — which is what
+// the browser fires when the reader goes back or forward.
+function $host_HostLocation_path(self) {
+  if ($ui_web.location < 0) {
+    $ui_web.location = $ui_cell(0, $ui_web_path(), null);
+    if (typeof addEventListener === "function") {
+      addEventListener("popstate", () => $ui_write($ui_web.location, $ui_web_path()));
+    }
+  }
+  return BigInt($ui_web.location);
+}
+
+function $ui_web_path() {
+  if (typeof location === "undefined" || location === null) return "/";
+  return location.pathname || "/";
+}

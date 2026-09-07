@@ -1,0 +1,121 @@
+// `ui/web`: what a worker sends, asserted on the bytes it sends.
+//
+//   - the HTML a tree renders to is the markup the page's own renderer builds,
+//     which is the claim that there is one renderer and not two;
+//   - the document carries the body and the state, and the state survives a
+//     string that looks like the end of the script it sits in;
+//   - `http.html` says what the body is.
+//
+// The page's half — `resume`, `state`, `path` and `route` — needs a document
+// the browser parsed and an address bar over it, and neither exists here. It is
+// asserted where it can be: `language::a_website_is_rendered_by_its_worker_and
+// _resumed_by_its_page` drives a built artifact with both.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/json" import * as json;
+from "core/json" import { DecodeError, FromJson, ToJson };
+from "core/net/http" import * as http;
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/node" import { Node };
+from "ui/testing" import { headless, render };
+from "ui/web" import * as web;
+
+derive FromJson, ToJson for Reading;
+/// A state with a title a page would show and a string that closes a script.
+struct Reading {
+    title: Str,
+    note: Str,
+}
+
+/// The one tree these tests render, built where both renderers can reach it.
+fn tree<C>(): Node<C> {
+    ui.region(.Main, [], [ui.heading(1, .Const("Titles")), ui.text(.Const("and text"))])
+}
+
+/// The body of a document, without the state the page resumes from.
+fn body(document: Str): Str {
+    match (document.splitOnce("<body>")) {
+        .None => "",
+        .Some(pair) => {
+            match (pair.1.splitOnce("<script")) {
+                .None => "",
+                .Some(inner) => inner.0,
+            }
+        },
+    }
+}
+
+/// The state a document embedded, as the text the page reads back.
+fn embedded(document: Str): Str {
+    match (document.splitOnce("type=\"application/json\">")) {
+        .None => "",
+        .Some(pair) => {
+            match (pair.1.splitOnce("</script>")) {
+                .None => "",
+                .Some(inner) => inner.0,
+            }
+        },
+    }
+}
+
+test "a tree renders to HTML" {
+    assert.eq(web.render(tree()), "<main><h1>Titles</h1>and text</main>");
+}
+
+test "what a worker renders is what the page would have built" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    // The same tree, through the two renderers. They are one renderer, and
+    // this is what says so.
+    assert.eq(web.render(tree()), render(ctx, tree()).markup());
+}
+
+test "text is escaped, so a title cannot write markup" {
+    assert.eq(
+        web.render(ui.text(.Const("<b>& later</b>"))),
+        "&lt;b&gt;&amp; later&lt;/b&gt;",
+    );
+}
+
+test "the document carries the body and the state beside it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let state = Reading { title: "Titles", note: "plain" };
+    let document = web.shell(ctx, web.render(tree()), state.toJson(ctx));
+    assert.isTrue(document.startsWith("<!doctype html>"));
+    assert.eq(body(document), "<main><h1>Titles</h1>and text</main>");
+    assert.eq(embedded(document), "{\"title\":\"Titles\",\"note\":\"plain\"}");
+}
+
+test "a state that ends the script it sits in closes nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let state = Reading { title: "Titles", note: "</script><b>" };
+    let document = web.shell(ctx, "", state.toJson(ctx));
+    assert.isFalse(embedded(document).contains("</script>"));
+    // And it is still the state, because a JSON reader reads the escape back.
+    let read: Result<Reading, DecodeError> = json.decode(
+        ctx,
+        json.parse(ctx, embedded(document)).withDefault(.Null),
+    );
+    assert.eq(read.withDefault(Reading { title: "", note: "" }).note, "</script><b>");
+}
+
+test "a document is answered as HTML" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let answer = http.html(ctx, "<p>hello</p>");
+    assert.eq(answer.status, 200);
+    assert.eq(
+        answer.header("content-type").withDefault("none"),
+        "text/html; charset=utf-8",
+    );
+    assert.eq(http.bodyText(ctx, answer.body).withDefault(""), "<p>hello</p>");
+}

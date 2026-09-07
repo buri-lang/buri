@@ -86,6 +86,12 @@ export fn json<C: Alloc>(ctx: C, body: Str): Response {
     ok(ctx, body).withHeader(ctx, "content-type", "application/json")
 }
 
+/// `200 text/html; charset=utf-8`. What a worker answers a page request with,
+/// and `ui/web`'s `shell` is what writes the document it takes.
+export fn html<C: Alloc>(ctx: C, body: Str): Response {
+    ok(ctx, body).withHeader(ctx, "content-type", "text/html; charset=utf-8")
+}
+
 // --- Bodies -------------------------------------------------------------------
 
 /// A message body decoded as UTF-8, strictly: `http.bodyText(ctx, reply.body)`.
