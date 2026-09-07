@@ -147,8 +147,8 @@ fn a_generated_module_links_into_a_release_artifact_or_is_refused_by_name() {
 /// `std/codegen/proto` is a Buri program, and the build compiles it to an
 /// `.mjs` under `.buri/out/toolchain/` the first time anything needs a schema
 /// read. The file's name is its action key, so the claim this row holds is
-/// two-sided: after building two targets, on two platforms, twice over, that
-/// directory holds exactly one file — and the second build does not write it
+/// two-sided: after two builds, of two targets, across three platforms, that
+/// directory holds exactly one file — and the second build did not write it
 /// again.
 ///
 /// What it costs is the whole reason to care. A compile of the generator is a
@@ -158,15 +158,16 @@ fn a_generated_module_links_into_a_release_artifact_or_is_refused_by_name() {
 #[test]
 fn the_toolchain_generator_is_compiled_once_per_repository() {
     let scratch = repository("generators-toolchain");
-    // A second package reading the same library, so the build has two targets
-    // whose closure needs the generator.
+    // A second package reading the same library, on two platforms of its own.
+    // Nothing native here: whether this host links is a different question, and
+    // this row has to mean the same thing on every machine.
     scratch.write(
         "cmd/twice/BUILD.buri",
         "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }, { platform: WEB }]\n}\n",
     );
     scratch.write("cmd/twice/main.buri", PROGRAM);
 
-    scratch.run(&["build", "//cmd/twice"]).ok();
+    scratch.run(&["build", "//lib/wire"]).ok();
     let after_first = toolchain_artifacts(&scratch);
     assert_eq!(
         after_first.len(),
@@ -175,15 +176,12 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
         after_first.len()
     );
 
-    // A second build, of a second target, on a third platform. Same file, same
-    // bytes, no second compile.
+    // A second build, of a second target, on two more platforms. Same file,
+    // same bytes, no second compile.
     let before = std::fs::metadata(&after_first[0]).expect("the generator's module").modified().ok();
-    scratch.run(&["build", "//..."]).ok();
+    scratch.run(&["build", "//cmd/twice"]).ok();
     let after_second = toolchain_artifacts(&scratch);
-    assert_eq!(
-        after_second, after_first,
-        "a second build compiled the toolchain generator again"
-    );
+    assert_eq!(after_second, after_first, "a second build compiled the toolchain generator again");
     let after = std::fs::metadata(&after_second[0]).expect("the generator's module").modified().ok();
     assert_eq!(before, after, "the generator's module was rewritten by a build that had one");
 }
