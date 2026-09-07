@@ -1547,10 +1547,24 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             .boxed_payload(id, variant)
             .get(index)
             .copied()
-            .map_or(false, |(boxed, _, _)| boxed);
-        let (_, _, align) = self.dest_shape(code, dest);
-        let value =
-            self.payload_of(&slots, &enum_repr, &offsets, index, &want, whole, boxed, align);
+            .is_some_and(|(boxed, _, _)| boxed);
+        // A boxed payload is one pointer in the blob, and the value is the
+        // bytes it names: take the pointer the way any other payload field is
+        // taken, then load through it (`stencil/emit.rs`'s `unbox_from`).
+        let read = if boxed {
+            vec![Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) }]
+        } else {
+            want.clone()
+        };
+        let taken = self.payload_of(&slots, &enum_repr, &offsets, index, &read, whole);
+        let value = if boxed {
+            let BasicValueEnum::PointerValue(block) = taken else { return };
+            let (_, _, align) = self.dest_shape(code, dest);
+            let loaded = self.load_slots(block, &want, align);
+            repr::assemble(self.ctx, &self.builder, &want, &loaded)
+        } else {
+            taken
+        };
         self.set(state, dest, value);
     }
 
@@ -1567,8 +1581,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         index: usize,
         want: &[Slot],
         whole: BasicValueEnum<'ctx>,
-        boxed: bool,
-        align: u32,
     ) -> BasicValueEnum<'ctx> {
         match *enum_repr {
             // A payload area of no bytes has no fields to project; the result
@@ -1582,12 +1594,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     return repr::assemble(self.ctx, &self.builder, want, &[]);
                 };
                 let within = offsets.get(index).copied().unwrap_or(0).saturating_sub(payload);
-                // A boxed field is a pointer in the blob, and the value is the
-                // bytes it names — [`Unit::build_variant`]'s other half.
-                let ptr_slot = Slot { offset: 0, ty: SlotTy::Scalar(Scalar::Ptr) };
-                let read = if boxed { std::slice::from_ref(&ptr_slot) } else { want };
-                let mut taken = Vec::with_capacity(read.len());
-                for slot in read {
+                let mut taken = Vec::with_capacity(want.len());
+                for slot in want {
                     let shift =
                         u64::from(within.saturating_add(slot.offset)).saturating_mul(8);
                     let moved = self
@@ -1605,13 +1613,6 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                         .build_int_truncate_or_bit_cast(moved, narrow, "pay.cut")
                         .unwrap_or(moved);
                     taken.push(repr::slot_from_bits(self.ctx, &self.builder, *slot, cut));
-                }
-                if boxed {
-                    let Some(BasicValueEnum::PointerValue(block)) = taken.first().copied() else {
-                        return repr::assemble(self.ctx, &self.builder, want, &[]);
-                    };
-                    let loaded = self.load_slots(block, want, align);
-                    return repr::assemble(self.ctx, &self.builder, want, &loaded);
                 }
                 repr::assemble(self.ctx, &self.builder, want, &taken)
             }
@@ -6876,10 +6877,7 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let _ = self.builder.build_unconditional_branch(join);
 
         self.builder.position_at_end(carry);
-        // The `Result` a `foldResult` step answers is `core/result`'s own and
-        // is not recursive, so its payload is never boxed.
-        let next =
-            self.payload_of(&slots, &enum_repr, &ok_offsets, 0, &acc_slots, stepped, false, 8);
+        let next = self.payload_of(&slots, &enum_repr, &ok_offsets, 0, &acc_slots, stepped);
         self.close_loop(&l, Some(next));
 
         // Exhausted: `.Ok(acc)`, which is the `cur` a loop that never ran also
