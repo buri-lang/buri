@@ -515,7 +515,8 @@ only with TLS, because ALPN chooses it inside the handshake: a `Server` naming
 no `protocols` offers HTTP/1.1. The server answers as many requests at once as
 the acceptor said it would host, because `run` puts each handler on a task of
 its own, which is why `serve` needs `Tasks` and `Alloc` beside `Listen`. Only
-`LINUX` and `MACOS` grant `Listen`, and `WEB` grants no `Tasks` either.
+`LINUX` and `MACOS` grant `Listen`, so only they can serve — `Tasks` itself is
+granted everywhere, a page included.
 
 **A `Server` with a `websocket` speaks WebSockets, and the upgrade is
 invisible.** With hooks present, a client that asks for a socket at the path the
@@ -663,6 +664,15 @@ a scope to a handler that spawns later. A library cannot spawn: it exposes a
 `run` and the application puts it in a scope. And stopping is cooperative —
 a loop ends by finding its socket closed or by asking an actor whether to carry
 on, because there is no way to unwind a task from outside it.
+
+Both carry `Alloc` beside `Tasks`: `spawn` copies the task out of whatever arena
+it was written in, and a scope drains its rounds through `parallel`.
+
+Rounds are why the platform table above covers a spawned task too. They are also
+why a task that never ends starves the ones behind it under `buri run`: the
+round they wait for never finishes. And a task spawned *after* the body returned
+runs on the task that spawned it, which is what lets a page's handler spawn once
+`main` has gone.
 
 `core/actor` is the other half of concurrency: state that outlives one call,
 behind a mailbox. An actor is a *value*, an initial state and a
