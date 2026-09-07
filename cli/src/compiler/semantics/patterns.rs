@@ -489,6 +489,27 @@ impl<'a, 'b> Infer<'a, 'b> {
                         let missing = crate::diagnostics::names(&missing);
                         self.templated("missing-field-pattern", span).bind("fields", missing);
                     }
+                    return out;
+                }
+                // **A `..` is every field it stands for, written out.** The
+                // fields it covers are positions of the value like any other,
+                // and a pass that walks a pattern positionally can only see the
+                // ones the tree carries: `middle::rc`'s `name_discards` gives
+                // back every counted position a `let`'s pattern skips, and a
+                // field elided here was skipped by a position that was not
+                // there — so `let Nest { tag, .. }` leaked whatever `..` stood
+                // for. A wildcard is exactly what `field: _` produces, so
+                // nothing else reads them: no test, no binding, and no line of
+                // JavaScript.
+                for (i, d) in decl.iter().enumerate() {
+                    if seen.contains(&i) {
+                        continue;
+                    }
+                    let ty = substitute(&d.ty, args, None);
+                    out.push(typed::FieldPat {
+                        index: i,
+                        pattern: typed::Pattern { kind: typed::PatKind::Wild, ty, span },
+                    });
                 }
                 out
             }

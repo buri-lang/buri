@@ -1,0 +1,122 @@
+//! A generator that says nothing useful and points everywhere.
+//!
+//! Five diagnostics, one per edge of an input's byte range: the first byte, the
+//! last byte, a span that begins where the file ends, one that begins well past
+//! it, and one naming a file this repository does not have. What the case is
+//! for is the caret each of them draws.
+
+from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdin: host.stdin,
+        Stdout: host.stdout,
+    };
+    let line = io.readLine(ctx).okOr("the generator was handed no request")?;
+    let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
+    let inputs = allInputs(ctx, request).okOr("the request names no input")?;
+    io
+        .println(ctx, "${json.stringify(ctx, respond(ctx, inputs))}")
+        .mapErr(fn(_e) => "could not write the response")
+}
+
+fn respond<C: Alloc>(ctx: C, inputs: [(Str, Str)]): Json {
+    let first = inputs.get(0).map(fn(i) => i.0).withDefault("");
+    let text = inputs.get(0).map(fn(i) => i.1).withDefault("");
+    .Object([
+        (
+            "modules",
+            .Array([
+                .Object([
+                    ("name", .Str("units")),
+                    (
+                        "text",
+                        .Str(
+                            str.format(ctx, "export let edge: Int = ${text.len()};\n"),
+                        ),
+                    ),
+                    ("anchors", .Array(list.empty())),
+                ]),
+            ]),
+        ),
+        ("diagnostics", .Array(edges(ctx, first, text.len()))),
+    ])
+}
+
+/// One diagnostic per edge. The offsets are written down rather than found, so
+/// that what the case records is what the toolchain does with each of them.
+fn edges<C: Alloc>(ctx: C, path: Str, len: Int): [Json] {
+    let last = if (len == 0) { 0 } else { len - 1 };
+    [
+        at(ctx, "the first byte", path, 0, 1),
+        at(ctx, "the last byte", path, last, len),
+        at(ctx, "a span that begins where the file ends", path, len, len + 8),
+        at(ctx, "a span well past the end", path, len + 40, len + 48),
+        at(ctx, "a file this repository does not have", "cmd/app/nowhere.txt", 0, 4),
+    ]
+}
+
+fn at<C: Alloc>(ctx: C, message: Str, file: Str, start: Int, end: Int): Json {
+    .Object([
+        ("code", .Str("units-edge")),
+        ("message", .Str(str.format(ctx, "${message}"))),
+        ("note", .Null),
+        ("fix", .Null),
+        (
+            "origin",
+            .Object([
+                ("file", .Str(file)),
+                (
+                    "span",
+                    .Object([
+                        ("start", .Num(start.toF64())),
+                        ("end", .Num(end.toF64())),
+                    ]),
+                ),
+            ]),
+        ),
+    ])
+}
+
+fn allInputs<C: Alloc>(ctx: C, request: Json): Option<[(Str, Str)]> {
+    field(request, "inputs")
+        .andThen(fn(v) => asArray(v))
+        .andThenCtx(ctx, fn(c, items) => {
+            items.mapOptionCtx(c, fn(_c, pair) => asPair(pair))
+        })
+}
+
+fn field(value: Json, name: Str): Option<Json> {
+    match (value) {
+        .Object(fields) => fields.find(fn(f) => f.0 == name).map(fn(f) => f.1),
+        _ => .None,
+    }
+}
+
+fn asArray(value: Json): Option<[Json]> {
+    match (value) {
+        .Array(items) => .Some(items),
+        _ => .None,
+    }
+}
+
+fn asStr(value: Json): Option<Str> {
+    match (value) {
+        .Str(s) => .Some(s),
+        _ => .None,
+    }
+}
+
+fn asPair(value: Json): Option<(Str, Str)> {
+    let items = asArray(value)?;
+    let path = items.get(0).andThen(fn(v) => asStr(v))?;
+    let text = items.get(1).andThen(fn(v) => asStr(v))?;
+    .Some((path, text))
+}

@@ -2,7 +2,7 @@ library {
     sources: []
 
     test {
-        sources: ["test/scope.buri"]
+        sources: ["test/background.buri", "test/scope.buri"]
 
         # The reference run, on the reference backend: `native::conformance`
         # drives this same file through the copy-and-patch backend
