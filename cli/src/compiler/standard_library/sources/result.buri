@@ -95,6 +95,96 @@ impl<T, E> Result<T, E> {
         }
     }
 
+    /// The error half, where `toOption` keeps the ok half. `.None` when the
+    /// result succeeded.
+    export fn errToOption(self): Option<E> {
+        match (self) {
+            .Ok(_v) => .None,
+            .Err(e) => .Some(e),
+        }
+    }
+
+    /// A second attempt, given the first one's error. `andThen` chains the
+    /// successes; this chains the failures.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    ///
+    /// fn cached(key: Str): Result<Int, Str> {
+    ///     .Err("miss: ${key}")
+    /// }
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let answer = cached("size").orElse(fn(_e) => .Ok(0));
+    ///     let _ = io.println(ctx, "${answer.withDefault(-1)}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// 0
+    /// ```
+    export fn orElse(self, alternative: fn(E) => Result<T, E>): Result<T, E> {
+        match (self) {
+            .Ok(v) => .Ok(v),
+            .Err(e) => alternative(e),
+        }
+    }
+
+    /// `orElse` where the second attempt needs an effect — reading a file after
+    /// a cache miss. It takes `ctx` because of the capture rule (SPEC 10.6).
+    export fn orElseCtx<C>(
+        self,
+        ctx: C,
+        alternative: fn(C, E) => Result<T, E>,
+    ): Result<T, E> {
+        match (self) {
+            .Ok(v) => .Ok(v),
+            .Err(e) => alternative(ctx, e),
+        }
+    }
+
+    /// `withDefault` where the fallback is built from the error, and only when
+    /// there is one — `withDefault`'s argument is evaluated either way.
+    export fn withDefaultWith(self, fallback: fn(E) => T): T {
+        match (self) {
+            .Ok(v) => v,
+            .Err(e) => fallback(e),
+        }
+    }
+
+    /// Both halves onto one type. The `match` a caller writes to finish with a
+    /// `Result`, as a value.
+    export fn fold<B>(self, onOk: fn(T) => B, onError: fn(E) => B): B {
+        match (self) {
+            .Ok(v) => onOk(v),
+            .Err(e) => onError(e),
+        }
+    }
+
+    /// `map` and `withDefault` in one step, so the answer need not be a
+    /// `Result` and the error is discarded on purpose.
+    export fn mapOr<U>(self, fallback: U, transform: fn(T) => U): U {
+        match (self) {
+            .Ok(v) => transform(v),
+            .Err(_e) => fallback,
+        }
+    }
+
+    /// Whether the result succeeded *and* its value answers the predicate. An
+    /// error is `false` without the predicate running.
+    export fn isOkAnd(self, predicate: fn(T) => Bool): Bool {
+        match (self) {
+            .Ok(v) => predicate(v),
+            .Err(_e) => false,
+        }
+    }
+
     /// "I considered this and do not care", written rather than omitted. A
     /// reviewer can grep for it; `_` is unsearchable.
     export fn ignore(self): () {
