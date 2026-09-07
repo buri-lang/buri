@@ -145,8 +145,9 @@
 //! writes.
 
 from "core/effect" import {
-    Alloc, Clock, Entropy, Env, Frame, Header, IoError, Method, Net, NetError, Proc,
-    Rand, Region, Request, Response, Sockets, Stderr, Stdin, Stdout, Tasks,
+    Alloc, Clock, Connected, Entropy, Env, Frame, Header, IoError, Method, Net,
+    NetError, Proc, Rand, Received, Region, Request, Response, ServeError, Sockets,
+    Stderr, Stdin, Stdout, Tasks, WebSocketClient,
 };
 
 // The filesystem's two effects, declared in `core/fs` because their methods
@@ -1174,6 +1175,16 @@ impl TestSockets {
     export fn isOpen(self, socket: Socket): Bool {
         socketsIsOpen(self.0, socket.0)
     }
+
+    /// A WebSocket client that dials this double: one socket, and `messages`
+    /// delivered on it in order.
+    ///
+    /// Two `dialling` calls are two clients on one double, and two `sockets()`
+    /// calls are two worlds — exactly as two `fs()` calls are two filesystems.
+    /// See `TestWebSocketClient` for what the client does with the script.
+    export fn dialling(self, messages: [Message]): TestWebSocketClient {
+        TestWebSocketClient(socketsDialling(self.0, messages))
+    }
 }
 
 /// One push, as the runner hands it back: which socket, which framing, and the
@@ -1210,6 +1221,76 @@ fn socketsSent(handle: I64): [Sent];
 
 /// Whether this double minted that socket and has not closed it.
 fn socketsIsOpen(handle: I64, socket: Int): Bool;
+
+// --- WebSocketClient ----------------------------------------------------------
+
+/// A WebSocket client with a script instead of a network: it dials once,
+/// delivers the messages it was given in order, and then closes normally.
+///
+/// **It is minted by a `sockets()` rather than minting sockets of its own.** The
+/// socket `connect` gets is one of that double's, so everything a program pushes
+/// is recorded by its `sent()` and a program that closes shows up in its
+/// `isOpen`. That is `effect Sockets`' own division — reading a socket is one
+/// authority and writing on it is another — with a double on each side of it, and
+/// it is why this type implements `WebSocketClient` and nothing else.
+///
+/// It is a method on `TestSockets` and not a builder of its own for a reason the
+/// language decides rather than this module: a `TestSockets` carries an effect,
+/// so it may be passed only as `ctx` or as `self` (`effect-param-not-ctx`), and
+/// `self` is the one of those two that is not a lie about what the call does.
+///
+/// ```buri ignore why="a test source is the one place a `test` block is legal, and this file is not one"
+/// from "core/effect" import { Sockets, WebSocketClient };
+/// from "core/host/testing" import * as testing;
+/// from "core/net/websocket" import * as websocket;
+/// from "core/testing/assert" import * as assert;
+///
+/// test "a client counts what it was pushed" {
+///     let pushes = testing.sockets();
+///     let ctx = context {
+///         Sockets: pushes,
+///         WebSocketClient: pushes.dialling([.Text("one"), .Text("two")]),
+///     };
+///     let closed = websocket.connect(ctx, websocket.Client {
+///         url: "ws://example/socket",
+///         onOpen: fn(_c, _socket, _response) => 0,
+///         onMessage: fn(_c, _socket, seen, _message) => seen + 1,
+///         onClose: fn(_c, _socket, _seen, _reason) => (),
+///     });
+///     assert.eq(closed, .Ok(.Normal));
+/// }
+/// ```
+///
+/// **Nothing here waits.** There is no timer, no thread and no deadline
+/// anywhere in it: the script is a list that is already in memory, and
+/// `connectReceive` takes the next thing off it.
+export struct TestWebSocketClient(I64);
+
+impl WebSocketClient for TestWebSocketClient {
+    /// Mints a socket on the `sockets()` double this one was built with, and
+    /// answers it with a `101` carrying no headers.
+    ///
+    /// **A URL that is not `ws://` or `wss://` is `.Err(.Unsupported)`**, which
+    /// is the one refusal this double can honestly produce, and it is the cause a
+    /// real client gives a scheme it cannot speak. A test that wants to check
+    /// what its program does when the socket never opens writes a URL that cannot
+    /// be dialled, and gets the same `ServeError` a real refusal has.
+    fn connectSocket(self, url: Str): Result<Connected, ServeError>;
+
+    /// The next scripted message, as `.Text` or `.Binary`.
+    ///
+    /// The script running out is a close with code 1000, which
+    /// `core/net/websocket` reads as `.Normal`. So is a socket the program has
+    /// closed, because a closed socket delivers nothing more. After that close
+    /// the socket is gone and a further call is `.Err(.Closed)` — the same last
+    /// answer `listenReceive` gives, so a loop written against one works against
+    /// the other.
+    fn connectReceive(self, socket: Int): Result<Received, ServeError>;
+}
+
+/// The client's socket, minted on the double that will record what is pushed on
+/// it, and the number that names the client.
+fn socketsDialling(handle: I64, messages: [Message]): I64;
 
 derive Eq, Show for FsCall;
 // --- The call log -------------------------------------------------------------

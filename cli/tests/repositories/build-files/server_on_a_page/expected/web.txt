@@ -52,10 +52,11 @@ error: `listen` implements `Listen`, which is not allowed on the WEB platform [e
      instead.
 
      An effect nobody grants yet gets the same sentence, from an empty row in
-     the same table. Listen and Sockets are granted on LINUX and MACOS, where
-     holding a port open is a native program's authority, and never will be on
-     JS or WEB. A row says who grants an effect now, not when the rest will
-     fill.
+     the same table. Listen is granted on LINUX and MACOS, where holding a port
+     open is a native program's authority, and never will be on JS or WEB. A row
+     says who grants an effect now, not when the rest will fill — and it can
+     widen too: Sockets was granted with Listen and only with it, until
+     WebSocketClient let a page get a socket without accepting one.
 
      Tasks shows the other direction. It landed granted by nobody, then on the
      three platforms that are not a page, and now on all four — one edit to one

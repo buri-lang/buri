@@ -11,9 +11,9 @@
 //! that asked for it.
 
 from "core/effect" import {
-    Alloc, Clock, Entropy, Env, Header, IoError, Listen, Listener, Net, NetError, Proc,
-    Rand, Received, Region, Request, Response, Serve, ServeError, Sockets, Stderr,
-    Stdin, Stdout, Tasks,
+    Alloc, Clock, Connected, Entropy, Env, Header, IoError, Listen, Listener, Net,
+    NetError, Proc, Rand, Received, Region, Request, Response, Serve, ServeError,
+    Sockets, Stderr, Stdin, Stdout, Tasks, WebSocketClient,
 };
 
 // The filesystem's two effects are declared in `core/fs` rather than
@@ -203,14 +203,13 @@ impl Listen for HostListen {
 
 /// Pushing on a connection that is already open.
 ///
-/// **Granted on LINUX and MACOS**, with `HostListen`. The two are halves of one
-/// authority to be a server: a platform that can accept a connection is exactly
-/// a platform that can write back on it.
-///
-/// `HostListen.listenUpgrade` mints the sockets these three name. A handle that
-/// names no open socket counts as one that has already gone away, which is what
-/// the effect promises for a socket somebody closed. So a handle a program made
-/// up and a handle it has spent give deliberately the same answer.
+/// **Granted on every platform**, because there are two ways to come by a socket
+/// and only one of them belongs to a server. `HostListen.listenUpgrade` mints
+/// one where a program can accept connections;
+/// `HostWebSocketClient.connectSocket` mints one anywhere, a page included. A
+/// handle that names no open socket counts as one that has already gone away,
+/// which is what the effect promises for a socket somebody closed. So a handle a
+/// program made up and a handle it has spent give deliberately the same answer.
 export struct HostSockets {}
 
 impl Sockets for HostSockets {
@@ -219,6 +218,29 @@ impl Sockets for HostSockets {
     fn socketSendBytes(self, socket: Int, body: [U8]): ();
 
     fn socketClose(self, socket: Int, code: Int, reason: Str): ();
+}
+
+/// Dialling somebody else's WebSocket.
+///
+/// **Granted on every platform.** Holding a port open is a native program's
+/// authority; dialling out is not, and a page does it every day. On `WEB` both
+/// methods suspend without holding the event loop, which is the same thing that
+/// let `HostNet` onto a page.
+///
+/// Natively the two are `cli/runtime/net.rs`'s, beside the acceptor and over the
+/// same RFC 6455 framing — the socket a client dials and the socket a server
+/// accepts are the same value in the same table, so `HostSockets` writes on both
+/// without knowing which it has. On JavaScript they wrap the platform's own
+/// `WebSocket`.
+///
+/// `core/net/websocket` is the module a program calls; this is what a context
+/// binds.
+export struct HostWebSocketClient {}
+
+impl WebSocketClient for HostWebSocketClient {
+    fn connectSocket(self, url: Str): Result<Connected, ServeError>;
+
+    fn connectReceive(self, socket: Int): Result<Received, ServeError>;
 }
 
 /// The reactive graph. A program with a user interface binds it, and a platform
@@ -271,6 +293,8 @@ export let tasks: HostTasks = HostTasks { };
 export let listen: HostListen = HostListen { };
 
 export let sockets: HostSockets = HostSockets { };
+
+export let websocketClient: HostWebSocketClient = HostWebSocketClient { };
 
 export let ui: HostUi = HostUi { };
 
