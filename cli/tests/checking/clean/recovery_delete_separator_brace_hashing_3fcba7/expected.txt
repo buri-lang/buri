@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:17:78
+   |
+17 |     let one = assert.some(uuid.parse("550e8400-e29b-41d4-a716-446655440000"))
+   |                                                                              ^
+   |
+   = fix: write `;` here
