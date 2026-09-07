@@ -1,8 +1,16 @@
-error: "//lib/wire/left" names no file (lib/wire/left.buri) [module-not-found]
+error: gone.proto does not exist [no-such-source]
+ --> lib/wire/BUILD.buri:3:47
+  |
+3 |         { tool: "std/codegen/proto", inputs: ["gone.proto"] },
+  |                                               ^^^^^^^^^^^^
+  |
+  = every source is declared one path at a time; there are no globs
+  = fix: create the file, or remove it from `generators`
+error: "//lib/wire/point.proto" names a schema, and no `generators` entry in //lib/wire hands it to a tool [module-not-found]
  --> lib/wire/lib.buri:1:6
   |
-1 | from "//lib/wire/left" export { leftValue };
-  |      ^^^^^^^^^^^^^^^^^
+1 | from "//lib/wire/point.proto" export { defaultPoint, Point };
+  |      ^^^^^^^^^^^^^^^^^^^^^^^^
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
 
@@ -23,10 +31,3 @@ error: "//lib/wire/left" names no file (lib/wire/left.buri) [module-not-found]
     This snippet resolves against the worked monorepo in cli/tests/example,
     which has no lib/nope.
 
-error: "//lib/wire/right" names no file (lib/wire/right.buri) [module-not-found]
- --> lib/wire/lib.buri:5:6
-  |
-5 | from "//lib/wire/right" export { rightValue };
-  |      ^^^^^^^^^^^^^^^^^^
-  |
-  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search

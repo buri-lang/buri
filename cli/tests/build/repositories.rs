@@ -77,9 +77,17 @@ fn proto_schemas() {
 /// `generate` action, the cache, reproducibility, the module's internality, and
 /// the two ways a tool can fail — one for what a generator says about its
 /// input, and one for a tool built from the target that runs it.
+///
+/// Two more are the edges of each half. `generator_shapes` is what a tool may
+/// hand back: no modules, two of them with one importing the other, an entry
+/// with no inputs at all, noise on either stream, an answer followed by a
+/// non-zero exit, and the three names a generated module may not take.
+/// `generator_tools` is what an entry may *name*: no tool, a generator this
+/// toolchain does not ship, a label that is no binary, an input that is not
+/// there, and `proto_sources` on a binary.
 #[test]
 fn generators() {
-    run_corpus(&tests_dir().join("repositories/generators"), "generators", 4);
+    run_corpus(&tests_dir().join("repositories/generators"), "generators", 5);
 }
 
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own
