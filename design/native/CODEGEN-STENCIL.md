@@ -498,9 +498,8 @@ compares these bytes:
 
 `a_cross_emission_is_reproducible` (§10.1) states that as a test for the two
 Linux targets, and `--check-reproducible` (ARCHITECTURE.md §7) states it for
-the host one. Neither half of this subsection is this backend's alone: both
-were written for the removed one and are true of both writers, which is why
-§13 lists them among what stayed.
+the host one. Neither half is this backend's alone; both are true of both
+writers.
 
 ### 4.2 What the emission does once, and what it does per unit, 2026-09-03
 
@@ -513,12 +512,10 @@ measurement; this is what it changed.
 
 **One lowering, not two.** `build::actions::objects_named` lowers the program
 to hash the unit keys, and `emit_units` used to lower it again for the bytes.
-The comment that stood there said the two agreed by construction, which is
-true — `middle::lower` is a pure function of the program — and is exactly why
-the second one was waste. `Backend::adopt_lowering` now hands the first
-lowering over as a **hint** rather than as a second entry point: emission is
-still `emit_units` and it still takes a `Program`, so a backend that ignores
-the hint compiles what it always did. Each lowering carries a whole-program
+`middle::lower` is a pure function of the program, which is exactly why the
+second one was waste. `Backend::adopt_lowering` hands the first lowering over
+as a **hint** rather than as a second entry point, so a backend that ignores
+it compiles what it always did. Each lowering carries a whole-program
 `middle::rc::analyze` inside it, and that pair was **1.0 s of an 8.2 s
 suite**. The hint is consumed rather than copied, so a second emission of a
 different program lowers for itself. Two tests in
@@ -528,12 +525,12 @@ next program a stale IR.
 
 **One `Cycles`, not one per unit.** `Jit::new` built its `Layouts` with
 `Layouts::new`, which walks every constructor in the program and runs Tarjan
-over them. `layout.rs`'s own header names that as the mistake it is —
-"building one per unit made a native build quadratic in the number of units",
-`design/PERFORMANCE.md` §6.4 — and names `Layouts::with_cycles` as the answer.
-The LLVM backend had taken it and this one had not. The analysis is now
-computed once per emission and shared, which is what turned its `Rc` into an
-`Arc`: it is the one handle inside a `Layouts` that crosses a thread.
+over them — "building one per unit made a native build quadratic in the number
+of units" (`layout.rs`, `design/PERFORMANCE.md` §6.4), with
+`Layouts::with_cycles` as the answer. The LLVM backend had taken it and this
+one had not. The analysis is now computed once per emission and shared, which
+is what turned its `Rc` into an `Arc`: it is the one handle inside a `Layouts`
+that crosses a thread.
 
 **The units are compiled on a thread each.** `compile_unit` is a pure function
 of the whole-program tables — a `Jit`, a `Region` and a `Layouts` memo of its
@@ -553,24 +550,22 @@ system question (a unit is a cache key and an object file, ARCHITECTURE.md
 
 **A `Layout` is shared, not copied, and a `Ty` is borrowed, not cloned.**
 `Layouts::shared` exists because a `Layout` carries one `Vec<u32>` per
-variant, and its note says "every caller in a loop over instructions must use
-this". The reference-counting walk *is* that loop — `walk_rc` asks for a
-layout per field of per variant of every value it releases, and `rc` cloned
-the value's `Ty` once per reference operation in the program — and nothing in
-this backend used the shared form. The walk, the copy walk, the counted-type
-classifier and every `MakeStruct`/`GetField`/`GetPayload`/`MakeEnum`/`GetTag`
-now do.
+variant, and "every caller in a loop over instructions must use this". The
+reference-counting walk *is* that loop — `walk_rc` asks for a layout per field
+of per variant of every value it releases, and `rc` cloned the value's `Ty`
+once per reference operation in the program. The walk, the copy walk, the
+counted-type classifier and every
+`MakeStruct`/`GetField`/`GetPayload`/`MakeEnum`/`GetTag` now use the shared
+form.
 
 **A folded twin is found by index, not by name.** `Jit::emit` asks for
 `key+ifold+fold`, `key+fold` and `key+ifold` on **every stencil it copies**,
 and it asked by building three `String`s with `format!` and hashing each one —
-three allocations per machine instruction this backend emits. The names are a
-function of the library alone, so `Library::fold_twin` resolves them once, on
-first use, for the whole library.
-`every_fold_twin_is_found_by_index_and_by_name` is the standing check that the
-index and the names agree for every stencil of every library this toolchain
-bakes. `Jit::elidable_arm`, which the emitter asks twice per conditional
-branch, borrows its answer out of the library for the same reason.
+three allocations per machine instruction this backend emits.
+`Library::fold_twin` resolves them once, on first use, for the whole library;
+`every_fold_twin_is_found_by_index_and_by_name` checks that the index and the
+names agree. `Jit::elidable_arm`, asked twice per conditional branch, borrows
+its answer out of the library for the same reason.
 
 ### 4.3 A unit is emitted in parts, 2026-09-04
 
@@ -580,12 +575,11 @@ does, and on the repository §4.2 was measured against that unit is
 `core/ordmap` instantiated at one program's key types — 11,267 functions, 1.10
 s, the whole of a ten-thread emission.
 
-Two ways past it were available and only one of them is cheap. Splitting the
-unit is a build-system change: a unit is a cache key and an object file
-(ARCHITECTURE.md §5), so a smaller unit is a different cache, a different
-manifest and a different link line. Dividing the *inside* of a unit is not:
-the object is still one object, under the same key, holding the same symbols
-in the same order. That is what this is.
+Splitting the unit is a build-system change: a unit is a cache key and an
+object file (ARCHITECTURE.md §5), so a smaller unit is a different cache, a
+different manifest and a different link line. Dividing the *inside* of a unit
+is not: the object is still one object, under the same key, holding the same
+symbols in the same order. That is what this is.
 
 **A part is a contiguous run of a unit's members, emitted into a region of its
 own.** `mod.rs::cut` cuts the unit's members — which `funcs_by_unit` yields in
@@ -595,17 +589,15 @@ holding one function is a worker's turn spent on setup. Every part builds its
 own `Jit`, its own `Region` and its own helper table, and
 `region::Emitted::append` concatenates the regions in part order afterwards.
 
-**The property that makes it legal is one this backend already had.** A part
-is emitted at a base of zero, and so is the next one, and moving a part is
-adding one number to each offset it carries — because *no address is ever
-baked into this backend's code*. §4's first bullet is the reason: every call
-is a relocation against `ir::Func::symbol` whether or not the unit owns the
-callee, a constant-pool reference is an `ARM64_RELOC_PAGE21`/`PAGEOFF12` pair
-the linker resolves, and the one thing that is resolved at emit time — a
-function-local branch — is resolved inside the part, where the distance
-between two blocks of one function is the same whatever the base is. So
-`append` moves a relocation's site by its section's base, moves a
-`Target::Pool` addend by the pool's, and rewrites no bytes at all.
+**The property that makes it legal is one this backend already had:** *no
+address is ever baked into this backend's code* (§4). Every call is a
+relocation against `ir::Func::symbol` whether or not the unit owns the callee,
+a constant-pool reference is an `ARM64_RELOC_PAGE21`/`PAGEOFF12` pair the
+linker resolves, and the one thing resolved at emit time — a function-local
+branch — is resolved inside the part, where the distance between two blocks of
+one function is the same whatever the base is. So `append` moves a
+relocation's site by its section's base, moves a `Target::Pool` addend by the
+pool's, and rewrites no bytes at all.
 
 **What a part cannot share with the parts beside it, and what that costs.**
 Three things are per-`Jit` and become per-part: the constant pool's
@@ -632,15 +624,13 @@ after it. A pool inside a pool would start `cores × cores` threads, and it
 would still queue the big unit's parts behind that unit's own turn rather than
 beside every other unit's work.
 
-**What is still serial, and why.** Everything downstream of the concatenation
-is one unit's own and stays on the unit's thread: the symbol table, the
-relocation list, the object writer, and the `codegen` key's digest. The key's
-*text* moved into the parts — it is `render_func` over the part's members, and
-concatenating the parts' texts in part order gives the same string byte for
-byte — but the digest of it is one stream and stays where it was. On the
+**What is still serial.** Everything downstream of the concatenation is one
+unit's own and stays on the unit's thread: the symbol table, the relocation
+list, the object writer, and the `codegen` key's digest. The key's *text*
+moved into the parts — concatenating the parts' texts in part order gives the
+same string byte for byte — but the digest of it is one stream. On the
 synthetic's biggest unit that leaves about 65 ms of assembly against about 500
-ms of body emission, which is the next thing in the way rather than a thing to
-fix now.
+ms of body emission, which is the next thing in the way.
 
 The two standing checks are in `cli/tests/native/stencil.rs`.
 `a_unit_of_several_parts_emits_the_same_bytes_twice` builds a unit of at least
@@ -659,12 +649,11 @@ transcribes that contract and `llvm/runtime.rs` transcribes it again, key for
 key and shape for shape, and `cli/tests/native/conformance.rs`'s companion
 test keeps the two from disagreeing about which keys exist.
 
-This is the wave's largest single deletion. The prototype had its own
-`intrin.rs`: a descriptor-driven helper per operation, written in Rust, living
-in the compiler's process. That could not survive object emission, because a
-symbol in the compiler is not a symbol in the artifact. In the honest naming
-it was `libburi_rt.a` written a second time, with every `num.U64.checkedMul`
-the language ever adds having to be written twice.
+The prototype had its own `intrin.rs`: a descriptor-driven helper per
+operation, written in Rust, living in the compiler's process. That could not
+survive object emission, because a symbol in the compiler is not a symbol in
+the artifact — and it was `libburi_rt.a` written a second time, with every
+`num.U64.checkedMul` the language ever adds having to be written twice.
 
 ### 5.0 A runtime call is emitted into its caller, not called
 
@@ -706,14 +695,12 @@ not in `rtcall.rs`.
 
 ### 5.0.1 `str.concat`, the one call with no table row
 
-The other two backends open-code MEMORY.md §5.3's three concatenation paths:
-in place when the left operand's block is uniquely owned and has room, grown
-when it is unique and out of room, exact otherwise. This backend cannot. A
-header load, two compares, three arms and a `memmove` are a dozen stencils and
-a block layout, against one `crt` stencil for a call. So it emitted the
-*exact* path alone and always allocated, and that was a divergence rather than
-a missing optimisation, because `core/alloc`'s `count` and `total` are numbers
-a Buri program can read.
+The other two backends open-code MEMORY.md §5.3's three concatenation paths.
+This backend cannot: a header load, two compares, three arms and a `memmove`
+are a dozen stencils and a block layout, against one `crt` stencil for a call.
+So it emitted the *exact* path alone and always allocated — a divergence
+rather than a missing optimisation, because `core/alloc`'s `count` and `total`
+are numbers a Buri program can read.
 
 The three paths now live in `cli/runtime/text.rs`'s `buri_rt_str_concat` and
 this backend calls them, which is the shape MEMORY.md §5.3 already gives `[T]`
@@ -764,8 +751,8 @@ narrow field, an address, a glue symbol — into the scratch area first and
 reads it from there, so the two differ only in what they do with the operands
 that were already in the frame.
 
-**What it bought, measured.** On `dot`'s inner loop, one `a.get(i)` — six
-integer arguments, three of them frame words:
+**What it bought.** On `dot`'s inner loop, one `a.get(i)` — six integer
+arguments, three of them frame words:
 
 | | array family | slots family |
 |---|---:|---:|
@@ -817,10 +804,9 @@ continuation's `r0`–`r2`, and a `movz x1, #0` there can be a value the next
 stencil reads.
 
 **What it bought was code and not time.** `dot`'s body went 130 instructions
-to 120; the four kernels moved by 0.7%, which is inside this machine's spread.
-It is kept because five dead instructions inside every call stencil are five
-the artifact should not carry, and the artifact being 52% larger than
-Cranelift's is a cell of its own — not because it made anything faster.
+to 120; the four kernels moved by 0.7%, inside this machine's spread. It is
+kept because five dead instructions inside every call stencil are five the
+artifact should not carry.
 
 The callee is a hole that is **called** rather than materialised, so it
 becomes one `bl` and one `ARM64_RELOC_BRANCH26` instead of a pooled pointer
@@ -873,9 +859,8 @@ leaf, and passing a pair means neither backend has to agree with the platform
 ABI about how a 128-bit integer is classified.
 
 This subsection is not this backend's either. It is VALUE-MODEL.md §1's
-fallback, stated in a code generator's document rather than in the model's
-because it is a backend limitation and not a model decision, and it moved here
-when the document it was written in was removed (§13).
+fallback, stated in a code generator's document because it is a backend
+limitation and not a model decision.
 
 ### 5.4 Aborts
 
@@ -883,9 +868,8 @@ when the document it was written in was removed (§13).
 fixed messages beside it: `buri_rt_abort_div_zero`, `buri_rt_abort_shift`,
 `buri_rt_abort_bounds`, `buri_rt_abort_unreachable`. They exist so that a
 message pinned by `cli/tests/crash/` lives in the runtime rather than in a
-backend's string table, which is why they outlived the backend they were first
-written for, and they are reached through §5's boundary like every other
-runtime call.
+backend's string table, and they are reached through §5's boundary like every
+other runtime call.
 
 ## 6. Reference counting, and the functions a unit generates for itself
 
