@@ -11,29 +11,19 @@ error: circular type alias: `Handle` -> `Handle` [circular-type-alias]
      ──────────
 
      Decide which name on the chain is the real type and declare it as one. A
-     struct or an enum may refer to itself, which is what makes a list or a tree
-     expressible, because its fields give the compiler a boundary to stop at. An
-     alias has no boundary, so a chain of them has to end somewhere else.
+     struct or an enum may refer to itself, because its fields give the compiler
+     a boundary to stop at; an alias has none.
 
      Why
      ───
 
-     type Handle = Str introduces a spelling, not a type. Everywhere you write
-     Handle the compiler substitutes Str, and you get the program you would have
-     written with Str in the first place. So type A = A; asks for a spelling of
-     itself, and substituting leaves the same question standing. There is no
-     answer to reach and no fixed point to settle on.
+     type Handle = Str introduces a spelling, not a type: everywhere you write
+     Handle the compiler substitutes Str. So type A = A; substitutes to itself,
+     and there is nothing to reach.
 
-     The diagnostic names the whole chain rather than the declaration it stopped
-     at. A cycle of three aliases has no single culprit, since changing any one
-     of the three fixes it. And an exported alias lets the chain cross a module,
-     putting the other half in a file you are not looking at. When it does
-     cross, the diagnostic prints each name with the module that declares it and
-     gives every other declaration a span of its own.
-
-     The alias resolves to the error type, so signatures and fields written in
-     terms of it report nothing further. One cycle is one diagnostic, however
-     many places name it.
+     The diagnostic names the whole chain, because changing any name on it fixes
+     the error. An exported alias lets the chain cross a module, and then each
+     name is printed with the module that declares it.
 
 warning: `spare` is bound and never used [unused-variable]
   --> lib/money/cents.buri:15:9

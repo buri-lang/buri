@@ -15,8 +15,7 @@ Write a value inside the type's range, or annotate a wider type.
 ## Why
 
 The compiler checks a literal against the type it is pinned to rather than
-widening it to fit, so it settles the one class of overflow it can decide at
-compile time. `U64` holds 0 to 18446744073709551615.
+widening it to fit. `U64` holds 0 to 18446744073709551615.
 
 ## A program that provokes it
 

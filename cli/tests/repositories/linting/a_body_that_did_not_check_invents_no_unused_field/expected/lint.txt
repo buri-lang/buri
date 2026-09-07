@@ -48,9 +48,9 @@ error: `Str` does not implement `Add` [missing-conformance]
      ───
 
      You declare conformance; the compiler never infers it. A type with all the
-     right methods still does not satisfy an effect until an impl says so. An
-     effect is an ordinary interface, which is why a test double is a struct
-     with those methods and an impl block.
+     right methods still does not satisfy an effect until an impl says so —
+     which is why a test double is a struct with those methods and an impl
+     block.
 
 error: expected `Str`, found `Int` [type-mismatch]
   --> lib/money/cents.buri:22:15

@@ -15,9 +15,9 @@ Split it in two: a type is either part of the world or part of your data.
 
 ## Why
 
-The compiler keeps the two kinds of interface apart so a type parameter bounded
-by an ordinary trait can never be instantiated at a context type. That is what
-makes `xs.any(fn(x) => x == needle)` legal while a lambda capturing a context is
+Keeping the two kinds of interface apart is what stops a type parameter bounded
+by an ordinary trait from ever being a context type. That is why
+`xs.any(fn(x) => x == needle)` is legal while a lambda capturing a context is
 not.
 
 ## A program that provokes it
