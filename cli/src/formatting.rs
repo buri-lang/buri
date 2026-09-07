@@ -3004,14 +3004,24 @@ fn quote_char(c: char) -> String {
     }
 }
 
+/// A string literal, escaped.
+///
+/// The `$` case is the one that is about *meaning* rather than about spelling.
+/// A `${` inside a string opens a hole, so a literal holding one has to keep
+/// its backslash or the text comes back as a template — `"a\${x}b"` re-printed
+/// as `"a${x}b"` is a different program, and one that does not compile. A `$`
+/// anywhere else is an ordinary character and is left as it was written, so
+/// `"$.tags[2]"` does not grow a backslash every time the file is formatted.
 fn quote(s: &str) -> String {
     let mut out = String::from("\"");
-    for c in s.chars() {
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
         match c {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
             '\n' => out.push_str("\\n"),
             '\t' => out.push_str("\\t"),
+            '$' if chars.peek() == Some(&'{') => out.push_str("\\$"),
             c => out.push(c),
         }
     }

@@ -154,6 +154,14 @@ unordered, so it answers `.Equal` for a pair it could not order.
   width, so it breaks only what the formatter always breaks and puts everything
   else on one line.
 
+  `tokenize(ctx, source)` is the door the other way, for a generator that has to
+  look at source it did not write. It answers every token in order — comments
+  included, whitespace dropped — each carrying its kind, the raw slice under it,
+  and the byte range that slice covers. Nothing is refused: an unterminated
+  string is a token running to the end of the source, so what a mistake *means*
+  is a question this does not answer. It costs O(n) in the source, and one
+  `[Char]` of it.
+
 - **`core/codegen`** — the protocol a generator speaks. `run` reads one JSON
   line from `Stdin`, hands your function the `Request`, and writes the
   `Response` back as one JSON line on `Stdout`. It calls `core/buri/ast`'s

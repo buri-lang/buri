@@ -2009,11 +2009,28 @@ fn floatText<C: Alloc>(ctx: C, x: Float): Str {
 
 /// A quoted string literal, escaped the way the formatter escapes one.
 fn quote<C: Alloc>(ctx: C, text: Str): Str {
-    let inner = text
-        .chars(ctx)
-        .mapCtx(ctx, fn(c, ch) => escapeChar(c, ch))
+    let cs = text.chars(ctx);
+    let inner = list
+        .range(ctx, 0, cs.len())
+        .mapCtx(ctx, fn(c, i) => escapeAt(c, cs, i))
         .join(ctx, "");
     str.format(ctx, "\"${inner}\"")
+}
+
+/// A `$` is an escape only where a `${` would open a hole. Anywhere else it is
+/// an ordinary character and `buri format` leaves it alone, so printing one
+/// with a backslash would be text the formatter moves.
+fn escapeAt<C: Alloc>(ctx: C, cs: [Char], index: Int): Str {
+    match (cs.get(index)) {
+        .Some(ch) => {
+            if (ch == '$' && cs.get(index + 1) == .Some('{')) {
+                "\\$"
+            } else {
+                escapeChar(ctx, ch)
+            }
+        },
+        .None => "",
+    }
 }
 
 fn escapeChar<C: Alloc>(ctx: C, ch: Char): Str {
@@ -2059,4 +2076,571 @@ fn quoteChar<C: Alloc>(ctx: C, ch: Char): Str {
     } else {
         str.format(ctx, "'${str.fromChars(ctx, [ch])}'")
     }
+}
+
+// -----------------------------------------------------------------------------
+// Reading source back in
+// -----------------------------------------------------------------------------
+
+derive Eq, Show for TokenKind;
+/// What one token is. A `Keyword` and a `Punctuation` are told apart from each
+/// other by their [`Token.text`], which is short and exact — there are
+/// twenty-five of the first and thirty-two of the second, and a variant apiece
+/// would be a second copy of the lexical grammar to keep in step.
+///
+/// `Unknown` is a word the grammar reserves and no production names — `await`,
+/// `while` — or a character that is not punctuation at all.
+export enum TokenKind {
+    Identifier,
+    Keyword,
+    Int,
+    Float,
+    Str,
+    Char,
+    TemplateHead,
+    TemplateSpan,
+    TemplateTail,
+    Punctuation,
+    LineComment,
+    DocComment,
+    ModuleDoc,
+    BlockComment,
+    Unknown,
+}
+
+derive Eq, Show for Token;
+/// One token: what it is, the source under it, and where that source was.
+///
+/// `text` is the *raw* slice — a string literal keeps its quotes and its
+/// backslashes, and a template head reads `"a${`. Nothing is unescaped, so
+/// `source.slice` over the span and `text` are the same characters.
+export struct Token {
+    export kind: TokenKind,
+    export text: Str,
+    export span: Span,
+}
+
+struct Lex {
+    source: Str,
+    chars: [Char],
+    index: Int,
+    at: Int,
+    tokens: [Token],
+    modes: [Int],
+}
+
+/// A `{` is on the mode stack, so the `}` that matches it is punctuation.
+let BRACE: Int = 0;
+
+/// A `${` is on the mode stack, so the `}` that matches it resumes the template.
+let HOLE: Int = 1;
+
+/// Every token of `source`, in order, comments included.
+///
+/// ```buri run
+/// from "core/buri/ast" import * as ast;
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/list" import * as list;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let tokens = ast.tokenize(ctx, "let x = 1;");
+///     let _ = io.println(ctx, tokens.map(ctx, fn(t) => t.text).join(ctx, " ")).ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// let x = 1 ;
+/// ```
+///
+/// **This classifies; it does not validate.** Nothing is refused: an
+/// unterminated string is a `Str` token running to the end of the source, a
+/// `0b12` is an `Int`, and a stray backtick is `Unknown`. What a mistake means
+/// is [`parse`]'s answer, and this is the one place a tool that only wants to
+/// see the text — a highlighter, a token count, a rename — needs no answer at
+/// all.
+///
+/// Whitespace is dropped and every comment is kept, so the tokens' spans cover
+/// the source apart from the gaps between them.
+export fn tokenize<C: Alloc>(ctx: C, source: Str): [Token] {
+    let start = Lex {
+        source: source,
+        chars: source.chars(ctx),
+        index: 0,
+        at: 0,
+        tokens: [],
+        modes: [],
+    };
+    lexRun(ctx, start).tokens
+}
+
+fn lexRun<C: Alloc>(ctx: C, lx: Lex): Lex {
+    if (lx.index >= lx.chars.len()) { lx } else { lexRun(ctx, lexStep(ctx, lx)) }
+}
+
+fn lexStep<C: Alloc>(ctx: C, lx: Lex): Lex {
+    let c = charOf(lx.chars, lx.index);
+    if (isWhitespace(c)) {
+        scanWhitespace(lx)
+    } else if (c == '/') {
+        scanSlash(ctx, lx)
+    } else if (c == '"') {
+        scanText(ctx, lx)
+    } else if (c == '\'') {
+        scanChar(ctx, lx)
+    } else if (isDigit(c)) {
+        scanNumber(ctx, lx)
+    } else if (isWordStart(c)) {
+        scanWord(ctx, lx)
+    } else if (c == '{') {
+        oneChar(
+            ctx,
+            Lex { ..lx, modes: lx.modes.push(ctx, BRACE) },
+            TokenKind.Punctuation,
+        )
+    } else if (c == '}') {
+        scanCloser(ctx, lx)
+    } else {
+        scanPunctuation(ctx, lx)
+    }
+}
+
+// --- the cursor ---------------------------------------------------------------
+
+fn charOf(cs: [Char], i: Int): Char {
+    match (cs.get(i)) {
+        .Some(c) => c,
+        .None => '\0',
+    }
+}
+
+/// How many UTF-8 bytes a scalar takes. A span is a byte range and `Str` is
+/// indexed in scalars, so the two are carried side by side.
+fn utf8Width(c: Char): Int {
+    let u = c.toU32().toI64();
+    if (u < 128) { 1 } else if (u < 2048) { 2 } else if (u < 65536) { 3 } else { 4 }
+}
+
+fn nextChar(lx: Lex): Lex {
+    Lex { ..lx, index: lx.index + 1, at: lx.at + utf8Width(charOf(lx.chars, lx.index)) }
+}
+
+fn skipChars(lx: Lex, count: Int): Lex {
+    if (count <= 0) { lx } else { skipChars(nextChar(lx), count - 1) }
+}
+
+fn atEnd(lx: Lex): Bool {
+    lx.index >= lx.chars.len()
+}
+
+fn pushToken<C: Alloc>(ctx: C, lx: Lex, kind: TokenKind, opened: Lex): Lex {
+    Lex {
+        ..lx,
+        tokens: lx
+            .tokens
+            .push(ctx, Token {
+                kind: kind,
+                text: lx.source.slice(opened.index, lx.index),
+                span: Span { start: opened.at, end: lx.at },
+            }),
+    }
+}
+
+/// One character, as its own token.
+fn oneChar<C: Alloc>(ctx: C, lx: Lex, kind: TokenKind): Lex {
+    pushToken(ctx, nextChar(lx), kind, lx)
+}
+
+// --- classes ------------------------------------------------------------------
+
+fn isWhitespace(c: Char): Bool {
+    c == ' ' || c == '\t' || c == '\r' || c == '\n'
+}
+
+fn isDigit(c: Char): Bool {
+    c >= '0' && c <= '9'
+}
+
+fn isLetter(c: Char): Bool {
+    c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+fn isWordStart(c: Char): Bool {
+    isLetter(c) || c == '_'
+}
+
+fn isWordPart(c: Char): Bool {
+    isLetter(c) || isDigit(c) || c == '_'
+}
+
+fn isHexDigit(c: Char): Bool {
+    isDigit(c) || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
+}
+
+// --- whitespace and comments ----------------------------------------------------
+
+fn scanWhitespace(lx: Lex): Lex {
+    if (atEnd(lx) == false && isWhitespace(charOf(lx.chars, lx.index))) {
+        scanWhitespace(nextChar(lx))
+    } else {
+        lx
+    }
+}
+
+fn scanSlash<C: Alloc>(ctx: C, lx: Lex): Lex {
+    let next = charOf(lx.chars, lx.index + 1);
+    if (next == '/') {
+        scanLineComment(ctx, lx)
+    } else if (next == '*') {
+        scanBlockComment(ctx, lx)
+    } else {
+        scanPunctuation(ctx, lx)
+    }
+}
+
+/// `//!` documents the module, `///` the declaration below it, and `////` is an
+/// ordinary comment — the longer run of slashes wins.
+fn scanLineComment<C: Alloc>(ctx: C, lx: Lex): Lex {
+    let third = charOf(lx.chars, lx.index + 2);
+    let fourth = charOf(lx.chars, lx.index + 3);
+    let kind = if (third == '!') {
+        TokenKind.ModuleDoc
+    } else if (third == '/' && fourth != '/') {
+        TokenKind.DocComment
+    } else {
+        TokenKind.LineComment
+    };
+    pushToken(ctx, scanToEndOfLine(lx), kind, lx)
+}
+
+fn scanToEndOfLine(lx: Lex): Lex {
+    if (atEnd(lx) == false && charOf(lx.chars, lx.index) != '\n') {
+        scanToEndOfLine(nextChar(lx))
+    } else {
+        lx
+    }
+}
+
+fn scanBlockComment<C: Alloc>(ctx: C, lx: Lex): Lex {
+    pushToken(ctx, scanNesting(skipChars(lx, 2), 1), TokenKind.BlockComment, lx)
+}
+
+/// Block comments nest, so the scan carries a depth rather than stopping at the
+/// first `*/`.
+fn scanNesting(lx: Lex, depth: Int): Lex {
+    if (depth <= 0 || atEnd(lx)) {
+        lx
+    } else {
+        let c = charOf(lx.chars, lx.index);
+        let next = charOf(lx.chars, lx.index + 1);
+        if (c == '/' && next == '*') {
+            scanNesting(skipChars(lx, 2), depth + 1)
+        } else if (c == '*' && next == '/') {
+            scanNesting(skipChars(lx, 2), depth - 1)
+        } else {
+            scanNesting(nextChar(lx), depth)
+        }
+    }
+}
+
+// --- words ---------------------------------------------------------------------
+
+fn scanWord<C: Alloc>(ctx: C, lx: Lex): Lex {
+    let end = scanWordEnd(nextChar(lx));
+    let spelling = lx.source.slice(lx.index, end.index);
+    let kind = if (spelling == "_") {
+        TokenKind.Punctuation
+    } else if (isKeyword(spelling)) {
+        TokenKind.Keyword
+    } else if (isReserved(spelling)) {
+        TokenKind.Unknown
+    } else {
+        TokenKind.Identifier
+    };
+    pushToken(ctx, end, kind, lx)
+}
+
+fn scanWordEnd(lx: Lex): Lex {
+    if (atEnd(lx) == false && isWordPart(charOf(lx.chars, lx.index))) {
+        scanWordEnd(nextChar(lx))
+    } else {
+        lx
+    }
+}
+
+/// The twenty-five keywords of the lexical grammar.
+fn isKeyword(spelling: Str): Bool {
+    spelling == "as"
+        || spelling == "const"
+        || spelling == "context"
+        || spelling == "ctx"
+        || spelling == "derive"
+        || spelling == "effect"
+        || spelling == "else"
+        || spelling == "enum"
+        || spelling == "export"
+        || spelling == "false"
+        || spelling == "fn"
+        || spelling == "for"
+        || spelling == "from"
+        || spelling == "if"
+        || spelling == "impl"
+        || spelling == "import"
+        || spelling == "let"
+        || spelling == "match"
+        || spelling == "self"
+        || spelling == "Self"
+        || spelling == "struct"
+        || spelling == "test"
+        || spelling == "trait"
+        || spelling == "true"
+        || spelling == "type"
+}
+
+/// Reserved in v0.3 and claimed by no production, so a source that uses one is
+/// answered here rather than somewhere further on.
+fn isReserved(spelling: Str): Bool {
+    spelling == "async"
+        || spelling == "await"
+        || spelling == "break"
+        || spelling == "continue"
+        || spelling == "do"
+        || spelling == "in"
+        || spelling == "is"
+        || spelling == "loop"
+        || spelling == "module"
+        || spelling == "mut"
+        || spelling == "opaque"
+        || spelling == "panic"
+        || spelling == "pub"
+        || spelling == "return"
+        || spelling == "unreachable"
+        || spelling == "use"
+        || spelling == "when"
+        || spelling == "where"
+        || spelling == "while"
+        || spelling == "with"
+        || spelling == "yield"
+}
+
+// --- numbers -------------------------------------------------------------------
+
+fn scanNumber<C: Alloc>(ctx: C, lx: Lex): Lex {
+    let next = charOf(lx.chars, lx.index + 1);
+    if (
+        charOf(lx.chars, lx.index) == '0' && (next == 'x' || next == 'o' || next == 'b')
+    ) {
+        pushToken(ctx, scanRadixDigits(skipChars(lx, 2)), TokenKind.Int, lx)
+    } else {
+        scanDecimal(ctx, lx)
+    }
+}
+
+fn scanRadixDigits(lx: Lex): Lex {
+    let c = charOf(lx.chars, lx.index);
+    if (atEnd(lx) == false && (isHexDigit(c) || c == '_')) {
+        scanRadixDigits(nextChar(lx))
+    } else {
+        lx
+    }
+}
+
+fn scanDecimalDigits(lx: Lex): Lex {
+    let c = charOf(lx.chars, lx.index);
+    if (atEnd(lx) == false && (isDigit(c) || c == '_')) {
+        scanDecimalDigits(nextChar(lx))
+    } else {
+        lx
+    }
+}
+
+/// A float must begin with a digit and carry a digit after the point, which is
+/// what makes `pair.0` a tuple index rather than a float.
+fn scanDecimal<C: Alloc>(ctx: C, lx: Lex): Lex {
+    let whole = scanDecimalDigits(lx);
+    let afterPoint = if (
+        charOf(whole.chars, whole.index) == '.'
+            && isDigit(charOf(whole.chars, whole.index + 1))
+    ) {
+        scanDecimalDigits(nextChar(whole))
+    } else {
+        whole
+    };
+    let float = afterPoint.index > whole.index;
+    let e = charOf(afterPoint.chars, afterPoint.index);
+    let sign = charOf(afterPoint.chars, afterPoint.index + 1);
+    let digitAfterSign = isDigit(charOf(afterPoint.chars, afterPoint.index + 2));
+    let hasExponent = (e == 'e' || e == 'E')
+        && (isDigit(sign) || (sign == '+' || sign == '-') && digitAfterSign);
+    let end = if (hasExponent) {
+        scanDecimalDigits(skipChars(afterPoint, if (isDigit(sign)) { 1 } else { 2 }))
+    } else {
+        afterPoint
+    };
+    pushToken(
+        ctx,
+        end,
+        if (float || hasExponent) { TokenKind.Float } else { TokenKind.Int },
+        lx,
+    )
+}
+
+// --- text ----------------------------------------------------------------------
+
+/// A `"` opens a string, or a template when a `${` is reached before the closing
+/// quote. The mode stack is what tells the `}` that closes a block inside a hole
+/// from the `}` that resumes template text.
+fn scanText<C: Alloc>(ctx: C, lx: Lex): Lex {
+    let (end, hole) = scanStrBody(nextChar(lx));
+    if (hole) {
+        pushToken(
+            ctx,
+            Lex { ..end, modes: end.modes.push(ctx, HOLE) },
+            TokenKind.TemplateHead,
+            lx,
+        )
+    } else {
+        pushToken(ctx, end, TokenKind.Str, lx)
+    }
+}
+
+/// The `}` that resumes a template, or an ordinary closing brace.
+fn scanCloser<C: Alloc>(ctx: C, lx: Lex): Lex {
+    match (lx.modes.last()) {
+        .Some(mode) => {
+            let outer = Lex { ..lx, modes: lx.modes.take(ctx, lx.modes.len() - 1) };
+            if (mode == HOLE) {
+                let (end, hole) = scanStrBody(nextChar(lx));
+                if (hole) {
+                    pushToken(ctx, end, TokenKind.TemplateSpan, lx)
+                } else {
+                    pushToken(
+                        ctx,
+                        Lex { ..end, modes: outer.modes },
+                        TokenKind.TemplateTail,
+                        lx,
+                    )
+                }
+            } else {
+                pushToken(
+                    ctx,
+                    nextChar(Lex { ..lx, modes: outer.modes }),
+                    TokenKind.Punctuation,
+                    lx,
+                )
+            }
+        },
+        .None => oneChar(ctx, lx, TokenKind.Punctuation),
+    }
+}
+
+/// Scans to the `"` that ends a string or the `${` that opens a hole, and says
+/// which of the two it found. The opener is already consumed.
+fn scanStrBody(lx: Lex): (Lex, Bool) {
+    if (atEnd(lx)) {
+        (lx, false)
+    } else {
+        let c = charOf(lx.chars, lx.index);
+        if (c == '"') {
+            (nextChar(lx), false)
+        } else if (c == '\\') {
+            scanStrBody(skipChars(lx, 2))
+        } else if (c == '$' && charOf(lx.chars, lx.index + 1) == '{') {
+            (skipChars(lx, 2), true)
+        } else {
+            scanStrBody(nextChar(lx))
+        }
+    }
+}
+
+fn scanChar<C: Alloc>(ctx: C, lx: Lex): Lex {
+    let body = if (charOf(lx.chars, lx.index + 1) == '\\') {
+        scanEscape(skipChars(lx, 2))
+    } else {
+        skipChars(lx, 2)
+    };
+    let end = if (charOf(body.chars, body.index) == '\'') {
+        nextChar(body)
+    } else {
+        body
+    };
+    pushToken(ctx, end, TokenKind.Char, lx)
+}
+
+/// The escape's own characters: one for `\n`, and `u{...}`'s whole brace group.
+fn scanEscape(lx: Lex): Lex {
+    if (charOf(lx.chars, lx.index) == 'u' && charOf(lx.chars, lx.index + 1) == '{') {
+        scanToCurly(skipChars(lx, 2))
+    } else {
+        nextChar(lx)
+    }
+}
+
+fn scanToCurly(lx: Lex): Lex {
+    if (atEnd(lx)) {
+        lx
+    } else if (charOf(lx.chars, lx.index) == '}') {
+        nextChar(lx)
+    } else {
+        scanToCurly(nextChar(lx))
+    }
+}
+
+// --- punctuation ----------------------------------------------------------------
+
+/// Longest match. There is no `<<`, no `>>` and no `?.`, which is what keeps
+/// `Map<Str, [Int]>` and `x?.field` lexing the way they read.
+fn scanPunctuation<C: Alloc>(ctx: C, lx: Lex): Lex {
+    let two = lx.source.slice(lx.index, lx.index + 2);
+    let paired = two == "::"
+        || two == ".."
+        || two == "=>"
+        || two == "=="
+        || two == "!="
+        || two == "<="
+        || two == ">="
+        || two == "&&"
+        || two == "||";
+    if (paired) {
+        pushToken(ctx, skipChars(lx, 2), TokenKind.Punctuation, lx)
+    } else if (isPunctuation(charOf(lx.chars, lx.index))) {
+        oneChar(ctx, lx, TokenKind.Punctuation)
+    } else {
+        oneChar(ctx, lx, TokenKind.Unknown)
+    }
+}
+
+fn isPunctuation(c: Char): Bool {
+    c == '{'
+        || c == '}'
+        || c == '('
+        || c == ')'
+        || c == '['
+        || c == ']'
+        || c == ','
+        || c == ';'
+        || c == ':'
+        || c == '.'
+        || c == '@'
+        || c == '_'
+        || c == '='
+        || c == '<'
+        || c == '>'
+        || c == '+'
+        || c == '-'
+        || c == '*'
+        || c == '/'
+        || c == '%'
+        || c == '&'
+        || c == '|'
+        || c == '^'
+        || c == '~'
+        || c == '!'
+        || c == '?'
 }

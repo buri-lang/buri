@@ -1822,6 +1822,7 @@ fn compile_corpus(path: &str) -> Compiled {
 const CORPUS_COMPILES: &[&str] = &[
     "actor/counter.buri",
     "actor/scoped.buri",
+    "buri_ast/tokens.buri",
     "calendar/date.buri",
     "calendar/duration.buri",
     "canary/canary.buri",
