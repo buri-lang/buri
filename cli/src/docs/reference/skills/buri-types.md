@@ -269,7 +269,7 @@ context Fixture {
   so a `<C: ...>` naming a subset accepts it and one naming more does not.
 - A context's type never appears in source: the compiler generates it, unnamed.
 
-**Where you may build a context:** `main`'s body, a test source, or a test-only
+**Where you may build a context:** an entry's body, a test source, or a test-only
 module (a path with a `testing` segment). Never inside a lambda, and nowhere
 else.
 

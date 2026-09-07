@@ -53,7 +53,7 @@ source (Section 11.2) and a `context` declaration or expression only where
 Section 11.3 says.
 
 `ctx` is legal as the parameter after `self` (Section 10.2). It is also legal as
-a `let` binding name inside `main`'s body, a test source, or a test-only module,
+a `let` binding name inside an entry's body, a test source, or a test-only module,
 because that is where you build contexts. Nowhere else.
 
 `const` is a keyword no production uses. It stays reserved so that source still
