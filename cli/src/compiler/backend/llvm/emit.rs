@@ -1433,6 +1433,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                 (fs, pieces)
             })
             .collect();
+        // A boxed payload is a block, so a variant that has one allocates.
+        if self.boxed_payload(id, variant as usize).iter().any(|(boxed, _, _)| *boxed) {
+            state.observed.allocates = true;
+        }
         let Some(value) = self.build_variant(id, variant as usize, &parts) else { return };
         let _ = span;
         self.set(state, dest, value);

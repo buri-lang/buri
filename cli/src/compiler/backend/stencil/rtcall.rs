@@ -890,7 +890,7 @@ impl Jit<'_> {
         Ok(())
     }
 
-    /// [`Extra::Compute`]'s six words: a body the runtime keeps and calls
+    /// [`Extra::Compute`]'s seven words: a body the runtime keeps and calls
     /// later.
     ///
     /// It is [`Self::step_extra`] with the lifetime turned around. The record
