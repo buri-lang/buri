@@ -239,6 +239,25 @@ pub struct Program {
     /// with no design tokens at all, which can only ever hand `mount` an empty
     /// list.
     pub themes: bool,
+    /// The chunks `core/lazy`'s `load` split out of this artifact, numbered by
+    /// their position here.
+    ///
+    /// Empty for every program that loads nothing lazily, and for every backend
+    /// that has no second file to put one in — `middle::chunks` is what fills
+    /// it, and it is the only thing that does.
+    pub chunks: Vec<Chunk>,
+}
+
+/// One lazily loaded chunk: the function `core/lazy`'s `load` was handed, and
+/// the functions only that one reaches.
+///
+/// Both are slots in [`Program::funcs`], because that is what the artifact and
+/// the chunk are partitioned by and what `middle::dce` answers in.
+#[derive(Clone, Debug)]
+pub struct Chunk {
+    pub root: usize,
+    /// `root` included. Every function that leaves the artifact for this file.
+    pub members: Vec<usize>,
 }
 
 /// What every declared type is made of, in a form a pass holding no `Tables`
@@ -549,6 +568,10 @@ pub fn run(
         ),
         inline_styles: reached.inline,
         themes,
+        // `middle::chunks` is the only thing that fills this, and it runs after
+        // inlining and dead-code elimination have settled which functions
+        // there still are.
+        chunks: Vec::new(),
     }
 }
 
@@ -2304,6 +2327,13 @@ const GENERIC_INTRINSICS: &[&str] = &[
     // receiver: `decode` is asked for a `T` and handed a `Json`. `T` reaches
     // the runtime as a descriptor, built in `build_fn`.
     "json.decode",
+    // `core/lazy`'s `load`, and the one entry here that needs **no** carrier,
+    // because no runtime is reached: `middle::chunks` rewrites every call to
+    // this key before a backend sees one — into the argument itself where
+    // nothing can be split, and into a chunk node where something can. The key
+    // is how that pass recognises the call, and it is the whole of what the key
+    // is for.
+    "lazy.load",
     // `core/list`. Every entry here is generic in the element type, because
     // the whole module is `impl<T> [T]`, and every one of them gets its stride
     // and glue from `Extra::Element` (`runtime_table`) — `push` and `repeat`

@@ -5280,3 +5280,30 @@ function $sat(v, lo, hi) {
 function $str_format(c, t) {
   return t;
 }
+
+// --- Lazily loaded chunks ------------------------------------------------------
+
+// One promise per chunk, so a second `load` of the same one is a hit rather
+// than a second request.
+let $lazyChunks = [];
+
+// Chunk `n` of this artifact, which sits beside it as `<artifact>.<n>.mjs`.
+// The name is derived from `import.meta.url` rather than written into the
+// artifact, so nothing here records where the build ran or what the output
+// directory was called.
+//
+// `env` is a thunk answering everything the chunk borrows from this module.
+// The chunk is handed them rather than importing them back, because this
+// module is still evaluating — a chunk is fetched from inside a call this
+// module's own top-level `await` is waiting on, and a cycle there is a program
+// that never finishes starting.
+function $lazy(n, env) {
+  if (!$lazyChunks[n]) {
+    const here = import.meta.url;
+    $lazyChunks[n] = import(here.slice(0, here.length - 4) + "." + n + ".mjs").then(function (m) {
+      m.$bind(env());
+      return m;
+    });
+  }
+  return $lazyChunks[n];
+}

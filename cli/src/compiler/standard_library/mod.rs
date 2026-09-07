@@ -224,6 +224,12 @@ pub const MODULES: &[StdModule] = &[
     // to bind. That is also why it appears in no [`WRAPPERS`] row — it opens no
     // door, because it declares no effect.
     m("core/actor", include_str!("sources/actor.buri")),
+    // One declaration, and it is a fact about the *artifact* rather than about
+    // the program: `load(f)` answers `f`, and on a backend that writes more
+    // than one file it also decides which file `f` is in. Not a platform
+    // module — it declares no effect and names none — and its key is rewritten
+    // by `middle::chunks` before any backend sees it.
+    m("core/lazy", include_str!("sources/lazy.buri")),
     StdModule {
         platform: true,
         ..m("core/testing/assert", include_str!("sources/assert.buri"))
