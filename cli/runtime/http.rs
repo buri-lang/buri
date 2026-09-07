@@ -732,6 +732,98 @@ mod tests {
         assert_eq!(bound(1), Duration::from_millis(1));
     }
 
+
+    /// **A server that accepts and then says nothing ends at the caller's
+    /// bound, and the same server answering does not.**
+    ///
+    /// The two cases above are a step that never finishes and a dial that never
+    /// connects. This is the one in between, and the one a program actually
+    /// meets: a real socket, accepted, with a whole request read off it and no
+    /// answer ever written. `Request.withTimeout` is the only thing that can end
+    /// it.
+    ///
+    /// The answering half is beside it because a client that timed out on
+    /// everything would pass the first assertion alone. Both go through
+    /// [`bound`], so this is the milliseconds a caller asked for reaching a real
+    /// exchange rather than a number read and dropped.
+    #[test]
+    fn a_server_that_accepts_and_never_answers_ends_at_the_caller_bound() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a bound port");
+        let port = listener.local_addr().expect("the bound port").port();
+        listener.set_nonblocking(true).expect("a listener that can be polled");
+
+        // `answer` is what the peer writes once it has read a whole head, or
+        // nothing at all — which is the stall.
+        let serve = |listener: &TcpListener, answer: Option<&[u8]>| {
+            let until = Instant::now() + SOON;
+            let mut socket = loop {
+                match listener.accept() {
+                    Ok((socket, _from)) => break socket,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < until, "the client did not dial");
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(e) => panic!("the peer could not accept: {e}"),
+                }
+            };
+            socket.set_nonblocking(false).expect("a blocking socket");
+            socket.set_read_timeout(Some(SOON)).expect("a deadline");
+            socket.set_write_timeout(Some(SOON)).expect("a deadline");
+            let mut head = Vec::new();
+            let mut chunk = [0_u8; 512];
+            while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                match socket.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+                }
+            }
+            if let Some(bytes) = answer {
+                let _sent = socket.write_all(bytes);
+                let _flushed = socket.flush();
+            }
+            // Held until the closure returns, so the stalling connection is open
+            // for the whole of the request that is meant to time out.
+            socket
+        };
+
+        let url = format!("http://127.0.0.1:{port}/probe");
+        let stalling = std::thread::scope(|scope| {
+            let peer = scope.spawn(|| serve(&listener, None));
+            let started = Instant::now();
+            let answer = fetch_within(bound(250), 0, &url, &[], b"");
+            let took = started.elapsed();
+            let _held = peer.join().expect("the peer thread");
+            (answer, took)
+        });
+        assert!(
+            matches!(stalling.0, Err(NetFail::Timeout)),
+            "a server that never answers is a Timeout, not {:?}",
+            stalling.0.map(|r| r.status)
+        );
+        assert!(stalling.1 < SOON, "the request ran {:?}", stalling.1);
+
+        let answered = std::thread::scope(|scope| {
+            let peer = scope.spawn(|| {
+                serve(
+                    &listener,
+                    Some(b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nhi"),
+                )
+            });
+            let answer = fetch_within(bound(30_000), 0, &url, &[], b"");
+            let _held = peer.join().expect("the peer thread");
+            answer
+        });
+        match answered {
+            Ok(response) => {
+                assert_eq!(response.status, 200);
+                assert_eq!(response.body, b"hi");
+            }
+            Err(e) => panic!("a server that answered was read as {}", e.message()),
+        }
+    }
+
     /// And the bound is the one the exchange actually runs under, rather than a
     /// number that is read and dropped.
     #[test]
