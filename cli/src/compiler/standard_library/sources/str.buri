@@ -773,13 +773,732 @@ fn renderFixed<C: Alloc>(ctx: C, digits: Str, point: Int, places: Int): Str {
     }
 }
 
+// --- Unicode beyond the scalar ------------------------------------------------------
+//
+// Three answers a `Str` cannot give one scalar at a time: where a reader would
+// say one character ends, which of several ways to spell the same text this is,
+// and what two strings that differ only in case have in common. All three are
+// tables, and `unicode_tables.py` writes them at the end of this file from
+// **Unicode 16.0**.
+//
+// Every table is ASCII, four base-36 digits to a code point, except the ones
+// holding characters — a decomposition, a folding, the Hangul syllables. There
+// is no way to turn a number into a `Char` without a `Result` the native
+// backends do not build, so an answer that is a character is *sliced out of a
+// string that already holds it*.
+//
+// The cost, stated once: everything here walks the string and probes a table
+// per scalar, and the allocating three turn each table into a `[Char]` first so
+// a probe is a list index. That is one pass over the tables per call, not per
+// scalar. `graphemeCount` is pure and cannot do it, so it reads the table as
+// text and is the slow one — `graphemes(ctx).len()` is the same answer for less
+// where a context is at hand.
+
+derive Eq, Show for Normalization;
+/// The four normalization forms of UAX #15.
+export enum Normalization {
+    /// Canonical decomposition, then canonical composition. The form to store
+    /// and compare text in.
+    Nfc,
+    /// Canonical decomposition, and no composition.
+    Nfd,
+    /// Compatibility decomposition, then canonical composition. It loses
+    /// distinctions on purpose: `ﬁ` becomes `fi` and `²` becomes `2`.
+    Nfkc,
+    /// Compatibility decomposition, and no composition.
+    Nfkd,
+}
+
+impl Str {
+    /// The extended grapheme clusters, in order — what a reader calls
+    /// characters and what a cursor moves over.
+    ///
+    /// UAX #29, including the rules that keep an emoji with its skin tone, a
+    /// flag's two regional indicators, and an Indic consonant with its
+    /// conjunct. So `"👨‍👩‍👦"` is one piece where `chars` gives five.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let text = "e\u{301}a";
+    ///     let _ = io.println(ctx, "${text.graphemes(ctx).len()} ${text.len()}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// 2 3
+    /// ```
+    export fn graphemes<C: Alloc>(self, ctx: C): [Str] {
+        let cs = self.chars(ctx);
+        if (cs.isEmpty()) {
+            list.empty<Str>()
+        } else {
+            // `classIn` answers the first 128 scalars without the table, so a
+            // line of ASCII does not pay to unpack fourteen thousand of them.
+            let table = if (allBelow(cs, 0x80)) {
+                list.empty<Char>()
+            } else {
+                GRAPHEME_CLASS.chars(ctx)
+            };
+            let first = advance(freshBoundary(), classIn(table, codePoint(cs, 0)), true);
+            clustersFrom(ctx, self, cs, table, 1, 0, first, list.empty<Str>())
+        }
+    }
+
+    /// How many extended grapheme clusters there are, without building them.
+    ///
+    /// The same count `graphemes(ctx).len()` gives. It is pure, so it reads the
+    /// break table as text rather than as a list, and that costs a walk of the
+    /// table per non-ASCII scalar — use `graphemes` where you have a context.
+    export fn graphemeCount(self): Int {
+        if (self.isEmpty()) {
+            0
+        } else {
+            let first = advance(freshBoundary(), classOf(charCode(self, 0)), true);
+            clusterCount(self, 1, 1, first)
+        }
+    }
+
+    /// The text in one of the four normalization forms of UAX #15.
+    ///
+    /// Two strings that look the same and are not equal are nearly always two
+    /// spellings of one thing: `"é"` is either U+00E9 or `e` and U+0301, and
+    /// `.Nfc` makes both the first. Normalize before comparing, hashing or
+    /// storing text that came from outside.
+    ///
+    /// Hangul is composed and decomposed by the arithmetic UAX #15 gives, so
+    /// the whole syllable block round-trips without a table of eleven thousand
+    /// entries.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    /// from "core/str" import { Normalization };
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let loose = "e\u{301}";
+    ///     let tight = loose.normalize(ctx, .Nfc);
+    ///     let _ = io.println(ctx, "${tight.len()} ${tight == "é"}").ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// 1 true
+    /// ```
+    export fn normalize<C: Alloc>(self, ctx: C, form: Normalization): Str {
+        let cs = self.chars(ctx);
+        // Nothing below U+00A0 decomposes and nothing below U+0300 combines,
+        // so a string of them is already in all four forms.
+        if (allBelow(cs, 0xa0)) { self } else { normalized(ctx, cs, form) }
+    }
+}
+
+/// `normalize` once the string is known to hold something that decomposes.
+fn normalized<C: Alloc>(ctx: C, cs: [Char], form: Normalization): Str {
+    let compatible = match (form) {
+        .Nfkc => true,
+        .Nfkd => true,
+        _ => false,
+    };
+    let table = if (compatible) {
+        Mapping {
+            keys: NFKD_KEYS.chars(ctx),
+            offsets: NFKD_OFFSETS.chars(ctx),
+            lengths: NFKD_LENGTHS.chars(ctx),
+            values: NFKD_VALUES.chars(ctx),
+        }
+    } else {
+        Mapping {
+            keys: NFD_KEYS.chars(ctx),
+            offsets: NFD_OFFSETS.chars(ctx),
+            lengths: NFD_LENGTHS.chars(ctx),
+            values: NFD_VALUES.chars(ctx),
+        }
+    };
+    let composing = match (form) {
+        .Nfc => true,
+        .Nfkc => true,
+        _ => false,
+    };
+    let jamo = Hangul {
+        leading: HANGUL_LEADING.chars(ctx),
+        vowel: HANGUL_VOWEL.chars(ctx),
+        trailing: HANGUL_TRAILING.chars(ctx),
+        // Only composition indexes the syllables; decomposition is the
+        // three jamo runs and arithmetic.
+        syllables: if (composing) {
+            HANGUL_SYLLABLES.chars(ctx)
+        } else {
+            list.empty<Char>()
+        },
+    };
+    let classes = COMBINING_CLASS.chars(ctx);
+    let pulled = decomposeFrom(ctx, cs, table, jamo, 0, list.empty<Char>());
+    let sorted = reorder(ctx, pulled, classes, pulled.len());
+    if (composing) {
+        let pairs = Composition {
+            keys: COMPOSE_KEYS.chars(ctx),
+            values: COMPOSE_VALUES.chars(ctx),
+            jamo,
+        };
+        let joined = composeFrom(ctx, sorted, classes, pairs, 0, list.empty<Char>(), -1, 0);
+        fromChars(ctx, joined)
+    } else {
+        fromChars(ctx, sorted)
+    }
+}
+
+impl Str {
+    /// The text under **full** case folding, which is what a case-insensitive
+    /// comparison should use.
+    ///
+    /// Full, so a folding may change the length: `"ß"` folds to `"ss"` and
+    /// `"ﬁ"` to `"fi"`. `equalsIgnoreCase` is the cheap, simple folding that
+    /// says those are different.
+    ///
+    /// Folding is not lowercasing. It has no locale and no round trip: fold
+    /// both sides and compare, and do not show the answer to anyone.
+    ///
+    /// ```buri run
+    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/host" import * as host;
+    /// from "core/io" import * as io;
+    ///
+    /// export fn main(): Result<(), Str> {
+    ///     let ctx = context {
+    ///         Alloc: host.alloc,
+    ///         Stdout: host.stdout,
+    ///     };
+    ///     let _ = io.println(ctx, "STRASSE".caseFold(ctx) == "Straße".caseFold(ctx)).ignore();
+    ///     .Ok(())
+    /// }
+    /// ```
+    ///
+    /// ```stdout
+    /// true
+    /// ```
+    export fn caseFold<C: Alloc>(self, ctx: C): Str {
+        let cs = self.chars(ctx);
+        // Full folding at an ASCII scalar is lowercasing it, and the runtime
+        // already does that in one call.
+        if (allBelow(cs, 0x80)) { self.toLower(ctx) } else { folded(ctx, cs) }
+    }
+}
+
+/// `caseFold` once the ASCII answer is ruled out.
+fn folded<C: Alloc>(ctx: C, cs: [Char]): Str {
+    let table = Mapping {
+        keys: FOLD_KEYS.chars(ctx),
+        offsets: FOLD_OFFSETS.chars(ctx),
+        lengths: FOLD_LENGTHS.chars(ctx),
+        values: FOLD_VALUES.chars(ctx),
+    };
+    fromChars(ctx, foldFrom(ctx, cs, table, 0, list.empty<Char>()))
+}
+
+/// A key table and the characters its keys map to, all as `[Char]` so a lookup
+/// is a list index rather than a walk down a string.
+struct Mapping {
+    keys: [Char],
+    offsets: [Char],
+    lengths: [Char],
+    values: [Char],
+}
+
+/// The jamo and the syllables, for the arithmetic in UAX #15 §3.12.
+struct Hangul {
+    leading: [Char],
+    vowel: [Char],
+    trailing: [Char],
+    syllables: [Char],
+}
+
+/// The primary composites, by the pair they are made of.
+struct Composition {
+    keys: [Char],
+    values: [Char],
+    jamo: Hangul,
+}
+
+/// What the grapheme scan remembers about everything before the boundary it is
+/// deciding.
+struct Boundary {
+    /// The packed class of the character just before it.
+    previous: Int,
+    /// How many Regional_Indicators run up to it, unbroken (GB12, GB13).
+    regionals: Int,
+    /// Whether `ExtPict Extend*` ends here, so a `ZWJ` next keeps GB11 alive.
+    pictographic: Bool,
+    /// Whether `ExtPict Extend* ZWJ` ends here — GB11's left half.
+    joined: Bool,
+    /// Whether `Consonant [Extend Linker]*` ends here.
+    consonant: Bool,
+    /// Whether a `Linker` has appeared in that run — GB9c's left half.
+    linked: Bool,
+}
+
+fn freshBoundary(): Boundary {
+    Boundary {
+        previous: 0,
+        regionals: 0,
+        pictographic: false,
+        joined: false,
+        consonant: false,
+        linked: false,
+    }
+}
+
+/// Whether the cluster ends between the character `state` remembers and the one
+/// whose packed class is `next` — UAX #29's GB3 to GB999, in order.
+fn breaksBefore(state: Boundary, next: Int): Bool {
+    let a = state.previous % 16;
+    let b = next % 16;
+    if (a == 1 && b == 2) {
+        false
+    } else if (a == 1 || a == 2 || a == 3 || b == 1 || b == 2 || b == 3) {
+        true
+    } else if (a == 9 && (b == 9 || b == 10 || b == 12 || b == 13)) {
+        false
+    } else if ((a == 10 || a == 12) && (b == 10 || b == 11)) {
+        false
+    } else if ((a == 11 || a == 13) && b == 11) {
+        false
+    } else if (b == 4 || b == 5 || b == 8) {
+        false
+    } else if (a == 7) {
+        false
+    } else if (state.linked && isConsonant(next)) {
+        false
+    } else if (state.joined && isPictographic(next)) {
+        false
+    } else if (a == 6 && b == 6 && state.regionals % 2 == 1) {
+        false
+    } else {
+        true
+    }
+}
+
+/// The state after the character whose packed class is `next`, given whether
+/// the cluster broke in front of it.
+fn advance(state: Boundary, next: Int, broke: Bool): Boundary {
+    let kind = next % 16;
+    let regionals = if (kind != 6) {
+        0
+    } else if (broke) {
+        1
+    } else {
+        state.regionals + 1
+    };
+    let carried = state.consonant && (isExtender(next) || isLinker(next));
+    Boundary {
+        previous: next,
+        regionals,
+        pictographic: isPictographic(next) || (state.pictographic && kind == 4),
+        joined: state.pictographic && kind == 5 && !isPictographic(next),
+        consonant: isConsonant(next) || carried,
+        linked: !isConsonant(next) && carried && (state.linked || isLinker(next)),
+    }
+}
+
+fn isPictographic(packed: Int): Bool {
+    (packed / 16) % 2 == 1
+}
+
+fn isLinker(packed: Int): Bool {
+    (packed / 32) % 2 == 1
+}
+
+fn isConsonant(packed: Int): Bool {
+    (packed / 64) % 2 == 1
+}
+
+fn isExtender(packed: Int): Bool {
+    (packed / 128) % 2 == 1
+}
+
+fn clustersFrom<C: Alloc>(
+    ctx: C,
+    text: Str,
+    cs: [Char],
+    table: [Char],
+    at: Int,
+    start: Int,
+    state: Boundary,
+    acc: [Str],
+): [Str] {
+    if (at >= cs.len()) {
+        acc.push(ctx, text.slice(start, at))
+    } else {
+        let next = classIn(table, codePoint(cs, at));
+        let broke = breaksBefore(state, next);
+        let pieces = if (broke) { acc.push(ctx, text.slice(start, at)) } else { acc };
+        let begin = if (broke) { at } else { start };
+        clustersFrom(ctx, text, cs, table, at + 1, begin, advance(state, next, broke), pieces)
+    }
+}
+
+fn clusterCount(text: Str, at: Int, seen: Int, state: Boundary): Int {
+    if (at >= text.len()) {
+        seen
+    } else {
+        let next = classOf(charCode(text, at));
+        let broke = breaksBefore(state, next);
+        let total = if (broke) { seen + 1 } else { seen };
+        clusterCount(text, at + 1, total, advance(state, next, broke))
+    }
+}
+
+/// Whether every scalar is below `bound`.
+fn allBelow(cs: [Char], bound: Int): Bool {
+    cs.all(fn(c) => c.toU32().toI64() < bound)
+}
+
+fn codePoint(cs: [Char], at: Int): Int {
+    match (cs.get(at)) {
+        .Some(c) => c.toU32().toI64(),
+        .None => 0,
+    }
+}
+
+fn charCode(text: Str, at: Int): Int {
+    match (text.charAt(at)) {
+        .Some(c) => c.toU32().toI64(),
+        .None => 0,
+    }
+}
+
+/// The packed grapheme class of the first 128 scalars, which the table never
+/// has to be opened for: controls but for the two line breaks, then `Other`.
+fn asciiClass(cp: Int): Option<Int> {
+    if (cp >= 0x20 && cp < 0x7f) {
+        .Some(0)
+    } else if (cp == 0x0a) {
+        .Some(2)
+    } else if (cp == 0x0d) {
+        .Some(1)
+    } else if (cp >= 0 && cp < 0x80) {
+        .Some(3)
+    } else {
+        .None
+    }
+}
+
+fn classIn(table: [Char], cp: Int): Int {
+    match (asciiClass(cp)) {
+        .Some(known) => known,
+        .None => rangeValue(table, cp, 0, table.len() / 10),
+    }
+}
+
+fn classOf(cp: Int): Int {
+    match (asciiClass(cp)) {
+        .Some(known) => known,
+        .None => textRangeValue(GRAPHEME_CLASS, cp, 0, GRAPHEME_CLASS.len() / 10),
+    }
+}
+
+fn combiningClass(classes: [Char], c: Char): Int {
+    let cp = c.toU32().toI64();
+    // Nothing below U+0300 combines, which is every character a Latin text is
+    // made of.
+    if (cp < 0x300) { 0 } else { rangeValue(classes, cp, 0, classes.len() / 10) }
+}
+
+/// The two-digit value of the range `cp` falls in, or zero. An entry is a
+/// four-digit first code point, a four-digit last one, and the value.
+fn rangeValue(table: [Char], cp: Int, lo: Int, hi: Int): Int {
+    if (lo >= hi) {
+        0
+    } else {
+        let mid = lo + (hi - lo) / 2;
+        let at = mid * 10;
+        if (cp < codeIn(table, at)) {
+            rangeValue(table, cp, lo, mid)
+        } else if (cp <= codeIn(table, at + 4)) {
+            digitIn(table, at + 8) * 36 + digitIn(table, at + 9)
+        } else {
+            rangeValue(table, cp, mid + 1, hi)
+        }
+    }
+}
+
+/// `rangeValue` over the table as text, for the one caller that may not
+/// allocate.
+///
+/// It reads only each range's *first* code point while halving, and looks at a
+/// last one once: every read walks the string from the front, so the reads are
+/// the whole cost.
+fn textRangeValue(table: Str, cp: Int, lo: Int, hi: Int): Int {
+    if (lo < hi) {
+        let mid = lo + (hi - lo) / 2;
+        if (cp < textCodeAt(table, mid * 10)) {
+            textRangeValue(table, cp, lo, mid)
+        } else {
+            textRangeValue(table, cp, mid + 1, hi)
+        }
+    } else if (lo == 0) {
+        0
+    } else {
+        // `lo` counts the ranges beginning at or below `cp`, so the last of
+        // them is the only one that can hold it.
+        let at = (lo - 1) * 10;
+        if (cp <= textCodeAt(table, at + 4)) {
+            textDigitAt(table, at + 8) * 36 + textDigitAt(table, at + 9)
+        } else {
+            0
+        }
+    }
+}
+
+fn codeIn(table: [Char], at: Int): Int {
+    digitIn(table, at) * 46656
+        + digitIn(table, at + 1) * 1296
+        + digitIn(table, at + 2) * 36
+        + digitIn(table, at + 3)
+}
+
+fn digitIn(table: [Char], at: Int): Int {
+    match (table.get(at)) {
+        .Some(c) => c.toDigit(36).withDefault(0),
+        .None => 0,
+    }
+}
+
+fn textCodeAt(table: Str, at: Int): Int {
+    textDigitAt(table, at) * 46656
+        + textDigitAt(table, at + 1) * 1296
+        + textDigitAt(table, at + 2) * 36
+        + textDigitAt(table, at + 3)
+}
+
+fn textDigitAt(table: Str, at: Int): Int {
+    match (table.charAt(at)) {
+        .Some(c) => c.toDigit(36).withDefault(0),
+        .None => 0,
+    }
+}
+
+/// Where `cp` sits in a table of four-digit keys, or `.None`.
+fn keyIndex(keys: [Char], cp: Int, lo: Int, hi: Int): Option<Int> {
+    if (lo >= hi) {
+        .None
+    } else {
+        let mid = lo + (hi - lo) / 2;
+        let here = codeIn(keys, mid * 4);
+        if (cp < here) {
+            keyIndex(keys, cp, lo, mid)
+        } else if (cp == here) {
+            .Some(mid)
+        } else {
+            keyIndex(keys, cp, mid + 1, hi)
+        }
+    }
+}
+
+/// Where the pair `(a, b)` sits in a table of eight-digit keys, or `.None`.
+fn pairIndex(keys: [Char], a: Int, b: Int, lo: Int, hi: Int): Option<Int> {
+    if (lo >= hi) {
+        .None
+    } else {
+        let mid = lo + (hi - lo) / 2;
+        let first = codeIn(keys, mid * 8);
+        let second = codeIn(keys, mid * 8 + 4);
+        if (a < first || (a == first && b < second)) {
+            pairIndex(keys, a, b, lo, mid)
+        } else if (a == first && b == second) {
+            .Some(mid)
+        } else {
+            pairIndex(keys, a, b, mid + 1, hi)
+        }
+    }
+}
+
+/// What `cp` maps to, or `.None` when the table says nothing about it.
+fn mapped<C: Alloc>(ctx: C, table: Mapping, cp: Int): Option<[Char]> {
+    match (keyIndex(table.keys, cp, 0, table.keys.len() / 4)) {
+        .None => .None,
+        .Some(found) => {
+            let at = codeIn(table.offsets, found * 4);
+            .Some(table.values.slice(ctx, at, at + digitIn(table.lengths, found)))
+        },
+    }
+}
+
+fn foldFrom<C: Alloc>(ctx: C, cs: [Char], table: Mapping, at: Int, acc: [Char]): [Char] {
+    match (cs.get(at)) {
+        .None => acc,
+        .Some(c) => {
+            let next = match (mapped(ctx, table, c.toU32().toI64())) {
+                .None => acc.push(ctx, c),
+                .Some(parts) => acc.concat(ctx, parts),
+            };
+            foldFrom(ctx, cs, table, at + 1, next)
+        },
+    }
+}
+
+fn decomposeFrom<C: Alloc>(
+    ctx: C,
+    cs: [Char],
+    table: Mapping,
+    jamo: Hangul,
+    at: Int,
+    acc: [Char],
+): [Char] {
+    match (cs.get(at)) {
+        .None => acc,
+        .Some(c) => {
+            let cp = c.toU32().toI64();
+            let next = if (cp >= 0xac00 && cp <= 0xd7a3) {
+                acc.concat(ctx, hangulParts(ctx, jamo, c, cp - 0xac00))
+            } else {
+                match (mapped(ctx, table, cp)) {
+                    .None => acc.push(ctx, c),
+                    .Some(parts) => acc.concat(ctx, parts),
+                }
+            };
+            decomposeFrom(ctx, cs, table, jamo, at + 1, next)
+        },
+    }
+}
+
+/// A Hangul syllable's two or three jamo, by the arithmetic in UAX #15 §3.12.
+fn hangulParts<C: Alloc>(ctx: C, jamo: Hangul, syllable: Char, index: Int): [Char] {
+    let none: [Char] = [];
+    match ((jamo.leading.get(index / 588), jamo.vowel.get(index % 588 / 28))) {
+        (.Some(lead), .Some(vowel)) => {
+            let pair = none.push(ctx, lead).push(ctx, vowel);
+            if (index % 28 == 0) {
+                pair
+            } else {
+                match (jamo.trailing.get(index % 28)) {
+                    .Some(tail) => pair.push(ctx, tail),
+                    .None => pair,
+                }
+            }
+        },
+        _ => none.push(ctx, syllable),
+    }
+}
+
+/// The canonical ordering algorithm: inside each run of non-starters, sort by
+/// combining class and leave equal classes as they were.
+///
+/// Adjacent swaps until nothing moves, which is O(n²) on the run — and a run is
+/// two or three marks in real text.
+fn reorder<C: Alloc>(ctx: C, cs: [Char], classes: [Char], fuel: Int): [Char] {
+    if (fuel <= 0) {
+        cs
+    } else {
+        let once = swapPass(ctx, cs, classes, 0);
+        if (once == cs) { cs } else { reorder(ctx, once, classes, fuel - 1) }
+    }
+}
+
+fn swapPass<C: Alloc>(ctx: C, cs: [Char], classes: [Char], at: Int): [Char] {
+    match ((cs.get(at), cs.get(at + 1))) {
+        (.Some(a), .Some(b)) => {
+            let first = combiningClass(classes, a);
+            let second = combiningClass(classes, b);
+            if (second > 0 && first > second) {
+                let swapped = cs.replaceAt(ctx, at, b).replaceAt(ctx, at + 1, a);
+                swapPass(ctx, swapped, classes, at + 1)
+            } else {
+                swapPass(ctx, cs, classes, at + 1)
+            }
+        },
+        _ => cs,
+    }
+}
+
+/// The canonical composition algorithm: each character joined to the last
+/// starter where the pair is a primary composite and nothing blocks it.
+fn composeFrom<C: Alloc>(
+    ctx: C,
+    cs: [Char],
+    classes: [Char],
+    pairs: Composition,
+    at: Int,
+    acc: [Char],
+    starter: Int,
+    lastClass: Int,
+): [Char] {
+    match (cs.get(at)) {
+        .None => acc,
+        .Some(c) => {
+            let cc = combiningClass(classes, c);
+            let open = starter >= 0 && (lastClass == 0 || lastClass < cc);
+            let made: Option<Char> = if (open) {
+                match (acc.get(starter)) {
+                    .None => .None,
+                    .Some(base) => primaryComposite(pairs, base, c),
+                }
+            } else {
+                .None
+            };
+            match (made) {
+                .Some(joined) => {
+                    let merged = acc.replaceAt(ctx, starter, joined);
+                    composeFrom(ctx, cs, classes, pairs, at + 1, merged, starter, lastClass)
+                },
+                .None => {
+                    let next = if (cc == 0) { acc.len() } else { starter };
+                    composeFrom(
+                        ctx,
+                        cs,
+                        classes,
+                        pairs,
+                        at + 1,
+                        acc.push(ctx, c),
+                        next,
+                        cc,
+                    )
+                },
+            }
+        },
+    }
+}
+
+/// The one character `a` and `b` compose to, or `.None`. Hangul is arithmetic
+/// and everything else is a lookup.
+fn primaryComposite(pairs: Composition, a: Char, b: Char): Option<Char> {
+    let x = a.toU32().toI64();
+    let y = b.toU32().toI64();
+    if (x >= 0x1100 && x <= 0x1112 && y >= 0x1161 && y <= 0x1175) {
+        pairs.jamo.syllables.get(((x - 0x1100) * 21 + (y - 0x1161)) * 28)
+    } else if (
+        x >= 0xac00 && x <= 0xd7a3 && (x - 0xac00) % 28 == 0 && y >= 0x11a8 && y <= 0x11c2
+    ) {
+        pairs.jamo.syllables.get(x - 0xac00 + (y - 0x11a7))
+    } else {
+        match (pairIndex(pairs.keys, x, y, 0, pairs.keys.len() / 8)) {
+            .None => .None,
+            .Some(found) => pairs.values.get(found),
+        }
+    }
+}
+
 // --- Generated Unicode tables (Unicode 16.0) ---------------------------
 //
 // Written by `cli/src/compiler/standard_library/unicode_tables.py`, which
 // says what the fields are. Regenerate rather than edit.
 
 /// Grapheme_Cluster_Break, with Extended_Pictographic at 16 and the two Indic_Conjunct_Break values at 32 and 64.
-let GRAPHEME_CLASS: Str = "0000000903000a000a02000b000c03000d000d01000e000v03003j004f03004p004p0g004t004t03004u004u0g00lc00of0400w300w904013l014t04014v014v04014x014y0401500151040153015304016o016t070174017e04017g017g03018r019b04019s019s0401cm01cs0401ct01ct0701cv01d00401d301d40401d601d90401e701e70701e901e90401f401fu0401ie01io0401kb01kj0401kt01kt0401li01ll0401ln01lv0401lx01lz0401m101m50401nd01nf0401ow01ox0701p301pb0401qi01r50401r601r60701r701s20401s301s30801tm01tm0401tn01tn0801to01to0401tq01ts0801tt01u00401u101u40801u501u50401u601u70801u901uf0401uq01ur0401vl01vl0401vm01vn0801x801x80401xa01xa0401xb01xc0801xd01xg0401xj01xk0801xn01xo0801xp01xp0401xz01xz0401ya01yb0401z201z20401z501z60401z701z708020s020s04020u020w08020x020y0402130214040217021904021d021d040228022904022d022d04022p022q04022r022r08024c024c04024e024g08024h024l04024n024o04024p024p08024r024s08024t024t04025e025f0402620267040269026904026a026b08027w027w04027y027z04028002800802810284040287028808028b028c08028d028d04028l028n04028y028z04029u029u0402bi02bi0402bj02bj0802bk02bk0402bl02bm0802bq02bs0802bu02bw0802bx02bx0402c702c70402dc02dc0402dd02df0802dg02dg0402f002f00402f202f40402f502f80802fa02fc0402fe02fh0402fp02fq0402g202g30402gx02gx0402gy02gz0802ik02ik0402im02im0802in02io0402ip02ip0802iq02iq0402ir02is0802iu02iw0402iy02j10402j902ja0402jm02jn0402k302k30802kg02kh0402ki02kj0802m302m40402m602m60402m702m80802m902mc0402me02mg0802mi02mk0802ml02ml0402mm02mm0702mv02mv0402n602n70402o102o10402o202o30802q202q20402q702q70402q802q90802qa02qc0402qe02qe0402qg02qm0802qn02qn0402r602r70802sx02sx0402sz02sz0802t002t60402tj02tq0402wh02wh0402wj02wj0802wk02ws0402x402xa0402zc02zd04030503050403070307040309030904030e030f08031t03260403270327080328032c04032e032f04032l032v04032x033w040346034604037103740403750375080376037b04037d037e04037f037g08037h037i0403860387080388038904038e038g04038x039004039e039e04039g039g08039h039i04039p039p0403a503a50403cw03fj0903fk03hj0a03hk03jz0b03tp03tr0404k204k50404ky04l00404lu04lv0404mq04mr0404ok04ol0404om04om0804on04ot0404ou04p10804p204p20404p304p40804p504pf0404pp04pp0404qz04r10404r204r20304r304r30404ud04ue0404vd04vd0404yo04yq0404yr04yu0804yv04yw0404yx04yz0804z404z50804z604z60404z704zc0804zd04zf04055j055k04055l055m08055n055n040579057908057a057a04057b057b08057c057i04057k057k04057m057m04057p057w04057x0582080583058c04058f058f04059s05am0405c005c30405c405c40805dg05dp0405dq05dt0805du05dw0405ez05f70405fk05fl0405fm05fm0805gh05gh0805gi05gl0405gm05gn0805go05gt0405ie05ie0405if05if0805ig05ih0405ii05ik0805il05il0405im05im0805in05ir0405k405kb0805kc05kj0405kk05kl0805km05kn0405ow05oy0405p005pc0405pd05pd0805pe05pk0405pp05pp0405pw05pw0405pz05pz0805q005q10405vk05xb0406bv06bv0306bw06bw0406bx06bx0506by06bz0306co06cu0306d806d80g06dl06dl0g06e806en0306hc06i80406jm06jm0g06k906k90g06ms06mx0g06nd06ne0g06xm06xn0g06y006y00g070o070o0g072n072n0g073d073n0g073s073u0g079e079e0g07fu07fv0g07g607g60g07gg07gg0g07i307i60g07i807id0g07if07iq0g07is07lx0g07m807ph0g07pk07pu0g07pw07pw0g07py07py0g07q507q50g07q907q90g07qg07qg0g07qr07qs0g07r807r80g07rb07rb0g07rg07rg0g07ri07ri0g07rn07rp0g07rr07rr0g07s307s70g07th07tj0g07tt07tt0g07u807u80g07un07un0g085008510g08hx08hz0g08ij08ik0g08k008k00g08k508k50g08vj08vl0408zj08zj04092809330409ii09in0409io09io0g09j109j10g09ll09lm0409zr09zr0g09zt09zt0g0wvj0wvm040wvo0wvx040wwu0wwv040wz40wz5040x6q0x6q040x6u0x6u040x6z0x6z040x7n0x7o080x7p0x7q040x7r0x7r080x7w0x7w040xa80xa9080xbo0xc3080xc40xc5040xcw0xdd040xdr0xdr040xeu0xf1040xfr0xg1040xg20xg2080xg30xg3040xgg0xh8090xhc0xhe040xhf0xhf080xir0xir040xis0xit080xiu0xix040xiy0xiz080xj00xj1040xj20xj3080xj40xj4040xk50xk5040xm10xm6040xm70xm8080xm90xma040xmb0xmc080xmd0xme040xmr0xmr040xn00xn0040xn10xn1080xoc0xoc040xps0xps040xpu0xpw040xpz0xq0040xq60xq7040xq90xq9040xrf0xrf080xrg0xrh040xri0xrj080xrp0xrp080xrq0xrq040xyb0xyc080xyd0xyd040xye0xyf080xyg0xyg040xyh0xyi080xyk0xyk080xyl0xyl040xz40xz40c0xz50xzv0d0xzw0xzw0c0xzx0y0n0d0y0o0y0o0c0y0p0y1f0d0y1g0y1g0c0y1h0y270d0y280y280c0y290y2z0d0y300y300c0y310y3r0d0y3s0y3s0c0y3t0y4j0d0y4k0y4k0c0y4l0y5b0d0y5c0y5c0c0y5d0y630d0y640y640c0y650y6v0d0y6w0y6w0c0y6x0y7n0d0y7o0y7o0c0y7p0y8f0d0y8g0y8g0c0y8h0y970d0y980y980c0y990y9z0d0ya00ya00c0ya10yar0d0yas0yas0c0yat0ybj0d0ybk0ybk0c0ybl0ycb0d0ycc0ycc0c0ycd0yd30d0yd40yd40c0yd50ydv0d0ydw0ydw0c0ydx0yen0d0yeo0yeo0c0yep0yff0d0yfg0yfg0c0yfh0yg70d0yg80yg80c0yg90ygz0d0yh00yh00c0yh10yhr0d0yhs0yhs0c0yht0yij0d0yik0yik0c0yil0yjb0d0yjc0yjc0c0yjd0yk30d0yk40yk40c0yk50ykv0d0ykw0ykw0c0ykx0yln0d0ylo0ylo0c0ylp0ymf0d0ymg0ymg0c0ymh0yn70d0yn80yn80c0yn90ynz0d0yo00yo00c0yo10yor0d0yos0yos0c0yot0ypj0d0ypk0ypk0c0ypl0yqb0d0yqc0yqc0c0yqd0yr30d0yr40yr40c0yr50yrv0d0yrw0yrw0c0yrx0ysn0d0yso0yso0c0ysp0ytf0d0ytg0ytg0c0yth0yu70d0yu80yu80c0yu90yuz0d0yv00yv00c0yv10yvr0d0yvs0yvs0c0yvt0ywj0d0ywk0ywk0c0ywl0yxb0d0yxc0yxc0c0yxd0yy30d0yy40yy40c0yy50yyv0d0yyw0yyw0c0yyx0yzn0d0yzo0yzo0c0yzp0z0f0d0z0g0z0g0c0z0h0z170d0z180z180c0z190z1z0d0z200z200c0z210z2r0d0z2s0z2s0c0z2t0z3j0d0z3k0z3k0c0z3l0z4b0d0z4c0z4c0c0z4d0z530d0z540z540c0z550z5v0d0z5w0z5w0c0z5x0z6n0d0z6o0z6o0c0z6p0z7f0d0z7g0z7g0c0z7h0z870d0z880z880c0z890z8z0d0z900z900c0z910z9r0d0z9s0z9s0c0z9t0zaj0d0zak0zak0c0zal0zbb0d0zbc0zbc0c0zbd0zc30d0zc40zc40c0zc50zcv0d0zcw0zcw0c0zcx0zdn0d0zdo0zdo0c0zdp0zef0d0zeg0zeg0c0zeh0zf70d0zf80zf80c0zf90zfz0d0zg00zg00c0zg10zgr0d0zgs0zgs0c0zgt0zhj0d0zhk0zhk0c0zhl0zib0d0zic0zic0c0zid0zj30d0zj40zj40c0zj50zjv0d0zjw0zjw0c0zjx0zkn0d0zko0zko0c0zkp0zlf0d0zlg0zlg0c0zlh0zm70d0zm80zm80c0zm90zmz0d0zn00zn00c0zn10znr0d0zns0zns0c0znt0zoj0d0zok0zok0c0zol0zpb0d0zpc0zpc0c0zpd0zq30d0zq40zq40c0zq50zqv0d0zqw0zqw0c0zqx0zrn0d0zro0zro0c0zrp0zsf0d0zsg0zsg0c0zsh0zt70d0zt80zt80c0zt90ztz0d0zu00zu00c0zu10zur0d0zus0zus0c0zut0zvj0d0zvk0zvk0c0zvl0zwb0d0zwc0zwc0c0zwd0zx30d0zx40zx40c0zx50zxv0d0zxw0zxw0c0zxx0zyn0d0zyo0zyo0c0zyp0zzf0d0zzg0zzg0c0zzh10070d100810080c1009100z0d101010100c1011101r0d101s101s0c101t102j0d102k102k0c102l103b0d103c103c0c103d10430d104410440c1045104v0d104w104w0c104x105n0d105o105o0c105p106f0d106g106g0c106h10770d107810780c1079107z0d108010800c1081108r0d108s108s0c108t109j0d109k109k0c109l10ab0d10ac10ac0c10ad10b30d10b410b40c10b510bv0d10bw10bw0c10bx10cn0d10co10co0c10cp10df0d10dg10dg0c10dh10e70d10e810e80c10e910ez0d10f010f00c10f110fr0d10fs10fs0c10ft10gj0d10gk10gk0c10gl10hb0d10hc10hc0c10hd10i30d10i410i40c10i510iv0d10iw10iw0c10ix10jn0d10jo10jo0c10jp10kf0d10kg10kg0c10kh10l70d10l810l80c10l910lz0d10m010m00c10m110mr0d10ms10ms0c10mt10nj0d10nk10nk0c10nl10ob0d10oc10oc0c10od10p30d10p410p40c10p510pv0d10pw10pw0c10px10qn0d10qo10qo0c10qp10rf0d10rg10rg0c10rh10s70d10s810s80c10s910sz0d10t010t00c10t110tr0d10ts10ts0c10tt10uj0d10uk10uk0c10ul10vb0d10vc10vc0c10vd10w30d10w410w40c10w510wv0d10ww10ww0c10wx10xn0d10xo10xo0c10xp10yf0d10yg10yg0c10yh10z70d10z810z80c10z910zz0d110011000c1101110r0d110s110s0c110t111j0d111k111k0c111l112b0d112c112c0c112d11330d113411340c1135113v0d113w113w0c113x114n0d114o114o0c114p115f0d115g115g0c115h11670d116811680c1169116z0d117011700c1171117r0d117s117s0c117t118j0d118k118k0c118l119b0d119c119c0c119d11a30d11a411a40c11a511av0d11aw11aw0c11ax11bn0d11bo11bo0c11bp11cf0d11cg11cg0c11ch11d70d11d811d80c11d911dz0d11e011e00c11e111er0d11es11es0c11et11fj0d11fk11fk0c11fl11gb0d11gc11gc0c11gd11h30d11h411h40c11h511hv0d11hw11hw0c11hx11in0d11io11io0c11ip11jf0d11jg11jg0c11jh11k70d11k811k80c11k911kz0d11l011l00c11l111lr0d11ls11ls0c11lt11mj0d11mk11mk0c11ml11nb0d11nc11nc0c11nd11o30d11o411o40c11o511ov0d11ow11ow0c11ox11pn0d11po11po0c11pp11qf0d11qg11qg0c11qh11r70d11r811r80c11r911rz0d11s011s00c11s111sr0d11ss11ss0c11st11tj0d11tk11tk0c11tl11ub0d11uc11uc0c11ud11v30d11v411v40c11v511vv0d11vw11vw0c11vx11wn0d11wo11wo0c11wp11xf0d11xg11xg0c11xh11y70d11y811y80c11y911yz0d11z011z00c11z111zr0d11zs11zs0c11zt120j0d120k120k0c120l121b0d121c121c0c121d12230d122412240c1225122v0d122w122w0c122x123n0d123o123o0c123p124f0d124g124g0c124h12570d125812580c1259125z0d126012600c1261126r0d126s126s0c126t127j0d127k127k0c127l128b0d128c128c0c128d12930d129412940c1295129v0d129w129w0c129x12an0d12ao12ao0c12ap12bf0d12bg12bg0c12bh12c70d12c812c80c12c912cz0d12d012d00c12d112dr0d12ds12ds0c12dt12ej0d12ek12ek0c12el12fb0d12fc12fc0c12fd12g30d12g412g40c12g512gv0d12gw12gw0c12gx12hn0d12ho12ho0c12hp12if0d12ig12ig0c12ih12j70d12j812j80c12j912jz0d12k012k00c12k112kr0d12ks12ks0c12kt12lj0d12lk12lk0c12ll12mb0d12mc12mc0c12md12n30d12n412n40c12n512nv0d12nw12nw0c12nx12on0d12oo12oo0c12op12pf0d12pg12pg0c12ph12q70d12q812q80c12q912qz0d12r012r00c12r112rr0d12rs12rs0c12rt12sj0d12sk12sk0c12sl12tb0d12tc12tc0c12td12u30d12u412u40c12u512uv0d12uw12uw0c12ux12vn0d12vo12vo0c12vp12wf0d12wg12wg0c12wh12x70d12x812x80c12x912xz0d12y012y00c12y112yr0d12ys12ys0c12yt12zj0d12zk12zk0c12zl130b0d130c130c0c130d13130d131413140c1315131v0d131w131w0c131x132n0d132o132o0c132p133f0d133g133g0c133h13470d134813480c1349134z0d135013500c1351135r0d135s135s0c135t136j0d136k136k0c136l137b0d137c137c0c137d13830d138413840c1385138v0d138w138w0c138x139n0d139o139o0c139p13af0d13ag13ag0c13ah13b70d13b813b80c13b913bz0d13c013c00c13c113cr0d13cs13cs0c13ct13dj0d13dk13dk0c13dl13eb0d13ec13ec0c13ed13f30d13f413f40c13f513fv0d13fw13fw0c13fx13gn0d13go13go0c13gp13hf0d13hg13hg0c13hh13i70d13i813i80c13i913iz0d13j013j00c13j113jr0d13js13js0c13jt13kj0d13kk13kk0c13kl13lb0d13lc13lc0c13ld13m30d13m413m40c13m513mv0d13mw13mw0c13mx13nn0d13no13no0c13np13of0d13og13og0c13oh13p70d13p813p80c13p913pz0d13q013q00c13q113qr0d13qs13qs0c13qt13rj0d13rk13rk0c13rl13sb0d13sc13sc0c13sd13t30d13t413t40c13t513tv0d13tw13tw0c13tx13un0d13uo13uo0c13up13vf0d13vg13vg0c13vh13w70d13w813w80c13w913wz0d13x013x00c13x113xr0d13xs13xs0c13xt13yj0d13yk13yk0c13yl13zb0d13zc13zc0c13zd14030d140414040c1405140v0d140w140w0c140x141n0d141o141o0c141p142f0d142g142g0c142h14370d143814380c1439143z0d144014400c1441144r0d144s144s0c144t145j0d145k145k0c145l146b0d146c146c0c146d14730d147414740c1475147v0d147w147w0c147x148n0d148o148o0c148p149f0d149g149g0c149h14a70d14a814a80c14a914az0d14b014b00c14b114br0d14bs14bs0c14bt14cj0d14ck14ck0c14cl14db0d14dc14dc0c14dd14e30d14e414e40c14e514ev0d14ew14ew0c14ex14fn0d14fo14fo0c14fp14gf0d14gg14gg0c14gh14h70d14h814h80c14h914hz0d14i014i00c14i114ir0d14is14is0c14it14jj0d14jk14jk0c14jl14kb0d14kc14kc0c14kd14l30d14l414l40c14l514lv0d14lw14lw0c14lx14mn0d14mo14mo0c14mp14nf0d14ng14ng0c14nh14o70d14o814o80c14o914oz0d14p014p00c14p114pr0d14ps14ps0c14pt14qj0d14qk14qk0c14ql14rb0d14rc14rc0c14rd14s30d14s414s40c14s514sv0d14sw14sw0c14sx14tn0d14to14to0c14tp14uf0d14ug14ug0c14uh14v70d14v814v80c14v914vz0d14w014w00c14w114wr0d14ws14ws0c14wt14xj0d14xk14xk0c14xl14yb0d14yc14yc0c14yd14z30d14z414z40c14z514zv0d14zw14zw0c14zx150n0d150o150o0c150p151f0d151g151g0c151h15270d152815280c1529152z0d153015300c1531153r0d153s153s0c153t154j0d154k154k0c154l155b0d155c155c0c155d15630d156415640c1565156v0d156w156w0c156x157n0d157o157o0c157p158f0d158g158g0c158h15970d159815980c1599159z0d15a015a00c15a115ar0d15as15as0c15at15bj0d15bk15bk0c15bl15cb0d15cc15cc0c15cd15d30d15d415d40c15d515dv0d15dw15dw0c15dx15en0d15eo15eo0c15ep15ff0d15fg15fg0c15fh15g70d15g815g80c15g915gz0d15h015h00c15h115hr0d15hs15hs0c15ht15ij0d15ik15ik0c15il15jb0d15jc15jc0c15jd15k30d15k415k40c15k515kv0d15kw15kw0c15kx15ln0d15lo15lo0c15lp15mf0d15mg15mg0c15mh15n70d15n815n80c15n915nz0d15o015o00c15o115or0d15os15os0c15ot15pj0d15pk15pk0c15pl15qb0d15qc15qc0c15qd15r30d15r415r40c15r515rv0d15rw15rw0c15rx15sn0d15so15so0c15sp15tf0d15tg15tg0c15th15u70d15u815u80c15u915uz0d15v015v00c15v115vr0d15vs15vs0c15vt15wj0d15wk15wk0c15wl15xb0d15xc15xc0c15xd15y30d15y415y40c15y515yv0d15yw15yw0c15yx15zn0d15zo15zo0c15zp160f0d160g160g0c160h16170d161816180c1619161z0d162016200c1621162r0d162s162s0c162t163j0d163k163k0c163l164b0d164c164c0c164d16530d165416540c1655165v0d165w165w0c165x166n0d166o166o0c166p167f0d167g167g0c167h16870d168816880c1689168z0d169016900c1691169r0d169s169s0c169t16aj0d16ak16ak0c16al16bb0d16bc16bc0c16bd16c30d16c416c40c16c516cv0d16cw16cw0c16cx16dn0d16do16do0c16dp16ef0d16eg16eg0c16eh16f70d16f816f80c16f916fz0d16g016g00c16g116gr0d16gs16gs0c16gt16hj0d16hk16hk0c16hl16ib0d16ic16ic0c16id16j30d16j416j40c16j516jv0d16jw16jw0c16jx16kn0d16ko16ko0c16kp16lf0d16ls16me0a16mj16nv0b1dlq1dlq041e681e6n041e741e7j041edb1edb031ehq1ehr041ek01ekb031eyl1eyl041f4w1f4w041f921f96041gjl1gjn041gjp1gjq041gjw1gjz041gl41gl6041glb1glb041gpx1gpy041h5w1h5z041h7t1h7x041hgr1hgs041hj01hj3041hl21hlc041hmq1hmt041hq81hq8081hq91hq9041hqa1hqa081hrs1hs6041htc1htc041htf1htg041htr1htt041htu1htu081hv41hv6081hv71hva041hvb1hvc081hvd1hve041hvh1hvh071hvm1hvm041hvx1hvx071hxc1hxe041hyf1hyj041hyk1hyk081hyl1hys041hz91hza081i0j1i0j041i0w1i0x041i0y1i0y081i2b1i2d081i2e1i2m041i2n1i2n081i2o1i2o041i2q1i2r071i2x1i30041i321i32081i331i33041i5o1i5q081i5r1i5t041i5u1i5v081i5w1i5z041i661i66041i691i69041ian1ian041iao1iaq081iar1iay041ibk1ibl041ibm1ibn081id71id8041ida1ida041idb1idb081idc1idc041idd1idg081idj1idk081idn1ido081idp1idp041idz1idz041iea1ieb081iee1iek041ieo1ies041igo1igo041igp1igq081igr1igw041igy1igy041ih11ih1041ih31ih5041ih61ih6081ih81ih9081iha1ihc041ihd1ihd071ihe1ihe041iht1ihu041ik51ik7081ik81ikf041ikg1ikh081iki1ikk041ikl1ikl081ikm1ikm041ila1ila041ink1ink041inl1inm081inn1ins041int1int081inu1inu041inv1inw081inx1inx041iny1iny081inz1io0041io11io1081io21io3041iun1iun041iuo1iup081iuq1iut041iuw1iuz081iv01iv1041iv21iv2081iv31iv4041ivw1ivx041iy81iya081iyb1iyi041iyj1iyk081iyl1iyl041iym1iym081iyn1iyo041j1n1j1n041j1o1j1o081j1p1j1p041j1q1j1r081j1s1j1z041j4t1j4t041j4u1j4u081j4v1j4v041j4y1j51041j521j52081j531j57041jcc1jce081jcf1jcn041jco1jco081jcp1jcq041jjk1jjk041jjl1jjp081jjr1jjs081jjv1jjy041jjz1jjz071jk01jk0081jk11jk1071jk21jk2081jk31jk3041jo11jo3081jo41jo7041joa1job041joc1jof081jog1jog041jok1jok081jpd1jpm041jqr1jqw041jqx1jqx081jqy1jqy071jqz1jr2041jrb1jrb041jrl1jrq041jrr1jrs081jrt1jrv041jt01jt5071jt61jti041jtj1jtj081jtk1jtl041k4v1k4v081k4w1k52041k541k59041k5a1k5a081k5b1k5b041k7m1k87041k891k89081k8a1k8g041k8h1k8h081k8i1k8j041k8k1k8k081k8l1k8m041kc11kc6041kca1kca041kcc1kcd041kcf1kcl041kcm1kcm071kcn1kcn041kei1kem081keo1kep041ker1kes081ket1ket041keu1keu081kev1kev041koj1kok041kol1kom081kow1kox041koy1koy071koz1koz081kqc1kqd081kqe1kqi041kqm1kqn081kqo1kqq041kre1kre041ovk1ovz031ow01ow0041ow71owl041xr21xrd041xre1xrg081xrh1xrj041zow1zp0041zqo1zqu04206b206b0a206f206i0a20jz20jz0420k120lj0820lr20lu0420o420o40420og20oh042ftp2ftq042fts2ftv032jgg2jhp042jhs2jie042jxh2jxl042jxp2jxu042jxv2jy2032jy32jya042jyd2jyj042jze2jzh042k3m2k3o042lmo2lo6042lob2lpo042lpx2lpx042lqc2lqc042lqz2lr3042lr52lrj042mtc2mti042mtk2mu0042mu32mu9042mub2muc042mue2mui042mxb2mxb042n1s2n1y042nce2nce042ne42ne7042nsc2nsf042nzi2nzj042ok02ok6042on82one042pz42q670g2q6l2q6n0g2q7j2q7j0g2q982q9d0g2q9q2q9r0g2qa62qa60g2qa92qai0g2qb12qcl0g2qcm2qdb062qdd2qdr0g2qe22qe20g2qen2qen0g2qeq2qey0g2qf02qf30g2qfd2qre0g2qrf2qrj042qrk2r0d0g2r0m2r7z0g2r9c2rcv0g2rg42rgf0g2rit2rjz0g2rkc2rkf0g2rm02rm70g2rmi2rmn0g2rns2rnz0g2rou2rr30g2rrg2rsq0g2rss2rt10g2rt32s5b0g2scg2t4t0gjny8jnz303jnz4jo1r04jo1sjo5b03jo5cjobz04joc0jr3z03";
+let GRAPHEME_CLASS: Str = "0000000903000a000a02000b000c03000d000d01000e000v03003j004f03004p004p0g004t004t03004u004u0g00lc00of3o00w300w93o013l014t3o014v014v3o014x014y3o015001513o015301533o016o016t070174017e3o017g017g03018r019b3o019s019s3o01cm01cs3o01ct01ct0701cv01d03o01d301d43o01d601d93o01e701e70701e901e93o01f401fu3o01ie01io3o01kb01kj3o01kt01kt3o01li01ll3o01ln01lv3o01lx01lz3o01m101m53o01nd01nf3o01ow01ox0701p301pb3o01qi01r53o01r601r60701r701s23o01s301s30801sl01tl1s01tm01tm3o01tn01tn0801to01to3o01tq01ts0801tt01u03o01u101u40801u501u51001u601u70801u901uf3o01ug01un1s01uq01ur3o01vc01vj1s01vl01vl3o01vm01vn0801w501wo1s01wq01ww1s01wy01wy1s01x201x51s01x801x83o01xa01xa3o01xb01xc0801xd01xg3o01xj01xk0801xn01xo0801xp01xp1001xz01xz3o01y401y51s01y701y71s01ya01yb3o01yo01yp1s01z201z23o01z501z63o01z701z708020s020s3o020u020w08020x020y3o021302143o021702193o021d021d3o022802293o022d022d3o022p022q3o022r022r080239023s1s023u02401s024202431s024502491s024c024c3o024e024g08024h024l3o024n024o3o024p024p08024r024s08024t024t10025e025f3o026102611s026202673o026902693o026a026b08026t027c1s027e027k1s027m027n1s027p027t1s027w027w3o027y027z3o0280028008028102843o0287028808028b028c08028d028d10028l028n3o028s028t1s028v028v1s028y028z3o029d029d1s029u029u3o02bi02bi3o02bj02bj0802bk02bk3o02bl02bm0802bq02bs0802bu02bw0802bx02bx3o02c702c73o02dc02dc3o02dd02df0802dg02dg3o02dx02eg1s02ei02ex1s02f002f03o02f202f43o02f502f80802fa02fc3o02fe02fg3o02fh02fh1002fp02fq3o02fs02fu1s02g202g33o02gx02gx3o02gy02gz0802ik02ik3o02im02im0802in02io3o02ip02ip0802iq02iq3o02ir02is0802iu02iw3o02iy02j13o02j902ja3o02jm02jn3o02k302k30802kg02kh3o02ki02kj0802l102m21s02m302m43o02m602m63o02m702m80802m902mc3o02me02mg0802mi02mk0802ml02ml1002mm02mm0702mv02mv3o02n602n73o02o102o13o02o202o30802q202q23o02q702q73o02q802q90802qa02qc3o02qe02qe3o02qg02qm0802qn02qn3o02r602r70802sx02sx3o02sz02sz0802t002t63o02tj02tq3o02wh02wh3o02wj02wj0802wk02ws3o02x402xa3o02zc02zd3o030503053o030703073o030903093o030e030f08031t03263o03270327080328032c3o032e032f3o032l032v3o032x033w3o034603463o037103743o03750375080376037b3o037d037e3o037f037g08037h037i3o0386038708038803893o038e038g3o038x03903o039e039e3o039g039g08039h039i3o039p039p3o03a503a53o03cw03fj0903fk03hj0a03hk03jz0b03tp03tr3o04k204k53o04ky04l03o04lu04lv3o04mq04mr3o04ok04ol3o04om04om0804on04ot3o04ou04p10804p204p23o04p304p40804p504pf3o04pp04pp3o04qz04r13o04r204r20304r304r33o04ud04ue3o04vd04vd3o04yo04yq3o04yr04yu0804yv04yw3o04yx04yz0804z404z50804z604z63o04z704zc0804zd04zf3o055j055k3o055l055m08055n055n3o0579057908057a057a3o057b057b08057c057i3o057k057k3o057m057m3o057p057w3o057x0582080583058c3o058f058f3o059s05am3o05c005c33o05c405c40805dg05dp3o05dq05dt0805du05dw3o05ez05f73o05fk05fl3o05fm05fm0805gh05gh0805gi05gl3o05gm05gn0805go05gt3o05ie05ie3o05if05if0805ig05ih3o05ii05ik0805il05il3o05im05im0805in05ir3o05k405kb0805kc05kj3o05kk05kl0805km05kn3o05ow05oy3o05p005pc3o05pd05pd0805pe05pk3o05pp05pp3o05pw05pw3o05pz05pz0805q005q13o05vk05xb3o06bv06bv0306bw06bw0406bx06bx3p06by06bz0306co06cu0306d806d80g06dl06dl0g06e806en0306hc06i83o06jm06jm0g06k906k90g06ms06mx0g06nd06ne0g06xm06xn0g06y006y00g070o070o0g072n072n0g073d073n0g073s073u0g079e079e0g07fu07fv0g07g607g60g07gg07gg0g07i307i60g07i807id0g07if07iq0g07is07lx0g07m807ph0g07pk07pu0g07pw07pw0g07py07py0g07q507q50g07q907q90g07qg07qg0g07qr07qs0g07r807r80g07rb07rb0g07rg07rg0g07ri07ri0g07rn07rp0g07rr07rr0g07s307s70g07th07tj0g07tt07tt0g07u807u80g07un07un0g085008510g08hx08hz0g08ij08ik0g08k008k00g08k508k50g08vj08vl3o08zj08zj3o092809333o09ii09in3o09io09io0g09j109j10g09ll09lm3o09zr09zr0g09zt09zt0g0wvj0wvm3o0wvo0wvx3o0wwu0wwv3o0wz40wz53o0x6q0x6q3o0x6u0x6u3o0x6z0x6z3o0x7n0x7o080x7p0x7q3o0x7r0x7r080x7w0x7w3o0xa80xa9080xbo0xc3080xc40xc53o0xcw0xdd3o0xdr0xdr3o0xeu0xf13o0xfr0xg13o0xg20xg2080xg30xg33o0xgg0xh8090xhc0xhe3o0xhf0xhf080xir0xir3o0xis0xit080xiu0xix3o0xiy0xiz080xj00xj13o0xj20xj3080xj40xj43o0xk50xk53o0xm10xm63o0xm70xm8080xm90xma3o0xmb0xmc080xmd0xme3o0xmr0xmr3o0xn00xn03o0xn10xn1080xoc0xoc3o0xps0xps3o0xpu0xpw3o0xpz0xq03o0xq60xq73o0xq90xq93o0xrf0xrf080xrg0xrh3o0xri0xrj080xrp0xrp080xrq0xrq3o0xyb0xyc080xyd0xyd3o0xye0xyf080xyg0xyg3o0xyh0xyi080xyk0xyk080xyl0xyl3o0xz40xz40c0xz50xzv0d0xzw0xzw0c0xzx0y0n0d0y0o0y0o0c0y0p0y1f0d0y1g0y1g0c0y1h0y270d0y280y280c0y290y2z0d0y300y300c0y310y3r0d0y3s0y3s0c0y3t0y4j0d0y4k0y4k0c0y4l0y5b0d0y5c0y5c0c0y5d0y630d0y640y640c0y650y6v0d0y6w0y6w0c0y6x0y7n0d0y7o0y7o0c0y7p0y8f0d0y8g0y8g0c0y8h0y970d0y980y980c0y990y9z0d0ya00ya00c0ya10yar0d0yas0yas0c0yat0ybj0d0ybk0ybk0c0ybl0ycb0d0ycc0ycc0c0ycd0yd30d0yd40yd40c0yd50ydv0d0ydw0ydw0c0ydx0yen0d0yeo0yeo0c0yep0yff0d0yfg0yfg0c0yfh0yg70d0yg80yg80c0yg90ygz0d0yh00yh00c0yh10yhr0d0yhs0yhs0c0yht0yij0d0yik0yik0c0yil0yjb0d0yjc0yjc0c0yjd0yk30d0yk40yk40c0yk50ykv0d0ykw0ykw0c0ykx0yln0d0ylo0ylo0c0ylp0ymf0d0ymg0ymg0c0ymh0yn70d0yn80yn80c0yn90ynz0d0yo00yo00c0yo10yor0d0yos0yos0c0yot0ypj0d0ypk0ypk0c0ypl0yqb0d0yqc0yqc0c0yqd0yr30d0yr40yr40c0yr50yrv0d0yrw0yrw0c0yrx0ysn0d0yso0yso0c0ysp0ytf0d0ytg0ytg0c0yth0yu70d0yu80yu80c0yu90yuz0d0yv00yv00c0yv10yvr0d0yvs0yvs0c0yvt0ywj0d0ywk0ywk0c0ywl0yxb0d0yxc0yxc0c0yxd0yy30d0yy40yy40c0yy50yyv0d0yyw0yyw0c0yyx0yzn0d0yzo0yzo0c0yzp0z0f0d0z0g0z0g0c0z0h0z170d0z180z180c0z190z1z0d0z200z200c0z210z2r0d0z2s0z2s0c0z2t0z3j0d0z3k0z3k0c0z3l0z4b0d0z4c0z4c0c0z4d0z530d0z540z540c0z550z5v0d0z5w0z5w0c0z5x0z6n0d0z6o0z6o0c0z6p0z7f0d0z7g0z7g0c0z7h0z870d0z880z880c0z890z8z0d0z900z900c0z910z9r0d0z9s0z9s0c0z9t0zaj0d0zak0zak0c0zal0zbb0d0zbc0zbc0c0zbd0zc30d0zc40zc40c0zc50zcv0d0zcw0zcw0c0zcx0zdn0d0zdo0zdo0c0zdp0zef0d0zeg0zeg0c0zeh0zf70d0zf80zf80c0zf90zfz0d0zg00zg00c0zg10zgr0d0zgs0zgs0c0zgt0zhj0d0zhk0zhk0c0zhl0zib0d0zic0zic0c0zid0zj30d0zj40zj40c0zj50zjv0d0zjw0zjw0c0zjx0zkn0d0zko0zko0c0zkp0zlf0d0zlg0zlg0c0zlh0zm70d0zm80zm80c0zm90zmz0d0zn00zn00c0zn10znr0d0zns0zns0c0znt0zoj0d0zok0zok0c0zol0zpb0d0zpc0zpc0c0zpd0zq30d0zq40zq40c0zq50zqv0d0zqw0zqw0c0zqx0zrn0d0zro0zro0c0zrp0zsf0d0zsg0zsg0c0zsh0zt70d0zt80zt80c0zt90ztz0d0zu00zu00c0zu10zur0d0zus0zus0c0zut0zvj0d0zvk0zvk0c0zvl0zwb0d0zwc0zwc0c0zwd0zx30d0zx40zx40c0zx50zxv0d0zxw0zxw0c0zxx0zyn0d0zyo0zyo0c0zyp0zzf0d0zzg0zzg0c0zzh10070d100810080c1009100z0d101010100c1011101r0d101s101s0c101t102j0d102k102k0c102l103b0d103c103c0c103d10430d104410440c1045104v0d104w104w0c104x105n0d105o105o0c105p106f0d106g106g0c106h10770d107810780c1079107z0d108010800c1081108r0d108s108s0c108t109j0d109k109k0c109l10ab0d10ac10ac0c10ad10b30d10b410b40c10b510bv0d10bw10bw0c10bx10cn0d10co10co0c10cp10df0d10dg10dg0c10dh10e70d10e810e80c10e910ez0d10f010f00c10f110fr0d10fs10fs0c10ft10gj0d10gk10gk0c10gl10hb0d10hc10hc0c10hd10i30d10i410i40c10i510iv0d10iw10iw0c10ix10jn0d10jo10jo0c10jp10kf0d10kg10kg0c10kh10l70d10l810l80c10l910lz0d10m010m00c10m110mr0d10ms10ms0c10mt10nj0d10nk10nk0c10nl10ob0d10oc10oc0c10od10p30d10p410p40c10p510pv0d10pw10pw0c10px10qn0d10qo10qo0c10qp10rf0d10rg10rg0c10rh10s70d10s810s80c10s910sz0d10t010t00c10t110tr0d10ts10ts0c10tt10uj0d10uk10uk0c10ul10vb0d10vc10vc0c10vd10w30d10w410w40c10w510wv0d10ww10ww0c10wx10xn0d10xo10xo0c10xp10yf0d10yg10yg0c10yh10z70d10z810z80c10z910zz0d110011000c1101110r0d110s110s0c110t111j0d111k111k0c111l112b0d112c112c0c112d11330d113411340c1135113v0d113w113w0c113x114n0d114o114o0c114p115f0d115g115g0c115h11670d116811680c1169116z0d117011700c1171117r0d117s117s0c117t118j0d118k118k0c118l119b0d119c119c0c119d11a30d11a411a40c11a511av0d11aw11aw0c11ax11bn0d11bo11bo0c11bp11cf0d11cg11cg0c11ch11d70d11d811d80c11d911dz0d11e011e00c11e111er0d11es11es0c11et11fj0d11fk11fk0c11fl11gb0d11gc11gc0c11gd11h30d11h411h40c11h511hv0d11hw11hw0c11hx11in0d11io11io0c11ip11jf0d11jg11jg0c11jh11k70d11k811k80c11k911kz0d11l011l00c11l111lr0d11ls11ls0c11lt11mj0d11mk11mk0c11ml11nb0d11nc11nc0c11nd11o30d11o411o40c11o511ov0d11ow11ow0c11ox11pn0d11po11po0c11pp11qf0d11qg11qg0c11qh11r70d11r811r80c11r911rz0d11s011s00c11s111sr0d11ss11ss0c11st11tj0d11tk11tk0c11tl11ub0d11uc11uc0c11ud11v30d11v411v40c11v511vv0d11vw11vw0c11vx11wn0d11wo11wo0c11wp11xf0d11xg11xg0c11xh11y70d11y811y80c11y911yz0d11z011z00c11z111zr0d11zs11zs0c11zt120j0d120k120k0c120l121b0d121c121c0c121d12230d122412240c1225122v0d122w122w0c122x123n0d123o123o0c123p124f0d124g124g0c124h12570d125812580c1259125z0d126012600c1261126r0d126s126s0c126t127j0d127k127k0c127l128b0d128c128c0c128d12930d129412940c1295129v0d129w129w0c129x12an0d12ao12ao0c12ap12bf0d12bg12bg0c12bh12c70d12c812c80c12c912cz0d12d012d00c12d112dr0d12ds12ds0c12dt12ej0d12ek12ek0c12el12fb0d12fc12fc0c12fd12g30d12g412g40c12g512gv0d12gw12gw0c12gx12hn0d12ho12ho0c12hp12if0d12ig12ig0c12ih12j70d12j812j80c12j912jz0d12k012k00c12k112kr0d12ks12ks0c12kt12lj0d12lk12lk0c12ll12mb0d12mc12mc0c12md12n30d12n412n40c12n512nv0d12nw12nw0c12nx12on0d12oo12oo0c12op12pf0d12pg12pg0c12ph12q70d12q812q80c12q912qz0d12r012r00c12r112rr0d12rs12rs0c12rt12sj0d12sk12sk0c12sl12tb0d12tc12tc0c12td12u30d12u412u40c12u512uv0d12uw12uw0c12ux12vn0d12vo12vo0c12vp12wf0d12wg12wg0c12wh12x70d12x812x80c12x912xz0d12y012y00c12y112yr0d12ys12ys0c12yt12zj0d12zk12zk0c12zl130b0d130c130c0c130d13130d131413140c1315131v0d131w131w0c131x132n0d132o132o0c132p133f0d133g133g0c133h13470d134813480c1349134z0d135013500c1351135r0d135s135s0c135t136j0d136k136k0c136l137b0d137c137c0c137d13830d138413840c1385138v0d138w138w0c138x139n0d139o139o0c139p13af0d13ag13ag0c13ah13b70d13b813b80c13b913bz0d13c013c00c13c113cr0d13cs13cs0c13ct13dj0d13dk13dk0c13dl13eb0d13ec13ec0c13ed13f30d13f413f40c13f513fv0d13fw13fw0c13fx13gn0d13go13go0c13gp13hf0d13hg13hg0c13hh13i70d13i813i80c13i913iz0d13j013j00c13j113jr0d13js13js0c13jt13kj0d13kk13kk0c13kl13lb0d13lc13lc0c13ld13m30d13m413m40c13m513mv0d13mw13mw0c13mx13nn0d13no13no0c13np13of0d13og13og0c13oh13p70d13p813p80c13p913pz0d13q013q00c13q113qr0d13qs13qs0c13qt13rj0d13rk13rk0c13rl13sb0d13sc13sc0c13sd13t30d13t413t40c13t513tv0d13tw13tw0c13tx13un0d13uo13uo0c13up13vf0d13vg13vg0c13vh13w70d13w813w80c13w913wz0d13x013x00c13x113xr0d13xs13xs0c13xt13yj0d13yk13yk0c13yl13zb0d13zc13zc0c13zd14030d140414040c1405140v0d140w140w0c140x141n0d141o141o0c141p142f0d142g142g0c142h14370d143814380c1439143z0d144014400c1441144r0d144s144s0c144t145j0d145k145k0c145l146b0d146c146c0c146d14730d147414740c1475147v0d147w147w0c147x148n0d148o148o0c148p149f0d149g149g0c149h14a70d14a814a80c14a914az0d14b014b00c14b114br0d14bs14bs0c14bt14cj0d14ck14ck0c14cl14db0d14dc14dc0c14dd14e30d14e414e40c14e514ev0d14ew14ew0c14ex14fn0d14fo14fo0c14fp14gf0d14gg14gg0c14gh14h70d14h814h80c14h914hz0d14i014i00c14i114ir0d14is14is0c14it14jj0d14jk14jk0c14jl14kb0d14kc14kc0c14kd14l30d14l414l40c14l514lv0d14lw14lw0c14lx14mn0d14mo14mo0c14mp14nf0d14ng14ng0c14nh14o70d14o814o80c14o914oz0d14p014p00c14p114pr0d14ps14ps0c14pt14qj0d14qk14qk0c14ql14rb0d14rc14rc0c14rd14s30d14s414s40c14s514sv0d14sw14sw0c14sx14tn0d14to14to0c14tp14uf0d14ug14ug0c14uh14v70d14v814v80c14v914vz0d14w014w00c14w114wr0d14ws14ws0c14wt14xj0d14xk14xk0c14xl14yb0d14yc14yc0c14yd14z30d14z414z40c14z514zv0d14zw14zw0c14zx150n0d150o150o0c150p151f0d151g151g0c151h15270d152815280c1529152z0d153015300c1531153r0d153s153s0c153t154j0d154k154k0c154l155b0d155c155c0c155d15630d156415640c1565156v0d156w156w0c156x157n0d157o157o0c157p158f0d158g158g0c158h15970d159815980c1599159z0d15a015a00c15a115ar0d15as15as0c15at15bj0d15bk15bk0c15bl15cb0d15cc15cc0c15cd15d30d15d415d40c15d515dv0d15dw15dw0c15dx15en0d15eo15eo0c15ep15ff0d15fg15fg0c15fh15g70d15g815g80c15g915gz0d15h015h00c15h115hr0d15hs15hs0c15ht15ij0d15ik15ik0c15il15jb0d15jc15jc0c15jd15k30d15k415k40c15k515kv0d15kw15kw0c15kx15ln0d15lo15lo0c15lp15mf0d15mg15mg0c15mh15n70d15n815n80c15n915nz0d15o015o00c15o115or0d15os15os0c15ot15pj0d15pk15pk0c15pl15qb0d15qc15qc0c15qd15r30d15r415r40c15r515rv0d15rw15rw0c15rx15sn0d15so15so0c15sp15tf0d15tg15tg0c15th15u70d15u815u80c15u915uz0d15v015v00c15v115vr0d15vs15vs0c15vt15wj0d15wk15wk0c15wl15xb0d15xc15xc0c15xd15y30d15y415y40c15y515yv0d15yw15yw0c15yx15zn0d15zo15zo0c15zp160f0d160g160g0c160h16170d161816180c1619161z0d162016200c1621162r0d162s162s0c162t163j0d163k163k0c163l164b0d164c164c0c164d16530d165416540c1655165v0d165w165w0c165x166n0d166o166o0c166p167f0d167g167g0c167h16870d168816880c1689168z0d169016900c1691169r0d169s169s0c169t16aj0d16ak16ak0c16al16bb0d16bc16bc0c16bd16c30d16c416c40c16c516cv0d16cw16cw0c16cx16dn0d16do16do0c16dp16ef0d16eg16eg0c16eh16f70d16f816f80c16f916fz0d16g016g00c16g116gr0d16gs16gs0c16gt16hj0d16hk16hk0c16hl16ib0d16ic16ic0c16id16j30d16j416j40c16j516jv0d16jw16jw0c16jx16kn0d16ko16ko0c16kp16lf0d16ls16me0a16mj16nv0b1dlq1dlq3o1e681e6n3o1e741e7j3o1edb1edb031ehq1ehr3o1ek01ekb031eyl1eyl3o1f4w1f4w3o1f921f963o1gjl1gjn3o1gjp1gjq3o1gjw1gjz3o1gl41gl63o1glb1glb3o1gpx1gpy3o1h5w1h5z3o1h7t1h7x3o1hgr1hgs3o1hj01hj33o1hl21hlc3o1hmq1hmt3o1hq81hq8081hq91hq93o1hqa1hqa081hrs1hs63o1htc1htc3o1htf1htg3o1htr1htt3o1htu1htu081hv41hv6081hv71hva3o1hvb1hvc081hvd1hve3o1hvh1hvh071hvm1hvm3o1hvx1hvx071hxc1hxe3o1hyf1hyj3o1hyk1hyk081hyl1hys3o1hz91hza081i0j1i0j3o1i0w1i0x3o1i0y1i0y081i2b1i2d081i2e1i2m3o1i2n1i2n081i2o1i2o3o1i2q1i2r071i2x1i303o1i321i32081i331i333o1i5o1i5q081i5r1i5t3o1i5u1i5v081i5w1i5z3o1i661i663o1i691i693o1ian1ian3o1iao1iaq081iar1iay3o1ibk1ibl3o1ibm1ibn081id71id83o1ida1ida3o1idb1idb081idc1idc3o1idd1idg081idj1idk081idn1ido081idp1idp3o1idz1idz3o1iea1ieb081iee1iek3o1ieo1ies3o1igo1igo3o1igp1igq081igr1igw3o1igy1igy3o1ih11ih13o1ih31ih53o1ih61ih6081ih81ih9081iha1ihc3o1ihd1ihd071ihe1ihe3o1iht1ihu3o1ik51ik7081ik81ikf3o1ikg1ikh081iki1ikk3o1ikl1ikl081ikm1ikm3o1ila1ila3o1ink1ink3o1inl1inm081inn1ins3o1int1int081inu1inu3o1inv1inw081inx1inx3o1iny1iny081inz1io03o1io11io1081io21io33o1iun1iun3o1iuo1iup081iuq1iut3o1iuw1iuz081iv01iv13o1iv21iv2081iv31iv43o1ivw1ivx3o1iy81iya081iyb1iyi3o1iyj1iyk081iyl1iyl3o1iym1iym081iyn1iyo3o1j1n1j1n3o1j1o1j1o081j1p1j1p3o1j1q1j1r081j1s1j1z3o1j4t1j4t3o1j4u1j4u081j4v1j4v3o1j4y1j513o1j521j52081j531j573o1jcc1jce081jcf1jcn3o1jco1jco081jcp1jcq3o1jjk1jjk3o1jjl1jjp081jjr1jjs081jjv1jjy3o1jjz1jjz071jk01jk0081jk11jk1071jk21jk2081jk31jk33o1jo11jo3081jo41jo73o1joa1job3o1joc1jof081jog1jog3o1jok1jok081jpd1jpm3o1jqr1jqw3o1jqx1jqx081jqy1jqy071jqz1jr23o1jrb1jrb3o1jrl1jrq3o1jrr1jrs081jrt1jrv3o1jt01jt5071jt61jti3o1jtj1jtj081jtk1jtl3o1k4v1k4v081k4w1k523o1k541k593o1k5a1k5a081k5b1k5b3o1k7m1k873o1k891k89081k8a1k8g3o1k8h1k8h081k8i1k8j3o1k8k1k8k081k8l1k8m3o1kc11kc63o1kca1kca3o1kcc1kcd3o1kcf1kcl3o1kcm1kcm071kcn1kcn3o1kei1kem081keo1kep3o1ker1kes081ket1ket3o1keu1keu081kev1kev3o1koj1kok3o1kol1kom081kow1kox3o1koy1koy071koz1koz081kqc1kqd081kqe1kqi3o1kqm1kqn081kqo1kqq3o1kre1kre3o1ovk1ovz031ow01ow03o1ow71owl3o1xr21xrd3o1xre1xrg081xrh1xrj3o1zow1zp03o1zqo1zqu3o206b206b0a206f206i0a20jz20jz3o20k120lj0820lr20lu3o20o420o43o20og20oh3o2ftp2ftq3o2fts2ftv032jgg2jhp3o2jhs2jie3o2jxh2jxl3o2jxp2jxu3o2jxv2jy2032jy32jya3o2jyd2jyj3o2jze2jzh3o2k3m2k3o3o2lmo2lo63o2lob2lpo3o2lpx2lpx3o2lqc2lqc3o2lqz2lr33o2lr52lrj3o2mtc2mti3o2mtk2mu03o2mu32mu93o2mub2muc3o2mue2mui3o2mxb2mxb3o2n1s2n1y3o2nce2nce3o2ne42ne73o2nsc2nsf3o2nzi2nzj3o2ok02ok63o2on82one3o2pz42q670g2q6l2q6n0g2q7j2q7j0g2q982q9d0g2q9q2q9r0g2qa62qa60g2qa92qai0g2qb12qcl0g2qcm2qdb062qdd2qdr0g2qe22qe20g2qen2qen0g2qeq2qey0g2qf02qf30g2qfd2qre0g2qrf2qrj3o2qrk2r0d0g2r0m2r7z0g2r9c2rcv0g2rg42rgf0g2rit2rjz0g2rkc2rkf0g2rm02rm70g2rmi2rmn0g2rns2rnz0g2rou2rr30g2rrg2rsq0g2rss2rt10g2rt32s5b0g2scg2t4t0gjny8jnz303jnz4jo1r3ojo1sjo5b03jo5cjobz3ojoc0jr3z03";
 
 /// Canonical_Combining_Class, for every character whose class is not zero.
 let COMBINING_CLASS: Str = "00lc00lw6e00lx00lx6g00ly00m16400m200m26g00m300m36000m400m86400m900ma5m00mb00me6400mf00mg5m00mh00mr6400ms00mw0100mx00n06400n100n86e00n900n96o00na00na6e00nb00nd6400ne00ng6e00nh00ni6400nk00nm6e00nn00nq6400nr00nr6e00ns00ns6g00nt00nu6400nv00nv6e00nw00nw6h00nx00ny6i00nz00nz6h00o000o16i00o200o26h00o300of6e00w300w76e013l013l64013m013p6e013q013q64013r013t6e013u013u66013v013v64013w01416e0142014764014801496e014a014a64014b014c6e014d014d66014e014e6c014f014f6e014g014g0a014h014h0b014i014i0c014j014j0d014k014k0e014l014l0f014m014m0g014n014n0h014o014o0i014p014q0j014r014r0k014s014s0l014t014t0m014v014v0n014x014x0o014y014y0p015001506e0151015164015301530i0174017b6e017c017c0u017d017d0v017e017e0w018r018r0r018s018s0s018t018t0t018u018u0u018v018v0v018w018w0w018x018x0x018y018y0y018z01906e0191019264019301976e01980198640199019a6e019b019b64019s019s0z01cm01cs6e01cv01cy6e01cz01cz6401d001d06e01d301d46e01d601d66401d701d86e01d901d96401e901e91001f401f46e01f501f56401f601f76e01f801f86401f901fa6e01fb01fd6401fe01fe6e01ff01fg6401fh01fh6e01fi01fi6401fj01fl6e01fm01fm6401fn01fn6e01fo01fo6401fp01fp6e01fq01fq6401fr01fr6e01fs01fs6401ft01fu6e01kb01kh6e01ki01ki6401kj01kj6e01kt01kt6401li01ll6e01ln01lv6e01lx01lz6e01m101m56e01nd01nf6401p301p46e01p501p76401p801pb6e01qi01qm6e01qn01qr6401qs01r56e01r701r76401r801r96e01ra01ra6401rb01rc6e01rd01rd6401re01rg6e01rh01rj6401rk01rk0r01rl01rl0s01rm01rm0t01rn01rp6e01rq01rq6401rr01rs6e01rt01ru6401rv01rz6e01to01to0701u501u50901u901u96e01ua01ua6401ub01uc6e01x801x80701xp01xp0901z201z26e020s020s070219021909024c024c07024t024t09027w027w07028d028d0902bx02bx0902f002f00702fh02fh0902fp02fp2c02fq02fq2j02ik02ik0702j102j10902m302m40902ml02ml0902q202q20902t402t52v02t602t60902tk02tn2z02wo02wp3a02wq02wq0902x402x73e02zc02zd64030503056403070307640309030960031t031t3l031u031u3m031w031w3o032203253m032803283m032a032b6e032c032c09032e032f6e0346034664037b037b07037d037e09039p039p6403tp03tr6e04k404k50904l004l00904pe04pe0904pp04pp6e04vd04vd6c04zd04zd6604ze04ze6e04zf04zf64055j055j6e055k055k64057k057k090585058c6e058f058f64059s059w6e059x05a26405a305a46e05a505a56405a705a86405a905aa6e05ab05ac6405ad05ah6e05ai05ai6405aj05am6e05dg05dg0705dw05dw0905ez05ez6e05f005f06405f105f76e05gq05gr0905ie05ie0705iq05ir0905kn05kn0705ow05oy6e05p005p00105p105p56405p605p76e05p805pb6405pc05pc6e05pe05pk0105pp05pp6405pw05pw6e05q005q16e05vk05vl6e05vm05vm6405vn05vt6e05vu05vu6405vv05vw6e05vx05vx6i05vy05vy5y05vz05vz6405w005w05m05w105x16e05x205x26g05x305x46c05x505x56405x605x66205x705x76e05x805x86h05x905x96405xa05xa6e05xb05xb6406hc06hd6e06he06hf0106hg06hj6e06hk06hm0106hn06ho6e06ht06ht6e06hx06hy0106hz06hz6e06i006i06406i106i16e06i206i30106i406i76406i806i86e08vj08vl6e08zj08zj09092809336e09ii09ii6209ij09ij6c09ik09ik6g09il09il6609im09in6809ll09lm080wvj0wvj6e0wvo0wvx6e0wwu0wwv6e0wz40wz56e0x6u0x6u090x7w0x7w090xc40xc4090xcw0xdd6e0xez0xf1640xg30xg3090xir0xir070xj40xj4090xps0xps6e0xpu0xpv6e0xpw0xpw640xpz0xq06e0xq60xq76e0xq90xq96e0xrq0xrq090xyl0xyl091dlq1dlq0q1e741e7a6e1e7b1e7h641e7i1e7j6e1eyl1eyl641f4w1f4w641f921f966e1gjx1gjx641gjz1gjz6e1gl41gl46e1gl51gl5011gl61gl6641glb1glb091gpx1gpx6e1gpy1gpy641h5w1h5z6e1h7t1h7x6e1hgr1hgs6e1hj11hj3641hl21hl3641hl41hl66e1hl71hl7641hl81hl86e1hl91hlc641hmq1hmq6e1hmr1hmr641hms1hms6e1hmt1hmt641hs61hs6091htc1htc091htr1htr091hvd1hvd091hve1hve071hxc1hxe6e1hyr1hys091i0j1i0j071i2o1i2o091i2y1i2y071i5x1i5x091i5y1i5y071iax1iax071iay1iay091id71id8071idp1idp091iee1iek6e1ieo1ies6e1iha1ihc091iki1iki091ikm1ikm071ila1ila6e1io21io2091io31io3071iv31iv3091iv41iv4071iyn1iyn091j1y1j1y091j1z1j1z071j571j57091jcp1jcp091jcq1jcq071jjx1jjy091jk31jk3071jog1jog091jqs1jqs091jrb1jrb091jtl1jtl091k5b1k5b091kci1kci071kck1kcl091kev1kev091kqp1kqq091xrj1xrj091zow1zp0011zqo1zqu6e20og20oh062ftq2ftq012jxh2jxi602jxj2jxl012jxp2jxp6a2jxq2jxu602jy32jya642jyd2jyh6e2jyi2jyj642jze2jzh6e2k3m2k3o6e2mtc2mti6e2mtk2mu06e2mu32mu96e2mub2muc6e2mue2mui6e2mxb2mxb6e2n1s2n1y6e2nce2nce6e2ne42ne76e2nsc2nsd6g2nse2nse642nsf2nsf6e2nzi2nzi6e2nzj2nzj642ok02ok6642on82ond6e2one2one07";
@@ -825,5 +1544,17 @@ let FOLD_LENGTHS: Str = "1111111111111111111111111111111111111111111111111111111
 
 /// The foldings, run together.
 let FOLD_VALUES: Str = "abcdefghijklmnopqrstuvwxyzμàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþssāăąćĉċčďđēĕėęěĝğġģĥħĩīĭįi̇ĳĵķĺļľŀłńņňʼnŋōŏőœŕŗřśŝşšţťŧũūŭůűųŵŷÿźżžsɓƃƅɔƈɖɗƌǝəɛƒɠɣɩɨƙɯɲɵơƣƥʀƨʃƭʈưʊʋƴƶʒƹƽǆǆǉǉǌǌǎǐǒǔǖǘǚǜǟǡǣǥǧǩǫǭǯǰǳǳǵƕƿǹǻǽǿȁȃȅȇȉȋȍȏȑȓȕȗșțȝȟƞȣȥȧȩȫȭȯȱȳⱥȼƚⱦɂƀʉʌɇɉɋɍɏιͱͳͷϳάέήίόύώΐαβγδεζηθικλμνξοπρστυφχψωϊϋΰσϗβθφπϙϛϝϟϡϣϥϧϩϫϭϯκρθεϸϲϻͻͼͽѐёђѓєѕіїјљњћќѝўџабвгдежзийклмнопрстуфхцчшщъыьэюяѡѣѥѧѩѫѭѯѱѳѵѷѹѻѽѿҁҋҍҏґғҕҗҙқҝҟҡңҥҧҩҫҭүұҳҵҷҹһҽҿӏӂӄӆӈӊӌӎӑӓӕӗәӛӝӟӡӣӥӧөӫӭӯӱӳӵӷӹӻӽӿԁԃԅԇԉԋԍԏԑԓԕԗԙԛԝԟԡԣԥԧԩԫԭԯաբգդեզէըթժիլխծկհձղճմյնշոչպջռսվտրցւփքօֆեւⴀⴁⴂⴃⴄⴅⴆⴇⴈⴉⴊⴋⴌⴍⴎⴏⴐⴑⴒⴓⴔⴕⴖⴗⴘⴙⴚⴛⴜⴝⴞⴟⴠⴡⴢⴣⴤⴥⴧⴭᏰᏱᏲᏳᏴᏵвдосттъѣꙋᲊაბგდევზთიკლმნოპჟრსტუფქღყშჩცძწჭხჯჰჱჲჳჴჵჶჷჸჹჺჽჾჿḁḃḅḇḉḋḍḏḑḓḕḗḙḛḝḟḡḣḥḧḩḫḭḯḱḳḵḷḹḻḽḿṁṃṅṇṉṋṍṏṑṓṕṗṙṛṝṟṡṣṥṧṩṫṭṯṱṳṵṷṹṻṽṿẁẃẅẇẉẋẍẏẑẓẕẖẗẘẙaʾṡssạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹỻỽỿἀἁἂἃἄἅἆἇἐἑἒἓἔἕἠἡἢἣἤἥἦἧἰἱἲἳἴἵἶἷὀὁὂὃὄὅὐὒὔὖὑὓὕὗὠὡὢὣὤὥὦὧἀιἁιἂιἃιἄιἅιἆιἇιἀιἁιἂιἃιἄιἅιἆιἇιἠιἡιἢιἣιἤιἥιἦιἧιἠιἡιἢιἣιἤιἥιἦιἧιὠιὡιὢιὣιὤιὥιὦιὧιὠιὡιὢιὣιὤιὥιὦιὧιὰιαιάιᾶᾶιᾰᾱὰάαιιὴιηιήιῆῆιὲέὴήηιῒΐῖῗῐῑὶίῢΰῤῦῧῠῡὺύῥὼιωιώιῶῶιὸόὼώωιωkåⅎⅰⅱⅲⅳⅴⅵⅶⅷⅸⅹⅺⅻⅼⅽⅾⅿↄⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙⓚⓛⓜⓝⓞⓟⓠⓡⓢⓣⓤⓥⓦⓧⓨⓩⰰⰱⰲⰳⰴⰵⰶⰷⰸⰹⰺⰻⰼⰽⰾⰿⱀⱁⱂⱃⱄⱅⱆⱇⱈⱉⱊⱋⱌⱍⱎⱏⱐⱑⱒⱓⱔⱕⱖⱗⱘⱙⱚⱛⱜⱝⱞⱟⱡɫᵽɽⱨⱪⱬɑɱɐɒⱳⱶȿɀⲁⲃⲅⲇⲉⲋⲍⲏⲑⲓⲕⲗⲙⲛⲝⲟⲡⲣⲥⲧⲩⲫⲭⲯⲱⲳⲵⲷⲹⲻⲽⲿⳁⳃⳅⳇⳉⳋⳍⳏⳑⳓⳕⳗⳙⳛⳝⳟⳡⳣⳬⳮⳳꙁꙃꙅꙇꙉꙋꙍꙏꙑꙓꙕꙗꙙꙛꙝꙟꙡꙣꙥꙧꙩꙫꙭꚁꚃꚅꚇꚉꚋꚍꚏꚑꚓꚕꚗꚙꚛꜣꜥꜧꜩꜫꜭꜯꜳꜵꜷꜹꜻꜽꜿꝁꝃꝅꝇꝉꝋꝍꝏꝑꝓꝕꝗꝙꝛꝝꝟꝡꝣꝥꝧꝩꝫꝭꝯꝺꝼᵹꝿꞁꞃꞅꞇꞌɥꞑꞓꞗꞙꞛꞝꞟꞡꞣꞥꞧꞩɦɜɡɬɪʞʇʝꭓꞵꞷꞹꞻꞽꞿꟁꟃꞔʂᶎꟈꟊɤꟍꟑꟗꟙꟛƛꟶᎠᎡᎢᎣᎤᎥᎦᎧᎨᎩᎪᎫᎬᎭᎮᎯᎰᎱᎲᎳᎴᎵᎶᎷᎸᎹᎺᎻᎼᎽᎾᎿᏀᏁᏂᏃᏄᏅᏆᏇᏈᏉᏊᏋᏌᏍᏎᏏᏐᏑᏒᏓᏔᏕᏖᏗᏘᏙᏚᏛᏜᏝᏞᏟᏠᏡᏢᏣᏤᏥᏦᏧᏨᏩᏪᏫᏬᏭᏮᏯfffiflffifflststմնմեմիվնմխａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ𐐨𐐩𐐪𐐫𐐬𐐭𐐮𐐯𐐰𐐱𐐲𐐳𐐴𐐵𐐶𐐷𐐸𐐹𐐺𐐻𐐼𐐽𐐾𐐿𐑀𐑁𐑂𐑃𐑄𐑅𐑆𐑇𐑈𐑉𐑊𐑋𐑌𐑍𐑎𐑏𐓘𐓙𐓚𐓛𐓜𐓝𐓞𐓟𐓠𐓡𐓢𐓣𐓤𐓥𐓦𐓧𐓨𐓩𐓪𐓫𐓬𐓭𐓮𐓯𐓰𐓱𐓲𐓳𐓴𐓵𐓶𐓷𐓸𐓹𐓺𐓻𐖗𐖘𐖙𐖚𐖛𐖜𐖝𐖞𐖟𐖠𐖡𐖣𐖤𐖥𐖦𐖧𐖨𐖩𐖪𐖫𐖬𐖭𐖮𐖯𐖰𐖱𐖳𐖴𐖵𐖶𐖷𐖸𐖹𐖻𐖼𐳀𐳁𐳂𐳃𐳄𐳅𐳆𐳇𐳈𐳉𐳊𐳋𐳌𐳍𐳎𐳏𐳐𐳑𐳒𐳓𐳔𐳕𐳖𐳗𐳘𐳙𐳚𐳛𐳜𐳝𐳞𐳟𐳠𐳡𐳢𐳣𐳤𐳥𐳦𐳧𐳨𐳩𐳪𐳫𐳬𐳭𐳮𐳯𐳰𐳱𐳲𐵰𐵱𐵲𐵳𐵴𐵵𐵶𐵷𐵸𐵹𐵺𐵻𐵼𐵽𐵾𐵿𐶀𐶁𐶂𐶃𐶄𐶅𑣀𑣁𑣂𑣃𑣄𑣅𑣆𑣇𑣈𑣉𑣊𑣋𑣌𑣍𑣎𑣏𑣐𑣑𑣒𑣓𑣔𑣕𑣖𑣗𑣘𑣙𑣚𑣛𑣜𑣝𑣞𑣟𖹠𖹡𖹢𖹣𖹤𖹥𖹦𖹧𖹨𖹩𖹪𖹫𖹬𖹭𖹮𖹯𖹰𖹱𖹲𖹳𖹴𖹵𖹶𖹷𖹸𖹹𖹺𖹻𖹼𖹽𖹾𖹿𞤢𞤣𞤤𞤥𞤦𞤧𞤨𞤩𞤪𞤫𞤬𞤭𞤮𞤯𞤰𞤱𞤲𞤳𞤴𞤵𞤶𞤷𞤸𞤹𞤺𞤻𞤼𞤽𞤾𞤿𞥀𞥁𞥂𞥃";
+
+/// U+AC00 to U+D7A3 in order, so composition can index them.
+let HANGUL_SYLLABLES: Str = "가각갂갃간갅갆갇갈갉갊갋갌갍갎갏감갑값갓갔강갖갗갘같갚갛개객갞갟갠갡갢갣갤갥갦갧갨갩갪갫갬갭갮갯갰갱갲갳갴갵갶갷갸갹갺갻갼갽갾갿걀걁걂걃걄걅걆걇걈걉걊걋걌걍걎걏걐걑걒걓걔걕걖걗걘걙걚걛걜걝걞걟걠걡걢걣걤걥걦걧걨걩걪걫걬걭걮걯거걱걲걳건걵걶걷걸걹걺걻걼걽걾걿검겁겂것겄겅겆겇겈겉겊겋게겍겎겏겐겑겒겓겔겕겖겗겘겙겚겛겜겝겞겟겠겡겢겣겤겥겦겧겨격겪겫견겭겮겯결겱겲겳겴겵겶겷겸겹겺겻겼경겾겿곀곁곂곃계곅곆곇곈곉곊곋곌곍곎곏곐곑곒곓곔곕곖곗곘곙곚곛곜곝곞곟고곡곢곣곤곥곦곧골곩곪곫곬곭곮곯곰곱곲곳곴공곶곷곸곹곺곻과곽곾곿관괁괂괃괄괅괆괇괈괉괊괋괌괍괎괏괐광괒괓괔괕괖괗괘괙괚괛괜괝괞괟괠괡괢괣괤괥괦괧괨괩괪괫괬괭괮괯괰괱괲괳괴괵괶괷괸괹괺괻괼괽괾괿굀굁굂굃굄굅굆굇굈굉굊굋굌굍굎굏교굑굒굓굔굕굖굗굘굙굚굛굜굝굞굟굠굡굢굣굤굥굦굧굨굩굪굫구국굮굯군굱굲굳굴굵굶굷굸굹굺굻굼굽굾굿궀궁궂궃궄궅궆궇궈궉궊궋권궍궎궏궐궑궒궓궔궕궖궗궘궙궚궛궜궝궞궟궠궡궢궣궤궥궦궧궨궩궪궫궬궭궮궯궰궱궲궳궴궵궶궷궸궹궺궻궼궽궾궿귀귁귂귃귄귅귆귇귈귉귊귋귌귍귎귏귐귑귒귓귔귕귖귗귘귙귚귛규귝귞귟균귡귢귣귤귥귦귧귨귩귪귫귬귭귮귯귰귱귲귳귴귵귶귷그극귺귻근귽귾귿글긁긂긃긄긅긆긇금급긊긋긌긍긎긏긐긑긒긓긔긕긖긗긘긙긚긛긜긝긞긟긠긡긢긣긤긥긦긧긨긩긪긫긬긭긮긯기긱긲긳긴긵긶긷길긹긺긻긼긽긾긿김깁깂깃깄깅깆깇깈깉깊깋까깍깎깏깐깑깒깓깔깕깖깗깘깙깚깛깜깝깞깟깠깡깢깣깤깥깦깧깨깩깪깫깬깭깮깯깰깱깲깳깴깵깶깷깸깹깺깻깼깽깾깿꺀꺁꺂꺃꺄꺅꺆꺇꺈꺉꺊꺋꺌꺍꺎꺏꺐꺑꺒꺓꺔꺕꺖꺗꺘꺙꺚꺛꺜꺝꺞꺟꺠꺡꺢꺣꺤꺥꺦꺧꺨꺩꺪꺫꺬꺭꺮꺯꺰꺱꺲꺳꺴꺵꺶꺷꺸꺹꺺꺻꺼꺽꺾꺿껀껁껂껃껄껅껆껇껈껉껊껋껌껍껎껏껐껑껒껓껔껕껖껗께껙껚껛껜껝껞껟껠껡껢껣껤껥껦껧껨껩껪껫껬껭껮껯껰껱껲껳껴껵껶껷껸껹껺껻껼껽껾껿꼀꼁꼂꼃꼄꼅꼆꼇꼈꼉꼊꼋꼌꼍꼎꼏꼐꼑꼒꼓꼔꼕꼖꼗꼘꼙꼚꼛꼜꼝꼞꼟꼠꼡꼢꼣꼤꼥꼦꼧꼨꼩꼪꼫꼬꼭꼮꼯꼰꼱꼲꼳꼴꼵꼶꼷꼸꼹꼺꼻꼼꼽꼾꼿꽀꽁꽂꽃꽄꽅꽆꽇꽈꽉꽊꽋꽌꽍꽎꽏꽐꽑꽒꽓꽔꽕꽖꽗꽘꽙꽚꽛꽜꽝꽞꽟꽠꽡꽢꽣꽤꽥꽦꽧꽨꽩꽪꽫꽬꽭꽮꽯꽰꽱꽲꽳꽴꽵꽶꽷꽸꽹꽺꽻꽼꽽꽾꽿꾀꾁꾂꾃꾄꾅꾆꾇꾈꾉꾊꾋꾌꾍꾎꾏꾐꾑꾒꾓꾔꾕꾖꾗꾘꾙꾚꾛꾜꾝꾞꾟꾠꾡꾢꾣꾤꾥꾦꾧꾨꾩꾪꾫꾬꾭꾮꾯꾰꾱꾲꾳꾴꾵꾶꾷꾸꾹꾺꾻꾼꾽꾾꾿꿀꿁꿂꿃꿄꿅꿆꿇꿈꿉꿊꿋꿌꿍꿎꿏꿐꿑꿒꿓꿔꿕꿖꿗꿘꿙꿚꿛꿜꿝꿞꿟꿠꿡꿢꿣꿤꿥꿦꿧꿨꿩꿪꿫꿬꿭꿮꿯꿰꿱꿲꿳꿴꿵꿶꿷꿸꿹꿺꿻꿼꿽꿾꿿뀀뀁뀂뀃뀄뀅뀆뀇뀈뀉뀊뀋뀌뀍뀎뀏뀐뀑뀒뀓뀔뀕뀖뀗뀘뀙뀚뀛뀜뀝뀞뀟뀠뀡뀢뀣뀤뀥뀦뀧뀨뀩뀪뀫뀬뀭뀮뀯뀰뀱뀲뀳뀴뀵뀶뀷뀸뀹뀺뀻뀼뀽뀾뀿끀끁끂끃끄끅끆끇끈끉끊끋끌끍끎끏끐끑끒끓끔끕끖끗끘끙끚끛끜끝끞끟끠끡끢끣끤끥끦끧끨끩끪끫끬끭끮끯끰끱끲끳끴끵끶끷끸끹끺끻끼끽끾끿낀낁낂낃낄낅낆낇낈낉낊낋낌낍낎낏낐낑낒낓낔낕낖낗나낙낚낛난낝낞낟날낡낢낣낤낥낦낧남납낪낫났낭낮낯낰낱낲낳내낵낶낷낸낹낺낻낼낽낾낿냀냁냂냃냄냅냆냇냈냉냊냋냌냍냎냏냐냑냒냓냔냕냖냗냘냙냚냛냜냝냞냟냠냡냢냣냤냥냦냧냨냩냪냫냬냭냮냯냰냱냲냳냴냵냶냷냸냹냺냻냼냽냾냿넀넁넂넃넄넅넆넇너넉넊넋넌넍넎넏널넑넒넓넔넕넖넗넘넙넚넛넜넝넞넟넠넡넢넣네넥넦넧넨넩넪넫넬넭넮넯넰넱넲넳넴넵넶넷넸넹넺넻넼넽넾넿녀녁녂녃년녅녆녇녈녉녊녋녌녍녎녏념녑녒녓녔녕녖녗녘녙녚녛녜녝녞녟녠녡녢녣녤녥녦녧녨녩녪녫녬녭녮녯녰녱녲녳녴녵녶녷노녹녺녻논녽녾녿놀놁놂놃놄놅놆놇놈놉놊놋놌농놎놏놐놑높놓놔놕놖놗놘놙놚놛놜놝놞놟놠놡놢놣놤놥놦놧놨놩놪놫놬놭놮놯놰놱놲놳놴놵놶놷놸놹놺놻놼놽놾놿뇀뇁뇂뇃뇄뇅뇆뇇뇈뇉뇊뇋뇌뇍뇎뇏뇐뇑뇒뇓뇔뇕뇖뇗뇘뇙뇚뇛뇜뇝뇞뇟뇠뇡뇢뇣뇤뇥뇦뇧뇨뇩뇪뇫뇬뇭뇮뇯뇰뇱뇲뇳뇴뇵뇶뇷뇸뇹뇺뇻뇼뇽뇾뇿눀눁눂눃누눅눆눇눈눉눊눋눌눍눎눏눐눑눒눓눔눕눖눗눘눙눚눛눜눝눞눟눠눡눢눣눤눥눦눧눨눩눪눫눬눭눮눯눰눱눲눳눴눵눶눷눸눹눺눻눼눽눾눿뉀뉁뉂뉃뉄뉅뉆뉇뉈뉉뉊뉋뉌뉍뉎뉏뉐뉑뉒뉓뉔뉕뉖뉗뉘뉙뉚뉛뉜뉝뉞뉟뉠뉡뉢뉣뉤뉥뉦뉧뉨뉩뉪뉫뉬뉭뉮뉯뉰뉱뉲뉳뉴뉵뉶뉷뉸뉹뉺뉻뉼뉽뉾뉿늀늁늂늃늄늅늆늇늈늉늊늋늌늍늎늏느늑늒늓는늕늖늗늘늙늚늛늜늝늞늟늠늡늢늣늤능늦늧늨늩늪늫늬늭늮늯늰늱늲늳늴늵늶늷늸늹늺늻늼늽늾늿닀닁닂닃닄닅닆닇니닉닊닋닌닍닎닏닐닑닒닓닔닕닖닗님닙닚닛닜닝닞닟닠닡닢닣다닥닦닧단닩닪닫달닭닮닯닰닱닲닳담답닶닷닸당닺닻닼닽닾닿대댁댂댃댄댅댆댇댈댉댊댋댌댍댎댏댐댑댒댓댔댕댖댗댘댙댚댛댜댝댞댟댠댡댢댣댤댥댦댧댨댩댪댫댬댭댮댯댰댱댲댳댴댵댶댷댸댹댺댻댼댽댾댿덀덁덂덃덄덅덆덇덈덉덊덋덌덍덎덏덐덑덒덓더덕덖덗던덙덚덛덜덝덞덟덠덡덢덣덤덥덦덧덨덩덪덫덬덭덮덯데덱덲덳덴덵덶덷델덹덺덻덼덽덾덿뎀뎁뎂뎃뎄뎅뎆뎇뎈뎉뎊뎋뎌뎍뎎뎏뎐뎑뎒뎓뎔뎕뎖뎗뎘뎙뎚뎛뎜뎝뎞뎟뎠뎡뎢뎣뎤뎥뎦뎧뎨뎩뎪뎫뎬뎭뎮뎯뎰뎱뎲뎳뎴뎵뎶뎷뎸뎹뎺뎻뎼뎽뎾뎿돀돁돂돃도독돆돇돈돉돊돋돌돍돎돏돐돑돒돓돔돕돖돗돘동돚돛돜돝돞돟돠돡돢돣돤돥돦돧돨돩돪돫돬돭돮돯돰돱돲돳돴돵돶돷돸돹돺돻돼돽돾돿됀됁됂됃됄됅됆됇됈됉됊됋됌됍됎됏됐됑됒됓됔됕됖됗되됙됚됛된됝됞됟될됡됢됣됤됥됦됧됨됩됪됫됬됭됮됯됰됱됲됳됴됵됶됷됸됹됺됻됼됽됾됿둀둁둂둃둄둅둆둇둈둉둊둋둌둍둎둏두둑둒둓둔둕둖둗둘둙둚둛둜둝둞둟둠둡둢둣둤둥둦둧둨둩둪둫둬둭둮둯둰둱둲둳둴둵둶둷둸둹둺둻둼둽둾둿뒀뒁뒂뒃뒄뒅뒆뒇뒈뒉뒊뒋뒌뒍뒎뒏뒐뒑뒒뒓뒔뒕뒖뒗뒘뒙뒚뒛뒜뒝뒞뒟뒠뒡뒢뒣뒤뒥뒦뒧뒨뒩뒪뒫뒬뒭뒮뒯뒰뒱뒲뒳뒴뒵뒶뒷뒸뒹뒺뒻뒼뒽뒾뒿듀듁듂듃듄듅듆듇듈듉듊듋듌듍듎듏듐듑듒듓듔듕듖듗듘듙듚듛드득듞듟든듡듢듣들듥듦듧듨듩듪듫듬듭듮듯듰등듲듳듴듵듶듷듸듹듺듻듼듽듾듿딀딁딂딃딄딅딆딇딈딉딊딋딌딍딎딏딐딑딒딓디딕딖딗딘딙딚딛딜딝딞딟딠딡딢딣딤딥딦딧딨딩딪딫딬딭딮딯따딱딲딳딴딵딶딷딸딹딺딻딼딽딾딿땀땁땂땃땄땅땆땇땈땉땊땋때땍땎땏땐땑땒땓땔땕땖땗땘땙땚땛땜땝땞땟땠땡땢땣땤땥땦땧땨땩땪땫땬땭땮땯땰땱땲땳땴땵땶땷땸땹땺땻땼땽땾땿떀떁떂떃떄떅떆떇떈떉떊떋떌떍떎떏떐떑떒떓떔떕떖떗떘떙떚떛떜떝떞떟떠떡떢떣떤떥떦떧떨떩떪떫떬떭떮떯떰떱떲떳떴떵떶떷떸떹떺떻떼떽떾떿뗀뗁뗂뗃뗄뗅뗆뗇뗈뗉뗊뗋뗌뗍뗎뗏뗐뗑뗒뗓뗔뗕뗖뗗뗘뗙뗚뗛뗜뗝뗞뗟뗠뗡뗢뗣뗤뗥뗦뗧뗨뗩뗪뗫뗬뗭뗮뗯뗰뗱뗲뗳뗴뗵뗶뗷뗸뗹뗺뗻뗼뗽뗾뗿똀똁똂똃똄똅똆똇똈똉똊똋똌똍똎똏또똑똒똓똔똕똖똗똘똙똚똛똜똝똞똟똠똡똢똣똤똥똦똧똨똩똪똫똬똭똮똯똰똱똲똳똴똵똶똷똸똹똺똻똼똽똾똿뙀뙁뙂뙃뙄뙅뙆뙇뙈뙉뙊뙋뙌뙍뙎뙏뙐뙑뙒뙓뙔뙕뙖뙗뙘뙙뙚뙛뙜뙝뙞뙟뙠뙡뙢뙣뙤뙥뙦뙧뙨뙩뙪뙫뙬뙭뙮뙯뙰뙱뙲뙳뙴뙵뙶뙷뙸뙹뙺뙻뙼뙽뙾뙿뚀뚁뚂뚃뚄뚅뚆뚇뚈뚉뚊뚋뚌뚍뚎뚏뚐뚑뚒뚓뚔뚕뚖뚗뚘뚙뚚뚛뚜뚝뚞뚟뚠뚡뚢뚣뚤뚥뚦뚧뚨뚩뚪뚫뚬뚭뚮뚯뚰뚱뚲뚳뚴뚵뚶뚷뚸뚹뚺뚻뚼뚽뚾뚿뛀뛁뛂뛃뛄뛅뛆뛇뛈뛉뛊뛋뛌뛍뛎뛏뛐뛑뛒뛓뛔뛕뛖뛗뛘뛙뛚뛛뛜뛝뛞뛟뛠뛡뛢뛣뛤뛥뛦뛧뛨뛩뛪뛫뛬뛭뛮뛯뛰뛱뛲뛳뛴뛵뛶뛷뛸뛹뛺뛻뛼뛽뛾뛿뜀뜁뜂뜃뜄뜅뜆뜇뜈뜉뜊뜋뜌뜍뜎뜏뜐뜑뜒뜓뜔뜕뜖뜗뜘뜙뜚뜛뜜뜝뜞뜟뜠뜡뜢뜣뜤뜥뜦뜧뜨뜩뜪뜫뜬뜭뜮뜯뜰뜱뜲뜳뜴뜵뜶뜷뜸뜹뜺뜻뜼뜽뜾뜿띀띁띂띃띄띅띆띇띈띉띊띋띌띍띎띏띐띑띒띓띔띕띖띗띘띙띚띛띜띝띞띟띠띡띢띣띤띥띦띧띨띩띪띫띬띭띮띯띰띱띲띳띴띵띶띷띸띹띺띻라락띾띿란랁랂랃랄랅랆랇랈랉랊랋람랍랎랏랐랑랒랓랔랕랖랗래랙랚랛랜랝랞랟랠랡랢랣랤랥랦랧램랩랪랫랬랭랮랯랰랱랲랳랴략랶랷랸랹랺랻랼랽랾랿럀럁럂럃럄럅럆럇럈량럊럋럌럍럎럏럐럑럒럓럔럕럖럗럘럙럚럛럜럝럞럟럠럡럢럣럤럥럦럧럨럩럪럫러럭럮럯런럱럲럳럴럵럶럷럸럹럺럻럼럽럾럿렀렁렂렃렄렅렆렇레렉렊렋렌렍렎렏렐렑렒렓렔렕렖렗렘렙렚렛렜렝렞렟렠렡렢렣려력렦렧련렩렪렫렬렭렮렯렰렱렲렳렴렵렶렷렸령렺렻렼렽렾렿례롁롂롃롄롅롆롇롈롉롊롋롌롍롎롏롐롑롒롓롔롕롖롗롘롙롚롛로록롞롟론롡롢롣롤롥롦롧롨롩롪롫롬롭롮롯롰롱롲롳롴롵롶롷롸롹롺롻롼롽롾롿뢀뢁뢂뢃뢄뢅뢆뢇뢈뢉뢊뢋뢌뢍뢎뢏뢐뢑뢒뢓뢔뢕뢖뢗뢘뢙뢚뢛뢜뢝뢞뢟뢠뢡뢢뢣뢤뢥뢦뢧뢨뢩뢪뢫뢬뢭뢮뢯뢰뢱뢲뢳뢴뢵뢶뢷뢸뢹뢺뢻뢼뢽뢾뢿룀룁룂룃룄룅룆룇룈룉룊룋료룍룎룏룐룑룒룓룔룕룖룗룘룙룚룛룜룝룞룟룠룡룢룣룤룥룦룧루룩룪룫룬룭룮룯룰룱룲룳룴룵룶룷룸룹룺룻룼룽룾룿뤀뤁뤂뤃뤄뤅뤆뤇뤈뤉뤊뤋뤌뤍뤎뤏뤐뤑뤒뤓뤔뤕뤖뤗뤘뤙뤚뤛뤜뤝뤞뤟뤠뤡뤢뤣뤤뤥뤦뤧뤨뤩뤪뤫뤬뤭뤮뤯뤰뤱뤲뤳뤴뤵뤶뤷뤸뤹뤺뤻뤼뤽뤾뤿륀륁륂륃륄륅륆륇륈륉륊륋륌륍륎륏륐륑륒륓륔륕륖륗류륙륚륛륜륝륞륟률륡륢륣륤륥륦륧륨륩륪륫륬륭륮륯륰륱륲륳르륵륶륷른륹륺륻를륽륾륿릀릁릂릃름릅릆릇릈릉릊릋릌릍릎릏릐릑릒릓릔릕릖릗릘릙릚릛릜릝릞릟릠릡릢릣릤릥릦릧릨릩릪릫리릭릮릯린릱릲릳릴릵릶릷릸릹릺릻림립릾릿맀링맂맃맄맅맆맇마막맊맋만맍많맏말맑맒맓맔맕맖맗맘맙맚맛맜망맞맟맠맡맢맣매맥맦맧맨맩맪맫맬맭맮맯맰맱맲맳맴맵맶맷맸맹맺맻맼맽맾맿먀먁먂먃먄먅먆먇먈먉먊먋먌먍먎먏먐먑먒먓먔먕먖먗먘먙먚먛먜먝먞먟먠먡먢먣먤먥먦먧먨먩먪먫먬먭먮먯먰먱먲먳먴먵먶먷머먹먺먻먼먽먾먿멀멁멂멃멄멅멆멇멈멉멊멋멌멍멎멏멐멑멒멓메멕멖멗멘멙멚멛멜멝멞멟멠멡멢멣멤멥멦멧멨멩멪멫멬멭멮멯며멱멲멳면멵멶멷멸멹멺멻멼멽멾멿몀몁몂몃몄명몆몇몈몉몊몋몌몍몎몏몐몑몒몓몔몕몖몗몘몙몚몛몜몝몞몟몠몡몢몣몤몥몦몧모목몪몫몬몭몮몯몰몱몲몳몴몵몶몷몸몹몺못몼몽몾몿뫀뫁뫂뫃뫄뫅뫆뫇뫈뫉뫊뫋뫌뫍뫎뫏뫐뫑뫒뫓뫔뫕뫖뫗뫘뫙뫚뫛뫜뫝뫞뫟뫠뫡뫢뫣뫤뫥뫦뫧뫨뫩뫪뫫뫬뫭뫮뫯뫰뫱뫲뫳뫴뫵뫶뫷뫸뫹뫺뫻뫼뫽뫾뫿묀묁묂묃묄묅묆묇묈묉묊묋묌묍묎묏묐묑묒묓묔묕묖묗묘묙묚묛묜묝묞묟묠묡묢묣묤묥묦묧묨묩묪묫묬묭묮묯묰묱묲묳무묵묶묷문묹묺묻물묽묾묿뭀뭁뭂뭃뭄뭅뭆뭇뭈뭉뭊뭋뭌뭍뭎뭏뭐뭑뭒뭓뭔뭕뭖뭗뭘뭙뭚뭛뭜뭝뭞뭟뭠뭡뭢뭣뭤뭥뭦뭧뭨뭩뭪뭫뭬뭭뭮뭯뭰뭱뭲뭳뭴뭵뭶뭷뭸뭹뭺뭻뭼뭽뭾뭿뮀뮁뮂뮃뮄뮅뮆뮇뮈뮉뮊뮋뮌뮍뮎뮏뮐뮑뮒뮓뮔뮕뮖뮗뮘뮙뮚뮛뮜뮝뮞뮟뮠뮡뮢뮣뮤뮥뮦뮧뮨뮩뮪뮫뮬뮭뮮뮯뮰뮱뮲뮳뮴뮵뮶뮷뮸뮹뮺뮻뮼뮽뮾뮿므믁믂믃믄믅믆믇믈믉믊믋믌믍믎믏믐믑믒믓믔믕믖믗믘믙믚믛믜믝믞믟믠믡믢믣믤믥믦믧믨믩믪믫믬믭믮믯믰믱믲믳믴믵믶믷미믹믺믻민믽믾믿밀밁밂밃밄밅밆밇밈밉밊밋밌밍밎및밐밑밒밓바박밖밗반밙밚받발밝밞밟밠밡밢밣밤밥밦밧밨방밪밫밬밭밮밯배백밲밳밴밵밶밷밸밹밺밻밼밽밾밿뱀뱁뱂뱃뱄뱅뱆뱇뱈뱉뱊뱋뱌뱍뱎뱏뱐뱑뱒뱓뱔뱕뱖뱗뱘뱙뱚뱛뱜뱝뱞뱟뱠뱡뱢뱣뱤뱥뱦뱧뱨뱩뱪뱫뱬뱭뱮뱯뱰뱱뱲뱳뱴뱵뱶뱷뱸뱹뱺뱻뱼뱽뱾뱿벀벁벂벃버벅벆벇번벉벊벋벌벍벎벏벐벑벒벓범법벖벗벘벙벚벛벜벝벞벟베벡벢벣벤벥벦벧벨벩벪벫벬벭벮벯벰벱벲벳벴벵벶벷벸벹벺벻벼벽벾벿변볁볂볃별볅볆볇볈볉볊볋볌볍볎볏볐병볒볓볔볕볖볗볘볙볚볛볜볝볞볟볠볡볢볣볤볥볦볧볨볩볪볫볬볭볮볯볰볱볲볳보복볶볷본볹볺볻볼볽볾볿봀봁봂봃봄봅봆봇봈봉봊봋봌봍봎봏봐봑봒봓봔봕봖봗봘봙봚봛봜봝봞봟봠봡봢봣봤봥봦봧봨봩봪봫봬봭봮봯봰봱봲봳봴봵봶봷봸봹봺봻봼봽봾봿뵀뵁뵂뵃뵄뵅뵆뵇뵈뵉뵊뵋뵌뵍뵎뵏뵐뵑뵒뵓뵔뵕뵖뵗뵘뵙뵚뵛뵜뵝뵞뵟뵠뵡뵢뵣뵤뵥뵦뵧뵨뵩뵪뵫뵬뵭뵮뵯뵰뵱뵲뵳뵴뵵뵶뵷뵸뵹뵺뵻뵼뵽뵾뵿부북붂붃분붅붆붇불붉붊붋붌붍붎붏붐붑붒붓붔붕붖붗붘붙붚붛붜붝붞붟붠붡붢붣붤붥붦붧붨붩붪붫붬붭붮붯붰붱붲붳붴붵붶붷붸붹붺붻붼붽붾붿뷀뷁뷂뷃뷄뷅뷆뷇뷈뷉뷊뷋뷌뷍뷎뷏뷐뷑뷒뷓뷔뷕뷖뷗뷘뷙뷚뷛뷜뷝뷞뷟뷠뷡뷢뷣뷤뷥뷦뷧뷨뷩뷪뷫뷬뷭뷮뷯뷰뷱뷲뷳뷴뷵뷶뷷뷸뷹뷺뷻뷼뷽뷾뷿븀븁븂븃븄븅븆븇븈븉븊븋브븍븎븏븐븑븒븓블븕븖븗븘븙븚븛븜븝븞븟븠븡븢븣븤븥븦븧븨븩븪븫븬븭븮븯븰븱븲븳븴븵븶븷븸븹븺븻븼븽븾븿빀빁빂빃비빅빆빇빈빉빊빋빌빍빎빏빐빑빒빓빔빕빖빗빘빙빚빛빜빝빞빟빠빡빢빣빤빥빦빧빨빩빪빫빬빭빮빯빰빱빲빳빴빵빶빷빸빹빺빻빼빽빾빿뺀뺁뺂뺃뺄뺅뺆뺇뺈뺉뺊뺋뺌뺍뺎뺏뺐뺑뺒뺓뺔뺕뺖뺗뺘뺙뺚뺛뺜뺝뺞뺟뺠뺡뺢뺣뺤뺥뺦뺧뺨뺩뺪뺫뺬뺭뺮뺯뺰뺱뺲뺳뺴뺵뺶뺷뺸뺹뺺뺻뺼뺽뺾뺿뻀뻁뻂뻃뻄뻅뻆뻇뻈뻉뻊뻋뻌뻍뻎뻏뻐뻑뻒뻓뻔뻕뻖뻗뻘뻙뻚뻛뻜뻝뻞뻟뻠뻡뻢뻣뻤뻥뻦뻧뻨뻩뻪뻫뻬뻭뻮뻯뻰뻱뻲뻳뻴뻵뻶뻷뻸뻹뻺뻻뻼뻽뻾뻿뼀뼁뼂뼃뼄뼅뼆뼇뼈뼉뼊뼋뼌뼍뼎뼏뼐뼑뼒뼓뼔뼕뼖뼗뼘뼙뼚뼛뼜뼝뼞뼟뼠뼡뼢뼣뼤뼥뼦뼧뼨뼩뼪뼫뼬뼭뼮뼯뼰뼱뼲뼳뼴뼵뼶뼷뼸뼹뼺뼻뼼뼽뼾뼿뽀뽁뽂뽃뽄뽅뽆뽇뽈뽉뽊뽋뽌뽍뽎뽏뽐뽑뽒뽓뽔뽕뽖뽗뽘뽙뽚뽛뽜뽝뽞뽟뽠뽡뽢뽣뽤뽥뽦뽧뽨뽩뽪뽫뽬뽭뽮뽯뽰뽱뽲뽳뽴뽵뽶뽷뽸뽹뽺뽻뽼뽽뽾뽿뾀뾁뾂뾃뾄뾅뾆뾇뾈뾉뾊뾋뾌뾍뾎뾏뾐뾑뾒뾓뾔뾕뾖뾗뾘뾙뾚뾛뾜뾝뾞뾟뾠뾡뾢뾣뾤뾥뾦뾧뾨뾩뾪뾫뾬뾭뾮뾯뾰뾱뾲뾳뾴뾵뾶뾷뾸뾹뾺뾻뾼뾽뾾뾿뿀뿁뿂뿃뿄뿅뿆뿇뿈뿉뿊뿋뿌뿍뿎뿏뿐뿑뿒뿓뿔뿕뿖뿗뿘뿙뿚뿛뿜뿝뿞뿟뿠뿡뿢뿣뿤뿥뿦뿧뿨뿩뿪뿫뿬뿭뿮뿯뿰뿱뿲뿳뿴뿵뿶뿷뿸뿹뿺뿻뿼뿽뿾뿿쀀쀁쀂쀃쀄쀅쀆쀇쀈쀉쀊쀋쀌쀍쀎쀏쀐쀑쀒쀓쀔쀕쀖쀗쀘쀙쀚쀛쀜쀝쀞쀟쀠쀡쀢쀣쀤쀥쀦쀧쀨쀩쀪쀫쀬쀭쀮쀯쀰쀱쀲쀳쀴쀵쀶쀷쀸쀹쀺쀻쀼쀽쀾쀿쁀쁁쁂쁃쁄쁅쁆쁇쁈쁉쁊쁋쁌쁍쁎쁏쁐쁑쁒쁓쁔쁕쁖쁗쁘쁙쁚쁛쁜쁝쁞쁟쁠쁡쁢쁣쁤쁥쁦쁧쁨쁩쁪쁫쁬쁭쁮쁯쁰쁱쁲쁳쁴쁵쁶쁷쁸쁹쁺쁻쁼쁽쁾쁿삀삁삂삃삄삅삆삇삈삉삊삋삌삍삎삏삐삑삒삓삔삕삖삗삘삙삚삛삜삝삞삟삠삡삢삣삤삥삦삧삨삩삪삫사삭삮삯산삱삲삳살삵삶삷삸삹삺삻삼삽삾삿샀상샂샃샄샅샆샇새색샊샋샌샍샎샏샐샑샒샓샔샕샖샗샘샙샚샛샜생샞샟샠샡샢샣샤샥샦샧샨샩샪샫샬샭샮샯샰샱샲샳샴샵샶샷샸샹샺샻샼샽샾샿섀섁섂섃섄섅섆섇섈섉섊섋섌섍섎섏섐섑섒섓섔섕섖섗섘섙섚섛서석섞섟선섡섢섣설섥섦섧섨섩섪섫섬섭섮섯섰성섲섳섴섵섶섷세섹섺섻센섽섾섿셀셁셂셃셄셅셆셇셈셉셊셋셌셍셎셏셐셑셒셓셔셕셖셗션셙셚셛셜셝셞셟셠셡셢셣셤셥셦셧셨셩셪셫셬셭셮셯셰셱셲셳셴셵셶셷셸셹셺셻셼셽셾셿솀솁솂솃솄솅솆솇솈솉솊솋소속솎솏손솑솒솓솔솕솖솗솘솙솚솛솜솝솞솟솠송솢솣솤솥솦솧솨솩솪솫솬솭솮솯솰솱솲솳솴솵솶솷솸솹솺솻솼솽솾솿쇀쇁쇂쇃쇄쇅쇆쇇쇈쇉쇊쇋쇌쇍쇎쇏쇐쇑쇒쇓쇔쇕쇖쇗쇘쇙쇚쇛쇜쇝쇞쇟쇠쇡쇢쇣쇤쇥쇦쇧쇨쇩쇪쇫쇬쇭쇮쇯쇰쇱쇲쇳쇴쇵쇶쇷쇸쇹쇺쇻쇼쇽쇾쇿숀숁숂숃숄숅숆숇숈숉숊숋숌숍숎숏숐숑숒숓숔숕숖숗수숙숚숛순숝숞숟술숡숢숣숤숥숦숧숨숩숪숫숬숭숮숯숰숱숲숳숴숵숶숷숸숹숺숻숼숽숾숿쉀쉁쉂쉃쉄쉅쉆쉇쉈쉉쉊쉋쉌쉍쉎쉏쉐쉑쉒쉓쉔쉕쉖쉗쉘쉙쉚쉛쉜쉝쉞쉟쉠쉡쉢쉣쉤쉥쉦쉧쉨쉩쉪쉫쉬쉭쉮쉯쉰쉱쉲쉳쉴쉵쉶쉷쉸쉹쉺쉻쉼쉽쉾쉿슀슁슂슃슄슅슆슇슈슉슊슋슌슍슎슏슐슑슒슓슔슕슖슗슘슙슚슛슜슝슞슟슠슡슢슣스슥슦슧슨슩슪슫슬슭슮슯슰슱슲슳슴습슶슷슸승슺슻슼슽슾슿싀싁싂싃싄싅싆싇싈싉싊싋싌싍싎싏싐싑싒싓싔싕싖싗싘싙싚싛시식싞싟신싡싢싣실싥싦싧싨싩싪싫심십싮싯싰싱싲싳싴싵싶싷싸싹싺싻싼싽싾싿쌀쌁쌂쌃쌄쌅쌆쌇쌈쌉쌊쌋쌌쌍쌎쌏쌐쌑쌒쌓쌔쌕쌖쌗쌘쌙쌚쌛쌜쌝쌞쌟쌠쌡쌢쌣쌤쌥쌦쌧쌨쌩쌪쌫쌬쌭쌮쌯쌰쌱쌲쌳쌴쌵쌶쌷쌸쌹쌺쌻쌼쌽쌾쌿썀썁썂썃썄썅썆썇썈썉썊썋썌썍썎썏썐썑썒썓썔썕썖썗썘썙썚썛썜썝썞썟썠썡썢썣썤썥썦썧써썩썪썫썬썭썮썯썰썱썲썳썴썵썶썷썸썹썺썻썼썽썾썿쎀쎁쎂쎃쎄쎅쎆쎇쎈쎉쎊쎋쎌쎍쎎쎏쎐쎑쎒쎓쎔쎕쎖쎗쎘쎙쎚쎛쎜쎝쎞쎟쎠쎡쎢쎣쎤쎥쎦쎧쎨쎩쎪쎫쎬쎭쎮쎯쎰쎱쎲쎳쎴쎵쎶쎷쎸쎹쎺쎻쎼쎽쎾쎿쏀쏁쏂쏃쏄쏅쏆쏇쏈쏉쏊쏋쏌쏍쏎쏏쏐쏑쏒쏓쏔쏕쏖쏗쏘쏙쏚쏛쏜쏝쏞쏟쏠쏡쏢쏣쏤쏥쏦쏧쏨쏩쏪쏫쏬쏭쏮쏯쏰쏱쏲쏳쏴쏵쏶쏷쏸쏹쏺쏻쏼쏽쏾쏿쐀쐁쐂쐃쐄쐅쐆쐇쐈쐉쐊쐋쐌쐍쐎쐏쐐쐑쐒쐓쐔쐕쐖쐗쐘쐙쐚쐛쐜쐝쐞쐟쐠쐡쐢쐣쐤쐥쐦쐧쐨쐩쐪쐫쐬쐭쐮쐯쐰쐱쐲쐳쐴쐵쐶쐷쐸쐹쐺쐻쐼쐽쐾쐿쑀쑁쑂쑃쑄쑅쑆쑇쑈쑉쑊쑋쑌쑍쑎쑏쑐쑑쑒쑓쑔쑕쑖쑗쑘쑙쑚쑛쑜쑝쑞쑟쑠쑡쑢쑣쑤쑥쑦쑧쑨쑩쑪쑫쑬쑭쑮쑯쑰쑱쑲쑳쑴쑵쑶쑷쑸쑹쑺쑻쑼쑽쑾쑿쒀쒁쒂쒃쒄쒅쒆쒇쒈쒉쒊쒋쒌쒍쒎쒏쒐쒑쒒쒓쒔쒕쒖쒗쒘쒙쒚쒛쒜쒝쒞쒟쒠쒡쒢쒣쒤쒥쒦쒧쒨쒩쒪쒫쒬쒭쒮쒯쒰쒱쒲쒳쒴쒵쒶쒷쒸쒹쒺쒻쒼쒽쒾쒿쓀쓁쓂쓃쓄쓅쓆쓇쓈쓉쓊쓋쓌쓍쓎쓏쓐쓑쓒쓓쓔쓕쓖쓗쓘쓙쓚쓛쓜쓝쓞쓟쓠쓡쓢쓣쓤쓥쓦쓧쓨쓩쓪쓫쓬쓭쓮쓯쓰쓱쓲쓳쓴쓵쓶쓷쓸쓹쓺쓻쓼쓽쓾쓿씀씁씂씃씄씅씆씇씈씉씊씋씌씍씎씏씐씑씒씓씔씕씖씗씘씙씚씛씜씝씞씟씠씡씢씣씤씥씦씧씨씩씪씫씬씭씮씯씰씱씲씳씴씵씶씷씸씹씺씻씼씽씾씿앀앁앂앃아악앆앇안앉않앋알앍앎앏앐앑앒앓암압앖앗았앙앚앛앜앝앞앟애액앢앣앤앥앦앧앨앩앪앫앬앭앮앯앰앱앲앳앴앵앶앷앸앹앺앻야약앾앿얀얁얂얃얄얅얆얇얈얉얊얋얌얍얎얏얐양얒얓얔얕얖얗얘얙얚얛얜얝얞얟얠얡얢얣얤얥얦얧얨얩얪얫얬얭얮얯얰얱얲얳어억얶얷언얹얺얻얼얽얾얿엀엁엂엃엄업없엇었엉엊엋엌엍엎엏에엑엒엓엔엕엖엗엘엙엚엛엜엝엞엟엠엡엢엣엤엥엦엧엨엩엪엫여역엮엯연엱엲엳열엵엶엷엸엹엺엻염엽엾엿였영옂옃옄옅옆옇예옉옊옋옌옍옎옏옐옑옒옓옔옕옖옗옘옙옚옛옜옝옞옟옠옡옢옣오옥옦옧온옩옪옫올옭옮옯옰옱옲옳옴옵옶옷옸옹옺옻옼옽옾옿와왁왂왃완왅왆왇왈왉왊왋왌왍왎왏왐왑왒왓왔왕왖왗왘왙왚왛왜왝왞왟왠왡왢왣왤왥왦왧왨왩왪왫왬왭왮왯왰왱왲왳왴왵왶왷외왹왺왻왼왽왾왿욀욁욂욃욄욅욆욇욈욉욊욋욌욍욎욏욐욑욒욓요욕욖욗욘욙욚욛욜욝욞욟욠욡욢욣욤욥욦욧욨용욪욫욬욭욮욯우욱욲욳운욵욶욷울욹욺욻욼욽욾욿움웁웂웃웄웅웆웇웈웉웊웋워웍웎웏원웑웒웓월웕웖웗웘웙웚웛웜웝웞웟웠웡웢웣웤웥웦웧웨웩웪웫웬웭웮웯웰웱웲웳웴웵웶웷웸웹웺웻웼웽웾웿윀윁윂윃위윅윆윇윈윉윊윋윌윍윎윏윐윑윒윓윔윕윖윗윘윙윚윛윜윝윞윟유육윢윣윤윥윦윧율윩윪윫윬윭윮윯윰윱윲윳윴융윶윷윸윹윺윻으윽윾윿은읁읂읃을읅읆읇읈읉읊읋음읍읎읏읐응읒읓읔읕읖읗의읙읚읛읜읝읞읟읠읡읢읣읤읥읦읧읨읩읪읫읬읭읮읯읰읱읲읳이익읶읷인읹읺읻일읽읾읿잀잁잂잃임입잆잇있잉잊잋잌잍잎잏자작잒잓잔잕잖잗잘잙잚잛잜잝잞잟잠잡잢잣잤장잦잧잨잩잪잫재잭잮잯잰잱잲잳잴잵잶잷잸잹잺잻잼잽잾잿쟀쟁쟂쟃쟄쟅쟆쟇쟈쟉쟊쟋쟌쟍쟎쟏쟐쟑쟒쟓쟔쟕쟖쟗쟘쟙쟚쟛쟜쟝쟞쟟쟠쟡쟢쟣쟤쟥쟦쟧쟨쟩쟪쟫쟬쟭쟮쟯쟰쟱쟲쟳쟴쟵쟶쟷쟸쟹쟺쟻쟼쟽쟾쟿저적젂젃전젅젆젇절젉젊젋젌젍젎젏점접젒젓젔정젖젗젘젙젚젛제젝젞젟젠젡젢젣젤젥젦젧젨젩젪젫젬젭젮젯젰젱젲젳젴젵젶젷져젹젺젻젼젽젾젿졀졁졂졃졄졅졆졇졈졉졊졋졌졍졎졏졐졑졒졓졔졕졖졗졘졙졚졛졜졝졞졟졠졡졢졣졤졥졦졧졨졩졪졫졬졭졮졯조족졲졳존졵졶졷졸졹졺졻졼졽졾졿좀좁좂좃좄종좆좇좈좉좊좋좌좍좎좏좐좑좒좓좔좕좖좗좘좙좚좛좜좝좞좟좠좡좢좣좤좥좦좧좨좩좪좫좬좭좮좯좰좱좲좳좴좵좶좷좸좹좺좻좼좽좾좿죀죁죂죃죄죅죆죇죈죉죊죋죌죍죎죏죐죑죒죓죔죕죖죗죘죙죚죛죜죝죞죟죠죡죢죣죤죥죦죧죨죩죪죫죬죭죮죯죰죱죲죳죴죵죶죷죸죹죺죻주죽죾죿준줁줂줃줄줅줆줇줈줉줊줋줌줍줎줏줐중줒줓줔줕줖줗줘줙줚줛줜줝줞줟줠줡줢줣줤줥줦줧줨줩줪줫줬줭줮줯줰줱줲줳줴줵줶줷줸줹줺줻줼줽줾줿쥀쥁쥂쥃쥄쥅쥆쥇쥈쥉쥊쥋쥌쥍쥎쥏쥐쥑쥒쥓쥔쥕쥖쥗쥘쥙쥚쥛쥜쥝쥞쥟쥠쥡쥢쥣쥤쥥쥦쥧쥨쥩쥪쥫쥬쥭쥮쥯쥰쥱쥲쥳쥴쥵쥶쥷쥸쥹쥺쥻쥼쥽쥾쥿즀즁즂즃즄즅즆즇즈즉즊즋즌즍즎즏즐즑즒즓즔즕즖즗즘즙즚즛즜증즞즟즠즡즢즣즤즥즦즧즨즩즪즫즬즭즮즯즰즱즲즳즴즵즶즷즸즹즺즻즼즽즾즿지직짂짃진짅짆짇질짉짊짋짌짍짎짏짐집짒짓짔징짖짗짘짙짚짛짜짝짞짟짠짡짢짣짤짥짦짧짨짩짪짫짬짭짮짯짰짱짲짳짴짵짶짷째짹짺짻짼짽짾짿쨀쨁쨂쨃쨄쨅쨆쨇쨈쨉쨊쨋쨌쨍쨎쨏쨐쨑쨒쨓쨔쨕쨖쨗쨘쨙쨚쨛쨜쨝쨞쨟쨠쨡쨢쨣쨤쨥쨦쨧쨨쨩쨪쨫쨬쨭쨮쨯쨰쨱쨲쨳쨴쨵쨶쨷쨸쨹쨺쨻쨼쨽쨾쨿쩀쩁쩂쩃쩄쩅쩆쩇쩈쩉쩊쩋쩌쩍쩎쩏쩐쩑쩒쩓쩔쩕쩖쩗쩘쩙쩚쩛쩜쩝쩞쩟쩠쩡쩢쩣쩤쩥쩦쩧쩨쩩쩪쩫쩬쩭쩮쩯쩰쩱쩲쩳쩴쩵쩶쩷쩸쩹쩺쩻쩼쩽쩾쩿쪀쪁쪂쪃쪄쪅쪆쪇쪈쪉쪊쪋쪌쪍쪎쪏쪐쪑쪒쪓쪔쪕쪖쪗쪘쪙쪚쪛쪜쪝쪞쪟쪠쪡쪢쪣쪤쪥쪦쪧쪨쪩쪪쪫쪬쪭쪮쪯쪰쪱쪲쪳쪴쪵쪶쪷쪸쪹쪺쪻쪼쪽쪾쪿쫀쫁쫂쫃쫄쫅쫆쫇쫈쫉쫊쫋쫌쫍쫎쫏쫐쫑쫒쫓쫔쫕쫖쫗쫘쫙쫚쫛쫜쫝쫞쫟쫠쫡쫢쫣쫤쫥쫦쫧쫨쫩쫪쫫쫬쫭쫮쫯쫰쫱쫲쫳쫴쫵쫶쫷쫸쫹쫺쫻쫼쫽쫾쫿쬀쬁쬂쬃쬄쬅쬆쬇쬈쬉쬊쬋쬌쬍쬎쬏쬐쬑쬒쬓쬔쬕쬖쬗쬘쬙쬚쬛쬜쬝쬞쬟쬠쬡쬢쬣쬤쬥쬦쬧쬨쬩쬪쬫쬬쬭쬮쬯쬰쬱쬲쬳쬴쬵쬶쬷쬸쬹쬺쬻쬼쬽쬾쬿쭀쭁쭂쭃쭄쭅쭆쭇쭈쭉쭊쭋쭌쭍쭎쭏쭐쭑쭒쭓쭔쭕쭖쭗쭘쭙쭚쭛쭜쭝쭞쭟쭠쭡쭢쭣쭤쭥쭦쭧쭨쭩쭪쭫쭬쭭쭮쭯쭰쭱쭲쭳쭴쭵쭶쭷쭸쭹쭺쭻쭼쭽쭾쭿쮀쮁쮂쮃쮄쮅쮆쮇쮈쮉쮊쮋쮌쮍쮎쮏쮐쮑쮒쮓쮔쮕쮖쮗쮘쮙쮚쮛쮜쮝쮞쮟쮠쮡쮢쮣쮤쮥쮦쮧쮨쮩쮪쮫쮬쮭쮮쮯쮰쮱쮲쮳쮴쮵쮶쮷쮸쮹쮺쮻쮼쮽쮾쮿쯀쯁쯂쯃쯄쯅쯆쯇쯈쯉쯊쯋쯌쯍쯎쯏쯐쯑쯒쯓쯔쯕쯖쯗쯘쯙쯚쯛쯜쯝쯞쯟쯠쯡쯢쯣쯤쯥쯦쯧쯨쯩쯪쯫쯬쯭쯮쯯쯰쯱쯲쯳쯴쯵쯶쯷쯸쯹쯺쯻쯼쯽쯾쯿찀찁찂찃찄찅찆찇찈찉찊찋찌찍찎찏찐찑찒찓찔찕찖찗찘찙찚찛찜찝찞찟찠찡찢찣찤찥찦찧차착찪찫찬찭찮찯찰찱찲찳찴찵찶찷참찹찺찻찼창찾찿챀챁챂챃채책챆챇챈챉챊챋챌챍챎챏챐챑챒챓챔챕챖챗챘챙챚챛챜챝챞챟챠챡챢챣챤챥챦챧챨챩챪챫챬챭챮챯챰챱챲챳챴챵챶챷챸챹챺챻챼챽챾챿첀첁첂첃첄첅첆첇첈첉첊첋첌첍첎첏첐첑첒첓첔첕첖첗처척첚첛천첝첞첟철첡첢첣첤첥첦첧첨첩첪첫첬청첮첯첰첱첲첳체첵첶첷첸첹첺첻첼첽첾첿쳀쳁쳂쳃쳄쳅쳆쳇쳈쳉쳊쳋쳌쳍쳎쳏쳐쳑쳒쳓쳔쳕쳖쳗쳘쳙쳚쳛쳜쳝쳞쳟쳠쳡쳢쳣쳤쳥쳦쳧쳨쳩쳪쳫쳬쳭쳮쳯쳰쳱쳲쳳쳴쳵쳶쳷쳸쳹쳺쳻쳼쳽쳾쳿촀촁촂촃촄촅촆촇초촉촊촋촌촍촎촏촐촑촒촓촔촕촖촗촘촙촚촛촜총촞촟촠촡촢촣촤촥촦촧촨촩촪촫촬촭촮촯촰촱촲촳촴촵촶촷촸촹촺촻촼촽촾촿쵀쵁쵂쵃쵄쵅쵆쵇쵈쵉쵊쵋쵌쵍쵎쵏쵐쵑쵒쵓쵔쵕쵖쵗쵘쵙쵚쵛최쵝쵞쵟쵠쵡쵢쵣쵤쵥쵦쵧쵨쵩쵪쵫쵬쵭쵮쵯쵰쵱쵲쵳쵴쵵쵶쵷쵸쵹쵺쵻쵼쵽쵾쵿춀춁춂춃춄춅춆춇춈춉춊춋춌춍춎춏춐춑춒춓추축춖춗춘춙춚춛출춝춞춟춠춡춢춣춤춥춦춧춨충춪춫춬춭춮춯춰춱춲춳춴춵춶춷춸춹춺춻춼춽춾춿췀췁췂췃췄췅췆췇췈췉췊췋췌췍췎췏췐췑췒췓췔췕췖췗췘췙췚췛췜췝췞췟췠췡췢췣췤췥췦췧취췩췪췫췬췭췮췯췰췱췲췳췴췵췶췷췸췹췺췻췼췽췾췿츀츁츂츃츄츅츆츇츈츉츊츋츌츍츎츏츐츑츒츓츔츕츖츗츘츙츚츛츜츝츞츟츠측츢츣츤츥츦츧츨츩츪츫츬츭츮츯츰츱츲츳츴층츶츷츸츹츺츻츼츽츾츿칀칁칂칃칄칅칆칇칈칉칊칋칌칍칎칏칐칑칒칓칔칕칖칗치칙칚칛친칝칞칟칠칡칢칣칤칥칦칧침칩칪칫칬칭칮칯칰칱칲칳카칵칶칷칸칹칺칻칼칽칾칿캀캁캂캃캄캅캆캇캈캉캊캋캌캍캎캏캐캑캒캓캔캕캖캗캘캙캚캛캜캝캞캟캠캡캢캣캤캥캦캧캨캩캪캫캬캭캮캯캰캱캲캳캴캵캶캷캸캹캺캻캼캽캾캿컀컁컂컃컄컅컆컇컈컉컊컋컌컍컎컏컐컑컒컓컔컕컖컗컘컙컚컛컜컝컞컟컠컡컢컣커컥컦컧컨컩컪컫컬컭컮컯컰컱컲컳컴컵컶컷컸컹컺컻컼컽컾컿케켁켂켃켄켅켆켇켈켉켊켋켌켍켎켏켐켑켒켓켔켕켖켗켘켙켚켛켜켝켞켟켠켡켢켣켤켥켦켧켨켩켪켫켬켭켮켯켰켱켲켳켴켵켶켷켸켹켺켻켼켽켾켿콀콁콂콃콄콅콆콇콈콉콊콋콌콍콎콏콐콑콒콓코콕콖콗콘콙콚콛콜콝콞콟콠콡콢콣콤콥콦콧콨콩콪콫콬콭콮콯콰콱콲콳콴콵콶콷콸콹콺콻콼콽콾콿쾀쾁쾂쾃쾄쾅쾆쾇쾈쾉쾊쾋쾌쾍쾎쾏쾐쾑쾒쾓쾔쾕쾖쾗쾘쾙쾚쾛쾜쾝쾞쾟쾠쾡쾢쾣쾤쾥쾦쾧쾨쾩쾪쾫쾬쾭쾮쾯쾰쾱쾲쾳쾴쾵쾶쾷쾸쾹쾺쾻쾼쾽쾾쾿쿀쿁쿂쿃쿄쿅쿆쿇쿈쿉쿊쿋쿌쿍쿎쿏쿐쿑쿒쿓쿔쿕쿖쿗쿘쿙쿚쿛쿜쿝쿞쿟쿠쿡쿢쿣쿤쿥쿦쿧쿨쿩쿪쿫쿬쿭쿮쿯쿰쿱쿲쿳쿴쿵쿶쿷쿸쿹쿺쿻쿼쿽쿾쿿퀀퀁퀂퀃퀄퀅퀆퀇퀈퀉퀊퀋퀌퀍퀎퀏퀐퀑퀒퀓퀔퀕퀖퀗퀘퀙퀚퀛퀜퀝퀞퀟퀠퀡퀢퀣퀤퀥퀦퀧퀨퀩퀪퀫퀬퀭퀮퀯퀰퀱퀲퀳퀴퀵퀶퀷퀸퀹퀺퀻퀼퀽퀾퀿큀큁큂큃큄큅큆큇큈큉큊큋큌큍큎큏큐큑큒큓큔큕큖큗큘큙큚큛큜큝큞큟큠큡큢큣큤큥큦큧큨큩큪큫크큭큮큯큰큱큲큳클큵큶큷큸큹큺큻큼큽큾큿킀킁킂킃킄킅킆킇킈킉킊킋킌킍킎킏킐킑킒킓킔킕킖킗킘킙킚킛킜킝킞킟킠킡킢킣키킥킦킧킨킩킪킫킬킭킮킯킰킱킲킳킴킵킶킷킸킹킺킻킼킽킾킿타탁탂탃탄탅탆탇탈탉탊탋탌탍탎탏탐탑탒탓탔탕탖탗탘탙탚탛태택탞탟탠탡탢탣탤탥탦탧탨탩탪탫탬탭탮탯탰탱탲탳탴탵탶탷탸탹탺탻탼탽탾탿턀턁턂턃턄턅턆턇턈턉턊턋턌턍턎턏턐턑턒턓턔턕턖턗턘턙턚턛턜턝턞턟턠턡턢턣턤턥턦턧턨턩턪턫턬턭턮턯터턱턲턳턴턵턶턷털턹턺턻턼턽턾턿텀텁텂텃텄텅텆텇텈텉텊텋테텍텎텏텐텑텒텓텔텕텖텗텘텙텚텛템텝텞텟텠텡텢텣텤텥텦텧텨텩텪텫텬텭텮텯텰텱텲텳텴텵텶텷텸텹텺텻텼텽텾텿톀톁톂톃톄톅톆톇톈톉톊톋톌톍톎톏톐톑톒톓톔톕톖톗톘톙톚톛톜톝톞톟토톡톢톣톤톥톦톧톨톩톪톫톬톭톮톯톰톱톲톳톴통톶톷톸톹톺톻톼톽톾톿퇀퇁퇂퇃퇄퇅퇆퇇퇈퇉퇊퇋퇌퇍퇎퇏퇐퇑퇒퇓퇔퇕퇖퇗퇘퇙퇚퇛퇜퇝퇞퇟퇠퇡퇢퇣퇤퇥퇦퇧퇨퇩퇪퇫퇬퇭퇮퇯퇰퇱퇲퇳퇴퇵퇶퇷퇸퇹퇺퇻퇼퇽퇾퇿툀툁툂툃툄툅툆툇툈툉툊툋툌툍툎툏툐툑툒툓툔툕툖툗툘툙툚툛툜툝툞툟툠툡툢툣툤툥툦툧툨툩툪툫투툭툮툯툰툱툲툳툴툵툶툷툸툹툺툻툼툽툾툿퉀퉁퉂퉃퉄퉅퉆퉇퉈퉉퉊퉋퉌퉍퉎퉏퉐퉑퉒퉓퉔퉕퉖퉗퉘퉙퉚퉛퉜퉝퉞퉟퉠퉡퉢퉣퉤퉥퉦퉧퉨퉩퉪퉫퉬퉭퉮퉯퉰퉱퉲퉳퉴퉵퉶퉷퉸퉹퉺퉻퉼퉽퉾퉿튀튁튂튃튄튅튆튇튈튉튊튋튌튍튎튏튐튑튒튓튔튕튖튗튘튙튚튛튜튝튞튟튠튡튢튣튤튥튦튧튨튩튪튫튬튭튮튯튰튱튲튳튴튵튶튷트특튺튻튼튽튾튿틀틁틂틃틄틅틆틇틈틉틊틋틌틍틎틏틐틑틒틓틔틕틖틗틘틙틚틛틜틝틞틟틠틡틢틣틤틥틦틧틨틩틪틫틬틭틮틯티틱틲틳틴틵틶틷틸틹틺틻틼틽틾틿팀팁팂팃팄팅팆팇팈팉팊팋파팍팎팏판팑팒팓팔팕팖팗팘팙팚팛팜팝팞팟팠팡팢팣팤팥팦팧패팩팪팫팬팭팮팯팰팱팲팳팴팵팶팷팸팹팺팻팼팽팾팿퍀퍁퍂퍃퍄퍅퍆퍇퍈퍉퍊퍋퍌퍍퍎퍏퍐퍑퍒퍓퍔퍕퍖퍗퍘퍙퍚퍛퍜퍝퍞퍟퍠퍡퍢퍣퍤퍥퍦퍧퍨퍩퍪퍫퍬퍭퍮퍯퍰퍱퍲퍳퍴퍵퍶퍷퍸퍹퍺퍻퍼퍽퍾퍿펀펁펂펃펄펅펆펇펈펉펊펋펌펍펎펏펐펑펒펓펔펕펖펗페펙펚펛펜펝펞펟펠펡펢펣펤펥펦펧펨펩펪펫펬펭펮펯펰펱펲펳펴펵펶펷편펹펺펻펼펽펾펿폀폁폂폃폄폅폆폇폈평폊폋폌폍폎폏폐폑폒폓폔폕폖폗폘폙폚폛폜폝폞폟폠폡폢폣폤폥폦폧폨폩폪폫포폭폮폯폰폱폲폳폴폵폶폷폸폹폺폻폼폽폾폿퐀퐁퐂퐃퐄퐅퐆퐇퐈퐉퐊퐋퐌퐍퐎퐏퐐퐑퐒퐓퐔퐕퐖퐗퐘퐙퐚퐛퐜퐝퐞퐟퐠퐡퐢퐣퐤퐥퐦퐧퐨퐩퐪퐫퐬퐭퐮퐯퐰퐱퐲퐳퐴퐵퐶퐷퐸퐹퐺퐻퐼퐽퐾퐿푀푁푂푃푄푅푆푇푈푉푊푋푌푍푎푏푐푑푒푓푔푕푖푗푘푙푚푛표푝푞푟푠푡푢푣푤푥푦푧푨푩푪푫푬푭푮푯푰푱푲푳푴푵푶푷푸푹푺푻푼푽푾푿풀풁풂풃풄풅풆풇품풉풊풋풌풍풎풏풐풑풒풓풔풕풖풗풘풙풚풛풜풝풞풟풠풡풢풣풤풥풦풧풨풩풪풫풬풭풮풯풰풱풲풳풴풵풶풷풸풹풺풻풼풽풾풿퓀퓁퓂퓃퓄퓅퓆퓇퓈퓉퓊퓋퓌퓍퓎퓏퓐퓑퓒퓓퓔퓕퓖퓗퓘퓙퓚퓛퓜퓝퓞퓟퓠퓡퓢퓣퓤퓥퓦퓧퓨퓩퓪퓫퓬퓭퓮퓯퓰퓱퓲퓳퓴퓵퓶퓷퓸퓹퓺퓻퓼퓽퓾퓿픀픁픂픃프픅픆픇픈픉픊픋플픍픎픏픐픑픒픓픔픕픖픗픘픙픚픛픜픝픞픟픠픡픢픣픤픥픦픧픨픩픪픫픬픭픮픯픰픱픲픳픴픵픶픷픸픹픺픻피픽픾픿핀핁핂핃필핅핆핇핈핉핊핋핌핍핎핏핐핑핒핓핔핕핖핗하학핚핛한핝핞핟할핡핢핣핤핥핦핧함합핪핫핬항핮핯핰핱핲핳해핵핶핷핸핹핺핻핼핽핾핿햀햁햂햃햄햅햆햇했행햊햋햌햍햎햏햐햑햒햓햔햕햖햗햘햙햚햛햜햝햞햟햠햡햢햣햤향햦햧햨햩햪햫햬햭햮햯햰햱햲햳햴햵햶햷햸햹햺햻햼햽햾햿헀헁헂헃헄헅헆헇허헉헊헋헌헍헎헏헐헑헒헓헔헕헖헗험헙헚헛헜헝헞헟헠헡헢헣헤헥헦헧헨헩헪헫헬헭헮헯헰헱헲헳헴헵헶헷헸헹헺헻헼헽헾헿혀혁혂혃현혅혆혇혈혉혊혋혌혍혎혏혐협혒혓혔형혖혗혘혙혚혛혜혝혞혟혠혡혢혣혤혥혦혧혨혩혪혫혬혭혮혯혰혱혲혳혴혵혶혷호혹혺혻혼혽혾혿홀홁홂홃홄홅홆홇홈홉홊홋홌홍홎홏홐홑홒홓화확홖홗환홙홚홛활홝홞홟홠홡홢홣홤홥홦홧홨황홪홫홬홭홮홯홰홱홲홳홴홵홶홷홸홹홺홻홼홽홾홿횀횁횂횃횄횅횆횇횈횉횊횋회획횎횏횐횑횒횓횔횕횖횗횘횙횚횛횜횝횞횟횠횡횢횣횤횥횦횧효횩횪횫횬횭횮횯횰횱횲횳횴횵횶횷횸횹횺횻횼횽횾횿훀훁훂훃후훅훆훇훈훉훊훋훌훍훎훏훐훑훒훓훔훕훖훗훘훙훚훛훜훝훞훟훠훡훢훣훤훥훦훧훨훩훪훫훬훭훮훯훰훱훲훳훴훵훶훷훸훹훺훻훼훽훾훿휀휁휂휃휄휅휆휇휈휉휊휋휌휍휎휏휐휑휒휓휔휕휖휗휘휙휚휛휜휝휞휟휠휡휢휣휤휥휦휧휨휩휪휫휬휭휮휯휰휱휲휳휴휵휶휷휸휹휺휻휼휽휾휿흀흁흂흃흄흅흆흇흈흉흊흋흌흍흎흏흐흑흒흓흔흕흖흗흘흙흚흛흜흝흞흟흠흡흢흣흤흥흦흧흨흩흪흫희흭흮흯흰흱흲흳흴흵흶흷흸흹흺흻흼흽흾흿힀힁힂힃힄힅힆힇히힉힊힋힌힍힎힏힐힑힒힓힔힕힖힗힘힙힚힛힜힝힞힟힠힡힢힣";
+
+/// The nineteen leading jamo.
+let HANGUL_LEADING: Str = "ᄀᄁᄂᄃᄄᄅᄆᄇᄈᄉᄊᄋᄌᄍᄎᄏᄐᄑᄒ";
+
+/// The twenty-one vowel jamo.
+let HANGUL_VOWEL: Str = "ᅡᅢᅣᅤᅥᅦᅧᅨᅩᅪᅫᅬᅭᅮᅯᅰᅱᅲᅳᅴᅵ";
+
+/// The twenty-seven trailing jamo, after one place-holder for a syllable that has none.
+let HANGUL_TRAILING: Str = "ᆧᆨᆩᆪᆫᆬᆭᆮᆯᆰᆱᆲᆳᆴᆵᆶᆷᆸᆹᆺᆻᆼᆽᆾᆿᇀᇁᇂ";
 
 // --- End of the generated Unicode tables -------------------
