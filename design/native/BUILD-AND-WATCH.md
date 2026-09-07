@@ -66,7 +66,7 @@ finding out at `cc` time.
 `cli/runtime/net.rs` names one type from each crate and exports two entries
 that answer "was this toolchain built with the networking stack". On
 `aarch64-apple-darwin` the archive was 5 987 472 bytes with `net` off and 5
-987 496 with it on: twenty-four bytes, because `lto = "fat"` is whole-program
+987 496 with it on: twenty-four bytes, because the LTO is whole-program
 across the dependency rlibs and Rust code nothing reaches does not reach the
 archive. One of the six is still in exactly that state — `quinn` — and the
 other five are not.
@@ -214,13 +214,16 @@ be 66. That is paid once per cold registry, by the resolution probe rather
 than by the compile, and a host that cannot reach them gets an empty archive
 and a `cargo:warning` under §2.2's degradation.
 
-The h3 archive is **forty bytes smaller** than the one without it. `quinn` is
-named by one `size_of` in `cli/runtime/net.rs` and reached by nothing else, so
-`lto = "fat"` drops the crate whole — verified with `nm`, which finds no quinn
-symbol in an h3 archive at all — and the forty bytes are the HTTP/3 refusal
-string an h3 build has no use for. So `the_runtime_archive_is_real` holds the
-h3 leg to the **same** size budget as the `net` one, and `quinn` is the only
-crate left on that script's *absent* list, on every leg.
+The h3 archive costs **4 544 bytes** over the one without it — it used to be
+forty bytes *smaller*, and thin LTO is what moved that. `quinn` is named by one
+`size_of` in `cli/runtime/net.rs` and reached by nothing else, so LTO drops the
+crate whole either way — verified with `nm`, which finds no quinn symbol in an
+h3 archive at all. Under thin LTO every crate is an archive *member* of its
+own, so `quinn` is now in the member names; `archive_symbols` drops those
+headers before the assertion reads them, or the test would be checking a
+directory listing. So `the_runtime_archive_is_real` holds the h3 leg to the
+**same** size budget as the `net` one, and `quinn` is the only crate left on
+that script's *absent* list, on every leg.
 
 **The provider is `ring`, by name.** `quinn`'s own defaults are
 `rustls-aws-lc-rs` and `platform-verifier`; both are off in
@@ -412,12 +415,37 @@ than guessed, on `aarch64-apple-darwin`. Two live in the runtime's
 `[profile.release]`, and the third stays on the command line because Cargo has
 no profile key for it:
 
-- **`-C lto=fat`.** A staticlib bundles the whole of `std`, and the archive is
-  embedded in every `buri` binary. Without it the archive is 17.7 MB; with it,
-  6.0 MB, for 2.6 seconds of build time once per toolchain build. Nothing is
-  lost: every entry point is `#[unsafe(no_mangle)]`, so LTO has no root to
-  internalize away, and the linked artifact is dead-stripped either way — a C
-  driver linking the whole surface comes out at 470 KB.
+- **`lto = "thin"`.** A staticlib bundles the whole of `std`, and the archive
+  is embedded in every `buri` binary. Measured before the painter existed, it
+  was 17.7 MB with no LTO at all and 6.0 MB with fat. Nothing is lost: every
+  entry point is
+  `#[unsafe(no_mangle)]`, so LTO has no root to internalize away, and the
+  linked artifact is dead-stripped either way — a C driver linking the whole
+  surface comes out at 470 KB.
+
+  **It was `"fat"` until the painter landed.** Fat LTO merges every crate's
+  bitcode into one module and optimizes it on one thread, which makes it the
+  longest serial stretch of a toolchain install, and `paint`'s forty crates
+  doubled it. A clean runtime build on `aarch64-apple-darwin`, cargo and rustc
+  1.91.1, on a machine that was busy — the CPU column is the one to read:
+
+  | | wall | CPU | archive |
+  |---|---:|---:|---:|
+  | `paint` off, fat | 243 s | 77 s | 4 369 264 |
+  | `paint` on, fat | 570 s | 194 s | 7 386 480 |
+  | `paint` on, thin | 207 s | 194 s | 10 026 288 |
+
+  Thin does the same work on every core rather than one. It costs 2 639 808
+  bytes here, and 2 224 416 under the rustc the suite runs — 12 285 120 to
+  14 509 536 — which is the pair `the_runtime_archive_is_real` re-states its
+  budget from. It keeps the whole-program view the rest of this document leans
+  on: code nothing reaches still does not reach the archive, `quinn` included.
+  And it keeps reproducibility — two clean thin builds in two target
+  directories produce the same SHA-256.
+
+  `codegen-units = 16` under fat LTO was measured first and buys nothing — 702
+  s, 184 CPU-s, and an archive 276 048 bytes larger — because fat LTO has
+  merged everything before the unit count matters.
 
   The link also *decides* whether to name the archive at all
   (`build/link.rs::runtime_archive_for`): it asks the objects whether any of

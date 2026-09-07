@@ -132,7 +132,7 @@ crate-type = ["staticlib"]
 #
 # **Five of the six are linked; one is still referenced by nothing.** When the
 # crates landed, none of them was: `net.rs` named one type from each and
-# stopped, `lto = "fat"` below is whole-program over the dependency rlibs, and
+# stopped, the LTO below is whole-program over the dependency rlibs, and
 # Rust code nothing reaches is not in the archive — measured on
 # aarch64-apple-darwin at the commit that added `net`, twenty-four bytes for the
 # lot. Five have since been reached, each in the commit that needed it:
@@ -168,7 +168,7 @@ crate-type = ["staticlib"]
 # TLS was **1.72 MiB** of that, of which 845 064 bytes is `ring`'s **native**
 # object code — C and AArch64 assembly in twenty-five `.o` members that `rustc`
 # bundles into a `staticlib` whether the linker needs them or not, so
-# `lto = "fat"` cannot touch them. `curve25519.o` alone is 405 KB and
+# no LTO can touch them. `curve25519.o` alone is 405 KB and
 # `p256-nistz.o` is 173 KB. That total put the archive **over** the 7 MiB budget
 # `cli/tests/ci.rs::the_runtime_archive_is_real` carried, by about 505 KB, and the
 # budget was re-measured and re-stated there in C7's commit — the ratchet
@@ -355,13 +355,41 @@ paint = ["dep:taffy", "dep:cosmic-text", "dep:tiny-skia"]
 # line, in the one place a `cargo build --release` reads them from. Each is a
 # decision rather than a default:
 #
-# * `lto = "fat"` is a **size** decision, not a speed one, and the size is
-#   embedded in every `buri` binary: measured on aarch64-apple-darwin, 17.7 MB
-#   without it and 6.0 MB with, for about 2.6 seconds of build time once per
-#   toolchain build. It is whole-program across the runtime, the copy of `std`
-#   a staticlib bundles, *and* the dependency rlibs,
-#   which is what made an unreferenced networking stack cost twenty-four
-#   bytes instead of a megabyte, and what still holds `quinn` out of it.
+# * `lto = "thin"` — it was `"fat"` until the painter landed, and what moved
+#   is install time rather than the idea. Both are whole-program across the
+#   runtime, the copy of `std` a staticlib bundles *and* the dependency rlibs,
+#   which is what made an unreferenced networking stack cost twenty-four bytes
+#   instead of a megabyte and what still holds `quinn` out. LTO is a size
+#   decision before it is anything else — measured before the painter, the
+#   archive was 17.7 MB with none of it and 6.0 MB with fat — and every `buri`
+#   binary carries the result.
+#
+#   The difference is who does the work. Fat LTO merges every crate's bitcode
+#   into one module and optimizes it on **one thread**, so it is a serial
+#   stretch in the middle of every install, and the painter's forty crates
+#   doubled it. Measured on aarch64-apple-darwin, clean target directory,
+#   cargo and rustc 1.91.1, on a machine that was busy — so read the CPU
+#   column, and read the wall column only against its neighbours:
+#
+#     paint off, fat     243 s wall,  77 CPU-s,  4 369 264 bytes
+#     paint on,  fat     570 s wall, 194 CPU-s,  7 386 480
+#     paint on,  thin    207 s wall, 194 CPU-s, 10 026 288
+#
+#   Thin does not do less work — the CPU column is the same — it does it on
+#   every core, and the archive stops being the longest serial stretch of an
+#   install. The painter's own 117 CPU-seconds of compiling are not free and
+#   nothing here makes them free.
+#
+#   It is paid for in size, 2 639 808 bytes of it, and
+#   `cli/tests/ci.rs::the_runtime_archive_is_real` carries the re-measured
+#   budget. It is not paid for in reproducibility: two clean thin builds in two
+#   different target directories produced the same SHA-256, which is what
+#   `--check-reproducible` needs from every input to a link.
+#
+#   `codegen-units = 16` under fat LTO was measured first, in case the cost was
+#   the codegen half rather than the optimize half: 702 s wall, 184 CPU-s, and
+#   an archive 276 048 bytes *larger*. It buys nothing, because fat LTO has
+#   merged everything before the unit count matters.
 # * `panic = "abort"` because an abort in this language is a write to standard
 #   error and an exit, never an unwind (SPEC 6.9), so the unwinder tables
 #   would be dead weight in every artifact.
@@ -376,7 +404,7 @@ paint = ["dep:taffy", "dep:cosmic-text", "dep:tiny-skia"]
 #
 # `opt-level = 3` is `release`'s own default and is left to it.
 [profile.release]
-lto = "fat"
+lto = "thin"
 panic = "abort"
 codegen-units = 1
 debug = 0

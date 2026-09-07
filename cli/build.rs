@@ -1386,7 +1386,7 @@ fn runtime_archive(manifest: &Path) {
     // being built and not for its dependencies. See `RUNTIME_RUSTC_ARGS`.
     command.arg("rustc").arg("--lib");
     // `--release` is what selects `[profile.release]` in the runtime's
-    // manifest: `lto = "fat"`, `panic = "abort"`, `codegen-units = 1`,
+    // manifest: `lto = "thin"`, `panic = "abort"`, `codegen-units = 1`,
     // `debug = 0`. Each is argued where it is written.
     command.arg("--release");
     command.arg("--manifest-path").arg(pkg.join("Cargo.toml"));

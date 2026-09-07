@@ -540,15 +540,14 @@
 //! the reactor's code on purpose; `rustls` over `ring` is what [`tls`] uses for
 //! `https://`, and it is why the archive grew by about 1.72 MiB, most of it
 //! `ring`'s native object code, which a `staticlib` carries whether the linker
-//! wants it or not. `hyper`, `tungstenite` and `quinn` are still referenced
-//! only by [`net`], which names one type from each and stops, so `lto = "fat"`
-//! leaves them out of the archive entirely — measurably: an archive built with
-//! `net-h3` is *forty bytes smaller* than one without it, because the QUIC
-//! crate does not reach it and the refusal string does not have to.
+//! wants it or not. `quinn` is the one crate still referenced only by [`net`],
+//! which names a type from it and stops, so the LTO leaves it out of the
+//! archive entirely — measurably: an `net-h3` archive carries no quinn symbol
+//! at all and costs 4 544 bytes over one without it.
 //! `cli/tests/ci.rs::the_runtime_archive_is_real` holds both halves in CI by
-//! grepping the symbol table — three names that must be there, three that must
-//! not — and each of the three moved across that line in the commit that
-//! linked it. The slice that links one of the other three moves it again.
+//! grepping the symbol table — five names that must be there, one that must
+//! not — and each of the five moved across that line in the commit that linked
+//! it. The slice that links `quinn` moves it again.
 //!
 //! Nothing about the **feature's** shape changed with any of it: `net` off is
 //! still a runtime with no dependency at all, [`rt`] and [`tls`] do not
