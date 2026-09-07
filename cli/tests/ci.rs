@@ -1061,8 +1061,9 @@ fn the_runtime_archive_is_real() {
     // aarch64-apple-darwin the archive went from 9 147 720 bytes to
     // 12 221 408 — **+3 073 688**, of which 135 740 is the fonts and the rest
     // is code, three quarters of it `cosmic-text`'s shaping stack and Unicode
-    // tables. 12.5 MiB is the re-statement, and what is left of the margin is
-    // 6.8 %.
+    // tables. 12.5 MiB is the re-statement, and the archive stands at
+    // 12 238 768 with `core/tasks`'s six scope entries in it, which leaves
+    // 6.6 % of the margin.
     //
     // **The Linux number is a measured delta on an earlier measured base, and
     // that is weaker than the line above.** No macOS host can link `ring`'s C
