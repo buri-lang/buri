@@ -2247,6 +2247,54 @@ impl Scan<'_> {
         self.diverged = diverged;
     }
 
+    /// Narrows [`Scan::owned`] to what a lambda's body owns, and answers the
+    /// set it replaced so the caller can put it back.
+    ///
+    /// **A capture is not the closure's to spend.** `owned` is the set of
+    /// locals this *function* has an obligation to drop, and every rule that
+    /// reads it — a last read taking the count instead of a new one, a
+    /// `match` consuming its scrutinee, a functional update writing through
+    /// its base — is asking "is this the last reader of a value nobody else
+    /// holds". Inside a lambda's body that question has a different answer,
+    /// because the body runs later, elsewhere, and **more than once**: the
+    /// enclosing scope's liveness says nothing about whether the closure will
+    /// be called again, so a capture always has a second reader.
+    ///
+    /// Scanning the body against the outer `owned` said otherwise, and the
+    /// JavaScript backend read the missing increment as a missing `$share` —
+    /// so `xs.slice(c, 0, i)` on a captured list took the runtime's
+    /// unique-owner path and truncated the list **in place**, and every later
+    /// call in the same `mapCtx` sliced what was left. `list.range(ctx, 0, 3)
+    /// .mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).len())` answered `0, 0, 0`.
+    /// The native branch never had it: `middle::closures` lifts the body into
+    /// a function with a plan of its own, and a capture reaches it as a field
+    /// of the environment rather than as a local this scan owns.
+    ///
+    /// What is left owned is exactly what [`analyze`] seeds — a `let`'s
+    /// bindings and a lambda's parameters — restricted to this body, so an
+    /// accumulator threaded through `foldCtx` still writes through. A `match`
+    /// arm's payload is not seeded by either, here or there: [`Scan::match_`]
+    /// adds one as it goes, into whichever set is current, which is this one.
+    fn enter_lambda(&mut self, params: &[LocalId], body: &Expr) -> HashSet<LocalId> {
+        let mut inside: HashSet<LocalId> = params.iter().copied().collect();
+        typed::walk(body, &mut |e| match &e.kind {
+            ExprKind::Block { stmts, .. } => {
+                for st in stmts {
+                    if let Stmt::Let { pattern, .. } = st {
+                        let mut bound: Vec<LocalId> = Vec::new();
+                        pattern.binds(&mut bound);
+                        inside.extend(bound);
+                    }
+                }
+            }
+            ExprKind::Lambda { params, .. } => inside.extend(params.iter().copied()),
+            _ => {}
+        });
+        let kept: HashSet<LocalId> =
+            self.owned.iter().copied().filter(|l| inside.contains(l)).collect();
+        std::mem::replace(&mut self.owned, kept)
+    }
+
     /// Whether a projection's base is a **tail-shaped** value this expression
     /// has to own rather than borrow.
     ///
@@ -2419,7 +2467,7 @@ impl Scan<'_> {
                 before.insert(*l);
                 before
             }
-            ExprKind::Lambda { captures, body, .. } => {
+            ExprKind::Lambda { params: ps, captures, body } => {
                 // An environment is a construction over the captures, and the
                 // body does not run here.
                 let mut before = live.clone();
@@ -2436,10 +2484,13 @@ impl Scan<'_> {
                 // Under `sharing` the body is scanned here, because nothing
                 // lifts it into a function with a plan of its own. It is a
                 // scope that runs later and elsewhere, so it starts from an
-                // empty liveness and leaves this scan's own bookkeeping alone.
+                // empty liveness and leaves this scan's own bookkeeping alone
+                // — including what it owns, which is [`Scan::enter_lambda`].
                 if self.opts.sharing {
                     let bid = self.child(id, 0);
+                    let outer = self.enter_lambda(ps, body);
                     self.nested(body, bid);
+                    self.owned = outer;
                 }
                 before
             }
@@ -4452,6 +4503,59 @@ export fn main(): Result<(), Str> {
         let incs = twice.sites.iter().filter(|s| s.op == RcOp::IncRef).count();
         let decs = twice.sites.iter().filter(|s| s.op == RcOp::DecRef).count();
         assert_eq!((incs, decs), (1, 0), "{:?}", twice.sites);
+    }
+
+    /// **A capture is read for a second time however dead it looks**, and a
+    /// lambda's own parameter is not ([`Scan::enter_lambda`]).
+    ///
+    /// Under [`sharing`] a lambda's body is scanned inside its enclosing
+    /// function, because nothing has lifted it into a function of its own yet.
+    /// The enclosing scope's liveness then says `xs` is dead after the closure
+    /// is *built* — which is true of the enclosing scope and says nothing
+    /// about the closure, whose body runs once per element. Taking the count
+    /// on that reading is what let `$list_slice` truncate `xs` in place on the
+    /// first call, so `mapCtx(fn(c, i) => xs.slice(c, 0, i).len())` answered
+    /// `0, 0, 0`.
+    ///
+    /// The other half is what the fix must not cost: `acc` is the fold's own
+    /// parameter, a fresh value on every call, and it stays owned — or growing
+    /// a list in a loop copies it once per iteration, which is
+    /// `language::sharing::growing_a_list_in_a_loop_is_linear`.
+    #[test]
+    fn a_capture_is_marked_and_a_lambda_parameter_is_not() {
+        let program = compile(
+            r#"
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let xs = list.range(ctx, 0, 3)
+    .foldCtx(ctx, fn(c, acc: [Int], i) => acc.push(c, i), list.empty());
+  let lengths = list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).len());
+  io.println(ctx, str.format(ctx, "${lengths.len()}")).mapErr(fn(_e) => "no")
+}
+"#,
+        );
+        let idx = find(&program, "main");
+        let func = program.funcs.get(idx.index()).expect("a function");
+        let plan = sharing(&program);
+        let marked: Vec<&str> = plan
+            .func(idx)
+            .expect("a plan")
+            .sites
+            .iter()
+            .filter(|s| s.op == RcOp::IncRef)
+            .filter_map(|s| match s.target {
+                Target::Local(l) => func.locals.get(l.index()).map(|x| x.name.as_str()),
+                Target::Node(_) => None,
+            })
+            .collect();
+        assert!(marked.contains(&"xs"), "the capture was spent by the closure: {marked:?}");
+        assert!(!marked.contains(&"acc"), "the fold's accumulator stopped writing through");
     }
 
     /// The whole program's counts balance, on every path.

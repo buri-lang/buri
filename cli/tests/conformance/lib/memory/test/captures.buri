@@ -1,0 +1,180 @@
+// `design/native/MEMORY.md` §5.5 — a closure does not consume what it captures.
+//
+// The in-place half of the value model lets an operation write through a list
+// nobody else holds: `push` appends instead of copying, `slice` moves the
+// window down instead of allocating a new one. Which list "nobody else holds"
+// means is decided by `middle::rc`, once, for every backend.
+//
+// A **capture** is the case where the enclosing scope's liveness answers the
+// wrong question. The body of a closure runs later, elsewhere, and as many
+// times as somebody calls it, so a captured list always has a second reader —
+// the next call — however dead the capture looks at the point the closure was
+// written. Reading it as the last use let `xs.slice(c, 0, i)` truncate `xs` in
+// place on the first call, and every call after that sliced what was left:
+// `0, 0, 0` where the answer is `0, 1, 2`.
+//
+// So every case here calls one closure **more than once** and asserts the
+// answers, and the six operations below are the whole in-place half of
+// `core/list`. The lists are built by `grown` rather than written as literals:
+// a literal is immortal and lives in the artifact's constant pool
+// (VALUE-MODEL.md §5.2), so it can never be the unique owner these operations
+// are looking for and would prove nothing.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+
+/// A list this program grew, rather than one the compiler interned.
+///
+/// `push` onto `list.empty()` is the shape `filterMap` and every other fold in
+/// `core/list` produces, and it is what makes the answer a block the program
+/// owns outright.
+fn grown<C: Alloc>(ctx: C, n: Int): [Int] {
+    list
+        .range(ctx, 0, n)
+        .foldCtx(ctx, fn(c, acc: [Int], i) => acc.push(c, i), list.empty())
+}
+
+/// The same, of strings, so a second element type reaches the same code.
+fn grownText<C: Alloc>(ctx: C, n: Int): [Str] {
+    list
+        .range(ctx, 0, n)
+        .foldCtx(ctx, fn(c, acc: [Str], _i) => acc.push(c, "x"), list.empty())
+}
+
+// -----------------------------------------------------------------------------
+// The six operations that write through
+// -----------------------------------------------------------------------------
+
+test "a captured list slices the same way on every call" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = grown(ctx, 3);
+    assert.eq(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).len()), [
+        0,
+        1,
+        2,
+        3,
+    ]);
+}
+
+test "a captured list takes the same way on every call" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = grown(ctx, 3);
+    assert.eq(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.take(c, i).len()), [
+        0,
+        1,
+        2,
+        3,
+    ]);
+}
+
+test "a captured list drops the same way on every call" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = grown(ctx, 3);
+    assert.eq(list.range(ctx, 0, 4).mapCtx(ctx, fn(c, i) => xs.drop(c, i).len()), [
+        3,
+        2,
+        1,
+        0,
+    ]);
+}
+
+test "a captured list is not grown in place by the closure that pushes to it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = grown(ctx, 2);
+    assert.eq(list.range(ctx, 0, 3).mapCtx(ctx, fn(c, i) => xs.push(c, i).len()), [
+        3,
+        3,
+        3,
+    ]);
+}
+
+test "a captured list is not extended in place by the closure that concatenates it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = grown(ctx, 2);
+    let ys = grown(ctx, 3);
+    assert.eq(list.range(ctx, 0, 3).mapCtx(ctx, fn(c, _i) => xs.concat(c, ys).len()), [
+        5,
+        5,
+        5,
+    ]);
+}
+
+test "a captured list is not turned around in place by the closure that reverses it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = grown(ctx, 3);
+    assert.eq(
+        list
+            .range(ctx, 0, 3)
+            .mapCtx(ctx, fn(c, _i) => xs.reverse(c).get(0).withDefault(-1)),
+        [2, 2, 2],
+    );
+}
+
+// -----------------------------------------------------------------------------
+// What the capture still is afterwards
+// -----------------------------------------------------------------------------
+
+test "a list a closure sliced is the list it was" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = grown(ctx, 3);
+    let lengths = list
+        .range(ctx, 0, 3)
+        .mapCtx(ctx, fn(c, i) => xs.slice(c, 0, i).len());
+    assert.eq(lengths, [0, 1, 2]);
+    assert.eq(xs, [0, 1, 2]);
+}
+
+/// Calls one closure twice, so a case can say "twice" without going through
+/// `core/list` to say it.
+fn twice<C: Alloc>(ctx: C, f: fn(C, Int) => Int): [Int] {
+    [f(ctx, 1), f(ctx, 1)]
+}
+
+test "a closure that runs twice reads the same capture twice" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = grown(ctx, 4);
+    assert.eq(twice(ctx, fn(c, n) => xs.drop(c, n).len()), [3, 3]);
+}
+
+// -----------------------------------------------------------------------------
+// Through a generic helper, of two element types
+// -----------------------------------------------------------------------------
+
+/// The shape the bug was found in: a `<C: Alloc>` helper over `[T]`, called
+/// from inside a closure, with a second instantiation over another element
+/// type beside it. Two monomorphizations of one function reach one closure
+/// body, which is what made it look like a monomorphization bug rather than an
+/// ownership one.
+fn prefixLen<C: Alloc, T>(ctx: C, ps: [T], i: Int): Int {
+    ps.slice(ctx, 0, i).len()
+}
+
+test "two instantiations of one helper read two captures" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let ns = grown(ctx, 3);
+    let ss = grownText(ctx, 3);
+    let pairs = list
+        .range(ctx, 0, 3)
+        .mapCtx(ctx, fn(c, i) => prefixLen(c, ns, i) + prefixLen(c, ss, i));
+    assert.eq(pairs, [0, 2, 4]);
+}
