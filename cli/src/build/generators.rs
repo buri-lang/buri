@@ -44,6 +44,15 @@ use std::sync::{Arc, Mutex, PoisonError};
 /// The generator the toolchain ships. Every other non-`//` tool is refused.
 pub const PROTO_TOOL: &str = "std/codegen/proto";
 
+/// The `code` of a [`Diagnostic`] whose `message` is already the whole
+/// sentence, so the loader prints it rather than a page's wording.
+///
+/// Not a catalogue code: a file the operating system would not hand over has
+/// no rule behind it to explain, and the sentence is the error the read
+/// returned. `sources` reports the same file the same way
+/// (`compiler::modules`), which is what makes the two agree.
+pub const UNREADABLE: &str = "an-input-that-could-not-be-read";
+
 // ---------------------------------------------------------------------------
 // The protocol
 // ---------------------------------------------------------------------------
@@ -1151,24 +1160,41 @@ fn run_rule(session: &mut Session, target: TargetId, flags: &Flags, overlay: &Ov
             let full = package.dir.join(&input.value);
             let rel = workspace.rel_of(&full);
             let text = match overlay.get(&full) {
-                Some(text) => Some(text.clone()),
-                None => std::fs::read_to_string(&full).ok(),
+                Some(text) => Ok(text.clone()),
+                None => std::fs::read_to_string(&full),
             };
             match text {
-                Some(text) => request.inputs.push((rel, text)),
-                None => {
+                Ok(text) => request.inputs.push((rel, text)),
+                Err(e) => {
                     unreadable = true;
-                    fingerprint.push_str(&format!("missing {rel}\n"));
+                    fingerprint.push_str(&format!("unreadable {rel}: {}\n", e.kind()));
+                    // **A file that is there is never reported as absent.** A
+                    // schema saved in UTF-16 answers `InvalidData` here, and
+                    // "create the file" is no advice about a file a person can
+                    // see in the directory the diagnostic names. A `sources`
+                    // entry over the same bytes says `cannot read <path>: …`,
+                    // and this says the same sentence.
                     missing.push((
-                        Diagnostic {
-                            code: "no-such-source".to_string(),
-                            // The entry, so the loader can name it: this
-                            // diagnostic's wording is its page's, and the page
-                            // asks which source and which field.
-                            message: input.value.clone(),
-                            note: None,
-                            fix: None,
-                            origin: None,
+                        match e.kind() {
+                            std::io::ErrorKind::NotFound => Diagnostic {
+                                code: "no-such-source".to_string(),
+                                // The entry, so the loader can name it: this
+                                // diagnostic's wording is its page's, and the
+                                // page asks which source and which field.
+                                message: input.value.clone(),
+                                note: None,
+                                fix: None,
+                                origin: None,
+                            },
+                            _other => Diagnostic {
+                                code: UNREADABLE.to_string(),
+                                message: format!("cannot read {rel}: {e}"),
+                                note: None,
+                                fix: Some(
+                                    "check the file exists and is readable".to_string(),
+                                ),
+                                origin: None,
+                            },
                         },
                         input.span,
                     ));

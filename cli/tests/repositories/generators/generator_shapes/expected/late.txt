@@ -60,9 +60,9 @@ error: "//lib/wire/left" names no file (lib/wire/left.buri) [module-not-found]
     which has no lib/nope.
 
 error: "//lib/wire/right" names no file (lib/wire/right.buri) [module-not-found]
- --> lib/wire/lib.buri:3:6
+ --> lib/wire/lib.buri:5:6
   |
-3 | from "//lib/wire/right" export { rightValue };
+5 | from "//lib/wire/right" export { rightValue };
   |      ^^^^^^^^^^^^^^^^^^
   |
   = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
