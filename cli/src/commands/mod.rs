@@ -215,6 +215,17 @@ pub const FLAGS: &[Flag] = &[
         },
     },
     Flag {
+        name: "update",
+        value: Value::None,
+        choices: &[],
+        blurb: "record what each `snapshot` painted as its golden instead of comparing",
+        global: false,
+        set: |f, _| {
+            f.update = true;
+            Ok(())
+        },
+    },
+    Flag {
         name: "self-check",
         value: Value::None,
         choices: &[],
@@ -350,7 +361,10 @@ pub const COMMANDS: &[Command] = &[
         args: "[targets]",
         blurb: "compile and run test suites",
         doc: include_str!("../docs/reference/cli/test.md"),
-        flags: &["release", "debug", "output", "filter", "force", "explain", "watch", "dense"],
+        flags: &[
+            "release", "debug", "output", "filter", "force", "explain", "watch", "dense",
+            "update",
+        ],
         run: test::command_test,
         subcommands: &[],
         hidden: false,

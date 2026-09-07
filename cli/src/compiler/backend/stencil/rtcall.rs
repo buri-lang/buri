@@ -224,17 +224,31 @@ impl Jit<'_> {
         }
 
         if entry.extra == Extra::Element {
-            let elem = self.element_ty(prog, dest.map(|d| d.1), args);
-            let Some(elem) = elem else {
-                return Err(format!("{}: no element type", entry.key));
+            // The pair, from the `[T]` this walks — or, where the row names no
+            // list at all, from the bare `T` it names instead
+            // ([`Self::bare_carrier`]).
+            let (stride, glue) = match self.element_ty(prog, dest.map(|d| d.1), args) {
+                Some(elem) => {
+                    let stride = u64::from(self.layouts_of(elem.clone()).stride.max(1));
+                    (stride, self.element_glue(elem))
+                }
+                None => {
+                    let bare = entry
+                        .by_ref
+                        .and_then(|i| args.get(i).map(|(_, t)| *t))
+                        .or(dest.map(|d| d.1));
+                    let Some(bare) = bare else {
+                        return Err(format!("{}: no element type", entry.key));
+                    };
+                    self.bare_carrier(prog, bare)
+                }
             };
-            let stride = u64::from(self.layouts_of(elem.clone()).stride.max(1));
             ints.push(Src::Imm(stride));
             // The retain glue of `lib.rs` §2 rule 4: the per-element function
             // that increfs whatever counted pointers one element holds, and a
             // **null** pointer for an element type that holds none — which is
             // the common case and what the runtime tests for.
-            match self.element_glue(elem) {
+            match glue {
                 Some(name) => ints.push(Src::Sym(name)),
                 None => ints.push(Src::Imm(0)),
             }
@@ -862,6 +876,35 @@ impl Jit<'_> {
             }
         };
         dest.and_then(of).or_else(|| args.iter().find_map(|(_, t)| of(*t)))
+    }
+
+    /// The stride and glue of a row whose `T` is a **bare type** rather than a
+    /// `[T]`'s element.
+    ///
+    /// `ui/effect`'s graph is where this shape arrives: `signal(initial: T)`
+    /// names its type in a `by_ref` argument and `read(id): T` names it only in
+    /// the result, and neither has a list anywhere for [`Self::element_ty`] to
+    /// find. What the runtime needs is the same pair either way — how many
+    /// bytes one value is, and how to take a reference on what it holds — so
+    /// this answers the pair rather than the type.
+    ///
+    /// A scalar has no `Ty` to ask, because the IR keeps one only for an
+    /// aggregate. It needs none: its width is its `ir::Type`, and a scalar
+    /// holds no counted pointer, so the glue is null.
+    fn bare_carrier(&mut self, prog: &ir::Program, t: ir::Type) -> (u64, Option<String>) {
+        match t {
+            ir::Type::Agg(id) => {
+                let ty = prog.type_info(id).ty.clone();
+                let stride = u64::from(self.layouts_of(ty.clone()).stride.max(1));
+                (stride, self.element_glue(ty))
+            }
+            ir::Type::Unit => (1, None),
+            ir::Type::I1 | ir::Type::I8 => (1, None),
+            ir::Type::I16 => (2, None),
+            ir::Type::I32 | ir::Type::F32 => (4, None),
+            ir::Type::I64 | ir::Type::Ptr | ir::Type::F64 => (8, None),
+            ir::Type::I128 => (16, None),
+        }
     }
 
     /// A value's flattened form: the scalars a C signature would carry it as.

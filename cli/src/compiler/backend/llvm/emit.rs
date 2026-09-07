@@ -1975,10 +1975,10 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             );
             return;
         };
-        let elements = Elements {
-            source: self.generic_element(code, dests, entry, args),
-            answer: self.answer_element(code, dests),
-        };
+        let source = self.generic_element(code, dests, entry, args);
+        let bare =
+            if source.is_none() { self.bare_carrier(code, dests, entry, args) } else { None };
+        let elements = Elements { source, bare, answer: self.answer_element(code, dests) };
         let Some(argv) = self.entry_args(state, code, entry, args, elements, span) else {
             return;
         };
@@ -2020,6 +2020,53 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         self.reprs.element(&out)
     }
 
+    /// The stride and glue type of a row whose `T` is a **bare type** rather
+    /// than a `[T]`'s element, for the case [`Unit::generic_element`] cannot
+    /// answer.
+    ///
+    /// `ui/effect`'s graph is the caller. `Headless.signal(initial: T)` names
+    /// its type in a spilled argument and `Headless.read(id): T` names it only
+    /// in the result, and neither has a list anywhere. What the runtime needs
+    /// is the same pair either way — how many bytes one value is, and how to
+    /// take a reference on what it holds.
+    ///
+    /// A scalar has no `Ty` to ask, because the IR keeps one only for an
+    /// aggregate. It needs none: its width is its `ir::Type`, and a scalar
+    /// holds no counted pointer, so its glue is null.
+    fn bare_carrier(
+        &mut self,
+        code: &ir::Code,
+        dests: &[ir::ValueId],
+        entry: &runtime::Entry,
+        args: &[ir::ValueId],
+    ) -> Option<(u32, Option<Ty>)> {
+        let mut cursor = 0usize;
+        let mut spilled: Option<ir::Type> = None;
+        for mode in entry.args {
+            if !mode.consumes() {
+                continue;
+            }
+            let at = cursor;
+            cursor = cursor.saturating_add(1);
+            if matches!(mode, runtime::Arg::Spilled) {
+                spilled = args.get(at).copied().map(|a| code.ty_of(a));
+                break;
+            }
+        }
+        let ty = spilled.or_else(|| dests.first().copied().map(|d| code.ty_of(d)))?;
+        Some(match ty {
+            ir::Type::Unit | ir::Type::I1 | ir::Type::I8 => (1, None),
+            ir::Type::I16 => (2, None),
+            ir::Type::I32 | ir::Type::F32 => (4, None),
+            ir::Type::I64 | ir::Type::Ptr | ir::Type::F64 => (8, None),
+            ir::Type::I128 => (16, None),
+            ir::Type::Agg(id) => {
+                let ty = self.program.type_info(id).ty.clone();
+                (self.reprs.of_ty(&ty).layout.stride, Some(ty))
+            }
+        })
+    }
+
     /// The element type of an entry's `[T]` **result**, where it has one.
     ///
     /// [`Unit::generic_element`] answers with the destination's element only
@@ -2058,6 +2105,25 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let mut cursor = 0usize;
         for mode in entry.args {
             if !mode.consumes() {
+                // A bare `T` with no `Ty` behind it answers the stride and
+                // nothing else: it is a scalar, and a scalar holds no counted
+                // pointer, so the retain beside it is null.
+                if element.is_none()
+                    && let Some((stride, glue_ty)) = elements.bare.clone()
+                {
+                    match mode {
+                        runtime::Arg::Stride => argv
+                            .push(self.ctx.i64_type().const_int(u64::from(stride), false).into()),
+                        _ => {
+                            let glue = glue_ty
+                                .and_then(|t| self.retain_glue(&t))
+                                .map(function_pointer)
+                                .unwrap_or_else(|| self.ptr_ty().const_null());
+                            argv.push(glue.into());
+                        }
+                    }
+                    continue;
+                }
                 let Some(elem) = element.clone() else {
                     self.error(
                         span,
@@ -3082,6 +3148,11 @@ enum Job<'ctx> {
 #[derive(Clone, Default)]
 struct Elements {
     source: Option<Ty>,
+    /// The stride and the glue type of a bare `T` — a row that names its type
+    /// in the result or in a spilled argument rather than as a `[T]`'s element
+    /// ([`Unit::bare_carrier`]). `None` whenever `source` answered, and the
+    /// inner type is `None` for a scalar, which has no `Ty` and needs none.
+    bare: Option<(u32, Option<Ty>)>,
     answer: Option<Ty>,
 }
 

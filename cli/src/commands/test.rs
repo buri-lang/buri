@@ -999,7 +999,10 @@ fn served(
     key: &crate::build::cache::ActionKey,
     args: &arguments::Args,
 ) -> Option<Outcome> {
-    if args.flags.force || args.flags.filter.is_some() {
+    // `--update` is a request to write the goldens, and a cached verdict writes
+    // nothing. The sources did not move, so the key is the same and the record
+    // a recording run stores is the record a later plain run wants.
+    if args.flags.force || args.flags.update || args.flags.filter.is_some() {
         return None;
     }
     let bytes = crate::build::cache::Cache::open(&session.root).get(key)?;
@@ -1085,6 +1088,10 @@ fn run_native(
     }
 
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    // Taken before the link, which is the only place it is still a value rather
+    // than a file: a snapshot needs it, and the native runtime has no other way
+    // to be handed it.
+    let sheet = program.stylesheet.clone();
     // The build names the file as well as writing it: which file a suite runs
     // from is a claim on a shared one, and `binary` is that claim
     // (`actions::test_binary_at`). It is held until this function returns,
@@ -1102,7 +1109,21 @@ fn run_native(
     let limit = suite(session, target).and_then(|x| x.timeout_seconds);
     let program_path = binary.path().display().to_string();
 
-    let blocks = match run_blocks(&program_path, limit, selected.len(), &seed_of(key).to_string()) {
+    let mut snapshots: Vec<(&str, String)> = vec![(SNAPSHOT_DIR, snapshot_dir(session, target))];
+    if args.flags.update {
+        snapshots.push((SNAPSHOT_UPDATE, "1".to_string()));
+    }
+    if let Some(path) = write_stylesheet(binary.path(), &sheet) {
+        snapshots.push((SNAPSHOT_SHEET, path));
+    }
+
+    let blocks = match run_blocks(
+        &program_path,
+        limit,
+        selected.len(),
+        &seed_of(key).to_string(),
+        &snapshots,
+    ) {
         Ok(Verdicts::Blocks(blocks)) => blocks,
         Ok(Verdicts::TimedOut) => return Err(timed_out(session, target, limit)),
         Ok(Verdicts::HeapCheck(line)) => {
@@ -1150,6 +1171,49 @@ const RESUME: &str = "BURI_TEST_FROM";
 /// the binary's own numbering, which is what a batched binary needs: its blocks
 /// belong to several suites and a suite's order is its own.
 const SEED: &str = "BURI_TEST_SEED";
+
+/// The directory `ui/testing`'s `snapshot` compares against and records into:
+/// the package's own `test/__snapshots__`. `cli/runtime/snapshot.rs` is the
+/// other half of this and of the two below.
+const SNAPSHOT_DIR: &str = "BURI_SNAPSHOT_DIR";
+
+/// Set to `1` by `--update`, which records what was painted instead of
+/// comparing it.
+const SNAPSHOT_UPDATE: &str = "BURI_SNAPSHOT_UPDATE";
+
+/// The file the artifact's extracted stylesheet was written to.
+///
+/// `ui/testing`'s `stylesheet()` is a JavaScript intrinsic: the sheet is a
+/// string the JavaScript backend splices into the artifact, and a native binary
+/// has nowhere to be handed one. A snapshot runs natively, so `buri test` hands
+/// the sheet over the way it hands over the directory above. A program with no
+/// static styles writes no file and sets nothing.
+const SNAPSHOT_SHEET: &str = "BURI_SNAPSHOT_SHEET";
+
+/// Where a package's goldens live, absolutely — the test binary runs from a
+/// working directory of its own.
+fn snapshot_dir(session: &Session, target: TargetId) -> String {
+    session
+        .root
+        .join(&session.workspace.package(target.package).path)
+        .join("test")
+        .join("__snapshots__")
+        .display()
+        .to_string()
+}
+
+/// Writes the artifact's stylesheet beside the binary, and answers its path.
+///
+/// Beside the binary because that directory is one the build already owns:
+/// nothing lands in a checked-in tree. An empty sheet writes nothing.
+fn write_stylesheet(binary: &std::path::Path, sheet: &str) -> Option<String> {
+    if sheet.is_empty() {
+        return None;
+    }
+    let path = binary.with_extension("css");
+    std::fs::write(&path, sheet).ok()?;
+    Some(path.display().to_string())
+}
 
 /// The runtime's test-mode heap check, and its report knob
 /// (`cli/runtime/memory.rs`).
@@ -1245,13 +1309,19 @@ fn run_blocks(
     limit: Option<u32>,
     count: usize,
     seeds: &str,
+    snapshots: &[(&str, String)],
 ) -> std::io::Result<Verdicts> {
     let mut blocks: Vec<Block> = Vec::with_capacity(count);
     let mut from = 0usize;
     while from < count {
         let start = from.to_string();
-        let out =
-            match execute(program, None, limit, &[(RESUME, start.as_str()), (SEED, seeds)])? {
+        // The snapshot entries are the same for every process this makes, for
+        // `seeds`'s reason: where a golden lives is a fact about the package
+        // and not about which process reached the block.
+        let mut env: Vec<(&str, &str)> =
+            vec![(RESUME, start.as_str()), (SEED, seeds)];
+        env.extend(snapshots.iter().map(|(name, value)| (*name, value.as_str())));
+        let out = match execute(program, None, limit, &env)? {
             Execution::Finished(out) => out,
             Execution::TimedOut => return Ok(Verdicts::TimedOut),
         };
@@ -1500,7 +1570,7 @@ fn already_cached(
     args: &arguments::Args,
     pre: &mut Prepass,
 ) -> bool {
-    if args.flags.force || args.flags.filter.is_some() {
+    if args.flags.force || args.flags.update || args.flags.filter.is_some() {
         return false;
     }
     // Kept, because the loop below asks for the same key again to report the
@@ -1692,6 +1762,8 @@ fn run_batch(
     }
 
     let output = crate::build::buildfile::Output::for_platform(platform, Span::NONE);
+    // Taken before the link, for the reason `run_native` gives.
+    let sheet = program.stylesheet.clone();
     // Held until this function returns, which is exactly as long as the file it
     // names is the one being executed (`actions::claim_runner`).
     let binary = match actions::native_test_batch(
@@ -1731,6 +1803,23 @@ fn run_batch(
         .iter()
         .map(|(i, _, _)| seeds.get(*i).copied().unwrap_or_default().to_string())
         .collect();
+    // One environment for the whole binary, so a snapshot directory is only
+    // named when every member of the batch would name the same one. Members
+    // from two packages leave it unset, and a `snapshot` in such a suite says
+    // so rather than writing a golden into somebody else's package.
+    let mut snapshots: Vec<(&str, String)> = Vec::new();
+    let mut dirs: Vec<String> = members.iter().map(|&t| snapshot_dir(session, t)).collect();
+    dirs.sort();
+    dirs.dedup();
+    if let [only] = dirs.as_slice() {
+        snapshots.push((SNAPSHOT_DIR, only.clone()));
+        if args.flags.update {
+            snapshots.push((SNAPSHOT_UPDATE, "1".to_string()));
+        }
+        if let Some(path) = write_stylesheet(binary.path(), &sheet) {
+            snapshots.push((SNAPSHOT_SHEET, path));
+        }
+    }
     // No limit: a suite that declared one is not in a batch, so there is no
     // suite here whose `timeout_seconds` a shared process could misrepresent.
     let blocks = match run_blocks(
@@ -1738,6 +1827,7 @@ fn run_batch(
         None,
         selected.len(),
         &per_block.join(","),
+        &snapshots,
     ) {
         Ok(Verdicts::Blocks(blocks)) => blocks,
         // Including a heap-check failure, which is deliberately *not* reported

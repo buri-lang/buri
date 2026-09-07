@@ -13,7 +13,14 @@ readme = "../README.md"
 # backend's ELF and region writers. Clippy's `incompatible_msrv` is what holds
 # this number to the tree rather than to a memory of it: raise a use above the
 # floor and `cargo clippy --all-targets` names the line.
-rust-version = "1.87"
+#
+# 1.89 rather than 1.87, and the reason is a floor this crate does not set.
+# `cli/build.rs` builds `cli/runtime` with the `rustc` that is building this,
+# and `cosmic-text` — the painter's shaping stack — asks for 1.89. `buri-rt`
+# declares no `rust-version` of its own, so cargo would not catch it: a 1.87
+# toolchain would fail inside the nested build with an error about a crate the
+# reader never named. This is that floor, written where cargo checks it.
+rust-version = "1.89"
 
 # `benches/generate.rs` and `benches/corpus.rs` are *modules* of the `compiler`
 # bench target, not bench targets. Cargo infers a target from every `.rs` file
