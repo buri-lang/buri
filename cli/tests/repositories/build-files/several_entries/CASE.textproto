@@ -1,0 +1,137 @@
+# **One app, several outputs.** A binary declares a page and a worker out of
+# one `main.buri`, and the four claims that makes are all here.
+#
+#   * **Two artifacts, one per output.** The page is `.buri/out/web/`, the
+#     worker is `.buri/out/cloudflare-worker/`, and the worker's file is named
+#     after its entry because two outputs of one binary otherwise write one
+#     path.
+#   * **The platform calls a worker.** Its module ends in a default export the
+#     worker runtime invokes; the page's ends in the self-starting epilogue
+#     every other JavaScript platform gets.
+#   * **Each entry is checked against its own platform.** `main` binds
+#     `Ui: host.ui`, which a worker does not grant; `fetch` builds a context of
+#     its own beside it. Neither is refused, because a `core/host` name inside
+#     an entry's body is checked against the outputs that enter through *that*
+#     entry.
+#   * **Dead code is eliminated per entry.** The worker never reaches the
+#     reactive graph, so `mount` is not in its bytes; the page never reaches
+#     `fetch`, so the worker's bridge is not in its.
+#
+# Then the two refusals: an entry the binary does not export, and an entry
+# whose signature is not the one its platform fixes.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a binary declares several outputs, each entering through its own function, and each artifact holds only what its entry reaches"
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 0
+  golden: "built.txt"
+}
+
+# The worker is called, not started. Its whole surface is the default export.
+file {
+  path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
+  contains: "export default"
+}
+
+# And the page is started, not called.
+file {
+  path: ".buri/out/web/cmd/site/site.mjs"
+  absent: "export default"
+}
+
+# Dead code elimination, per entry, read off the artifacts. `$fetchEntry` is
+# the worker's bridge and `$mount` is the page's; each artifact has exactly the
+# one its own entry reaches.
+file {
+  path: ".buri/out/cloudflare-worker/cmd/site/fetch.mjs"
+  contains: "$fetchEntry"
+}
+
+file {
+  path: ".buri/out/web/cmd/site/site.mjs"
+  absent: "$fetchEntry"
+}
+
+# A page is three files, and a worker is one: there is no document to shell and
+# no stylesheet to link.
+file {
+  path: ".buri/out/web/cmd/site/site.html"
+  contains: "site.mjs"
+}
+
+# Built twice from two fresh sessions with the cache off. Two entries out of one
+# set of sources is two monomorphizations, and both have to be functions of
+# their inputs alone.
+run {
+  args: ["build", "//cmd/site", "--check-reproducible"]
+  exit: 0
+}
+
+# Refusal one: an output naming a function `main.buri` does not export. The page
+# lists what it does export, because the mistake is almost always a spelling.
+edit {
+  file: "cmd/site/BUILD.buri"
+  replace: "entry: \"fetch\""
+  with: "entry: \"handle\""
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "no_such_entry.txt"
+}
+
+edit {
+  file: "cmd/site/BUILD.buri"
+  replace: "entry: \"handle\""
+  with: "entry: \"fetch\""
+}
+
+# Refusal two: the entry is there and has the wrong shape. A worker's entry
+# takes a request and answers a response, and this one runs itself.
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(request: Request): Response {"
+  with: "export fn fetch(): Response {"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "    http.text(ctx, request.path())"
+  with: "    http.text(ctx, \"you are nowhere\")"
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 1
+  golden: "fetch_takes_a_request.txt"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(): Response {"
+  with: "export fn fetch(request: Request): Response {"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "    http.text(ctx, \"you are nowhere\")"
+  with: "    http.text(ctx, request.path())"
+}
+
+# Refusal three: an `entry` that could not be a function name at all. The
+# compiler has nothing to look up, so the reader refuses it where it is written.
+edit {
+  file: "cmd/site/BUILD.buri"
+  replace: "entry: \"fetch\""
+  with: "entry: \"fetch handler\""
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 2
+  golden: "entry_is_not_a_name.txt"
+}

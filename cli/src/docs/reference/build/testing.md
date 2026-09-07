@@ -34,7 +34,7 @@ and the compiler puts it in a test binary rather than in the library.
   compile error (`duplicate-test-name`). The title is how the runner reports a
   failure and how `--filter` picks a test out. Two files of one suite may share
   a title: each failure names its own file and its own line.
-- A test source and `main`'s body are the only places in the language that
+- A test source and an entry's body are the only places in the language that
   **create** a context rather than receive one. That is why only a test source
   may import `core/host/testing`.
 

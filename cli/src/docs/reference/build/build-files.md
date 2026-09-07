@@ -184,29 +184,92 @@ binary {
 }
 ```
 
-`main.buri` is required, and `sources` does not list it. It must export `main`
-with the signature [`language/programs.md` §11](../../language/programs.md)
-requires: no parameters, returning `Result<(), Str>`. It is also the only module
-in the binary that may import `core/host`.
+`main.buri` is required, and `sources` does not list it. It exports the function
+each output enters through, and it is the only module in the binary that may
+import `core/host`.
+
+### Outputs and entries
+
+An output names the function its artifact starts at. Unset means `main`:
+
+```textproto schema=build
+binary {
+    outputs: [
+        { platform: WEB },
+        { platform: CLOUDFLARE_WORKER, entry: "fetch" },
+    ]
+}
+```
+
+```buri role=entry
+# from "core/effect" import { Alloc, Request, Response };
+# from "core/host" import * as host;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+    };
+    .Ok(())
+}
+
+export fn fetch(request: Request): Response {
+    Response { status: 200, headers: [], body: [] }
+}
+```
+
+That is one binary and two artifacts: `.buri/out/web/cmd/site/site.mjs` and
+`.buri/out/cloudflare-worker/cmd/site/fetch.mjs`. An output that names an entry
+is named after it, because two outputs of one binary would otherwise write one
+path; `artifact_name` overrides that as it always did.
+
+**The platform fixes the entry's signature.** The wrong shape is a type error at
+the function, reported as `main-signature`.
+
+| Platform | The entry |
+|---|---|
+| `LINUX`, `MACOS`, `JS`, `WEB` | `fn <entry>(): Result<(), Str>` |
+| `CLOUDFLARE_WORKER` | `fn <entry>(request: Request): Response` |
+
+`Request` and `Response` are `core/effect`'s, which `core/net/http` re-exports.
+A worker's entry is *called* by its platform, once per request, so its artifact
+is a module with a default export rather than a program that starts itself. That
+is also why `buri run` runs a page and not a worker: there is nothing to start.
+
+**Each entry builds its own context**, and each is checked against its own
+platform's grants. `main` above may bind `Ui: host.ui`, which a worker does not
+grant, and `fetch` beside it may bind what a page cannot. A `core/host` name
+anywhere *else* in `main.buri` — a helper, a top-level named import — is checked
+against every platform the `outputs` name, because any of them may reach it.
+
+**Each entry is its own dead-code root.** The compiler monomorphizes from the
+named entry, so the page carries nothing only `fetch` reaches and the worker
+carries nothing only `main` reaches.
+
+An `entry` naming a function `main.buri` does not export is `entry-not-found`,
+and its page lists what the module does export.
+
+### Platforms and effects
 
 A platform *is* the set of effects its host exports. A platform that does not
 grant an effect does not export the name for it, so asking for it fails to
-compile at the line that asked, as `effect-not-on-platform`. A `main` binding
+compile at the line that asked, as `effect-not-on-platform`. An entry binding
 `Ui: host.ui` under `platform: JS` does not compile, and neither does one
 binding `FsRead: host.fs` under `platform: WEB`.
 `buri docs error effect-not-on-platform` has the table of what each platform
 grants.
 
-The check does not wait for a build. The compiler checks `main.buri` against
-**every** platform its `outputs` name, plus every platform its suite names in
-`test.platforms`, since a test binary links `main` in. So a binary declaring
-`[MACOS, WEB]` and binding `FsRead: host.fs` is refused whichever output you
-ask for, and `buri lint`, `buri test` and the language server all refuse it
-before anything is produced. Every other module is checked against the platforms
-**its own rule declared**, and a rule that declared none is never checked.
+The check does not wait for a build. An entry's body is checked against the
+outputs that enter through it, plus every platform its suite names in
+`test.platforms`, since a test binary links the entry point in. Everything else
+in `main.buri` is checked against every platform the `outputs` name. So a binary
+declaring `[MACOS, WEB]` whose helper binds `FsRead: host.fs` is refused
+whichever output you ask for, and `buri lint`, `buri test` and the language
+server all refuse it before anything is produced. Every other module is checked
+against the platforms **its own rule declared**, and a rule that declared none is
+never checked.
 
-`outputs` is a list because one entry point commonly ships several ways. The
-compiler checks the whole dependency graph against each entry separately, so
+`outputs` is a list because one program commonly ships several ways. The compiler
+checks the whole dependency graph against each output separately, so
 `buri build //cmd/server` may succeed for Linux and fail for JS. Build one with
 `buri build //cmd/server --output=js`. A binary has no `platforms` field of its
 own, because `outputs` already says.

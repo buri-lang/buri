@@ -339,6 +339,7 @@ fn derive_dependencies(
             // Regeneration reads a target's imports; it builds nothing. See
             // `Unit::platform`.
             platform: None,
+            entry: None,
             with_tests: true,
         };
         let analysis = crate::compiler::driver::analyze(

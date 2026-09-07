@@ -91,7 +91,7 @@ key = H(
   action_kind,             // interface | compile | codegen | link | test
   toolchain_version,       // this compiler's own version
   build_mode,              // --release / --debug
-  platform, arch,          // the only things a build varies along
+  platform, arch, entry,   // the only things a build varies along
   rule_identity,           // label, rule kind, and the ordered sources paths
   H(content of each input file),
   key(each input action),  // dependencies enter as keys, not contents
@@ -107,8 +107,11 @@ Four properties matter, because each rules out a class of stale-cache bug:
   produce identical keys, which is what makes a cache shareable at all.
 - **Dependencies enter as keys, not contents.** A `compile` action depends on
   its dependencies' `interface` actions, so a body edit does not propagate.
-- **The platform is in the key, and tags are not.** The same library built for
-  `linux/x86_64` and for `js` is two entries. A tag decides whether a build is
+- **The platform and the entry are in the key, and tags are not.** The same
+  library built for `linux/x86_64` and for `js` is two entries, and so are the
+  two outputs of a binary that enters at `main` for its page and at `fetch` for
+  its worker — the entry is the root dead-code elimination walks from, so the
+  same sources produce different bytes. A tag decides whether a build is
   *allowed*, never what it *produces*, so retagging a library invalidates no
   cache entry.
 

@@ -464,8 +464,8 @@ const HOST_GRANTS: &[HostGrant] = &[
         platforms: EVERY_PLATFORM,
         because: "every platform can make a request",
     },
-    // The two halves that vary. A page has no operating system under it, and
-    // nothing but a page has a document over it.
+    // The rows that vary. Two platforms have no operating system under them —
+    // a page and a worker — and nothing but a page has a document over it.
     // One row for two effects, because there is one filesystem: `host.fs`
     // implements `FsRead` and `FsWrite` both, and which of the two authorities
     // a program takes is a fact about its *context* rather than about what the
@@ -474,25 +474,26 @@ const HOST_GRANTS: &[HostGrant] = &[
         effect: "`FsRead` or `FsWrite`",
         exports: &["HostFs", "fs"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "a page has no filesystem to read",
+        because: "neither a page nor a worker has a filesystem to read",
     },
     HostGrant {
         effect: "`Stdin`",
         exports: &["HostStdin", "stdin"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "a page has no standard input",
+        because: "neither a page nor a worker has standard input",
     },
     HostGrant {
         effect: "`Env`",
         exports: &["HostEnv", "env"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "a page has no command line and no environment",
+        because: "neither a page nor a worker has a command line or an environment",
     },
     HostGrant {
         effect: "`Proc`",
         exports: &["HostProc", "proc"],
         platforms: &[Platform::Linux, Platform::Macos, Platform::Js],
-        because: "a page has no process to exit; a mounted interface stays live",
+        because: "a page has no process to exit — a mounted interface stays live — and a \
+                  worker answers a request rather than running one",
     },
     // Granted on every platform, and WEB is the one that had to be argued.
     //
@@ -533,8 +534,9 @@ const HOST_GRANTS: &[HostGrant] = &[
         effect: "`Listen`",
         exports: &["HostListen", "listen"],
         platforms: &[Platform::Linux, Platform::Macos],
-        because: "holding a port open is a native program's authority; a page is served \
-                  rather than serving, and its host has no way to accept a connection",
+        because: "holding a port open is a native program's authority; a page and a worker \
+                  are served rather than serving, and neither host has a way to accept a \
+                  connection",
     },
     // `Sockets` is no longer half of the server pair, and this row moving is
     // the whole of what F8 changed in this table. There are two ways to come by
@@ -1057,7 +1059,7 @@ mod tests {
     fn tasks_is_granted_on_every_platform_including_the_page() {
         let grant = host_grant_of("tasks").expect("`tasks` is in the grant table");
         assert_eq!(grant.effect, "`Tasks`");
-        assert_eq!(grant.platforms_phrase(), "LINUX, MACOS, JS, WEB");
+        assert_eq!(grant.platforms_phrase(), "LINUX, MACOS, JS, WEB, CLOUDFLARE_WORKER");
         for platform in Platform::ALL {
             for name in ["HostTasks", "tasks"] {
                 assert!(
@@ -1241,7 +1243,8 @@ mod tests {
         let tasks = host_grant_of("tasks").expect("`tasks` is in the grant table");
         assert_eq!(
             tasks.elsewhere_clause(),
-            ", or build this target for a platform that grants it: LINUX, MACOS, JS, WEB"
+            ", or build this target for a platform that grants it: LINUX, MACOS, JS, WEB, \
+             CLOUDFLARE_WORKER"
         );
     }
 

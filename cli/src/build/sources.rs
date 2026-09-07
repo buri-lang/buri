@@ -447,6 +447,7 @@ mod tests {
             let unit = crate::compiler::modules::Unit {
                 target: Some(target),
                 platform: None,
+                entry: None,
                 with_tests: true,
             };
             let _ = crate::compiler::driver::analyze(
@@ -543,6 +544,7 @@ mod tests {
         let unit = crate::compiler::modules::Unit {
             target: Some(target),
             platform: None,
+            entry: None,
             with_tests: true,
         };
         let analysis = crate::compiler::driver::analyze(

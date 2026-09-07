@@ -156,7 +156,7 @@ pub fn triple_text(target: Target) -> Option<String> {
     match target.platform {
         Platform::Macos => Some(format!("{arch}-apple-darwin")),
         Platform::Linux => Some(format!("{arch}-unknown-linux-musl")),
-        Platform::Js | Platform::Web => None,
+        Platform::Js | Platform::Web | Platform::CloudflareWorker => None,
     }
 }
 
@@ -504,7 +504,7 @@ pub fn select(target: Target, profile: Profile) -> Result<Box<dyn Backend>, Stri
     match (target.platform, profile) {
         // `Web` joins `Js` here because the question this match asks is
         // "which backend emits this artifact", and a page is JavaScript.
-        (Platform::Js | Platform::Web, _) => Ok(Box::new(js::Js)),
+        (Platform::Js | Platform::Web | Platform::CloudflareWorker, _) => Ok(Box::new(js::Js)),
         #[cfg(feature = "backend-stencil")]
         (Platform::Linux | Platform::Macos, Profile::Debug) => {
             match stencil::supported(target) {

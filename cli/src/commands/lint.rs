@@ -179,7 +179,7 @@ pub fn analysis_of(
 ) -> crate::compiler::driver::Analysis {
     // A lint is not a build, so it does not refuse a program for an output it
     // was not asked about. See `Unit::platform`.
-    let unit = Unit { target: Some(target), platform: None, with_tests: true };
+    let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
     crate::compiler::driver::analyze(
         Some(&session.workspace),
         &mut session.map,
