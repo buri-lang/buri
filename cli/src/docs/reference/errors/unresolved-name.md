@@ -16,8 +16,8 @@ scope.
 ## Why
 
 There is no prelude and no ambient scope. A module's available names are the
-ones it declares plus the ones its own imports name. That is what makes the
-suggestion trustworthy: it is drawn from exactly the set the file put there.
+ones it declares plus the ones its own imports name, which is what makes the
+suggestion trustworthy.
 
 ## A program that provokes it
 

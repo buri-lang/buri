@@ -1,22 +1,16 @@
 # `BUILD.buri`
 
 The schema is [`schema/build.proto`](../schema/build.proto). This page is the
-prose version, with the reasoning.
+prose version.
 
 ## The file
 
 `BUILD.buri` is textproto that parses as `buri.build.v1.BuildFile`. There is no
 expression language: no variables, no conditionals, no string concatenation, no
 globs, no `load`, no rule authoring. Every rule writes out everything it depends
-on. That costs repetition, and `buri gen` pays it by writing most of the file.
-`sources: ["*.buri"]` is rejected outright. A glob makes the file list depend on
-the state of the filesystem, and pinning that input down is the whole point of
-hermeticity.
-
-Textproto beats a bespoke syntax because it makes the schema a real artifact
-rather than documentation. The parser rejects an unknown field with a line
-number. An editor completes field names. The CLI reads build files with the same
-`.proto` machinery the language uses for wire formats.
+on, and `buri gen` writes most of the file for you. `sources: ["*.buri"]` is
+rejected outright, because a glob makes the file list depend on the state of the
+filesystem.
 
 ```textproto schema=build
 # lib/money/BUILD.buri
@@ -70,18 +64,12 @@ A label is a package path. It never carries a target name:
 
 In a `dependencies` list a label means **the library** of that package, since a
 library is the only thing you can depend on. In a CLI argument it means **every
-target** in that package. A label appears in those two places and nowhere else,
-and neither is ambiguous. So there is no `:name` syntax to learn and no rule
-about when to omit it.
+target** in that package. So there is no `:name` syntax to learn.
 
-For the same reason **a rule has no `name` field**. A package holds at most one
-library and at most one binary, so the package path and the rule kind already
-identify a target. `//lib/money` is the library, `//cmd/server` is the binary,
-and diagnostics print exactly that. A `name` would be a second identifier for a
-target that already has one. It could drift from the directory it sits in, and
-it would address nothing. One thing does need a filename: the artifact a binary
-produces. That defaults to the package's directory name, and you override it on
-the output that wants it rather than on the rule:
+For the same reason **a rule has no `name` field**. `//lib/money` is the
+library, `//cmd/server` is the binary, and diagnostics print exactly that. One
+thing does need a filename: the artifact a binary produces. That defaults to the
+package's directory name, and you override it on the output that wants it:
 
 ```textproto ignore why="a fragment of a build file, not a whole one"
 outputs: [
@@ -96,8 +84,8 @@ Patterns, accepted by the CLI and never in a build file:
 //...                  every target in the repository
 ```
 
-Labels are always repository-absolute. There is no relative form. A label means
-the same thing wherever you write it, including in a CLI invocation from a
+Labels are always repository-absolute. There is no relative form, so a label
+means the same thing wherever you write it, including in a CLI invocation from a
 subdirectory.
 
 A label is also the module path an import writes for that library's surface.
@@ -134,14 +122,11 @@ library {
 | `testing` | The library's utilities *for other people's tests*, rooted at `testing/lib.buri`. See below. |
 
 `lib.buri` is required, and `sources` does not list it. The rule kind names the
-entry point, the way `binary` names `main.buri`. It is not one input among
-others. It is what the rule is *about*. Listing it would also let you write a
-`library` without one, and the build system would rather not need a diagnostic
-for that state.
+entry point, the way `binary` names `main.buri`.
 
 Every other `.buri` file in the package must appear in exactly one rule's
 `sources`, `test.sources`, or `testing.sources`, and every `.proto` in exactly
-one rule's `proto_sources`. A file that appears in none is an error:
+one rule's `proto_sources`. A file that appears in none, or in two, is an error:
 
 ```
 error: lib/ledger/posting/interest.buri is not declared by any rule
@@ -150,10 +135,6 @@ error: lib/ledger/posting/interest.buri is not declared by any rule
    = add it to the library's sources, or delete it
    = run `buri gen //lib/ledger` to do this automatically
 ```
-
-A file that appears in two is an error as well. The alternative, ignoring
-undeclared files, lets a typo in a path drop a file from the build with nobody
-noticing.
 
 ### The `testing` block
 
@@ -176,12 +157,11 @@ library {
 }
 ```
 
-The schema-level rules: `testing/lib.buri` is required when the block is
-present, and `sources` does not list it. The block is required when the file
-exists. It may be empty (`testing {}`) when the entry point is the whole of it.
+`testing/lib.buri` is required when the block is present, and `sources` does not
+list it. The block is required when the file exists. It may be empty
+(`testing {}`) when the entry point is the whole of it.
 [`libraries.md`](./libraries.md#the-testing-surface) covers the surface it
-declares, what those modules may import, and why the path carries the
-restriction instead of a `testonly` field.
+declares and what those modules may import.
 
 ## `binary`
 
@@ -206,8 +186,7 @@ binary {
 `main.buri` is required, and `sources` does not list it. It must export `main`
 with the signature [`language/programs.md` §11](../../language/programs.md)
 requires: no parameters, returning `Result<(), Str>`. It is also the only module
-in the binary that may import `core/host`. The compiler checks the context it
-builds there against the platform of **each output**.
+in the binary that may import `core/host`.
 
 A platform *is* the set of effects its host exports. A platform that does not
 grant an effect does not export the name for it, so asking for it fails to
@@ -215,7 +194,7 @@ compile at the line that asked, as `effect-not-on-platform`. A `main` binding
 `Ui: host.ui` under `platform: JS` does not compile, and neither does one
 binding `FsRead: host.fs` under `platform: WEB`.
 `buri docs error effect-not-on-platform` has the table of what each platform
-grants, and the reasoning.
+grants.
 
 The check does not wait for a build. The compiler checks `main.buri` against
 **every** platform its `outputs` name, plus every platform its suite names in
@@ -223,20 +202,17 @@ The check does not wait for a build. The compiler checks `main.buri` against
 `[MACOS, WEB]` and binding `FsRead: host.fs` is refused whichever output you
 ask for, and `buri lint`, `buri test` and the language server all refuse it
 before anything is produced. Every other module is checked against the platforms
-**its own rule declared**, and a rule that declared none is never checked. A
-library that says nothing about `platforms` is platform-generic, and only
-`main.buri` may import `core/host` anyway.
+**its own rule declared**, and a rule that declared none is never checked.
 
-`outputs` is a list because one entry point commonly ships several ways. Each
-entry names a platform, and the compiler checks the whole dependency graph
-against each one separately, so `buri build //cmd/server` may succeed for Linux
-and fail for JS. Build one with `buri build //cmd/server --output=js`. A binary
-has no `platforms` field of its own, because `outputs` already says.
+`outputs` is a list because one entry point commonly ships several ways. The
+compiler checks the whole dependency graph against each entry separately, so
+`buri build //cmd/server` may succeed for Linux and fail for JS. Build one with
+`buri build //cmd/server --output=js`. A binary has no `platforms` field of its
+own, because `outputs` already says.
 
-`tags` on a binary mean what they mean on a library: labels saying what the code
-is. [`tags.md`](./tags.md) covers them. There is no second tag mechanism for
-binaries. The tag check does not vary across outputs, so it runs once no matter
-how many artifacts the binary produces.
+`tags` on a binary mean what they mean on a library. The tag check does not vary
+across outputs, so it runs once no matter how many artifacts the binary
+produces.
 
 A `binary` has no `visibility` field, because nothing can depend on a binary.
 Use `buri run` or `buri build`. When two binaries need shared code, that code is
@@ -282,14 +258,12 @@ binary {
 }
 ```
 
-Two rules, one directory, one build file, and still no names. The rule kind
-tells the two apart, and the binary's artifact is `report`, after the directory.
-The rules:
+The rule kind tells the two apart, and the binary's artifact is `report`, after
+the directory. The rules:
 
 - **The `sources` sets are disjoint.** Every file belongs to exactly one rule.
 - **The binary implicitly depends on the co-located library.** You do not list
-  it in `dependencies`. A self-edge inside a package would be the only label in
-  the system pointing at itself.
+  it in `dependencies`.
 - **The binary reaches the library only through `//tools/report`.** `main.buri`
   may import the library's surface, and may not import
   `//tools/report/render.buri`. The boundary belongs to the library rather than
@@ -310,14 +284,9 @@ depending target's package matches at least one of them.
 | `//lib/money` | That one package. |
 
 A rule that omits `visibility` is `//visibility:private`. There is no package
-default and no repository default. The library's own rule is the one place that
-decides who may depend on it. With a default declared elsewhere, an absent
-`visibility` would tell you nothing until you found and read another file.
-Putting it on the rule exists to avoid exactly that.
-
-The cost is repetition in a package that opens several surfaces the same way.
-The alternative is a repository where editing a file that names no surface can
-still widen one.
+default and no repository default: the library's own rule is the one place that
+decides who may depend on it, so an absent `visibility` never sends you to
+another file.
 
 ```textproto schema=build
 # lib/store/BUILD.buri — the database layer is not for general use
@@ -351,14 +320,13 @@ reaching a library named in `test.dependencies`.
 The compiler checks visibility on the **declared edge**, not transitively. If
 `//cmd/web` depends on `//lib/ledger` and `//lib/ledger` depends on
 `//lib/store`, then `//lib/store` needs to be visible to `//lib/ledger` and to
-nobody else. To restrict what travels through a transitive chain, use tags. A
+nobody else. To restrict what travels through a transitive chain, use tags: a
 tag follows the code rather than the edge, and the check runs over the whole
-closure, so it does not matter who wrote the edge that pulled the code in.
+closure.
 
 ## Dependencies
 
-- `dependencies` lists **libraries only**, and a label there always resolves to
-  one. A binary is not a valid dependency.
+- `dependencies` lists **libraries only**. A binary is not a valid dependency.
 - **Use is what requires a dependency, and an import is not the only way to
   use.** A method resolves through its receiver's type rather than through
   scope, so
@@ -386,8 +354,7 @@ closure, so it does not matter who wrote the edge that pulled the code in.
 - **Every entry must be used, and every use must have an entry.** Using
   `//lib/money` with nothing matching in `dependencies` is an error at the use
   site. A `dependencies` entry no source uses is an error at the build file.
-  Both are errors rather than warnings: either one makes the dependency graph
-  describe something other than the code. `buri gen` fixes both in one command.
+  `buri gen` fixes both in one command.
 
 ```
 error: cmd/server/routes.buri imports //lib/money, which is not in dependencies
@@ -402,19 +369,14 @@ error: cmd/server/routes.buri imports //lib/money, which is not in dependencies
 ## Generated build files
 
 `buri gen //lib/money` rewrites the fields that restate the sources and touches
-nothing else. `buri docs cli gen` lists those fields and explains how `gen`
-divides a file holding both rules. The other half of the split is what matters
-*to a build file*.
+nothing else. `buri docs cli gen` lists those fields.
 
 **`gen` preserves the contents of `tags`, `platforms`, and `timeout_seconds`**,
 along with `visibility`, `outputs`, and every comment. Somebody decided those
-fields; you cannot derive them from the sources. A tool that dropped a `tags`
-entry while tidying `sources` would silently widen what a library may link into.
-So `buri gen //...` across the whole repository can add and remove dependency
-edges. It cannot change what the code is *allowed* to be. It does not preserve
-their *formatting*, and it is not meant to: `gen` leaves the file as
-`buri format` would, so a `tags` list may come back rewrapped. What survives is
-what the field says, not how you typed it.
+fields; you cannot derive them from the sources. So `buri gen //...` across the
+whole repository can add and remove dependency edges, and cannot change what the
+code is *allowed* to be. It does not preserve their *formatting*: `gen` leaves
+the file as `buri format` would, so a `tags` list may come back rewrapped.
 
 `gen` never invents a rule block, so a `BUILD.buri` has to exist before it will
 write anything. An empty rule is enough to start:

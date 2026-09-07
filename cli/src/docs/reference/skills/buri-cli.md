@@ -5,14 +5,12 @@ description: Use when running the buri toolchain — build, run, test, lint, for
 
 # Buri: the CLI
 
-One binary. It builds, runs, tests, formats, lints, generates build files,
-answers questions about the graph, serves its own documentation, and hosts the
-language server. There is no package manager, no task runner, and no
-configuration of the CLI beyond `REPO.buri`.
+One binary: build, run, test, format, lint, generate build files, query the
+graph, serve its own documentation, host the language server. There is no
+package manager, no task runner, and no configuration beyond `REPO.buri`.
 
-`buri --help` prints the table below. `buri docs cli <command>` is the page for
-one command, and its flag table comes from the same table that dispatches, so a
-page cannot describe a flag the binary does not accept.
+`buri --help` prints the table below, and `buri docs cli <command>` is the page
+for one command.
 
 ## Commands
 
@@ -100,13 +98,9 @@ buri docs lint                   every lint code, listed
 ```
 
 The `error` catalogue holds compiler and build diagnostics, and the `lint` one
-holds `buri lint` findings. Both print their code the same way.
-
-Each error page carries a program that provokes the error, and the test suite
-checks that it still does, so a page cannot describe an error the compiler has
-stopped emitting. The first time a code appears in a run, `buri` prints the
-explanation under the diagnostic. Later occurrences print the short form only,
-and `--dense` drops it entirely.
+holds `buri lint` findings. The first time a code appears in a run, `buri`
+prints the explanation under the diagnostic. Later occurrences print the short
+form only, and `--dense` drops it.
 
 ### `--error-format=json`
 
@@ -128,8 +122,7 @@ buri build //... --error-format=json
 | `fix` | the edit to make. Always present |
 | `related` | other locations, each shaped like `location` |
 
-Lines are independent, so a consumer can stream them. An absent field means
-"not applicable" rather than "empty".
+An absent field means "not applicable" rather than "empty".
 
 ## The commands, in the order you reach for them
 
@@ -137,7 +130,7 @@ Lines are independent, so a consumer can stream them. An absent field means
 
 A binary produces an artifact under `.buri/out/<platform>/<package>/`. A
 library has no artifact of its own, so `buri build //lib/money` type-checks it:
-it means "tell me whether this library is correct".
+it answers "is this library correct".
 
 ### `test`
 
@@ -155,10 +148,9 @@ refuses `--watch` with `--force`, and when stdout is not a terminal.
 
 ### `run`
 
-It builds exactly one binary and executes it. This is the one command that
-produces a process with real authority: the real filesystem, the real
-environment. The context its `main` builds still bounds what the program can
-do.
+It builds exactly one binary and executes it, with real authority: the real
+filesystem, the real environment. The context its `main` builds still bounds
+what the program can do.
 
 ### `lint`
 
@@ -179,27 +171,17 @@ whole check again from the files on disk. It hands the build-file findings
 `unused-import` as bytes. `--fix` edits and does **not** reformat. Where two
 edits in one file overlap, it applies none of that file's.
 
-It exits 1 if it reported anything at all. Every finding is a warning, and
-severity does not gate the exit code, because running the linter is already
-asking to be told.
-
-One catalogue, one severity — warning — the same in every repository, and no
-per-file suppression comment. `REPO.buri`'s `lint` block decides the rest, for
-the whole repository at once. `check_during_build` runs the catalogue during
-`buri build` and `buri test` too. `fail_on_finding` makes a finding fail
-whichever command reported it. `rules { default: ENABLED|DISABLED, <lint_code>:
-bool }` says which rules run — `enabled(rule) = override.unwrap_or(default)`,
-one field per lint code with the hyphens underscored, and an unknown name
-refused as `unknown-field`. Both booleans default to false, every rule defaults
-to on, and a report from a repository that turned rules off says which ones.
+It exits 1 if it reported anything at all. One catalogue, one severity —
+warning — the same in every repository, and no per-file suppression comment.
+`REPO.buri`'s `lint` block decides where the catalogue runs and which rules run;
+see the `buri-build` skill for the fields.
 
 ### `format`
 
 One canonical layout, no options: four-space indent, one field per line in
 build files, and the **leading** run of imports sorted (`core/*` before `//*`,
-then by path). Formatting is a fixed point. `--check` writes nothing and exits 1
-if anything would change, which is the form for CI. So import order is not a
-lint: an unsorted run is a file nobody formatted.
+then by path). `--check` writes nothing and exits 1 if anything would change,
+which is the form for CI.
 
 ### `gen`
 
@@ -207,8 +189,7 @@ It rewrites the seven fields that restate the sources, in build files **that
 already exist**, sorted, and touches nothing else. It never creates a build
 file. In a package with both rules, a file no rule lists goes to the rule whose
 entry point reaches it, and a file reached from both or neither is an error.
-With no target argument it regenerates every package: bare `buri gen` is
-`buri gen //...`, the default `buri format` already has.
+With no target argument it regenerates every package.
 
 ### `query`
 
@@ -223,14 +204,10 @@ buri query 'platforms(//cmd/web)'           the platforms its closure permits
 buri query 'sources(//lib/money)'           the files the rule names
 ```
 
-`path` is the one that earns its place: the answer to "why does the browser
-build pull in the database layer" is an edge.
-
 ### `docs`
 
 The binary serves these pages, so they work outside a repository and cannot go
-stale. The test suite compiles every fenced example in every page, then runs the
-ones that print something and compares the output.
+stale.
 
 ```
 buri docs                          every page, grouped
@@ -244,19 +221,16 @@ buri docs search compare ints      every page at once, by name or by intent
 buri docs manifest                 every id and output shape, for an agent
 ```
 
-Search takes words rather than a name. It reads the prose inside every page and
-a table of concepts, so "compare ints" reaches `core/order` and "fixture"
-reaches `core/host/testing`. Each hit prints as the command that reads it.
+Search takes words rather than a name: "compare ints" reaches `core/order`,
+"fixture" reaches `core/host/testing`. Each hit prints as the command that reads
+it.
 
 **Explore before you hand-roll.** Bare `buri docs` is the whole index — every
-topic, every command, every diagnostic code and every standard library module —
-and it is the cheapest call here. When you are about to write a comparator, a
-table of hex digits, a `groupBy`, a base64 encoder or a date calculation, read
-the module first: `buri docs core/order`, `core/bytes`, `core/map`, `core/list`,
-`core/date`. Search by intent when you cannot name the module. A module's page
-comes from the source the compiler checked, so it cannot describe a function
-that does not exist, and anything already in `core/*` is code you do not have to
-write, test, or get right.
+topic, command, diagnostic code and standard library module — and it is the
+cheapest call here. Before writing a comparator, a table of hex digits, a
+`groupBy`, a base64 encoder or a date calculation, read the module:
+`buri docs core/order`, `core/bytes`, `core/map`, `core/list`, `core/date`.
+Search by intent when you cannot name the module.
 
 For an agent: `--format=json` prints one object on one line, and `--dense`
 drops prose but keeps every heading and **every example**.
@@ -265,25 +239,22 @@ drops prose but keeps every heading and **every example**.
 
 It removes `.buri/out`, the action cache under `.buri/cache`, the staged
 objects under `.buri/link/`, and the `out` symlink. `--outputs` drops
-`.buri/out` alone. If you reach for it to fix a build, report that as a bug: the
-cache key is the content of every input, so a stale entry is a defect.
+`.buri/out` alone. If you reach for it to fix a build, report that as a bug.
 
 ### `init`
 
 It writes a working repository into an empty directory — `REPO.buri`, a
 library, a binary that depends on it, a test suite, a `.gitignore`, and these
-skills — and creates the directory if it is not there. What it writes builds,
-tests, lints and formats clean immediately. It never writes over a file: a
-`REPO.buri` already at the target, or any other collision, stops it with exit 2
-before the first byte. An existing `.gitignore` is the one exception, since git
-owns that name, so `init` appends the build's entries below its lines.
+skills — and creates the directory if it is not there. It never writes over a
+file: a `REPO.buri` already at the target, or any other collision, stops it with
+exit 2 before the first byte. An existing `.gitignore` is the one exception, and
+`init` appends the build's entries below its lines.
 
 ### `add skills`
 
 It writes the toolchain's agent skills into `.agent/skills/<name>/SKILL.md`,
 under the working directory or under a directory you name. Re-running refreshes
-every `buri-*` skill and leaves every other skill alone, so an upgraded compiler
-updates them in place.
+every `buri-*` skill and leaves every other skill alone.
 
 ## A first session in an unfamiliar repository
 

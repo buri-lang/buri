@@ -21,15 +21,7 @@ result plus a warning in the build log.
 
 ## Why
 
-The compiler and the runtime are admitted through different doors. A
-contributor can still work with a toolchain that has no release code generator.
-A runtime without networking is a missing *language capability*, and a program
-that reaches for it deserves to hear that in those words.
-
-The compiler says so before code generation rather than at link time. Otherwise
-the system linker reports an unresolved `buri_rt_*` symbol — a mangled name in a
-message about an archive, which is a sentence about this repository's internals
-handed to somebody who wrote a program.
-
-Nothing about your program is wrong, and nothing in it needs editing. A
-different toolchain compiles it unchanged.
+A runtime without networking is a missing *language capability*, so the compiler
+says so before code generation rather than leaving the linker to report an
+unresolved `buri_rt_*` symbol. Nothing about your program is wrong: a different
+toolchain compiles it unchanged.

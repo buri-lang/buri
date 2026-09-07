@@ -16,6 +16,5 @@ error: `?` on an `Option` needs an `Option` return type, not `Result<I64, Str>` 
     ───
 
     ? is an early return of the error, so the function it sits in has to be able
-    to return one. If it aborted instead, every ? would be a possible crash.
-    This language refuses to have that.
+    to return one.
 

@@ -17,7 +17,7 @@ name.
 
 ## Why
 
-A re-export may name only what its module path exports. So a library's surface
+A re-export may name only what its module path exports, so a library's surface
 is never wider than the modules it is built from.
 
 ## A program that provokes it

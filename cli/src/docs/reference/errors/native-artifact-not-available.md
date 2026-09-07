@@ -12,23 +12,22 @@ The note names which of three things is missing. Each has its own answer.
 ## The host
 
 A native artifact only builds on a machine of the platform and architecture it
-names. `cli/build.rs` builds the runtime archive for the host, the C library it
-links against is the host's, and so is the linker. Build the output on such a
-machine, or declare a `JS` output and run the module anywhere.
+names: the runtime archive, the C library it links against and the linker are
+all the host's. Build the output on such a machine, or declare a `JS` output and
+run the module anywhere.
 
 ## The runtime archive
 
 A toolchain built on a host the runtime does not cover carries no
-`libburi_rt.a` at all, so a native artifact would have nothing to link against.
-Every output such a toolchain can produce is a JavaScript module.
+`libburi_rt.a`, so a native artifact would have nothing to link against. Every
+output such a toolchain can produce is a JavaScript module.
 
 ## The backend
 
 `--release` uses the *optimizing* native code generator. It arrives with the
 `backend-llvm` cargo feature and is off by default: it needs LLVM 21 installed
-and `LLVM_SYS_211_PREFIX` set, and `cargo install buri` must not require either.
-Drop `--release` and a toolchain without it builds the same output through the
-copy-and-patch backend, which is compiled in by default.
+and `LLVM_SYS_211_PREFIX` set. Drop `--release` and the copy-and-patch backend,
+which is compiled in by default, builds the same output.
 
 ## Why
 
@@ -36,12 +35,4 @@ The compiler will **not** quietly hand a `--release` build to the development
 backend when the optimizing one is absent. If `--release` produced different
 code depending on how you installed the compiler, two machines would ship two
 artifacts from one source and one commit, and neither could be reproduced from
-the other. That is the same class of bug as an unpinned toolchain.
-
-So the compiler refuses, and the refusal has to name the *true* cause. One
-sentence used to serve all three: "the backend is not implemented", with a fix
-reading "this toolchain emits JavaScript". It was false on two of them. False
-on a host that had just built the very same output for the very same platform
-one line earlier, and false on any toolchain that emits a native executable at
-all. A refusal that names the wrong cause costs more than no refusal, because
-it sends you off to change something that was never wrong.
+the other.
