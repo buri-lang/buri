@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:25:24
+   |
+25 |     let nan = 0.0 / 0.0
+   |                        ^
+   |
+   = fix: write `;` here

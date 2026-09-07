@@ -1,0 +1,17 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:26:40
+   |
+26 |     let far = simd.f32x4(nan, 1.0e300- ,1.0e300, 3.0);
+   |                                        ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: there is nothing named `far` in scope [unresolved-name]
+  --> main.buri:27:15
+   |
+27 |     let got = far.toInt();
+   |               ^^^
+   |
+   = did you mean `nan`?
+   = fix: correct the spelling, or declare it

@@ -1,0 +1,16 @@
+error: expected `:`, found `}` [unexpected-token]
+  --> main.buri:41:11
+   |
+41 |     extra };
+   |           ^
+   |
+   = expected: `:`
+   = actual: `}`
+   = fix: write `:` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:42:22
+   |
+42 |     let draws = many(ctx, random.seeded(1), 400, []);
+   |                      ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

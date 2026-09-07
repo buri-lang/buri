@@ -1,0 +1,12 @@
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:24:1
+   |
+24 | test "toInt is total, where a plain conversion is not" {
+   | ^^^^
+   |
+  --> main.buri:18:46
+   |
+18 | test "toInt truncates each lane toward zero" {
+   |                                              ^ opened here
+   |
+   = fix: write `}` here

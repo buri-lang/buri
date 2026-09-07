@@ -1,0 +1,12 @@
+error: this parameter list is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:78:59
+   |
+78 | fn many<C: Alloc>(ctx: C, g: Gen, count: Int, acc: [Float]: [Float] {
+   |                                                           ^
+   |
+  --> main.buri:78:18
+   |
+78 | fn many<C: Alloc>(ctx: C, g: Gen, count: Int, acc: [Float]: [Float] {
+   |                  ^ opened here
+   |
+   = fix: write `)` here

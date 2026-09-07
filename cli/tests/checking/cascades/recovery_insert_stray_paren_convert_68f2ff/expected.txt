@@ -1,0 +1,23 @@
+error: `i32x4` takes 4 arguments, but 5 were given [wrong-argument-count]
+  --> main.buri:35:13
+   |
+35 |     let v = simd.i32x4(1extra , -2, 300, 0);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 4
+   = actual: 5
+   = fix: pass exactly 4
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:35:25
+   |
+35 |     let v = simd.i32x4(1extra , -2, 300, 0);
+   |                         ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:35:25
+   |
+35 |     let v = simd.i32x4(1extra , -2, 300, 0);
+   |                         ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

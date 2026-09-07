@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:27:26
+   |
+27 |     let got = far.toInt()
+   |                          ^
+   |
+   = fix: write `;` here

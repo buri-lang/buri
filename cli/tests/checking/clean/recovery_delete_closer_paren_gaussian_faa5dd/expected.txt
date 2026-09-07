@@ -1,0 +1,12 @@
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:42:51
+   |
+42 |     let draws = many(ctx, random.seeded(1), 400, [);
+   |                                                   ^
+   |
+  --> main.buri:42:50
+   |
+42 |     let draws = many(ctx, random.seeded(1), 400, [);
+   |                                                  ^ opened here
+   |
+   = fix: write `]` here

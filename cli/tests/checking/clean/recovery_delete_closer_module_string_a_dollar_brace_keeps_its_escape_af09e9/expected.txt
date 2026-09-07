@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+ --> main.buri:6:1
+  |
+6 | 
+  | ^
+  |
+ --> main.buri:1:22
+  |
+1 | export fn f(): [Str] {
+  |                      ^ opened here
+  |
+  = fix: write `}` here

@@ -1,0 +1,39 @@
+error: there is nothing named `many` in scope [unresolved-name]
+  --> main.buri:42:17
+   |
+42 |     let draws = many(ctx, random.seeded(1), 400, []);
+   |                 ^^^^
+   |
+   = fix: declare `many`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `many` in scope [unresolved-name]
+  --> main.buri:53:17
+   |
+53 |     let draws = many(ctx, random.seeded(2), 400, []);
+   |                 ^^^^
+   |
+   = fix: declare `many`, or import it — a name is in scope only from this module's own declarations and its imports
+error: there is nothing named `many` in scope [unresolved-name]
+  --> main.buri:63:17
+   |
+63 |     let draws = many(ctx, random.seeded(5), 200, []);
+   |                 ^^^^
+   |
+   = fix: declare `many`, or import it — a name is in scope only from this module's own declarations and its imports
+error: expected a declaration, found `many` [unexpected-token]
+  --> main.buri:78:1
+   |
+78 | many fn<C: Alloc>(ctx: C, g: Gen, count: Int, acc: [Float]): [Float] {
+   | ^^^^
+   |
+   = expected: a declaration
+   = actual: `many`
+   = fix: start it with one of `from` `export` `fn` `struct` `enum` `type` `let` `trait` `effect` `impl` `derive` `context` `test` — a module is a list of declarations, with no statements between them
+error: expected an identifier, found `<` [unexpected-token]
+  --> main.buri:78:8
+   |
+78 | many fn<C: Alloc>(ctx: C, g: Gen, count: Int, acc: [Float]): [Float] {
+   |        ^
+   |
+   = expected: an identifier
+   = actual: `<`
+   = fix: name it: a lowerCamelCase binding, or an UpperCamelCase type

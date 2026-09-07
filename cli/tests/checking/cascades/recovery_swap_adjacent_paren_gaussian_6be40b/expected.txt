@@ -1,0 +1,16 @@
+error: expected an expression, found `)` [unexpected-token]
+  --> main.buri:55:53
+   |
+55 |     let spread = draws.map(ctx, fn(x) => (x - mean* ) (x - mean)).sumFloat() / 400.0;
+   |                                                     ^
+   |
+   = expected: an expression
+   = actual: `)`
+   = fix: write a value here
+error: there is nothing named `spread` in scope [unresolved-name]
+  --> main.buri:56:50
+   |
+56 |     assert.isTrue(math.isCloseAbsolute(math.sqrt(spread), 1.0, 0.2));
+   |                                                  ^^^^^^
+   |
+   = fix: declare `spread`, or import it — a name is in scope only from this module's own declarations and its imports

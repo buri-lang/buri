@@ -1,0 +1,14 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:46:56
+   |
+46 |     assert.isTrue(math.isCloseAbsolute(mean, 0.0, 0.2))extra ;
+   |                                                        ^
+   |
+   = fix: write `;` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:46:56
+   |
+46 |     assert.isTrue(math.isCloseAbsolute(mean, 0.0, 0.2))extra ;
+   |                                                        ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

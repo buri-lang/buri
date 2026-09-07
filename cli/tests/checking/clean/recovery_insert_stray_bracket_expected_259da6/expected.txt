@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+ --> main.buri:4:39
+  |
+4 |     ["a\${x}b", "$4.00", "$.tags[2]", ? "ends in a $"]
+  |                                       ^
+  |
+  = expected: an expression
+  = actual: `?`
+  = fix: write a value here
