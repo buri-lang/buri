@@ -332,6 +332,25 @@ pub fn step_key(key: &str) -> bool {
 pub const STEP_KEYS: &[&str] =
     &["list.mapCtxStep", "host.HostTasks.parallel", "host_testing.TestTasks.parallel"];
 
+/// Whether this key **hands its step the caller's context**, and so waits
+/// exactly when the step waits.
+///
+/// The two tables above already record it, in the one column that separates
+/// `map` from `mapCtx`: a step handed a context can reach every effect the
+/// caller holds, so it may dial a socket, sleep, or ask an actor, and a step
+/// that cannot be handed one may not. That is the whole of the question
+/// [`crate::compiler::middle::rc::suspends`] cannot answer on its own —
+/// `suspends` is a list of keys whose wait is the *key's* own, and a
+/// combinator's wait is its caller's — so `middle::rc`'s parkability walk asks
+/// this one instead and reads the step that actually arrived.
+///
+/// Asked of both tables because a key belongs to one or the other: `mapCtx` is
+/// open-coded and `mapCtxStep` is runtime-driven, and they are the same
+/// operation.
+pub fn ctx_step_key(key: &str) -> bool {
+    list_call(key).is_some_and(|c| c.ctx.is_some()) || step_call(key).is_some_and(|c| c.ctx.is_some())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -461,6 +480,45 @@ mod tests {
             assert!(list_call(key).is_some(), "{key}");
             assert!(step_call(key).is_none(), "{key}");
             assert!(!step_key(key), "{key}");
+        }
+    }
+
+    /// Which keys hand their step a context, in both directions.
+    ///
+    /// This is the list `middle::rc`'s parkability walk reads to decide that a
+    /// combinator waits when its step does, so it is the one place a `*Ctx`
+    /// spelling and a plain one are told apart. Both halves are asserted: a
+    /// key missing from it is a step that waits and is not waited for, and a
+    /// key wrongly in it is a `map` or a comparator paying a promise for a
+    /// context it was never handed.
+    #[test]
+    fn only_a_key_handed_a_context_is_a_ctx_step() {
+        for key in [
+            "list.foldCtx",
+            "list.foldResultCtx",
+            "list.mapCtx",
+            "list.filterCtx",
+            "list.mapCtxStep",
+            "host.HostTasks.parallel",
+            "host_testing.TestTasks.parallel",
+        ] {
+            assert!(ctx_step_key(key), "{key} is handed the caller's context");
+        }
+        for key in [
+            "list.fold",
+            "list.foldResult",
+            "list.map",
+            "list.filter",
+            "list.sortBy",
+            "list.any",
+            "list.all",
+            "list.find",
+            "list.findIndex",
+            "list.count",
+            "list.len",
+            "str.split",
+        ] {
+            assert!(!ctx_step_key(key), "{key} is not");
         }
     }
 

@@ -9,6 +9,7 @@ library {
             "test/patterns.buri",
             "test/optionresult.buri",
             "test/assertions.buri",
+            "test/steps.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

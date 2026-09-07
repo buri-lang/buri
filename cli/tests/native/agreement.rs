@@ -3529,6 +3529,146 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **A `*Ctx` combinator waits for a step that waits**, on every backend, and
+/// answers the same list either way.
+///
+/// `core/list`'s five context-carrying combinators hand the step the caller's
+/// whole context, so the step may do anything the caller may. On the natives
+/// that is a call and a return; on JavaScript a step that waits is an `async`
+/// function, and a combinator that ran it without awaiting answered a list of
+/// **promises** — `[object Promise]` where a number belonged, with the work
+/// itself still queued when `main` returned. That is exactly the kind of
+/// backend-shaped wrong answer this file exists to catch, and it is invisible
+/// to a suite that runs one backend: the natives were right all along.
+///
+/// An actor is the instrument, for `an_actor_counts_the_same_on_every_backend`'s
+/// reason and one more: `sendMessage` waits on the program rather than on the
+/// world (`middle::rc::suspends`), so the row costs no wall-clock time, and the
+/// recorder's state is a *value* — folded as `seen * 10 + n` — so each line
+/// says both that the combinator's answer is complete and that every step
+/// really ran, in order.
+#[test]
+fn a_waiting_step_runs_under_every_ctx_combinator_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "list *Ctx with a waiting step",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped, Stopped };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+enum Note {
+  Saw(Int),
+  Read,
+}
+
+enum Heard {
+  Noted(Int),
+  Log(Int),
+}
+
+fn recorder<C: Alloc + Tasks>(): Actor<C, Int, Note, Heard> {
+  Actor {
+    state: 0,
+    step: fn(c, seen, note) => {
+      match (note) {
+        .Saw(n) => Stepped { state: seen * 10 + n, answer: .Noted(n * 2) },
+        .Read => Stepped { state: seen, answer: .Log(seen) },
+      }
+    },
+  }
+}
+
+fn noted(r: Result<Heard, Stopped>): Int {
+  match (r) {
+    .Ok(.Noted(n)) => n,
+    _otherwise => -1,
+  }
+}
+
+fn heardSoFar(r: Result<Heard, Stopped>): Int {
+  match (r) {
+    .Ok(.Log(n)) => n,
+    _otherwise => -1,
+  }
+}
+
+fn shown<C: Alloc>(ctx: C, xs: [Int]): Str {
+  xs.mapCtx(ctx, fn(c, v) => str.fromInt(c, v)).join(ctx, ",")
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+
+  let mapping = actor.start(ctx, recorder());
+  let mapped = [1, 2, 3].mapCtx(ctx, fn(c, x) => noted(mapping.sendMessage(c, .Saw(x))));
+  let _ = io.println(
+    ctx,
+    "mapped ${shown(ctx, mapped)} heard ${heardSoFar(mapping.sendMessage(ctx, .Read))}",
+  ).ignore();
+  let _ = mapping.stop(ctx).ignore();
+
+  let stepping = actor.start(ctx, recorder());
+  let stepped = [4, 5, 6].mapCtxStep(ctx, fn(c, x) => noted(stepping.sendMessage(c, .Saw(x))));
+  let _ = io.println(
+    ctx,
+    "stepped ${shown(ctx, stepped)} heard ${heardSoFar(stepping.sendMessage(ctx, .Read))}",
+  ).ignore();
+  let _ = stepping.stop(ctx).ignore();
+
+  let filtering = actor.start(ctx, recorder());
+  let kept = [1, 2, 3, 4].filterCtx(
+    ctx,
+    fn(c, x) => noted(filtering.sendMessage(c, .Saw(x))) % 4 == 0,
+  );
+  let _ = io.println(
+    ctx,
+    "kept ${shown(ctx, kept)} heard ${heardSoFar(filtering.sendMessage(ctx, .Read))}",
+  ).ignore();
+  let _ = filtering.stop(ctx).ignore();
+
+  let folding = actor.start(ctx, recorder());
+  let folded = [1, 2, 3].foldCtx(
+    ctx,
+    fn(c, acc: Int, x) => acc + noted(folding.sendMessage(c, .Saw(x))),
+    0,
+  );
+  let _ = io.println(
+    ctx,
+    "folded ${folded} heard ${heardSoFar(folding.sendMessage(ctx, .Read))}",
+  ).ignore();
+  let _ = folding.stop(ctx).ignore();
+
+  let tallying = actor.start(ctx, recorder());
+  let tallied: Result<Int, Str> = [1, 2, 3].foldResultCtx(
+    ctx,
+    fn(c, acc: Int, x) => .Ok(acc + noted(tallying.sendMessage(c, .Saw(x)))),
+    0,
+  );
+  let _ = io.println(
+    ctx,
+    "tallied ${tallied.withDefault(-1)} heard ${heardSoFar(tallying.sendMessage(ctx, .Read))}",
+  ).ignore();
+  let _ = tallying.stop(ctx).ignore();
+
+  // The other half of the rule, on the same combinator: a step that never
+  // waits leaves its combinator synchronous, and answers the same here.
+  let _ = io.println(ctx, "plain ${shown(ctx, [1, 2, 3].mapCtx(ctx, fn(c, x) => x * 2))}").ignore();
+  .Ok(())
+}
+"#,
+        "mapped 2,4,6 heard 123\n\
+         stepped 8,10,12 heard 456\n\
+         kept 2,4 heard 1234\n\
+         folded 12 heard 123\n\
+         tallied 12 heard 123\n\
+         plain 2,4,6\n",
+    );
+}
+
 /// A task that aborts stops the program, with the same message and the same
 /// status on every backend — and with what was printed before it flushed.
 ///

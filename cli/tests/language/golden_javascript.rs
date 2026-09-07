@@ -756,7 +756,7 @@ fn declaration(generated: &str, name: &str) -> String {
 /// through a function value as soon as the program builds one that parks. It
 /// would pass that test and cost a promise at every callback in the artifact —
 /// and, worse, print `async` on functions whose value JavaScript itself calls:
-/// a comparator, a `ui.each` row, the callback of `$list_mapCtx`.
+/// a comparator, a `ui.each` row, a `view` handed to `mount`.
 ///
 /// So this program holds both kinds at once. `wrapped` is handed a callback
 /// that sleeps and has to be `async`; `applyN` is handed one that adds and must
@@ -812,6 +812,81 @@ export fn main(): Result<(), Str> {
     let out = scratch.exec_js("cmd/x");
     out.ok();
     assert_eq!(out.stdout, "10 4\n", "{}", out.stderr);
+}
+
+/// The same edge, one level down: **a runtime combinator awaits its step only
+/// when the step waits.**
+///
+/// `core/list`'s `*Ctx` combinators are the one family whose loop is the
+/// *runtime's* rather than the emitter's, so the rule above cannot be spelled
+/// by printing `async` on a Buri function — the loop is in `runtime.js`, and
+/// `$list_mapCtx` runs the step and moves on. That is a wrong answer for a
+/// step that waits (a list of promises, and the work still queued when `main`
+/// returns) and the right one for a step that does not, so the runtime carries
+/// both bodies and `middle::rc`'s `can_park` column picks between them.
+///
+/// Both halves, over one program, because either alone passes on a backend
+/// that always chose the same body:
+///
+///  * the mapping whose step sleeps is compiled to `$list_mapCtxAwait` and its
+///    call is awaited;
+///  * the mapping whose step only renders keeps `$list_mapCtx`, and nothing
+///    around it is awaited.
+///
+/// The second maps to `Str` rather than to `Int` on purpose. The column is per
+/// *instantiation* — the same granularity every other column in that pass
+/// has — so two calls at one element type share one answer, and asking the
+/// question of two element types is asking it of two rows.
+#[test]
+fn a_combinator_awaits_its_step_only_when_the_step_waits() {
+    let program = "\
+from \"core/effect\" import { Alloc, Clock, Stdout };
+from \"core/host\" import * as host;
+from \"core/io\" import * as io;
+from \"core/str\" import * as str;
+from \"core/time\" import * as time;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let slow = [1, 2, 3].mapCtx(ctx, fn(c, x) => {
+    let _ = time.sleepMs(c, 1);
+    x * 2
+  });
+  let fast = [1, 2, 3].mapCtx(ctx, fn(c, x) => str.fromInt(c, x + 1));
+  let _ = io.println(ctx, \"${slow.len()} ${fast.join(ctx, \",\")}\").ignore();
+  .Ok(())
+}
+";
+    let scratch = Scratch::repo("a-step-that-waits");
+    scratch.binary_package("cmd/x", program);
+    scratch.run(&["build", "//cmd/x", "--force"]).ok();
+    let artifact = std::fs::read_to_string(scratch.artifact("cmd/x")).unwrap();
+    let generated = program_only(&artifact);
+
+    assert!(
+        artifact.contains("async function $list_mapCtxAwait("),
+        "the awaiting body is in the artifact:\n\n{artifact}"
+    );
+    assert!(
+        generated.contains("await $list_mapCtxAwait("),
+        "the mapping whose step sleeps is awaited:\n\n{generated}"
+    );
+    for l in generated.lines().filter(|l| l.contains("$list_mapCtx(")) {
+        assert!(
+            !l.contains("await "),
+            "the mapping whose step only renders stays synchronous:\n{l}\n\n{generated}"
+        );
+    }
+    assert!(
+        generated.contains("$list_mapCtx("),
+        "the plain loop is still what a step that never waits compiles to:\n\n{generated}"
+    );
+
+    // And it answers, which is what an unawaited step got wrong: `3` counts a
+    // list of numbers rather than of promises, and `2,3,4` is three strings.
+    let out = scratch.exec_js("cmd/x");
+    out.ok();
+    assert_eq!(out.stdout, "3 2,3,4\n", "{}", out.stderr);
 }
 
 /// A callback the pass could not follow is answered by its **type**.

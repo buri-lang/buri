@@ -263,6 +263,7 @@
               signature. The one subtraction is a `saturating_sub`."
 )]
 
+use crate::compiler::backend::intrinsic_keys;
 use crate::compiler::middle::ir;
 use crate::compiler::middle::monomorphize::{self, Desc, Func, FuncKind, Program};
 use crate::compiler::semantics::typed::{self, Expr, ExprKind, PatKind, Pattern, Stmt};
@@ -1519,6 +1520,14 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
 /// method by method, and why a new blocking host operation belongs here on the
 /// day it is added. The prefix stops at `host.HostFs` so that both halves of
 /// the filesystem are covered by the one string.
+///
+/// **This list can only answer for a key whose wait is the key's own.** A
+/// combinator handed the caller's context — `list.mapCtx` and the four beside
+/// it — waits exactly when the *step it was given* waits, and no seed can say
+/// which: the same key is a plain loop over a rendering and a wait over a
+/// socket dial. That half is [`intrinsic_keys::ctx_step_key`], asked by
+/// [`parkability`] against the argument edges it has already walked, and it is
+/// the other seed of the same column.
 pub fn suspends(key: &str) -> bool {
     key.starts_with("host.HostFs")
         // Every `Listen` operation waits on something outside the program: a
@@ -1741,9 +1750,11 @@ fn infer_effects(program: &Program) -> (Vec<ir::Purity>, Vec<bool>) {
 /// not a property a caller may ignore, an `async` function returns a promise
 /// whether or not it ever waits, and this compiler hands function values to
 /// JavaScript that cannot await one — a `view` given to `mount`, the row
-/// callbacks inside `ui.each`, the callback of `$list_mapCtx`, a sort
-/// comparator. So the imprecision was not merely a cost: it was a whole
-/// backend's reason for computing the question a second time
+/// callbacks inside `ui.each`, a sort comparator, the callback of
+/// `$list_map`. (`$list_mapCtx`'s callback is the one that *can* now, and only
+/// where this column says so: the runtime carries a second, awaiting body and
+/// the emitter picks between them.) So the imprecision was not merely a cost:
+/// it was a whole backend's reason for computing the question a second time
 /// (`reports/can-park-indirect.md`), and this is that second analysis brought
 /// back to where the first one lives.
 ///
@@ -2074,6 +2085,29 @@ pub fn parkability(program: &Program) -> Parking {
         for (i, f) in program.funcs.iter().enumerate() {
             if w.parks.get(i).copied() == Some(true) {
                 continue;
+            }
+            // A combinator that **runs a step it was handed the context for**
+            // waits exactly when that step waits, and no seed can say which:
+            // `list.mapCtx` over a rendering is a loop, and over a socket dial
+            // it is a wait. So the answer is read off the argument edges the
+            // loop above already walked — the step that actually arrived at
+            // this instantiation — and a key with a parking step joins the
+            // column beside the keys whose wait is their own.
+            //
+            // Per instantiation, so `mapCtx` at one element type does not
+            // colour `mapCtx` at another. Two call sites that share an
+            // instantiation and disagree share the answer, which is the
+            // direction that costs a microtask rather than a result.
+            if let FuncKind::Intrinsic(key) = &f.kind {
+                let stepped = intrinsic_keys::ctx_step_key(key)
+                    && f.params.iter().any(|p| w.parking.get(i).is_some_and(|s| s.contains(p)));
+                if stepped {
+                    if let Some(slot) = w.parks.get_mut(i) {
+                        *slot = true;
+                    }
+                    changed = true;
+                    continue;
+                }
             }
             let Some(body) = f.body() else { continue };
             if w.body_parks(i, body) {

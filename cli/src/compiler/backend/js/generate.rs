@@ -207,7 +207,7 @@ impl<'a> Gen<'a> {
     /// A slot with no plan row answers `false`, which is what a `Gen` that is
     /// only being asked which intrinsics exist wants: nothing is emitted, so
     /// nothing is awaited.
-    fn parks(&self, index: usize) -> bool {
+    pub(crate) fn parks(&self, index: usize) -> bool {
         self.sharing.funcs.get(index).is_some_and(|p| p.can_park)
     }
 
@@ -277,12 +277,12 @@ impl<'a> Gen<'a> {
 pub fn unimplemented_intrinsics(program: &Program, tables: &Tables) -> Vec<String> {
     let mut g = Gen::over(program, tables, Profile::Debug);
     let mut out = Vec::new();
-    for f in &program.funcs {
+    for (i, f) in program.funcs.iter().enumerate() {
         let FuncKind::Intrinsic(key) = &f.kind else { continue };
         g.func = FnState::for_locals(&f.locals);
         let args: Vec<Expr> =
             f.params.iter().map(|p| Expr::ident(g.local_name_of(p))).collect();
-        if g.intrinsic(key, &args, f).is_none() {
+        if g.intrinsic(i, key, &args, f).is_none() {
             out.push(key.clone());
         }
     }
@@ -438,7 +438,7 @@ pub fn generate(
             }
             FuncKind::Intrinsic(key) => {
                 let args: Vec<Expr> = params.iter().map(|p| Expr::ident(p.clone())).collect();
-                match g.intrinsic(key, &args, f) {
+                match g.intrinsic(fi, key, &args, f) {
                     Some(e) => vec![Stmt::Return(Some(e))],
                     None => {
                         g.missing.push(key.clone());
@@ -967,7 +967,7 @@ impl<'a> Gen<'a> {
         // does with each argument.
         let probe: Vec<Expr> =
             (0..args.len()).map(|i| Expr::ident(format!("$$arg{i}"))).collect();
-        let shape = self.intrinsic(&key, &probe, callee)?;
+        let shape = self.intrinsic(index, &key, &probe, callee)?;
         if js_size(&shape) > MAX_INLINE_INTRINSIC {
             return None;
         }
@@ -988,7 +988,7 @@ impl<'a> Gen<'a> {
             last = i;
         }
 
-        self.intrinsic(&key, args, callee)
+        self.intrinsic(index, &key, args, callee)
     }
 }
 
@@ -3132,6 +3132,49 @@ mod tests {
     fn arguments_out_of_order_are_seen() {
         let e = Expr::call(Expr::ident("$f"), vec![arg(1), arg(0)]);
         assert_eq!(survey(&e, 2).order, vec![1, 0]);
+    }
+
+    /// The `Await` suffix, in both directions.
+    ///
+    /// `Gen::intrinsic` compiles a key to `$xAwait` instead of `$x` when the
+    /// instantiation's step waits, and the whole of the convention is that
+    /// suffix — so the two ways it can rot are a twin with no original beside
+    /// it (a name nothing ever reaches) and a `*Ctx` combinator with no twin
+    /// (the bug this exists to stop: a step that waits, run and not awaited,
+    /// answering a promise where a value belongs).
+    ///
+    /// The second half is asked of `core/list` only. `HostTasks.parallel` and
+    /// its double are handed a context too, and they need no twin: they wait
+    /// whoever calls them, so their one body is already `async`.
+    #[test]
+    fn every_awaiting_runtime_twin_is_a_ctx_step_and_every_list_ctx_step_has_one() {
+        let names = runtime_names();
+        for name in names.iter().filter_map(|n| n.strip_suffix("Await")) {
+            assert!(
+                names.iter().any(|n| n == name),
+                "`{name}Await` has no `{name}` beside it, so nothing ever reaches it"
+            );
+            let key = name.trim_start_matches('$').replace('_', ".");
+            assert!(
+                crate::compiler::backend::intrinsic_keys::ctx_step_key(&key),
+                "`{name}Await` awaits a step, and `{key}` is not a key that is \
+                 handed one"
+            );
+        }
+        for key in [
+            "list.foldCtx",
+            "list.foldResultCtx",
+            "list.mapCtx",
+            "list.mapCtxStep",
+            "list.filterCtx",
+        ] {
+            assert!(crate::compiler::backend::intrinsic_keys::ctx_step_key(key));
+            let name = format!("${}Await", key.replace('.', "_"));
+            assert!(
+                names.contains(&name),
+                "`{key}` hands its step the context, so the runtime needs `{name}`"
+            );
+        }
     }
 
     #[test]
