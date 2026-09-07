@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:35:32
+   |
+35 |     assert.isEmpty(env.all(ctx);
+   |                                ^
+   |
+  --> main.buri:35:19
+   |
+35 |     assert.isEmpty(env.all(ctx);
+   |                   ^ opened here
+   |
+   = fix: write `)` here

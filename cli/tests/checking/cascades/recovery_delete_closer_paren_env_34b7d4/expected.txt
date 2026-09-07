@@ -1,0 +1,30 @@
+error: `eq` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:85:5
+   |
+85 |     assert.eq(env.args(ctx, ["--verbose"]);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
+error: `args` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:85:15
+   |
+85 |     assert.eq(env.args(ctx, ["--verbose"]);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:85:43
+   |
+85 |     assert.eq(env.args(ctx, ["--verbose"]);
+   |                                           ^
+   |
+  --> main.buri:85:14
+   |
+85 |     assert.eq(env.args(ctx, ["--verbose"]);
+   |              ^ opened here
+   |
+   = fix: write `)` here

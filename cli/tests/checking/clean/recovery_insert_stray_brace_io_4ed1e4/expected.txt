@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:57:53
+   |
+57 |     assert.eq(io.readAllBytes(ctx), [0, 255, 10, 65]@ );
+   |                                                     ^
+   |
+  --> main.buri:57:14
+   |
+57 |     assert.eq(io.readAllBytes(ctx), [0, 255, 10, 65]@ );
+   |              ^ opened here
+   |
+   = fix: write `)` here

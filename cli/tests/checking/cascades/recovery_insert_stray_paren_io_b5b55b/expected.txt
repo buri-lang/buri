@@ -1,0 +1,28 @@
+error: `eq` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:73:5
+   |
+73 |     assert.eq(io.readAllBytes@ (ctx), [7]);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
+error: `fn(_2) => [U8]` does not satisfy `Eq` [unsatisfied-bound]
+  --> main.buri:73:5
+   |
+73 |     assert.eq(io.readAllBytes@ (ctx), [7]);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Eq`, or use a type that has one
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:73:30
+   |
+73 |     assert.eq(io.readAllBytes@ (ctx), [7]);
+   |                              ^
+   |
+  --> main.buri:73:14
+   |
+73 |     assert.eq(io.readAllBytes@ (ctx), [7]);
+   |              ^ opened here
+   |
+   = fix: write `)` here

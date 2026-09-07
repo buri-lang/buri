@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:57:68
+   |
+57 |     assert.eq(env.temporaryDirectory(set), path.of(set, "/scratch");
+   |                                                                    ^
+   |
+  --> main.buri:57:14
+   |
+57 |     assert.eq(env.temporaryDirectory(set), path.of(set, "/scratch");
+   |              ^ opened here
+   |
+   = fix: write `)` here

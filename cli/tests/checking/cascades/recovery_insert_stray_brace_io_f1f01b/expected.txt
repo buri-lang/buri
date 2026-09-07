@@ -1,0 +1,16 @@
+error: expected `:`, found `}` [unexpected-token]
+  --> main.buri:15:11
+   |
+15 |     extra };
+   |           ^
+   |
+   = expected: `:`
+   = actual: `}`
+   = fix: write `:` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:16:26
+   |
+16 |     assert.eq(io.readAll(ctx), "one\ntwo\nthree");
+   |                          ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

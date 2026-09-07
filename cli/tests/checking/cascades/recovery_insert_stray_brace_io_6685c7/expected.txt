@@ -1,0 +1,16 @@
+error: expected `:`, found `,` [unexpected-token]
+  --> main.buri:63:14
+   |
+63 |         Stdin, : stdin().bytes([]),
+   |              ^
+   |
+   = expected: `:`
+   = actual: `,`
+   = fix: write `:` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:65:36
+   |
+65 |     assert.isEmpty(io.readAllBytes(ctx));
+   |                                    ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

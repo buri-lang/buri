@@ -1,0 +1,30 @@
+error: `eq` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:24:5
+   |
+24 |     assert.eq(io.readAll(ctx, "");
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
+error: `readAll` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:24:15
+   |
+24 |     assert.eq(io.readAll(ctx, "");
+   |               ^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:24:34
+   |
+24 |     assert.eq(io.readAll(ctx, "");
+   |                                  ^
+   |
+  --> main.buri:24:14
+   |
+24 |     assert.eq(io.readAll(ctx, "");
+   |              ^ opened here
+   |
+   = fix: write `)` here

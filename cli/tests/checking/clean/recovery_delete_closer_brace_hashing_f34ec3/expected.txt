@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:32:40
+   |
+32 |         .insert(ctx, uuid.zero(), "nil";
+   |                                        ^
+   |
+  --> main.buri:32:16
+   |
+32 |         .insert(ctx, uuid.zero(), "nil";
+   |                ^ opened here
+   |
+   = fix: write `)` here
