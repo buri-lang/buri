@@ -2,13 +2,11 @@
 
 **This has shipped.** What a user needs lives where the suites can check it: the
 `ui/*` modules' own documentation (`buri docs ui/node` and its neighbours), the
-guide's "User interfaces" section, and — for the `WEB` output, its three files
-and the `effect-not-on-platform` diagnostic — `cli/src/docs/build/`. Per
-[`design/README.md`](./README.md), a shipped design document must not become a
-second copy of the reference, so what stays here is the **argument**: why the
-shape is this shape, what was considered and refused, and, in "As built" below,
-every place compiling it overruled the argument. The code fragments below
-illustrate the reasoning; they are not the signatures of record.
+guide's "User interfaces" section, and — for the `WEB` output — `cli/src/docs/build/`.
+What stays here is the **argument**: why the shape is this shape, what was
+refused, and, in "As built" below, every place compiling it overruled the
+argument. The fragments illustrate the reasoning; they are not the signatures of
+record.
 
 Signal-based, fine-grained reactivity for Buri. No virtual DOM, no top-level
 model, no JSX. A component is an ordinary function that runs **once**; only
@@ -59,20 +57,15 @@ export effect Fetch {
 export struct Scope(Int);               // private field: unforgeable
 ```
 
-Two things about `Ui` that the design alone would not predict, both forced by
-trying to compile it. It declares `read` as well as `Watch` does, because
-`Signal.update<C: Ui>` — this document's own signature — reads the old value on
-its way to writing a new one, and a `Ui` with no read would be unimplementable.
-So an implementor of `Ui` grants strictly more than an implementor of `Watch`.
-And the registration method is `watch`, not `effect`, because `effect` is a
-reserved word and no function may take it as a name.
+An implementor of `Ui` grants strictly more than an implementor of `Watch`: it
+reads too, because `Signal.update<C: Ui>` reads the old value on its way to
+writing a new one.
 
 `Fetch`'s callback takes `Self` rather than a bare context type, and that is
 what makes a test double possible. A free `fetch<C: Fetch>` intrinsic would have
 one implementation for every `C`, so a headless `NoFetch` would still reach the
-network. Declaring the callback as `fn(Self, …) => ()` hands the receiver to the
-runtime, so the call site stays `ui.fetch(ctx, request, done)` and the double is
-ordinary Buri.
+network. Handing the receiver to the runtime keeps the call site
+`ui.fetch(ctx, request, done)` and the double ordinary Buri.
 
 ## Reactivity types
 
@@ -109,16 +102,10 @@ each<C, T: Eq>(items: Prop<[T]>, key: fn(T) => Str,      // ui/node
 mount<C: Ui>(ctx: C, root: Node<C>, themes: [Theme]): Result<(), Str>
 ```
 
-`memo` sits in `ui/prop` rather than beside `signal`, because it answers a
-`Prop<T>` and `Prop.Cell` holds a `Signal<T>`. One of the two modules has to
-import the other, and a cycle is an error, so `memo` goes with the type it
-returns.
-
-`each` takes no context. A list is a description, and describing one is as pure
-as describing anything else here; this document's first draft threaded a `ctx`
-it had no use for. The `key` is a parameter for the same reason `alt` is:
-keying a list by position silently corrupts it the moment the list is reordered,
-and nothing can notice.
+`each` takes no context: a list is a description, and describing one is pure.
+The `key` is a parameter for the same reason `alt` is — keying a list by
+position silently corrupts it the moment the list is reordered, and nothing can
+notice.
 
 ## The tree
 
@@ -173,16 +160,15 @@ relationships, which is accessibility, so it gets roles; visual arrangement is
 `.Layout(.Grid)`. Using either for the other is a named antipattern. There is
 deliberately no `Grid` *role*, so the confusion has nothing to grab.
 
-**`field` takes its label**, a correction this document owes its own rule. An
-unlabelled input is the commonest accessibility failure there is, and unlike a
-missing `alt` it has no visual fallback, so the vocabulary will not express it.
-A field and a toggle have no change event either. Both bind to a `Signal`, so
-what the reader typed is already in the signal, and two-way binding replaces the
-event entirely.
+**`field` takes its label.** An unlabelled input is the commonest accessibility
+failure there is, and unlike a missing `alt` it has no visual fallback, so the
+vocabulary will not express it. A field and a toggle have no change event
+either: both bind to a `Signal`, so what the reader typed is already there and
+two-way binding replaces the event.
 
 **`form` is a widget and not a role**, because submission is behaviour: pressing
-Enter in a field inside one runs `onSubmit`, which is the browser's own
-dispatch rather than a key handler every app would otherwise write.
+Enter in a field inside one runs `onSubmit`, the browser's own dispatch rather
+than a key handler every app would otherwise write.
 
 `Node<C>` keeps its one type parameter because handlers are open-ended. A press
 may legitimately need `Net`, and `main` chose the effect budget. Everything else
@@ -251,8 +237,8 @@ them.
 
 **Hover is a style, not an event**, and `On` is why. A pseudo-class costs
 nothing at run time, needs no listener, survives into an email's `<style>`
-block, and maps to a native pressed or focused trait — where a signal written
-on every mouse move does none of the four and costs a render each time.
+block, and maps to a native pressed or focused trait. A signal written on every
+mouse move does none of the four and costs a render each time.
 
 Two tiers, on purpose:
 
@@ -357,14 +343,13 @@ already had. That is the whole reason dark mode is not a second stylesheet.
    a `C` from a `Node<C>` would require already holding one.
 
    **The soundness argument was right; the predicate was not.** Reading it off
-   the enclosing signature's bounds turned `mount(ctx: C, root: Node<C>)` with
-   `C: Ui` into a rule-26 error, and three of this document's own APIs became
-   unbuildable. What landed is a variance-aware predicate: a least fixpoint
-   `provides(con, i)` over every declared constructor, computed from its fields,
-   dropping function *parameters* and keeping results. It generalises the rule
-   the built-in `Ty::Fn` already had — only the result counts — to every
-   user-declared type, and it makes "occurs only in argument position"
-   something the compiler knows rather than something this document asserts.
+   the enclosing signature's bounds made `mount(ctx: C, root: Node<C>)` with
+   `C: Ui` a rule-26 error. What landed is a variance-aware predicate: a least
+   fixpoint `provides(con, i)` over every declared constructor, computed from
+   its fields, dropping function *parameters* and keeping results. It
+   generalises to every user-declared type the rule the built-in `Ty::Fn`
+   already had — only the result counts — so "occurs only in argument position"
+   is something the compiler knows rather than something this document asserts.
 2. **Nothing captures a context or a `Scope`.** Handlers and computed closures
    receive theirs as a parameter — the `mapCtx` shape §10.6 already mandates.
 3. **Derivation is pure.** `.Computed(fn(c) => user.read(c).name)` needs no
@@ -398,16 +383,12 @@ signal was created.
   Compiling a module collects its static `Style` literals into a `Vec` on
   `Checked`, and the link step merges and dedupes them into one stylesheet plus
   the `(slot, class)` table. Local compilation survives; only the link step is
-  global, and it already was. (The first draft said "cached with the module, the
-  same shape as test collection", naming machinery that does not exist: test
-  *cases* are not cached, verdicts are, per suite.)
+  global, and it already was.
 - Token constructors are calls, not literals, so extraction needs constant
   folding of pure calls in `const` initializers. **Const-folding is what
-  landed**, rather than generating token modules the way the proto path
-  generates types: an interpreter over the typed tree, reading purity off the
-  function's own signature. It costs nothing at run time, and it improves an
-  ordinary style helper as much as it improves a token, where a generator would
-  have helped tokens and nothing else.
+  landed** — an interpreter over the typed tree, reading purity off the
+  function's own signature — rather than generated token modules: it improves an
+  ordinary style helper as much as it improves a token.
 - **A `WEB` build writes three files**, not one: the `.mjs`, the `.css` the
   extractor produced, and an `.html` shell that links the sheet and loads the
   module. The shell's `<link id="buri-styles">` carries the id the runtime's own
@@ -451,11 +432,11 @@ export fn main(): Result<(), Str> {
 `main` returns `.Ok(())` and the page stays live: the JS entry wrapper only
 exits on an `.Err`, and registered listeners keep running.
 
-That program is in the corpus at `cli/tests/golden_javascript/ui_counter/`,
-compiled with its output recorded. A whole application — a keyed list, a form,
-both style tiers, one library's tokens themed by an app, and a request that
-answers through a callback — is `cli/tests/example/cmd/basket/`. It builds as a
-`WEB` artifact, and the suite tests it with no browser.
+That program is in the corpus at `cli/tests/golden_javascript/ui_counter/`. A
+whole application — a keyed list, a form, both style tiers, one library's tokens
+themed by an app, and a request that answers through a callback — is
+`cli/tests/example/cmd/basket/`, built as a `WEB` artifact and tested with no
+browser.
 
 ## Targets
 
@@ -498,70 +479,51 @@ language one, and the existing machinery covers it:
   The error lands where the program asked. A named import is refused on the name
   inside the braces; a namespace import names no effect, so `host.fs` is
   refused on the member reference. Both are semantics-layer diagnostics on a
-  span, which is what puts them in the editor: `buri lint`, `buri test` and the
-  language server report them before anything is built, and
-  `repositories/lsp/an_effect_the_platform_does_not_allow` is the proof.
+  span, so `buri lint`, `buri test` and the language server report them before
+  anything is built.
 
   Three consequences worth writing down. **A grant is a pair** — the value and
   the implementation struct — and both are refused together: a host struct has
   no private field, so allowing `HostNet` while refusing `net` would leave the
   authority one `Net: host.HostNet {}` away. **A build still subsets
-  `core/host` per output**, the backstop this check sits in front of rather than
-  a second rule. And **a rule that declares no platforms commits to none**: a
-  library with no `platforms` field is platform-generic and is never refused,
-  which keeps a bound — `FsRead` taken as a bound rather than bound to a host —
-  legal everywhere, a page included.
+  `core/host` per output**, the backstop this check sits in front of. And **a
+  rule that declares no platforms commits to none**: a library with no
+  `platforms` field is platform-generic and is never refused, which keeps a
+  bound — `FsRead` taken as a bound rather than bound to a host — legal
+  everywhere, a page included.
 
   WEB grants `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand`, `Net`, `Ui` and
   `Watch`, and withholds `FsRead`, `FsWrite`, `Stdin`, `Env`, `Proc`, `Tasks`,
   `Listen` and `Sockets`. `LINUX` and `MACOS` grant all fourteen non-UI effects
   and neither UI one; `JS` grants twelve of the fourteen — everything but
-  `Listen` and `Sockets`. Telling the three non-page platforms apart took a
-  table edit rather than new machinery, and it has now happened (see Open).
+  `Listen` and `Sockets`.
 
-  `Tasks` is the eleventh, and it arrived by a route worth recording: the same
-  mechanism read in a third direction. It landed **declared and granted by
-  nobody** — a row with an empty platform list — so the names existed, the
-  signature was fixed and reviewable, and every `Tasks: host.tasks` was refused
-  everywhere with the reason. Two waves later the scheduler existed, and the
-  grant was that one row gaining three platforms. A table whose rows can be
-  empty is what let the declaration land before its runtime with no second "not
-  implemented yet" flag anywhere, and no program written against the reviewed
-  signature had to change when the runtime arrived. The row is still short on
-  `WEB`, for an ordinary reason rather than that one: `parallel` returns only
-  when the last task has finished, and a page's concurrency is its event loop.
-
-  `Listen` and `Sockets` came down that same route and are now through it. Both
-  landed naming an empty platform list, and both name `LINUX, MACOS` today — the
-  first row shape the table has held that is neither every platform, nor the
-  three non-page ones, nor `WEB` alone. They were granted **together**, because
-  being a server is one authority in two halves: accepting a connection, and
-  writing to one somebody already accepted. `JS` and `WEB` do not have them and
-  are not going to, since a page is served rather than serving and its host
-  cannot accept a connection at all. That bounds what an empty row ever claimed.
-  It said nobody grants this today, never that everybody eventually will, and
-  this pair shows the difference: half the row filled, and the other half never
-  will.
+  **A row may name no platform at all**, and that is the route `Tasks`, `Listen`
+  and `Sockets` each came down: the names, the signature and the refusal exist
+  before the runtime does, with no second "not implemented yet" flag anywhere,
+  and the grant is later that one row gaining platforms. No program written
+  against the reviewed signature had to change when the runtime arrived.
+  `Listen` and `Sockets` were granted **together**, because being a server is
+  one authority in two halves: accepting a connection, and writing to one
+  somebody already accepted. `JS` and `WEB` will never have them — a page is
+  served rather than serving — which bounds what an empty row ever claimed: not
+  that everybody eventually grants this.
 - **Email is a different effect grant, not a lesser web.** Its host exports
   rendering and nothing interactive: no `Ui`, no `Fetch`. A `render` evaluates
   the tree once, so `Const` and `Computed` props resolve and `Cell` has nothing
   to back it. Component libraries written against `Prop` and `Style` work
-  untouched, and an app that binds interactive effects fails at `main`. That is
-  a mechanism rather than an aspiration: an `EMAIL` row in the grant table
-  granting neither is the whole of it.
-- **Open**: a style or widget with no meaning on some target (hover in email).
-  Start with backend degradation plus warnings; per-output vocabulary checking
-  is more machinery than the problem deserves until real components hit it.
+  untouched, and an app that binds interactive effects fails at `main`. An
+  `EMAIL` row in the grant table granting neither is the whole mechanism.
 
 ## Modules
 
 UI gets its own reserved root, `ui/...`, so `core/` keeps meaning "the
 deliberately small essentials." **This extends SPEC rule 35** (module paths were
-`core/...` or `//...`), and the change is small: the rule's wording, the path
-check in `modules.rs`, and entries in the static `MODULES` table. The platform
-implementations still fold into the existing `core/host`, which is already
-per-platform and main-only; UI-capable platforms export three more values from
-it. When external repositories land, `ui/...` can migrate out wholesale.
+`core/...` or `//...`): the rule's wording, the path check in `modules.rs`, and
+entries in the static `MODULES` table. The platform implementations fold into
+the existing `core/host`, which is already per-platform and main-only;
+UI-capable platforms export three more values from it. When external
+repositories land, `ui/...` can migrate out wholesale.
 
 | Module | Kind | Exports |
 |---|---|---|
@@ -574,11 +536,9 @@ it. When external repositories land, `ui/...` can migrate out wholesale.
 | `ui/theme` | library | `Theme`, `themed`, `switching` |
 | `ui/testing` | test platform | headless `Ui`/`Watch`/`Fetch`, render-to-document, event firing, the extracted stylesheet, installed theme values, and a recorder — test-only automatically via the `testing` path segment |
 
-There is **no `ui` umbrella module**. The first draft had one and nobody built
-it: re-exporting from seven modules buys one import and costs a reader the
-answer to "which module is this name from", and every file written against the
-vocabulary since has wanted three or four specific imports rather than one broad
-one. Adding it later is a re-export list and nothing else. Token modules are not
+There is **no `ui` umbrella module**: re-exporting from seven modules buys one
+import and costs a reader the answer to "which module is this name from".
+Adding it later is a re-export list and nothing else. Token modules are not
 standard library either: each package declares its own.
 
 Typical imports — a component module:
@@ -624,8 +584,7 @@ resolution goes through the receiver's defining module.
 ## As built
 
 Where compiling the argument above overruled it. Each row is a deviation from
-this document's first draft, with the reason. None of them changed what the
-design is *for*.
+this document's first draft, with the reason.
 
 | This document said | What shipped | Why |
 |---|---|---|
@@ -650,14 +609,6 @@ design is *for*.
 
 ## Open
 
-- **Host subsetting among the non-UI platforms — closed.** The mechanism was
-  always a table. The complaint was that no row had ever used it to tell
-  `LINUX`, `MACOS` and `JS` apart, so the three were one set under three names
-  and the reject case did not exist. `Listen` and `Sockets` broke that: both
-  name `LINUX, MACOS` and nothing else, so `Listen: host.listen` under
-  `platform: JS` is refused with a reason while `platform: LINUX` compiles.
-  Whether some *other* row should also lose a platform is now an argument about
-  that row rather than about machinery.
 - **`Tasks` on `WEB`.** Granted on the other three, withheld from the page:
   `parallel` waits for its last task, and a page has an interface where that
   wait shows. A page would want the callback shape `Fetch` already has, and that
@@ -665,13 +616,11 @@ design is *for*.
 - **A socket to hand out, and a handler per task.** The acceptor exists:
   `Listen` is four operations, `core/net/server` runs the accept loop over them
   in Buri, and `cli/runtime/net.rs` answers them with a hand-framed HTTP/1.1
-  server. Two things are left. `serve` takes one connection at a time and runs
-  the handler on the calling task, so one slow handler becomes the whole
-  server's latency; a handler per task is the next slice, and it needs no change
-  to the effect. And `Sockets` is granted but unreachable: nothing performs a
-  WebSocket upgrade, so no program can get hold of a socket for `sendText`,
-  `sendBytes` or `close` to write to. Neither is a table edit; both are runtime
-  work.
+  server. Two things are left, and both are runtime work rather than a table
+  edit. `serve` takes one connection at a time and runs the handler on the
+  calling task, so one slow handler becomes the whole server's latency. And
+  `Sockets` is granted but unreachable: nothing performs a WebSocket upgrade, so
+  no program can get hold of a socket to write to.
 - **A per-target vocabulary check.** A style or widget with no meaning on some
   target — hover in email, a form in a static render. Backend degradation with a
   warning is the answer until real components hit it.
