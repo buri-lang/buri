@@ -1265,8 +1265,7 @@ The six:
    this list left open.
 
 What a maintainer's own machine can say is bounded the same way §10.1 bounds
-it, with one thing worth naming.
-`linux_x86_64_objects_link_and_every_relocation_resolves` links real unit
+it. `linux_x86_64_objects_link_and_every_relocation_resolves` links real unit
 objects with `ld.lld` against a generated stub and checks that every
 relocation resolves and that the image still disassembles. That proves more
 here than its arm64 twin does: a `rel32` or a rip-relative `disp32` written at

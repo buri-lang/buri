@@ -126,9 +126,9 @@ So an arena hung on the `Alloc` bound is entered at `main` and left at exit,
 which is the never-free strategy under a different name.
 
 Escape analysis would help — a value that provably does not outlive its frame
-can be stack-allocated — and it is worth having *as an optimization on top of*
-something that is correct without it. It is not a strategy on its own, because
-the cases it cannot prove need an answer, and "leak it" is not one.
+can be stack-allocated — *as an optimization on top of* something correct
+without it. It is not a strategy on its own, because the cases it cannot prove
+need an answer, and "leak it" is not one.
 
 ### 4.1 And why not never-free
 
@@ -475,8 +475,8 @@ is wrong is a heap corruption and a `malloc` that is slow is a profile.
 doubling is why it is now routinely larger. A `[T]`'s element count is in its
 descriptor and a `Str`'s byte count is in its view, so neither reads `cap` to
 know how long it is. `cap` is read by `buri_rt_free`, to recover the layout
-the block was made with, and by §5.3's headroom test. Two consequences are
-worth naming before they are met. The heap accounting (`buri_rt_heap_stats`)
+the block was made with, and by §5.3's headroom test. Two consequences follow.
+The heap accounting (`buri_rt_heap_stats`)
 counts capacity, so `live_bytes` after a build loop is up to twice the bytes
 the values hold — it measures `malloc`, and §7's charge is a definition over
 the *types*, so nothing a program can observe moves. And the release glue for
