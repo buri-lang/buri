@@ -3629,19 +3629,21 @@ function $tree_bind(prop, apply) {
 
 // --- Resuming what a server rendered ------------------------------------------
 //
-// One renderer. A resume runs `$tree_render`, the same walk a mount runs, and
-// what changes is where a node comes from: while a resume is in flight the two
-// constructors below answer with the node already sitting in the document
-// instead of making one. So the page registers every computation and every
-// listener a fresh mount would — the button works — and the markup the reader
-// is looking at is the markup that arrived.
+// `ops` while a resume runs, and null the rest of the time. Everything under it
+// is named in `$ui_web_resume` and nowhere else, so a program that mounts drops
+// all of it and keeps the comparisons.
+
+const $adopt = { ops: null, at: new Map() };
+
+// One renderer. A resume runs `$tree_render`, the walk a mount runs, and what
+// changes is where a node comes from: the two constructors answer with the node
+// already sitting in the document instead of making one. So the page registers
+// every computation and every listener a fresh mount would — the button works —
+// and the markup the reader is looking at is the markup that arrived.
 //
-// `at` is the node each parent has left to offer. A parent is entered once,
-// because the renderer walks a tree, so a map keyed by the parent node is the
+// `$adopt.at` is the node each parent has left to offer. A parent is entered
+// once, because the renderer walks a tree, so a map keyed by the parent is the
 // whole of the bookkeeping.
-
-const $adopt = { on: false, at: new Map() };
-
 function $adopt_first(parent) {
   if (parent.$shim) return parent.children.length > 0 ? parent.children[0] : null;
   return parent.firstChild;
@@ -3717,30 +3719,33 @@ function $adopt_leftovers(body) {
   return null;
 }
 
-// A marker has no counterpart in the markup — a server writes none, because a
-// reader does not read them — so a resume inserts one, at the point its walk
-// has reached rather than at the anchor a fresh render would use.
+// A marker the server did not write, inserted where the walk has reached rather
+// than at the anchor a fresh render would use.
 function $tree_mark(parent, anchor) {
   const marker = $dom_marker(parent);
-  $dom_insert(parent, marker, $adopt.on ? $adopt_at(parent) : anchor);
+  $dom_insert(parent, marker, $adopt.ops === null ? anchor : $adopt.ops.at(parent));
   return marker;
 }
 
 function $tree_element(parent, name, anchor) {
-  if ($adopt.on) return $adopt_claim(parent, 0, name);
+  if ($adopt.ops !== null) return $adopt.ops.claim(parent, 0, name);
   const element = $dom_element(parent, name);
   $dom_insert(parent, element, anchor);
   return element;
 }
 
 function $tree_text(prop, parent, anchor) {
-  if ($adopt.on) {
-    const adopted = $adopt_claim(parent, 1, "");
+  if ($adopt.ops !== null) {
+    // The run of text the server wrote may be several of these — a browser
+    // parses one node however many the tree has — so the first value says how
+    // much of it belongs here and `split` leaves the rest for the next run.
+    const ops = $adopt.ops;
+    const adopted = ops.claim(parent, 1, "");
     let first = true;
     $tree_bind(prop, (value) => {
       if (first) {
         first = false;
-        $adopt_split(parent, adopted, value);
+        ops.split(parent, adopted, value);
       }
       $dom_data(adopted, value);
     });
@@ -3762,19 +3767,16 @@ function $tree_children(ctx, element, styles, children) {
 // the computations inside a subtree are disposed with the subtree.
 function $tree_dynamic(ctx, parent, anchor, build) {
   const start = $tree_mark(parent, anchor);
-  // Where the region is being adopted its end is not known until what the
-  // server wrote for it has been walked, so that marker goes in after the
-  // first run rather than before it. Every run after the first is the one
-  // every mount does: remove what is between the markers, render what the
-  // computation answers now.
-  let adopting = $adopt.on;
+  // A region being adopted does not know where it ends until the markup for it
+  // has been walked, so that marker goes in after the first run.
+  let adopting = $adopt.ops !== null;
   const end = adopting ? $dom_marker(parent) : $tree_mark(parent, anchor);
   $ui_run(
     $ui_cell(2, undefined, (scope) => {
       if (adopting) {
         adopting = false;
         $tree_render(ctx, build(scope), parent, end);
-        $dom_insert(parent, end, $adopt_at(parent));
+        $dom_insert(parent, end, $adopt.ops.at(parent));
         return 0;
       }
       for (const node of $dom_between(parent, start, end)) $dom_remove(node);
@@ -3791,14 +3793,14 @@ function $tree_dynamic(ctx, parent, anchor, build) {
 // built is not a reason to rebuild the list.
 function $tree_row(ctx, parent, anchor, owner, key, index, rowAt) {
   const start = $tree_mark(parent, anchor);
-  const adopting = $adopt.on;
+  const adopting = $adopt.ops !== null;
   const end = adopting ? $dom_marker(parent) : $tree_mark(parent, anchor);
   const rowOwner = $ui_under(owner, () => $ui_cell(3, undefined, null));
   $ui_under(rowOwner, () => {
     $tree_render(ctx, rowAt(ctx, [rowOwner], index), parent, end);
     return 0;
   });
-  if (adopting) $dom_insert(parent, end, $adopt_at(parent));
+  if (adopting) $dom_insert(parent, end, $adopt.ops.at(parent));
   return { key, start, end, owner: rowOwner };
 }
 
@@ -3823,10 +3825,9 @@ function $tree_move(parent, row, anchor) {
 // that is what keyed means, and it is what keeps the focus, the scroll
 // position and the computations inside a row alive across a reorder.
 function $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt) {
-  // A resume walks the document forwards, so the rows the server wrote are
-  // taken in the order they are in. There is nothing to move on that pass:
-  // every row is new to the page and already in place.
-  if ($adopt.on) {
+  // A resume walks forwards, so the rows the server wrote are taken in order.
+  // Nothing moves on that pass: every row is already where it belongs.
+  if ($adopt.ops !== null) {
     const adopted = [];
     for (let i = 0; i < keys.length; i++) {
       adopted.push($tree_row(ctx, parent, end, owner, keys[i], i, rowAt));
@@ -3859,7 +3860,7 @@ function $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt) {
 
 function $tree_each(ctx, parent, anchor, count, keyAt, rowAt) {
   const start = $tree_mark(parent, anchor);
-  let adopting = $adopt.on;
+  let adopting = $adopt.ops !== null;
   const end = adopting ? $dom_marker(parent) : $tree_mark(parent, anchor);
   // The rows hang off this rather than off the computation below, because that
   // computation re-runs and a row must survive it.
@@ -3883,7 +3884,7 @@ function $tree_each(ctx, parent, anchor, count, keyAt, rowAt) {
       rows = $tree_reconcile(ctx, parent, end, owner, rows, keys, rowAt);
       if (adopting) {
         adopting = false;
-        $dom_insert(parent, end, $adopt_at(parent));
+        $dom_insert(parent, end, $adopt.ops.at(parent));
       }
       return 0;
     }),
@@ -5490,7 +5491,7 @@ function $ui_web_resume(ctx, root) {
   // and every run of text is the one already there, and what the walk adds is
   // the listeners and the computations. Nothing is created and nothing is
   // removed, so the reader keeps looking at the markup that arrived.
-  $adopt.on = true;
+  $adopt.ops = { claim: $adopt_claim, at: $adopt_at, split: $adopt_split };
   $adopt.at = new Map();
   try {
     $tree_render(ctx, root, body, null);
@@ -5502,7 +5503,7 @@ function $ui_web_resume(ctx, root) {
     if (e === null || typeof e !== "object" || e.$resume === undefined) throw e;
     return $err(e.$resume);
   } finally {
-    $adopt.on = false;
+    $adopt.ops = null;
     $adopt.at = new Map();
   }
   return $ok(0);
