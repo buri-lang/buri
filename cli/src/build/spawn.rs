@@ -71,6 +71,11 @@ pub const FIXED_CLOCK_JS: &str = concat!(
     // `await` it, and `await 0` is `0`.
     "try{if(typeof $host_HostClock_sleepMillis===\"function\")",
     "$host_HostClock_sleepMillis=function(){return 0;};}catch(e){}\n",
+    // The other clock. It never goes backwards and it is not the wall clock,
+    // but it is still a reading that differs between two runs, so an action
+    // that stamps one would not reproduce. Frozen at zero like the rest.
+    "try{if(typeof $host_HostClock_monotonicNanoseconds===\"function\")",
+    "$host_HostClock_monotonicNanoseconds=function(){return 0n;};}catch(e){}\n",
     // The seed lives inside the closure rather than in a module-scope `var`.
     // This text is spliced *after* the generator has run, so the minifier never
     // sees it and cannot keep its own names away from one declared here — and
@@ -127,7 +132,13 @@ mod tests {
         // finding nothing and the clock running, which is exactly the silent
         // failure this names.
         for name in
-            ["Date.now", "$host_HostClock_nowMillis", "$host_HostClock_sleepMillis", "Math.random"]
+            [
+                "Date.now",
+                "$host_HostClock_nowMillis",
+                "$host_HostClock_sleepMillis",
+                "$host_HostClock_monotonicNanoseconds",
+                "Math.random",
+            ]
         {
             assert!(FIXED_CLOCK_JS.contains(name), "the fixed clock does not freeze {name}");
         }

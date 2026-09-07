@@ -27,12 +27,12 @@
 //! # Which packages are in the native set, and which are not
 //!
 //! [`PACKAGES`] is the list, with the reason beside each exclusion.
-//! **Fifty-six of the seventy-seven files are in it** — the number the harness
+//! **Fifty-eight of the eighty files are in it** — the number the harness
 //! prints, re-derived from it rather than incremented by hand, and one the
 //! prose has drifted from more than once. The ordinals in the paragraphs below
 //! record *when* a file joined the set and are not a running total of it;
-//! `data/characters.buri` and `data/unicode.buri` are the
-//! latest, and their own entry says why they are in.
+//! `crypto/sha512.buri`, `calendar/timestamps.buri` and `uuid/uuid.buri` are
+//! the latest, and their own entries say why they are in.
 //! `semantics/http.buri` is the
 //! thirty-first — `Request` and `Response`, which are two structs over a
 //! `[Header]` and a `[U8]` and reach nothing past `core/bytes`'s UTF-8 pair.
@@ -440,6 +440,17 @@ const PACKAGES: &[Case] = &[
     // `padStart`, and the test platform's clock — all of it surface this
     // backend already had, so the file was in from the day it was written.
     included("calendar/duration.buri"),
+    excluded(
+        "calendar/fractions.buri",
+        "a conversion from `F64` — `time.secondsFloat` turns a count of seconds \
+             into nanoseconds, which is the same gap that holds \
+             `numbers/conversions.buri` out. The rest of `Duration` is in \
+             `calendar/duration.buri` and reads on both backends",
+    ),
+    // RFC 3339, RFC 9110 dates and `Zoned`, on `calendar/date.buri`'s terms:
+    // integer calendar arithmetic and `core/str`, with the clock appearing
+    // nowhere. Every answer is a timestamp somebody else wrote down.
+    included("calendar/timestamps.buri"),
     included("collections/bitset.buri"),
     // It was the one file the backend compiled and got *wrong*, and
     // `a_wrong_answer_is_still_wrong` is what said so until the day three
@@ -639,6 +650,12 @@ const PACKAGES: &[Case] = &[
     // byte-pattern entries — are `cli/runtime/bytes.rs` now, which is the one
     // surface each of these two was waiting for.
     included("crypto/sha256.buri"),
+    // SHA-512, HMAC-SHA-512 and SHA-1, on `crypto/sha256.buri`'s terms exactly:
+    // ordinary Buri over wrapping arithmetic, two shifts standing in for a
+    // rotate, and tail recursion, with every answer a digest NIST published. The
+    // width is what it adds — `U64` arithmetic and a 128-byte block — and that
+    // is a claim about both backends rather than about one.
+    included("crypto/sha512.buri"),
     // `core/hash` — FNV-1a, CRC-32C and SipHash-2-4 against their published
     // vectors. Native on the same terms `crypto/sha256.buri` is: ordinary Buri
     // over U32 and U64 wrapping arithmetic, the two shifts and tail recursion,
@@ -686,6 +703,17 @@ const PACKAGES: &[Case] = &[
              whose *source* is a float, which is what holds \
              `numbers/conversions.buri` out. The rest of `core/simd` needs no \
              such conversion",
+    // `core/uuid`, over the two seeded doubles. Native on `crypto/entropy.buri`'s
+    // terms — `TestEntropy` and `TestClock` are both `cli/runtime/testing.rs`
+    // slots, so the identifiers this file writes down are the ones both backends
+    // mint — plus sixteen-element array literals and a derived `Hash` over a
+    // `[U8]`, neither of which needed anything new.
+    included("uuid/uuid.buri"),
+    excluded(
+        "uuid/hashing.buri",
+        "`deriveArrayHash` — `derive Hash for Uuid;` over a `[U8]` field, which \
+             the stencil backend has no body for. Everything else about \
+             `core/uuid` is in `uuid/uuid.buri` and is in the native set",
     ),
     included("text/bytes.buri"),
     // Hexadecimal across four modules — `character.fromDigit`, `num.toHex`,

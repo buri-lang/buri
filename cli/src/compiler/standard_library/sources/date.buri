@@ -252,6 +252,85 @@ impl Date {
     export fn addYears(self, n: Int): Date {
         self.addMonths(n * 12)
     }
+
+    /// How many *whole* months from `self` to `other`, negative if `other` is
+    /// earlier. The 31st of January to the 28th of February is zero months, not
+    /// one: the day of the month has not come round yet.
+    ///
+    /// That makes this the inverse of `addDays`-style counting rather than of
+    /// `addMonths`, which clamps — `d.addMonths(d.monthsUntil(other))` lands on
+    /// or before `other`, and on it whenever the day of the month exists in the
+    /// target.
+    export fn monthsUntil(self, other: Date): Int {
+        let raw = (other.year - self.year) * 12 + (other.month - self.month);
+        if (raw > 0 && other.day < self.day) {
+            raw - 1
+        } else if (raw < 0 && other.day > self.day) {
+            raw + 1
+        } else {
+            raw
+        }
+    }
+
+    /// Whole years, on the same rule: `monthsUntil` divided by twelve, rounding
+    /// toward zero. A birthday counts on the day, not the day before.
+    export fn yearsUntil(self, other: Date): Int {
+        self.monthsUntil(other) / 12
+    }
+
+    /// The first of this month.
+    export fn startOfMonth(self): Date {
+        Date { year: self.year, month: self.month, day: 1 }
+    }
+
+    /// The last day of this month — the 28th, 29th, 30th or 31st, whichever the
+    /// month and the year make it.
+    export fn endOfMonth(self): Date {
+        Date {
+            year: self.year,
+            month: self.month,
+            day: daysInMonth(self.year, self.month),
+        }
+    }
+}
+
+/// The ISO 8601 week-based year and the week number in it, from 1 to 53.
+///
+/// **The year is not always the calendar year.** A week belongs to the year its
+/// Thursday falls in, so the 1st of January 2027 is a Friday and lands in week
+/// 53 of 2026. That is the whole reason this answers a pair.
+///
+/// ```buri run
+/// from "core/date" import * as date;
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let newYear = date.date(2027, 1, 1).withDefault(date.fromDays(0));
+///     let (year, week) = date.isoWeek(newYear);
+///     let _ = io.println(ctx, "${year} week ${week}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// 2026 week 53
+/// ```
+export fn isoWeek(date: Date): (Int, Int) {
+    // The Thursday of this week decides the year, and the week is then just how
+    // far into that year the Thursday is.
+    let thursday = date.addDays(4 - isoWeekday(date));
+    (thursday.year, (dayOfYear(thursday) - 1) / 7 + 1)
+}
+
+/// Monday is 1 and Sunday is 7, which is the numbering ISO 8601 uses.
+fn isoWeekday(d: Date): Int {
+    num.remEuclid(toDays(d) + 3, 7) + 1
 }
 
 // -----------------------------------------------------------------------------
@@ -310,14 +389,21 @@ export fn formatDate<C: Alloc>(ctx: C, d: Date): Str {
     str.format(ctx, "${y}-${m}-${day}")
 }
 
+/// `13:45:00.000` — always with milliseconds, which is what `parseTime` reads
+/// back.
+export fn formatTime<C: Alloc>(ctx: C, time: Time): Str {
+    let h = pad(ctx, time.hour, 2);
+    let mi = pad(ctx, time.minute, 2);
+    let s = pad(ctx, time.second, 2);
+    let ms = pad(ctx, time.milli, 3);
+    str.format(ctx, "${h}:${mi}:${s}.${ms}")
+}
+
 /// `2026-08-15T13:45:00.000Z` — always UTC, always with milliseconds.
 export fn formatDateTime<C: Alloc>(ctx: C, dt: DateTime): Str {
     let d = formatDate(ctx, dt.date);
-    let h = pad(ctx, dt.time.hour, 2);
-    let mi = pad(ctx, dt.time.minute, 2);
-    let s = pad(ctx, dt.time.second, 2);
-    let ms = pad(ctx, dt.time.milli, 3);
-    str.format(ctx, "${d}T${h}:${mi}:${s}.${ms}Z")
+    let t = formatTime(ctx, dt.time);
+    str.format(ctx, "${d}T${t}Z")
 }
 
 fn pad<C: Alloc>(ctx: C, n: Int, width: Int): Str {
@@ -342,5 +428,461 @@ export fn parseDate<C: Alloc>(ctx: C, text: Str): Option<Date> {
             (.Some(yy), .Some(mm), .Some(dd)) => date(yy, mm, dd),
             _ => .None,
         }
+    }
+}
+
+/// Reads `HH:MM:SS`, with or without a fraction of a second.
+///
+/// Two digits for each of the three, and at least one digit after the point when
+/// there is one. Anything finer than a millisecond is dropped rather than
+/// rounded, so `.9999` is 999 milliseconds. A second of 60 is refused — a leap
+/// second is a real time of day that `Time` has nowhere to put.
+export fn parseTime<C: Alloc>(ctx: C, text: Str): Option<Time> {
+    match (text.splitOnce(".")) {
+        .Some(split) => {
+            let (clock, fraction) = split;
+            hourMinuteSecond(ctx, clock, milliOf(fraction))
+        },
+        .None => hourMinuteSecond(ctx, text, .Some(0)),
+    }
+}
+
+/// The milliseconds a fraction-of-a-second spells, truncated to three digits.
+/// `.None` for an empty fraction or one that is not all digits.
+fn milliOf(fraction: Str): Option<Int> {
+    if (fraction.isEmpty() || !allDigits(fraction, 0)) {
+        .None
+    } else {
+        let three = fraction.slice(0, 3);
+        let n = three.toInt().withDefault(0);
+        if (three.len() == 1) {
+            .Some(n * 100)
+        } else if (three.len() == 2) {
+            .Some(n * 10)
+        } else {
+            .Some(n)
+        }
+    }
+}
+
+fn hourMinuteSecond<C: Alloc>(ctx: C, clock: Str, milli: Option<Int>): Option<Time> {
+    let parts = clock.split(ctx, ":");
+    if (parts.len() != 3) {
+        .None
+    } else {
+        match ((twoDigits(parts.get(0)), twoDigits(parts.get(1)))) {
+            (.Some(h), .Some(m)) => {
+                match ((twoDigits(parts.get(2)), milli)) {
+                    (.Some(s), .Some(ms)) => time(h, m, s, ms),
+                    _ => .None,
+                }
+            },
+            _ => .None,
+        }
+    }
+}
+
+/// Exactly two digits, as a number. `9` and `009` are not `09`.
+fn twoDigits(part: Option<Str>): Option<Int> {
+    match (part) {
+        .None => .None,
+        .Some(text) => {
+            if (text.len() != 2 || !allDigits(text, 0)) { .None } else { text.toInt() }
+        },
+    }
+}
+
+fn allDigits(text: Str, i: Int): Bool {
+    match (text.charAt(i)) {
+        .None => true,
+        .Some(c) => c.isDigit() && allDigits(text, i + 1),
+    }
+}
+
+// -----------------------------------------------------------------------------
+// RFC 3339, and the offset a timestamp was written in
+// -----------------------------------------------------------------------------
+//
+// `parseZoned` keeps the offset the text carried; `parseDateTime` applies it and
+// answers UTC, so it inverts `formatDateTime` exactly. Both read the same
+// grammar.
+
+/// Reads RFC 3339 and answers the moment in UTC, so
+/// `parseDateTime(ctx, formatDateTime(ctx, dt))` is `.Some(dt)`.
+///
+/// `2026-08-15T13:45:00Z` and `2026-08-15T15:45:00+02:00` are the same moment
+/// and give the same answer. Keep the offset with `parseZoned` instead.
+///
+/// ```buri run
+/// from "core/date" import * as date;
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let text = match (date.parseDateTime(ctx, "2026-08-15T15:45:00+02:00")) {
+///         .Some(dt) => date.formatDateTime(ctx, dt),
+///         .None => "unreadable",
+///     };
+///     let _ = io.println(ctx, text).ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// 2026-08-15T13:45:00.000Z
+/// ```
+export fn parseDateTime<C: Alloc>(ctx: C, text: Str): Option<DateTime> {
+    parseZoned(ctx, text).map(fn(z) => fromInstant(zonedToInstant(z)))
+}
+
+/// Reads RFC 3339 and keeps the offset as written.
+///
+/// `Z` and `z` both mean UTC, and `T` and `t` both separate the halves. Strict
+/// about everything else: four digits of year, two of everything else, seconds
+/// present, and an offset present. A space in place of the `T` is refused — RFC
+/// 3339 admits it only by prior agreement, and there is none here.
+export fn parseZoned<C: Alloc>(ctx: C, text: Str): Option<Zoned> {
+    match (text.charAt(10)) {
+        .Some(c) => {
+            if (c != 'T' && c != 't') {
+                .None
+            } else {
+                match (parseDate(ctx, text.slice(0, 10))) {
+                    .Some(d) => timeAndOffset(ctx, d, text.slice(11, text.len())),
+                    .None => .None,
+                }
+            }
+        },
+        .None => .None,
+    }
+}
+
+/// Everything after the `T`: the time of day, then `Z` or `+HH:MM`.
+fn timeAndOffset<C: Alloc>(ctx: C, d: Date, rest: Str): Option<Zoned> {
+    let n = rest.len();
+    let zulu = match (rest.charAt(n - 1)) {
+        .Some(c) => c == 'Z' || c == 'z',
+        .None => false,
+    };
+    if (zulu) {
+        parseTime(ctx, rest.slice(0, n - 1)).map(fn(t) => at(d, t, 0))
+    } else if (n < 6) {
+        .None
+    } else {
+        let sign: Option<Int> = match (rest.charAt(n - 6)) {
+            .Some(c) => {
+                if (c == '+') {
+                    .Some(1)
+                } else if (c == '-') {
+                    .Some(-1)
+                } else {
+                    .None
+                }
+            },
+            .None => .None,
+        };
+        match ((sign, offsetOf(ctx, rest.slice(n - 5, n)))) {
+            (.Some(s), .Some(minutes)) => {
+                parseTime(ctx, rest.slice(0, n - 6)).map(fn(t) => at(d, t, s * minutes))
+            },
+            _ => .None,
+        }
+    }
+}
+
+fn at(d: Date, t: Time, offsetMinutes: Int): Zoned {
+    Zoned { at: DateTime { date: d, time: t }, offsetMinutes: offsetMinutes }
+}
+
+/// `HH:MM` as minutes. Refuses an hour past 23 or a minute past 59, so `+99:99`
+/// is not an offset.
+fn offsetOf<C: Alloc>(ctx: C, text: Str): Option<Int> {
+    let parts = text.split(ctx, ":");
+    if (parts.len() != 2) {
+        .None
+    } else {
+        match ((twoDigits(parts.get(0)), twoDigits(parts.get(1)))) {
+            (.Some(h), .Some(m)) => {
+                if (h > 23 || m > 59) { .None } else { .Some(h * 60 + m) }
+            },
+            _ => .None,
+        }
+    }
+}
+
+/// The moment, read in an offset. `zoned(instant, -300)` is that moment as
+/// UTC-05:00 writes it.
+export fn zoned(instant: Instant, offsetMinutes: Int): Zoned {
+    Zoned {
+        at: fromInstant(Instant(instant.0 + offsetMinutes * MILLIS_PER_MINUTE)),
+        offsetMinutes: offsetMinutes,
+    }
+}
+
+/// Back to the moment: the civil time, less its offset.
+export fn zonedToInstant(zoned: Zoned): Instant {
+    Instant(toInstant(zoned.at).0 - zoned.offsetMinutes * MILLIS_PER_MINUTE)
+}
+
+/// `2026-08-15T13:45:00.000+02:00`, and `Z` for an offset of zero — which makes
+/// it read exactly as `formatDateTime` writes the same moment.
+export fn formatZoned<C: Alloc>(ctx: C, zoned: Zoned): Str {
+    let d = formatDate(ctx, zoned.at.date);
+    let t = formatTime(ctx, zoned.at.time);
+    let o = offsetText(ctx, zoned.offsetMinutes);
+    str.format(ctx, "${d}T${t}${o}")
+}
+
+fn offsetText<C: Alloc>(ctx: C, offsetMinutes: Int): Str {
+    if (offsetMinutes == 0) {
+        "Z"
+    } else {
+        let sign = if (offsetMinutes < 0) { "-" } else { "+" };
+        let total = if (offsetMinutes < 0) { -offsetMinutes } else { offsetMinutes };
+        let h = pad(ctx, total / 60, 2);
+        let m = pad(ctx, total % 60, 2);
+        str.format(ctx, "${sign}${h}:${m}")
+    }
+}
+
+// -----------------------------------------------------------------------------
+// HTTP dates
+// -----------------------------------------------------------------------------
+//
+// RFC 9110 §5.6.7. A sender writes IMF-fixdate and nothing else; a recipient has
+// to accept two obsolete spellings as well, so `parseHttpDate` reads all three
+// and `formatHttpDate` writes one.
+
+/// `Sun, 06 Nov 1994 08:49:37 GMT` — the IMF-fixdate a `Date`, `Expires` or
+/// `Last-Modified` header carries.
+///
+/// Always GMT, always these English abbreviations, always this width.
+/// Milliseconds go: the format has nowhere to put them.
+///
+/// ```buri run
+/// from "core/date" import * as date;
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+/// from "core/time" import { Instant };
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let moment = date.fromInstant(Instant(784_111_777_000));
+///     let _ = io.println(ctx, date.formatHttpDate(ctx, moment)).ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// Sun, 06 Nov 1994 08:49:37 GMT
+/// ```
+export fn formatHttpDate<C: Alloc>(ctx: C, dateTime: DateTime): Str {
+    let day = pad(ctx, dateTime.date.day, 2);
+    let year = pad(ctx, dateTime.date.year, 4);
+    let h = pad(ctx, dateTime.time.hour, 2);
+    let mi = pad(ctx, dateTime.time.minute, 2);
+    let s = pad(ctx, dateTime.time.second, 2);
+    let name = weekdayName(dateTime.date);
+    let month = monthName(dateTime.date.month);
+    str.format(ctx, "${name}, ${day} ${month} ${year} ${h}:${mi}:${s} GMT")
+}
+
+/// Reads all three spellings RFC 9110 makes a recipient accept: IMF-fixdate,
+/// the obsolete RFC 850 form, and asctime.
+///
+/// ```text
+/// Sun, 06 Nov 1994 08:49:37 GMT
+/// Sunday, 06-Nov-94 08:49:37 GMT
+/// Sun Nov  6 08:49:37 1994
+/// ```
+///
+/// The weekday is not checked against the date — RFC 9110 calls it redundant,
+/// and a header whose two halves disagree is still a date. Everything is UTC.
+///
+/// **A two-digit year reads 00-68 as 2000-2068 and 69-99 as 1969-1999.** RFC
+/// 9110 asks for "more than fifty years in the future" measured against now, and
+/// now is a clock reading this cannot take.
+export fn parseHttpDate<C: Alloc>(ctx: C, text: Str): Option<DateTime> {
+    let fields = text.trim().splitAny(ctx, " ").filter(ctx, fn(f) => !f.isEmpty());
+    if (fields.len() == 6) {
+        imfFixdate(ctx, fields)
+    } else if (fields.len() == 4) {
+        rfc850(ctx, fields)
+    } else if (fields.len() == 5) {
+        asctime(ctx, fields)
+    } else {
+        .None
+    }
+}
+
+/// `Sun, 06 Nov 1994 08:49:37 GMT`.
+fn imfFixdate<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
+    if (!endsGmt(fields, 5) || !isDayComma(fields.get(0))) {
+        .None
+    } else {
+        let day = twoDigits(fields.get(1));
+        let month = fields.get(2).andThen(fn(name) => monthNumber(name));
+        let year = fields.get(3).andThen(fn(text) => fourDigits(text));
+        civil(ctx, year, month, day, fields.get(4))
+    }
+}
+
+/// `Sunday, 06-Nov-94 08:49:37 GMT`.
+fn rfc850<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
+    let parts = fields.get(1).withDefault("").split(ctx, "-");
+    if (!endsGmt(fields, 3) || !isDayComma(fields.get(0)) || parts.len() != 3) {
+        .None
+    } else {
+        let day = twoDigits(parts.get(0));
+        let month = parts.get(1).andThen(fn(name) => monthNumber(name));
+        let year = twoDigits(parts.get(2)).map(fn(y) => {
+            if (y < 69) { 2000 + y } else { 1900 + y }
+        });
+        civil(ctx, year, month, day, fields.get(2))
+    }
+}
+
+/// `Sun Nov  6 08:49:37 1994`. The day is one or two digits and there is no
+/// `GMT` on the end — asctime has no timezone at all, and RFC 9110 reads it as
+/// UTC.
+fn asctime<C: Alloc>(ctx: C, fields: [Str]): Option<DateTime> {
+    let month = fields.get(1).andThen(fn(name) => monthNumber(name));
+    let day = fields
+        .get(2)
+        .andThen(fn(text) => {
+            if (text.isEmpty() || text.len() > 2 || !allDigits(text, 0)) {
+                .None
+            } else {
+                text.toInt()
+            }
+        });
+    let year = fields.get(4).andThen(fn(text) => fourDigits(text));
+    civil(ctx, year, month, day, fields.get(3))
+}
+
+/// The three numbers and the clock, if every one of them is there.
+fn civil<C: Alloc>(
+    ctx: C,
+    year: Option<Int>,
+    month: Option<Int>,
+    day: Option<Int>,
+    clock: Option<Str>,
+): Option<DateTime> {
+    match ((year, month)) {
+        (.Some(y), .Some(m)) => {
+            match ((day, clock)) {
+                (.Some(d), .Some(text)) => {
+                    match (date(y, m, d)) {
+                        .Some(theDate) => {
+                            parseTime(ctx, text).map(fn(t) => {
+                                DateTime { date: theDate, time: t }
+                            })
+                        },
+                        .None => .None,
+                    }
+                },
+                _ => .None,
+            }
+        },
+        _ => .None,
+    }
+}
+
+fn endsGmt(fields: [Str], index: Int): Bool {
+    fields.get(index).withDefault("") == "GMT"
+}
+
+/// A weekday name with the comma RFC 9110's two dated forms put after it. The
+/// name itself is not checked: the standard calls it redundant with the date.
+fn isDayComma(field: Option<Str>): Bool {
+    match (field) {
+        .Some(text) => text.endsWith(",") && text.len() > 3,
+        .None => false,
+    }
+}
+
+fn fourDigits(text: Str): Option<Int> {
+    if (text.len() != 4 || !allDigits(text, 0)) { .None } else { text.toInt() }
+}
+
+/// `Mon` .. `Sun`, in English and never localised — the abbreviations RFC 9110
+/// fixes.
+fn weekdayName(d: Date): Str {
+    match (weekday(d)) {
+        .Monday => "Mon",
+        .Tuesday => "Tue",
+        .Wednesday => "Wed",
+        .Thursday => "Thu",
+        .Friday => "Fri",
+        .Saturday => "Sat",
+        .Sunday => "Sun",
+    }
+}
+
+fn monthName(month: Int): Str {
+    if (month == 1) {
+        "Jan"
+    } else if (month == 2) {
+        "Feb"
+    } else if (month == 3) {
+        "Mar"
+    } else if (month == 4) {
+        "Apr"
+    } else if (month == 5) {
+        "May"
+    } else if (month == 6) {
+        "Jun"
+    } else if (month == 7) {
+        "Jul"
+    } else if (month == 8) {
+        "Aug"
+    } else if (month == 9) {
+        "Sep"
+    } else if (month == 10) {
+        "Oct"
+    } else if (month == 11) {
+        "Nov"
+    } else {
+        "Dec"
+    }
+}
+
+/// The inverse, and case-sensitive: RFC 9110's grammar writes exactly these.
+fn monthNumber(name: Str): Option<Int> {
+    if (name == "Jan") {
+        .Some(1)
+    } else if (name == "Feb") {
+        .Some(2)
+    } else if (name == "Mar") {
+        .Some(3)
+    } else if (name == "Apr") {
+        .Some(4)
+    } else if (name == "May") {
+        .Some(5)
+    } else if (name == "Jun") {
+        .Some(6)
+    } else if (name == "Jul") {
+        .Some(7)
+    } else if (name == "Aug") {
+        .Some(8)
+    } else if (name == "Sep") {
+        .Some(9)
+    } else if (name == "Oct") {
+        .Some(10)
+    } else if (name == "Nov") {
+        .Some(11)
+    } else if (name == "Dec") {
+        .Some(12)
+    } else {
+        .None
     }
 }

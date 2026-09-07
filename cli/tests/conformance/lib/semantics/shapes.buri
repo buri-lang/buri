@@ -935,6 +935,12 @@ impl Clock for FrozenClock {
     fn sleepMillis(self, millis: Int): () {
         ()
     }
+
+    /// Frozen too, and at the same reading: a clock that does not move measures
+    /// no elapsed time.
+    fn monotonicNanoseconds(self): I64 {
+        self.at
+    }
 }
 
 /// An environment that answers every lookup with the same value.
@@ -1512,6 +1518,10 @@ impl<C: Clock> Clock for Ticking<C> {
 
     fn sleepMillis(self, millis: Int): () {
         self.inner.sleepMillis(millis)
+    }
+
+    fn monotonicNanoseconds(self): I64 {
+        self.inner.monotonicNanoseconds()
     }
 }
 

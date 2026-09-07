@@ -1,7 +1,8 @@
 //! core/crypto — hashing in Buri, and randomness from the platform.
 //!
-//! SHA-256 and HMAC-SHA-256, written in the language rather than handed to the
-//! platform, and checked against the NIST vectors.
+//! SHA-256, SHA-512 and their HMACs, written in the language rather than handed
+//! to the platform, and checked against the NIST vectors. SHA-1 is here too, for
+//! reading formats that already use it — see its own note.
 //!
 //! # Randomness that cannot be guessed
 //!
@@ -81,7 +82,9 @@ from "core/effect" import { Alloc, Entropy };
 from "core/list" import * as list;
 
 derive Eq, Show for Digest;
-/// A 32-byte digest.
+/// A digest, as many bytes as the function that made it: 32 from SHA-256, 64
+/// from SHA-512, 20 from SHA-1. The type does not say which, so compare two
+/// digests only when the same function made both.
 export struct Digest(export [U8]);
 
 impl Digest {
@@ -338,6 +341,404 @@ export fn sha256Text<C: Alloc>(ctx: C, text: Str): Digest {
     sha256(ctx, bytes.toUtf8(ctx, text))
 }
 
+// --- SHA-512 ------------------------------------------------------------------
+//
+// The same shape one width up: 64-bit words, 128-byte blocks, eighty rounds, and
+// a 128-bit length in the padding. Only the constants and the rotation amounts
+// differ, so read `sha256` above first — this is that algorithm with `U64` in
+// place of `U32`.
+
+/// The initial state at 64 bits: the fractional parts of the square roots of
+/// the first eight primes.
+fn initialState512<C: Alloc>(ctx: C): [U64] {
+    let seed: [U64] = [
+        0x6a09e667f3bcc908,
+        0xbb67ae8584caa73b,
+        0x3c6ef372fe94f82b,
+        0xa54ff53a5f1d36f1,
+        0x510e527fade682d1,
+        0x9b05688c2b3e6c1f,
+        0x1f83d9abfb41bd6b,
+        0x5be0cd19137e2179,
+    ];
+    seed.map(ctx, fn(x) => x)
+}
+
+/// The eighty round constants: the fractional parts of the cube roots of the
+/// first eighty primes.
+fn roundConstants512<C: Alloc>(ctx: C): [U64] {
+    let k: [U64] = [
+        0x428a2f98d728ae22,
+        0x7137449123ef65cd,
+        0xb5c0fbcfec4d3b2f,
+        0xe9b5dba58189dbbc,
+        0x3956c25bf348b538,
+        0x59f111f1b605d019,
+        0x923f82a4af194f9b,
+        0xab1c5ed5da6d8118,
+        0xd807aa98a3030242,
+        0x12835b0145706fbe,
+        0x243185be4ee4b28c,
+        0x550c7dc3d5ffb4e2,
+        0x72be5d74f27b896f,
+        0x80deb1fe3b1696b1,
+        0x9bdc06a725c71235,
+        0xc19bf174cf692694,
+        0xe49b69c19ef14ad2,
+        0xefbe4786384f25e3,
+        0x0fc19dc68b8cd5b5,
+        0x240ca1cc77ac9c65,
+        0x2de92c6f592b0275,
+        0x4a7484aa6ea6e483,
+        0x5cb0a9dcbd41fbd4,
+        0x76f988da831153b5,
+        0x983e5152ee66dfab,
+        0xa831c66d2db43210,
+        0xb00327c898fb213f,
+        0xbf597fc7beef0ee4,
+        0xc6e00bf33da88fc2,
+        0xd5a79147930aa725,
+        0x06ca6351e003826f,
+        0x142929670a0e6e70,
+        0x27b70a8546d22ffc,
+        0x2e1b21385c26c926,
+        0x4d2c6dfc5ac42aed,
+        0x53380d139d95b3df,
+        0x650a73548baf63de,
+        0x766a0abb3c77b2a8,
+        0x81c2c92e47edaee6,
+        0x92722c851482353b,
+        0xa2bfe8a14cf10364,
+        0xa81a664bbc423001,
+        0xc24b8b70d0f89791,
+        0xc76c51a30654be30,
+        0xd192e819d6ef5218,
+        0xd69906245565a910,
+        0xf40e35855771202a,
+        0x106aa07032bbd1b8,
+        0x19a4c116b8d2d0c8,
+        0x1e376c085141ab53,
+        0x2748774cdf8eeb99,
+        0x34b0bcb5e19b48a8,
+        0x391c0cb3c5c95a63,
+        0x4ed8aa4ae3418acb,
+        0x5b9cca4f7763e373,
+        0x682e6ff3d6b2b8a3,
+        0x748f82ee5defb2fc,
+        0x78a5636f43172f60,
+        0x84c87814a1f0ab72,
+        0x8cc702081a6439ec,
+        0x90befffa23631e28,
+        0xa4506cebde82bde9,
+        0xbef9a3f7b2c67915,
+        0xc67178f2e372532b,
+        0xca273eceea26619c,
+        0xd186b8c721c0c207,
+        0xeada7dd6cde0eb1e,
+        0xf57d4f7fee6ed178,
+        0x06f067aa72176fba,
+        0x0a637dc5a2c898a6,
+        0x113f9804bef90dae,
+        0x1b710b35131c471b,
+        0x28db77f523047d84,
+        0x32caab7b40c72493,
+        0x3c9ebe0a15c9bebc,
+        0x431d67c49c100d4c,
+        0x4cc5d4becb3e42b6,
+        0x597f299cfc657e2a,
+        0x5fcb6fab3ad6faec,
+        0x6c44198c4a475817,
+    ];
+    k.map(ctx, fn(x) => x)
+}
+
+/// Rotate right, within 64 bits: the two shifts, or-ed, as `rotr` is at 32.
+fn rotr64(x: U64, n: Int): U64 {
+    bits.shrU64(x, n) | bits.shlU64(x, 64 - n)
+}
+
+/// The message padded to a multiple of 128 bytes. The length goes in as a
+/// 128-bit big-endian number whose top eight bytes are always zero — no message
+/// this can hash is 2^64 bits long.
+fn pad512<C: Alloc>(ctx: C, message: [U8]): [U8] {
+    let n = message.len();
+    let bitLength = n * 8;
+    let zeros = (111 - n % 128 + 128) % 128;
+    let lengthBytes = list
+        .range(ctx, 0, 8)
+        .map(ctx, fn(i) => bits.shr(bitLength, (7 - i) * 8).wrapToU8());
+    message
+        .push(ctx, 128)
+        .concat(ctx, list.repeat(ctx, 0, zeros + 8))
+        .concat(ctx, lengthBytes)
+}
+
+/// The eighty-entry message schedule for one 128-byte block.
+fn schedule512<C: Alloc>(ctx: C, block: [U8]): [U64] {
+    let first = list
+        .range(ctx, 0, 16)
+        .map(ctx, fn(i) => bytes.toU64Be(block, i * 8).withDefault(0));
+    extend512(ctx, first, 16)
+}
+
+/// Rounds 16 to 79, each from four earlier words. Tail-recursive.
+fn extend512<C: Alloc>(ctx: C, w: [U64], i: Int): [U64] {
+    if (i >= 80) {
+        w
+    } else {
+        let a = w.get(i - 15).withDefault(0);
+        let b = w.get(i - 2).withDefault(0);
+        let s0 = rotr64(a, 1) ^ rotr64(a, 8) ^ bits.shrU64(a, 7);
+        let s1 = rotr64(b, 19) ^ rotr64(b, 61) ^ bits.shrU64(b, 6);
+        let next = w
+            .get(i - 16)
+            .withDefault(0)
+            .wrappingAdd(s0)
+            .wrappingAdd(w.get(i - 7).withDefault(0))
+            .wrappingAdd(s1);
+        extend512(ctx, w.push(ctx, next), i + 1)
+    }
+}
+
+/// The eight working variables at 64 bits, so a round is one value in and one
+/// value out.
+struct Working512 {
+    a: U64,
+    b: U64,
+    c: U64,
+    d: U64,
+    e: U64,
+    f: U64,
+    g: U64,
+    h: U64,
+}
+
+fn compress512<C: Alloc>(ctx: C, state: [U64], block: [U8]): [U64] {
+    let w = schedule512(ctx, block);
+    let k = roundConstants512(ctx);
+    let start = Working512 {
+        a: state.get(0).withDefault(0),
+        b: state.get(1).withDefault(0),
+        c: state.get(2).withDefault(0),
+        d: state.get(3).withDefault(0),
+        e: state.get(4).withDefault(0),
+        f: state.get(5).withDefault(0),
+        g: state.get(6).withDefault(0),
+        h: state.get(7).withDefault(0),
+    };
+    let end = rounds512(start, w, k, 0);
+    [
+        state.get(0).withDefault(0).wrappingAdd(end.a),
+        state.get(1).withDefault(0).wrappingAdd(end.b),
+        state.get(2).withDefault(0).wrappingAdd(end.c),
+        state.get(3).withDefault(0).wrappingAdd(end.d),
+        state.get(4).withDefault(0).wrappingAdd(end.e),
+        state.get(5).withDefault(0).wrappingAdd(end.f),
+        state.get(6).withDefault(0).wrappingAdd(end.g),
+        state.get(7).withDefault(0).wrappingAdd(end.h),
+    ]
+}
+
+/// Eighty rounds. Pure and tail-recursive, and nothing here allocates.
+fn rounds512(v: Working512, w: [U64], k: [U64], i: Int): Working512 {
+    if (i >= 80) {
+        v
+    } else {
+        let s1 = rotr64(v.e, 14) ^ rotr64(v.e, 18) ^ rotr64(v.e, 41);
+        let ch = v.e & v.f ^ ~v.e & v.g;
+        let temp1 = v
+            .h
+            .wrappingAdd(s1)
+            .wrappingAdd(ch)
+            .wrappingAdd(k.get(i).withDefault(0))
+            .wrappingAdd(w.get(i).withDefault(0));
+        let s0 = rotr64(v.a, 28) ^ rotr64(v.a, 34) ^ rotr64(v.a, 39);
+        let maj = v.a & v.b ^ v.a & v.c ^ v.b & v.c;
+        let temp2 = s0.wrappingAdd(maj);
+        rounds512(
+            Working512 {
+                a: temp1.wrappingAdd(temp2),
+                b: v.a,
+                c: v.b,
+                d: v.c,
+                e: v.d.wrappingAdd(temp1),
+                f: v.e,
+                g: v.f,
+                h: v.g,
+            },
+            w,
+            k,
+            i + 1,
+        )
+    }
+}
+
+fn blocks512<C: Alloc>(ctx: C, padded: [U8], state: [U64], i: Int): [U64] {
+    if (i >= padded.len()) {
+        state
+    } else {
+        blocks512(
+            ctx,
+            padded,
+            compress512(ctx, state, padded.slice(ctx, i, i + 128)),
+            i + 128,
+        )
+    }
+}
+
+/// The SHA-512 digest of a byte string — sixty-four bytes.
+///
+/// ```buri run
+/// from "core/bytes" import * as bytes;
+/// from "core/crypto" import * as crypto;
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let d = crypto.sha512(ctx, bytes.toUtf8(ctx, "abc"));
+///     let _ = io.println(ctx, "${d.0.len()} ${d.toHex(ctx).slice(0, 16)}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// 64 ddaf35a193617aba
+/// ```
+export fn sha512<C: Alloc>(ctx: C, message: [U8]): Digest {
+    let state = blocks512(ctx, pad512(ctx, message), initialState512(ctx), 0);
+    Digest(state.map(ctx, fn(word) => bytes.fromU64Be(word)).flatten(ctx))
+}
+
+/// The SHA-512 digest of a string's UTF-8 encoding.
+export fn sha512Text<C: Alloc>(ctx: C, text: Str): Digest {
+    sha512(ctx, bytes.toUtf8(ctx, text))
+}
+
+// --- SHA-1 --------------------------------------------------------------------
+
+/// The initial state, which SHA-1 writes down rather than derives.
+fn initialState1<C: Alloc>(ctx: C): [U32] {
+    let seed: [U32] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0];
+    seed.map(ctx, fn(x) => x)
+}
+
+/// Rotate left, within 32 bits.
+fn rotl32(x: U32, n: Int): U32 {
+    bits.shlU32(x, n) | bits.shrU32(x, 32 - n)
+}
+
+/// The eighty-entry schedule. Every word past the first sixteen is four earlier
+/// ones xor-ed and turned by one bit.
+fn schedule1<C: Alloc>(ctx: C, block: [U8]): [U32] {
+    let first = list
+        .range(ctx, 0, 16)
+        .map(ctx, fn(i) => bytes.toU32Be(block, i * 4).withDefault(0));
+    extend1(ctx, first, 16)
+}
+
+fn extend1<C: Alloc>(ctx: C, w: [U32], i: Int): [U32] {
+    if (i >= 80) {
+        w
+    } else {
+        let x = w.get(i - 3).withDefault(0)
+            ^ w.get(i - 8).withDefault(0)
+            ^ w.get(i - 14).withDefault(0)
+            ^ w.get(i - 16).withDefault(0);
+        extend1(ctx, w.push(ctx, rotl32(x, 1)), i + 1)
+    }
+}
+
+/// SHA-1's five working variables.
+struct Working1 {
+    a: U32,
+    b: U32,
+    c: U32,
+    d: U32,
+    e: U32,
+}
+
+fn rounds1(v: Working1, w: [U32], i: Int): Working1 {
+    if (i >= 80) {
+        v
+    } else {
+        let mixed = if (i < 20) {
+            v.b & v.c ^ ~v.b & v.d
+        } else if (i < 40 || i >= 60) {
+            v.b ^ v.c ^ v.d
+        } else {
+            v.b & v.c ^ v.b & v.d ^ v.c & v.d
+        };
+        let k: U32 = if (i < 20) {
+            0x5a827999
+        } else if (i < 40) {
+            0x6ed9eba1
+        } else if (i < 60) {
+            0x8f1bbcdc
+        } else {
+            0xca62c1d6
+        };
+        let temp = rotl32(v.a, 5)
+            .wrappingAdd(mixed)
+            .wrappingAdd(v.e)
+            .wrappingAdd(k)
+            .wrappingAdd(w.get(i).withDefault(0));
+        rounds1(
+            Working1 { a: temp, b: v.a, c: rotl32(v.b, 30), d: v.c, e: v.d },
+            w,
+            i + 1,
+        )
+    }
+}
+
+fn compress1<C: Alloc>(ctx: C, state: [U32], block: [U8]): [U32] {
+    let w = schedule1(ctx, block);
+    let start = Working1 {
+        a: state.get(0).withDefault(0),
+        b: state.get(1).withDefault(0),
+        c: state.get(2).withDefault(0),
+        d: state.get(3).withDefault(0),
+        e: state.get(4).withDefault(0),
+    };
+    let end = rounds1(start, w, 0);
+    [
+        state.get(0).withDefault(0).wrappingAdd(end.a),
+        state.get(1).withDefault(0).wrappingAdd(end.b),
+        state.get(2).withDefault(0).wrappingAdd(end.c),
+        state.get(3).withDefault(0).wrappingAdd(end.d),
+        state.get(4).withDefault(0).wrappingAdd(end.e),
+    ]
+}
+
+fn blocks1<C: Alloc>(ctx: C, padded: [U8], state: [U32], i: Int): [U32] {
+    if (i >= padded.len()) {
+        state
+    } else {
+        blocks1(
+            ctx,
+            padded,
+            compress1(ctx, state, padded.slice(ctx, i, i + 64)),
+            i + 64,
+        )
+    }
+}
+
+/// The SHA-1 digest of a byte string — twenty bytes.
+///
+/// **Legacy interop only.** SHA-1 is broken for collisions: a chosen-prefix
+/// collision has been published, and anything that trusts two different inputs
+/// to have two different digests can be forged. Use it to read what already
+/// exists — a git object id, an S3 ETag, an old signature — and never to protect
+/// something new. `sha256` is the one to reach for.
+export fn sha1<C: Alloc>(ctx: C, message: [U8]): Digest {
+    let state = blocks1(ctx, pad(ctx, message), initialState1(ctx), 0);
+    Digest(state.map(ctx, fn(word) => bytes.fromU32Be(word)).flatten(ctx))
+}
+
 // --- HMAC ---------------------------------------------------------------------
 
 let BLOCK: Int = 64;
@@ -353,6 +754,22 @@ export fn hmacSha256<C: Alloc>(ctx: C, key: [U8], message: [U8]): Digest {
     let outer = padded.map(ctx, fn(b) => (b.toI64() ^ 92).wrapToU8());
     let innerDigest = sha256(ctx, inner.concat(ctx, message));
     sha256(ctx, outer.concat(ctx, innerDigest.0))
+}
+
+let BLOCK_512: Int = 128;
+
+/// HMAC-SHA-512, per RFC 2104. SHA-512's block is 128 bytes rather than 64, and
+/// that is the only difference from `hmacSha256`.
+export fn hmacSha512<C: Alloc>(ctx: C, key: [U8], message: [U8]): Digest {
+    let shortened = if (key.len() > BLOCK_512) { sha512(ctx, key).0 } else { key };
+    let padded = shortened.concat(
+        ctx,
+        list.repeat(ctx, 0, BLOCK_512 - shortened.len()),
+    );
+    let inner = padded.map(ctx, fn(b) => (b.toI64() ^ 54).wrapToU8());
+    let outer = padded.map(ctx, fn(b) => (b.toI64() ^ 92).wrapToU8());
+    let innerDigest = sha512(ctx, inner.concat(ctx, message));
+    sha512(ctx, outer.concat(ctx, innerDigest.0))
 }
 
 // --- Randomness ------------------------------------------------------------------

@@ -1,0 +1,248 @@
+//! core/uuid — a 128-bit identifier, as a type.
+//!
+//! Sixteen octets with two fields fixed by RFC 9562: a version nibble and two
+//! variant bits. Everything else is whatever made it.
+//!
+//! **A `Str` is not a `Uuid`.** `crypto.token` answers hex, and hex proves
+//! nothing about length, version or shape. A `Uuid` is proof the octets are well
+//! formed, `parse` is the only way in from text, and `text` is the way back out.
+//!
+//! Two of them to reach for:
+//!
+//! - **`version4`** is sixteen random octets. Nothing about it is ordered, and
+//!   as a database key it scatters writes across the whole index.
+//! - **`version7`** puts forty-eight bits of Unix milliseconds at the front, so
+//!   two of them sort in the order they were made. That is what a primary key
+//!   wants, and it is why RFC 9562 added the version.
+//!
+//! **Neither is a secret.** A version 7 identifier says when it was minted, to
+//! the millisecond, and a version 4 one is only as unguessable as `Entropy` is.
+//! A bearer token is `crypto.token`.
+//!
+//! ```buri run
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//! from "core/uuid" import * as uuid;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let read = uuid.parse("550e8400-e29b-41d4-a716-446655440000");
+//!     let text = match (read) {
+//!         .Some(id) => id.text(ctx),
+//!         .None => "unreadable",
+//!     };
+//!     let _ = io.println(ctx, "${text} ${uuid.zero().text(ctx)}").ignore();
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! 550e8400-e29b-41d4-a716-446655440000 00000000-0000-0000-0000-000000000000
+//! ```
+
+from "core/bits" import * as bits;
+from "core/bytes" import * as bytes;
+from "core/crypto" import * as crypto;
+from "core/effect" import { Alloc, Clock, Entropy };
+from "core/order" import { Eq, Hash, Ord, Show };
+from "core/str" import * as str;
+from "core/time" import * as time;
+
+derive Eq, Ord, Hash for Uuid;
+/// Sixteen octets, in the order they are written down.
+///
+/// The field is exported so a wire format can take the octets straight, and
+/// `fromBytes` is the way back — sixteen of them or nothing.
+export struct Uuid(export [U8]);
+
+/// A version 4 identifier: sixteen octets from the platform's cryptographic
+/// generator, with the version and variant fields overwritten.
+///
+/// That leaves 122 random bits. Use it where nothing needs ordering.
+export fn version4<C: Alloc + Entropy>(ctx: C): Uuid {
+    stamped(crypto.randomBytes(ctx, 16), 4)
+}
+
+/// A version 7 identifier: forty-eight bits of Unix milliseconds, then the
+/// version and variant fields, then randomness.
+///
+/// Two made in different milliseconds sort in the order they were made, by
+/// their octets and by their text both — which is what makes this the one to
+/// use as a database key. Two made in the same millisecond sort at random.
+///
+/// The timestamp is readable by anyone holding the identifier. Do not use one
+/// where when it was made is a secret.
+export fn version7<C: Alloc + Clock + Entropy>(ctx: C): Uuid {
+    let millis = time.now(ctx).0;
+    let raw = crypto.randomBytes(ctx, 16);
+    stamped(
+        [
+            bits.shr(millis, 40).wrapToU8(),
+            bits.shr(millis, 32).wrapToU8(),
+            bits.shr(millis, 24).wrapToU8(),
+            bits.shr(millis, 16).wrapToU8(),
+            bits.shr(millis, 8).wrapToU8(),
+            millis.wrapToU8(),
+            octetOf(raw, 6),
+            octetOf(raw, 7),
+            octetOf(raw, 8),
+            octetOf(raw, 9),
+            octetOf(raw, 10),
+            octetOf(raw, 11),
+            octetOf(raw, 12),
+            octetOf(raw, 13),
+            octetOf(raw, 14),
+            octetOf(raw, 15),
+        ],
+        7,
+    )
+}
+
+/// The two fields RFC 9562 fixes, written over whatever was there: the version
+/// in the high nibble of octet 6, and `10` in the top two bits of octet 8.
+///
+/// Pure: a sixteen-element array literal allocates nothing a context has to
+/// grant, which is why nothing here takes one.
+fn stamped(raw: [U8], version: Int): Uuid {
+    Uuid([
+        octetOf(raw, 0),
+        octetOf(raw, 1),
+        octetOf(raw, 2),
+        octetOf(raw, 3),
+        octetOf(raw, 4),
+        octetOf(raw, 5),
+        (octetOf(raw, 6).toI64() % 16 + version * 16).wrapToU8(),
+        octetOf(raw, 7),
+        (octetOf(raw, 8).toI64() % 64 + 128).wrapToU8(),
+        octetOf(raw, 9),
+        octetOf(raw, 10),
+        octetOf(raw, 11),
+        octetOf(raw, 12),
+        octetOf(raw, 13),
+        octetOf(raw, 14),
+        octetOf(raw, 15),
+    ])
+}
+
+fn octetOf(raw: [U8], i: Int): U8 {
+    raw.get(i).withDefault(0)
+}
+
+/// The all-zero identifier, which RFC 9562 calls nil. It has no version and no
+/// variant, and no generator will ever make it.
+export fn zero(): Uuid {
+    Uuid([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+}
+
+/// Sixteen octets as an identifier, or `.None` for any other count. Nothing
+/// about the version or the variant is checked: a `Uuid` built this way is
+/// whatever the octets said.
+export fn fromBytes(bytes: [U8]): Option<Uuid> {
+    if (bytes.len() != 16) { .None } else { .Some(Uuid(bytes)) }
+}
+
+/// Reads `550e8400-e29b-41d4-a716-446655440000`, in either case.
+///
+/// Strict about the shape: thirty-six characters, hyphens at 8, 13, 18 and 23,
+/// and a hex digit everywhere else. No braces, no `urn:uuid:` prefix, and no
+/// unhyphenated form — one spelling in, one spelling out.
+///
+/// The version and variant fields are read rather than checked, so the nil
+/// identifier and anything else already written down still parses.
+export fn parse(text: Str): Option<Uuid> {
+    if (text.len() != 36 || !hyphenated(text) || !allHexDigits(text, 0)) {
+        .None
+    } else {
+        .Some(
+            Uuid([
+                octetAt(text, 0),
+                octetAt(text, 1),
+                octetAt(text, 2),
+                octetAt(text, 3),
+                octetAt(text, 4),
+                octetAt(text, 5),
+                octetAt(text, 6),
+                octetAt(text, 7),
+                octetAt(text, 8),
+                octetAt(text, 9),
+                octetAt(text, 10),
+                octetAt(text, 11),
+                octetAt(text, 12),
+                octetAt(text, 13),
+                octetAt(text, 14),
+                octetAt(text, 15),
+            ]),
+        )
+    }
+}
+
+/// Where the `n`th hex digit sits in the thirty-six character spelling, with the
+/// four hyphens stepped over.
+fn hexPosition(n: Int): Int {
+    if (n < 8) {
+        n
+    } else if (n < 12) {
+        n + 1
+    } else if (n < 16) {
+        n + 2
+    } else if (n < 20) {
+        n + 3
+    } else {
+        n + 4
+    }
+}
+
+fn nibbleAt(text: Str, n: Int): Int {
+    text.charAt(hexPosition(n)).andThen(fn(c) => c.toDigit(16)).withDefault(0)
+}
+
+fn octetAt(text: Str, i: Int): U8 {
+    (nibbleAt(text, i * 2) * 16 + nibbleAt(text, i * 2 + 1)).wrapToU8()
+}
+
+fn hyphenated(text: Str): Bool {
+    hyphenAt(text, 8) && hyphenAt(text, 13) && hyphenAt(text, 18) && hyphenAt(text, 23)
+}
+
+fn hyphenAt(text: Str, at: Int): Bool {
+    text.charAt(at).withDefault(' ') == '-'
+}
+
+/// All thirty-two hex positions hold a hex digit. Checked before anything is
+/// read, so `nibbleAt`'s default is never the answer.
+fn allHexDigits(text: Str, n: Int): Bool {
+    if (n >= 32) {
+        true
+    } else {
+        match (text.charAt(hexPosition(n)).andThen(fn(c) => c.toDigit(16))) {
+            .Some(_d) => allHexDigits(text, n + 1),
+            .None => false,
+        }
+    }
+}
+
+impl Uuid {
+    /// The canonical spelling: lowercase hex in five hyphenated groups, and
+    /// `parse` reads it back.
+    export fn text<C: Alloc>(self, ctx: C): Str {
+        let hex = bytes.toHex(ctx, self.0);
+        let a = hex.slice(0, 8);
+        let b = hex.slice(8, 12);
+        let c = hex.slice(12, 16);
+        let d = hex.slice(16, 20);
+        let e = hex.slice(20, 32);
+        str.format(ctx, "${a}-${b}-${c}-${d}-${e}")
+    }
+}
+
+/// The canonical spelling, so an identifier in an interpolation reads the way it
+/// does everywhere else. `derive Show` would print the sixteen octets.
+impl Show for Uuid {
+    fn show<C: Alloc>(self, ctx: C): Str {
+        self.text(ctx)
+    }
+}

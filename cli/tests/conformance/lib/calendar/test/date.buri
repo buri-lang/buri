@@ -8,6 +8,7 @@ from "core/date" import * as date;
 from "core/date" import { Date, DateTime, Duration, Weekday };
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
+from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 from "core/time" import { Instant };
@@ -309,4 +310,100 @@ test "dates and times order chronologically" {
         d(2023, 6, 1),
         d(2024, 1, 1),
     ]);
+}
+
+// --- ISO weeks -------------------------------------------------------------------
+//
+// The week-based year is not the calendar year, and the pairs below are where the
+// two part company. A week belongs to the year its Thursday falls in.
+
+test "the ISO week of an ordinary day" {
+    assert.eq(date.isoWeek(d(2026, 8, 15)), (2026, 33));
+    assert.eq(date.isoWeek(d(2024, 2, 29)), (2024, 9));
+    assert.eq(date.isoWeek(d(1970, 1, 1)), (1970, 1));
+}
+
+test "a January day can belong to the previous year's last week" {
+    // 2027-01-01 is a Friday, so its Thursday is in 2026.
+    assert.eq(date.isoWeek(d(2027, 1, 1)), (2026, 53));
+    assert.eq(date.isoWeek(d(2021, 1, 1)), (2020, 53));
+    assert.eq(date.isoWeek(d(2005, 1, 2)), (2004, 53));
+    // And the Monday that starts the new week-year starts week 1.
+    assert.eq(date.isoWeek(d(2021, 1, 4)), (2021, 1));
+    assert.eq(date.isoWeek(d(2026, 1, 1)), (2026, 1));
+}
+
+test "a December day can belong to the next year's first week" {
+    assert.eq(date.isoWeek(d(2026, 12, 31)), (2026, 53));
+    assert.eq(date.isoWeek(d(2020, 12, 31)), (2020, 53));
+    assert.eq(date.isoWeek(d(2015, 12, 28)), (2015, 53));
+    assert.eq(date.isoWeek(d(2016, 1, 3)), (2015, 53));
+}
+
+test "every day of one week has the same week number" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // 2026-08-10 is a Monday.
+    let monday = d(2026, 8, 10);
+    assert.eq(date.weekday(monday), Weekday.Monday);
+    let weeks = list
+        .range(ctx, 0, 7)
+        .map(ctx, fn(offset) => date.isoWeek(monday.addDays(offset)));
+    assert.eq(weeks, list.repeat(ctx, (2026, 33), 7));
+    // And the next day starts the next one.
+    assert.eq(date.isoWeek(monday.addDays(7)), (2026, 34));
+}
+
+// --- calendar-unit arithmetic -------------------------------------------------------
+
+test "monthsUntil counts whole months in both directions" {
+    let january = d(2026, 1, 15);
+    assert.eq(january.monthsUntil(d(2026, 4, 15)), 3);
+    assert.eq(january.monthsUntil(d(2027, 1, 15)), 12);
+    assert.eq(january.monthsUntil(january), 0);
+    assert.eq(january.monthsUntil(d(2025, 10, 15)), 0 - 3);
+}
+
+test "a month is not whole until the day of the month comes round" {
+    let endOfJanuary = d(2026, 1, 31);
+    // The 31st to the 28th of February is nearly a month, and nearly is zero.
+    assert.eq(endOfJanuary.monthsUntil(d(2026, 2, 28)), 0);
+    assert.eq(endOfJanuary.monthsUntil(d(2026, 3, 1)), 1);
+    assert.eq(endOfJanuary.monthsUntil(d(2026, 3, 31)), 2);
+    // Backwards, the same rule the other way up.
+    let march = d(2026, 3, 31);
+    assert.eq(march.monthsUntil(d(2026, 3, 1)), 0);
+    assert.eq(march.monthsUntil(d(2026, 2, 28)), 0 - 1);
+}
+
+test "yearsUntil is monthsUntil over twelve" {
+    let born = d(2000, 2, 29);
+    // A birthday counts on the day, not the day before.
+    assert.eq(born.yearsUntil(d(2001, 2, 28)), 0);
+    assert.eq(born.yearsUntil(d(2001, 3, 1)), 1);
+    assert.eq(born.yearsUntil(d(2026, 3, 1)), 26);
+    assert.eq(born.yearsUntil(d(1999, 3, 1)), 0);
+    assert.eq(born.yearsUntil(d(1998, 3, 1)), 0 - 1);
+}
+
+test "the first and last day of a month" {
+    let middle = d(2026, 8, 15);
+    assert.eq(middle.startOfMonth(), d(2026, 8, 1));
+    assert.eq(middle.endOfMonth(), d(2026, 8, 31));
+    // Thirty days has September.
+    assert.eq(d(2026, 9, 30).endOfMonth(), d(2026, 9, 30));
+    // February, both ways.
+    assert.eq(d(2026, 2, 5).endOfMonth(), d(2026, 2, 28));
+    assert.eq(d(2024, 2, 5).endOfMonth(), d(2024, 2, 29));
+    // Both are idempotent.
+    assert.eq(middle.startOfMonth().startOfMonth(), middle.startOfMonth());
+    assert.eq(middle.endOfMonth().endOfMonth(), middle.endOfMonth());
+}
+
+test "the end of a month is the day before the start of the next" {
+    let month = d(2026, 2, 10);
+    assert.eq(month.endOfMonth().addDays(1), month.addMonths(1).startOfMonth());
+    assert.eq(d(2026, 12, 3).endOfMonth().addDays(1), d(2027, 1, 1));
+    assert.eq(d(2026, 1, 1).addDays(0 - 1), d(2025, 12, 1).endOfMonth());
 }

@@ -16,20 +16,28 @@ from "core/time" import * as time;
 struct Ticker(Int);
 
 impl Clock for Ticker {
-  fn nowMillis(self): I64 {
-    0
-  }
-  fn sleepMillis(self, millis: Int): () {
-    ()
-  }
+    fn nowMillis(self): I64 {
+        0
+    }
+
+    fn sleepMillis(self, millis: Int): () {
+        ()
+    }
+
+    fn monotonicNanoseconds(self): I64 {
+        0
+    }
 }
 
 fn sneaky(s: Ticker): I64 {
-  time.now(s).0
+    time.now(s).0
 }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
-  let _ = io.println(ctx, "${sneaky(Ticker(1))}").ignore();
-  .Ok(())
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "${sneaky(Ticker(1))}").ignore();
+    .Ok(())
 }
