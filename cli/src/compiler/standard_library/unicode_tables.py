@@ -57,6 +57,11 @@ GCB = [
 EXTENDED_PICTOGRAPHIC = 16
 INCB_LINKER = 32
 INCB_CONSONANT = 64
+INCB_EXTEND = 128
+
+# The first of each Hangul jamo run, and how many there are (UAX #15 §3.12).
+HANGUL_BASE, HANGUL_COUNT = 0xAC00, 11172
+LEADING, VOWEL, TRAILING = 0x1100, 0x1161, 0x11A7
 
 
 def b36(n, width):
@@ -122,7 +127,7 @@ def read_ranges(path, wanted):
         if not line:
             continue
         fields = [x.strip() for x in line.split(";")]
-        value = ";".join(fields[1:])
+        value = "; ".join(fields[1:])
         if value not in wanted:
             continue
         span = fields[0]
@@ -222,7 +227,8 @@ def build(ucd):
         os.path.join(ucd, "emoji-data.txt"), {"Extended_Pictographic"}
     )
     conjunct = read_ranges(
-        os.path.join(ucd, "DerivedCoreProperties.txt"), {"InCB; Linker", "InCB; Consonant"}
+        os.path.join(ucd, "DerivedCoreProperties.txt"),
+        {"InCB; Linker", "InCB; Consonant", "InCB; Extend"},
     )
 
     def grapheme_class(cp):
@@ -233,6 +239,8 @@ def build(ucd):
             value += INCB_LINKER
         if conjunct.get(cp) == "InCB; Consonant":
             value += INCB_CONSONANT
+        if conjunct.get(cp) == "InCB; Extend":
+            value += INCB_EXTEND
         return value or None
 
     def punctuation(cp):
@@ -299,6 +307,19 @@ def build(ucd):
             ("FOLD_OFFSETS", "Where each folding starts.", fold_offsets),
             ("FOLD_LENGTHS", "How long each folding is.", fold_lengths),
             ("FOLD_VALUES", "The foldings, run together.", fold_values),
+            (
+                "HANGUL_SYLLABLES",
+                "U+AC00 to U+D7A3 in order, so composition can index them.",
+                "".join(chr(HANGUL_BASE + i) for i in range(HANGUL_COUNT)),
+            ),
+            ("HANGUL_LEADING", "The nineteen leading jamo.", "".join(chr(LEADING + i) for i in range(19))),
+            ("HANGUL_VOWEL", "The twenty-one vowel jamo.", "".join(chr(VOWEL + i) for i in range(21))),
+            (
+                "HANGUL_TRAILING",
+                "The twenty-seven trailing jamo, after one place-holder for a "
+                "syllable that has none.",
+                "".join(chr(TRAILING + i) for i in range(28)),
+            ),
         ],
     }
 
