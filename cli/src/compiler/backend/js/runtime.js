@@ -4730,11 +4730,17 @@ function $tplanned(self, index) {
 // this double is where the difference bites hardest: `self` is a `TestTasks`
 // slot index, so a step handed it in place of a context read a scheduler
 // handle as whatever effect it asked for.
-function $host_testing_TestTasks_parallel(self, ctx, xs, f) {
+// Each step is **awaited**, which is what "runs to completion before the next
+// one starts" means for a step that waits. A spawned task is run through here
+// (`core/tasks::running`), and a task that sleeps, dials a socket or asks an
+// actor suspends part-way; without the await this returned a list of promises
+// and the rest of every such task ran after the test had finished asserting.
+// `middle::rc::suspends` carries the key so that a caller waits for this too.
+async function $host_testing_TestTasks_parallel(self, ctx, xs, f) {
   const out = new Array(xs.length);
   for (const index of $torder(self, xs.length)) {
     $tplanned(self, index);
-    out[index] = f(ctx, BigInt(index), $share(xs[index]));
+    out[index] = await f(ctx, BigInt(index), $share(xs[index]));
     $slot(self).log.push(BigInt(index));
   }
   return $own(out);

@@ -3404,6 +3404,131 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **A timer is a task that sleeps**, and the sleep is a wait on every backend.
+///
+/// The row above proves the order; this one proves the waiting. `core/tasks`
+/// ships no `Timer` and no `setTimeout` — the whole claim is that
+/// `clock.sleepMillis` inside a spawned task is one — so a backend where the
+/// sleep answered without waiting would pass every ordering assertion in this
+/// file and still have no timers in it.
+///
+/// The clock is read on the calling task, before and after the scope, and what
+/// is printed is a comparison rather than a duration: a program that says
+/// `waited: true` says the same thing on a machine of any speed, and a sleep
+/// that did nothing prints `waited: false` on all of them. Fifty milliseconds
+/// three times over is the whole cost of the row.
+#[test]
+fn a_spawned_timer_waits_on_the_clock_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.scope timer",
+        r#"
+from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout, Tasks: host.tasks,
+  };
+  let started = time.now(ctx).0;
+  let _ = tasks.scope(ctx, fn(c, here) => {
+    let _ = tasks.spawn(c, here, fn(c2) => {
+      let _ = time.sleepMs(c2, 50);
+      let _ = io.println(c2, "the timer fired").ignore();
+      ()
+    });
+    ()
+  });
+  let waited = match (time.now(ctx).0 - started >= 50) {
+    true => "true",
+    false => "false",
+  };
+  let _ = io.println(ctx, "waited: ${waited}").ignore();
+  .Ok(())
+}
+"#,
+        "the timer fired\nwaited: true\n",
+    );
+}
+
+/// **Stopping is cooperative**, and this is what that looks like on every
+/// backend: a spawned loop asks an actor whether to carry on, and ends when it
+/// is told not to.
+///
+/// `core/tasks` has no `cancel` and deliberately nothing to add one to, so the
+/// module's answer to "how do I stop a background task" is this program. It is
+/// also the one shape that puts the two concurrency modules inside each other —
+/// a `sendMessage` on a task the scope's drain is running — and the pair have
+/// to agree about it wherever they both exist.
+#[test]
+fn a_spawned_loop_stops_when_its_actor_says_so_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.scope with an actor",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+
+enum Ask {
+  MayI,
+}
+
+enum Turn {
+  Carry,
+  Stop,
+}
+
+fn gate<C: Alloc + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
+  Actor {
+    state: turns,
+    step: fn(c, left, message) => {
+      match (left > 0) {
+        true => Stepped { state: left - 1, answer: .Carry },
+        false => Stepped { state: left, answer: .Stop },
+      }
+    },
+  }
+}
+
+fn frames<C: Alloc + Stdout + Tasks>(
+  ctx: C,
+  keeper: Address<C, Int, Ask, Turn>,
+  n: Int,
+): () {
+  match (keeper.sendMessage(ctx, .MayI)) {
+    .Ok(.Carry) => {
+      let _ = io.println(ctx, "frame ${n}").ignore();
+      frames(ctx, keeper, n + 1)
+    },
+    _stopped => {
+      let _ = io.println(ctx, "the loop stopped").ignore();
+      ()
+    },
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let keeper = actor.start(ctx, gate(3));
+  let _ = tasks.scope(ctx, fn(c, here) => {
+    let _ = tasks.spawn(c, here, fn(c2) => frames(c2, keeper, 0));
+    ()
+  });
+  let _ = keeper.stop(ctx).ignore();
+  .Ok(())
+}
+"#,
+        "frame 0\nframe 1\nframe 2\nthe loop stopped\n",
+    );
+}
+
 /// A task that aborts stops the program, with the same message and the same
 /// status on every backend — and with what was printed before it flushed.
 ///
