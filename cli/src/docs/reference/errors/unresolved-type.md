@@ -9,6 +9,11 @@ fix: declare it, import it, or correct the spelling
 error: there is no type `Widgett` [unresolved-type]
 ```
 
+## What to do
+
+Correct the spelling, or bring the type into scope — a module declares it or an
+import names it, and there is no third way.
+
 ## Why
 
 Types are nominal throughout. There is no structural fallback and no inference
