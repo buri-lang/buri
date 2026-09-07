@@ -39,7 +39,7 @@
 //!         kind: .Named(ast.Name { text: "Int", origin: ast.nowhere() }, []),
 //!         origin: ast.nowhere(),
 //!     };
-//!     let module = ast.Module {
+//!     let tree = ast.Module {
 //!         items: [
 //!             ast.Item {
 //!                 kind: .TypeAlias(ast.TypeAliasDecl {
@@ -54,7 +54,7 @@
 //!         ],
 //!         docs: [],
 //!     };
-//!     let out = ast.print(ctx, module);
+//!     let out = ast.print(ctx, tree);
 //!     let _ = io.print(ctx, out.text).ignore();
 //!     let _ = io.println(ctx, "${out.anchors.len()} anchor(s)").ignore();
 //!     .Ok(())
@@ -533,7 +533,7 @@ export struct Printed {
 ///         Alloc: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
-///     let module = ast.Module {
+///     let tree = ast.Module {
 ///         items: [
 ///             ast.Item {
 ///                 kind: .Import(ast.Import {
@@ -550,7 +550,7 @@ export struct Printed {
 ///         ],
 ///         docs: [],
 ///     };
-///     let _ = io.print(ctx, ast.print(ctx, module).text).ignore();
+///     let _ = io.print(ctx, ast.print(ctx, tree).text).ignore();
 ///     .Ok(())
 /// }
 /// ```
