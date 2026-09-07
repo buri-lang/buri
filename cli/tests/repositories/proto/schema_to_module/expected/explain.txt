@@ -1,5 +1,5 @@
 keyed  compile //cmd/app js 1276897d1c29
 keyed  generate //lib/wire js cf747ebedcae
-keyed  compile //lib/wire js 198a921291c2
-run    link //cmd/app js a200a9bf8d5b
+keyed  compile //lib/wire js 247a916da4fc
+run    link //cmd/app js f90a71dca003
 .buri/out/js/cmd/app/app.mjs (N bytes)
