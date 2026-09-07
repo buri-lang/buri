@@ -1377,3 +1377,270 @@ test "maxBy and minBy keep the first of equal elements" {
     assert.eq(assert.some(["ab", "cd"].maxBy(byLength)), "ab");
     assert.eq(assert.some(["ab", "cd"].minBy(byLength)), "ab");
 }
+
+// --- what is not a second reference -------------------------------------------
+//
+// The aliasing cases above are about two names for one list. These are about
+// the four shapes that *look* like a second name and are not, and they are
+// here because each of them is a rule `middle::rc` applies to make a push write
+// in place — so each of them is a way to get a wrong answer if the rule reaches
+// one step too far. `design/native/MEMORY.md` §5.5, and
+// `language::sharing::{growing_a_list_beside_another_field_is_linear,
+// printing_a_module_is_linear_in_its_size}` are the same four rules asserted as
+// a cost rather than as an answer.
+//
+// Every list below is grown by the program, because a literal lives in the
+// constant pool and is never the unique owner an in-place write is looking for.
+
+derive Eq, Show for Out;
+/// `core/buri/ast`'s printer, with the names changed: the pieces written so
+/// far, and the offset the next one starts at.
+struct Out {
+    pieces: [Int],
+    at: Int,
+}
+
+derive Eq, Show for Swapped;
+/// The same two fields, declared the other way round. Moving them past each
+/// other used to decide whether the push copied.
+struct Swapped {
+    at: Int,
+    pieces: [Int],
+}
+
+derive Eq, Show for Both;
+/// Two lists, so the field read beside the push is a *counted* one.
+struct Both {
+    left: [Int],
+    right: [Int],
+}
+
+derive Eq, Show for Leaf;
+struct Leaf {
+    xs: [Int],
+    n: Int,
+}
+
+derive Eq, Show for Mid;
+struct Mid {
+    leaf: Leaf,
+}
+
+derive Eq, Show for Top;
+struct Top {
+    mid: Mid,
+}
+
+/// One piece written: the shape every token of the printer goes through.
+fn wrote<C: Alloc>(ctx: C, out: Out, x: Int): Out {
+    Out { ..out, pieces: out.pieces.push(ctx, x), at: out.at + 1 }
+}
+
+/// The same, with the fields declared the other way round.
+fn wroteSwapped<C: Alloc>(ctx: C, out: Swapped, x: Int): Swapped {
+    Swapped { ..out, at: out.at + 1, pieces: out.pieces.push(ctx, x) }
+}
+
+/// A recursive walk whose **tail is a projection of a counted value**: the
+/// accumulator is a `(Out, Bool)` and what comes back is its first element.
+fn writing<C: Alloc>(ctx: C, i: Int, n: Int, acc: (Out, Bool)): Out {
+    if (i >= n) { acc.0 } else { writing(ctx, i + 1, n, (wrote(ctx, acc.0, i), true)) }
+}
+
+test "a push beside an uncounted field of the same record answers what a copy would" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let base = wrote(ctx, Out { pieces: list.empty<Int>(), at: 0 }, 1);
+    let one = wrote(ctx, base, 2);
+    let two = wrote(ctx, base, 3);
+    assert.eq(one, Out { pieces: [1, 2], at: 2 });
+    assert.eq(two, Out { pieces: [1, 3], at: 2 });
+    assert.eq(base, Out { pieces: [1], at: 1 });
+}
+
+test "the same record with its two fields declared the other way round agrees" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let base = wroteSwapped(ctx, Swapped { at: 0, pieces: list.empty<Int>() }, 1);
+    let one = wroteSwapped(ctx, base, 2);
+    let two = wroteSwapped(ctx, base, 3);
+    assert.eq(one, Swapped { at: 2, pieces: [1, 2] });
+    assert.eq(two, Swapped { at: 2, pieces: [1, 3] });
+    assert.eq(base, Swapped { at: 1, pieces: [1] });
+}
+
+// The negative twin of the rule above. Reading `out.at` is not a second reader
+// of `out.pieces` because an `Int` cannot reach a list; reading `both.right`
+// **is**, because a list can. So this record's push has a second reader and
+// has to copy — and the answers are the same either way, which is what makes
+// the rule about speed rather than about meaning.
+test "a push beside a counted field of the same record answers what a copy would" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let base = Both {
+        left: list.empty<Int>().push(ctx, 1),
+        right: list.empty<Int>().push(ctx, 9),
+    };
+    let one = Both { ..base, left: base.left.push(ctx, 2), right: base.right };
+    let two = Both { ..base, left: base.left.push(ctx, 3), right: base.right };
+    assert.eq(one, Both { left: [1, 2], right: [9] });
+    assert.eq(two, Both { left: [1, 3], right: [9] });
+    assert.eq(base, Both { left: [1], right: [9] });
+}
+
+test "a projection chain three deep answers what a copy would" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let top = Top {
+        mid: Mid { leaf: Leaf { xs: list.empty<Int>().push(ctx, 1), n: 0 } },
+    };
+    let grownOnce = Top {
+        mid: Mid {
+            leaf: Leaf {
+                ..top.mid.leaf,
+                xs: top.mid.leaf.xs.push(ctx, 2),
+                n: top.mid.leaf.n + 1,
+            },
+        },
+    };
+    let grownAgain = Top {
+        mid: Mid {
+            leaf: Leaf {
+                ..top.mid.leaf,
+                xs: top.mid.leaf.xs.push(ctx, 3),
+                n: top.mid.leaf.n + 1,
+            },
+        },
+    };
+    assert.eq(grownOnce.mid.leaf.xs, [1, 2]);
+    assert.eq(grownAgain.mid.leaf.xs, [1, 3]);
+    assert.eq(top.mid.leaf.xs, [1]);
+    assert.eq(grownOnce.mid.leaf.n, 1);
+}
+
+test "a recursive walk whose tail projects out of a counted value answers what a copy would" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let seed = (Out { pieces: list.empty<Int>(), at: 0 }, false);
+    assert.eq(writing(ctx, 0, 4, seed), Out { pieces: [0, 1, 2, 3], at: 4 });
+    // The seed is still what it was: the walk took a copy of the piece it kept
+    // rather than the pair's own.
+    assert.eq(seed.0, Out { pieces: list.empty<Int>(), at: 0 });
+}
+
+test "a projection out of a nameless temporary answers what a copy would" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // `xs.foldCtx(ctx, f, (out, false)).0`: the fold answers a pair nothing
+    // holds, and the `.0` is the whole of what survives it.
+    let built = list
+        .range(ctx, 0, 4)
+        .foldCtx(
+            ctx,
+            fn(c, acc: (Out, Bool), i) => (wrote(c, acc.0, i), true),
+            (Out { pieces: list.empty<Int>(), at: 0 }, false),
+        ).0;
+    assert.eq(built, Out { pieces: [0, 1, 2, 3], at: 4 });
+}
+
+// `middle::inline` replaces a call with a `let` per argument and the callee's
+// body, so a parameter whose only consuming use was an inlined call is the
+// ordinary case rather than an exotic one. Calling `wrote` twice on one value
+// is what says the second name a `let` makes did not take what the caller
+// still holds.
+test "a value handed to the same inlinable call twice is not written through" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let out = wrote(ctx, Out { pieces: list.empty<Int>(), at: 0 }, 7);
+    let first = wrote(ctx, out, 8);
+    let second = wrote(ctx, out, 9);
+    assert.eq(first.pieces, [7, 8]);
+    assert.eq(second.pieces, [7, 9]);
+    assert.eq(out.pieces, [7]);
+}
+
+test "a list handed to the same inlinable call twice is not written through" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let xs = list.empty<Int>().push(ctx, 1).push(ctx, 2);
+    assert.eq(appended(ctx, xs, 3), [1, 2, 3]);
+    assert.eq(appended(ctx, xs, 4), [1, 2, 4]);
+    assert.eq(xs, [1, 2]);
+}
+
+// --- a fold's seed, in every fold that takes one ------------------------------
+//
+// The four seeds `middle::rc` hands over rather than lends. Handing one over is
+// what stops the first step copying the whole accumulator; a seed the caller
+// reads again is the case where the hand-over must not happen, and each of
+// these is that case.
+
+test "a foldCtx seed read afterwards is not written through" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let seed = list.empty<Int>().push(ctx, 0);
+    let out = [1, 2].foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x), seed);
+    assert.eq(out, [0, 1, 2]);
+    assert.eq(seed, [0]);
+    // And a second fold over the same seed answers the same thing.
+    assert.eq([3].foldCtx(ctx, fn(c, acc: [Int], x) => acc.push(c, x), seed), [0, 3]);
+    assert.eq(seed, [0]);
+}
+
+test "a foldResultCtx seed read afterwards is not written through" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let seed = list.empty<Int>().push(ctx, 0);
+    let out: Result<[Int], Str> = [1, 2].foldResultCtx(
+        ctx,
+        fn(c, acc: [Int], x) => .Ok(acc.push(c, x)),
+        seed,
+    );
+    assert.eq(assert.ok(out), [0, 1, 2]);
+    assert.eq(seed, [0]);
+}
+
+test "a foldResultCtx that stops early leaves its seed alone" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let seed = list.empty<Int>().push(ctx, 0);
+    let out: Result<[Int], Str> = [1, 2].foldResultCtx(
+        ctx,
+        fn(c, acc: [Int], x) => {
+            match (x == 2) {
+                true => .Err("stopped"),
+                false => .Ok(acc.push(c, x)),
+            }
+        },
+        seed,
+    );
+    assert.eq(assert.err(out), "stopped");
+    assert.eq(seed, [0]);
+}
+
+test "an inner fold's seed is the outer fold's accumulator, and neither is written through" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let seed = list.empty<Int>().push(ctx, 0);
+    let out = [1, 2].foldCtx(
+        ctx,
+        fn(c, acc: [Int], x) => {
+            [x, x].foldCtx(c, fn(d, inner: [Int], y) => inner.push(d, y), acc)
+        },
+        seed,
+    );
+    assert.eq(out, [0, 1, 1, 2, 2]);
+    assert.eq(seed, [0]);
+}
