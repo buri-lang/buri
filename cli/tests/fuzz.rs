@@ -508,12 +508,36 @@ fn fires(property: &str, input: &str, expects: Option<&str>) -> Option<String> {
 
 // -- safety -----------------------------------------------------------------
 
-/// How long the binary gets before "it has not stopped" becomes the finding.
+/// How long the toolchain's process tree may be **asleep and spending nothing**
+/// before "it has stopped answering" is the finding.
 ///
-/// Generous rather than tight: the suite's own binary is unoptimized, the
-/// machine is running other tests beside this one, and a false hang is a
-/// finding nobody can reproduce. A real hang is not a slow compile.
+/// Not a wall clock, and this was one. Thirty seconds from the spawn reported a
+/// stencil program that passes alone in under a second as a hang, on a machine
+/// that was merely loaded — a finding nobody can reproduce, which is the one
+/// thing a corpus of findings may not hold. The rule is `harness::hang`'s
+/// instead: a tree with anything in it running or waiting to run is working,
+/// however little of the machine it is being handed.
+///
+/// Thirty seconds of *that* rather than the harness's five minutes, because a
+/// `buri build` driven from here has nothing legitimate to wait on — no
+/// terminal, no network, its output on files nobody has to drain — and because
+/// a finding has to be reachable inside a search's own budget.
 const WATCHDOG: Duration = Duration::from_secs(30);
+
+/// The processor time one `buri build` may spend before "it never stops" is the
+/// finding.
+///
+/// The bound [`WATCHDOG`] cannot state: a compiler looping for ever is *busy*,
+/// so every look finds it runnable and the rule above leaves it alone. Work is
+/// the quantity a loaded machine does not change — a build spends the same
+/// processor time on an idle host and a hammered one, it just takes longer — so
+/// this is the one bound here a busy machine cannot trip.
+///
+/// **Measured, with three orders of magnitude under it.** Every build this
+/// property makes is one mutated corpus source, and the twelve largest sources
+/// checked in cost 25 ms of processor time each. The whole worked monorepo —
+/// more than any search here compiles — costs 0.44 s.
+const TOOLCHAIN_CPU_CEILING: Duration = Duration::from_secs(60);
 
 /// The `safety` property: the toolchain, through the binary, on these bytes.
 ///
@@ -565,17 +589,23 @@ fn said(all: &str, input: &str, phrase: &str) -> bool {
     all.contains(phrase) && !input.contains(phrase)
 }
 
-/// Runs the binary with a deadline.
+/// Runs the binary, watched.
 ///
-/// `Ok(text)` is "it stopped, and said this". `Err(finding)` is the two ways
-/// stopping badly looks from outside: it did not stop at all, or it was killed
-/// by a signal — which is what a stack overflow and an out-of-memory kill are,
-/// and `adversarial.rs` reads them the same way through `Run::code == -1`.
-/// Neither can be told from the output, so neither may be reported through it.
+/// `Ok(text)` is "it stopped, and said this". `Err(finding)` is the three ways
+/// stopping badly looks from outside: it stopped answering, it never stopped at
+/// all, or it was killed by a signal — which is what a stack overflow and an
+/// out-of-memory kill are, and `adversarial.rs` reads them the same way through
+/// `Run::code == -1`. None of the three can be told from the output, so none of
+/// them may be reported through it.
+///
+/// The first two verdicts are `harness::hang`'s, and their sentences come from
+/// it, so a finding recorded here says which rule fired and shows the numbers
+/// it fired on. `cap` is how long the tree may be asleep and spending nothing;
+/// [`TOOLCHAIN_CPU_CEILING`] is how much work it may do.
 ///
 /// Output goes to files rather than pipes: a compiler writing megabytes into a
 /// pipe nobody is draining deadlocks, and a deadlock is not the finding.
-fn run_watched(dir: &Path, args: &[&str], timeout: Duration) -> Result<String, String> {
+fn run_watched(dir: &Path, args: &[&str], cap: Duration) -> Result<String, String> {
     use std::process::Stdio;
     let out_path = dir.join("fuzz.stdout");
     let err_path = dir.join("fuzz.stderr");
@@ -593,23 +623,11 @@ fn run_watched(dir: &Path, args: &[&str], timeout: Duration) -> Result<String, S
         .stderr(Stdio::from(err_file))
         .spawn()
         .expect("the buri binary runs");
-    let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => {}
-            Err(e) => panic!("cannot wait on the toolchain: {e}"),
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!(
-                "the toolchain did not stop within {}s, so it was killed",
-                timeout.as_secs()
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    };
+    let status =
+        match harness::hang::watch(&mut child, "the toolchain", cap, Some(TOOLCHAIN_CPU_CEILING)) {
+            Ok(status) => status,
+            Err(killed) => return Err(killed.verdict()),
+        };
     let text = format!(
         "{}{}",
         std::fs::read_to_string(&out_path).unwrap_or_default(),
@@ -918,17 +936,27 @@ fn output_fires(input: &str, expects: &str) -> Option<String> {
     None
 }
 
-/// How long the reference artifact gets before "it has not stopped" is the
-/// answer.
+/// How long the reference artifact may be **asleep and spending nothing**
+/// before "it has stopped answering" is the answer.
 ///
-/// The same generosity [`WATCHDOG`] is written with, and needed for the same
-/// reason one step further along: **the minimiser writes programs nobody
-/// drew**. A search's own draws terminate by construction, but a shrink step
-/// deletes a token, and `walkFrom(octets, at + 1, ..)` with the `+ 1` deleted
-/// is a loop that does not end. Before this bound that was a suite which did
-/// not end either — the engine ran for ever inside a library call with no
-/// process for the harness to kill.
+/// [`WATCHDOG`]'s rule, one step further along, and needed for the reason that
+/// step adds: **the minimiser writes programs nobody drew**. A search's own
+/// draws terminate by construction, but a shrink step deletes a token, and
+/// `walkFrom(octets, at + 1, ..)` with the `+ 1` deleted is a loop that does not
+/// end. Before any bound at all that was a suite which did not end either — the
+/// engine ran for ever inside a library call with no process for the harness to
+/// kill.
 const JS_DEADLINE: Duration = Duration::from_secs(20);
+
+/// The processor time the reference artifact may spend before "it never stops"
+/// is the answer.
+///
+/// The bound that actually catches the deleted `+ 1`, because that program
+/// spins: [`TOOLCHAIN_CPU_CEILING`]'s argument over a much smaller unit of
+/// work. Every program these searches emit prints a handful of lines and
+/// returns, and the engine's own start-up is the bulk of what one costs: 10 ms
+/// of processor time, measured, under a ceiling three thousand times it.
+const JS_CPU_CEILING: Duration = Duration::from_secs(30);
 
 /// What the program prints under the JavaScript backend.
 ///
@@ -943,7 +971,7 @@ const JS_DEADLINE: Duration = Duration::from_secs(20);
 /// suite with it and there is no child for anything to kill. This is the same
 /// three steps `native/agreement.rs::run_js` takes — one analysis,
 /// `actions::prepare` for the JavaScript target, the backend `select`
-/// answers — with [`JS_DEADLINE`] around the run.
+/// answers — with [`JS_DEADLINE`] and [`JS_CPU_CEILING`] around the run.
 fn run_on_js(input: &str) -> Result<Option<String>, String> {
     if !engine_present() {
         return Ok(None);
@@ -1002,8 +1030,7 @@ fn run_on_js(input: &str) -> Result<Option<String>, String> {
     std::fs::write(&artifact, bytes).map_err(|e| format!("cannot write the artifact: {e}"))?;
     let mut cmd = std::process::Command::new(harness::js_runtime());
     cmd.arg(&artifact);
-    let out = waited_out(cmd, JS_DEADLINE)
-        .ok_or_else(|| format!("the artifact did not stop within {}s", JS_DEADLINE.as_secs()))?;
+    let out = waited_out(cmd, "the artifact", JS_DEADLINE, JS_CPU_CEILING)?;
     if !out.status.success() {
         return Err(format!(
             "the artifact exited {}: {}",
@@ -1014,29 +1041,35 @@ fn run_on_js(input: &str) -> Result<Option<String>, String> {
     Ok(Some(String::from_utf8_lossy(&out.stdout).to_string()))
 }
 
-/// Run a command to completion, killing it if it has not stopped in time.
+/// Run a program to completion, watched: killed once its tree is stuck, and
+/// once it has spent more than `ceiling` on the processor.
 ///
-/// `None` is "it did not stop", or "it could not be started". The pipes are
-/// drained once the child has already exited, which is
-/// `commands/test.rs::wait_for`'s shape; a child that filled one and blocked
-/// is killed, which turns a deadlock into an answer.
-fn waited_out(mut cmd: std::process::Command, within: Duration) -> Option<std::process::Output> {
+/// `Err` is the sentence to record — `harness::hang`'s own verdict, naming
+/// which of the two rules fired and the numbers it fired on — or the plain
+/// truth that the program would not start, which used to be reported as a
+/// program that would not stop.
+///
+/// The pipes are drained on threads of their own, which is `hang::drain`'s
+/// reason and one this needs: a program that fills a pipe nobody is reading
+/// blocks in a write, and a blocked write is asleep. Reading that as stuck
+/// would be true of the pair and a lie about the program.
+fn waited_out(
+    mut cmd: std::process::Command,
+    what: &str,
+    cap: Duration,
+    ceiling: Duration,
+) -> Result<std::process::Output, String> {
     use std::process::Stdio;
-    let mut child = cmd.stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().ok()?;
-    let deadline = Instant::now() + within;
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return child.wait_with_output().ok(),
-            Ok(None) => {}
-            Err(_) => return None,
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return None;
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("`{what}` did not start: {e}"))?;
+    let (out, err) = harness::hang::drain(&mut child);
+    let status = harness::hang::watch(&mut child, what, cap, Some(ceiling))
+        .map_err(|killed| killed.verdict())?;
+    Ok(std::process::Output { status, stdout: out.take(), stderr: err.take() })
 }
 
 fn engine_present() -> bool {
@@ -1060,7 +1093,7 @@ fn engine_present() -> bool {
 /// backends is confined to it.
 #[cfg(any(feature = "backend-stencil", feature = "backend-llvm"))]
 mod native {
-    use super::{Duration, Instant, Path, PathBuf};
+    use super::{Duration, Path, PathBuf};
     use buri::build::actions;
     use buri::build::buildfile::{Arch, Platform};
     use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME};
@@ -1210,45 +1243,38 @@ mod native {
         dir
     }
 
-    /// How long a generated program gets before "it has not stopped" is the
-    /// finding.
+    /// How long a generated program may be **asleep and spending nothing**
+    /// before "it has stopped answering" is the finding.
     ///
-    /// Generous rather than tight, for the reason `WATCHDOG` next door gives:
-    /// the machine is running other tests beside this one, and a false hang is
-    /// a finding nobody can reproduce. A real hang is not a slow program —
-    /// every program these searches emit prints eight lines and returns.
+    /// `WATCHDOG`'s rule next door, for the reason given there: a false hang is
+    /// a finding nobody can reproduce, and this file's own wall clock produced
+    /// one — a stencil program that passes alone in under a second, reported as
+    /// a hang on a loaded mac. A linked program here dials nothing and reads
+    /// nothing, so a tree of it that is neither running nor waiting to run for
+    /// thirty seconds is a program that has stopped.
     const NATIVE_DEADLINE: Duration = Duration::from_secs(30);
 
-    /// Run one linked program under the heap check, killing it if it has not
-    /// stopped within `within`. `None` is "it did not stop", or "it could not
-    /// be started".
+    /// The processor time a generated program may spend before "it never stops"
+    /// is the finding.
     ///
-    /// The pipes are drained by `wait_with_output` once the child has already
-    /// exited, which is the shape `commands/test.rs::wait_for` uses. A program
-    /// that filled a pipe and blocked would not be drained by that — it would
-    /// be *killed*, which turns a deadlock into a finding and is the outcome
-    /// this function exists for.
-    fn watched(binary: &Path, within: Duration) -> Option<std::process::Output> {
-        let mut child = Command::new(binary)
-            .env("BURI_RT_HEAP_CHECK", "1")
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .ok()?;
-        let deadline = Instant::now() + within;
-        loop {
-            match child.try_wait() {
-                Ok(Some(_)) => return child.wait_with_output().ok(),
-                Ok(None) => {}
-                Err(_) => return None,
-            }
-            if Instant::now() >= deadline {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
+    /// The bound the rule above cannot state, and the one a miscompile reaches:
+    /// a list walked through a block whose length word is now poison spins, and
+    /// spinning is working. The reference artifact's number, for its reason —
+    /// the same programs are behind both, eight lines printed and a return —
+    /// and a native run starts no engine, so the headroom here is wider still.
+    const NATIVE_CPU_CEILING: Duration = super::JS_CPU_CEILING;
+
+    /// Run one linked program under the heap check, watched.
+    ///
+    /// `Err` is the sentence to record: `harness::hang`'s verdict on a program
+    /// that stopped answering or would not stop working, or the plain truth
+    /// that it would not start. `super::waited_out` is the wait, because a
+    /// linked program and a reference artifact are two spellings of one
+    /// question and neither should have a timer of its own.
+    fn watched(binary: &Path, name: &str) -> Result<std::process::Output, String> {
+        let mut cmd = Command::new(binary);
+        cmd.env("BURI_RT_HEAP_CHECK", "1");
+        super::waited_out(cmd, &format!("the {name} program"), NATIVE_DEADLINE, NATIVE_CPU_CEILING)
     }
 
     /// The exit status the runtime's heap check stops a program with.
@@ -1402,24 +1428,17 @@ mod native {
             if !linked.status.success() {
                 continue;
             }
-            // **With a watchdog**, because a miscompiled program is entitled
-            // to loop for ever and this file used to wait for it. The test
-            // that stood here — `started.elapsed()` *after* the call — could
-            // not fire until the call returned, so a program that never
-            // stopped was a search that never stopped. A reference-counting
-            // defect is one of the things that produces one: a list walked
-            // through a block whose length word is now poison does not
-            // terminate, and that is a finding rather than a reason to wait.
-            let Some(ran) = watched(&binary, NATIVE_DEADLINE) else {
-                out.push((
-                    *name,
-                    String::new(),
-                    Some(format!(
-                        "it did not stop within {}s, and was killed",
-                        NATIVE_DEADLINE.as_secs()
-                    )),
-                ));
-                continue;
+            // **Watched**, because a miscompiled program is entitled to loop
+            // for ever and this file used to wait for it: the test that stood
+            // here — `started.elapsed()` *after* the call — could not fire
+            // until the call returned, so a program that never stopped was a
+            // search that never stopped.
+            let ran = match watched(&binary, name) {
+                Ok(ran) => ran,
+                Err(why) => {
+                    out.push((*name, String::new(), Some(why)));
+                    continue;
+                }
             };
             let status = ran.status.code().unwrap_or(-1);
             let stderr = String::from_utf8_lossy(&ran.stderr).to_string();
@@ -3273,24 +3292,33 @@ fn the_properties_can_fail() {
 /// silence.
 ///
 /// The one branch of `safety` no input can be fabricated for: there is no known
-/// program that hangs the toolchain, so the only way to know the timer works is
-/// to set it to a millisecond. This test exists because the first version of
-/// this file got the branch *inverted* — `run_watched` returned `None` on a
-/// timeout into a caller whose `None` means "no finding", so a compiler that
-/// never stopped would have passed. A watchdog nobody has watched bark is a
-/// watchdog nobody should trust.
+/// program that hangs the toolchain, so the only way to see the rule fire is to
+/// give it a period of zero. This test exists because the first version of this
+/// file got the branch *inverted* — `run_watched` returned `None` on a timeout
+/// into a caller whose `None` means "no finding", so a compiler that never
+/// stopped would have passed. A watchdog nobody has watched bark is a watchdog
+/// nobody should trust.
+///
+/// It is the same wiring for both of `run_watched`'s verdicts: a killed child
+/// is one `Err` whatever killed it. The *other* rule — the ceiling that catches
+/// a build which never stops working — is fired at a real spinning process in
+/// `ci.rs::the_hang_cap_kills_a_runaway_that_spins`, because a `buri build` is
+/// not a thing this suite can make loop on purpose.
+///
+/// The second half is the one that fails when a bound is wrong rather than
+/// missing: a whole build, under both real bounds, has to come back `Ok`.
 #[test]
 fn the_watchdog_reports_a_toolchain_that_does_not_stop() {
     let s = Scratch::repo("fuzz-watchdog");
     s.write("app/BUILD.buri", harness::JS_BINARY);
     s.write("app/main.buri", "export fn main(): Result<(), Str> {\n  .Ok(())\n}\n");
     // Zero, not a millisecond: a fast machine can finish a no-op JS build
-    // inside any positive deadline, and the question here is whether the
-    // timer fires, not whether the build is slow.
+    // inside any positive period, and the question here is whether the rule
+    // fires, not whether the build is slow.
     let hurried = run_watched(&s.root, &["build", "//app"], Duration::ZERO);
     assert!(
-        hurried.is_err_and(|why| why.contains("did not stop")),
-        "a zero deadline let a whole build through, so the deadline does nothing"
+        hurried.is_err_and(|why| why.contains("was killed")),
+        "a zero period let a whole build through, so the watchdog does nothing"
     );
     assert!(
         run_watched(&s.root, &["build", "//app"], WATCHDOG).is_ok(),

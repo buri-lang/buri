@@ -195,7 +195,11 @@ took a CI job with it. So:
   one, and processor time cannot either, since a starved spinner may get none
   and macOS may not have flushed its counters. A thread queued for a core is
   runnable at nought per cent of one, and that is the fact that separates
-  them.
+  them. `fuzz.rs` reads the same tree for the children it spawns itself, and
+  words the verdict into a finding instead of a panic — plus the one bound the
+  rule cannot state: a **ceiling on processor time**, because a program looping
+  for ever is busy, and a fuzzer has to write that down rather than leave it to
+  the job.
 
 A broken server is a failing test with a sentence, never a job CI has to kill.
 
