@@ -1664,7 +1664,7 @@ fn compile_corpus(path: &str) -> Compiled {
 /// the refusal for every file that is not here.
 ///
 /// It is **`native/conformance.rs`'s `PACKAGES`**, entry for entry: the
-/// forty-six files that file's native set holds. The nine that are not here
+/// forty-nine files that file's native set holds. The nine that are not here
 /// are the nine it excludes, for the three reasons it records — an inexact
 /// numeric conversion (three files), `json.*` (two) and `core/math`'s
 /// transcendentals (one) — plus the three `ui/*` files no native backend
@@ -1696,6 +1696,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "data/patterns.buri",
     "data/strings.buri",
     "memory/allocators.buri",
+    "memory/captures.buri",
     "memory/copyout.buri",
     "memory/scoped.buri",
     "numbers/bits.buri",
@@ -1740,8 +1741,8 @@ const CORPUS_COMPILES: &[&str] = &[
 ///
 /// # Why one child rather than one per file
 ///
-/// A child per file would buy the same attribution and cost forty-six process
-/// starts, forty-six loads of the conformance repository and forty-six
+/// A child per file would buy the same attribution and cost forty-nine process
+/// starts, forty-nine loads of the conformance repository and forty-nine
 /// copies of a six-megabyte runtime archive. One child is one of each, and the
 /// attribution is recovered by the protocol instead: the child prints a line
 /// per fact **as it learns it**, so the files it finished are known even when
