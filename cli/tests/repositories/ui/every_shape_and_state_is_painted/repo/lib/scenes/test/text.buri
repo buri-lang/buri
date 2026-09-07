@@ -1,0 +1,50 @@
+// What the shaper has to survive: marks that combine onto the letter before
+// them, characters no bundled face has a glyph for, runs that read right to
+// left, and a line wider than the page.
+//
+// The name of the second one is not ASCII either. A snapshot names a file, and
+// "снимок" is a file name on both hosts this suite runs on.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/scenes" import { tinted };
+
+test "combining marks, emoji and a right-to-left run" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "снимок",
+        ui.column([.Padding(.Px(12)), .Gap(.Px(6)), .FontSize(.Px(20))], [
+            ui.text(.Const("é́́ äo̊u̧")),
+            ui.text(.Const("🙂 🇯🇵 👩‍💻 ❤️")),
+            ui.text(.Const("مرحبا بالعالم")),
+            ui.text(.Const("שלום ada עולם")),
+            ui.text(.Const("")),
+        ]),
+        .Hover,
+    );
+}
+
+test "a line longer than the page, wrapped and unwrapped" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    let line =
+        "the quick brown fox jumps over the lazy dog and keeps going far past the right hand edge of an eight hundred pixel page without ever stopping";
+    snapshot(
+        ctx,
+        "a-line-past-the-edge",
+        ui.column([.Padding(.Px(8)), .Gap(.Px(8))], [
+            tinted(40, ui.text(.Const(line))),
+            ui.stack([.TextWrap(.NoWrap)], [ui.text(.Const(line))]),
+        ]),
+        .Hover,
+    );
+}

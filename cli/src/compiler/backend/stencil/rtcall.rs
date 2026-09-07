@@ -300,9 +300,11 @@ impl Jit<'_> {
                 let Some((_, dty)) = dest else {
                     return Err(format!("{}: no destination", entry.key));
                 };
+                let width = self.width_of(prog, dty);
                 // A zero-sized result has no bytes to write, and a parameter
                 // for one is a thing the two sides can disagree about for free.
-                if self.width_of(prog, dty) > 0 {
+                if width > 0 {
+                    self.clear_slot(dslot, width);
                     ints.push(Src::Addr(dslot));
                 }
                 None
@@ -888,6 +890,35 @@ impl Jit<'_> {
         ints.push(Src::Imm(u64::from(in_stride)));
         ints.push(Src::Imm(u64::from(out_stride)));
         Ok(())
+    }
+
+    /// Zeroes the whole of the frame slot a `width`-byte result is about to be
+    /// written into.
+    ///
+    /// **A frame slot is eight-byte granular and a value need not be.** A
+    /// `Bool` is one byte; `br/f` reads the whole word. So a runtime entry that
+    /// writes a byte through an out-pointer leaves the seven above it holding
+    /// whatever the last value in that slot was, and the branch that reads it
+    /// answers by that rubbish. It stayed invisible for as long as those bytes
+    /// happened to be zero: a `Bool` signal read inside a memo answered `true`
+    /// after being written `false`, but only in a program where some earlier
+    /// computation had run on the same Buri stack and left a non-zero word at
+    /// that offset.
+    ///
+    /// Zeroing here rather than widening what the runtime writes, because the
+    /// bytes it writes are the bytes the *cell keeps* — `write` compares them
+    /// to decide whether anything changed — and a cell holding a slot's worth
+    /// of a neighbour's leftovers would make "the same value is not a change"
+    /// depend on what ran before.
+    ///
+    /// The other direction needs nothing: an argument the runtime *reads* out
+    /// of a slot reads exactly the value's own bytes.
+    fn clear_slot(&mut self, slot: u32, width: u32) {
+        let mut at = 0;
+        while at < width {
+            self.imm_to(slot + at, 0);
+            at += 8;
+        }
     }
 
     /// [`Extra::Compute`]'s seven words: a body the runtime keeps and calls

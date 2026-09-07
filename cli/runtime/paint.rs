@@ -1035,6 +1035,28 @@ fn font_system() -> FontSystem {
     FontSystem::new_with_locale_and_db("en-US".to_string(), db)
 }
 
+/// The shaper and the glyph rasterizer, kept for the life of the thread.
+///
+/// **Reuse, not state.** Both are caches over an immutable font database — a
+/// shaped run keyed by its text and attributes, a glyph image keyed by its
+/// cache key — so the second render of a scene reads what the first computed
+/// and answers the same bytes. What it saves is real: parsing the three faces
+/// and warming the caches is most of the cost of painting one small tree, and a
+/// suite paints one per `test` block.
+///
+/// A thread local rather than a static, because `SwashCache` is not `Sync` and
+/// nothing here wants a lock on the paint path. A suite paints on the thread
+/// that ran the block, so the cache is warm exactly where the work is.
+///
+/// `the_same_scene_renders_to_the_same_bytes_twice` is the assertion that
+/// reuse is invisible, and every golden in `cli/tests/repositories/ui/` is the
+/// same assertion at fourteen scenes at once: a cache that changed an answer
+/// would move a picture.
+thread_local! {
+    static FACES: std::cell::RefCell<(FontSystem, SwashCache)> =
+        std::cell::RefCell::new((font_system(), SwashCache::new()));
+}
+
 fn transformed(text: &str, case: Case) -> String {
     match case {
         Case::None => text.to_string(),
@@ -1057,9 +1079,17 @@ fn transformed(text: &str, case: Case) -> String {
 }
 
 /// One run of text, shaped into a buffer at the given width.
+///
+/// **Both metrics are held to a device pixel**, and the line box's is the one
+/// that matters: `.LineHeight(0.0)` is a style a program may write, `0` is a
+/// value CSS accepts, and a shaper handed a zero line height panics rather than
+/// laying anything out. A line box shorter than a pixel is not a picture either
+/// way, so the floor is the honest answer and it is the same floor the size
+/// takes.
 fn shape(fonts: &mut FontSystem, text: &str, style: &Computed, width: Option<f32>) -> Buffer {
     let size = style.font_size.max(1.0);
-    let mut buffer = Buffer::new(fonts, Metrics::new(size, size * style.line_height));
+    let leading = (size * style.line_height).max(1.0);
+    let mut buffer = Buffer::new(fonts, Metrics::new(size, leading));
     buffer.set_hinting(Hinting::Disabled);
     buffer.set_wrap(if style.nowrap { Wrap::None } else { Wrap::WordOrGlyph });
     buffer.set_size(width, None);
@@ -1104,7 +1134,16 @@ fn extent(buffer: &Buffer) -> (f32, f32) {
 /// White rather than transparent because a snapshot is a picture of a page, and
 /// a page has a colour before anything is drawn on it.
 fn paint(scene: &Scene, styles: &[Computed]) -> Result<Pixmap, String> {
-    let mut fonts = font_system();
+    FACES.with_borrow_mut(|(fonts, cache)| paint_with(scene, styles, fonts, cache))
+}
+
+/// [`paint`], with the shaper and the glyph cache handed in.
+fn paint_with(
+    scene: &Scene,
+    styles: &[Computed],
+    fonts: &mut FontSystem,
+    cache: &mut SwashCache,
+) -> Result<Pixmap, String> {
     let mut tree: TaffyTree<usize> = TaffyTree::new();
     tree.disable_rounding();
 
@@ -1145,7 +1184,7 @@ fn paint(scene: &Scene, styles: &[Computed]) -> Result<Pixmap, String> {
                     AvailableSpace::Definite(w) => Some(w),
                     _ => None,
                 });
-                let (w, h) = extent(&shape(&mut fonts, text, style, width));
+                let (w, h) = extent(&shape(fonts, text, style, width));
                 Size { width: known.width.unwrap_or(w), height: known.height.unwrap_or(h) }
             })
         },
@@ -1156,9 +1195,7 @@ fn paint(scene: &Scene, styles: &[Computed]) -> Result<Pixmap, String> {
         .ok_or_else(|| format!("the viewport {}x{} has no canvas", scene.width, scene.height))?;
     canvas.fill(tiny_skia::Color::WHITE);
 
-    let mut cache = SwashCache::new();
-    let mut painter =
-        Painter { scene, styles, tree: &tree, ids: &ids, fonts: &mut fonts, cache: &mut cache };
+    let mut painter = Painter { scene, styles, tree: &tree, ids: &ids, fonts, cache };
     for &index in &scene.roots {
         painter.draw(&mut canvas, index, 0.0, 0.0, None);
     }
@@ -2698,6 +2735,24 @@ mod tests {
         assert!(rows(small) < rows(large));
     }
 
+    /// `.LineHeight(0.0)` is a style a program may write and `0` is a value CSS
+    /// accepts, so the painter has to have an answer for it. It had none: the
+    /// shaper asserts a non-zero line height, so every snapshot in a suite that
+    /// wrote one aborted with a Rust panic instead of a picture.
+    #[test]
+    fn a_line_height_of_zero_still_paints_the_run() {
+        let scene = "buri-scene 1\nviewport 60 40\ne 0 line-height:0;font-size:12px\nt 1 Ada\n";
+        assert!(inked_pixels(&render_ok(scene, "", "rest")) > 0);
+    }
+
+    /// The size takes the same floor, and has since it was written. Here so
+    /// that the two halves of one policy are read together.
+    #[test]
+    fn a_font_size_of_zero_still_paints_the_run() {
+        let scene = "buri-scene 1\nviewport 60 40\ne 0 font-size:0px\nt 1 Ada\n";
+        assert!(inked_pixels(&render_ok(scene, "", "rest")) > 0);
+    }
+
     #[test]
     fn a_class_comes_out_of_the_stylesheet() {
         let scene = "buri-scene 1\nviewport 6 4\ne 0 class:box\n";
@@ -2900,6 +2955,49 @@ mod tests {
     fn something_that_is_not_a_png_is_refused() {
         let error = decode(b"not a png at all").unwrap_err();
         assert!(error.contains("signature"), "{error}");
+    }
+
+    /// A golden is a file on a disk somebody's editor, archiver or version
+    /// control has had its hands on, so half a PNG is a thing a comparison
+    /// meets. Every prefix of one has to come back as a sentence rather than
+    /// as a panic or as a picture — and never as "these images are equal",
+    /// which is the one wrong answer a snapshot suite could not see.
+    #[test]
+    fn a_golden_cut_short_is_refused_rather_than_compared() {
+        let whole = render(&Request {
+            scene: "buri-scene 1\nviewport 24 16\ne 0 background-color:rgb(9,9,9)\n",
+            stylesheet: "",
+            state: "rest",
+        })
+        .unwrap();
+        // Every prefix, so no chunk boundary is the only one that was tried.
+        for cut in 0..whole.len() {
+            let Err(error) = diff(&whole[..cut], &whole) else {
+                panic!("a golden cut to {cut} bytes was read as a picture");
+            };
+            assert!(error.starts_with("the PNG "), "{cut} bytes: {error}");
+        }
+    }
+
+    /// And a golden the same length as the one that was written, with one byte
+    /// of its compressed image changed: either the stream no longer reads, or
+    /// it reads and the pictures differ. What it may not be is equal.
+    #[test]
+    fn a_golden_with_a_byte_changed_is_never_equal() {
+        let whole = render(&Request {
+            scene: "buri-scene 1\nviewport 24 16\ne 0 background-color:rgb(9,9,9)\n",
+            stylesheet: "",
+            state: "rest",
+        })
+        .unwrap();
+        for at in 0..whole.len() {
+            let mut broken = whole.clone();
+            broken[at] ^= 0xff;
+            match diff(&broken, &whole) {
+                Ok(Some(_)) | Err(_) => {}
+                Ok(None) => panic!("byte {at} changed and the two pictures compared equal"),
+            }
+        }
     }
 
     #[test]

@@ -1,0 +1,9 @@
+# No `platforms`, for `a_card_is_painted_and_compared`'s reason: a snapshot is
+# painted by the native runtime, so this suite is a linked binary.
+library {
+    sources: []
+
+    test {
+        sources: ["test/names.buri", "test/goldens.buri"]
+    }
+}

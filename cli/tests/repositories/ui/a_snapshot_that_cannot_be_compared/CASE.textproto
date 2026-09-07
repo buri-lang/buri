@@ -1,0 +1,61 @@
+# Every way a snapshot fails to be compared, and the sentence a reader gets for
+# each — through `buri test`, with the report recorded.
+#
+# The two beside this one are about pictures that match. This one is about the
+# six ways there is no comparison to make:
+#
+#   * the name is not a file name — a separator in it, nothing in it, or a `..`;
+#   * nobody has recorded the golden yet, so the report names `--update`;
+#   * the golden on disk is half a PNG, which is what an interrupted copy or a
+#     truncating archiver leaves behind;
+#   * and two blocks named one golden, so the earlier one reads the later one's
+#     picture.
+#
+# Then `--update` over the same suite, which is the other half of each: a name
+# that is not a file name is still refused — recording it would write outside
+# the package — while every golden the run could not read is replaced by what
+# was actually painted. The run after that is the evidence, and it is where the
+# shared name shows what sharing costs.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a snapshot whose name is not a file name, whose golden was never recorded, whose golden is half a PNG, or whose name a second block also used"
+
+run {
+  args: ["test", "//lib/broken", "--force"]
+  exit: 1
+  golden: "refused.txt"
+}
+
+# A comparison that never happened writes no difference to look at.
+path { path: "lib/broken/test/__snapshots__/never-recorded.diff.png"  exists: false }
+path { path: "lib/broken/test/__snapshots__/truncated.diff.png"  exists: false }
+
+# `--update` records what it could not read, and still refuses to write a file
+# whose name is not a file name.
+run {
+  args: ["test", "//lib/broken", "--update", "--force"]
+  exit: 1
+  golden: "recorded.txt"
+}
+
+path { path: "lib/broken/test/__snapshots__/never-recorded.png"  exists: true }
+path { path: "lib/broken/test/__snapshots__/shared.png"  exists: true }
+path { path: "lib/broken/test/__snapshots__/elsewhere"  exists: false }
+
+# And the run after it. The three names are still not names; the two goldens
+# that were unreadable now match; and the first of the two blocks that named
+# `shared` reads the picture the second one recorded.
+run {
+  args: ["test", "//lib/broken", "--force"]
+  exit: 1
+  golden: "after.txt"
+}
+
+# And there is no difference on disk to look at, which is the second half of
+# what one file shared by two blocks costs. The earlier block wrote
+# `shared.diff.png` on its way out; the later one matched, and a block that
+# matches takes the difference beside its golden with it. Two blocks that name
+# one snapshot get one report and one picture between them, and the report is
+# the half that survives.
+path { path: "lib/broken/test/__snapshots__/shared.diff.png"  exists: false }

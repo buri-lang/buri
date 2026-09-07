@@ -1,0 +1,5 @@
+FAIL //lib/two  test/two.buri  "the two panel"
+  the snapshot "panel" changed: see test/__snapshots__/panel.diff.png
+  --> lib/two/test/two.buri:9:1
+
+1 passed, 1 failed, 0 skipped (0.0s, 1 cached)
