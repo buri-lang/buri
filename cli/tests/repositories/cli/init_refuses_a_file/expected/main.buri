@@ -1,0 +1,5 @@
+//! Here before `buri init` ran, and the reason it stops.
+
+export fn main(): Result<(), Str> {
+    .Ok(())
+}
