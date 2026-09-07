@@ -8,6 +8,7 @@ library {
             "test/expressions.buri",
             "test/anchors.buri",
             "test/tokens.buri",
+            "test/parsing.buri",
         ]
 
         # The reference run, on the reference backend: `native::conformance`

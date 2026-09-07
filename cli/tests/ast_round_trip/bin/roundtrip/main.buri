@@ -1,0 +1,80 @@
+// Reads a manifest of source paths, and rewrites each one as
+// `core/buri/ast`'s `print` writes what its `parse` read.
+//
+// `language::round_trip` runs this over a copy of the conformance repository
+// and then runs `buri test` in the copy: a source that came back meaning
+// something else stops compiling, or stops passing, in the suite that owns it.
+//
+// Every path that would not parse is written to standard output, so a failure
+// names the file and the message rather than the count.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Alloc, Env, Stdout };
+from "core/env" import * as env;
+from "core/fs" import * as fs;
+from "core/fs" import { FsRead, FsWrite };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/path" import * as path;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Env: host.env,
+        FsRead: host.fs,
+        FsWrite: host.fs,
+        Stdout: host.stdout,
+    };
+    match (env.args(ctx).first()) {
+        .None => .Err("usage: roundtrip <manifest>"),
+        .Some(manifest) => rewriteAll(ctx, manifest),
+    }
+}
+
+fn rewriteAll<C: Alloc + FsRead + FsWrite + Stdout>(
+    ctx: C,
+    manifest: Str,
+): Result<(), Str> {
+    match (fs.readText(ctx, path.of(ctx, manifest))) {
+        .Err(_e) => .Err("the manifest does not read"),
+        .Ok(text) => {
+            let files = text
+                .lines(ctx)
+                .filter(ctx, fn(line) => line.isEmpty() == false);
+            let failures = files
+                .mapCtx(ctx, fn(c, file) => rewrite(c, file))
+                .flatten(ctx);
+            if (failures.isEmpty()) {
+                .Ok(())
+            } else {
+                let _ = io.println(ctx, failures.join(ctx, "\n")).ignore();
+                .Err("some sources did not round-trip")
+            }
+        },
+    }
+}
+
+/// One source, read and written back. The failures it found, or nothing.
+fn rewrite<C: Alloc + FsRead + FsWrite>(ctx: C, file: Str): [Str] {
+    match (fs.readText(ctx, path.of(ctx, file))) {
+        .Err(_e) => [str.format(ctx, "${file}: does not read")],
+        .Ok(source) => {
+            match (ast.parse(ctx, file, source)) {
+                .Err(errors) => errors.mapCtx(ctx, fn(c, e) => said(c, file, e)),
+                .Ok(tree) => {
+                    let printed = ast.print(ctx, tree).text;
+                    match (fs.writeText(ctx, path.of(ctx, file), printed)) {
+                        .Err(_e) => [str.format(ctx, "${file}: does not write")],
+                        .Ok(_ok) => [],
+                    }
+                },
+            }
+        },
+    }
+}
+
+fn said<C: Alloc>(ctx: C, file: Str, error: ast.ParseError): Str {
+    str.format(ctx, "${file}:${error.span.start}..${error.span.end}: ${error.message}")
+}
