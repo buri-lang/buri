@@ -1,0 +1,26 @@
+# The file already ignores everything the build writes, so there is nothing to
+# append. `buri init` leaves it byte for byte alone and reports it as `kept`.
+#
+# These are the very lines a first run appends, which is what makes the merge
+# idempotent: run `init` over its own output and it finds nothing to add.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# and not a Buri file — nor is repo/ below a Buri repository, which is what
+# `not_a_repository` says.
+
+doc: "an ignore file that already covers the build is kept, untouched"
+
+# `buri init` refuses at a `REPO.buri` and anywhere inside one, so the tree
+# it starts from is deliberately not a repository.
+not_a_repository: true
+
+run {
+  args: ["init"]
+  exit: 0
+  golden: "kept.txt"
+}
+
+file {
+  path: ".gitignore"
+  golden: "ignore.txt"
+}

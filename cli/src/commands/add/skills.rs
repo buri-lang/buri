@@ -56,6 +56,10 @@ pub enum Outcome {
     /// A file that kept everything it had and gained what it was missing —
     /// `buri init` merging into an existing `.gitignore`.
     Updated,
+    /// A file that already said everything the command had to say, so the
+    /// command wrote nothing. Reported, because "we looked and left it" is an
+    /// answer and silence is not.
+    Kept,
     /// A `buri-` directory this toolchain no longer ships.
     Removed,
 }
@@ -66,6 +70,7 @@ impl Outcome {
             Outcome::Wrote => "wrote",
             Outcome::Overwrote => "overwrote",
             Outcome::Updated => "updated",
+            Outcome::Kept => "kept",
             Outcome::Removed => "removed",
         }
     }
