@@ -1,8 +1,7 @@
 ## What it does
 
 Serves the language reference, the build system documentation, and this CLI
-reference, all from the binary. What you read is what this toolchain does. There
-is no website to fall out of date and no second copy to forget.
+reference, all from the binary. What you read is what this toolchain does.
 
 ```text
 buri docs                          every page, grouped
@@ -51,15 +50,12 @@ asserts that each one really works.
 The test suite compiles every fenced example in every page against the real
 standard library, and runs the ones that print something to compare their
 output. **That includes examples written in `///` and `//!` comments in `.buri`
-sources**, not only the ones in prose pages. A documentation comment is
-documentation, and an example in one has the same claim on being true. `buri
-docs test` reads a source file through its comments, and a failure names the
-`.buri` line the example is written on.
+sources.** `buri docs test` reads a source file through its comments, and a
+failure names the `.buri` line the example is written on.
 
 The same run holds every fenced example to the **layout** `buri format` writes,
-through the same printer. What you copy out of a page is the house style, so the
-house style is what the page prints. Run `buri format` over the documentation to
-fix one.
+through the same printer. What you copy out of a page is the house style. Run
+`buri format` over the documentation to fix one.
 
 `cli/src/docs/SPEC.md` comes from these same topics, and a test fails if the
 checked-in file drifts from what the topics produce.

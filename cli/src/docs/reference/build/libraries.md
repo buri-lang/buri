@@ -14,7 +14,7 @@ build system adds a second level above that:
 | Module | `export fn toCents(...)` in `cents.buri` | Any file **inside this library** that imports `//lib/money/cents.buri` |
 | Library | `from "//lib/money/cents.buri" export { Cents };` in `lib.buri` | Any target that declares this library in `dependencies` |
 
-Nothing changes about `export` itself. A library-level export is a re-export
+A library-level export is a re-export
 ([`language/modules.md` §4.2.1](../../language/modules.md)) written in a file
 the build system knows the name of. The rule is mechanical: **if it is not
 named in `lib.buri`, it is not reachable from outside the library.**
@@ -66,16 +66,14 @@ from "//lib/money" import { toCents }; // ERROR: "//lib/money" does not export `
 from "//lib/money/cents.buri" import { toCents }; // ERROR: internal to //lib/money
 ```
 
-This buys one property: reviewing a library's API means reading one file. Not
-grepping for `export` across forty. Not consulting a generated manifest that may
-be stale. You open `lib.buri`, the same file the compiler reads.
+So reviewing a library's API means reading one file, the same file the compiler
+reads.
 
 ## Module paths
 
 There are no relative imports ([`language/modules.md`
-§4.1.1](../../language/modules.md)). Every module path is absolute. A path means
-the same module wherever you write it, and a file can move between directories
-without changing its own imports.
+§4.1.1](../../language/modules.md)). Every module path is absolute, so a path
+means the same module wherever you write it.
 
 You name a **surface** as a module. Everything else is a **file**, and only its
 own package may name it. Both columns below are that one rule:
@@ -89,21 +87,17 @@ own package may name it. Both columns below are that one rule:
 | `"//lib/money/cents.buri"` | One module inside it | Only from inside `//lib/money` |
 | `"//cmd/server/main.buri"` | A binary's entry point | Only from that binary's own test sources |
 
-So `//lib/money` does three jobs. It is a package path in a `BUILD.buri`. It is
-an entry in `dependencies`, a *label* naming a target. It is the module path an
-import writes for that library's surface. A library has one spelling in a
-repository, and a suite reaches the library it tests by the same name its
-dependents use.
+So `//lib/money` does three jobs. It is a package path in a `BUILD.buri`, an
+entry in `dependencies`, and the module path an import writes for that library's
+surface. A library has one spelling in a repository, and a suite reaches the
+library it tests by the same name its dependents use.
 
-Each way of writing a path wrong has its own answer. A path with a file
-name left off is `import-path-without-a-file`, and the diagnostic names the file
-it meant. No textual rule could: `"//lib/money/testing"` and
-`"//lib/money/cents"` are the same shape, and only the layout says that one is a
-surface and the other a file. A path that leaves the package and reaches a file
-inside it is `internal-import`. The surface written the long way round,
+Each way of writing a path wrong has its own answer. A path with a file name
+left off is `import-path-without-a-file`, and the diagnostic names the file it
+meant. A path that leaves the package and reaches a file inside it is
+`internal-import`. The surface written the long way round,
 `"//lib/money/lib.buri"`, is accepted and resolves to the same module. It is
-unidiomatic rather than wrong. Nothing in the toolchain writes it, and nothing
-in this repository contains one.
+unidiomatic rather than wrong.
 
 The rules the compiler enforces:
 
@@ -125,9 +119,7 @@ The rules the compiler enforces:
   ```
 - **A file and a package of the same name are two different modules.** If
   `lib/money/cents/` is a package, its surface is `//lib/money/cents` and the
-  file beside it is `//lib/money/cents.buri`. These used to share one spelling,
-  and you had to rename one of the two. They are two strings now, a surface
-  named as a module and a file named as a file, and the layout is legal.
+  file beside it is `//lib/money/cents.buri`.
 - **Rules inside a package do not reach into each other.** A binary imports the
   co-located library as `//pkg`, its surface, like any other dependent. Never
   `//pkg/render.buri`. The library may not import `//pkg/main.buri` at all.
@@ -146,8 +138,6 @@ production binary. One rule gives you both:
 > **A module path containing a `testing` segment may be imported only from a
 > test source.**
 
-That covers every case, with no new field and nothing to remember to declare:
-
 | Path | What it is |
 |---|---|
 | `//lib/ledger/testing` | A library's own test utilities |
@@ -155,8 +145,7 @@ That covers every case, with no new field and nothing to remember to declare:
 | `core/testing/assert` | The test platform |
 
 The restriction sits in the import line, where the person writing the import is
-already looking, rather than in a build file three directories away. A
-production module that reaches for one gets:
+already looking. A production module that reaches for one gets:
 
 ```
 error: lib/store/file_store.buri imports a test-only module
@@ -212,13 +201,11 @@ Living *in the package* rather than beside it buys four properties:
 
 - **It may import the library's internals.** It can reach
   `//lib/ledger/entry.buri`, so you can build a fake out of the real thing
-  without a back door in the public surface. That is the reason to prefer it
-  over a separate package.
+  without a back door in the public surface.
 - **It has its own `dependencies`.** A fake usually needs less than the real
-  implementation, and occasionally needs something else entirely. Those entries
-  do not become dependencies of the library.
+  implementation. Those entries do not become dependencies of the library.
 - **No production artifact ever links it.** It compiles only into test binaries,
-  so it is a leaf in every non-test build and costs nothing there.
+  so it is a leaf in every non-test build.
 - **It inherits the library's `visibility` and `tags`.** Testing against
   `//lib/ledger` and depending on it take the same permission.
 
@@ -240,7 +227,7 @@ library {
 
 The convention costs you a reserved directory name. A package cannot have a
 product subdirectory called `testing`, and a package path cannot contain that
-segment. That is the whole price, and you see it the moment you try.
+segment.
 
 ## The re-export declaration
 
@@ -253,10 +240,9 @@ from "//lib/money/cents.buri" export *;                     // ERROR: expected `
 ```
 
 There is no `export *`, for the same reason there is no bare `import *`: every
-name that enters or leaves a module is written in that module's source. Here it
-also stops the surface growing by accident. Adding an `export` to an internal
-module publishes nothing until someone edits `lib.buri`, and that edit shows up
-in review as a change to the API, which is what it is.
+name that enters or leaves a module is written in that module's source. So
+adding an `export` to an internal module publishes nothing until someone edits
+`lib.buri`, and that edit shows up in review as a change to the API.
 
 A `lib.buri` may also declare things itself. It is an ordinary module that
 happens to be the entry point, so this is fine:
@@ -279,19 +265,11 @@ Three consequences worth spelling out:
 - **The surface filters methods, like everything else.** Method calls resolve
   through the receiver's defining module rather than through scope
   ([`language/expressions.md` §6.7](../../language/expressions.md)). Without
-  this rule a type could smuggle operations across the boundary: `from
-  "//lib/money" import { Cents }` would make every method on `Cents` callable,
-  `toCents` included, whether or not `lib.buri` mentioned it. So the rule is
+  this rule a type could smuggle operations across the boundary. So the rule is
   uniform: **a name is on the surface if `lib.buri` exports it, and a method
   call from outside the library resolves only to names on the surface.**
   Exporting `add` gives you both `add(a, b)` and `a.add(b)`. Leaving out
   `toCents` removes both.
-
-  Resolution itself does not change: still one type, one module, one lookup,
-  with a visibility filter applied after it. That is exactly what `export`
-  already does one level down, where another module cannot call a private method
-  either. The cost is listing a library's methods in `lib.buri` one at a time.
-  They are also its API, so you were going to list them anyway.
 
   Inside the library, [`language/modules.md` §4.1](../../language/modules.md)
   applies unchanged: importing `Cents` from `//lib/money/cents.buri` brings all
@@ -306,12 +284,11 @@ Three consequences worth spelling out:
 - **A method on an unexported type is unreachable.** That is the intended
   behavior, and `dead-code`, a lint every repository runs, reports it.
 
-One layout consequence surprises people once and then never again. A type's
-methods must be declared in the module that declares the type, so `Cents` and
-everything spelled `c.something()` live in one file, however long it gets.
-Functions *over* a type go anywhere. That includes functions over `[Cents]`,
-which can never be methods at all, since the defining module of `[T]` is
-`core/list`. A library's file layout follows its types, not its verbs:
+A type's methods must be declared in the module that declares the type, so
+`Cents` and everything spelled `c.something()` live in one file, however long it
+gets. Functions *over* a type go anywhere. That includes functions over
+`[Cents]`, which can never be methods at all, since the defining module of `[T]`
+is `core/list`. A library's file layout follows its types, not its verbs:
 
 ```
 lib/money/
@@ -367,8 +344,7 @@ from "//lib/ledger/posting/rules.buri" export { apply, Rule };
 Subdirectory nesting costs nothing in the build graph: one library is one
 compile action set, however you arrange its files. Split a directory into a
 package when you want a **boundary**: a different visibility, a different tag, a
-separate test suite, a cache edge that stops churn from propagating. Not when a
-directory merely holds a lot of files.
+separate test suite, a cache edge that stops churn from propagating.
 
 ## The `test/` directory
 

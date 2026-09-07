@@ -1,8 +1,8 @@
 # Stage 0 findings
 
 Six hand-written experiments that come before any Lean work. Reading `cli/src/`
-and `cli/src/docs/SPEC.md` predicted each one; a build of the toolchain at commit
-`1b0a711` then answered it. Reproducers live in `cases/`.
+and `cli/src/docs/SPEC.md` predicted each one; a build of the toolchain at
+commit `1b0a711` then answered it. Reproducers live in `cases/`.
 
 To re-run a case, drop it into a scratch repo as a JS binary package and build it.
 
@@ -28,25 +28,20 @@ nested or-pattern …", eight tests) and `.../lib/semantics/test/evaluation.buri
 cover the rejections, each with its diagnostic recorded to the byte.
 
 **What this proved.** Reading the spec and the checker source predicted four of
-the six findings in advance. The other two showed up only once the algorithm was
-precise enough to mechanise. Finding 4 was the sharpest: the purity theorem was
-not under-specified, it was false. The counterexample — a generic closure-builder
-instantiated at a context type — came from asking what an unconstrained type
-parameter actually permits, which inspection alone never forced. Finding 6
-arrived the same way, from asking whether the exhaustiveness algorithm really
-established the well-formedness invariant the Lean model needed. It did not, on a
-nested or-pattern. Both were real soundness holes rather than documentation gaps,
-and both are closed with regression coverage. That is the case for the Lean
-investment.
+the six findings. The other two showed up only once the algorithm was precise
+enough to mechanise, and both were real soundness holes rather than
+documentation gaps: finding 4, where the purity theorem was not
+under-specified but false, and finding 6, where the exhaustiveness algorithm
+did not establish the invariant the Lean model needed.
 
 ---
 
 ## The rule chosen for finding 4
 
-The checker forbids a lambda from capturing a value whose type could be a context
-at some instantiation. Two escapes preserve soundness — an ordinary trait bound,
-and a function type — argued in full in `cli/src/docs/language/effects.md` §10.6.
-`inference.rs::satisfies_seen` implements the trait-bound escape and
+The checker forbids a lambda from capturing a value whose type could be a
+context at some instantiation. Two escapes preserve soundness — an ordinary
+trait bound, and a function type — argued in `cli/src/docs/language/effects.md`
+§10.6. `inference.rs::satisfies_seen` implements the trait-bound escape and
 `Infer::note_capture_risk` the capture check itself. All three reproducers
 (`hide_generic`, `launder`, `purity_false`) are rejected as
 `lambda-captures-generic` (`cli/src/docs/errors/lambda-captures-generic.md`).

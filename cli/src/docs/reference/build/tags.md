@@ -6,8 +6,7 @@ platform whitelist. Neither has a composition mode, a default, or a resolution
 order.
 
 **Tags mean the same thing on a library and on a binary.** There is no second
-mechanism for entry points. A binary is a target, and it carries labels like any
-other.
+mechanism for entry points.
 
 ## Tags are labels; policy lives on the tag
 
@@ -38,32 +37,25 @@ tag {
 }
 ```
 
-This is the split that matters. A build file states what its code *is*. The
-repository states what follows from that. Adding a library that reuses an
-existing tag never touches `REPO.buri`, and changing what `server` means never
-touches a library.
+A build file states what its code *is*. The repository states what follows from
+that. Adding a library that reuses an existing tag never touches `REPO.buri`,
+and changing what `server` means never touches a library.
 
 Each block's name states its polarity, so anyone scanning `REPO.buri` sees at a
-glance what a tag rules out and what it demands. Nobody has to remember which
-field is which. Each takes exactly one kind of thing, and the
-omissions are deliberate ([see below](#why-forbids-has-no-platforms)).
+glance what a tag rules out and what it demands. Each takes exactly one kind of
+thing, and the omissions are deliberate
+([see below](#why-forbids-has-no-platforms)).
 
 ### The vocabulary is closed
 
 Tags are one flat namespace. `tags: ["server"]` in a build file three
 directories down resolves to that block and nowhere else. A name declared twice
-is an error, never a silent win for whichever declaration came first.
+is an error.
 
 **A tag that `REPO.buri` does not declare is an error.** `unknown-tag` reports
-it and suggests the nearest declared name. There are no ad-hoc tags, and a
-`tags` entry is never a harmless annotation.
-
-The alternative, an undeclared tag meaning nothing, makes a typo the silent
-difference between a checked build and an unchecked one. It fails in the bad
-direction: `//lib/store` looks tagged, reviews as tagged, and links into the
-browser build anyway. A closed vocabulary also means the tags in play are
-exactly the tags in `REPO.buri`, so one file answers "what policies does this
-repository have" and nobody greps the tree.
+it and suggests the nearest declared name. There are no ad-hoc tags, so a typo
+can never be the silent difference between a checked build and an unchecked one,
+and one file answers "what policies does this repository have".
 
 ## `forbids { tags: [...] }`
 
@@ -72,8 +64,7 @@ closure. That is the entire rule.
 
 It is **symmetric**. Declaring that `server` forbids `client` says the same thing
 as declaring that `client` forbids `server`. Write it once, on whichever tag
-makes it easier to find. Policy about a restricted thing usually belongs on the
-restricted thing.
+makes it easier to find.
 
 The check runs at **every target**, not only at binaries:
 
@@ -88,10 +79,8 @@ dependency and server-only code down another is an error even though neither
 reaches the other. It would still be one artifact containing both.
 
 **Direction does not exist.** "Where may this code go" and "what is in this
-binary" are the same reachability question asked from opposite ends. Deployment
-tiers and license or data classification need one mechanism, not two that
-compose differently. One walk checks both `server` forbidding `client` and
-`experimental` forbidding `stable`.
+binary" are the same reachability question asked from opposite ends. One walk
+checks both `server` forbidding `client` and `experimental` forbidding `stable`.
 
 ## `requires { platforms: [...] }`
 
@@ -99,8 +88,7 @@ A platform is not a tag. You select a platform rather than merely constrain it,
 because the compiler has to pick a backend. So it stays a typed field.
 
 A binary names its platforms in `outputs`. A library names them only when it is
-genuinely platform-specific, and writes them as a plain field, because a library
-states facts rather than policy:
+genuinely platform-specific, and writes them as a plain field:
 
 ```textproto schema=build
 # lib/posix_paths/BUILD.buri
@@ -110,10 +98,9 @@ library {
 }
 ```
 
-**Unset means every platform, and unset is the overwhelmingly common case.** A
-library has no opinion about platforms unless its code has one. `//lib/money`
-and `//lib/ledger` in the example repository declare nothing and build
-everywhere.
+**Unset means every platform, and unset is the overwhelmingly common case.**
+`//lib/money` and `//lib/ledger` in the example repository declare nothing and
+build everywhere.
 
 The same list appears under a tag's `requires`, with the same meaning, when the
 restriction is policy across many libraries rather than a fact about one.
@@ -121,8 +108,8 @@ restriction is policy across many libraries rather than a fact about one.
 inherits that without repeating it.
 
 It is a **whitelist**, never an exclusion. You write "anything but JS" by listing
-what is allowed, which stays correct when the toolchain gains a platform. A
-library written today does not silently acquire a WASM build tomorrow. The rule:
+what is allowed, which stays correct when the toolchain gains a platform. The
+rule:
 
 > *platforms(T)* is the intersection, over every target in *closure(T)*, of that
 > target's `platforms` and the `requires.platforms` of every tag it carries,
@@ -136,21 +123,15 @@ it first.
 
 ### Why `forbids` has no platforms
 
-The blocks are not symmetric, and both missing combinations are missing on
-purpose.
-
 **`forbids { platforms: ... }` does not exist.** It would write the same
 restriction as a negation, and a negation does not survive a new platform.
 `server` forbidding JS silently permits WASM the day WASM arrives, while
-`server` requiring linux and macos keeps meaning what its author meant. Every
-platform restriction is a whitelist, so there is one place to write one.
+`server` requiring linux and macos keeps meaning what its author meant.
 
-**`requires { tags: ... }` does not exist.** It reads plausibly, as "everything
-under this must also be server code", and it is unusable. Most targets carry no
-tags at all, so the rule would force `server` transitively onto every library in
-the repository, and the tag would stop distinguishing anything. Weaken it to
-what people actually mean, "nothing under this may be *incompatible*", and you
-have `forbids { tags: ... }`, which already exists.
+**`requires { tags: ... }` does not exist.** Most targets carry no tags at all,
+so the rule would force `server` transitively onto every library in the
+repository. Weaken it to what people actually mean, "nothing under this may be
+*incompatible*", and you have `forbids { tags: ... }`.
 
 ## Outputs
 
@@ -173,30 +154,20 @@ so it runs once.
 ## What a failure reports
 
 A `tag-violation` names both tags, the target carrying each, the path that
-reaches it, and each tag's `doc`. It prints the path because in a repository of
-any size the interesting question is never "which library is tagged `server`"
-but "who dragged it in." It prints the `doc` strings for the same reason: a tag
-is a policy, and a policy should say why. A `platform-violation` reports the
-same way. [Enforce policy with tags](../../guides/tags-policy.md) walks one of
-each.
-
-Two rules, two diagnostics, and the second is why the first is not load-bearing.
-A repository states its deployment policy on a tag once and gets both. A target
-that drops the offending tag can still fail on the platform whitelist the other
-tag carries.
+reaches it, and each tag's `doc`. It prints the path because the interesting
+question is never "which library is tagged `server`" but "who dragged it in." A
+`platform-violation` reports the same way. [Enforce policy with
+tags](../../guides/tags-policy.md) walks one of each.
 
 An unsatisfiable target, one carrying `client` and depending on something tagged
 `server`, reports the same way at the *library* itself, before any binary asks
-for it. Catching it there is worth the extra pass. Otherwise the mistake
-surfaces as a confusing failure in whichever binary happens to reach it first.
+for it. Otherwise the mistake surfaces as a confusing failure in whichever
+binary happens to reach it first.
 
-A `stable` binary reaching an `experimental` library reads identically, which is
-the point: one mechanism and one diagnostic shape, whether the question is
-deployment or maturity. `stable` is opt-in, and nothing is defaulted. A binary
-that says nothing about maturity gets no maturity check, and a binary that
-refuses to ship unfinished code says so. That loses real enforcement compared to
-a mandatory axis, and it buys a design with no resolution algorithm to reason
-about.
+A `stable` binary reaching an `experimental` library reads identically: one
+mechanism and one diagnostic shape, whether the question is deployment or
+maturity. `stable` is opt-in, and nothing is defaulted. A binary that says
+nothing about maturity gets no maturity check.
 
 ## Tags and tests
 
@@ -220,9 +191,8 @@ library {
 }
 ```
 
-That is how you write "this must behave identically on both backends". For a
-language targeting a native binary and JavaScript, that is the test you most
-want. `I64` on the JS target ([a `BigInt`, not a
+That is how you write "this must behave identically on both backends". `I64` on
+the JS target ([a `BigInt`, not a
 `number`](../../guides/compile-to-js.md)) is the standing reason it exists. A
 platform listed here must be one the target admits. Asking for a JS run of a
 `[LINUX, MACOS]` library is an error, not a skip.
@@ -233,20 +203,14 @@ run happens on a Linux machine and a `MACOS` run on a Mac. The runner refuses
 the other with `platform-not-implemented` rather than quietly running it through
 JavaScript.
 
-A suite that names no platforms also runs on the host natively, and there is no
-second answer. Where this toolchain cannot build a binary for the host, or where
-the suite's program reaches something the backend has no body for yet, the
-runner **refuses**: `native-run-not-available` for the first, and a message
-naming the intrinsic and the backend for the second. It reroutes nothing. A
-suite that ran on a backend nobody chose would report a pass about the other
-backend, and the line saying so would go to a stream that a green run's reader
-does not read.
-
-A declared platform and the default differ only in how the refusal reads. A
-suite that wrote `platforms` down has somewhere to delete the request from, and
-a suite that wrote none does not. Both refusals name the two ways to ask for
-JavaScript: `test { platforms: [JS] }` in the build file, and `buri test
---output=js` for a whole invocation without editing one.
+A suite that names no platforms also runs on the host natively. Where this
+toolchain cannot build a binary for the host, or where the suite's program
+reaches something the backend has no body for yet, the runner **refuses**:
+`native-run-not-available` for the first, and a message naming the intrinsic and
+the backend for the second. It reroutes nothing, because a suite that ran on a
+backend nobody chose would report a pass about the other backend. Both refusals
+name the two ways to ask for JavaScript: `test { platforms: [JS] }` in the build
+file, and `buri test --output=js` for a whole invocation.
 
 ### One binary for several suites
 
@@ -258,14 +222,12 @@ it once, and runs it once.
 
 Tag-compatible is this chapter's own rule applied to the union. A batch is one
 artifact, so two tags that forbid each other may not both be in it. A `client`
-suite and a `server` suite are therefore two binaries, however convenient one
-would have been. The tags that count are those of the suite's production closure
-*and* of its `test { dependencies }`, everything the binary would actually link.
-Three more conditions keep a suite out of a batch, and each marks a way two
-suites would disagree about what building or running them means: a declared
-`test { platforms }`, which is a request served on its own; a declared
-`timeout_seconds`, since one suite's limit would become everybody's in a shared
-process; and `--output=` on the invocation.
+suite and a `server` suite are therefore two binaries. The tags that count are
+those of the suite's production closure *and* of its `test { dependencies }`,
+everything the binary would actually link. Three more conditions keep a suite
+out of a batch: a declared `test { platforms }`, which is a request served on
+its own; a declared `timeout_seconds`, since one suite's limit would become
+everybody's in a shared process; and `--output=` on the invocation.
 
 Nothing about the result changes. Each suite still has its own cache key, its own
 cached verdict, and its own report. A suite whose verdict is already cached never
@@ -274,7 +236,7 @@ but it costs that suite's test and no other suite's report, because the runner
 resumes at the block after the one that aborted. If anything at all makes a batch
 doubtful, from a type error to an intrinsic the backend has no body for, `buri
 test` abandons the batch and compiles, links and runs every suite in it on its
-own. There a diagnostic can name the one suite it belongs to.
+own, where a diagnostic can name the one suite it belongs to.
 
 ## What tags are not
 
@@ -285,11 +247,9 @@ own. There a diagnostic can name the one suite it belongs to.
 - **Not conditional compilation.** No source file changes meaning across
   platforms, and there is no `#if`. A library that needs two implementations
   becomes two libraries with different `platforms` and one dependent that picks.
-  The choice shows up in the build graph rather than hiding in a file.
 - **Not a substitute for visibility.** Visibility answers "who may write this
   dependency edge", one edge at a time. Tags answer "what may end up in one
-  artifact", over the whole closure. Use visibility for API ownership, tags for
-  deployment boundaries.
+  artifact", over the whole closure.
 - **Not an axis system.** There are no dimensions, so nothing requires a binary
   to state a tier, and nothing is resolved or defaulted. A tag is either present
   in a closure or it is not.
