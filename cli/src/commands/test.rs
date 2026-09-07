@@ -564,7 +564,7 @@ fn run_on(
     // whose host grant a program is checked against are different questions,
     // and a test never binds `core/host` — only the entry point a batched
     // binary happens to drag in does. See `Unit::platform`.
-    let unit = Unit { target: Some(target), platform: None, with_tests: true };
+    let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
     let analysis = crate::compiler::driver::analyze(
         Some(&session.workspace),
         &mut session.map,
@@ -1675,7 +1675,7 @@ fn run_batch(
     // sources load in and therefore the order the binary's blocks come out in.
     let units: Vec<Unit> = members
         .iter()
-        .map(|&target| Unit { target: Some(target), platform: None, with_tests: true })
+        .map(|&target| Unit { target: Some(target), platform: None, entry: None, with_tests: true })
         .collect();
     let analysis = crate::compiler::driver::analyze_all(
         Some(&session.workspace),

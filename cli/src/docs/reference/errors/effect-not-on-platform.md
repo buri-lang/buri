@@ -26,10 +26,15 @@ for a member.
 - **A build producing one output** is checked against that output, so
   `buri build --output=js` on a binary that also declares WEB compiles only the
   JS one. A snippet pinned with `platform=` on its fence works the same way.
-- **A binary's entry point** — `main.buri`, the one module that may import
-  `core/host` at all — is checked against every platform its `outputs` name,
-  plus every platform its suite names in `test.platforms`. So a binary declaring
-  `[MACOS, WEB]` and binding `FsRead: host.fs` is refused, naming WEB.
+- **An entry's own body** is checked against the outputs that enter through
+  *that* entry, plus every platform its suite names in `test.platforms`. So a
+  binary whose page enters at `main` and whose worker enters at `fetch` may bind
+  `Ui: host.ui` in `main` and `Net: host.net` in `fetch`, and neither refuses
+  the other.
+- **Anywhere else in `main.buri`** — a helper, a top-level named import — is
+  checked against every platform the `outputs` name, because any of them may
+  reach it. So a binary declaring `[MACOS, WEB]` whose helper binds
+  `FsRead: host.fs` is refused, naming WEB.
 - **Every other module** is checked against the platforms **its own rule
   declared**. A rule that declared none is never checked, because a library that
   says nothing about `platforms` is platform-generic.
@@ -50,15 +55,14 @@ toolchain* was built with instead.
 
 An effect nobody grants yet gets the same sentence, from an empty row in the
 same table. `Listen` is granted on `LINUX` and `MACOS`, where holding a port
-open is a native program's authority, and never will be on `JS` or `WEB`. A row
-says who grants an effect now, not when the rest will fill — and it can widen
-too: `Sockets` was granted with `Listen` and only with it, until
-`WebSocketClient` let a page get a socket without accepting one.
+open is a native program's authority, and never will be on `JS`, `WEB` or
+`CLOUDFLARE_WORKER`. A row says who grants an effect now, not when the rest will
+fill — and it can widen too: `Sockets` was granted with `Listen` and only with
+it, until `WebSocketClient` let a page get a socket without accepting one.
 
 `Tasks` shows the other direction. It landed granted by nobody, then on the
-three platforms that are not a page, and now on all four — one edit to one row
-each time, and nothing to change in a program already written against the
-signature.
+platforms that are not a page, and now on every one — one edit to one row each
+time, and nothing to change in a program already written against the signature.
 
 ## A program that provokes it
 

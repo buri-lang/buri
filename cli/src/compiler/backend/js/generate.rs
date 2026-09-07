@@ -501,19 +501,33 @@ pub fn generate(
             .symbol
             .clone();
         roots.push(sym.clone());
-        // Awaited only when the entry itself parks, so an artifact whose
-        // `main` never waits is the same bytes it was before this transform.
-        // The epilogue is module top level, where `await` is available
-        // because every artifact this backend writes is an ES module.
-        let wait = if g.parks(entry) { "await " } else { "" };
-        // What the two arms *do* is `runtime.js`'s `$done` and `$failed`,
-        // because both have to flush what the program printed before they say
-        // anything of their own — and a flush before a `process.exit` is a
-        // claim only the runtime's synchronous writer can keep
-        // (buri-lang/buri#42).
-        stmts.push(Stmt::Raw(format!(
-            "try{{const r={wait}{sym}();$done(r)}}catch(e){{$failed(e)}}"
-        )));
+        // **What an entry *is* is decided by its platform.** A worker is called
+        // by its runtime, once per request; everything else runs itself and
+        // reports how it went. The two epilogues are the whole of that
+        // difference in the artifact.
+        if platform == Platform::CloudflareWorker {
+            // A module worker's default export. `$fetchEntry` is the crossing:
+            // the platform's `Request` in, `core/effect`'s `Response` out.
+            roots.push("$fetchEntry".into());
+            stmts.push(Stmt::Raw(format!(
+                "export default{{fetch:(request)=>$fetchEntry({sym},request)}};"
+            )));
+        } else {
+            // Awaited only when the entry itself parks, so an artifact whose
+            // `main` never waits is the same bytes it was before this
+            // transform. The epilogue is module top level, where `await` is
+            // available because every artifact this backend writes is an ES
+            // module.
+            let wait = if g.parks(entry) { "await " } else { "" };
+            // What the two arms *do* is `runtime.js`'s `$done` and `$failed`,
+            // because both have to flush what the program printed before they
+            // say anything of their own — and a flush before a `process.exit`
+            // is a claim only the runtime's synchronous writer can keep
+            // (buri-lang/buri#42).
+            stmts.push(Stmt::Raw(format!(
+                "try{{const r={wait}{sym}();$done(r)}}catch(e){{$failed(e)}}"
+            )));
+        }
     }
 
     if !program.roots.tests().is_empty() {
@@ -540,16 +554,18 @@ pub fn generate(
 /// by `process.exit` (buri-lang/buri#37, buri-lang/buri#42).
 ///
 /// So every artifact for a platform that *has* an exit needs it, which is
-/// every platform but `WEB`: a page has no `process.exit` to lose a write to,
-/// no descriptor to write synchronously to, and — this is why the answer is not
-/// simply `true` — a bundler that would try to resolve `node:module` for the
-/// browser. A page that reaches `Fs` or `writeBytes` still gets the prologue,
-/// guarded, and `$fs` says out loud that the platform grants neither.
+/// every platform but `WEB` and `CLOUDFLARE_WORKER`: neither has a
+/// `process.exit` to lose a write to, neither has a descriptor to write
+/// synchronously to, and — this is why the answer is not simply `true` — a
+/// bundler would try to resolve `node:module` for a browser, and a worker
+/// deploys with no node under it at all. One that reaches `Fs` or `writeBytes`
+/// still gets the prologue, guarded, and `$fs` says out loud that the platform
+/// grants neither.
 ///
 /// `Stdin` is on neither side of this: it reads `process.stdin`, which is a
 /// global rather than a module.
 fn needs_require(program: &Program, platform: Platform) -> bool {
-    if platform != Platform::Web {
+    if !matches!(platform, Platform::Web | Platform::CloudflareWorker) {
         return true;
     }
     program.funcs.iter().any(|f| {

@@ -337,10 +337,10 @@ Top-level functions capture nothing but other top-level declarations, which are
 themselves effect-free, so for a top-level `fn` the theorem reduces to: *is
 there a `ctx` parameter?*
 
-The last clause exists because `main` has no parameters and is plainly not pure:
-it builds a context and uses it. Only `main`'s body, a test source, or a
-test-only module may construct a context (Section 11.3), and library code calls
-none of those, so the clause is vacuous in all ordinary code.
+The last clause exists because an entry has no context parameter and is plainly
+not pure: it builds a context and uses it. Only an entry's body, a test source,
+or a test-only module may construct a context (Section 11.3), and library code
+calls none of those, so the clause is vacuous in all ordinary code.
 
 Two consequences:
 

@@ -63,6 +63,22 @@ impl<T: PartialEq> PartialEq for Spanned<T> {
     }
 }
 
+/// The signature a platform fixes for the function an output enters through.
+///
+/// The compiler checks the entry against this, so declaring an output for a
+/// platform whose shape the function does not have is a type error at the
+/// function rather than a failure at run time. A platform added later is a row
+/// here and a row in the checker's table, and nothing else.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EntryShape {
+    /// `fn <entry>(): Result<(), Str>`. The program runs itself: `.Ok(())`
+    /// exits 0, `.Err(msg)` prints `msg` and exits 1.
+    Program,
+    /// `fn <entry>(request: Request): Response`. The platform calls it, once
+    /// per request.
+    Fetch,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
 pub enum Platform {
     Linux,
@@ -74,6 +90,13 @@ pub enum Platform {
     /// reactive graph, and grants no filesystem, no standard input, no
     /// environment and no process to exit.
     Web,
+    /// A Cloudflare Worker. The artifact is JavaScript, and the platform calls
+    /// it: the entry is a `fetch` the worker runtime invokes per request,
+    /// rather than a `main` that runs itself. It grants what a request handler
+    /// away from a machine has — a clock, randomness, an outbound request —
+    /// and grants no filesystem, no standard input, no environment, no process
+    /// to exit, no port to hold open and no document.
+    CloudflareWorker,
 }
 
 impl Platform {
@@ -83,6 +106,7 @@ impl Platform {
             "MACOS" => Platform::Macos,
             "JS" => Platform::Js,
             "WEB" => Platform::Web,
+            "CLOUDFLARE_WORKER" => Platform::CloudflareWorker,
             _ => return None,
         })
     }
@@ -94,6 +118,7 @@ impl Platform {
             Platform::Macos => "macos",
             Platform::Js => "js",
             Platform::Web => "web",
+            Platform::CloudflareWorker => "cloudflare-worker",
         }
     }
 
@@ -103,6 +128,7 @@ impl Platform {
             Platform::Macos => "MACOS",
             Platform::Js => "JS",
             Platform::Web => "WEB",
+            Platform::CloudflareWorker => "CLOUDFLARE_WORKER",
         }
     }
 
@@ -116,7 +142,7 @@ impl Platform {
     /// archive — so every site that meant "not native" must ask this rather
     /// than compare against one variant.
     pub fn is_javascript(self) -> bool {
-        matches!(self, Platform::Js | Platform::Web)
+        matches!(self, Platform::Js | Platform::Web | Platform::CloudflareWorker)
     }
 
     /// Whether this platform is built by a native backend, linked, and run as
@@ -126,8 +152,29 @@ impl Platform {
         !self.is_javascript()
     }
 
-    pub const ALL: [Platform; 4] =
-        [Platform::Linux, Platform::Macos, Platform::Js, Platform::Web];
+    pub const ALL: [Platform; 5] = [
+        Platform::Linux,
+        Platform::Macos,
+        Platform::Js,
+        Platform::Web,
+        Platform::CloudflareWorker,
+    ];
+
+    /// The signature this platform fixes for the function an output enters
+    /// through.
+    ///
+    /// **A platform decides the shape of its entry**, which is why the answer
+    /// lives here and not on the function. A worker is called by its runtime
+    /// with a request and answers a response; everything else runs itself and
+    /// reports how it went.
+    pub fn entry_shape(self) -> EntryShape {
+        match self {
+            Platform::CloudflareWorker => EntryShape::Fetch,
+            Platform::Linux | Platform::Macos | Platform::Js | Platform::Web => {
+                EntryShape::Program
+            }
+        }
+    }
 
     /// Every platform's schema spelling, in declaration order.
     ///
@@ -139,7 +186,8 @@ impl Platform {
         Platform::ALL.iter().map(|p| p.proto()).collect()
     }
 
-    /// `LINUX, MACOS, JS, WEB` — the list as a diagnostic writes it.
+    /// `LINUX, MACOS, JS, WEB, CLOUDFLARE_WORKER` — the list as a diagnostic
+    /// writes it.
     pub fn names_phrase() -> String {
         Platform::proto_names().join(", ")
     }
@@ -226,6 +274,9 @@ pub enum OutputTarget {
     /// meaningless for JavaScript, and a browser loads an ES module — there
     /// is no `<script type="commonjs">`.
     Web,
+    /// A Cloudflare Worker. Carries no `arch` and no module kind, for `Web`'s
+    /// reasons: the artifact is an ES module and there is no machine under it.
+    CloudflareWorker,
 }
 
 /// One entry of a binary's `outputs`.
@@ -237,13 +288,19 @@ pub enum OutputTarget {
 pub struct Output {
     pub target: OutputTarget,
     pub artifact_name: Option<String>,
+    /// The exported function this artifact enters through. `None` is `main`.
+    ///
+    /// A binary is one program with several ways in: a page enters through
+    /// `main` and a worker through `fetch`, out of the same sources, each with
+    /// its own context and its own dead-code elimination.
+    pub entry: Option<Spanned<String>>,
     pub span: Span,
 }
 
 impl Output {
     /// The default output: this toolchain emits JavaScript.
     pub fn js(span: Span) -> Output {
-        Output { target: OutputTarget::Js, artifact_name: None, span }
+        Output { target: OutputTarget::Js, artifact_name: None, entry: None, span }
     }
 
     /// An output for a platform chosen at run time, as `buri test` does.
@@ -257,8 +314,9 @@ impl Output {
                 OutputTarget::Native { platform: NativePlatform::Macos, arch: None }
             }
             Platform::Web => OutputTarget::Web,
+            Platform::CloudflareWorker => OutputTarget::CloudflareWorker,
         };
-        Output { target, artifact_name: None, span }
+        Output { target, artifact_name: None, entry: None, span }
     }
 
     pub fn platform(&self) -> Platform {
@@ -266,13 +324,19 @@ impl Output {
             OutputTarget::Native { platform, .. } => platform.platform(),
             OutputTarget::Js => Platform::Js,
             OutputTarget::Web => Platform::Web,
+            OutputTarget::CloudflareWorker => Platform::CloudflareWorker,
         }
+    }
+
+    /// The function this output enters through. `main` when it named none.
+    pub fn entry_name(&self) -> &str {
+        self.entry.as_ref().map_or("main", |e| e.value.as_str())
     }
 
     pub fn arch(&self) -> Option<Arch> {
         match &self.target {
             OutputTarget::Native { arch, .. } => arch.as_ref().map(|a| a.value),
-            OutputTarget::Js | OutputTarget::Web => None,
+            OutputTarget::Js | OutputTarget::Web | OutputTarget::CloudflareWorker => None,
         }
     }
 
@@ -281,6 +345,7 @@ impl Output {
         match &self.target {
             OutputTarget::Js => "js".to_string(),
             OutputTarget::Web => "web".to_string(),
+            OutputTarget::CloudflareWorker => "cloudflare-worker".to_string(),
             OutputTarget::Native { platform, arch: Some(a) } => {
                 format!("{}-{}", platform.platform().slug(), a.value.slug())
             }
@@ -583,6 +648,20 @@ impl Reader {
         }
     }
 
+    /// The same, keeping where it was written. An `entry` names a function
+    /// the compiler then reports about, so the span has to survive the read.
+    fn spanned_string(&mut self, message: &Message, name: &str) -> Option<Spanned<String>> {
+        let f = message.get(name)?;
+        match &f.value {
+            Value::Str(s, sp) => Some(Spanned::new(s.clone(), *sp)),
+            other => {
+                let kind = other.kind().to_string();
+                self.wrong_kind(other.span(), name, "a string", &kind);
+                None
+            }
+        }
+    }
+
     fn u32_field(&mut self, message: &Message, name: &str) -> Option<u32> {
         let f = message.get(name)?;
         match &f.value {
@@ -853,6 +932,20 @@ impl Reader {
                 });
 
                 let artifact_name = self.string(m, "artifact_name");
+                // An entry names an exported function, so it has to look like
+                // one. The compiler reports a name that is spelled right and
+                // does not exist; a name that could not be a function at all is
+                // this reader's own refusal, because there is nothing for the
+                // compiler to look up.
+                let entry = self.spanned_string(m, "entry").filter(|e| {
+                    let ok = !e.value.is_empty()
+                        && e.value.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                        && e.value.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+                    if !ok {
+                        self.templated("entry-not-a-name", e.span).bind("entry", e.value.clone());
+                    }
+                    ok
+                });
                 let mut js_block: Option<Span> = None;
                 if let Some((js_message, js_span)) = self.sub_message(m, "js") {
                     js_block = Some(js_span);
@@ -921,8 +1014,22 @@ impl Reader {
                         }
                         OutputTarget::Web
                     }
+                    Platform::CloudflareWorker => {
+                        // A worker is JavaScript with no machine under it and
+                        // no `<script>` to choose a module kind for, so it
+                        // refuses the same two fields a page refuses.
+                        if let Some(a) = &arch {
+                            self.templated("output-with-an-architecture", a.span)
+                                .bind("platform", "CLOUDFLARE_WORKER")
+                                .bind("artifact", "a worker");
+                        }
+                        if let Some(js_span) = js_block {
+                            self.templated("web-output-with-a-js-block", js_span);
+                        }
+                        OutputTarget::CloudflareWorker
+                    }
                 };
-                out.push(Output { target, artifact_name, span: *span });
+                out.push(Output { target, artifact_name, entry, span: *span });
             }
         }
         out
@@ -1236,7 +1343,12 @@ library {
         }
         assert!(Platform::Web.is_javascript());
         assert!(!Platform::Web.is_native());
-        assert_eq!(Platform::names_phrase(), "LINUX, MACOS, JS, WEB");
+        // A worker is JavaScript too: one `.mjs`, no linker, no runtime
+        // archive. What separates it from a page is what its host grants and
+        // the shape of its entry, which is the whole reason it is a platform.
+        assert!(Platform::CloudflareWorker.is_javascript());
+        assert!(!Platform::CloudflareWorker.is_native());
+        assert_eq!(Platform::names_phrase(), "LINUX, MACOS, JS, WEB, CLOUDFLARE_WORKER");
     }
 
     /// A WEB output carries neither field a JS output can, and both refusals

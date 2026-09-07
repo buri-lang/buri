@@ -354,7 +354,7 @@ mod tests {
     fn a_platform_field_names_the_enum_its_values_come_from() {
         let platform = schema().enumeration("library", "platforms").expect("Platform");
         let names: Vec<&str> = platform.constants.iter().map(|c| c.name.as_str()).collect();
-        assert_eq!(names, ["PLATFORM_UNSPECIFIED", "LINUX", "MACOS", "JS", "WEB"]);
+        assert_eq!(names, ["PLATFORM_UNSPECIFIED", "LINUX", "MACOS", "JS", "WEB", "CLOUDFLARE_WORKER"]);
         let web = platform.constants.iter().find(|c| c.name == "WEB").expect("WEB");
         assert_eq!(web.signature, "Platform.WEB = 4");
         assert!(web.docs[0].starts_with("A page in a browser"), "{:?}", web.docs);

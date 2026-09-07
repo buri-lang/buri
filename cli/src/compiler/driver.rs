@@ -231,6 +231,7 @@ pub fn analyze_snippet_on(
         loader.load_unit(&crate::compiler::modules::Unit {
             target: None,
             platform,
+            entry: None,
             with_tests: false,
         });
         loader.load_all_std();

@@ -389,9 +389,11 @@ fn parse_target(name: &str) -> Option<Target> {
 
 fn target_name(t: Target) -> String {
     let platform = match t.platform {
-        // Neither carries an arch, so neither has a second half to name.
+        // None of the three carries an arch, so none has a second half to
+        // name.
         Platform::Js => return "js".to_string(),
         Platform::Web => return "web".to_string(),
+        Platform::CloudflareWorker => return "cloudflare-worker".to_string(),
         Platform::Macos => "macos",
         Platform::Linux => "linux",
     };

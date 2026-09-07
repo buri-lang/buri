@@ -118,9 +118,9 @@ test "pads the cents place" {
 }
 ```
 
-That is the same `context` form `main` uses: a test source and `main`'s body are
-the only places that *create* a context rather than receive one, and only a test
-source may import `core/host/testing`. Bind what the function under test needs
+That is the same `context` form an entry uses: a test source and an entry's body
+are the only places that *create* a context rather than receive one, and only a
+test source may import `core/host/testing`. Bind what the function under test needs
 and nothing more — a context that does not name `Net` proves that nothing it
 calls, however deep, reaches the network.
 
