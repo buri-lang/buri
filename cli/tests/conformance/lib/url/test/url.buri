@@ -1,0 +1,411 @@
+// core/net/url — RFC 3986. The resolution cases are the specification's own
+// §5.4 examples, normal and abnormal, against the base it names.
+
+from "core/bytes" import { DecodeError };
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/net/url" import * as url;
+from "core/net/url" import { Url, UrlError };
+from "core/testing/assert" import * as assert;
+
+// The base every §5.4 row resolves against.
+let BASE: Str = "http://a/b/c/d;p?q";
+
+fn encodeOne(text: Str): Str {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    url.encodeComponent(ctx, text)
+}
+
+fn encodeWhole(text: Str): Str {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    url.encodePath(ctx, text)
+}
+
+fn decodeOne(text: Str): Result<Str, DecodeError> {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    url.decodeComponent(ctx, text)
+}
+
+fn query(text: Str): [(Str, Str)] {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    url.parseQuery(ctx, text)
+}
+
+fn unquery(pairs: [(Str, Str)]): Str {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    url.encodeQuery(ctx, pairs)
+}
+
+fn read(text: Str): Result<Url, UrlError> {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    url.parse(ctx, text)
+}
+
+fn shown(u: Url): Str {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    u.text(ctx)
+}
+
+fn roundTrip(text: Str): Str {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    match (url.parse(ctx, text)) {
+        .Err(_e) => "<not a url>",
+        .Ok(u) => u.text(ctx),
+    }
+}
+
+fn resolved(reference: Str): Str {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    match (url.parse(ctx, BASE)) {
+        .Err(_e) => "<not a base>",
+        .Ok(base) => {
+            match (base.resolve(ctx, reference)) {
+                .Err(_e) => "<not a reference>",
+                .Ok(target) => target.text(ctx),
+            }
+        },
+    }
+}
+
+// --- Percent-encoding ---------------------------------------------------------
+
+test "the unreserved set survives, and nothing else does" {
+    assert.eq(encodeOne("azAZ09-._~"), "azAZ09-._~");
+    assert.eq(encodeOne("one two"), "one%20two");
+    assert.eq(encodeOne("a/b"), "a%2Fb");
+    assert.eq(encodeOne("a+b"), "a%2Bb");
+    assert.eq(encodeOne("?&=#"), "%3F%26%3D%23");
+}
+
+test "a character outside ASCII escapes one byte at a time" {
+    assert.eq(encodeOne("é"), "%C3%A9");
+    assert.eq(encodeOne("☃"), "%E2%98%83");
+    // Outside the basic multilingual plane: four UTF-8 bytes.
+    assert.eq(encodeOne("😀"), "%F0%9F%98%80");
+}
+
+test "encodePath keeps the separators" {
+    assert.eq(encodeWhole("/a b/c"), "/a%20b/c");
+    assert.eq(encodeWhole("/"), "/");
+    assert.eq(encodeWhole(""), "");
+}
+
+test "the empty component encodes to nothing" {
+    assert.eq(encodeOne(""), "");
+}
+
+test "decoding inverts encoding" {
+    assert.eq(assert.ok(decodeOne("one%20two")), "one two");
+    assert.eq(assert.ok(decodeOne("%C3%A9")), "é");
+    assert.eq(assert.ok(decodeOne("%f0%9f%98%80")), "😀");
+    assert.eq(assert.ok(decodeOne("plain")), "plain");
+    assert.eq(assert.ok(decodeOne("")), "");
+}
+
+test "a plus is a plus to decodeComponent" {
+    assert.eq(assert.ok(decodeOne("a+b")), "a+b");
+}
+
+test "an escape that is not one names its index" {
+    assert.eq(assert.err(decodeOne("a%")), DecodeError(1));
+    assert.eq(assert.err(decodeOne("a%2")), DecodeError(1));
+    assert.eq(assert.err(decodeOne("a%zz")), DecodeError(1));
+}
+
+test "octets that are not UTF-8 fail rather than becoming a replacement" {
+    assert.eq(assert.err(decodeOne("%FF")), DecodeError(0));
+    // A well-formed escape whose byte starts a sequence that never finishes.
+    assert.eq(assert.err(decodeOne("%C3")), DecodeError(0));
+}
+
+// --- Query strings ------------------------------------------------------------
+
+test "a query is its pairs" {
+    assert.eq(query("a=1&b=2"), [("a", "1"), ("b", "2")]);
+    assert.eq(query("a"), [("a", "")]);
+    assert.eq(query("a="), [("a", "")]);
+    assert.eq(query("=1"), [("", "1")]);
+}
+
+test "an empty query has no pairs" {
+    assert.eq(query(""), list.empty<(Str, Str)>());
+    assert.eq(query("&&"), list.empty<(Str, Str)>());
+}
+
+test "a query decodes, and a plus is a space" {
+    assert.eq(query("q=one+two"), [("q", "one two")]);
+    assert.eq(query("q=one%20two"), [("q", "one two")]);
+    assert.eq(query("q=a%2Bb"), [("q", "a+b")]);
+    assert.eq(query("a%20b=1"), [("a b", "1")]);
+}
+
+test "a broken escape leaves the text where it is" {
+    assert.eq(query("q=100%"), [("q", "100%")]);
+}
+
+test "encodeQuery is the other direction" {
+    assert.eq(unquery([("q", "one two"), ("page", "2")]), "q=one%20two&page=2");
+    assert.eq(unquery(list.empty<(Str, Str)>()), "");
+    assert.eq(unquery([("a&b", "c=d")]), "a%26b=c%3Dd");
+}
+
+test "a query round-trips through both halves" {
+    let pairs = [("q", "one two"), ("f", "a+b&c")];
+    assert.eq(query(unquery(pairs)), pairs);
+}
+
+// --- Parsing ------------------------------------------------------------------
+
+test "every part of a whole URL" {
+    let u = assert.ok(read("https://example.com:8443/a/b?x=1#top"));
+    assert.eq(u.scheme, "https");
+    assert.eq(u.host, "example.com");
+    assert.eq(u.port, .Some(8443));
+    assert.eq(u.path, "/a/b");
+    assert.eq(u.query, "x=1");
+    assert.eq(u.fragment, .Some("top"));
+}
+
+test "the parts a URL does not have" {
+    let u = assert.ok(read("http://example.com"));
+    assert.eq(u.port, Option.None);
+    assert.eq(u.path, "");
+    assert.eq(u.query, "");
+    assert.eq(u.fragment, Option.None);
+}
+
+test "a bare hash is a fragment, and an absent one is not" {
+    assert.eq(assert.ok(read("http://a/b#")).fragment, .Some(""));
+    assert.eq(assert.ok(read("http://a/b")).fragment, Option.None);
+}
+
+test "the scheme and the host lowercase, and nothing else does" {
+    let u = assert.ok(read("HTTP://Example.COM/A/B?X=Y#Z"));
+    assert.eq(u.scheme, "http");
+    assert.eq(u.host, "example.com");
+    assert.eq(u.path, "/A/B");
+    assert.eq(u.query, "X=Y");
+    assert.eq(u.fragment, .Some("Z"));
+}
+
+test "a URL with no authority keeps its path" {
+    let u = assert.ok(read("mailto:ada@example.com"));
+    assert.eq(u.scheme, "mailto");
+    assert.eq(u.host, "");
+    assert.eq(u.path, "ada@example.com");
+}
+
+test "an IPv6 host keeps its brackets" {
+    let u = assert.ok(read("http://[::1]:8080/x"));
+    assert.eq(u.host, "[::1]");
+    assert.eq(u.port, .Some(8080));
+    assert.eq(u.path, "/x");
+}
+
+test "an IPv6 host with no port" {
+    let u = assert.ok(read("http://[2001:db8::1]/x"));
+    assert.eq(u.host, "[2001:db8::1]");
+    assert.eq(u.port, Option.None);
+}
+
+test "a relative reference is not a URL" {
+    assert.eq(assert.err(read("/just/a/path")), UrlError.NoScheme);
+    assert.eq(assert.err(read("example.com/x")), UrlError.NoScheme);
+    assert.eq(assert.err(read("")), UrlError.NoScheme);
+    // A colon inside a path segment is not a scheme's colon.
+    assert.eq(assert.err(read("/a:b")), UrlError.NoScheme);
+}
+
+test "a port has to be a number in range" {
+    assert.eq(assert.err(read("http://a:eighty/")), UrlError.BadPort("eighty"));
+    assert.eq(assert.err(read("http://a:70000/")), UrlError.BadPort("70000"));
+}
+
+test "an empty port is no port" {
+    assert.eq(assert.ok(read("http://a:/x")).port, Option.None);
+}
+
+test "credentials are refused rather than dropped" {
+    assert.eq(assert.err(read("https://ada:secret@example.com/")), UrlError.UserInfo);
+    assert.eq(assert.err(read("https://ada@example.com/")), UrlError.UserInfo);
+}
+
+test "a bracket that never closes is a bad host" {
+    assert.eq(assert.err(read("http://[::1/x")), UrlError.BadHost("[::1"));
+}
+
+// --- Back to text -------------------------------------------------------------
+
+test "text is parse backwards" {
+    assert.eq(roundTrip("https://example.com:8443/a/b?x=1#top"), "https://example.com:8443/a/b?x=1#top");
+    assert.eq(roundTrip("http://example.com"), "http://example.com");
+    assert.eq(roundTrip("http://example.com/"), "http://example.com/");
+    assert.eq(roundTrip("mailto:ada@example.com"), "mailto:ada@example.com");
+    assert.eq(roundTrip("http://[::1]:8080/x"), "http://[::1]:8080/x");
+    assert.eq(roundTrip("http://a/b#"), "http://a/b#");
+}
+
+test "text leaves the dot segments alone" {
+    assert.eq(roundTrip("http://a/b/../c"), "http://a/b/../c");
+}
+
+// --- Reading the query off a URL ----------------------------------------------
+
+test "parameters decode and parameter does not" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let u = assert.ok(read("http://a/b?q=one%20two&n=2"));
+    assert.eq(u.parameters(ctx), [("q", "one two"), ("n", "2")]);
+    assert.eq(u.parameter("q"), .Some("one%20two"));
+    assert.eq(u.parameter("n"), .Some("2"));
+    assert.eq(u.parameter("missing"), Option.None);
+}
+
+test "a bare parameter has an empty value" {
+    let u = assert.ok(read("http://a/b?flag&n=1"));
+    assert.eq(u.parameter("flag"), .Some(""));
+    assert.eq(u.parameter("n"), .Some("1"));
+}
+
+test "no query means no parameters" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let u = assert.ok(read("http://a/b"));
+    assert.eq(u.parameters(ctx), list.empty<(Str, Str)>());
+    assert.eq(u.parameter("q"), Option.None);
+}
+
+// --- Changing one --------------------------------------------------------------
+
+test "withPath roots the path when there is a host" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let u = assert.ok(read("http://a/b?x=1"));
+    assert.eq(shown(u.withPath(ctx, "c/d")), "http://a/c/d?x=1");
+    assert.eq(shown(u.withPath(ctx, "/c/d")), "http://a/c/d?x=1");
+    assert.eq(shown(u.withPath(ctx, "")), "http://a?x=1");
+}
+
+test "withQuery rebuilds the query and clears it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let u = assert.ok(read("http://a/b?x=1"));
+    assert.eq(shown(u.withQuery(ctx, [("q", "one two")])), "http://a/b?q=one%20two");
+    assert.eq(shown(u.withQuery(ctx, list.empty<(Str, Str)>())), "http://a/b");
+}
+
+// --- RFC 3986 §5.4.1, the normal examples --------------------------------------
+
+test "an absolute reference is itself" {
+    assert.eq(resolved("g:h"), "g:h");
+}
+
+test "a relative path resolves against the base's directory" {
+    assert.eq(resolved("g"), "http://a/b/c/g");
+    assert.eq(resolved("./g"), "http://a/b/c/g");
+    assert.eq(resolved("g/"), "http://a/b/c/g/");
+    assert.eq(resolved(";x"), "http://a/b/c/;x");
+    assert.eq(resolved("g;x"), "http://a/b/c/g;x");
+}
+
+test "an absolute path replaces the base's" {
+    assert.eq(resolved("/g"), "http://a/g");
+}
+
+test "a network-path reference keeps the scheme only" {
+    assert.eq(resolved("//g"), "http://g");
+}
+
+test "a query or a fragment on its own" {
+    assert.eq(resolved("?y"), "http://a/b/c/d;p?y");
+    assert.eq(resolved("g?y"), "http://a/b/c/g?y");
+    assert.eq(resolved("#s"), "http://a/b/c/d;p?q#s");
+    assert.eq(resolved("g#s"), "http://a/b/c/g#s");
+    assert.eq(resolved("g?y#s"), "http://a/b/c/g?y#s");
+    assert.eq(resolved("g;x?y#s"), "http://a/b/c/g;x?y#s");
+}
+
+test "an empty reference is the base without its fragment" {
+    assert.eq(resolved(""), "http://a/b/c/d;p?q");
+}
+
+test "dot and dot-dot climb" {
+    assert.eq(resolved("."), "http://a/b/c/");
+    assert.eq(resolved("./"), "http://a/b/c/");
+    assert.eq(resolved(".."), "http://a/b/");
+    assert.eq(resolved("../"), "http://a/b/");
+    assert.eq(resolved("../g"), "http://a/b/g");
+    assert.eq(resolved("../.."), "http://a/");
+    assert.eq(resolved("../../"), "http://a/");
+    assert.eq(resolved("../../g"), "http://a/g");
+}
+
+// --- RFC 3986 §5.4.2, the abnormal examples ------------------------------------
+
+test "climbing past the root stops at the root" {
+    assert.eq(resolved("../../../g"), "http://a/g");
+    assert.eq(resolved("../../../../g"), "http://a/g");
+}
+
+test "a dot segment in an absolute path" {
+    assert.eq(resolved("/./g"), "http://a/g");
+    assert.eq(resolved("/../g"), "http://a/g");
+}
+
+test "a dot that is part of a name is not a dot segment" {
+    assert.eq(resolved("g."), "http://a/b/c/g.");
+    assert.eq(resolved(".g"), "http://a/b/c/.g");
+    assert.eq(resolved("g.."), "http://a/b/c/g..");
+    assert.eq(resolved("..g"), "http://a/b/c/..g");
+}
+
+test "dot segments in the middle" {
+    assert.eq(resolved("./../g"), "http://a/b/g");
+    assert.eq(resolved("./g/."), "http://a/b/c/g/");
+    assert.eq(resolved("g/./h"), "http://a/b/c/g/h");
+    assert.eq(resolved("g/../h"), "http://a/b/c/h");
+    assert.eq(resolved("g;x=1/./y"), "http://a/b/c/g;x=1/y");
+    assert.eq(resolved("g;x=1/../y"), "http://a/b/c/y");
+}
+
+test "a query or a fragment is not a path, so its dots stay" {
+    assert.eq(resolved("g?y/./x"), "http://a/b/c/g?y/./x");
+    assert.eq(resolved("g?y/../x"), "http://a/b/c/g?y/../x");
+    assert.eq(resolved("g#s/./x"), "http://a/b/c/g#s/./x");
+    assert.eq(resolved("g#s/../x"), "http://a/b/c/g#s/../x");
+}
+
+test "a reference with a scheme is absolute, strictly" {
+    assert.eq(resolved("http:g"), "http:g");
+}
+
+test "a reference that is absolute and broken reports why" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let base = assert.ok(read(BASE));
+    assert.eq(assert.err(base.resolve(ctx, "http://a:x/")), UrlError.BadPort("x"));
+}

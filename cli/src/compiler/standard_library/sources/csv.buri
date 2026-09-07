@@ -1,0 +1,323 @@
+//! core/csv — delimited text, as RFC 4180 defines it.
+//!
+//! Quoting is the whole reason this module exists. A field may hold the
+//! delimiter, a newline or a quote, and a hand-rolled `split(",")` gets every
+//! one of those wrong.
+//!
+//! ```buri run
+//! from "core/csv" import * as csv;
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let rows = csv.parse(ctx, "name,note\nada,\"one, two\"").withDefault([]);
+//!     let note = rows.get(1).andThen(fn(row) => row.get(1)).withDefault("");
+//!     let _ = io.println(ctx, "${rows.len()} rows, and the note is ${note}").ignore();
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! 2 rows, and the note is one, two
+//! ```
+//!
+//! ## What the reader accepts
+//!
+//! A record ends at `\n` or at `\r\n`, and a final terminator adds no empty
+//! record. Inside quotes every byte is data, newlines included, and `""` is one
+//! quote. A quote that opens and never closes is [`CsvError::Unterminated`].
+//!
+//! A blank line in the middle of a file is a record of one empty field, so a
+//! file whose other records are wider fails as [`CsvError::RaggedRow`] rather
+//! than quietly losing a row.
+//!
+//! Text after a closing quote — `"ab"c` — joins the field, so that field reads
+//! `abc`. RFC 4180 does not allow it, and refusing it would turn a file that
+//! every other reader accepts into an error.
+//!
+//! ## What the writer does
+//!
+//! [`render`] quotes a field only when it has to: when it holds a comma, a
+//! quote, a carriage return or a newline. Records are joined with `\r\n`, which
+//! is what RFC 4180 says a record ends with, and the last one carries no
+//! terminator — so `parse(render(rows))` gives `rows` back.
+
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+derive Eq, Show for CsvError;
+/// Why a file is not a table. Both carry a **0-based record index**: the record
+/// that opened the quote, and the record whose width is wrong.
+export enum CsvError {
+    /// A quoted field that reached the end of the text still open.
+    Unterminated(Int),
+    /// A record with a different number of fields than the first one.
+    RaggedRow(Int),
+}
+
+/// The records of a comma-separated file.
+///
+/// ```buri
+/// from "core/csv" import * as csv;
+/// from "core/effect" import { Alloc };
+///
+/// export fn widths<C: Alloc>(ctx: C, text: Str): Result<[Int], csv.CsvError> {
+///     csv.parse(ctx, text).map(fn(rows) => rows.map(ctx, fn(row) => row.len()))
+/// }
+/// ```
+///
+/// The empty text is no records at all, not one empty one. O(n) in the
+/// characters, and one pass.
+export fn parse<C: Alloc>(ctx: C, text: Str): Result<[[Str]], CsvError> {
+    parseWith(ctx, text, ',')
+}
+
+/// [`parse`] over a delimiter of your own — a tab, a semicolon, a pipe.
+///
+/// The delimiter changes what separates two fields and nothing else: quoting,
+/// the record terminators and the errors are the same. [`render`] always writes
+/// commas, so a file read with another delimiter does not round-trip through
+/// it.
+///
+/// ```buri
+/// from "core/csv" import * as csv;
+/// from "core/effect" import { Alloc };
+///
+/// export fn tsv<C: Alloc>(ctx: C, text: Str): Result<[[Str]], csv.CsvError> {
+///     csv.parseWith(ctx, text, '\t')
+/// }
+/// ```
+export fn parseWith<C: Alloc>(
+    ctx: C,
+    text: Str,
+    delimiter: Char,
+): Result<[[Str]], CsvError> {
+    match (
+        scanning(
+            ctx,
+            text.chars(ctx),
+            delimiter,
+            0,
+            FIELD_START,
+            false,
+            list.empty<Char>(),
+            list.empty<Str>(),
+            list.empty<[Str]>(),
+        )
+    ) {
+        .Err(e) => .Err(e),
+        .Ok(rows) => rectangular(rows, 0),
+    }
+}
+
+/// [`parse`], with the first record read as the column names.
+///
+/// ```buri
+/// from "core/csv" import * as csv;
+/// from "core/effect" import { Alloc };
+///
+/// export fn columns<C: Alloc>(ctx: C, text: Str): Result<Int, csv.CsvError> {
+///     csv.parseWithHeader(ctx, text).map(fn(table) => table.0.len())
+/// }
+/// ```
+///
+/// The empty text has no header and no records, so it answers `([], [])`.
+export fn parseWithHeader<C: Alloc>(
+    ctx: C,
+    text: Str,
+): Result<([Str], [[Str]]), CsvError> {
+    match (parse(ctx, text)) {
+        .Err(e) => .Err(e),
+        .Ok(rows) => {
+            match (rows.first()) {
+                .None => .Ok((list.empty<Str>(), list.empty<[Str]>())),
+                .Some(header) => .Ok((header, rows.drop(ctx, 1))),
+            }
+        },
+    }
+}
+
+/// The records as a comma-separated file, quoting only the fields that need it.
+///
+/// ```buri run
+/// from "core/csv" import * as csv;
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let text = csv.render(ctx, [["plain", "one, two"], ["a\"b", ""]]);
+///     let _ = io.println(ctx, text.replace(ctx, "\r\n", " | ")).ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// plain,"one, two" | "a""b",
+/// ```
+///
+/// Records are joined with `\r\n` and the last one has no terminator. O(n) in
+/// the characters written.
+export fn render<C: Alloc>(ctx: C, rows: [[Str]]): Str {
+    rows
+        .mapCtx(ctx, fn(c, row) => row.mapCtx(c, fn(f, cell) => quoted(f, cell)).join(c, ","))
+        .join(ctx, "\r\n")
+}
+
+// --- The reader ---------------------------------------------------------------
+
+// Where the scanner is. A field is entered at `FIELD_START`, runs bare through
+// `BARE`, and runs quoted through `QUOTED` — with `AFTER_QUOTE` the one
+// character of lookahead that separates a doubled quote from a closing one.
+let FIELD_START: Int = 0;
+let BARE: Int = 1;
+let QUOTED: Int = 2;
+let AFTER_QUOTE: Int = 3;
+
+/// One character, then the next. A self tail call, so a megabyte costs one
+/// frame.
+///
+/// `started` says whether a record is under way, which is what separates a text
+/// that ended on a terminator from one that ended on a delimiter: `"a\n"` is one
+/// record and `"a,"` is one record of two fields.
+fn scanning<C: Alloc>(
+    ctx: C,
+    cs: [Char],
+    delimiter: Char,
+    at: Int,
+    state: Int,
+    started: Bool,
+    field: [Char],
+    row: [Str],
+    rows: [[Str]],
+): Result<[[Str]], CsvError> {
+    match (cs.get(at)) {
+        .None => ending(ctx, state, started, field, row, rows),
+        .Some(c) => {
+            if (state == QUOTED) {
+                if (c == '"') {
+                    scanning(ctx, cs, delimiter, at + 1, AFTER_QUOTE, true, field, row, rows)
+                } else {
+                    scanning(
+                        ctx,
+                        cs,
+                        delimiter,
+                        at + 1,
+                        QUOTED,
+                        true,
+                        field.push(ctx, c),
+                        row,
+                        rows,
+                    )
+                }
+            } else if (state == AFTER_QUOTE && c == '"') {
+                scanning(
+                    ctx,
+                    cs,
+                    delimiter,
+                    at + 1,
+                    QUOTED,
+                    true,
+                    field.push(ctx, '"'),
+                    row,
+                    rows,
+                )
+            } else if (state == FIELD_START && c == '"') {
+                scanning(ctx, cs, delimiter, at + 1, QUOTED, true, field, row, rows)
+            } else if (c == delimiter) {
+                scanning(
+                    ctx,
+                    cs,
+                    delimiter,
+                    at + 1,
+                    FIELD_START,
+                    true,
+                    list.empty<Char>(),
+                    row.push(ctx, str.fromChars(ctx, field)),
+                    rows,
+                )
+            } else if (c == '\n' || c == '\r') {
+                let skip = if (c == '\r' && cs.get(at + 1) == .Some('\n')) { 2 } else { 1 };
+                scanning(
+                    ctx,
+                    cs,
+                    delimiter,
+                    at + skip,
+                    FIELD_START,
+                    false,
+                    list.empty<Char>(),
+                    list.empty<Str>(),
+                    rows.push(ctx, row.push(ctx, str.fromChars(ctx, field))),
+                )
+            } else {
+                scanning(
+                    ctx,
+                    cs,
+                    delimiter,
+                    at + 1,
+                    BARE,
+                    true,
+                    field.push(ctx, c),
+                    row,
+                    rows,
+                )
+            }
+        },
+    }
+}
+
+/// The text ran out. A quote still open is the one way that is an error.
+fn ending<C: Alloc>(
+    ctx: C,
+    state: Int,
+    started: Bool,
+    field: [Char],
+    row: [Str],
+    rows: [[Str]],
+): Result<[[Str]], CsvError> {
+    if (state == QUOTED) {
+        .Err(.Unterminated(rows.len()))
+    } else if (started) {
+        .Ok(rows.push(ctx, row.push(ctx, str.fromChars(ctx, field))))
+    } else {
+        .Ok(rows)
+    }
+}
+
+/// Every record as wide as the first, or the index of the first that is not.
+fn rectangular(rows: [[Str]], at: Int): Result<[[Str]], CsvError> {
+    match ((rows.first(), rows.get(at))) {
+        (.Some(first), .Some(row)) => {
+            if (row.len() == first.len()) {
+                rectangular(rows, at + 1)
+            } else {
+                .Err(.RaggedRow(at))
+            }
+        },
+        _ => .Ok(rows),
+    }
+}
+
+// --- The writer ---------------------------------------------------------------
+
+/// One field, quoted when it holds something a reader would otherwise split on.
+fn quoted<C: Alloc>(ctx: C, text: Str): Str {
+    if (
+        text.contains(",") || text.contains("\"") || text.contains("\n")
+            || text.contains("\r")
+    ) {
+        "\"".concat(ctx, text.replace(ctx, "\"", "\"\"")).concat(ctx, "\"")
+    } else {
+        text
+    }
+}

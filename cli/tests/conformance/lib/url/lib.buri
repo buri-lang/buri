@@ -1,0 +1,6 @@
+// The `core/net/url` conformance package.
+//
+// The reference-resolution cases are RFC 3986 §5.4's own tables, normal and
+// abnormal, against the base the specification names. They are here rather
+// than recorded from this implementation because a table somebody else
+// published is a claim two implementations can be compared on.

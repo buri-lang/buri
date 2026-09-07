@@ -127,6 +127,7 @@ pub const MODULES: &[StdModule] = &[
     m("core/queue", include_str!("sources/queue.buri")),
     m("core/bitset", include_str!("sources/bitset.buri")),
     m("core/json", include_str!("sources/json.buri")),
+    m("core/csv", include_str!("sources/csv.buri")),
     m("core/proto", include_str!("sources/proto.buri")),
     // The grammar as data, and the printer that turns it back into source. A
     // generator builds one of these rather than a string, so it cannot emit a
@@ -192,6 +193,11 @@ pub const MODULES: &[StdModule] = &[
     m("core/time", include_str!("sources/time.buri")),
     m("core/date", include_str!("sources/date.buri")),
     m("core/random", include_str!("sources/random.buri")),
+    // Percent-encoding and a `Url`, and neither half of `core/net` owns it: a
+    // `Url` is a type with methods, where `core/net/http` re-exports `Request`
+    // rather than declaring one. Pure Buri over strings, so it names no effect
+    // and a program that never parses a URL does not pay to load it.
+    m("core/net/url", include_str!("sources/url.buri")),
     m("core/net/http", include_str!("sources/http.buri")),
     // The other half of being a server: `Server`, `bind`, `run`, `serve`, and
     // the accept loop those three are written out of. The loop is Buri rather

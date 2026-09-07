@@ -1,0 +1,149 @@
+// core/csv — RFC 4180, and the four things a hand-rolled splitter gets wrong:
+// a quoted delimiter, a quoted newline, a doubled quote, and a quote that never
+// closes.
+
+from "core/csv" import * as csv;
+from "core/csv" import { CsvError };
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/testing/assert" import * as assert;
+
+fn read(text: Str): Result<[[Str]], CsvError> {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    csv.parse(ctx, text)
+}
+
+fn readWith(text: Str, delimiter: Char): Result<[[Str]], CsvError> {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    csv.parseWith(ctx, text, delimiter)
+}
+
+fn readHeaded(text: Str): Result<([Str], [[Str]]), CsvError> {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    csv.parseWithHeader(ctx, text)
+}
+
+fn write(rows: [[Str]]): Str {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    csv.render(ctx, rows)
+}
+
+// --- Reading ------------------------------------------------------------------
+
+test "a plain file is its records" {
+    assert.eq(assert.ok(read("a,b\nc,d")), [["a", "b"], ["c", "d"]]);
+}
+
+test "a trailing terminator adds no record" {
+    assert.eq(assert.ok(read("a,b\n")), [["a", "b"]]);
+    assert.eq(assert.ok(read("a,b\r\n")), [["a", "b"]]);
+}
+
+test "an empty text has no records at all" {
+    assert.eq(assert.ok(read("")), list.empty<[Str]>());
+}
+
+test "a record ends at CRLF and at CR as well as at LF" {
+    assert.eq(assert.ok(read("a\r\nb")), [["a"], ["b"]]);
+    assert.eq(assert.ok(read("a\rb")), [["a"], ["b"]]);
+}
+
+test "an empty field is a field" {
+    assert.eq(assert.ok(read("a,")), [["a", ""]]);
+    assert.eq(assert.ok(read(",a")), [["", "a"]]);
+    assert.eq(assert.ok(read(",")), [["", ""]]);
+}
+
+test "quotes hide the delimiter, the newline and the carriage return" {
+    assert.eq(assert.ok(read("\"one, two\",b")), [["one, two", "b"]]);
+    assert.eq(assert.ok(read("\"one\ntwo\"")), [["one\ntwo"]]);
+    assert.eq(assert.ok(read("\"one\r\ntwo\"")), [["one\r\ntwo"]]);
+}
+
+test "a doubled quote is one quote" {
+    assert.eq(assert.ok(read("\"a\"\"b\"")), [["a\"b"]]);
+    assert.eq(assert.ok(read("\"\"\"\"")), [["\""]]);
+    assert.eq(assert.ok(read("\"\"")), [[""]]);
+}
+
+test "text after a closing quote joins the field" {
+    assert.eq(assert.ok(read("\"ab\"c")), [["abc"]]);
+}
+
+test "a blank line in the middle is a record of one empty field" {
+    assert.eq(assert.ok(read("a\n\nb")), [["a"], [""], ["b"]]);
+}
+
+test "a quote that never closes names the record that opened it" {
+    assert.eq(assert.err(read("\"unclosed")), CsvError.Unterminated(0));
+    assert.eq(assert.err(read("a,b\nc,\"unclosed")), CsvError.Unterminated(1));
+}
+
+test "a record of the wrong width names itself" {
+    assert.eq(assert.err(read("a,b\nc")), CsvError.RaggedRow(1));
+    assert.eq(assert.err(read("a\nb,c")), CsvError.RaggedRow(1));
+    assert.eq(assert.err(read("a\nb\nc,d")), CsvError.RaggedRow(2));
+}
+
+test "another delimiter changes nothing else" {
+    assert.eq(assert.ok(readWith("a\tb", '\t')), [["a", "b"]]);
+    assert.eq(assert.ok(readWith("\"a\tb\";c", ';')), [["a\tb", "c"]]);
+    // A comma is data once the delimiter is not one.
+    assert.eq(assert.ok(readWith("a,b;c", ';')), [["a,b", "c"]]);
+}
+
+// --- The header ---------------------------------------------------------------
+
+test "the first record is the header" {
+    let table = assert.ok(readHeaded("name,age\nada,36"));
+    assert.eq(table.0, ["name", "age"]);
+    assert.eq(table.1, [["ada", "36"]]);
+}
+
+test "a header with no records under it" {
+    let table = assert.ok(readHeaded("name,age"));
+    assert.eq(table.0, ["name", "age"]);
+    assert.eq(table.1, list.empty<[Str]>());
+}
+
+test "the empty text has no header and no records" {
+    let table = assert.ok(readHeaded(""));
+    assert.eq(table.0, list.empty<Str>());
+    assert.eq(table.1, list.empty<[Str]>());
+}
+
+test "a ragged file fails through the header reader too" {
+    assert.eq(assert.err(readHeaded("a,b\nc")), CsvError.RaggedRow(1));
+}
+
+// --- Writing ------------------------------------------------------------------
+
+test "render quotes only what it has to" {
+    assert.eq(write([["a", "b"]]), "a,b");
+    assert.eq(write([["one, two"]]), "\"one, two\"");
+    assert.eq(write([["a\"b"]]), "\"a\"\"b\"");
+    assert.eq(write([["a\nb"]]), "\"a\nb\"");
+    assert.eq(write([["a\rb"]]), "\"a\rb\"");
+}
+
+test "records are joined with CRLF and the last one has no terminator" {
+    assert.eq(write([["a"], ["b"]]), "a\r\nb");
+}
+
+test "no records is the empty text" {
+    assert.eq(write(list.empty<[Str]>()), "");
+}
+
+test "render then parse gives the records back" {
+    let rows = [["plain", "one, two", "a\"b"], ["", "line\nbreak", "trailing "]];
+    assert.eq(assert.ok(read(write(rows))), rows);
+}
