@@ -21,8 +21,7 @@ from "core/effect" import {
 from "core/fs" import { FsRead, FsWrite };
 from "core/path" import { Path };
 
-// One `Request` now. `ui/effect` used to declare a second — the callback-shaped
-// client's, aliased here to `UiRequest` — and it went when `Fetch` did.
+// One `Request`, and it is `core/effect`'s.
 from "ui/effect" import { Location, Scope, Ui, Watch };
 
 export struct HostAlloc {}
@@ -61,11 +60,8 @@ impl Stdin for HostStdin {
 ///
 /// **Granted on LINUX, MACOS and JS.** Not on WEB: a page has no filesystem.
 ///
-/// One value and two effects. A program has one filesystem under it, and
-/// `FsRead` and `FsWrite` are two authorities over it rather than two devices.
-/// The context is where the choice gets written down: a program that binds
-/// `FsRead: host.fs` and no `FsWrite` cannot write anywhere in its transitive
-/// call graph, and those two lines say so on their own.
+/// One value and two effects. A program that binds `FsRead: host.fs` and no
+/// `FsWrite` cannot write anywhere in its transitive call graph.
 export struct HostFs {}
 
 impl FsRead for HostFs {
@@ -121,12 +117,9 @@ impl Rand for HostRand {
 /// The operating system's own generator, for the one thing `HostRand` does not
 /// promise.
 ///
-/// **Granted on every platform**, and that is the point. An effect whose
-/// availability varied by target would turn "can this program mint a token" into
-/// a build question rather than a program question. The *toolchain* varies
-/// instead: a runtime archive built without the `crypto` feature answers
-/// `cryptography-not-available` before code generation. `net` already works this
-/// way, for the same reason.
+/// **Granted on every platform.** The toolchain varies instead: a runtime archive
+/// built without the `crypto` feature answers `cryptography-not-available` before
+/// code generation, the way `net` does.
 export struct HostEntropy {}
 
 impl Entropy for HostEntropy {
@@ -163,8 +156,7 @@ impl Tasks for HostTasks {
 /// Being a server rather than talking to one.
 ///
 /// **Granted on LINUX and MACOS**, together with `HostSockets`, and never on
-/// `JS` or `WEB`. A page does not hold a port open, and that is a fact about
-/// pages rather than a slice nobody has written.
+/// `JS` or `WEB`: a page does not hold a port open.
 ///
 /// The acceptor is `cli/runtime/net.rs`: an HTTP/1.1 server that reads one
 /// request at a time on one connection at a time, with a deadline on every
@@ -207,9 +199,8 @@ impl Listen for HostListen {
 /// and only one of them belongs to a server. `HostListen.listenUpgrade` mints
 /// one where a program can accept connections;
 /// `HostWebSocketClient.connectSocket` mints one anywhere, a page included. A
-/// handle that names no open socket counts as one that has already gone away,
-/// which is what the effect promises for a socket somebody closed. So a handle a
-/// program made up and a handle it has spent give deliberately the same answer.
+/// handle that names no open socket counts as one that has already gone away, so
+/// a handle a program made up and a handle it has spent answer alike.
 export struct HostSockets {}
 
 impl Sockets for HostSockets {
@@ -227,11 +218,10 @@ impl Sockets for HostSockets {
 /// methods suspend without holding the event loop, which is the same thing that
 /// let `HostNet` onto a page.
 ///
-/// Natively the two are `cli/runtime/net.rs`'s, beside the acceptor and over the
-/// same RFC 6455 framing — the socket a client dials and the socket a server
-/// accepts are the same value in the same table, so `HostSockets` writes on both
-/// without knowing which it has. On JavaScript they wrap the platform's own
-/// `WebSocket`.
+/// Natively the two are `cli/runtime/net.rs`'s, over the same RFC 6455 framing:
+/// the socket a client dials and the socket a server accepts are the same value
+/// in the same table, so `HostSockets` writes on both without knowing which it
+/// has. On JavaScript they wrap the platform's own `WebSocket`.
 ///
 /// `core/net/websocket` is the module a program calls; this is what a context
 /// binds.

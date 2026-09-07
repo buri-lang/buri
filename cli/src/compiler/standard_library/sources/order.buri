@@ -23,8 +23,7 @@ export trait Eq {
 /// `<` `<=` `>` `>=` are `Ord.compare`. The built-in orders are the same on
 /// every backend: numbers by value, `Bool` with `false` below `true`, `Char` by
 /// scalar value, and `Str` lexicographically by scalar value. `core/str` states
-/// that last one in full, because it is the one with two plausible answers to
-/// guess between.
+/// that last one in full.
 export trait Ord {
     fn compare(self, other: Self): Order;
 }
@@ -56,20 +55,17 @@ export fn reverse<T>(cmp: fn(T, T) => Order): fn(T, T) => Order {
 }
 
 /// Reverses a comparator when `descending` is true, and hands it back
-/// untouched when it is false.
-///
-/// The direction of a sort is usually data — a column's `ORDER BY ... DESC`,
-/// a flag on a request — and the alternative to this is an `if` around two
-/// otherwise identical `sortBy` calls.
+/// untouched when it is false. The direction of a sort is usually data: a
+/// column's `ORDER BY ... DESC`, a flag on a request.
 export fn reverseIf<T>(descending: Bool, cmp: fn(T, T) => Order): fn(T, T) => Order {
     if (descending) { reverse(cmp) } else { cmp }
 }
 
 /// Compares by a key rather than by the whole value: `cmp(key(a), key(b))`.
 ///
-/// Both arguments are function values, which is what lets you build a comparator
-/// at runtime rather than write one out. A lambda may capture a function value,
-/// because a function value carries no effect (SPEC 10.6).
+/// Both arguments are function values, so you can build a comparator at runtime.
+/// A lambda may capture one, because a function value carries no effect (SPEC
+/// 10.6).
 ///
 /// ```buri run
 /// from "core/effect" import { Alloc, Stdout };
@@ -112,10 +108,8 @@ export fn by<T, K>(key: fn(T) => K, cmp: fn(K, K) => Order): fn(T, T) => Order {
 }
 
 /// Comparators in priority order: the first that does not answer `.Equal`
-/// decides, and an empty list answers `.Equal` for every pair.
-///
-/// `Order.then` is the two-comparator case written by hand; this is the same
-/// thing for a list whose length the program decides.
+/// decides, and an empty list answers `.Equal` for every pair. `Order.then` is
+/// the two-comparator case written by hand.
 export fn chain<T>(cmps: [fn(T, T) => Order]): fn(T, T) => Order {
     fn(a, b) => chainAt(cmps, 0, a, b)
 }
@@ -153,8 +147,7 @@ impl Order {
     }
 }
 
-/// A comparator value, for `sortBy`. Ordering is a value you pass, which makes
-/// a tie-break explicit and reviewable.
+/// A comparator value, for `sortBy`.
 export fn int(a: Int, b: Int): Order {
     if (a < b) { .Less } else if (a > b) { .Greater } else { .Equal }
 }
@@ -173,14 +166,9 @@ export fn float(a: Float, b: Float): Order {
 /// when the data can hold a `NaN` — and floats that came from arithmetic can.
 ///
 /// **`-0.0` and `0.0` compare `.Equal`, and so do any two `NaN`s.** This is the
-/// total order Buri's `==` describes, not IEEE's `totalOrder` predicate. `==` is
+/// total order Buri's `==` describes, not IEEE's `totalOrder` predicate: `==` is
 /// an equivalence relation here, and `-0.0 == 0.0` and `NaN == NaN` are both
-/// true (SPEC 6.2). A comparator that disagreed with `==` would make `sort` and
-/// `contains` answer different questions about the same pair.
-///
-/// Neither ordered nor equal means exactly one of the two is a `NaN`, which is
-/// what the last two branches read: the `NaN` is the greater, whichever side it
-/// is on.
+/// true (SPEC 6.2).
 export fn totalFloat(a: Float, b: Float): Order {
     if (a < b) {
         .Less
@@ -198,19 +186,17 @@ export fn totalFloat(a: Float, b: Float): Order {
 /// Whether `x` is a `NaN`, asked without reaching for `core/math`: every
 /// compilation loads this module, and not every one loads `core/math`.
 ///
-/// `x != x` is not the question: SPEC 6.2 makes `==` an equivalence relation,
-/// so `NaN == NaN` is true. The *ordering* operators are still IEEE's, and
-/// `x >= x` is the one that holds of every other value, both infinities
-/// included.
+/// `x != x` is not the question, because SPEC 6.2 makes `==` an equivalence
+/// relation and `NaN == NaN` is true. The *ordering* operators are still IEEE's,
+/// and `x >= x` holds of every other value, both infinities included.
 fn isNan(x: Float): Bool {
     let ordered = x >= x;
     ordered == false
 }
 
 /// Lexicographic by Unicode scalar value, which for a valid string is UTF-8 byte
-/// order. This is `core/str`'s `compare`, where that order is written down and
-/// the astral case worked through. Every `<` on a `Str`, every `[Str].sort` and
-/// every `OrdMap<Str, _>` uses this same order.
+/// order. This is `core/str`'s `compare`. Every `<` on a `Str`, every
+/// `[Str].sort` and every `OrdMap<Str, _>` uses the same order.
 ///
 /// It is not JavaScript's `<`, which orders by UTF-16 code unit and so puts every
 /// astral character below every character in U+E000..U+FFFF. Both backends answer
@@ -223,8 +209,7 @@ export fn bool(a: Bool, b: Bool): Order {
     if (a == b) { .Equal } else if (a) { .Greater } else { .Less }
 }
 
-/// By scalar value, the same order `<` on a `Char` gives. A `Char` *is* a scalar
-/// value, and both are its integer order.
+/// By scalar value, the same order `<` on a `Char` gives.
 export fn char(a: Char, b: Char): Order {
     int(a.toU32().toI64(), b.toU32().toI64())
 }

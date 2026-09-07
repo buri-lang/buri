@@ -1,30 +1,24 @@
 //! core/time — the clock, and the lengths it measures.
 //!
-//! Two types, and the difference between them is the whole point. An `Instant`
-//! is a *point*: it means nothing on its own, and only a clock can produce one.
-//! A `Duration` is a *length*: it is pure arithmetic, no clock is involved, and
-//! it is the same length wherever it is read. Subtracting two points gives a
-//! length; adding a length to a point gives a point; adding two points gives
-//! nothing, and the type system says so.
+//! An `Instant` is a *point*: it means nothing on its own, and only a clock can
+//! produce one. A `Duration` is a *length*: pure arithmetic, no clock involved,
+//! the same length wherever it is read. Subtracting two points gives a length;
+//! adding a length to a point gives a point; adding two points gives nothing,
+//! and the type system says so.
 //!
-//! **`Duration` lives here rather than in `core/date`.** It used to be the
-//! calendar's, which made `instant.plus(d)` impossible to write: a method may
-//! only be declared in its receiver's defining module (SPEC 6.7.3), so a
-//! `Duration` in one module and an `Instant` in another can never meet on either
-//! of them. `core/date` re-exports the name, so `from "core/date" import
-//! { Duration }` still resolves to this type. There is one `Duration`, and the
-//! calendar calls it rather than owning it.
+//! **`Duration` lives here rather than in `core/date`**, because a method may
+//! only be declared in its receiver's defining module (SPEC 6.7.3) and
+//! `instant.plus(d)` has to be writable. `core/date` re-exports the name, so
+//! `from "core/date" import { Duration }` still resolves to this type.
 //!
-//! **A `Duration` counts nanoseconds and an `Instant` counts milliseconds.**
-//! That is not an oversight in either direction: a timeout, a measurement and a
-//! budget are routinely finer than a millisecond, while the clock this module
-//! reads reports whole milliseconds and cannot honestly claim better. So
-//! `instant.plus(d)` moves by `d.millis()`, and a length finer than a millisecond
-//! moves an instant by nothing. Better said here than discovered.
+//! **A `Duration` counts nanoseconds and an `Instant` counts milliseconds.** A
+//! timeout, a measurement and a budget are routinely finer than a millisecond,
+//! while the clock this module reads reports whole milliseconds. So
+//! `instant.plus(d)` moves by `d.millis()`, and a length finer than a
+//! millisecond moves an instant by nothing.
 //!
 //! **Every arithmetic operation saturates.** Overflow is undefined behaviour
-//! (SPEC 6.2), and a deadline is exactly where a program cannot afford it. This
-//! replaces `checkedMul`, then `checkedSub`, then a guess from the sign.
+//! (SPEC 6.2), and a deadline is exactly where a program cannot afford it.
 //! `hours(1_000_000_000)` is the largest `Duration` rather than a wrapped
 //! negative one, and a deadline that saturates is a deadline that has not
 //! passed.
@@ -69,9 +63,8 @@ export struct Instant(export I64);
 derive Eq, Ord, Hash for Duration;
 /// A length of time, in nanoseconds, positive or negative.
 ///
-/// The field is exported, so `Duration(2_500)` is 2500 nanoseconds — but the
-/// constructors below say which unit they mean in their names, and that is what
-/// the six of them are for.
+/// The field is exported, so `Duration(2_500)` is 2500 nanoseconds. The
+/// constructors below name their unit instead.
 export struct Duration(export I64);
 
 export let NANOS_PER_MICROSECOND: Int = 1_000;
@@ -90,9 +83,8 @@ export let NANOS_PER_DAY: Int = 86_400_000_000_000;
 // Building a length
 // -----------------------------------------------------------------------------
 //
-// Free functions rather than methods, because there is no receiver: `Duration`
-// is what they return, not what they are called on. `time.seconds(30)` is the
-// spelling, and `d.seconds()` further down is the other direction.
+// Free functions, because there is no receiver: `time.seconds(30)` builds one
+// and `d.seconds()` further down reads one back.
 //
 // Each one saturates, so a count no `Duration` can hold becomes the largest one
 // there is rather than a wrapped negative.
@@ -131,8 +123,7 @@ impl Duration {
     }
 
     /// Truncates towards zero, as every getter below does: `millis` of 1,999,999
-    /// nanoseconds is 1, not 2. A rounded length no longer adds up, so nothing
-    /// here rounds.
+    /// nanoseconds is 1, not 2. Nothing here rounds.
     export fn micros(self): Int {
         self.0 / NANOS_PER_MICROSECOND
     }
@@ -174,8 +165,7 @@ impl Duration {
     }
 
     /// Scales a length by a count. `factor` is an `Int` and not a `Duration`,
-    /// because a length times a length is an area and there is no such thing
-    /// here.
+    /// because a length times a length is not a length.
     export fn mul(self, factor: Int): Duration {
         Duration(self.0.saturatingMul(factor))
     }
@@ -200,12 +190,9 @@ impl Duration {
 // `1.5s`, `300ms`, `750us`, `1ns`, `0s`.
 //
 // The largest of `s`, `ms`, `us` and `ns` the length reaches, with the exact
-// fraction and no trailing zeros. **No `m` or `h`**, and that is a decision
-// rather than an omission: a fraction of an hour is not a decimal, so a `Show`
-// that offered one would have to round, and a rendering that rounds is a
-// rendering a reader cannot compare against the value. Every unit here is a
-// power of ten apart from the next, so every `Duration` prints exactly and two
-// that print the same are the same length.
+// fraction and no trailing zeros. No `m` or `h`: a fraction of an hour is not a
+// decimal, so those would have to round. Every unit here is a power of ten apart
+// from the next, so every `Duration` prints exactly.
 //
 // ASCII throughout: `us` rather than the micro sign, because this goes into
 // logs, file names and terminals that are not all UTF-8.
@@ -249,8 +236,7 @@ fn scaled<C: Alloc>(
     }
 }
 
-/// Pure: `slice` is a view, so this walks back over the string without copying
-/// it once.
+/// Pure: `slice` is a view, so this walks back without copying.
 fn withoutTrailingZeros(text: Str): Str {
     if (text.endsWith("0")) {
         withoutTrailingZeros(text.slice(0, text.len() - 1))
@@ -265,8 +251,7 @@ fn withoutTrailingZeros(text: Str): Str {
 
 impl Instant {
     /// How long since `earlier`, negative if `earlier` is later. Pure: the
-    /// difference between two points needs no clock, and reading one is what
-    /// `since` names `Clock` for.
+    /// difference between two points needs no clock.
     export fn duration(self, earlier: Instant): Duration {
         Duration(self.0.saturatingSub(earlier.0).saturatingMul(NANOS_PER_MILLISECOND))
     }
@@ -281,12 +266,8 @@ impl Instant {
         Instant(self.0.saturatingSub(d.millis()))
     }
 
-    /// Whether this point is at or past `deadline`.
-    ///
-    /// The whole deadline check, and the reason it is one method: it replaces a
-    /// multiply that may overflow, a subtract that may overflow, and a decision
-    /// taken from the sign of whichever one answered. Both ends here are points,
-    /// both saturate, and `>=` is the answer.
+    /// Whether this point is at or past `deadline`. Both ends saturate, so the
+    /// whole deadline check is one `>=`.
     export fn hasPassed(self, deadline: Instant): Bool {
         self.0 >= deadline.0
     }
@@ -307,9 +288,8 @@ export fn sleep<C: Clock>(ctx: C, d: Duration): () {
     ctx.sleepMillis(d.millis())
 }
 
-/// The same wait, in the unit the effect itself speaks. `sleep` is the one to
-/// reach for; this one is here for a caller who already holds a count of
-/// milliseconds and would otherwise convert it twice.
+/// The same wait, in the unit the effect itself speaks. Reach for `sleep`
+/// unless you already hold a count of milliseconds.
 export fn sleepMs<C: Clock>(ctx: C, count: Int): () {
     ctx.sleepMillis(count)
 }
