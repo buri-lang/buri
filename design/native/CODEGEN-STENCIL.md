@@ -894,10 +894,8 @@ backends guard that site, for the same reason.
 ### 6.1 `glue.rs`
 
 Four things a unit generates for itself, every one a **local** symbol so that
-two units needing the same one do not collide. It is the set the removed
-backend's `helpers.rs` generated, under its argument, and it outlived that
-backend because the set is a property of the value model rather than of an
-emitter:
+two units needing the same one do not collide. The set is a property of the
+value model rather than of an emitter:
 
 | Helper | Why it is generated rather than called |
 |---|---|
@@ -940,12 +938,10 @@ released, and both show up as refusals rather than as a smaller closure.
 ## 7. What a refusal is
 
 **A diagnostic naming the shape, never an artifact that aborts when it reaches
-it.** The prototype emitted an `unsupported` stencil and skipped the tests
-that reached one, because it was measuring throughput on the part it could
-compile. A backend cannot do that. Every part of the unit finishes its
-emission, `assemble_unit` collects the parts' refusals in part order — so that
-one build reports *every* refusal rather than the first — and then it produces
-no object at all, with one error per distinct shape.
+it.** Every part of the unit finishes its emission, `assemble_unit` collects
+the parts' refusals in part order — so that one build reports *every* refusal
+rather than the first — and then it produces no object at all, with one error
+per distinct shape.
 
 `Backend::missing_intrinsics` is the cheaper, earlier form of the same answer,
 and the two ask different questions: the hook says "this backend has no body
@@ -968,7 +964,7 @@ guard above it.
 instructions once per process (`asm.rs::install_guard`). A runaway recursion
 then **faults** where it used to keep writing.
 
-Three decisions, each with a reason that is not "it seemed safer":
+Three decisions:
 
 * **Above, not below.** A callee's frame is `fp + frame_size(caller)`, so this
   stack grows *upward*: the address a runaway reaches first is the top of the
@@ -976,12 +972,11 @@ Three decisions, each with a reason that is not "it seemed safer":
   guard, and getting it wrong would be a guard nothing ever touches.
 * **A megabyte, not a page.** A guard narrower than the widest frame can be
   *stepped over*: a callee whose locals area exceeds it writes past it without
-  touching it. Native code answers that hazard with stack probes, and neither
-  the removed backend nor LLVM at `-O0` enables them, so a machine frame past
-  the OS guard has the same exposure everywhere. Nothing here is less sound
-  than what it replaced. A megabyte is far past any frame `middle::layout`
-  produces, and zero-fill pages that are never faulted in cost address space
-  and nothing else.
+  touching it. Native code answers that hazard with stack probes, and LLVM at
+  `-O0` does not enable them either, so a machine frame past the OS guard has
+  the same exposure everywhere. A megabyte is far past any frame
+  `middle::layout` produces, and zero-fill pages that are never faulted in
+  cost address space and nothing else.
 * **One block and one symbol.** `MH_SUBSECTIONS_VIA_SYMBOLS` makes every
   symbol the start of an independently movable atom, so a second symbol at the
   guard's address would let `ld64` place the guard somewhere other than
@@ -999,12 +994,11 @@ established at all, and `install_guard` is in both of `main`'s forms.
 
 ### 8.1.1 A second carrier, and its own block
 
-Everything above is about *one* stack, because until slice B7 there was one:
-`main` establishes it, and `main` is the only way into Buri code. A
-**carrier** — an OS thread from `cli/runtime/rt.rs`'s pool — is a second way
-in, and it cannot share the block. Two carriers on one upward-growing stack
-write their frames into each other, and the guard at the top belongs to
-whichever recursion reached it first.
+Everything above is about *one* stack, established by `main`. A **carrier** —
+an OS thread from `cli/runtime/rt.rs`'s pool — is a second way into Buri code,
+and it cannot share the block: two carriers on one upward-growing stack write
+their frames into each other, and the guard at the top belongs to whichever
+recursion reached it first.
 
 So a carrier asks for its own. `buri_rt_stack_acquire`
 (`cli/runtime/memory.rs`) `mmap`s 65 MiB — **the same 64 + 1 as above**, in a
@@ -1029,21 +1023,19 @@ number in §8.2 true of the program a user actually runs.
 
 ### 8.2 What a program does when it runs out
 
-The same thing a Cranelift-compiled one did, which is what parity meant while
-there was something to be at parity with: the process dies on the fault, with
-no message, and the shell reports the signal. Measured on the same non-tail
-recursion, both backends through `buri build` before the removal, Cranelift
-**exited 139** (`SIGSEGV`, the OS guard under the machine stack) and stencil
-**exits 138** (`SIGBUS`, the `PROT_NONE` guard above the Buri stack). SPEC
-§6.9 asks for "a message on stderr and a non-zero exit status" and neither
-printed the message. That gap is the *runtime's* — it has no fault handler —
-and it is not this backend's to close alone. What this section closed is the
-difference that was stencil's own: **a deep recursion used to corrupt whatever
-the linker placed after the stack and keep running.**
+The process dies on the fault, with no message, and the shell reports the
+signal. Measured on the same non-tail recursion through `buri build`,
+Cranelift **exited 139** (`SIGSEGV`, the OS guard under the machine stack) and
+stencil **exits 138** (`SIGBUS`, the `PROT_NONE` guard above the Buri stack).
+SPEC §6.9 asks for "a message on stderr and a non-zero exit status" and
+neither printed the message. That gap is the *runtime's* — it has no fault
+handler. What this section closed is the difference that was stencil's own: **a
+deep recursion used to corrupt whatever the linker placed after the stack and
+keep running.**
 
-**Where the fault lands is the whole of the change, and it was measured rather
-than assumed.** A `SIGBUS` handler injected into the artifact prints `si_addr`
-beside the runtime address of `buri$stencil$stack`:
+**Where the fault lands was measured rather than assumed.** A `SIGBUS` handler
+injected into the artifact prints `si_addr` beside the runtime address of
+`buri$stencil$stack`:
 
 ```text
 before:  addr=0x1065e42c8  stack=0x1025e0d60  delta = 64.013 MiB
@@ -1119,11 +1111,8 @@ exit is `middle::rc`'s plan rather than an emitter's, and that was the last
 thing checked before the flip: **both backends left exactly the same blocks
 and the same bytes**, measured through the runtime's own `buri_rt_heap_stats`,
 on the objects `buri test` produced, re-linked with `build/link.rs`'s own
-flags. That reading was 0 live on all nine measurable packages, where earlier
-rounds recorded three files leaking (17, 5 and 20 blocks). The count moves
-with `middle::rc`, and the *parity* is what the flip rested on (§13). Both
-backends consume `middle::rc`'s plan; a backend cannot release what it was not
-asked to.
+flags — 0 live on all nine measurable packages. A backend cannot release what
+it was not asked to.
 
 ## 10. What is verified, what is not, and by whom
 
@@ -1175,13 +1164,13 @@ the referent does.
 
 ### 10.2 What a Linux run had to confirm, and where it is confirmed
 
-Both columns are discharged. `.github/workflows/ci.yml` is where it stopped
-being prose. The suite runs on `macos-latest`, `ubuntu-24.04` and
-`ubuntu-24.04-arm`, and on the two Linux legs it runs the artifacts rather
-than only compiling them: the stack guard's `mprotect` and Linux's signal
-disposition for a `PROT_NONE` page, the corpus at macOS parity, leak parity
-through `buri_rt_heap_stats`, `--check-reproducible` on a linked Linux
-artifact, and both linkers' idea of an ELF image.
+Both columns are discharged by `.github/workflows/ci.yml`. The suite runs on
+`macos-latest`, `ubuntu-24.04` and `ubuntu-24.04-arm`, and on the two Linux
+legs it runs the artifacts rather than only compiling them: the stack guard's
+`mprotect` and Linux's signal disposition for a `PROT_NONE` page, the corpus
+at macOS parity, leak parity through `buri_rt_heap_stats`,
+`--check-reproducible` on a linked Linux artifact, and both linkers' idea of
+an ELF image.
 
 Three tests, not steps, hold the parts a green exit would otherwise hide.
 `ci.rs::the_stencil_libraries_are_real` reads the same emptiness
@@ -1220,24 +1209,21 @@ than failing — so a run with gcc as `cc` is a green run that checked nothing.
 ### 10.3 The x86-64 emitter, and the six pieces it was built from
 
 **x86_64-unknown-linux-gnu emits, links and runs.** It needed everything the
-aarch64 column needed and, before any of it could be asked, six pieces. Each
-is listed here as it was written, because the shape of the answer is the
-argument for it. It was written because removing the retargetable backend
-(§13) would otherwise have left this target with no debug backend at all, and
-that is the one thing the flip could not be taken with outstanding.
+aarch64 column needed and, before any of it could be asked, six pieces. It was
+written because removing the retargetable backend (§13) would otherwise have
+left this target with no debug backend at all.
 
-**The landed state.** Five of the six are in. Item 6 (`swap_arms`) is open,
+**The landed state.** Five of the six are in; item 6 (`swap_arms`) is open,
 and it is a measurement rather than a correctness gap. `asm::AVAILABLE_X86_64`
 reads **`true`**, so `stencil::AVAILABLE`'s `linux-x86_64` disjunct holds and
 an x86-64 Linux host runs the suite rather than skipping it. CI's `x86_64`
 `test` leg is the twin of the `arm64` one and asserts, instead of a skip: the
 corpus census at macOS parity (**26 of 36**, the same 26 by name, checked as a
 set rather than a count), the whole `stencil::` suite running real programs,
-the stack guard's `mprotect`, leak parity through `buri_rt_heap_stats`,
-`--check-reproducible` on a linked `linux/x86_64` artifact, both linkers'
-images, and a cross emission back to `linux-arm64`. `cargo test -p buri` is
-green on `ubuntu-24.04`. §10.2's last paragraph and §3.2's table carry the
-same fact.
+the stack guard's `mprotect` and Linux's signal disposition for a `PROT_NONE`
+page, leak parity through `buri_rt_heap_stats`, `--check-reproducible` on a
+linked `linux/x86_64` artifact, both linkers' images, and a cross emission
+back to `linux-arm64`. `cargo test -p buri` is green on `ubuntu-24.04`.
 
 The six:
 
@@ -1296,16 +1282,12 @@ The six:
    arguments — four of them past SysV's six registers — and
    `data/strings.buri` exercises it.
 
-5. **The thirty dropped keys.** Recovered, and not the way this section
-   originally proposed. Rewriting the negation as an integer XOR would have
-   changed the generated C, hence all three libraries, hence a fresh cache
-   seed and a full 997-file re-run — and it would not have worked, because
-   InstCombine folds `bitcast(xor(bitcast x, signbit))` straight back to
-   `fneg` and the `xorps` constant would have returned. What was done instead
-   is faithful and costs no arm64 byte: the spilled section's bytes travel
+5. **The thirty dropped keys.** Recovered: the spilled section's bytes travel
    with the stencil, and the emitter copies them into the unit's own constant
-   pool. §3.2 has the detail. The three libraries now cover the same 13,904
-   operations.
+   pool (§3.2), which costs no arm64 byte. Rewriting the negation as an
+   integer XOR instead would have changed all three libraries — and would not
+   have worked, because InstCombine folds `bitcast(xor(bitcast x, signbit))`
+   straight back to `fneg` and the `xorps` constant would have returned.
 
 6. **`swap_arms` has no x86-64 counterpart**, and still does not. It is the
    twin of `fold_cond`, `fold_cond` is unnecessary here, and whether picking
@@ -1314,18 +1296,8 @@ The six:
    one this change did not make. It is the single thing on this list left
    open.
 
-**What CI confirms.** `.github/workflows/ci.yml`'s `x86_64` `test` leg is the
-twin of the `arm64` one and asserts the same things on the other instruction
-set: the suite was live (`BURI_CI=1` turns a guard that fires into a failure),
-the corpus is at macOS parity — 26 of 36, the same 26 — every program run, the
-stack guard's `mprotect` and Linux's signal disposition for a `PROT_NONE`
-page, leak parity through `buri_rt_heap_stats`, `--check-reproducible` on a
-linked `linux/x86_64` artifact, and both linkers' idea of an ELF image. That
-leg used to assert the executing suite **skipped**; it now asserts it **ran**,
-and that is the difference the entry point made.
-
-What a maintainer's own machine can still say is bounded the same way §10.1
-bounds it, and one thing is worth naming.
+What a maintainer's own machine can say is bounded the same way §10.1 bounds
+it, with one thing worth naming.
 `linux_x86_64_objects_link_and_every_relocation_resolves` links real unit
 objects with `ld.lld` against a generated stub and checks that every
 relocation resolves and that the image still disassembles. That proves more
