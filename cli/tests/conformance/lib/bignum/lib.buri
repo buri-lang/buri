@@ -1,0 +1,9 @@
+// The bignum package: `core/bigint` and `core/decimal`, the two numeric types
+// that are not one machine word. Everything it asserts lives in `test/`; the
+// library itself has no exports, because what is under test is the two standard
+// library modules rather than any code here.
+//
+// One package for two modules because they answer one question between them —
+// what to reach for when an `Int` is the wrong shape — and because the two
+// files share nothing else: a `BigInt` grows, and a `Decimal` puts a point in
+// one `Int`.

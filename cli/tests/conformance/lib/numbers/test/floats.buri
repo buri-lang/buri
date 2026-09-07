@@ -415,3 +415,166 @@ test "the comparison operators on F64" {
     assert.isTrue(a == a);
     assert.isTrue(a != b);
 }
+
+// --- The hyperbolics, and the two functions that keep their digits -------------------
+//
+// Every one of these reaches `exp` or `ln`, whose last bit IEEE-754 does not
+// fix, so they belong in this file rather than beside the exact ones in
+// `special_floats.buri` — and they are asserted against a *relative* tolerance
+// rather than to the bit, for the same reason. Where an assertion is exact it
+// is because the answer is one of the values the algorithm returns without
+// computing.
+
+/// Ten units in the last place, which is the band a value built out of `exp`
+/// and `ln` is allowed to land in.
+fn near(actual: Float, expected: Float): () {
+    assert.isTrue(math.isCloseRelative(actual, expected, 10.0 * math.EPSILON))
+}
+
+test "expMinusOne keeps the digits that exp(x) - 1 throws away" {
+    near(math.expMinusOne(1.0), 1.7182818284590453);
+    near(math.expMinusOne(-1.0), -0.6321205588285577);
+    assert.eq(math.expMinusOne(0.0), 0.0);
+    // The whole reason it exists: down here `exp(x) - 1.0` is zero.
+    assert.eq(math.expMinusOne(1.0e-16), 1.0e-16);
+    assert.eq(math.exp(1.0e-16) - 1.0, 0.0);
+    near(math.expMinusOne(1.0e-8), 1.0000000050000001e-8);
+}
+
+test "expMinusOne at the ends" {
+    assert.eq(math.expMinusOne(math.NEG_INFINITY), -1.0);
+    assert.eq(math.expMinusOne(math.INFINITY), math.INFINITY);
+    assert.isTrue(math.isNan(math.expMinusOne(nan())));
+}
+
+test "lnOnePlus keeps the digits that ln(1 + x) throws away" {
+    near(math.lnOnePlus(1.0), 0.6931471805599453);
+    near(math.lnOnePlus(-0.5), -0.6931471805599453);
+    assert.eq(math.lnOnePlus(0.0), 0.0);
+    assert.eq(math.lnOnePlus(1.0e-16), 1.0e-16);
+    assert.eq(math.ln(1.0 + 1.0e-16), 0.0);
+}
+
+test "expMinusOne and lnOnePlus undo each other" {
+    near(math.lnOnePlus(math.expMinusOne(0.75)), 0.75);
+    near(math.expMinusOne(math.lnOnePlus(0.75)), 0.75);
+    near(math.lnOnePlus(math.expMinusOne(-0.25)), -0.25);
+}
+
+test "logBase divides one logarithm by another" {
+    near(math.logBase(8.0, 2.0), 3.0);
+    near(math.logBase(100.0, 10.0), 2.0);
+    near(math.logBase(1.0, 10.0), 0.0);
+    near(math.logBase(81.0, 3.0), 4.0);
+}
+
+test "sinh is odd and matches its published values" {
+    near(math.sinh(1.0), 1.1752011936438014);
+    near(math.sinh(0.5), 0.5210953054937474);
+    near(math.sinh(-1.0), -1.1752011936438014);
+    assert.eq(math.sinh(0.0), 0.0);
+    near(math.sinh(3.0), 10.017874927409903);
+}
+
+test "sinh is x itself as x approaches zero" {
+    assert.eq(math.sinh(1.0e-16), 1.0e-16);
+    assert.eq(math.sinh(1.0e-8), 1.0e-8);
+}
+
+test "sinh overflows only where the answer does" {
+    // `exp(710)` is infinite and `sinh(710)` is not.
+    assert.isTrue(math.isFinite(math.sinh(710.0)));
+    assert.isTrue(math.isInfinite(math.exp(710.0)));
+    assert.eq(math.sinh(math.INFINITY), math.INFINITY);
+    assert.eq(math.sinh(math.NEG_INFINITY), math.NEG_INFINITY);
+    assert.isTrue(math.isNan(math.sinh(nan())));
+}
+
+test "cosh is even and never below one" {
+    near(math.cosh(1.0), 1.5430806348152437);
+    near(math.cosh(0.25), 1.0314130998795732);
+    near(math.cosh(-1.0), 1.5430806348152437);
+    assert.eq(math.cosh(0.0), 1.0);
+    assert.isTrue(math.cosh(0.3) >= 1.0);
+    assert.isTrue(math.cosh(-0.3) >= 1.0);
+}
+
+test "cosh overflows only where the answer does" {
+    assert.isTrue(math.isFinite(math.cosh(710.0)));
+    assert.eq(math.cosh(math.INFINITY), math.INFINITY);
+    assert.eq(math.cosh(math.NEG_INFINITY), math.INFINITY);
+    assert.isTrue(math.isNan(math.cosh(nan())));
+}
+
+test "cosh squared minus sinh squared is one" {
+    let x = 1.75;
+    near(math.cosh(x) * math.cosh(x) - math.sinh(x) * math.sinh(x), 1.0);
+    let y = -0.4;
+    near(math.cosh(y) * math.cosh(y) - math.sinh(y) * math.sinh(y), 1.0);
+}
+
+test "tanh is odd and stays inside minus one to one" {
+    near(math.tanh(1.0), 0.7615941559557649);
+    near(math.tanh(0.5), 0.46211715726000974);
+    near(math.tanh(-1.0), -0.7615941559557649);
+    assert.eq(math.tanh(0.0), 0.0);
+    assert.isTrue(math.tanh(5.0) < 1.0);
+    assert.isTrue(math.tanh(-5.0) > -1.0);
+}
+
+test "tanh is one to the last bit past twenty-two" {
+    assert.eq(math.tanh(23.0), 1.0);
+    assert.eq(math.tanh(-23.0), -1.0);
+    assert.eq(math.tanh(math.INFINITY), 1.0);
+    assert.eq(math.tanh(math.NEG_INFINITY), -1.0);
+    assert.isTrue(math.isNan(math.tanh(nan())));
+}
+
+test "tanh is sinh over cosh" {
+    let x = 0.9;
+    near(math.tanh(x), math.sinh(x) / math.cosh(x));
+    let y = -2.5;
+    near(math.tanh(y), math.sinh(y) / math.cosh(y));
+}
+
+test "asinh is defined everywhere and is odd" {
+    near(math.asinh(1.0), 0.881373587019543);
+    near(math.asinh(-1.0), -0.881373587019543);
+    assert.eq(math.asinh(0.0), 0.0);
+    near(math.asinh(1.0e12), 28.32416829648849);
+    assert.eq(math.asinh(math.INFINITY), math.INFINITY);
+    assert.eq(math.asinh(math.NEG_INFINITY), math.NEG_INFINITY);
+    assert.isTrue(math.isNan(math.asinh(nan())));
+}
+
+test "acosh is NaN below one and zero at it" {
+    assert.eq(math.acosh(1.0), 0.0);
+    near(math.acosh(2.0), 1.3169578969248166);
+    near(math.acosh(1.5), 0.9624236501192069);
+    near(math.acosh(1.0e12), 28.32416829648849);
+    assert.isTrue(math.isNan(math.acosh(0.5)));
+    assert.isTrue(math.isNan(math.acosh(-1.0)));
+    assert.eq(math.acosh(math.INFINITY), math.INFINITY);
+    assert.isTrue(math.isNan(math.acosh(nan())));
+}
+
+test "atanh is NaN outside minus one to one, and infinite at each end" {
+    near(math.atanh(0.5), 0.5493061443340549);
+    near(math.atanh(-0.5), -0.5493061443340549);
+    near(math.atanh(0.9), 1.4722194895832204);
+    assert.eq(math.atanh(0.0), 0.0);
+    assert.eq(math.atanh(1.0), math.INFINITY);
+    assert.eq(math.atanh(-1.0), math.NEG_INFINITY);
+    assert.isTrue(math.isNan(math.atanh(1.5)));
+    assert.isTrue(math.isNan(math.atanh(-1.5)));
+    assert.isTrue(math.isNan(math.atanh(nan())));
+}
+
+test "each inverse undoes its own hyperbolic" {
+    near(math.asinh(math.sinh(1.25)), 1.25);
+    near(math.sinh(math.asinh(1.25)), 1.25);
+    near(math.acosh(math.cosh(1.25)), 1.25);
+    near(math.cosh(math.acosh(1.25)), 1.25);
+    near(math.atanh(math.tanh(0.6)), 0.6);
+    near(math.tanh(math.atanh(0.6)), 0.6);
+}

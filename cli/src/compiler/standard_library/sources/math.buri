@@ -337,7 +337,11 @@ export fn isCloseRelative(a: Float, b: Float, tolerance: Float): Bool {
 /// whole range.
 export fn expMinusOne(x: Float): Float {
     let u = exp(x);
-    if (u == 1.0) {
+    if (isInfinite(u)) {
+        // `exp` overflowed, so subtracting one changes nothing and the identity
+        // below would ask `inf / inf`.
+        u
+    } else if (u == 1.0) {
         // Every bit of the answer is `x` itself down here.
         x
     } else if (u - 1.0 == -1.0) {
@@ -364,7 +368,15 @@ export fn expMinusOne(x: Float): Float {
 /// is `1 + x`.
 export fn lnOnePlus(x: Float): Float {
     let u = 1.0 + x;
-    if (u == 1.0) { x } else { ln(u) * x / (u - 1.0) }
+    if (isInfinite(u)) {
+        // Adding one changed nothing, and the identity below would ask
+        // `inf / inf`.
+        u
+    } else if (u == 1.0) {
+        x
+    } else {
+        ln(u) * x / (u - 1.0)
+    }
 }
 
 /// The logarithm of `x` in any base: `ln(x) / ln(base)`.

@@ -877,6 +877,62 @@ fn checks(o: &mut Out) -> Result<(), String> {
                 store("a / s")
             ),
         );
+        // A remainder cannot leave the type's range, so a zero divisor is the
+        // whole of what can go wrong. `MIN % -1` is `0` and the instruction
+        // still traps on it, so `-1` is replaced by `1` — which gives `0` too.
+        let substitute = if t.signed {
+            format!("(b == 0 || b == ({cty})-1) ? ({cty})1 : b")
+        } else {
+            format!("(b == 0) ? ({cty})1 : b")
+        };
+        o.push(
+            &format!("chk/rem/{}", t.tag),
+            format!(
+                "void $NAME(ARGS) {{ {cty} a = AT({cty}, _JIT_A), b = AT({cty}, _JIT_B); \
+                 AT(uint64_t, _JIT_N) = (b == 0) ? 1 : 0; {cty} s = {substitute}; \
+                 {} TAIL; }}",
+                store("a % s")
+            ),
+        );
+        // Negation. Signed: only the minimum has no negative. Unsigned: only
+        // zero has one at all.
+        let negation = if t.signed {
+            format!(
+                "uint64_t bad = (a == ({cty})((uint{}_t)1 << {})) ? 1 : 0; \
+                 {cty} r = bad ? ({cty})0 : ({cty})(0 - (uint{}_t)a);",
+                t.bits,
+                t.bits.saturating_sub(1),
+                t.bits
+            )
+        } else {
+            format!("uint64_t bad = (a != 0) ? 1 : 0; {cty} r = ({cty})0;")
+        };
+        o.push(
+            &format!("chk/neg/{}", t.tag),
+            format!(
+                "void $NAME(ARGS) {{ {cty} a = AT({cty}, _JIT_A); {negation} \
+                 AT(uint64_t, _JIT_N) = bad; {} TAIL; }}",
+                store("r")
+            ),
+        );
+        // The one member of `Checked` that is a loop. Exponentiation by
+        // squaring, with `__builtin_mul_overflow` at the type's own width after
+        // every multiplication — the same test `chk/mul` makes, made repeatedly.
+        // No call, so this is still a leaf stencil.
+        o.push(
+            &format!("chk/pow/{}", t.tag),
+            format!(
+                "void $NAME(ARGS) {{ {cty} b = AT({cty}, _JIT_A); \
+                 int64_t e = (int64_t)AT(uint64_t, _JIT_B); \
+                 {cty} acc = ({cty})1; uint64_t bad = (e < 0) ? 1 : 0; \
+                 while (!bad && e > 0) {{ \
+                 if (e & 1) {{ if (__builtin_mul_overflow(acc, b, &acc)) {{ bad = 1; break; }} }} \
+                 e >>= 1; \
+                 if (e > 0 && __builtin_mul_overflow(b, b, &b)) {{ bad = 1; break; }} }} \
+                 AT(uint64_t, _JIT_N) = bad; {} TAIL; }}",
+                store("acc")
+            ),
+        );
     }
     Ok(())
 }
@@ -975,6 +1031,47 @@ fn wide(o: &mut Out) {
                  AT(uint64_t, _JIT_N) = bad; \
                  memcpy((char *)fp + OFF(_JIT_D), q, 16); TAIL0; }}",
                 u32::from(t.signed)
+            ),
+        );
+        // The remainder, off the same divmod. A zero divisor is the only
+        // failure; `MIN % -1` is `0`, which `buri_rt_i128_divmod` answers
+        // without dividing.
+        o.push(
+            &format!("chk/rem/{tag}"),
+            format!(
+                "void $NAME(ARGS0) {{ {cty} x = {a}, y = {b}; \
+                 uint64_t bad = (y == 0) ? 1 : 0; uint64_t q[2], r[2] = {{0, 0}}; \
+                 if (!bad) buri_rt_i128_divmod((uint64_t)(u128_t)x, (uint64_t)((u128_t)x >> 64), \
+                 (uint64_t)(u128_t)y, (uint64_t)((u128_t)y >> 64), {}, q, r); \
+                 AT(uint64_t, _JIT_N) = bad; \
+                 memcpy((char *)fp + OFF(_JIT_D), r, 16); TAIL0; }}",
+                u32::from(t.signed)
+            ),
+        );
+        let no_negative = if t.signed {
+            format!("(x == ({cty})((u128_t)1 << 127))")
+        } else {
+            String::from("(x != 0)")
+        };
+        o.push(
+            &format!("chk/neg/{tag}"),
+            format!(
+                "void $NAME(ARGS) {{ {cty} x = {a}; uint64_t bad = {no_negative} ? 1 : 0; \
+                 wr128(fp, OFF(_JIT_D), bad ? (u128_t)0 : (u128_t)(0 - (u128_t)x)); \
+                 AT(uint64_t, _JIT_N) = bad; TAIL; }}"
+            ),
+        );
+        o.push(
+            &format!("chk/pow/{tag}"),
+            format!(
+                "void $NAME(ARGS) {{ {cty} v = {a}; \
+                 int64_t e = (int64_t)AT(uint64_t, _JIT_B); \
+                 {cty} acc = ({cty})1; uint64_t bad = (e < 0) ? 1 : 0; \
+                 while (!bad && e > 0) {{ \
+                 if (e & 1) {{ if (__builtin_mul_overflow(acc, v, &acc)) {{ bad = 1; break; }} }} \
+                 e >>= 1; \
+                 if (e > 0 && __builtin_mul_overflow(v, v, &v)) {{ bad = 1; break; }} }} \
+                 wr128(fp, OFF(_JIT_D), (u128_t)acc); AT(uint64_t, _JIT_N) = bad; TAIL; }}"
             ),
         );
         // A sixty-four-bit word widened into one, and a sixteen-byte value

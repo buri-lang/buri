@@ -440,7 +440,12 @@ fn scan(text: Str, at: Int, acc: Int, places: Int, digits: Int): Option<(Int, In
         },
         .Some(c) => {
             if (c == '.') {
-                if (places >= 0) { .None } else { scan(text, at + 1, acc, 0, digits) }
+                // A second point, or a point with no digit in front of it.
+                if (places >= 0 || digits <= 0) {
+                    .None
+                } else {
+                    scan(text, at + 1, acc, 0, digits)
+                }
             } else {
                 match (c.toDigit(10)) {
                     .None => .None,
