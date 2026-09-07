@@ -1,0 +1,130 @@
+// core/testing/check — property testing over a seeded generator.
+//
+// A property that holds is a no-op, so what these assert is that the run
+// reaches the line after it. The other half — a property that fails, and the
+// counterexample the report names — is `cli/tests/failing/property_failure`,
+// which cannot live here because a failing test is what it records.
+//
+// The draws themselves are checkable, though, and that is most of this file:
+// `check.int` and `check.listOf` are ordinary functions over `core/random`'s
+// `Gen`, so a test can call one and look at what came out. The seed is fixed,
+// so every one of these answers the same on every backend.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/random" import * as random;
+from "core/testing/assert" import * as assert;
+from "core/testing/check" import * as check;
+
+// --- int ------------------------------------------------------------------------
+
+test "int draws inside the half-open range" {
+    check.forAll(check.int(1, 7), fn(face) => face >= 1 && face <= 6);
+    check.forAll(check.int(0, 2), fn(bit) => bit == 0 || bit == 1);
+    assert.eq(check.CASES, 100);
+}
+
+test "int over an empty range answers low and steps nothing" {
+    let (value, next) = check.int(5, 5)(random.seeded(1));
+    assert.eq(value, 5);
+    assert.eq(next.0, random.seeded(1).0);
+    let (below, _) = check.int(5, 1)(random.seeded(1));
+    assert.eq(below, 5);
+}
+
+test "int over a range of one answers low every time" {
+    check.forAll(check.int(9, 10), fn(only) => only == 9);
+    let (only, _) = check.int(9, 10)(random.seeded(77));
+    assert.eq(only, 9);
+}
+
+test "a negative range is drawn from as happily as a positive one" {
+    check.forAll(check.int(0 - 5, 5), fn(n) => n >= 0 - 5 && n < 5);
+    assert.eq(0 - 5 < 0, true);
+}
+
+// --- listOf ---------------------------------------------------------------------
+
+test "listOf never draws past its bound" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 10), 5), fn(_c, items) => {
+        items.len() <= 5
+    });
+    assert.eq(5 <= 5, true);
+}
+
+test "listOf holds every element to the item generator's range" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    check.forAllCtx(ctx, check.listOf(ctx, check.int(3, 6), 4), fn(_c, items) => {
+        items.all(fn(x) => x >= 3 && x < 6)
+    });
+    assert.eq([3, 4, 5].len(), 3);
+}
+
+test "listOf at zero and below draws the empty list" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 10), 0), fn(_c, xs) => {
+        xs.isEmpty()
+    });
+    let (none, _) = check.listOf(ctx, check.int(0, 10), 0 - 3)(ctx, random.seeded(2));
+    assert.isEmpty(none);
+}
+
+test "listOf draws a list of the length it said it would" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let (drawn, _) = check.listOf(ctx, check.int(0, 100), 6)(ctx, random.seeded(11));
+    assert.le(drawn.len(), 6);
+    assert.ge(drawn.len(), 0);
+    // Nothing outside the item generator's range got in.
+    assert.isTrue(drawn.all(fn(x) => x >= 0 && x < 100));
+}
+
+// --- the seed a report names ------------------------------------------------------
+
+test "a seed replays the case it was reported for" {
+    let (first, afterFirst) = check.int(0, 1000)(random.seeded(4372));
+    let (again, afterAgain) = check.int(0, 1000)(random.seeded(4372));
+    assert.eq(first, again);
+    // The generator it leaves behind replays too, so a whole run does.
+    assert.eq(afterFirst.0, afterAgain.0);
+}
+
+test "two different seeds draw two different cases" {
+    let (one, _) = check.int(0, 1000000)(random.seeded(1));
+    let (two, _) = check.int(0, 1000000)(random.seeded(2));
+    assert.notEq(one, two);
+}
+
+// --- the properties a suite would actually write -------------------------------------
+
+test "reversing twice gives the list back" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 100), 8), fn(c, items) => {
+        items.reverse(c).reverse(c).compare(items) == .Equal
+    });
+    assert.eq([1, 2].len(), 2);
+}
+
+test "sorting keeps the length and the elements" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 20), 6), fn(c, items) => {
+        items.sort(c).len() == items.len()
+    });
+    check.forAllCtx(ctx, check.listOf(ctx, check.int(0, 20), 6), fn(c, items) => {
+        items.sort(c).isSortedBy(fn(a, b) => a.compare(b))
+    });
+    assert.eq([1, 2, 3].len(), 3);
+}
