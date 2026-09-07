@@ -2,7 +2,11 @@ library {
     sources: []
 
     test {
-        sources: ["test/entropy.buri", "test/sha256.buri", "test/sha512.buri"]
+        sources: [
+            "test/entropy.buri",
+            "test/sha256.buri",
+            "test/sha512.buri",
+        ]
 
         # The reference run, on the reference backend: `native::conformance`
         # drives these same files through the stencil backend

@@ -101,7 +101,7 @@ export fn fromUtf8Lossy<C: Alloc>(ctx: C, bytes: [U8]): Str {
     str.fromChars(ctx, lossy(ctx, bytes, 0, list.empty<Char>()))
 }
 
-let REPLACEMENT: Char = '\u{FFFD}';
+let REPLACEMENT: Char = '�';
 
 /// One scalar value per step, or one replacement character and the length of the
 /// maximal subpart that failed. Tail-recursive over the whole input.
@@ -120,7 +120,12 @@ fn lossy<C: Alloc>(ctx: C, b: [U8], i: Int, acc: [Char]): [Char] {
             } else {
                 // The maximal subpart: what was consumed before the byte that
                 // did not belong, and never fewer than one byte.
-                lossy(ctx, b, i + if (taken < 1) { 1 } else { taken }, acc.push(ctx, REPLACEMENT))
+                lossy(
+                    ctx,
+                    b,
+                    i + if (taken < 1) { 1 } else { taken },
+                    acc.push(ctx, REPLACEMENT),
+                )
             }
         }
     }
@@ -178,7 +183,11 @@ fn continuations(b: [U8], i: Int, width: Int, low: Int, high: Int, at: Int): Int
         let x = b.get(i + at).withDefault(0).toI64();
         let lo = if (at == 1) { low } else { 0x80 };
         let hi = if (at == 1) { high } else { 0xbf };
-        if (x < lo || x > hi) { at } else { continuations(b, i, width, low, high, at + 1) }
+        if (x < lo || x > hi) {
+            at
+        } else {
+            continuations(b, i, width, low, high, at + 1)
+        }
     }
 }
 
@@ -319,7 +328,11 @@ fn encode64<C: Alloc>(ctx: C, b: [U8], alphabet: Str): Str {
                 } else {
                     '='
                 },
-                if (left > 2) { alphabet.charAt(b2 % 64).withDefault('A') } else { '=' },
+                if (left > 2) {
+                    alphabet.charAt(b2 % 64).withDefault('A')
+                } else {
+                    '='
+                },
             ])
         })
         .join(ctx, "")
@@ -417,7 +430,11 @@ fn firstNonBase64(cs: [Char], alphabet: Str, i: Int, n: Int): Option<Int> {
         .None => .None,
         .Some(c) => {
             if (c == '=') {
-                if (i >= n - 2) { firstNonBase64(cs, alphabet, i + 1, n) } else { .Some(i) }
+                if (i >= n - 2) {
+                    firstNonBase64(cs, alphabet, i + 1, n)
+                } else {
+                    .Some(i)
+                }
             } else if (inAlphabet(c, alphabet, 0)) {
                 firstNonBase64(cs, alphabet, i + 1, n)
             } else {
@@ -503,13 +520,7 @@ export fn split<C: Alloc>(ctx: C, bytes: [U8], separator: [U8]): [[U8]] {
     }
 }
 
-fn splitFrom<C: Alloc>(
-    ctx: C,
-    b: [U8],
-    separator: [U8],
-    at: Int,
-    acc: [[U8]],
-): [[U8]] {
+fn splitFrom<C: Alloc>(ctx: C, b: [U8], separator: [U8], at: Int, acc: [[U8]]): [[U8]] {
     match (indexOfFrom(b, separator, at)) {
         .Some(i) => {
             splitFrom(

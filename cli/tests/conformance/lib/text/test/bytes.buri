@@ -492,10 +492,11 @@ test "split gives one more piece than there are separators" {
     };
     assert.eq(bytes.split(ctx, [1, 0, 2, 0, 3], [0]), [[1], [2], [3]]);
     // Empty pieces are pieces: a leading and a trailing separator each make one.
-    assert.eq(
-        bytes.split(ctx, [0, 1, 0], [0]),
-        [list.empty<U8>(), [1], list.empty<U8>()],
-    );
+    assert.eq(bytes.split(ctx, [0, 1, 0], [0]), [
+        list.empty<U8>(),
+        [1],
+        list.empty<U8>(),
+    ]);
     // No separator at all is one piece, which is the whole input.
     assert.eq(bytes.split(ctx, [1, 2], [9]), [[1, 2]]);
     assert.eq(bytes.split(ctx, list.empty<U8>(), [0]), [list.empty<U8>()]);
@@ -523,7 +524,10 @@ test "join inverts split when no piece holds the separator" {
     };
     let original: [U8] = [1, 13, 10, 2, 3, 13, 10, 4];
     let separator: [U8] = [13, 10];
-    assert.eq(bytes.join(ctx, bytes.split(ctx, original, separator), separator), original);
+    assert.eq(
+        bytes.join(ctx, bytes.split(ctx, original, separator), separator),
+        original,
+    );
 }
 
 // --- sixteen bits ------------------------------------------------------------------
@@ -540,7 +544,10 @@ test "two octets, both ends first" {
 
 test "sixteen bits round-trip in both orders" {
     assert.eq(bytes.toU16BigEndian(bytes.fromU16BigEndian(65535), 0), .Some(65535));
-    assert.eq(bytes.toU16LittleEndian(bytes.fromU16LittleEndian(65535), 0), .Some(65535));
+    assert.eq(
+        bytes.toU16LittleEndian(bytes.fromU16LittleEndian(65535), 0),
+        .Some(65535),
+    );
     assert.eq(bytes.toU16BigEndian([1, 2], 0), .Some(258));
     assert.eq(bytes.toU16LittleEndian([1, 2], 0), .Some(513));
 }

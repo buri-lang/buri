@@ -272,7 +272,6 @@ test "secondsFloat takes a fraction of a second" {
     assert.eq(time.secondsFloat(1e-10), time.ZERO);
 }
 
-
 test "a fraction no Duration can hold saturates, and a NaN is nothing" {
     assert.eq(time.secondsFloat(1e30), Duration(num.maxValue<I64>()));
     assert.eq(time.secondsFloat(0.0 - 1e30), Duration(num.minValue<I64>()));
@@ -282,7 +281,6 @@ test "a fraction no Duration can hold saturates, and a NaN is nothing" {
     // A count of seconds whose nanoseconds are not exact still converts.
     assert.eq(time.secondsFloat(0.1), time.millis(100));
 }
-
 
 test "asSecondsFloat inverts secondsFloat" {
     assert.approxEq(time.seconds(3).asSecondsFloat(), 3.0, 1e-9);
