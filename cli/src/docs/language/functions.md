@@ -20,10 +20,9 @@ fn retry<T, C: Clock>(
 - Functions are first-class values and may be passed, returned, and stored.
 - There is no overloading and no default arguments.
 
-Type inference is Hindley–Milner. There is no row polymorphism: it went away with
-the structural records of Section 5.5, and effects are trait bounds rather than
-rows. Top-level signatures are mandatory, so inference stays local to a function
-body and the compiler reports type errors against the signature you wrote rather
-than one it guessed.
+Type inference is Hindley–Milner, with no row polymorphism: effects are trait
+bounds rather than rows. Top-level signatures are mandatory, so inference stays
+local to a function body and the compiler reports type errors against the
+signature you wrote rather than one it guessed.
 
 ---
