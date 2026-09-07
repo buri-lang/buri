@@ -15,9 +15,8 @@ Add an arm for the case the diagnostic names, or a `_` arm for everything left.
 
 ## Why
 
-Exhaustiveness is what makes adding a variant a compile error at every place
-that has to care about it. A `_` arm opts out of that for one `match`, which is
-sometimes right and is always a decision.
+Exhaustiveness makes adding a variant a compile error at every place that has to
+care. A `_` arm opts out of that for one `match`.
 
 ## A program that provokes it
 

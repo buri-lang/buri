@@ -20,6 +20,6 @@ error: "//cmd/discarded_result" names no file (cmd/discarded_result/lib.buri) [m
     A program that provokes it
     ──────────────────────────
 
-    A module path resolves against the repository, so this snippet compiles
-    against the worked monorepo in cli/tests/example, which has no lib/nope.
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
 

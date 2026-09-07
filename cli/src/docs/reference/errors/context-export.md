@@ -5,8 +5,6 @@ note: a test module is anything under a `testing` directory
 fix: drop the `export`, or move it into a test-only module
 ---
 
-This code raises this error:
-
 ```buri fail code=context-export
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
@@ -24,25 +22,7 @@ export fn main(): Result<(), Str> {
 }
 ```
 
-To fix, do one of the following:
-
-```buri
-from "core/effect" import { Alloc, Stdout };
-from "core/host" import * as host;
-from "core/io" import * as io;
-
-// removed the `export`
-context Fixture {
-    Alloc: host.alloc,
-    Stdout: host.stdout,
-}
-
-export fn main(): Result<(), Str> {
-    let ctx = Fixture();
-    let _ = io.println(ctx, "hi").ignore();
-    .Ok(())
-}
-```
+To fix, drop the `export`, or move the context into a test-only module:
 
 ```buri ignore why="the fixture lives in a second module, and a doctest block is one file"
 from "core/effect" import { Alloc, Stdout };
