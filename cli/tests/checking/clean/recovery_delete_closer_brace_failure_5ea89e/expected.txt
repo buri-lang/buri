@@ -1,0 +1,21 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:16:53
+   |
+16 |     let silent = fn(_c, _r) => Response { modules: [, diagnostics: [] };
+   |                                                     ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:95:1
+   |
+95 | 
+   | ^
+   |
+ --> main.buri:9:60
+  |
+9 | test "no input at all is an error, and nothing is written" {
+  |                                                            ^ opened here
+  |
+  = fix: write `}` here

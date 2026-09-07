@@ -1,0 +1,9 @@
+error: expected an expression, found `]` [unexpected-token]
+  --> main.buri:32:38
+   |
+32 |     ast.Type { kind: .Named(n(text) []), origin: ast.nowhere() }
+   |                                      ^
+   |
+   = expected: an expression
+   = actual: `]`
+   = fix: write a value here

@@ -110,11 +110,11 @@ fn scaledStmt(): ast.Stmt {
 /// `let sign = if (scaled > 0) { "+" } else { "-" };`
 fn signStmt(): ast.Stmt {
     let positive = ex(.Binary(.Gt, [id("scaled")], [ex(.Int(0))]));
-    let branch = ex(.If(
-        [positive],
-        [block([], [ex(.Str("+"))])],
-        [ex(.Block(block([], [ex(.Str("-"))])))],
-    ));
+    let branch = ex(
+        .If([positive], [block([], [ex(.Str("+"))])], [
+            ex(.Block(block([], [ex(.Str("-"))]))),
+        ]),
+    );
     st(.Let(pat(.Bind(n("sign"), [])), [], branch))
 }
 

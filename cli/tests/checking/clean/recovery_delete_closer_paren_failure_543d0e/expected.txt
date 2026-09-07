@@ -1,0 +1,21 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:51:28
+   |
+51 |     assert.eq(out.captured(, "");
+   |                            ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here
+error: this `test` body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:95:1
+   |
+95 | 
+   | ^
+   |
+  --> main.buri:39:58
+   |
+39 | test "a JSON document that is not an object is an error" {
+   |                                                          ^ opened here
+   |
+   = fix: write `}` here
