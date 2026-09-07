@@ -1,0 +1,53 @@
+error: a file this repository does not have [generator-diagnostic]
+ --> cmd/app/BUILD.buri:3:9
+  |
+3 |         { tool: "//cmd/gen", inputs: ["units.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = the generator reported this as `units-edge`, which is not a code this toolchain has a page for
+  = fix: report it under a code the catalogue declares — `buri docs error <code>` is what a reader runs next
+
+    The sentence above is the generator's own. Only the code is this page's: a
+    generator cannot invent a catalogue entry, and a code with no page has no
+    wording anybody can hold it to.
+
+    A code the catalogue does have prints under that code instead, carrying the
+    generator's own sentence. That is what lets a generator reuse the pages this
+    toolchain already writes rather than inventing a vocabulary beside them.
+
+    Where the diagnostic lands is separate. One carrying an origin is reported
+    at that span of that input file. One carrying none is reported on the
+    generators entry that ran the tool.
+
+error: the first byte [generator-diagnostic]
+ --> cmd/app/units.txt:1:1
+  |
+1 | 
+  | ^
+  |
+  = the generator reported this as `units-edge`, which is not a code this toolchain has a page for
+  = fix: report it under a code the catalogue declares — `buri docs error <code>` is what a reader runs next
+error: the last byte [generator-diagnostic]
+ --> cmd/app/units.txt:1:1
+  |
+1 | 
+  | ^
+  |
+  = the generator reported this as `units-edge`, which is not a code this toolchain has a page for
+  = fix: report it under a code the catalogue declares — `buri docs error <code>` is what a reader runs next
+error: a span that begins where the file ends [generator-diagnostic]
+ --> cmd/app/units.txt:1:1
+  |
+1 | 
+  | ^
+  |
+  = the generator reported this as `units-edge`, which is not a code this toolchain has a page for
+  = fix: report it under a code the catalogue declares — `buri docs error <code>` is what a reader runs next
+error: a span well past the end [generator-diagnostic]
+ --> cmd/app/units.txt:1:1
+  |
+1 | 
+  | ^
+  |
+  = the generator reported this as `units-edge`, which is not a code this toolchain has a page for
+  = fix: report it under a code the catalogue declares — `buri docs error <code>` is what a reader runs next

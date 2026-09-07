@@ -1,0 +1,3 @@
+from "//lib/wire/every" export { probe as probeGenerated };
+
+from "//lib/wire/twin.buri" export { probe as probeTwin };
