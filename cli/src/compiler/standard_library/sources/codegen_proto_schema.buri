@@ -26,18 +26,14 @@
 //!
 //! Editions replaced the `optional` and `required` labels with a *feature*:
 //! `features.field_presence`, which defaults to `EXPLICIT` and can be set per
-//! file, per message, or per field. That is the one change with teeth, because
-//! it decides whether a singular field is `Option<T>` or `T`. See
-//! `cli/src/docs/reference/build/proto.md`.
+//! file, per message, or per field. It decides whether a singular field is
+//! `Option<T>` or `T`. See `cli/src/docs/reference/build/proto.md`.
 //!
 //! What is *not* here is refused by name rather than ignored: `service`,
 //! `extend`, `extensions`, groups, `map<>`, the two removed labels, and every
 //! feature value this mapping cannot express. Each would change what a message
-//! means on the wire, and a reader that skipped one would decode the file in
-//! front of it as a different file. `reserved`, and an `option` that is not a
-//! `features.` one, are skipped instead: neither says anything about the shape
-//! of a message, and `option` is how a schema talks to code generators that are
-//! not this one.
+//! means on the wire. `reserved`, and an `option` that is not a `features.` one,
+//! are skipped instead: neither says anything about the shape of a message.
 //!
 //! Cost: one pass to split the text into characters and one to read it, so
 //! O(n). Alongside the characters it keeps one `Int` per character — the byte
@@ -121,11 +117,9 @@ export enum Label {
 
 /// The edition this reader implements, and the only one it accepts.
 ///
-/// **One constant, deliberately.** Every wire- and JSON-affecting feature
-/// resolves identically at editions 2023, 2024 and 2026 — protobuf gives a
-/// feature the default of the closest edition at or before it, and no such
-/// default arrived after 2023 — so moving the requirement forward is this line
-/// and the fixtures, and nothing in the mapping.
+/// Every wire- and JSON-affecting feature resolves identically at editions 2023,
+/// 2024 and 2026, so moving the requirement forward is this line and the
+/// fixtures, and nothing in the mapping.
 export let REQUIRED_EDITION: Str = "2026";
 
 derive Eq, Show for Presence;
@@ -150,9 +144,8 @@ derive Eq, Show for Features;
 /// The subset of `FeatureSet` this reader models, unresolved: `.None` is
 /// "inherited from the enclosing scope, or from the edition".
 ///
-/// Everything else protobuf's `FeatureSet` carries either has no bearing on
-/// what a message means — `enforce_naming_style` and
-/// `default_symbol_visibility` are source-retention lints — or is refused by
+/// Everything else protobuf's `FeatureSet` carries is either a source-retention
+/// lint — `enforce_naming_style`, `default_symbol_visibility` — or refused by
 /// name where it is written.
 export struct Features {
     export fieldPresence: Option<Presence>,
@@ -205,12 +198,9 @@ export struct Field {
 derive Eq, Show for OneofCase;
 /// One case of a `oneof`.
 ///
-/// **It has no label, and that is the point.** A `repeated` case is not a thing
-/// protobuf has — a oneof is already a choice of exactly one — so rather than
-/// diagnosing one and carrying it anyway, the type a case is parsed into cannot
-/// hold a label at all. A labelled case is refused at the one place a [`Field`]
-/// becomes a `OneofCase`, and nothing downstream has to remember that a
-/// diagnostic was issued.
+/// **It has no label.** A `repeated` case is not a thing protobuf has — a oneof
+/// is already a choice of exactly one — so the type cannot hold a label at all,
+/// and a labelled case is refused where a [`Field`] becomes a `OneofCase`.
 export struct OneofCase {
     export name: Str,
     export number: Int,
@@ -341,7 +331,7 @@ enum Token {
 }
 
 /// How many diagnostics one file may produce. Past this the reader stops
-/// talking: a page of them is a report, and a thousand is a wall.
+/// talking.
 let LIMIT: Int = 32;
 
 let DECLARATIONS: Str =
@@ -360,8 +350,8 @@ let KNOWN_FEATURES: [Str] = [
 
 /// The byte offset of every character, and of the end.
 ///
-/// A `Str` indexes by scalar value and a span is measured in bytes, so one of
-/// the two has to be converted and this converts it once.
+/// A `Str` indexes by scalar value and a span is measured in bytes, so this
+/// converts between them once.
 fn byteOffsets<C: Alloc>(ctx: C, cs: [Char]): [Int] {
     let first: [Int] = [0];
     cs.foldCtx(
@@ -422,8 +412,8 @@ fn err<C: Alloc>(ctx: C, p: P, origin: ast.Origin, problem: Str, remedy: Str): P
     })
 }
 
-/// A construct this reader refuses rather than ignores. Named, always, because
-/// "unsupported" without a noun is a message you cannot act on.
+/// A construct this reader refuses rather than ignores. Named, always: an
+/// "unsupported" with no noun is a message you cannot act on.
 fn unsupported<C: Alloc>(
     ctx: C,
     p: P,
@@ -772,9 +762,8 @@ fn featureOption<C: Alloc>(ctx: C, p0: P): (P, Option<Features>) {
     }
 }
 
-/// `option features = { ... };` sets several at once. Refused rather than read:
-/// the block form nests, and one spelling of a thing is enough for a reader
-/// this size to have to be right about.
+/// `option features = { ... };` sets several at once. Refused rather than read,
+/// because the block form nests.
 fn featureBlock<C: Alloc>(ctx: C, p: P, start: Int): (P, Option<Features>) {
     let (p1, t) = peekToken(ctx, p);
     if (t != Token.Punctuation("=")) {
@@ -831,8 +820,7 @@ fn featureAssignment<C: Alloc>(
 /// One `features.<name> = <value>`, wherever it was written.
 ///
 /// Every value protobuf's `FeatureSet` admits is named here, and each one is
-/// either honoured or refused *by name*. A feature silently ignored is a schema
-/// that means something other than what it says.
+/// either honoured or refused *by name*.
 fn feature<C: Alloc>(
     ctx: C,
     p: P,
@@ -962,7 +950,7 @@ fn unknownFeature<C: Alloc>(
 
 /// The closest of `known` to `word`, when one is close enough to guess at.
 ///
-/// Costs one edit-distance table per candidate, so O(k·n·m) — paid only when a
+/// Costs one edit-distance table per candidate, O(k·n·m), paid only when a
 /// feature name was already wrong.
 fn nearest<C: Alloc>(ctx: C, word: Str, known: [Str]): Option<Str> {
     let best = known.foldCtx(
@@ -1156,9 +1144,9 @@ fn declaration<C: Alloc>(
 
 /// `syntax` is what a proto2 or proto3 file declares, and neither is accepted.
 ///
-/// The diagnostic is about migrating rather than about the word, because the
-/// word is not the problem: presence, defaults and enum openness all differ, and
-/// a file that says `proto3` means something this mapping no longer implements.
+/// The diagnostic is about migrating rather than about the word: presence,
+/// defaults and enum openness all differ, so a file that says `proto3` means
+/// something this mapping no longer implements.
 fn syntaxDeclaration<C: Alloc>(ctx: C, p: P, start: Int): P {
     let (p1, _) = expect(ctx, p, "=", "`syntax`");
     let p2 = skipTrivia(ctx, p1);
@@ -1494,9 +1482,7 @@ fn oneofBody<C: Alloc>(ctx: C, p0: P, o: Oneof): (P, Oneof) {
 
 /// The one place a [`Field`] becomes a [`OneofCase`], and so the only place a
 /// label can be refused — past here a case has nowhere to keep one. The case is
-/// still kept: the error already fails the build, and dropping it would take a
-/// second round of diagnostics about the same schema away from whoever has to
-/// fix it.
+/// still kept, so one broken field does not hide the rest of the schema.
 fn oneofCase<C: Alloc>(ctx: C, p: P, o: Oneof): (P, Oneof) {
     let (q, f) = field(ctx, p);
     match (f) {

@@ -5,8 +5,7 @@
 //! and an iteration order that follows the hashes, which you should not rely on.
 //!
 //! It is a wrapper rather than an alias so that `insert` takes one argument
-//! instead of two and so that `union` can exist. A set has operations a map does
-//! not.
+//! instead of two, and so that `union` can exist.
 //!
 //! ```buri run
 //! from "core/effect" import { Alloc, Stdout };
@@ -50,7 +49,7 @@ export fn empty<T>(): Set<T> {
     Set { entries: map.empty<T, ()>() }
 }
 
-/// A set holding the given items. Duplicates collapse, which is the point.
+/// A set holding the given items, duplicates collapsed.
 export fn of<T: Hash + Eq, C: Alloc>(ctx: C, items: [T]): Set<T> {
     items.foldCtx(ctx, fn(c, acc, x) => acc.insert(c, x), empty<T>())
 }

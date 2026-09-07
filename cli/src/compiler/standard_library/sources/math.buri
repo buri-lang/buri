@@ -54,32 +54,18 @@ export let E: Float = 2.718281828459045;
 // --- The three values that are not numbers -------------------------------------
 //
 // Each one is the IEEE-754 operation that defines it, not a decimal numeral.
-// `INFINITY` used to be `1.0e400`, a literal that names no value: it came out
-// infinite only because the float parser that read it overflowed, so the
-// constant meant whatever that parser did rather than anything SPEC 6.2 or
-// IEEE-754 states about the program. NaN has no numeral at all, so it never had
-// that option.
-//
-// Division states all three. IEEE-754 fixes `x / 0` at ±∞ for a non-zero `x`
-// and `0 / 0` at NaN, exactly, on every conforming implementation. That is a
-// stronger promise than the transcendentals above can make, and it is a promise
-// about the *program*, which `1.0e400` was not. The conformance suite already
-// trusted this spelling: its `inf()`, `negInf()` and `nan()` helpers are these
-// three expressions, so the constants are the same values the suite compares
-// everything else against rather than a second route to them.
+// Division states all three: IEEE-754 fixes `x / 0` at ±∞ for a non-zero `x` and
+// `0 / 0` at NaN, exactly, on every conforming implementation.
 //
 // Float division by zero is not the integer one and does not abort. SPEC 6.2's
 // "division by zero **aborts**" sits in its integer paragraph, where there is no
 // integer to answer with. The paragraph below it says floating point follows
 // IEEE-754, which has an answer for all three of these and gives it.
 //
-// `cli/tests/conformance/lib/numbers/test/special_floats.buri` pins all three:
-// the sign, the classification, the arithmetic, and what `show` and a `${}` hole
-// render. It is a file of its own so that **both** backends run it, since the
-// rest of `floats.buri` is held out of the native set over the thirteen
-// transcendentals above. A constant that is a different value on two backends is
-// the failure this spelling exists to prevent, and only a run on both backends
-// can catch it.
+// `cli/tests/conformance/lib/numbers/test/special_floats.buri` pins all three on
+// **both** backends: the sign, the classification, the arithmetic, and what
+// `show` and a `${}` hole render. A constant that is a different value on two
+// backends is the failure this spelling exists to prevent.
 
 /// Positive infinity. Greater than every finite `Float`, and its own successor
 /// under addition and multiplication.

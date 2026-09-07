@@ -5,9 +5,8 @@
 //! arguments as a shift. Dropping the operators removes the problem instead of
 //! papering over it with a position-dependent lexer (design/grammar-rationale.md 12.6).
 
-/// Shifting by a count at or beyond the width of the type aborts. Overflow is
-/// undefined, but a bad shift count has no defensible answer at all, and the
-/// guard is a comparison the shift already needs.
+/// Shifting by a count at or beyond the width of the type aborts: a bad shift
+/// count has no defensible answer.
 export fn shl(x: Int, n: Int): Int;
 
 export fn shr(x: Int, n: Int): Int;
