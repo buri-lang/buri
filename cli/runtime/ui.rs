@@ -1127,8 +1127,16 @@ unsafe extern "C" {
 }
 
 /// Every reference the graph is holding, given back.
+///
+/// **`try_lock`, and nothing if it is taken.** `abort::die` exits through the
+/// handler list, and two of its callers are holding this lock when they call
+/// it — a read and a write of a signal that does not exist. Blocking there
+/// would turn a one-line refusal into a hang, and there is nothing to give
+/// back on that path anyway: the audit is already quiet
+/// (`memory::quiet_heap_audit`), because a program that stopped on its own
+/// terms is holding whatever it was holding.
 extern "C" fn give_back() {
-    let mut g = lock();
+    let Ok(mut g) = GRAPH.try_lock() else { return };
     for n in &mut g.nodes {
         let release = n.release;
         if !n.value.is_empty() {
