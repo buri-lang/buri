@@ -2,8 +2,8 @@
 //!
 //! It reads `name value` a line and writes a module declaring each name as an
 //! exported `Int`. A line it cannot read is a diagnostic pointing at that line
-//! in the input; an input that declares nothing is a diagnostic with no origin
-//! at all, which lands on the `generators` entry instead.
+//! in the input; inputs that declare nothing between them are a diagnostic with
+//! no origin at all, which lands on the `generators` entry instead.
 //!
 //! `main` names `Alloc`, `Stdin` and `Stdout` and nothing else, which is what
 //! makes what it writes a function of what it was handed.
@@ -24,28 +24,24 @@ export fn main(): Result<(), Str> {
     };
     let line = io.readLine(ctx).okOr("the generator was handed no request")?;
     let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
-    let input = firstInput(request).okOr("the request names no input")?;
+    let inputs = allInputs(ctx, request).okOr("the request names no input")?;
     io
-        .println(ctx, "${json.stringify(ctx, respond(ctx, input.0, input.1))}")
+        .println(ctx, "${json.stringify(ctx, respond(ctx, inputs))}")
         .mapErr(fn(_e) => "could not write the response")
 }
 
 /// One declaration read off one line: what to write, and where it came from.
 struct Read {
+    file: Str,
     text: Str,
     start: Int,
     end: Int,
 }
 
-fn respond<C: Alloc>(ctx: C, path: Str, text: Str): Json {
-    let reads = text
-        .lines(ctx)
-        .filterMapCtx(ctx, fn(c, line) => declaration(c, text, line));
+fn respond<C: Alloc>(ctx: C, inputs: [(Str, Str)]): Json {
+    let reads = inputs.mapCtx(ctx, fn(c, i) => readsOf(c, i.0, i.1)).flatten(ctx);
     let source = reads.mapCtx(ctx, fn(_c, r) => r.text).join(ctx, "");
-    let diagnostics = badLines(ctx, path, text).concat(
-        ctx,
-        emptyInput(ctx, path, reads),
-    );
+    let bad = inputs.mapCtx(ctx, fn(c, i) => badLines(c, i.0, i.1)).flatten(ctx);
     .Object([
         (
             "modules",
@@ -53,21 +49,26 @@ fn respond<C: Alloc>(ctx: C, path: Str, text: Str): Json {
                 .Object([
                     ("name", .Str("units")),
                     ("text", .Str(source)),
-                    ("anchors", .Array(anchorsOf(ctx, path, reads))),
+                    ("anchors", .Array(anchorsOf(ctx, reads))),
                 ]),
             ]),
         ),
-        ("diagnostics", .Array(diagnostics)),
+        ("diagnostics", .Array(bad.concat(ctx, nothingDeclared(ctx, reads)))),
     ])
 }
 
+fn readsOf<C: Alloc>(ctx: C, path: Str, text: Str): [Read] {
+    text.lines(ctx).filterMapCtx(ctx, fn(c, line) => declaration(c, path, text, line))
+}
+
 /// One `export let` per readable line, and where in the input it was written.
-fn declaration<C: Alloc>(ctx: C, whole: Str, line: Str): Option<Read> {
+fn declaration<C: Alloc>(ctx: C, path: Str, whole: Str, line: Str): Option<Read> {
     let trimmed = line.trim();
     let split = trimmed.splitOnce(" ")?;
     let value = split.1.trim().toInt()?;
     let start = whole.indexOf(trimmed)?;
     .Some(Read {
+        file: path,
         text: str.format(ctx, "export let ${split.0}: Int = ${value};\n"),
         start: start,
         end: start + trimmed.len(),
@@ -75,27 +76,30 @@ fn declaration<C: Alloc>(ctx: C, whole: Str, line: Str): Option<Read> {
 }
 
 /// One anchor per declaration: its region of the generated text, against the
-/// line of the input it came from. The region starts where everything printed
+/// line of the input it came from. A region starts where everything printed
 /// before it ended.
-fn anchorsOf<C: Alloc>(ctx: C, path: Str, reads: [Read]): [Json] {
-    list
-        .range(ctx, 0, reads.len())
-        .mapCtx(ctx, fn(c, i) => {
-            let start = reads.slice(c, 0, i).fold(fn(acc, r) => acc + r.text.len(), 0);
-            let length = reads.get(i).map(fn(r) => r.text.len()).withDefault(0);
-            .Object([
-                ("start", .Num(start.toF64())),
-                ("end", .Num((start + length).toF64())),
-                ("file", .Str(path)),
-                (
-                    "span",
-                    span(
-                        reads.get(i).map(fn(r) => r.start).withDefault(0),
-                        reads.get(i).map(fn(r) => r.end).withDefault(0),
-                    ),
-                ),
-            ])
-        })
+///
+/// One fold carrying a running offset, rather than re-measuring at each index
+/// what was printed before it. Linear instead of quadratic, shorter to read,
+/// and it never slices a list grown by `push` — which is the shape `slice`
+/// miscompiles on today.
+fn anchorsOf<C: Alloc>(ctx: C, reads: [Read]): [Json] {
+    reads.foldCtx(
+        ctx,
+        fn(c, acc: (Int, [Json]), r) => {
+            (acc.0 + r.text.len(), acc.1.push(c, anchor(r, acc.0)))
+        },
+        (0, list.empty()),
+    ).1
+}
+
+fn anchor(r: Read, start: Int): Json {
+    .Object([
+        ("start", .Num(start.toF64())),
+        ("end", .Num((start + r.text.len()).toF64())),
+        ("file", .Str(r.file)),
+        ("span", span(r.start, r.end)),
+    ])
 }
 
 fn span(start: Int, end: Int): Json {
@@ -108,7 +112,7 @@ fn badLines<C: Alloc>(ctx: C, path: Str, text: Str): [Json] {
         .lines(ctx)
         .filterMapCtx(ctx, fn(c, line) => {
             let trimmed = line.trim();
-            if (trimmed.isEmpty() || declaration(c, text, line).isSome()) {
+            if (trimmed.isEmpty() || declaration(c, path, text, line).isSome()) {
                 .None
             } else {
                 let start = text.indexOf(trimmed).withDefault(0);
@@ -126,14 +130,14 @@ fn badLines<C: Alloc>(ctx: C, path: Str, text: Str): [Json] {
         })
 }
 
-/// An input that declares nothing. There is no line to point at, so the
-/// diagnostic carries no origin and lands on the `generators` entry.
-fn emptyInput<C: Alloc>(ctx: C, path: Str, reads: [Read]): [Json] {
+/// Inputs that declare nothing between them. There is no line to point at, so
+/// the diagnostic carries no origin and lands on the `generators` entry.
+fn nothingDeclared<C: Alloc>(ctx: C, reads: [Read]): [Json] {
     if (reads.isEmpty()) {
         [
             diagnostic(
                 "units-declares-nothing",
-                str.format(ctx, "${path} declares no unit"),
+                str.format(ctx, "no input declares a unit"),
                 .Null,
             ),
         ]
@@ -152,11 +156,12 @@ fn diagnostic(code: Str, message: Str, origin: Json): Json {
     ])
 }
 
-fn firstInput(request: Json): Option<(Str, Str)> {
+fn allInputs<C: Alloc>(ctx: C, request: Json): Option<[(Str, Str)]> {
     field(request, "inputs")
         .andThen(fn(v) => asArray(v))
-        .andThen(fn(items) => items.first())
-        .andThen(fn(pair) => asPair(pair))
+        .andThenCtx(ctx, fn(c, items) => {
+            items.mapOptionCtx(c, fn(_c, pair) => asPair(pair))
+        })
 }
 
 fn field(value: Json, name: Str): Option<Json> {

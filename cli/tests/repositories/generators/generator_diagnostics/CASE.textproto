@@ -1,0 +1,39 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "what a generator says about its input is reported where the input says it: a diagnostic carrying an origin lands in the input file, and one carrying none lands on the `generators` entry"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# A line the generator cannot read. The caret is in `units.txt`, at the line
+# the generator named — not in generated text, which is not a file anybody
+# could open.
+edit {
+  file: "cmd/app/units.txt"
+  replace: "width 3"
+  with: "width"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "origin.txt"
+}
+
+# Nothing left to point at. A diagnostic with no origin lands on the
+# `generators` entry that ran the tool.
+edit {
+  file: "cmd/app/units.txt"
+  replace: "count 7\nwidth\n"
+  with: ""
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "no_origin.txt"
+}
