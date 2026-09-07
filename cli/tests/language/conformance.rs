@@ -769,76 +769,260 @@ await say("/heavy");
 /// `fetch` handed a real `Request`, and the page's `main` imported on top of a
 /// document that already holds what the worker sent.
 ///
-/// Three claims, and the driver prints one line for each so a wrong answer
-/// names which:
+/// The document double parses that markup the way a browser does — one run of
+/// text per run, however many the tree that wrote it had — and counts every
+/// node it is asked to make. So "the page resumed on the markup" is a number
+/// and a comparison rather than an impression.
+///
+/// Four claims, and the driver prints a line for each so a wrong answer names
+/// which:
 ///
 ///  * the worker answers HTML, with the tree rendered into it and the state it
 ///    rendered from beside it;
-///  * the page picks that state up, and the address bar it is at;
-///  * and it re-renders nothing — the markup the worker sent is the markup the
-///    reader is still looking at, and the document was never touched.
+///  * the page picks that state up, and the address it is at;
+///  * it builds nothing — the markup after the resume is the markup that
+///    arrived, node for node;
+///  * and the button works. A press writes the signal the page made and the
+///    label the *server* wrote changes, which is the whole of what resuming is
+///    for.
+///
+/// Then the failure beside it: the same page resumed at an address the server
+/// did not render, so the tree and the markup disagree. It answers `.Err`, and
+/// the artifact exits 1 with the sentence.
 #[test]
 fn a_website_is_rendered_by_its_worker_and_resumed_by_its_page() {
     let site = tests_dir().join("repositories/concurrency/website/repo");
     let scratch = Scratch::copy_of("website", &site);
     scratch.run(&["build", "//cmd/site"]).ok();
 
-    // The document double is the browser's half: a body that already holds the
-    // worker's markup, the state script the worker embedded, and an address.
-    // Every way of changing a document counts what it was asked to do, so
-    // "nothing was re-rendered" is a number rather than an impression.
-    let driver = scratch.write(
-        "drive.mjs",
-        r#"
-import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
+    let driver = scratch.write("drive.mjs", WEBSITE_DRIVER);
+    let drive = |at: &str| {
+        let out = Command::new(js_runtime())
+            .arg(&driver)
+            .arg(at)
+            .output()
+            .expect("the javascript runtime runs");
+        (
+            out.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&out.stdout).to_string(),
+            String::from_utf8_lossy(&out.stderr).to_string(),
+        )
+    };
 
-const answer = await worker.fetch(new Request("https://example.com/"));
-const document_ = await answer.text();
-console.log(`${answer.status} ${answer.headers.get("content-type")}`);
-console.log(document_.split("<body>")[1].split("</body>")[0]);
+    let (code, stdout, stderr) = drive("/");
+    assert_eq!(code, 0, "the website did not answer:\n{stdout}{stderr}");
 
-const body = document_.split("<body>")[1].split("</body>")[0];
-const embedded = body.split('type="application/json">')[1].split("</script>")[0];
-
-let touched = 0;
-const touch = () => (touched++, {});
-globalThis.document = {
-  body: { markup: body, appendChild: touch, insertBefore: touch, removeChild: touch },
-  head: { appendChild: touch },
-  getElementById: (id) => (id === "buri-state" ? { textContent: embedded } : null),
-  createElement: touch,
-  createTextNode: touch,
-  createComment: touch,
-};
-globalThis.location = { pathname: "/about" };
-
-await import("./.buri/out/web/cmd/site/main.mjs");
-
-console.log(`touched ${touched}`);
-console.log(document.body.markup);
-"#,
-    );
-
-    let out = Command::new(js_runtime())
-        .arg(&driver)
-        .output()
-        .expect("the javascript runtime runs");
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(out.status.success(), "the website did not answer:\n{stdout}{stderr}");
-
-    let sent = "<main><h1>Buri</h1>visitors: 3</main>\
+    let sent = "<main><h1>Buri</h1>visitors: 3\
+                <button type=\"button\">say thanks</button></main>\
                 <script id=\"buri-state\" type=\"application/json\">\
                 {\"title\":\"Buri\",\"visitors\":3}</script>";
+    let pressed = sent.replace(">say thanks<", ">thanks<");
     assert_eq!(
         stdout,
         format!(
             "200 text/html; charset=utf-8\n\
              {sent}\n\
-             resumed /about {{\"title\":\"Buri\",\"visitors\":3}}\n\
-             touched 0\n\
-             {sent}\n"
+             resumed / {{\"title\":\"Buri\",\"visitors\":3}}\n\
+             made 0 elements and 0 runs of text\n\
+             {sent}\n\
+             {pressed}\n"
         ),
         "the website lost a half:\n{stderr}"
     );
+
+    // The failure. `/about` is a page the server did not send, so the tree the
+    // page builds is not the markup in front of it.
+    let (code, stdout, stderr) = drive("/about");
+    assert_eq!(code, 1, "a resume onto markup it does not match must fail:\n{stdout}{stderr}");
+    assert!(
+        stderr.contains("this page is not the markup the server sent"),
+        "and it must say so: {stderr}"
+    );
 }
+
+/// The browser's half of
+/// [`a_website_is_rendered_by_its_worker_and_resumed_by_its_page`]: a document
+/// holding what the worker sent, and the handful of operations the runtime asks
+/// of one.
+const WEBSITE_DRIVER: &str = r##"
+import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
+
+const at = process.argv[2];
+const answer = await worker.fetch(new Request("https://example.com/"));
+const document_ = await answer.text();
+const sent = document_.split("<body>")[1].split("</body>")[0];
+console.log(`${answer.status} ${answer.headers.get("content-type")}`);
+console.log(sent);
+
+// Everything this document is asked to build, counted.
+const made = { elements: 0, text: 0 };
+
+function node(nodeType, nodeName) {
+  return {
+    nodeType,
+    nodeName,
+    childNodes: [],
+    parentNode: null,
+    listeners: {},
+    attributes: {},
+    data: "",
+    className: "",
+    style: { cssText: "", setProperty() {} },
+    get firstChild() {
+      return this.childNodes.length > 0 ? this.childNodes[0] : null;
+    },
+    get nextSibling() {
+      const parent = this.parentNode;
+      if (parent === null) return null;
+      const where = parent.childNodes.indexOf(this);
+      return where + 1 < parent.childNodes.length ? parent.childNodes[where + 1] : null;
+    },
+    get textContent() {
+      if (this.nodeType === 3) return this.data;
+      return this.childNodes.map((c) => c.textContent).join("");
+    },
+    insertBefore(child, before) {
+      if (child.parentNode !== null) child.parentNode.removeChild(child);
+      child.parentNode = this;
+      const where = before === null ? this.childNodes.length : this.childNodes.indexOf(before);
+      this.childNodes.splice(where, 0, child);
+      return child;
+    },
+    appendChild(child) {
+      return this.insertBefore(child, null);
+    },
+    removeChild(child) {
+      const where = this.childNodes.indexOf(child);
+      if (where >= 0) this.childNodes.splice(where, 1);
+      child.parentNode = null;
+      return child;
+    },
+    setAttribute(name, value) {
+      this.attributes[name] = value;
+    },
+    addEventListener(type, handler) {
+      this.listeners[type] = handler;
+    },
+    splitText(where) {
+      const tail = node(3, "#text");
+      tail.data = this.data.slice(where);
+      this.data = this.data.slice(0, where);
+      this.parentNode.insertBefore(tail, this.nextSibling);
+      return tail;
+    },
+  };
+}
+
+const unescaped = (t) =>
+  t.split("&lt;").join("<").split("&gt;").join(">").split("&quot;").join('"').split("&amp;").join("&");
+const escaped = (t) => t.split("&").join("&amp;").split("<").join("&lt;").split(">").join("&gt;");
+
+// The markup, parsed the way a browser parses it: one run of text per run,
+// whatever the tree that wrote it did.
+function parse(html, into) {
+  const stack = [into];
+  const text = (data) => {
+    if (data === "") return;
+    const run = node(3, "#text");
+    run.data = unescaped(data);
+    stack[stack.length - 1].appendChild(run);
+  };
+  let read = 0;
+  while (read < html.length) {
+    const lt = html.indexOf("<", read);
+    if (lt < 0) {
+      text(html.slice(read));
+      break;
+    }
+    text(html.slice(read, lt));
+    const gt = html.indexOf(">", lt);
+    const tag = html.slice(lt + 1, gt);
+    read = gt + 1;
+    if (tag.startsWith("/")) {
+      stack.pop();
+      continue;
+    }
+    const name = tag.split(/[ /]/)[0];
+    const element = node(1, name.toUpperCase());
+    for (const found of tag.slice(name.length).matchAll(/([a-zA-Z-]+)="([^"]*)"/g)) {
+      element.attributes[found[1]] = unescaped(found[2]);
+    }
+    stack[stack.length - 1].appendChild(element);
+    if (name === "script") {
+      const close = html.indexOf("</script>", read);
+      const held = node(3, "#text");
+      held.data = html.slice(read, close);
+      element.appendChild(held);
+      read = close + "</script>".length;
+      continue;
+    }
+    if (!tag.endsWith("/")) stack.push(element);
+  }
+}
+
+// What a reader is looking at. Markers are the runtime's own bookkeeping and a
+// browser shows none of them, so neither does this.
+function markup(n) {
+  if (n.nodeType === 8) return "";
+  if (n.nodeType === 3) return escaped(n.data);
+  const name = n.nodeName.toLowerCase();
+  let out = "<" + name;
+  for (const key of Object.keys(n.attributes)) out += ` ${key}="${n.attributes[key]}"`;
+  if (n.className !== "") out += ` class="${n.className}"`;
+  let inner = "";
+  for (const child of n.childNodes) inner += markup(child);
+  return inner === "" ? out + " />" : `${out}>${inner}</${name}>`;
+}
+
+const body = node(1, "BODY");
+parse(sent, body);
+const showing = () => body.childNodes.map(markup).join("");
+
+const findFirst = (n, name) => {
+  if (n.nodeType === 1 && n.nodeName === name) return n;
+  for (const child of n.childNodes) {
+    const found = findFirst(child, name);
+    if (found !== null) return found;
+  }
+  return null;
+};
+
+globalThis.document = {
+  body,
+  getElementById(id) {
+    const walk = (n) => {
+      if (n.nodeType === 1 && n.attributes.id === id) return n;
+      for (const child of n.childNodes) {
+        const found = walk(child);
+        if (found !== null) return found;
+      }
+      return null;
+    };
+    return walk(body);
+  },
+  createElement(name) {
+    made.elements++;
+    return node(1, name.toUpperCase());
+  },
+  createTextNode(data) {
+    made.text++;
+    const run = node(3, "#text");
+    run.data = data;
+    return run;
+  },
+  createComment() {
+    return node(8, "#comment");
+  },
+};
+globalThis.location = { pathname: at };
+
+await import("./.buri/out/web/cmd/site/main.mjs");
+
+console.log(`made ${made.elements} elements and ${made.text} runs of text`);
+console.log(showing());
+
+// The press the server could not have handled.
+const button = findFirst(body, "BUTTON");
+button.listeners.click({ preventDefault() {}, target: button });
+console.log(showing());
+"##;

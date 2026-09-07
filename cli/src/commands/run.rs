@@ -51,6 +51,22 @@ pub fn command_run(args: &arguments::Args) -> i32 {
         } else {
             eprintln!("  = declared: {}", declared.join(", "));
         }
+        // The one refusal here that is about the *kind* of artifact rather than
+        // about this toolchain: a worker is called by its platform, once per
+        // request, so a build makes it and nothing starts it.
+        if !outputs.is_empty()
+            && outputs.iter().all(|o| o.platform() == Platform::CloudflareWorker)
+        {
+            eprintln!(
+                "  = a worker is called by its platform, once per request, so there is nothing \
+                 to start"
+            );
+            eprintln!(
+                "  = fix: build it with `buri build {}`, and let the platform call it",
+                session.workspace.label(target)
+            );
+            return 2;
+        }
         eprintln!(
             "  = fix: add `{{ platform: JS }}` to outputs, or declare the host's platform and \
              build a toolchain with a native backend"
@@ -137,8 +153,10 @@ fn choose(
         // A target that declares only an output this toolchain cannot produce
         // is built anyway, so that the refusal is the build's — which names the
         // platform, the backend and the feature — rather than a sentence this
-        // command invented about outputs it can see.
-        .or_else(|| outputs.first())
+        // command invented about outputs it can see. A worker is not in that
+        // set: there is nothing to start, whatever this toolchain can build, so
+        // a binary that declares one and nothing else has nothing to run.
+        .or_else(|| outputs.iter().find(|o| o.platform() != Platform::CloudflareWorker))
         .cloned()
 }
 
@@ -173,6 +191,22 @@ mod tests {
         // And nothing declared is nothing to run, which is the caller's to
         // report rather than something to invent an output for.
         assert!(choose(&[], &flags).is_none());
+    }
+
+    /// A worker is never what `run` starts.
+    ///
+    /// It is called by its platform, once per request, so a binary that
+    /// declares one and a page runs the page, and one that declares only a
+    /// worker has nothing to run at all — which is a refusal rather than a
+    /// module handed to a JavaScript runtime that would start nothing.
+    #[test]
+    fn a_worker_is_not_a_program_to_start() {
+        let flags = crate::commands::arguments::Flags::default();
+        let worker = Output::for_platform(Platform::CloudflareWorker, Span::NONE);
+        assert!(choose(std::slice::from_ref(&worker), &flags).is_none());
+
+        let both = [worker, Output::for_platform(Platform::Web, Span::NONE)];
+        assert_eq!(choose(&both, &flags).map(|o| o.platform()), Some(Platform::Web));
     }
 
     /// A target that declares only what this toolchain cannot produce is still
