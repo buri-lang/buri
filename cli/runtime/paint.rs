@@ -44,16 +44,18 @@
 //! folded and one that did not paint alike. Anything else parses and is
 //! ignored, which is what lets the vocabulary grow without breaking a scene.
 //!
-//! Four deliberate simplifications, each visible in a snapshot:
+//! Two deliberate simplifications, each visible in a snapshot:
 //!
 //! * An element with no `display` lays out as a column of its children, which
 //!   is what a block box does for the trees this paints.
-//! * `box-shadow`'s blur radius paints nothing. The shadow is the offset,
-//!   spread rounded rectangle in its colour, drawn under the box.
 //! * `opacity` multiplies into every colour the subtree paints rather than
 //!   compositing the subtree as a group, so two overlapping half-transparent
 //!   children show through each other.
-//! * `overflow: hidden` clips to the box's rectangle, ignoring its radius.
+//!
+//! `box-shadow`'s blur is three integer box passes over a coverage mask, which
+//! is what the SVG filter specification writes down for a Gaussian and what a
+//! browser does for a shadow; `overflow: hidden` clips to the box's own
+//! rounded shape. Both are stated at [`blur`] and [`intersect`].
 //!
 //! # Errors
 //!
@@ -504,6 +506,7 @@ enum Border {
 struct Shadow {
     x: f32,
     y: f32,
+    blur: f32,
     spread: f32,
     colour: Rgba,
 }
@@ -891,7 +894,7 @@ fn colour(value: &str) -> Option<Spec> {
     Some(Spec::Value(Rgba { r, g, b, a }))
 }
 
-/// `<x> <y> <blur> <spread> <colour>`. The blur is read and not painted.
+/// `<x> <y> <blur> <spread> <colour>`.
 fn shadow(value: &str, font_size: f32) -> Option<Shadow> {
     let mut parts = value.split(' ').filter(|p| !p.is_empty());
     let px = |v: Option<&str>| match length(v?, font_size) {
@@ -900,13 +903,13 @@ fn shadow(value: &str, font_size: f32) -> Option<Shadow> {
     };
     let x = px(parts.next())?;
     let y = px(parts.next())?;
-    let _blur = px(parts.next())?;
+    let blur = px(parts.next())?;
     let spread = px(parts.next())?;
     let colour = match colour(parts.next()?)? {
         Spec::Value(c) => c,
         _ => return None,
     };
-    Some(Shadow { x, y, spread, colour })
+    Some(Shadow { x, y, blur, spread, colour })
 }
 
 // ---------------------------------------------------------------------------
@@ -1224,7 +1227,12 @@ impl Painter<'_> {
         let radius = resolve_length(style.radius, layout.size.width);
         if let Some(shadow) = style.shadow {
             let cast = box_.offset(shadow.x, shadow.y).grow(shadow.spread);
-            fill(canvas, cast, radius + shadow.spread, shadow.colour, style.opacity, clip);
+            let corner = radius + shadow.spread;
+            if shadow.blur > 0.0 {
+                cast_blurred(canvas, cast, corner, shadow, style.opacity, clip);
+            } else {
+                fill(canvas, cast, corner, shadow.colour, style.opacity, clip);
+            }
         }
         if style.background.visible() {
             fill(canvas, box_, radius, style.background, style.opacity, clip);
@@ -1241,7 +1249,7 @@ impl Painter<'_> {
         let inner = if style.clipped[0] || style.clipped[1] {
             owned = clip.cloned().or_else(|| full_mask(canvas.width(), canvas.height()));
             if let Some(mask) = owned.as_mut() {
-                intersect(mask, box_);
+                intersect(mask, box_, radius);
             }
             owned.as_ref()
         } else {
@@ -1471,12 +1479,162 @@ fn full_mask(width: u32, height: u32) -> Option<Mask> {
     Some(mask)
 }
 
-fn intersect(mask: &mut Mask, box_: Box2) {
-    if let Some(path) = box_.path(0.0) {
+/// Narrows `mask` to a box, **rounded corners included**: `overflow: hidden`
+/// on a box with a radius clips to the shape the box paints, so a child does
+/// not square off a corner its parent rounded.
+fn intersect(mask: &mut Mask, box_: Box2, radius: f32) {
+    if let Some(path) = box_.path(radius) {
         mask.intersect_path(&path, FillRule::Winding, true, Transform::identity());
     } else {
         mask.clear();
     }
+}
+
+/// Pours a shadow's colour through a blurred coverage mask of its cast shape.
+///
+/// The shape is rasterized once into an alpha mask, blurred by [`blur`], met
+/// with whatever clip the caller was already under, and then used as the clip
+/// of a fill over the whole canvas — so the colour lands at exactly the
+/// coverage the blur computed, and nowhere the caller had already excluded.
+fn cast_blurred(
+    canvas: &mut Pixmap,
+    cast: Box2,
+    radius: f32,
+    shadow: Shadow,
+    opacity: f32,
+    clip: Option<&Mask>,
+) {
+    let (width, height) = (canvas.width(), canvas.height());
+    let (Some(mut mask), Some(path)) = (Mask::new(width, height), cast.path(radius)) else {
+        return;
+    };
+    mask.fill_path(&path, FillRule::Winding, true, Transform::identity());
+    blur(&mut mask, shadow.blur);
+    if let Some(outer) = clip {
+        narrow(&mut mask, outer);
+    }
+    let all = Box2 {
+        l: 0,
+        t: 0,
+        r: i32::try_from(width).unwrap_or(i32::MAX),
+        b: i32::try_from(height).unwrap_or(i32::MAX),
+    };
+    let Some(path) = all.path(0.0) else { return };
+    let paint =
+        Paint { anti_alias: false, shader: shade(shadow.colour, opacity), ..Paint::default() };
+    canvas.fill_path(&path, &paint, FillRule::Winding, Transform::identity(), Some(&mask));
+}
+
+/// Multiplies `mask` by `other`, which is mask intersection on coverage.
+fn narrow(mask: &mut Mask, other: &Mask) {
+    if mask.width() != other.width() || mask.height() != other.height() {
+        return;
+    }
+    for (a, b) in mask.data_mut().iter_mut().zip(other.data()) {
+        *a = mul255(*a, *b);
+    }
+}
+
+/// Blurs a coverage mask in place, by CSS's reading of a blur radius.
+///
+/// Three box blurs, which is the approximation the SVG filter specification
+/// writes down for a Gaussian and the one every browser uses for a shadow. A
+/// CSS blur radius of `n` is a Gaussian of standard deviation `n / 2`, and the
+/// box width that stands in for it is
+/// `floor(sigma * 3 * sqrt(2 * PI) / 4 + 0.5)`.
+///
+/// **Integers all the way**, on purpose: the passes are running sums over
+/// `u8`s with one rounded divide, so the answer is the same answer on every
+/// target. Only the box width is computed in floating point, and it is one
+/// `sqrt` of a constant times a length both platforms already agree on.
+fn blur(mask: &mut Mask, radius: f32) {
+    let sigma = radius / 2.0;
+    if sigma <= 0.0 || !sigma.is_finite() {
+        return;
+    }
+    // 3 * sqrt(2 * PI) / 4, the SVG filter primitive's own constant.
+    let Ok(d) = u32::try_from((sigma * 1.881_976_2 + 0.5).floor() as i64) else { return };
+    if d == 0 {
+        return;
+    }
+    // An odd box has a centre; an even one does not, so the three passes lean
+    // left, then right, then take one more sample to land back where they
+    // started. SVG filters §15.17 states exactly this.
+    let passes = if d % 2 == 1 {
+        [(d, d / 2), (d, d / 2), (d, d / 2)]
+    } else {
+        [(d, d / 2), (d, d / 2 - 1), (d + 1, d / 2)]
+    };
+    let (w, h) = (mask.width() as usize, mask.height() as usize);
+    let mut scratch = vec![0u8; w.saturating_mul(h)];
+    for (size, lead) in passes {
+        rows(mask.data_mut(), &mut scratch, w, h, size as usize, lead as usize);
+    }
+    for (size, lead) in passes {
+        columns(mask.data_mut(), &mut scratch, w, h, size as usize, lead as usize);
+    }
+}
+
+/// One horizontal box pass. The window for the pixel at `at` is
+/// `[at - lead, at - lead + size)`, and off the ends the mask reads as zero.
+fn rows(data: &mut [u8], scratch: &mut [u8], w: usize, h: usize, size: usize, lead: usize) {
+    if size == 0 || w == 0 {
+        return;
+    }
+    let (half, n) = (size as u32 / 2, size as u32);
+    let (size, lead) = (size as isize, lead as isize);
+    let end = w as isize;
+    for y in 0..h {
+        let row = y.saturating_mul(w);
+        let read = |sum: &mut u32, at: isize, add: bool| {
+            if at < 0 || at >= end {
+                return;
+            }
+            let byte = u32::from(data[row.saturating_add(at as usize)]);
+            *sum = if add { sum.saturating_add(byte) } else { sum.saturating_sub(byte) };
+        };
+        let mut sum: u32 = 0;
+        for j in 0..size {
+            read(&mut sum, j - lead, true);
+        }
+        for at in 0..end {
+            scratch[row.saturating_add(at as usize)] =
+                u8::try_from((sum + half) / n).unwrap_or(255);
+            read(&mut sum, at - lead, false);
+            read(&mut sum, at - lead + size, true);
+        }
+    }
+    data.copy_from_slice(scratch);
+}
+
+/// [`rows`], the other way.
+fn columns(data: &mut [u8], scratch: &mut [u8], w: usize, h: usize, size: usize, lead: usize) {
+    if size == 0 || h == 0 {
+        return;
+    }
+    let (half, n) = (size as u32 / 2, size as u32);
+    let (size, lead) = (size as isize, lead as isize);
+    let end = h as isize;
+    for x in 0..w {
+        let read = |sum: &mut u32, at: isize, add: bool| {
+            if at < 0 || at >= end {
+                return;
+            }
+            let byte = u32::from(data[(at as usize).saturating_mul(w).saturating_add(x)]);
+            *sum = if add { sum.saturating_add(byte) } else { sum.saturating_sub(byte) };
+        };
+        let mut sum: u32 = 0;
+        for j in 0..size {
+            read(&mut sum, j - lead, true);
+        }
+        for at in 0..end {
+            scratch[(at as usize).saturating_mul(w).saturating_add(x)] =
+                u8::try_from((sum + half) / n).unwrap_or(255);
+            read(&mut sum, at - lead, false);
+            read(&mut sum, at - lead + size, true);
+        }
+    }
+    data.copy_from_slice(scratch);
 }
 
 /// `(x * y + 127) / 255`, without a divide and without a rounding surprise.
@@ -2456,6 +2614,67 @@ mod tests {
         let regular = inked_pixels(&render_ok(one, "", "rest"));
         let bold = inked_pixels(&render_ok(two, "", "rest"));
         assert!(regular > 0 && bold > regular, "regular {regular}, bold {bold}");
+    }
+
+    /// A blur radius spreads the shadow past the shape it was cast from, and
+    /// fades as it goes. With no blur the same shadow stops at its edge.
+    #[test]
+    fn a_blur_radius_spreads_the_shadow_past_its_edge() {
+        let sharp = "buri-scene 1\nviewport 40 40\ne 0 padding:16px\n\
+                     e 1 width:8px;height:8px;background-color:rgb(255,255,255);\
+                     box-shadow:0px 0px 0px 0px rgb(0,0,0)\n";
+        let soft = "buri-scene 1\nviewport 40 40\ne 0 padding:16px\n\
+                    e 1 width:8px;height:8px;background-color:rgb(255,255,255);\
+                    box-shadow:0px 0px 8px 0px rgb(0,0,0)\n";
+        let sharp = render_ok(sharp, "", "rest");
+        let soft = render_ok(soft, "", "rest");
+        // Four pixels out from the box's left edge: outside the cast shape, so
+        // only a blur puts ink there.
+        assert_eq!(at(&sharp, 12, 20), [255, 255, 255, 255]);
+        let spread = at(&soft, 12, 20);
+        assert!(spread[0] < 255, "a blurred shadow reaches four pixels out, not {spread:?}");
+        // And it fades: further out is lighter than nearer in.
+        let near = at(&soft, 14, 20)[0];
+        let far = at(&soft, 10, 20)[0];
+        assert!(near < far, "a blur fades outward: {near} at 14 against {far} at 10");
+    }
+
+    /// The blur is the same bytes twice, which is the whole reason it is
+    /// integer arithmetic: a golden is compared byte for byte.
+    #[test]
+    fn a_blurred_shadow_paints_the_same_bytes_twice() {
+        let scene = "buri-scene 1\nviewport 40 40\ne 0 padding:16px\n\
+                     e 1 width:8px;height:8px;background-color:rgb(255,255,255);\
+                     box-shadow:2px 2px 6px 1px rgb(0,0,255)\n";
+        let one = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap();
+        let two = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap();
+        assert_eq!(one, two);
+    }
+
+    /// A blur of zero is the shape itself, so it paints what the unblurred
+    /// path paints — the goldens recorded before the blur existed do not move.
+    #[test]
+    fn a_blur_of_zero_paints_the_shape_it_was_cast_from() {
+        let scene = "buri-scene 1\nviewport 20 20\ne 0 padding:4px\n\
+                     e 1 width:8px;height:8px;background-color:rgb(255,255,255);\
+                     box-shadow:0px 0px 0px 0px rgb(0,0,0)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 3, 10), [255, 255, 255, 255]);
+        assert_eq!(at(&image, 5, 10), [255, 255, 255, 255]);
+    }
+
+    /// `overflow: hidden` on a rounded box clips to the rounded shape: the
+    /// corner pixel a child would have squared off stays the canvas.
+    #[test]
+    fn overflow_hidden_clips_to_the_rounded_corner() {
+        let square = "buri-scene 1\nviewport 16 16\n\
+                      e 0 width:16px;height:16px;overflow:hidden\n\
+                      e 1 width:16px;height:16px;background-color:rgb(255,0,0)\n";
+        let round = "buri-scene 1\nviewport 16 16\n\
+                     e 0 width:16px;height:16px;border-radius:8px;overflow:hidden\n\
+                     e 1 width:16px;height:16px;background-color:rgb(255,0,0)\n";
+        assert_eq!(at(&render_ok(square, "", "rest"), 0, 0), [255, 0, 0, 255]);
+        assert_eq!(at(&render_ok(round, "", "rest"), 0, 0), [255, 255, 255, 255]);
     }
 
     #[test]
