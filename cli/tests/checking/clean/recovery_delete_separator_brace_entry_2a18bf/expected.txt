@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+  --> main.buri:31:39
+   |
+31 |     let out = proto.emit(ctx, request)
+   |                                       ^
+   |
+   = fix: write `;` here

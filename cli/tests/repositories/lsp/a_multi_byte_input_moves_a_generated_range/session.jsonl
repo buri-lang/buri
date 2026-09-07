@@ -1,0 +1,25 @@
+# One JSON-RPC request per line. `<scratch>` becomes the copied repository.
+#
+# `units.txt` is written in French with an emoji in it, so every offset in it is
+# a different number in bytes and in UTF-16 units. The generator anchors in
+# bytes, because that is the unit the protocol fixes for an anchor; the server
+# answers in UTF-16 units, because that is the unit a client counts in.
+#
+# `depth` is on the fourth line, after twenty-three bytes of accents and four
+# bytes of emoji that are eighteen and two units. Counting the wrong one moves
+# the jump to another line entirely, and its trailing `# arrondi à ½ mm` moves
+# the character the range ends at. Both are recorded below.
+{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"rootUri": "file://<scratch>", "capabilities": {"textDocument": {"hover": {"contentFormat": ["markdown"]}}}}}
+{"jsonrpc": "2.0", "method": "initialized", "params": {}}
+{"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri", "languageId": "buri", "version": 1, "text": "from \"//lib/wire/units\" import { depth, width };\n\n/// The plate, side on.\nexport fn side(): Int {\n    width * depth\n}\n"}}}
+# The first declaration, one accented line down.
+{"jsonrpc": "2.0", "id": 2, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 4, "character": 5}}}
+# And the fourth line, which is the one a byte count reaches only by agreeing
+# with the file's own encoding on every line above it.
+{"jsonrpc": "2.0", "id": 3, "method": "textDocument/definition", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 4, "character": 13}}}
+# The prose above `depth`, which is read out of the input by slicing it at the
+# anchor — so a slice counted in the wrong unit either splits a character or
+# reads the wrong line.
+{"jsonrpc": "2.0", "id": 4, "method": "textDocument/hover", "params": {"textDocument": {"uri": "file://<scratch>/lib/wire/lib.buri"}, "position": {"line": 4, "character": 13}}}
+{"jsonrpc": "2.0", "id": 5, "method": "shutdown"}
+{"jsonrpc": "2.0", "method": "exit"}

@@ -1,0 +1,7 @@
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:35:29
+   |
+35 |     let text = ast.print(ctx person.1).text.lines(ctx);
+   |                             ^
+   |
+   = fix: write `,` here

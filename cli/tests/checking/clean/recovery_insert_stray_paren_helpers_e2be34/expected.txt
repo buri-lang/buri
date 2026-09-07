@@ -1,0 +1,9 @@
+error: expected an expression, found `@` [unexpected-token]
+  --> main.buri:31:29
+   |
+31 |     schema.parse(ctx, text, @ FILE)
+   |                             ^
+   |
+   = expected: an expression
+   = actual: `@`
+   = fix: write a value here

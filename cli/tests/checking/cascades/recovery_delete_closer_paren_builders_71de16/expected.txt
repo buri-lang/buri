@@ -1,0 +1,30 @@
+error: `Call` holds 2 values, but 1 were given [wrong-value-count]
+  --> main.buri:76:8
+   |
+76 |     ex(.Call([callee, args))
+   |        ^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
+error: expected `Expr`, found `[Expr]` [type-mismatch]
+  --> main.buri:76:23
+   |
+76 |     ex(.Call([callee, args))
+   |                       ^^^^ the element type is `Expr`
+   |
+   = expected: `Expr`
+   = actual: `[Expr]`
+   = fix: produce a `Expr` here, or change what surrounds it to accept a `[Expr]`
+error: this array is missing its closing `]` [unclosed-delimiter]
+  --> main.buri:76:27
+   |
+76 |     ex(.Call([callee, args))
+   |                           ^
+   |
+  --> main.buri:76:14
+   |
+76 |     ex(.Call([callee, args))
+   |              ^ opened here
+   |
+   = fix: write `]` here

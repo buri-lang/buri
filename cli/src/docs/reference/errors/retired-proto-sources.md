@@ -1,0 +1,52 @@
+---
+title: A schema is a generator's input
+message: '`proto_sources` is retired'
+note: the field was the one hard-wired generator in the build, and `.proto` was the one language it knew — `generators` runs any program that answers the protocol, and `std/codegen/proto` is that program for schemas
+fix: move the schemas into `generators: [{{ tool: "std/codegen/proto", inputs: [...] }}]`
+reproduction: none
+---
+# A schema is a generator's input
+
+```text
+error: `proto_sources` is retired [retired-proto-sources]
+```
+
+## What to do
+
+Move every schema the field listed into a `generators` entry, and hand it to
+`std/codegen/proto`:
+
+```textproto schema=build
+library {
+    generators: [
+        {
+            tool: "std/codegen/proto"
+            inputs: ["address.proto", "point.proto"]
+        }
+    ]
+    visibility: ["//visibility:public"]
+}
+```
+
+Nothing else moves. The modules are named as they were — `//lib/wire/point.proto`
+is still what an import writes — they still belong to the rule that declared
+them, and every `proto-*` diagnostic still comes from the same schema with the
+same span.
+
+One thing does change: `buri gen` no longer writes the field. `generators` is
+hand-authored, like `visibility` and `outputs`, because nothing can work out
+which generator owns a new file. A schema no entry lists is
+[`unused-library`](../lints/unused-library.md).
+
+## Why
+
+`proto_sources` was a generator the build could not name. The rule ran one
+program, on one language, and a repository that wanted a second kind of
+generated code had no way to ask for one.
+
+`generators` is the same idea with the program written down. `std/codegen/proto`
+is an ordinary Buri binary that reads a request on standard input and writes
+modules back, and it is what the field always ran — so the schemas, the
+diagnostics and the generated modules are the ones you already had, reached
+through a rule that a program of your own can also use. See
+[`generators.md`](../build/generators.md).

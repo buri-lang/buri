@@ -56,7 +56,11 @@ unordered, so it answers `.Equal` for a pair it could not order.
 [`core/char`](../../compiler/standard_library/sources/char.buri),
 [`core/bytes`](../../compiler/standard_library/sources/bytes.buri),
 [`core/json`](../../compiler/standard_library/sources/json.buri),
-[`core/proto`](../../compiler/standard_library/sources/proto.buri).
+[`core/proto`](../../compiler/standard_library/sources/proto.buri),
+[`core/buri/ast`](../../compiler/standard_library/sources/buri_ast.buri),
+[`core/codegen`](../../compiler/standard_library/sources/codegen.buri),
+[`std/codegen/proto/schema`](../../compiler/standard_library/sources/codegen_proto_schema.buri),
+[`std/codegen/proto`](../../compiler/standard_library/sources/codegen_proto.buri).
 
 - **`core/str`** — a `Str` measures in Unicode scalar values everywhere. `len`
   counts them, `charAt` and `slice` index by them, and `compare` orders by them.
@@ -136,6 +140,56 @@ unordered, so it answers `.Equal` for a pair it could not order.
   program using it cannot answer before the other side has finished speaking.
   Text and octets are two questions about one stream, so a program should ask
   only one of them.
+
+- **`core/buri/ast`** — the Buri grammar as Buri data, and `print`, which turns
+  a `Module` back into source text. A generator builds the tree instead of a
+  string, so it cannot emit a parse error, and every node carries the input
+  span it came from. `print` answers the text and one anchor per node whose
+  origin names a file — a byte range into the text, sorted by start, outermost
+  first — which is what lets a diagnostic about generated code point at the
+  input line behind it. A child position is a one-element array, because a Buri
+  type recurses through `[T]`. Printing costs O(n) in the output text plus one
+  UTF-8 measurement per piece written, and O(a log a) to sort the anchors. The
+  output is what `buri format` leaves alone, with one limit: `print` has no page
+  width, so it breaks only what the formatter always breaks and puts everything
+  else on one line.
+
+- **`core/codegen`** — the protocol a generator speaks. `run` reads one JSON
+  line from `Stdin`, hands your function the `Request`, and writes the
+  `Response` back as one JSON line on `Stdout`. It calls `core/buri/ast`'s
+  `print` for you, so what goes over the wire is text plus anchors and never a
+  tree. `main` names `Alloc`, `Stdin` and `Stdout` and nothing else, which is
+  what makes a generator deterministic. `run` answers `.Err` when there was no
+  request to read or the line was not one; returning that from `main` is how a
+  generator fails visibly. Costs one parse of the request line plus one `print`
+  per module — O(n) in the text read and the text written.
+
+- **`std/codegen/proto/schema`** — a reader for `.proto` schemas, and the front
+  half of the `std/codegen/proto` generator. `parse` answers what a file
+  declares plus every diagnostic about it, each carrying the span in the schema
+  that a `codegen.Diagnostic` points at. **One edition**: a schema says
+  `edition = "2026";`, and `syntax = "proto3"`, proto2 and older editions are
+  refused rather than read loosely. So is everything the mapping cannot express
+  — `service`, `extend`, `group`, `map<>`, the removed labels, `import public`,
+  and each unimplementable `features` value — refused *by name*, because a
+  construct silently ignored makes a file mean something other than what it
+  says. `option` and `reserved` are skipped. Costs one pass over the text, O(n),
+  plus one `Int` per character: a span is measured in bytes and a `Str` in
+  scalar values, so the offsets are computed once rather than per diagnostic.
+  [The proto reference](./build/proto.md) is the mapping it feeds.
+
+- **`std/codegen/proto`** — the other half: the schema `std/codegen/proto/schema`
+  read, as a Buri module. `emit` is the generator `core/codegen`'s `run` takes,
+  and `generate` is one schema at a time. It builds `core/buri/ast` nodes rather
+  than text, and **every node carries the declaration behind it** — a struct its
+  `message`'s span, a field's name the span of the `.proto` field, a variant the
+  span of its value — which is what makes go-to-definition on a generated field
+  land on the schema line that produced it. Each message brings `defaultM`,
+  `encodeM`, `decodeM`, `encodeMJson`, `decodeMJson` and `decodeMJsonAt`, and
+  each enum four of its own. Costs one pass over the schema to build the type
+  table and one to write the tree; a type name resolves through an `OrdMap`, so
+  a schema of `n` declarations costs O(n log t) in the `t` types in scope.
+  [The proto reference](./build/proto.md) is the mapping, and it is a promise.
 
 ## Collections
 

@@ -138,7 +138,7 @@ It builds the targets with their `test.sources`, runs every `test` declaration,
 and reports one line per failure plus a summary. See the `buri-testing` skill.
 
 `--watch` re-runs the same invocation whenever a declared input moves: the
-closure's entry points, `sources`, `proto_sources` and `testing/` sources; the
+closure's entry points, `sources`, generator `inputs` and `testing/` sources; the
 suite's `sources`; every `BUILD.buri`; and `REPO.buri`. It polls each with one
 `stat` every 150 ms, so a burst of writes is one run. A run with nothing to do
 prints nothing at all. **Nothing watches a new file until something declares

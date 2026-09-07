@@ -1,0 +1,19 @@
+error: there is nothing named `docs` in scope [unresolved-name]
+  --> main.buri:81:39
+   |
+81 |     ast.Module { items: [item(kind)], docs[ :] }
+   |                                       ^^^^
+   |
+   = fix: declare `docs`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:81:43
+   |
+81 |     ast.Module { items: [item(kind)], docs[ :] }
+   |                                           ^
+   |
+  --> main.buri:81:16
+   |
+81 |     ast.Module { items: [item(kind)], docs[ :] }
+   |                ^ opened here
+   |
+   = fix: write `}` here

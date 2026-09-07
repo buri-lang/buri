@@ -1,5 +1,0 @@
-export fn f(): Int {
-  x let = 1;
-  x
-  // the last word
-}

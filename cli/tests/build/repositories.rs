@@ -68,6 +68,16 @@ fn proto_schemas() {
     run_corpus(&tests_dir().join("repositories/proto"), "proto", 6);
 }
 
+/// BUILD-FILES.md's `generators`: a program the build runs, whose output
+/// becomes a module. One case for the rule itself — declared inputs, the
+/// `generate` action, the cache, reproducibility, the module's internality, and
+/// the two ways a tool can fail — one for what a generator says about its
+/// input, and one for a tool built from the target that runs it.
+#[test]
+fn generators() {
+    run_corpus(&tests_dir().join("repositories/generators"), "generators", 3);
+}
+
 /// CLI.md's lint catalogue: the hygiene rules, which ask about a package's own
 /// code rather than about the graph. Each case ends with the edit that makes
 /// the finding go away, because a rule nothing can turn off is a rule nobody

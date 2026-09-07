@@ -1,0 +1,8 @@
+// The generator conformance package: the wire `core/codegen` speaks, driven
+// through `run` with a stdin and a stdout double rather than around it.
+//
+// The assertions are on the *document*, byte for byte, because the other end
+// of this wire is `cli/src/build/generators.rs` — a Rust parser that admits
+// objects, arrays, strings, non-negative integers and `null`, and nothing
+// else. A round trip against ourselves would pass just as happily if both
+// halves drifted together.

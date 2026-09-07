@@ -11,9 +11,13 @@
 //! exports `main`; a test's capabilities are fakes the runner injects. A library
 //! or a test source has no *name* for the environment, the clock, the
 //! filesystem, or the network, so there is nothing for an OS confinement to
-//! confine. And the action set is closed — there are four kinds, all of them
-//! this toolchain's own code, and no way for a repository to define a fifth —
-//! so there is no user-supplied program to distrust either.
+//! confine.
+//!
+//! One action does run a program a repository wrote: a `generators` tool. It is
+//! bounded by the same thing, one level up. A generator is a Buri binary whose
+//! `main` names `Stdin` and `Stdout` and nothing else, so it has no name for
+//! the clock or the filesystem either, and what it produces is a function of
+//! the line the build wrote to it.
 //!
 //! What OS confinement would have bought is a second opinion about *toolchain*
 //! bugs: an intrinsic that leaked something it should not. It would have bought

@@ -1,6 +1,7 @@
 library {
-    proto_sources: ["address.proto", "demo.proto"]
-
+    generators: [
+        { tool: "std/codegen/proto", inputs: ["address.proto", "demo.proto"] },
+    ]
     visibility: ["//visibility:public"]
 
     test {

@@ -52,8 +52,20 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     files.sort();
     schemas.sort();
 
-    let mut lib_protos = Vec::new();
-    let mut bin_protos = Vec::new();
+    // A generator's input is already declared, by the entry that hands it over.
+    // `gen` never writes `generators` — it cannot know which generator owns a
+    // file — so an input that happens to wear one of the two extensions this
+    // walk collects must not be placed in `sources` on top of it.
+    let generated_inputs: BTreeSet<String> = {
+        let mut out = BTreeSet::new();
+        for kind in [RuleKind::Library, RuleKind::Binary] {
+            let target = crate::build::workspace::TargetId { package, kind };
+            out.extend(crate::build::generators::inputs(&session.workspace, target));
+        }
+        out
+    };
+    files.retain(|f| !generated_inputs.contains(f));
+
     let mut lib_sources = Vec::new();
     let mut bin_sources = Vec::new();
     let mut lib_tests = Vec::new();
@@ -68,8 +80,6 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     // A file already listed in a rule's `sources` stays there.
     let existing_lib = listed(&document, "library", "sources");
     let existing_bin = listed(&document, "binary", "sources");
-    let existing_lib_protos = listed(&document, "library", "proto_sources");
-    let existing_bin_protos = listed(&document, "binary", "proto_sources");
     let existing_lib_tests = listed_at(&document, "library", &["test", "sources"]);
     let existing_bin_tests = listed_at(&document, "binary", &["test", "sources"]);
 
@@ -83,33 +93,6 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     } else {
         (BTreeSet::new(), BTreeSet::new())
     };
-
-    // A `.proto` is placed by the same question a `.buri` is — which entry
-    // point reaches it — because the module it becomes belongs to a rule just
-    // as a hand-written one does.
-    for f in &schemas {
-        if existing_lib_protos.contains(f) {
-            lib_protos.push(f.clone());
-            continue;
-        }
-        if existing_bin_protos.contains(f) {
-            bin_protos.push(f.clone());
-            continue;
-        }
-        match (has_library, has_binary) {
-            (true, false) => lib_protos.push(f.clone()),
-            (false, true) => bin_protos.push(f.clone()),
-            (true, true) => match (from_main.contains(f), from_lib.contains(f)) {
-                (true, false) => bin_protos.push(f.clone()),
-                (false, true) => lib_protos.push(f.clone()),
-                (true, true) => unplaceable.push(Unplaceable::ReachableFromBoth(f.clone())),
-                (false, false) => {
-                    unplaceable.push(Unplaceable::ReachableFromNeither(f.clone()))
-                }
-            },
-            (false, false) => {}
-        }
-    }
 
     for f in &files {
         if is_entry_point(f) {
@@ -179,10 +162,7 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
         return Err(Diagnostic::templated("unplaceable-source", Span::point(file_id, 0))
             .with_bind("source", file.clone())
             .with_bind("reached", reached)
-            .with_bind(
-                "field",
-                if file.ends_with(".proto") { "proto_sources" } else { "sources" },
-            ));
+            .with_bind("field", "sources"));
     }
 
     let deps = derive_dependencies(session, package, &dir, &lib_tests, &bin_tests);
@@ -207,12 +187,11 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     // exception: only a library declares one.
     let lib_deps = deps.as_ref().and_then(|d| d.library.as_ref());
     let bin_deps = deps.as_ref().and_then(|d| d.binary.as_ref());
-    for (rule, present, sources, protos, tests, rule_deps) in [
+    for (rule, present, sources, tests, rule_deps) in [
         (
             "library",
             has_library,
             &lib_sources,
-            &lib_protos,
             &lib_tests,
             lib_deps.map(|d| (&d.production, &d.test)),
         ),
@@ -220,7 +199,6 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
             "binary",
             has_binary,
             &bin_sources,
-            &bin_protos,
             &bin_tests,
             bin_deps.map(|d| (&d.production, &d.test)),
         ),
@@ -229,14 +207,6 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
             continue;
         }
         set_list(&mut document, rule, &["sources"], sources, &mut summary, &name(rule, "sources"));
-        set_list(
-            &mut document,
-            rule,
-            &["proto_sources"],
-            protos,
-            &mut summary,
-            &name(rule, "proto_sources"),
-        );
         if let Some((production, _)) = rule_deps {
             set_list(
                 &mut document,
@@ -568,17 +538,6 @@ fn imported_labels(
 /// is the whole of what is being asked.
 fn imports_of(dir: &Path, file: &str) -> Vec<String> {
     let Ok(text) = std::fs::read_to_string(dir.join(file)) else { return Vec::new() };
-    // A schema says where its types come from in its own dialect, and those
-    // imports are module paths once `//` is in front of them.
-    if file.ends_with(".proto") {
-        let parsed = crate::build::protoschema::parse(&text, crate::diagnostics::FileId(0));
-        return parsed
-            .schema
-            .imports
-            .iter()
-            .map(|i| crate::build::protogen::import_module_path(&i.path))
-            .collect();
-    }
     let parsed = crate::parsing::parser::parse(&text, crate::diagnostics::FileId(0));
     parsed
         .module

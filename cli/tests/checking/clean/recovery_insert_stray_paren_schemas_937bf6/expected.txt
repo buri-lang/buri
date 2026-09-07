@@ -1,0 +1,9 @@
+error: expected an expression, found `,` [unexpected-token]
+  --> main.buri:33:69
+   |
+33 |     proto.generate(ctx, FILE, schema.parse(ctx, text, FILE).schema, , [
+   |                                                                     ^
+   |
+   = expected: an expression
+   = actual: `,`
+   = fix: write a value here

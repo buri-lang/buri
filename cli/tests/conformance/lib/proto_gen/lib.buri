@@ -1,0 +1,15 @@
+// The `.proto` generator conformance package: what a schema becomes.
+//
+// `cli/src/docs/reference/build/proto.md` is the promise, and it is a promise
+// about somebody else's program: the names, the presence, the enums and the
+// codecs a schema turns into. So it is asserted here on the printed module
+// rather than on a round trip, which would pass just as happily if the
+// generator and the reader of what it wrote changed together.
+//
+// The origins are asserted too. Every generated node carries the schema
+// declaration behind it, and that is what makes go-to-definition on a generated
+// field land on the `.proto` line that produced it.
+
+from "//lib/proto_gen/schemas.buri" export {
+    anchorOf, block, FILE, generated, generatedWith, HEAD, lines, printed, spanText,
+};

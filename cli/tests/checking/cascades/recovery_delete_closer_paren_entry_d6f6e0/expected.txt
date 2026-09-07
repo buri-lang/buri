@@ -1,0 +1,30 @@
+error: `eq` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:33:5
+   |
+33 |     assert.eq(out.modules.map(ctx, fn(m) => m.0, ["address.proto", "point.proto"]);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
+error: `map` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> main.buri:33:15
+   |
+33 |     assert.eq(out.modules.map(ctx, fn(m) => m.0, ["address.proto", "point.proto"]);
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:33:83
+   |
+33 |     assert.eq(out.modules.map(ctx, fn(m) => m.0, ["address.proto", "point.proto"]);
+   |                                                                                   ^
+   |
+  --> main.buri:33:14
+   |
+33 |     assert.eq(out.modules.map(ctx, fn(m) => m.0, ["address.proto", "point.proto"]);
+   |              ^ opened here
+   |
+   = fix: write `)` here

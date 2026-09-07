@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "an anchor counts UTF-8 bytes and the protocol counts UTF-16 units, so an input written in more than ASCII is where the two disagree: the line a jump lands on, the character it ends at, and the prose a hover reads are all recorded here against a file full of accents and an emoji"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

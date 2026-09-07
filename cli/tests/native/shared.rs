@@ -10,7 +10,6 @@
 #![allow(dead_code)]
 
 use buri::build::workspace::Workspace;
-use buri::diagnostics::{Diagnostics, SourceMap};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
@@ -1220,13 +1219,17 @@ pub fn conformance_repository() -> Option<&'static Workspace> {
     static REPOSITORY: OnceLock<Option<Workspace>> = OnceLock::new();
     REPOSITORY.get_or_init(|| {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/conformance");
-        let mut map = SourceMap::new();
-        let mut diagnostics = Diagnostics::new();
-        let workspace = Workspace::load(&root, &mut map, &mut diagnostics).ok()?;
-        if diagnostics.has_errors() {
+        // Through `session::open_at` rather than `Workspace::load`, because a
+        // `generators` entry names a program and loading the graph does not run
+        // it. `//lib/proto` declares one, so a workspace loaded the short way
+        // has no module behind `point.proto` and the *front end* refuses every
+        // file that imports it — which would read here as a backend that
+        // stopped compiling them.
+        let session = buri::build::session::open_at(&root, &buri::commands::arguments::Flags::default()).ok()?;
+        if session.diagnostics.has_errors() {
             return None;
         }
-        Some(workspace)
+        std::rc::Rc::try_unwrap(session.workspace).ok()
     })
     .as_ref()
 }

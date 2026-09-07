@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:27:40
+   |
+27 |     ls.join(ctx, "\n").concat(ctx, "\n"@ )
+   |                                        ^
+   |
+  --> main.buri:27:30
+   |
+27 |     ls.join(ctx, "\n").concat(ctx, "\n"@ )
+   |                              ^ opened here
+   |
+   = fix: write `)` here

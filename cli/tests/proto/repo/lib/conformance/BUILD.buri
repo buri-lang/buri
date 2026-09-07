@@ -1,5 +1,6 @@
 library {
-    proto_sources: ["conformance.proto", "test_messages_proto3.proto"]
-
+    generators: [
+        { tool: "std/codegen/proto", inputs: ["conformance.proto", "test_messages_proto3.proto"] },
+    ]
     visibility: ["//visibility:public"]
 }
