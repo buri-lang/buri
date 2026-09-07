@@ -51,7 +51,7 @@
 //! `mul` sums a column of limb products in one `Int`, and past that many terms
 //! the column would overflow.
 
-from "core/char" import * as char;
+from "core/character" import * as character;
 from "core/effect" import { Alloc };
 from "core/list" import * as list;
 from "core/num" import * as num;
@@ -745,7 +745,7 @@ fn groups<C: Alloc>(ctx: C, limbs: [Int], tail: [Str]): Str {
 
 /// One group of digits, most significant first, with no padding.
 fn plainDigits<C: Alloc>(ctx: C, n: Int, acc: [Char]): [Char] {
-    let digit = char.fromDigit(n % 10, 10).withDefault('0');
+    let digit = character.fromDigit(n % 10, 10).withDefault('0');
     let rest = n / 10;
     let next = [digit].concat(ctx, acc);
     if (rest == 0) { next } else { plainDigits(ctx, rest, next) }

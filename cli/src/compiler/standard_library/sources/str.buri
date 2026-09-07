@@ -8,7 +8,7 @@
 //! same idea get different names: `splitOnce` returns two slices and is pure;
 //! `split` returns `[Str]` and allocates.
 
-from "core/char" import * as char;
+from "core/character" import * as character;
 from "core/effect" import { Alloc };
 from "core/list" import * as list;
 from "core/order" import { Order };
@@ -412,7 +412,7 @@ impl Str {
     /// The whitespace-separated words, with the empty pieces dropped — so
     /// leading, trailing and repeated whitespace makes no empty word.
     ///
-    /// Whitespace is `char.isSpace`, which is the set JavaScript's `\s`
+    /// Whitespace is `character.isSpace`, which is the set JavaScript's `\s`
     /// matches.
     export fn words<C: Alloc>(self, ctx: C): [Str] {
         wordsFrom(ctx, self, 0, list.empty<Str>())
@@ -733,7 +733,7 @@ fn carry<C: Alloc>(ctx: C, digits: Str, at: Int): Str {
         if (value == 9) {
             carry(ctx, writeAt(ctx, digits, at, '0'), at - 1)
         } else {
-            match (char.fromDigit(value + 1, 10)) {
+            match (character.fromDigit(value + 1, 10)) {
                 .None => digits,
                 .Some(c) => writeAt(ctx, digits, at, c),
             }
