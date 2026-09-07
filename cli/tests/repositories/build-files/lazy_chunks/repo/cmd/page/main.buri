@@ -1,0 +1,26 @@
+// A page whose editor is the code nothing else on it touches, so the editor
+// ships in a file of its own.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/lazy" import * as lazy;
+from "core/str" import * as str;
+
+fn markTheChunk<C: Alloc>(ctx: C, rows: Int): Str {
+    str.format(ctx, "ONLY_IN_THE_CHUNK ${rows}")
+}
+
+fn editor<C: Alloc + Stdout>(ctx: C, rows: Int): () {
+    io.println(ctx, markTheChunk(ctx, rows)).ignore()
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, "ONLY_IN_THE_PAGE").ignore();
+    let open = lazy.load(editor);
+    let _ = open(ctx, 3);
+    .Ok(())
+}
