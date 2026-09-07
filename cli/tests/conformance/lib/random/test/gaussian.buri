@@ -83,3 +83,86 @@ fn many<C: Alloc>(ctx: C, g: Gen, count: Int, acc: [Float]): [Float] {
         many(ctx, next, count - 1, acc.push(ctx, x))
     }
 }
+
+// --- The moments, over a sample large enough to say something ------------------------
+//
+// The blocks above take four hundred draws and put loose bounds on them. These
+// take two thousand and put tight ones on four different statistics, which is
+// what actually distinguishes a standard normal from any other distribution
+// with a mean near zero.
+//
+// **None of this can flake.** The seed is fixed, so the sample is one sample and
+// the assertions are facts about it rather than about a distribution. The bands
+// are stated in units of the standard error each statistic would have if the
+// draws were normal, so they say what a *wrong* generator would have to look
+// like to still pass: every one below is at least three and a half of those.
+
+test "two thousand draws have the mean and the deviation of a standard normal" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let draws = many(ctx, random.seeded(20260907), 2000, []);
+    assert.eq(draws.len(), 2000);
+    let mean = draws.sumFloat() / 2000.0;
+    // The standard error of a mean of two thousand unit draws is 0.022, so this
+    // band is four and a half of them.
+    assert.isTrue(math.isCloseAbsolute(mean, 0.0, 0.1));
+    let spread = draws.map(ctx, fn(x) => (x - mean) * (x - mean)).sumFloat() / 2000.0;
+    // And of a deviation, 0.016 — so this is nearly four.
+    assert.isTrue(math.isCloseAbsolute(math.sqrt(spread), 1.0, 0.06));
+    // Every draw is a number: the polar method rejects rather than dividing by
+    // a radius of zero, and nothing here is allowed to come back infinite.
+    assert.eq(draws.count(fn(x) => !math.isFinite(x)), 0);
+}
+
+test "two thousand draws fall inside one and two deviations at the normal rate" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let draws = many(ctx, random.seeded(20260907), 2000, []);
+    let within = fn(limit: Float) => {
+        draws.count(fn(x) => math.absFloat(x) < limit).toF64() / 2000.0
+    };
+    // 68.27 and 95.45 per cent are the two numbers that make a distribution
+    // normal rather than merely centred. The standard errors here are 0.010 and
+    // 0.005, so both bands are about five of them.
+    assert.isTrue(math.isCloseAbsolute(within(1.0), 0.6827, 0.05));
+    assert.isTrue(math.isCloseAbsolute(within(2.0), 0.9545, 0.03));
+    assert.isTrue(math.isCloseAbsolute(within(3.0), 0.9973, 0.01));
+    // A uniform draw scaled to unit deviation would put every value inside
+    // 1.74, and a normal one does not.
+    assert.isTrue(draws.any(fn(x) => math.absFloat(x) > 2.5));
+}
+
+test "the distribution is symmetric, which a one-sided error would not be" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let draws = many(ctx, random.seeded(20260907), 2000, []);
+    let above = draws.count(fn(x) => x > 0.0);
+    // A coin toss two thousand times: the standard error is 22 draws, so this
+    // band of 120 is five and a half of them.
+    assert.isTrue(above > 880);
+    assert.isTrue(above < 1120);
+    // The third moment of a symmetric distribution is zero. Its standard error
+    // over two thousand normal draws is about 0.055, so this is four of them.
+    let skew = draws.map(ctx, fn(x) => x * x * x).sumFloat() / 2000.0;
+    assert.isTrue(math.isCloseAbsolute(skew, 0.0, 0.22));
+}
+
+test "four other seeds each land on the same moments" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // One sample could be a coincidence; the point of a seeded generator is
+    // that every seed is a stream, so four of them are checked at once.
+    let offMean = [1, 2, 3, 4].filterCtx(ctx, fn(c, seed) => {
+        let draws = many(c, random.seeded(seed), 500, []);
+        let mean = draws.sumFloat() / 500.0;
+        let spread = draws.map(c, fn(x) => (x - mean) * (x - mean)).sumFloat() / 500.0;
+        // Four and a half standard errors on each, at this smaller sample.
+        !math.isCloseAbsolute(mean, 0.0, 0.2)
+            || !math.isCloseAbsolute(math.sqrt(spread), 1.0, 0.14)
+    });
+    assert.isEmpty(offMean);
+}

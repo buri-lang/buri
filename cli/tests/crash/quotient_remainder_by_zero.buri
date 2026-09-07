@@ -1,0 +1,18 @@
+// CRASH: division by zero
+//
+// `num.quotientRemainder` is `/` and `%` in one call, so it aborts where either
+// of them would. Both halves of the pair are gone, not only the quotient
+// (`num.buri`, SPEC 6.2).
+from "core/effect" import { Alloc, Stdout, Env };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/num" import * as num;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Env: host.env };
+  let zero = env.args(ctx).len();
+  let (q, r) = num.quotientRemainder(7, zero);
+  let _ = io.println(ctx, "${q} ${r}").ignore();
+  .Ok(())
+}

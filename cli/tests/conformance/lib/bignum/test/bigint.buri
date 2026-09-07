@@ -437,3 +437,243 @@ fn split<C: Alloc>(ctx: C, a: Int, b: Int): (Str, Str) {
 fn residue<C: Alloc>(ctx: C, base: Int, exponent: Int, modulus: Int): Str {
     bigint.of(base).modularPower(ctx, bigint.of(exponent), bigint.of(modulus)).text(ctx)
 }
+
+// --- The limb boundary --------------------------------------------------------------
+//
+// A limb holds twenty-four bits, so `2^24` is where a magnitude grows a second
+// limb and `2^48` a third. Every carry, borrow and column in this module is
+// written around that boundary, and a number that sits exactly on one is what
+// an off-by-one in any of them shows up at.
+
+test "of and text cross the limb boundary in both directions" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // 2^24 - 1 is the largest one-limb magnitude; 2^24 is the smallest two-limb
+    // one; 2^48 is the smallest three-limb one.
+    assert.eq(bigint.of(16777215).text(ctx), "16777215");
+    assert.eq(bigint.of(16777216).text(ctx), "16777216");
+    assert.eq(bigint.of(16777217).text(ctx), "16777217");
+    assert.eq(bigint.of(281474976710655).text(ctx), "281474976710655");
+    assert.eq(bigint.of(281474976710656).text(ctx), "281474976710656");
+    assert.eq(bigint.of(281474976710657).text(ctx), "281474976710657");
+    // And with a sign on, where `of` counts from below zero.
+    assert.eq(bigint.of(-16777216).text(ctx), "-16777216");
+    assert.eq(bigint.of(-281474976710656).text(ctx), "-281474976710656");
+}
+
+test "add and sub carry and borrow exactly at the limb boundary" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let limb = bigint.of(16777216);
+    let one = bigint.of(1);
+    // The carry into a second limb, and the borrow back out of it.
+    assert.eq(bigint.of(16777215).add(ctx, one), limb);
+    assert.eq(limb.sub(ctx, one), bigint.of(16777215));
+    // The same at the third limb.
+    let two = bigint.of(281474976710656);
+    assert.eq(bigint.of(281474976710655).add(ctx, one), two);
+    assert.eq(two.sub(ctx, one), bigint.of(281474976710655));
+    // A carry that runs the whole way up: every limb is full below it.
+    let full = assert.some(bigint.parse(ctx, "4722366482869645213695"));
+    let rounded = assert.some(bigint.parse(ctx, "4722366482869645213696"));
+    assert.eq(full.add(ctx, one), rounded);
+    assert.eq(rounded.sub(ctx, one), full);
+}
+
+test "mul lands exactly on a limb boundary and on the one above it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let limb = bigint.of(16777216);
+    // 2^24 * 2^24 is 2^48: a column whose carry is the whole of the answer.
+    assert.eq(limb.mul(ctx, limb).text(ctx), "281474976710656");
+    // 2^48 * 2^24 is 2^72, past what an `Int` holds at all.
+    assert.eq(limb.mul(ctx, limb).mul(ctx, limb).text(ctx), "4722366482869645213696");
+    // One below the boundary squared, where no carry leaves the column.
+    assert.eq(
+        bigint.of(16777215).mul(ctx, bigint.of(16777215)).text(ctx),
+        "281474943156225",
+    );
+}
+
+test "quotientRemainder divides exactly at the limb boundary" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let limb = bigint.of(16777216);
+    let (q, r) = assert.some(bigint.of(281474976710656).quotientRemainder(ctx, limb));
+    assert.eq(q, limb);
+    assert.isTrue(r.isZero());
+    // One either side of the boundary, where the quotient loses a limb.
+    let (q2, r2) = assert.some(bigint.of(281474976710655).quotientRemainder(ctx, limb));
+    assert.eq(q2.text(ctx), "16777215");
+    assert.eq(r2.text(ctx), "16777215");
+    let (q3, r3) = assert.some(bigint.of(16777216).quotientRemainder(ctx, limb));
+    assert.eq(q3, bigint.of(1));
+    assert.isTrue(r3.isZero());
+}
+
+// --- Zero, one and minus one --------------------------------------------------------
+
+test "zero is absorbing and neutral in the right places" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let zero = bigint.zero();
+    let seven = bigint.of(7);
+    assert.eq(zero.add(ctx, zero), zero);
+    assert.eq(zero.sub(ctx, zero), zero);
+    assert.eq(zero.add(ctx, seven), seven);
+    assert.eq(seven.sub(ctx, seven), zero);
+    assert.eq(zero.mul(ctx, seven), zero);
+    assert.eq(seven.mul(ctx, zero), zero);
+    assert.eq(zero.power(ctx, 5), zero);
+    // The empty product is one at every base, zero included.
+    assert.eq(zero.power(ctx, 0), bigint.of(1));
+    // There is one zero and it is positive: negating it changes nothing, and a
+    // subtraction that lands on it does not leave a signed one behind.
+    assert.eq(zero.negate(), zero);
+    assert.eq(bigint.of(-7).add(ctx, seven), zero);
+    assert.eq(bigint.of(-7).add(ctx, seven).text(ctx), "0");
+    assert.eq(bigint.of(-7).add(ctx, seven).negate().text(ctx), "0");
+    // Divided into, it is zero; divided by, there is no answer.
+    assert.eq(assert.some(zero.quotientRemainder(ctx, seven)), (zero, zero));
+    assert.eq(seven.quotientRemainder(ctx, zero), .None);
+    assert.eq(zero.quotientRemainder(ctx, zero), .None);
+}
+
+test "one and minus one at every operation" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = bigint.of(1);
+    let minusOne = bigint.of(-1);
+    let big = assert.some(bigint.parse(ctx, "123456789012345678901234567890"));
+    assert.eq(big.mul(ctx, one), big);
+    assert.eq(big.mul(ctx, minusOne), big.negate());
+    assert.eq(assert.some(big.quotientRemainder(ctx, one)), (big, bigint.zero()));
+    assert.eq(
+        assert.some(big.quotientRemainder(ctx, minusOne)),
+        (big.negate(), bigint.zero()),
+    );
+    assert.eq(one.power(ctx, 1000), one);
+    assert.eq(minusOne.power(ctx, 1000), one);
+    assert.eq(minusOne.power(ctx, 1001), minusOne);
+    // A negative exponent is the whole part of a fraction, which is zero
+    // everywhere but at these two bases.
+    assert.eq(one.power(ctx, -5), one);
+    assert.eq(minusOne.power(ctx, -5), minusOne);
+    assert.eq(minusOne.power(ctx, -4), one);
+    assert.eq(bigint.of(2).power(ctx, -1), bigint.zero());
+}
+
+test "the four sign pairs of add, sub and mul" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let a = bigint.of(12);
+    let b = bigint.of(5);
+    assert.eq(a.add(ctx, b), bigint.of(17));
+    assert.eq(a.negate().add(ctx, b), bigint.of(-7));
+    assert.eq(a.add(ctx, b.negate()), bigint.of(7));
+    assert.eq(a.negate().add(ctx, b.negate()), bigint.of(-17));
+    assert.eq(a.sub(ctx, b), bigint.of(7));
+    assert.eq(a.negate().sub(ctx, b), bigint.of(-17));
+    assert.eq(a.sub(ctx, b.negate()), bigint.of(17));
+    assert.eq(a.negate().sub(ctx, b.negate()), bigint.of(-7));
+    assert.eq(a.mul(ctx, b), bigint.of(60));
+    assert.eq(a.negate().mul(ctx, b), bigint.of(-60));
+    assert.eq(a.mul(ctx, b.negate()), bigint.of(-60));
+    assert.eq(a.negate().mul(ctx, b.negate()), bigint.of(60));
+    // The smaller magnitude on the left, where `add` has to swap the operands
+    // before it can subtract.
+    assert.eq(b.negate().add(ctx, a), bigint.of(7));
+    assert.eq(b.add(ctx, a.negate()), bigint.of(-7));
+}
+
+// --- parse, at the shapes that are not numbers -----------------------------------------
+
+test "parse reads leading zeros and a signed zero" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Leading zeros are digits like any other and are folded away by the
+    // arithmetic, so the value is the number and `text` writes it without them.
+    assert.eq(bigint.parse(ctx, "007"), .Some(bigint.of(7)));
+    assert.eq(bigint.parse(ctx, "-007"), .Some(bigint.of(-7)));
+    assert.eq(bigint.parse(ctx, "0000"), .Some(bigint.zero()));
+    assert.eq(bigint.parse(ctx, "-0000"), .Some(bigint.zero()));
+    assert.eq(assert.some(bigint.parse(ctx, "007")).text(ctx), "7");
+    assert.eq(assert.some(bigint.parse(ctx, "00000000000000000001")).text(ctx), "1");
+    // `-0` is zero, and zero has one shape however it was reached.
+    assert.eq(assert.some(bigint.parse(ctx, "-0")), bigint.zero());
+    assert.eq(assert.some(bigint.parse(ctx, "-0")).text(ctx), "0");
+    assert.eq(assert.some(bigint.parse(ctx, "-0")).compare(bigint.zero()), Order.Equal);
+}
+
+test "parse refuses a sign alone and anything that is not a digit" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(bigint.parse(ctx, "-"), .None);
+    assert.eq(bigint.parse(ctx, "--1"), .None);
+    assert.eq(bigint.parse(ctx, "1-"), .None);
+    assert.eq(bigint.parse(ctx, "-1-"), .None);
+    assert.eq(bigint.parse(ctx, "a"), .None);
+    assert.eq(bigint.parse(ctx, "1a"), .None);
+    assert.eq(bigint.parse(ctx, "a1"), .None);
+    assert.eq(bigint.parse(ctx, "١٢٣"), .None);
+    assert.eq(bigint.parse(ctx, "1\n"), .None);
+    assert.eq(bigint.parse(ctx, "9223372036854775808x"), .None);
+}
+
+test "parse and text round-trip across the limb boundary" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let written = [
+        "0",
+        "1",
+        "-1",
+        "16777215",
+        "16777216",
+        "16777217",
+        "281474976710655",
+        "281474976710656",
+        "-281474976710656",
+        "4722366482869645213696",
+        "9223372036854775807",
+        "-9223372036854775808",
+        "9223372036854775808",
+    ];
+    let broken = written.filterCtx(ctx, fn(c, t) => {
+        match (bigint.parse(c, t)) {
+            .None => true,
+            .Some(v) => v.text(c) != t,
+        }
+    });
+    assert.isEmpty(broken);
+}
+
+test "toInt is exact at the Int limits and one past each of them" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let top = assert.some(bigint.parse(ctx, "9223372036854775807"));
+    let bottom = assert.some(bigint.parse(ctx, "-9223372036854775808"));
+    assert.eq(top.toInt(), .Ok(num.maxValue<I64>()));
+    assert.eq(bottom.toInt(), .Ok(num.minValue<I64>()));
+    // One past either end has no `Int`, and the error names the target.
+    let over = assert.some(bigint.parse(ctx, "9223372036854775808"));
+    let under = assert.some(bigint.parse(ctx, "-9223372036854775809"));
+    assert.isTrue(over.toInt().isErr());
+    assert.isTrue(under.toInt().isErr());
+    assert.eq(assert.err(over.toInt()).target, "Int");
+    // The limb boundary is nowhere near either end, so it converts.
+    assert.eq(bigint.of(16777216).toInt(), .Ok(16777216));
+    assert.eq(bigint.of(-281474976710656).toInt(), .Ok(-281474976710656));
+    // And a number many limbs long does not.
+    assert.isTrue(bigint.of(2).power(ctx, 200).toInt().isErr());
+}

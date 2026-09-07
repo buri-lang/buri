@@ -242,9 +242,10 @@ export fn roundEven(x: Float): Float {
 /// A negative `decimals` rounds above the point, so `roundTo(1234.0, -2)` is
 /// `1200.0`.
 ///
-/// **It rounds the double, not the decimal you typed.** `2.675` is really
-/// `2.67499999999999982...`, so `roundTo(2.675, 2)` is `2.67`. Money that must
-/// round the way it reads wants `core/decimal`, whose value *is* the digits.
+/// **It rounds the double, not the decimal you typed**, and the scaling is a
+/// multiplication that rounds too. `1.005` is really `1.00499999999999989...`,
+/// so `roundTo(1.005, 2)` is `1.0` rather than `1.01`. Money that must round the
+/// way it reads wants `core/decimal`, whose value *is* the digits.
 ///
 /// `x` non-finite, or a `decimals` so large that scaling would overflow,
 /// answers `x` unchanged — there is nothing left to round away.
@@ -366,14 +367,24 @@ export fn expMinusOne(x: Float): Float {
 ///
 /// `lnOnePlus(1.0e-16)` is `1.0e-16`, where `ln(1.0 + 1.0e-16)` is `0.0`.
 ///
+/// `NaN` below `-1.0`, where `1 + x` is negative, and negative infinity at
+/// `-1.0` exactly.
+///
 /// Kahan's identity again, the other way round: `ln(u) * x / (u - 1)` where `u`
-/// is `1 + x`.
+/// is `1 + x`. Where `x` is large enough that `1 + x` is `x`, the correction is
+/// worth nothing and the identity would overflow, so `ln(x)` is answered
+/// directly.
 export fn lnOnePlus(x: Float): Float {
     let u = 1.0 + x;
     if (isInfinite(u)) {
-        // Adding one changed nothing, and the identity below would ask
-        // `inf / inf`.
-        u
+        // Above the range the answer is infinity; below it `1 + x` is negative
+        // and a logarithm of a negative number is `NaN`.
+        if (u > 0.0) { u } else { NAN }
+    } else if (u == x) {
+        // Adding one changed nothing, so the answer is `ln(x)` itself and the
+        // correction below would only overflow on the way to it: `ln(u) * x`
+        // leaves the range once `x` is past about `2^1018`.
+        ln(u)
     } else if (u == 1.0) {
         x
     } else {

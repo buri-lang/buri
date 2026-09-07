@@ -578,3 +578,147 @@ test "each inverse undoes its own hyperbolic" {
     near(math.atanh(math.tanh(0.6)), 0.6);
     near(math.tanh(math.atanh(0.6)), 0.6);
 }
+
+// --- The same family at the values that are not ordinary numbers -------------------
+//
+// Zero and negative zero, the two infinities, `NaN`, a subnormal, and the
+// largest finite value. Every answer below is one the algorithm returns without
+// reaching `exp` or `ln` — a short-circuit, a sign, or a limit — so each is
+// exact rather than within a tolerance, and none of them depends on which
+// platform computed a transcendental.
+
+/// The largest finite `Float`; the next one up is infinity.
+fn largest(): Float {
+    1.7976931348623157e308
+}
+
+/// The smallest positive `Float`: a subnormal with one bit of mantissa.
+fn smallest(): Float {
+    5.0e-324
+}
+
+test "the odd functions keep the sign of a negative zero" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // `sinh`, `tanh`, `asinh` and `atanh` are odd, so each answers `-0.0` at
+    // `-0.0` — and `-0.0` is the value a sign that was thrown away shows up at.
+    assert.eq(str.fromFloat(ctx, math.sinh(-0.0)), "-0.0");
+    assert.eq(str.fromFloat(ctx, math.tanh(-0.0)), "-0.0");
+    assert.eq(str.fromFloat(ctx, math.asinh(-0.0)), "-0.0");
+    assert.eq(str.fromFloat(ctx, math.atanh(-0.0)), "-0.0");
+    assert.eq(str.fromFloat(ctx, math.expMinusOne(-0.0)), "-0.0");
+    assert.eq(str.fromFloat(ctx, math.lnOnePlus(-0.0)), "-0.0");
+    // At `0.0` each answers a positive zero.
+    assert.eq(str.fromFloat(ctx, math.sinh(0.0)), "0.0");
+    assert.eq(str.fromFloat(ctx, math.tanh(0.0)), "0.0");
+    assert.eq(str.fromFloat(ctx, math.asinh(0.0)), "0.0");
+    assert.eq(str.fromFloat(ctx, math.atanh(0.0)), "0.0");
+    // `cosh` is even and `acosh` is defined only above one, so neither has a
+    // sign to keep: both answer a positive value at either zero.
+    assert.eq(math.cosh(-0.0), 1.0);
+    assert.eq(math.cosh(0.0), 1.0);
+    assert.isTrue(math.isNan(math.acosh(-0.0)));
+    assert.isTrue(math.isNan(math.acosh(0.0)));
+}
+
+test "the family at the two infinities" {
+    // `sinh` is odd and `cosh` is even, so an infinite argument gives an
+    // infinity of the matching sign and a positive one respectively.
+    assert.eq(math.sinh(inf()), inf());
+    assert.eq(math.sinh(negInf()), negInf());
+    assert.eq(math.cosh(inf()), inf());
+    assert.eq(math.cosh(negInf()), inf());
+    // `tanh` saturates, and it does so long before infinity.
+    assert.eq(math.tanh(inf()), 1.0);
+    assert.eq(math.tanh(negInf()), -1.0);
+    assert.eq(math.asinh(inf()), inf());
+    assert.eq(math.asinh(negInf()), negInf());
+    assert.eq(math.acosh(inf()), inf());
+    assert.isTrue(math.isNan(math.acosh(negInf())));
+    // `atanh` is defined only inside minus one to one.
+    assert.isTrue(math.isNan(math.atanh(inf())));
+    assert.isTrue(math.isNan(math.atanh(negInf())));
+    // `exp(x) - 1` is infinity above and minus one below, which is the limit.
+    assert.eq(math.expMinusOne(inf()), inf());
+    assert.eq(math.expMinusOne(negInf()), -1.0);
+    assert.eq(math.lnOnePlus(inf()), inf());
+    // `1 + x` is negative down there, and a logarithm of a negative number has
+    // no answer.
+    assert.isTrue(math.isNan(math.lnOnePlus(negInf())));
+    // And `ln(1 + x)` at `x == -1` is the logarithm of zero.
+    assert.eq(math.lnOnePlus(-1.0), negInf());
+    assert.isTrue(math.isNan(math.lnOnePlus(-2.0)));
+}
+
+test "the family passes a NaN through" {
+    assert.isTrue(math.isNan(math.sinh(nan())));
+    assert.isTrue(math.isNan(math.cosh(nan())));
+    assert.isTrue(math.isNan(math.tanh(nan())));
+    assert.isTrue(math.isNan(math.asinh(nan())));
+    assert.isTrue(math.isNan(math.acosh(nan())));
+    assert.isTrue(math.isNan(math.atanh(nan())));
+    assert.isTrue(math.isNan(math.expMinusOne(nan())));
+    assert.isTrue(math.isNan(math.lnOnePlus(nan())));
+    assert.isTrue(math.isNan(math.logBase(nan(), 2.0)));
+    assert.isTrue(math.isNan(math.logBase(8.0, nan())));
+}
+
+test "the family at a subnormal is the argument itself" {
+    // Every one of these is `x + O(x^3)` at the origin, and down here the
+    // correction is far below the last bit — so each answers `x` exactly, which
+    // is the whole reason `expMinusOne` and `lnOnePlus` exist.
+    assert.eq(math.sinh(smallest()), smallest());
+    assert.eq(math.tanh(smallest()), smallest());
+    assert.eq(math.asinh(smallest()), smallest());
+    assert.eq(math.atanh(smallest()), smallest());
+    assert.eq(math.expMinusOne(smallest()), smallest());
+    assert.eq(math.lnOnePlus(smallest()), smallest());
+    assert.eq(math.sinh(math.MIN_POSITIVE), math.MIN_POSITIVE);
+    assert.eq(math.expMinusOne(math.MIN_POSITIVE), math.MIN_POSITIVE);
+    // `cosh` is one plus a correction, and there is no room for one here.
+    assert.eq(math.cosh(smallest()), 1.0);
+}
+
+test "the family at the largest finite value" {
+    // `sinh` and `cosh` overflow past about 710, so the largest value is far
+    // beyond either.
+    assert.eq(math.sinh(largest()), inf());
+    assert.eq(math.sinh(0.0 - largest()), negInf());
+    assert.eq(math.cosh(largest()), inf());
+    assert.eq(math.cosh(0.0 - largest()), inf());
+    // `tanh` and the three inverses do not: each is answered without ever
+    // squaring the argument, which is why they are written the way they are.
+    assert.eq(math.tanh(largest()), 1.0);
+    assert.eq(math.tanh(0.0 - largest()), -1.0);
+    assert.isTrue(math.isFinite(math.asinh(largest())));
+    assert.isTrue(math.isFinite(math.acosh(largest())));
+    assert.isTrue(math.isNan(math.atanh(largest())));
+    assert.eq(math.expMinusOne(largest()), inf());
+    // `1 + x` is `x` up here, so `lnOnePlus` is `ln` — and the correction it
+    // would otherwise apply is what leaves the range, not the answer.
+    assert.isTrue(math.isFinite(math.lnOnePlus(largest())));
+    near(math.lnOnePlus(largest()), 709.782712893384);
+    near(math.lnOnePlus(1.0e300), 690.7755278982137);
+    assert.isTrue(math.isNan(math.lnOnePlus(0.0 - largest())));
+    // The squares themselves are not finite, which is what those spellings are
+    // for.
+    assert.isTrue(math.isInfinite(largest() * largest()));
+    near(math.asinh(largest()), 710.4758600739439);
+    near(math.acosh(largest()), 710.4758600739439);
+}
+
+test "logBase at the bases that have no logarithm" {
+    // `ln(x) / ln(base)`, so each of these is a division whose answer IEEE 754
+    // fixes even where the logarithms themselves are not exact.
+    assert.eq(math.logBase(1.0, 10.0), 0.0);
+    assert.eq(math.logBase(8.0, 1.0), inf());
+    assert.isTrue(math.isNan(math.logBase(1.0, 1.0)));
+    assert.eq(math.logBase(0.0, 10.0), negInf());
+    assert.isTrue(math.isNan(math.logBase(-1.0, 10.0)));
+    assert.isTrue(math.isNan(math.logBase(8.0, -2.0)));
+    assert.eq(math.logBase(inf(), 10.0), inf());
+    assert.eq(math.logBase(8.0, inf()), 0.0);
+    near(math.logBase(8.0, 2.0), 3.0);
+    near(math.logBase(1000.0, 10.0), 3.0);
+}

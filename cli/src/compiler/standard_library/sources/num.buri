@@ -312,8 +312,10 @@ fn squaring(base: Int, exponent: Int, acc: Int): Option<Int> {
 /// `greatestCommonDivisor(0, 0)` is `0`. Sign is ignored, so `(-12, 18)` and
 /// `(12, 18)` both answer `6`.
 ///
-/// **Two pairs answer a negative number**, and only these two: `(minValue, 0)`
-/// and `(0, minValue)`, whose common divisor is `2^63` and so is not an `Int`.
+/// **Three pairs answer a negative number**, and only these three:
+/// `(minValue, 0)`, `(0, minValue)` and `(minValue, minValue)`. Each one's
+/// common divisor is `2^63`, which is not an `Int`, so what comes back is
+/// `minValue` — the bit pattern of that magnitude read as a signed number.
 export fn greatestCommonDivisor(a: Int, b: Int): Int {
     magnitude(euclid(a, b))
 }

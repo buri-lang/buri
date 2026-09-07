@@ -1,7 +1,0 @@
-error: a tuple-pattern element ends with `,` [missing-separator]
-  --> main.buri:23:11
-   |
-23 |     let (a _) = random.seeded(7).nextGaussian();
-   |           ^
-   |
-   = fix: write `,` here

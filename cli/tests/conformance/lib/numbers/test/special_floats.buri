@@ -342,3 +342,134 @@ test "isCloseRelative holds at a scale where a fixed tolerance says nothing" {
     assert.isFalse(math.isCloseAbsolute(big, big + 1000.0, 1.0e-9));
     assert.isTrue(math.isCloseRelative(big, big + 1000.0, 1.0e-9));
 }
+
+// --- The exact half of core/math at the ends of binary64 -------------------------
+//
+// Zero, negative zero, the two infinities and `NaN` are asserted above, one
+// function at a time. These four blocks are the other two ends of the format:
+// the **subnormals**, below `MIN_POSITIVE`, where a double trades mantissa bits
+// for range; and the **largest finite value**, above which there is only
+// infinity.
+//
+// Every function reached here is written out of `+ - * /`, `sqrt` and the
+// comparisons, all of which IEEE 754 fixes exactly — so these are the same bits
+// on every backend, which is why they are in this file and not in `floats.buri`.
+
+/// The largest finite `Float`. One bit more anywhere in it and it is infinity.
+fn largest(): Float {
+    1.7976931348623157e308
+}
+
+/// The smallest positive `Float` there is: one bit of mantissa, and nothing
+/// below it but zero.
+fn smallest(): Float {
+    5.0e-324
+}
+
+test "the two ends of the format are the values they are named for" {
+    assert.isTrue(math.isFinite(largest()));
+    assert.isTrue(math.isInfinite(largest() * 2.0));
+    assert.isTrue(math.isInfinite(largest() + largest()));
+    // Below `MIN_POSITIVE` and still not zero: that is what a subnormal is.
+    assert.isTrue(smallest() > 0.0);
+    assert.isTrue(smallest() < math.MIN_POSITIVE);
+    assert.isTrue(math.MIN_POSITIVE / 2.0 > 0.0);
+    assert.isTrue(math.MIN_POSITIVE / 2.0 < math.MIN_POSITIVE);
+    // And nothing between it and zero, so halving it lands on zero.
+    assert.eq(smallest() / 2.0, 0.0);
+}
+
+test "roundEven and roundTo at the subnormals and at the largest value" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // A subnormal is far below a half, so it rounds to a zero of its own sign.
+    assert.eq(math.roundEven(smallest()), 0.0);
+    assert.eq(str.fromFloat(ctx, math.roundEven(0.0 - smallest())), "-0.0");
+    assert.eq(math.roundEven(math.MIN_POSITIVE / 2.0), 0.0);
+    assert.eq(math.roundTo(smallest(), 2), 0.0);
+    assert.eq(math.roundTo(math.MIN_POSITIVE, 300), 0.0);
+    // Above 2^52 every double is whole already, and the largest one is far
+    // above it — so both leave it exactly alone.
+    assert.eq(math.roundEven(largest()), largest());
+    assert.eq(math.roundTo(largest(), 0), largest());
+    assert.eq(math.roundTo(largest(), 2), largest());
+    // A negative zero survives the scaling.
+    assert.eq(str.fromFloat(ctx, math.roundTo(-0.0, 2)), "-0.0");
+    assert.eq(math.roundTo(math.NEG_INFINITY, 2), math.NEG_INFINITY);
+}
+
+test "roundTo sends its own ties to the even digit" {
+    // The tie is taken after the scaling, so these are `roundEven`'s rule one
+    // decimal place down.
+    assert.eq(math.roundTo(0.125, 2), 0.12);
+    assert.eq(math.roundTo(0.375, 2), 0.38);
+    assert.eq(math.roundTo(0.625, 2), 0.62);
+    assert.eq(math.roundTo(0.875, 2), 0.88);
+    assert.eq(math.roundTo(2.5, 0), 2.0);
+    assert.eq(math.roundTo(3.5, 0), 4.0);
+    assert.eq(math.roundTo(-2.5, 0), -2.0);
+    assert.eq(math.roundTo(-3.5, 0), -4.0);
+    // A column of ties does not drift, which is the whole reason for the rule.
+    let column = math.roundTo(0.125, 2)
+        + math.roundTo(0.375, 2)
+        + math.roundTo(0.625, 2)
+        + math.roundTo(0.875, 2);
+    assert.eq(column, 2.0);
+}
+
+test "roundTo rounds the double and not the decimal that was typed" {
+    // `1.005` is really `1.00499999999999989...`, so scaling it by a hundred
+    // gives something below a half and the answer is `1.0` rather than `1.01`.
+    assert.eq(math.roundTo(1.005, 2), 1.0);
+    assert.eq(math.roundTo(0.145, 2), 0.14);
+    // And the other way: `2.675` is below its own numeral too, but the scaling
+    // rounds *up* to exactly `267.5`, so the tie rule lifts it to `2.68`.
+    assert.eq(math.roundTo(2.675, 2), 2.68);
+    // `core/decimal` is where the digits themselves are the value.
+}
+
+test "the exact functions at the largest value and at a subnormal" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // `copySign` is sign bit work, so it reaches both ends unchanged.
+    assert.eq(math.copySign(largest(), -1.0), 0.0 - largest());
+    assert.eq(math.copySign(0.0 - largest(), 1.0), largest());
+    assert.isTrue(math.copySign(smallest(), -1.0) < 0.0);
+    assert.eq(math.copySign(smallest(), 1.0), smallest());
+    // `hypotenuse` scales by the larger side, which is what stops the largest
+    // value squaring itself on the way.
+    assert.eq(math.hypotenuse(largest(), 0.0), largest());
+    assert.eq(math.hypotenuse(0.0, largest()), largest());
+    assert.isTrue(math.isInfinite(math.hypotenuse(largest(), largest())));
+    assert.eq(math.hypotenuse(math.MIN_POSITIVE, 0.0), math.MIN_POSITIVE);
+    assert.isTrue(math.hypotenuse(smallest(), smallest()) > 0.0);
+    // The degree conversions are a multiply and a divide, so they overflow at
+    // the top and flush to a subnormal at the bottom.
+    assert.isTrue(math.isInfinite(math.toRadians(largest())));
+    assert.isTrue(math.toDegrees(smallest()) > 0.0);
+    assert.eq(str.fromFloat(ctx, math.toRadians(-0.0)), "-0.0");
+    assert.eq(str.fromFloat(ctx, math.toDegrees(-0.0)), "-0.0");
+}
+
+test "the two closeness tests at the ends of the format" {
+    // A value is close to itself whatever the tolerance, at either end.
+    assert.isTrue(math.isCloseAbsolute(largest(), largest(), 0.0));
+    assert.isTrue(math.isCloseRelative(largest(), largest(), 0.0));
+    assert.isTrue(math.isCloseAbsolute(smallest(), smallest(), 0.0));
+    // Two subnormals a bit apart are close relatively and absolutely, because
+    // everything down here is inside any ordinary tolerance.
+    assert.isTrue(math.isCloseAbsolute(smallest(), 0.0, math.MIN_POSITIVE));
+    assert.isFalse(math.isCloseRelative(smallest(), 0.0, 0.5));
+    // The largest value against zero is not close on either measure — an
+    // absolute tolerance cannot reach it and a relative one is a fraction of
+    // the larger, which is the one that is huge.
+    assert.isFalse(math.isCloseAbsolute(largest(), 0.0, 1.0e300));
+    assert.isFalse(math.isCloseRelative(largest(), 0.0, 0.5));
+    // The gap between the largest value and the next one down is about one
+    // `EPSILON` of it, so the two agree to a bit and no more.
+    let below = largest() - largest() * math.EPSILON;
+    assert.isTrue(math.isCloseRelative(largest(), below, 2.0 * math.EPSILON));
+    assert.isFalse(math.isCloseAbsolute(largest(), below, 1.0e290));
+}
