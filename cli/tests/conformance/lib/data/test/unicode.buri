@@ -1507,6 +1507,12 @@ test "grapheme break vectors, 1080 to 1093" {
 // Every 20th row of `NormalizationTest.txt`, which is 999 of its 19965. The whole
 // file passes; the stride is what the suite's clock affords, and it is a stride
 // rather than a selection so nothing flattering was picked.
+//
+// Nine hundred and ninety-nine rows cost about two and a half seconds of the
+// conformance run. All 19965 would be twenty times that on each of the two
+// backends the corpus goes through, which is most of the suite's five-minute
+// bar for one file -- so the stride stays, and the break vectors above, which
+// are cheaper per case, are complete instead.
 
 /// One row: the source, then the four forms it takes.
 fn forms<C: Alloc>(ctx: C, source: Str, nfc: Str, nfd: Str, nfkc: Str, nfkd: Str): () {
