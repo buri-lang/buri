@@ -841,15 +841,15 @@ impl<K: Ord, V> OrdMap<K, V> {
     ///         Stdout: host.stdout,
     ///     };
     ///     let due = ordmap.of(ctx, [(30, "c"), (10, "a"), (20, "b")]);
-    ///     let next = match (due.popFirst(ctx)) {
-    ///         .None => "nothing",
+    ///     let (what, left) = match (due.popFirst(ctx)) {
+    ///         .None => ("nothing", 0),
     ///         .Some(taken) => {
     ///             let (entry, rest) = taken;
-    ///             let (_at, what) = entry;
-    ///             "${what}, ${rest.len()} left"
+    ///             let (_at, name) = entry;
+    ///             (name, rest.len())
     ///         },
     ///     };
-    ///     let _ = io.println(ctx, next).ignore();
+    ///     let _ = io.println(ctx, "${what}, ${left} left").ignore();
     ///     .Ok(())
     /// }
     /// ```

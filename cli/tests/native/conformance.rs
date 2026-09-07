@@ -450,6 +450,15 @@ const PACKAGES: &[Case] = &[
     // exercises them reaches nothing the four above do not, and is in the
     // native set from the day it was written.
     included("collections/ordmap.buri"),
+    // `core/heap` is the same kind of thing one more time: a recursive enum the
+    // backend boxes, `push` onto a `[Tree<T>]`, and a fold over the pairs. It
+    // reaches nothing `collections/ordmap.buri` does not, so it is in from the
+    // day it was written.
+    included("collections/heap.buri"),
+    // `core/set` and `core/ordset`'s own file. Both are wrappers over the two
+    // maps above, and `distinct` is a fold whose accumulator is a tuple — a
+    // shape the backend already stages for `insertInto`'s `(Grown, Bool)`.
+    included("collections/sets.buri"),
     included("data/lists.buri"),
     // The same combinators with a step that **waits**, which is a native case
     // in the way `actor/counter.buri` is: on JavaScript the file is about the
