@@ -12,18 +12,26 @@
 //! So that is what is here, in the shape `heap.rs` uses for the same reason: a
 //! scratch repository, the host's platform named rather than defaulted, and two
 //! arms on the release row so the test means something on a toolchain without
-//! LLVM instead of quietly passing.
+//! LLVM instead of quietly passing. The schema is the conformance corpus's own,
+//! which is one message of every field kind editions has, so what the linker
+//! gets is the whole of what the `.proto` generator can write.
 //!
 //! The third row is about the tool rather than the module. The generator this
 //! toolchain ships is a Buri program compiled to an `.mjs` the first time a
 //! build needs one; the claim is that a repository pays for that **once**, not
 //! once per target, per platform, or per build.
 //!
+//! The last three are here rather than in `repositories/generators/` because
+//! none of their fixtures is something a corpus could hold: a schema that is
+//! not UTF-8; a megabyte through every one of the tool's three pipes, past any
+//! platform's buffer; and the printer's own text compared byte for byte with
+//! the file beside it.
+//!
 //! ```text
 //! cargo test -p buri --test build generators::
 //! ```
 
-use crate::harness::{ci, Run, Scratch};
+use crate::harness::{ci, tests_dir, Run, Scratch};
 
 /// The platform a binary here declares.
 ///
@@ -38,44 +46,63 @@ fn host_platform() -> &'static str {
     }
 }
 
-const SCHEMA: &str = "edition = \"2026\";\n\npackage wire.v1;\n\nmessage Point {\n  int32 x = 1;\n  int32 y = 2;\n}\n";
+const LIBRARY: &str = "library {\n    generators: [\n        { tool: \"std/codegen/proto\", inputs: [\"address.proto\", \"demo.proto\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n";
 
-const LIBRARY: &str = "library {\n    generators: [\n        { tool: \"std/codegen/proto\", inputs: [\"point.proto\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n";
-
-const SURFACE: &str =
-    "from \"//lib/wire/point.proto\" export { defaultPoint, encodePoint, Point };\n";
+const SURFACE: &str = "from \"//lib/proto/demo.proto\" export {\n    decodeEverything, defaultEverything, encodeEverything, Everything, Shade,\n};\n";
 
 /// A program whose whole answer comes out of the generated module: the codec
-/// encodes, and the bytes are the wire format's. A program that merely named a
-/// generated type would link the same way and prove less.
+/// encodes, the bytes are the wire format's, and the decoder reads them back
+/// into the value they came from. A program that merely named a generated type
+/// would link the same way and prove less.
 const PROGRAM: &str = r#"from "core/bytes" import * as bytes;
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-from "//lib/wire" import { defaultPoint, encodePoint, Point };
+from "//lib/proto" import {
+    decodeEverything, defaultEverything, encodeEverything, Everything, Shade,
+};
 
 export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Stdout: host.stdout,
     };
-    let p = Point { ..defaultPoint(), x: .Some(1), y: .Some(300) };
+    let v = Everything {
+        ..defaultEverything(),
+        count: .Some(300),
+        shade: .Some(Shade.DARK),
+        scores: [1, 2, 3],
+    };
+    let wire = encodeEverything(ctx, v);
+    let back = decodeEverything(ctx, wire) == .Ok(v);
     io
-        .println(ctx, bytes.toHex(ctx, encodePoint(ctx, p)))
+        .println(ctx, "${bytes.toHex(ctx, wire)} ${back}")
         .mapErr(fn(_e) => "could not write to standard output")
 }
 "#;
 
 /// The repository every row here runs in.
+///
+/// **The schemas are `cli/tests/conformance/lib/proto`'s own**, copied rather
+/// than written again. That corpus is one message of every field kind editions
+/// has — nested messages, an enum, a oneof, repeated packed and expanded, both
+/// presences, a field per scalar type, a name that is a Buri keyword, and a
+/// second schema it imports across a file boundary — and `language::conformance`
+/// and `native::conformance` both assert what its codecs compute. What is left
+/// over is exactly what this file is for: does all of that survive a *linker*.
 fn repository(name: &str) -> Scratch {
     let scratch = Scratch::repo(name);
-    scratch.write("lib/wire/BUILD.buri", LIBRARY);
-    scratch.write("lib/wire/point.proto", SCHEMA);
-    scratch.write("lib/wire/lib.buri", SURFACE);
+    let corpus = tests_dir().join("conformance/lib/proto");
+    scratch.write("lib/proto/BUILD.buri", LIBRARY);
+    for schema in ["address.proto", "demo.proto"] {
+        let text = std::fs::read_to_string(corpus.join(schema)).expect("the conformance schema");
+        scratch.write(&format!("lib/proto/{schema}"), &text);
+    }
+    scratch.write("lib/proto/lib.buri", SURFACE);
     scratch.write(
         "cmd/point/BUILD.buri",
         &format!(
-            "binary {{\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{{ platform: {} }}]\n}}\n",
+            "binary {{\n    dependencies: [\"//lib/proto\"]\n\n    outputs: [{{ platform: {} }}]\n}}\n",
             host_platform()
         ),
     );
@@ -83,9 +110,14 @@ fn repository(name: &str) -> Scratch {
     scratch
 }
 
-/// Field 1 varint 1, field 2 varint 300 — what the schema says the two fields
-/// encode to, and a number no part of this test could produce by accident.
-const ENCODED: &str = "080110ac02";
+/// Field 2 varint 300 (`10 ac 02`), field 16 varint 2 (`80 01 02`), and field
+/// 30 packed with three varints (`f2 01 03 01 02 03`) — checked by hand against
+/// the protobuf encoding rules, and `true` for the decode that read them back.
+///
+/// Three fields rather than twenty-five because the rest of the message is
+/// unset, and a field holding no value writes no bytes: what the other twenty-
+/// two are here for is the code the backend has to compile, not the bytes.
+const ENCODED: &str = "10ac02800102f20103010203 true";
 
 fn ran_natively(run: &Run) -> bool {
     !run.all().contains("native-artifact-not-available")
@@ -163,11 +195,11 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
     // this row has to mean the same thing on every machine.
     scratch.write(
         "cmd/twice/BUILD.buri",
-        "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }, { platform: WEB }]\n}\n",
+        "binary {\n    dependencies: [\"//lib/proto\"]\n\n    outputs: [{ platform: JS }, { platform: WEB }]\n}\n",
     );
     scratch.write("cmd/twice/main.buri", PROGRAM);
 
-    scratch.run(&["build", "//lib/wire"]).ok();
+    scratch.run(&["build", "//lib/proto"]).ok();
     let after_first = toolchain_artifacts(&scratch);
     assert_eq!(
         after_first.len(),
@@ -184,6 +216,206 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
     assert_eq!(after_second, after_first, "a second build compiled the toolchain generator again");
     let after = std::fs::metadata(&after_second[0]).expect("the generator's module").modified().ok();
     assert_eq!(before, after, "the generator's module was rewritten by a build that had one");
+}
+
+// ---------------------------------------------------------------------------
+// What an input may be
+// ---------------------------------------------------------------------------
+
+/// **A file that is there is never reported as absent**, and the sentence is
+/// the one a `sources` entry gets about the same bytes.
+///
+/// A schema saved in UTF-16 is the shape somebody actually meets. Reading it
+/// used to answer `None` the way a missing file does, so the report said
+/// `gone.proto does not exist` and offered "create the file" about a file the
+/// author could see in the directory the caret named.
+///
+/// Rust rather than a repository case because the fixture is bytes that are not
+/// text, and nothing else in `cli/tests/repositories/` is.
+#[test]
+fn an_input_that_is_not_text_is_reported_as_unreadable_rather_than_absent() {
+    let scratch = Scratch::repo("generators-not-utf8");
+    scratch.write(
+        "lib/wire/BUILD.buri",
+        "library {\n    sources: [\"beside.buri\"]\n\n    \
+         generators: [{ tool: \"std/codegen/proto\", inputs: [\"point.proto\"] }]\n}\n",
+    );
+    scratch.write("lib/wire/lib.buri", "export fn here(): Int { 1 }\n");
+    scratch.write("lib/wire/beside.buri", "export fn beside(): Int { 2 }\n");
+    std::fs::write(scratch.path("lib/wire/point.proto"), b"edition = \"2026\";\n\xff\xfe\n")
+        .expect("a schema that is not UTF-8");
+
+    let run = scratch.run(&["build", "//lib/wire"]);
+    run.exits(1)
+        .says("cannot read lib/wire/point.proto")
+        .says("check the file exists and is readable");
+    assert!(
+        !run.all().contains("does not exist"),
+        "a file that is there was reported as absent:\n{}",
+        run.all()
+    );
+
+    // The same bytes under `sources`, which is the wording this one now
+    // matches. A generator's input and a rule's source are the same question
+    // about the same file, and two answers to it would be two bugs to fix.
+    std::fs::write(scratch.path("lib/wire/beside.buri"), b"export fn beside(): Int { \xff\xfe }\n")
+        .expect("a source that is not UTF-8");
+    scratch.write(
+        "lib/wire/BUILD.buri",
+        "library {\n    sources: [\"beside.buri\"]\n}\n",
+    );
+    scratch
+        .run(&["build", "//lib/wire"])
+        .exits(1)
+        .says("cannot read lib/wire/beside.buri")
+        .says("check the file exists and is readable");
+}
+
+/// **All three pipes carry more than a pipe holds.**
+///
+/// The build writes the request on one thread and drains both of the tool's
+/// streams on two more, because a pipe holds a page or two: a stream bigger
+/// than that blocks whoever is writing it, and a build waiting for an exit that
+/// the block prevents is two processes waiting on each other with nothing to
+/// end it. So the tool here is handed a megabyte, answers with a module holding
+/// all of it, and writes a hundred kilobytes on standard error on the way — a
+/// megabyte and a hundred kilobytes being far past any platform's buffer.
+///
+/// The generator answers with the input's own length and with the input itself,
+/// so a stream that arrived truncated is a wrong number rather than a hang.
+#[test]
+fn an_input_larger_than_a_pipe_crosses_it_whole() {
+    let scratch = Scratch::repo("generators-large-input");
+    scratch.write(
+        "lib/wire/BUILD.buri",
+        "library {\n    generators: [{ tool: \"//cmd/gen\", inputs: [\"big.txt\"] }]\n\n    \
+         visibility: [\"//visibility:public\"]\n}\n",
+    );
+    // One megabyte, which no pipe buffer on either platform holds.
+    const SIZE: usize = 1_000_000;
+    scratch.write("lib/wire/big.txt", &"x".repeat(SIZE));
+    scratch.write(
+        "lib/wire/lib.buri",
+        "from \"//lib/wire/units\" export { echoed, size };\n",
+    );
+    scratch.write("cmd/gen/BUILD.buri", "binary {\n    outputs: [{ platform: JS }]\n}\n");
+    scratch.write("cmd/gen/main.buri", MEASURING_GENERATOR);
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }]\n}\n",
+    );
+    scratch.write(
+        "cmd/app/main.buri",
+        "from \"core/effect\" import { Alloc, Stdout };\n\
+         from \"core/host\" import * as host;\n\
+         from \"core/io\" import * as io;\n\
+         from \"//lib/wire\" import { echoed, size };\n\n\
+         export fn main(): Result<(), Str> {\n  \
+         let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  \
+         let _ = io.println(ctx, \"size=${size} echoed=${echoed.len()}\").ignore();\n  \
+         .Ok(())\n\
+         }\n",
+    );
+
+    scratch.run(&["run", "//cmd/app"]).ok().says(&format!("size={SIZE} echoed={SIZE}"));
+}
+
+/// A generator that answers with the bytes it was handed and how many there
+/// were, and that fills standard error before it does.
+const MEASURING_GENERATOR: &str = r#"from "core/effect" import { Alloc, Stderr, Stdin, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stderr: host.stderr,
+    Stdin: host.stdin,
+    Stdout: host.stdout,
+  };
+  let line = io.readLine(ctx).okOr("no request")?;
+  let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
+  let text = firstInput(request).withDefault("");
+  let _ = io.eprintln(ctx, "e".repeat(ctx, 100000)).ignore();
+  let source = str.format(
+    ctx,
+    "export let size: Int = ${text.len()};\nexport let echoed: Str = \"${text}\";\n",
+  );
+  let unit: Json = .Object([
+    ("name", .Str("units")),
+    ("text", .Str(source)),
+    ("anchors", .Array(list.empty())),
+  ]);
+  let response: Json = .Object([
+    ("modules", .Array([unit])),
+    ("diagnostics", .Array(list.empty())),
+  ]);
+  let _ = io.println(ctx, "${json.stringify(ctx, response)}").ignore();
+  .Ok(())
+}
+
+fn firstInput(request: Json): Option<Str> {
+  let inputs = match (request) {
+    .Object(fields) => fields.find(fn(f) => f.0 == "inputs").map(fn(f) => f.1),
+    _ => .None,
+  };
+  let items = match (inputs.withDefault(.Null)) {
+    .Array(xs) => xs,
+    _ => list.empty(),
+  };
+  let pair = match (items.get(0).withDefault(.Null)) {
+    .Array(xs) => xs,
+    _ => list.empty(),
+  };
+  match (pair.get(1).withDefault(.Null)) {
+    .Str(s) => .Some(s),
+    _ => .None,
+  }
+}
+"#;
+
+// ---------------------------------------------------------------------------
+// What the printer wrote
+// ---------------------------------------------------------------------------
+
+/// **The printer wrote exactly the file a person would have written.**
+///
+/// `repositories/generators/the_printer_round_trips` runs the same function
+/// twice — printed out of a `core/buri/ast` tree, and hand-written beside it —
+/// and asserts they compute the same answers. That is the claim that matters,
+/// and it is blind to layout: a printer that emitted every declaration on one
+/// line would still pass it.
+///
+/// This is the other half, and it is one comparison. `lib/wire/twin.buri` is a
+/// source of this repository, so `language::corpus::…_is_formatted` holds it to
+/// what `buri format` writes; asserting the tool's module text equals it byte
+/// for byte therefore says **`print` writes source the formatter leaves
+/// alone**, which is `core/buri/ast`'s own promise and had nothing behind it.
+///
+/// The fixture is where it is because a repository case cannot ask this: the
+/// generated text is never a file, so there is nothing for a `file` step to
+/// name.
+#[test]
+fn the_printers_text_is_the_file_beside_it_byte_for_byte() {
+    let fixture = tests_dir().join("repositories/generators/the_printer_round_trips/repo");
+    let scratch = Scratch::copy_of("generators-printed-text", &fixture);
+    scratch.run(&["build", "//cmd/gen"]).ok();
+
+    let request = buri::build::generators::Request::default();
+    let response = buri::build::generators::run_artifact(&scratch.artifact("cmd/gen"), &request)
+        .expect("the generator answers");
+    let printed = &response.modules.first().expect("one module").text;
+    let twin = std::fs::read_to_string(fixture.join("lib/wire/twin.buri")).expect("the twin");
+    assert_eq!(
+        printed, &twin,
+        "`print` and `buri format` disagree about the same module; the first \
+         difference is at byte {:?}",
+        printed.bytes().zip(twin.bytes()).position(|(a, b)| a != b)
+    );
 }
 
 /// Every `.mjs` under `.buri/out/toolchain/`, sorted.

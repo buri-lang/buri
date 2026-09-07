@@ -1,0 +1,16 @@
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "//lib/wire" import { Plate, plate };
+
+fn widen(p: Plate): Int {
+    p.size * 2
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    io.println(ctx, "${widen(plate)}").mapErr(fn(_e) => "could not write")
+}

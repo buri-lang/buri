@@ -1,0 +1,12 @@
+library {
+    sources: ["spare.buri"]
+
+    # Two entries on one rule. The second declares no inputs at all, which is
+    # what makes `Request.inputs` an empty list rather than a missing field.
+    generators: [
+        { tool: "//cmd/gen", inputs: ["mode.txt"] },
+        { tool: "//cmd/gen", inputs: [] },
+    ]
+
+    visibility: ["//visibility:public"]
+}
