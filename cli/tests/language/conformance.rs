@@ -460,6 +460,86 @@ fn no_conformance_context_asks_for_a_bound_it_does_not_use() {
 }
 
 // ---------------------------------------------------------------------------
+// The grammar a generator writes
+// ---------------------------------------------------------------------------
+
+/// **Every node kind `core/buri/ast` exports has a test that prints it.**
+///
+/// The printer is what a generator's whole output goes through, and the one
+/// way it can be wrong that no assertion catches is a construct nobody ever
+/// asked it for: a variant added to `ExprKind` with no case beside it prints
+/// whatever its author guessed, for ever, and the first person to meet it is
+/// somebody whose generated repository does not compile.
+///
+/// So this is the corpus rule that makes `lib/buri_ast/` a *complete* set
+/// rather than a sample. It reads the module's own `export enum`s and asks the
+/// conformance package to construct each variant. A variant two enums share by
+/// name — `Named` is a `TypeKind` and a `Rest` — is covered by whichever of
+/// the two is written, which is the one place this is a lower bound rather
+/// than an exact one.
+///
+/// Adding a variant is therefore adding a test, and the failure says which.
+#[test]
+fn every_ast_node_kind_the_printer_can_meet_has_a_test() {
+    let source =
+        repo_root().join("cli/src/compiler/standard_library/sources/buri_ast.buri");
+    let text = std::fs::read_to_string(&source).expect("core/buri/ast");
+    let corpus = read_corpus(&tests_dir().join("conformance/lib/buri_ast"));
+
+    let mut missing: Vec<String> = Vec::new();
+    let mut seen = 0usize;
+    let mut inside: Option<String> = None;
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("export enum ") {
+            inside = rest.split_whitespace().next().map(str::to_string);
+            continue;
+        }
+        let Some(name) = inside.clone() else { continue };
+        if line == "}" {
+            inside = None;
+            continue;
+        }
+        let Some(variant) = line.strip_prefix("    ") else { continue };
+        let variant: String =
+            variant.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        if variant.is_empty() {
+            continue;
+        }
+        seen += 1;
+        if !corpus.contains(&format!(".{variant}")) {
+            missing.push(format!("{name}::{variant}"));
+        }
+    }
+
+    assert!(seen > 50, "only {seen} variants were read out of {}", source.display());
+    assert!(
+        missing.is_empty(),
+        "cli/tests/conformance/lib/buri_ast/ never constructs {} of the {seen} node kinds \
+         `core/buri/ast` exports, so nothing says what the printer writes for them: {}",
+        missing.len(),
+        missing.join(", ")
+    );
+}
+
+/// Every `.buri` under a directory, concatenated.
+fn read_corpus(dir: &std::path::Path) -> String {
+    let mut out = String::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(next) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&next) else { continue };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "buri") {
+                out.push_str(&std::fs::read_to_string(&path).unwrap_or_default());
+            }
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Where a lint finding may point
 // ---------------------------------------------------------------------------
 

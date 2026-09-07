@@ -1,0 +1,88 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "what a `generators` entry may name and what it may not: no tool at all, a generator this toolchain does not ship, a label that is no binary, an input that is not there — and `proto_sources`, which a binary may no longer write either"
+
+# The shape everything below is one edit away from.
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# A generator *is* its tool, so an entry with none names nothing to run.
+edit {
+  file: "lib/wire/BUILD.buri"
+  replace: "{ tool: \"std/codegen/proto\", inputs: [\"point.proto\"] },"
+  with: "{ inputs: [\"point.proto\"] },"
+}
+
+# Exit 2, not 1: a build file that does not read is a bad invocation rather
+# than code that does not compile (CLI.md).
+run {
+  args: ["build", "//lib/wire"]
+  exit: 2
+  golden: "no_tool.txt"
+}
+
+# A name that is not a `//label` names a generator the toolchain ships, and the
+# list has one entry on it.
+edit {
+  file: "lib/wire/BUILD.buri"
+  replace: "{ inputs: [\"point.proto\"] },"
+  with: "{ tool: \"std/codegen/thrift\", inputs: [\"point.proto\"] },"
+}
+
+run {
+  args: ["build", "//lib/wire"]
+  exit: 1
+  golden: "not_shipped.txt"
+}
+
+# A `//label` names a *binary*. A library is a target and not a program, so it
+# is refused where a tool that does not exist would be.
+edit {
+  file: "lib/wire/BUILD.buri"
+  replace: "{ tool: \"std/codegen/thrift\", inputs: [\"point.proto\"] },"
+  with: "{ tool: \"//lib/wire\", inputs: [\"point.proto\"] },"
+}
+
+run {
+  args: ["build", "//lib/wire"]
+  exit: 1
+  golden: "not_a_binary.txt"
+}
+
+# An input is a declared source like any other: no globs, and a path that names
+# nothing is `no-such-source` with the field it was written in.
+edit {
+  file: "lib/wire/BUILD.buri"
+  replace: "{ tool: \"//lib/wire\", inputs: [\"point.proto\"] },"
+  with: "{ tool: \"std/codegen/proto\", inputs: [\"gone.proto\"] },"
+}
+
+run {
+  args: ["build", "//lib/wire"]
+  exit: 1
+  golden: "no_input.txt"
+}
+
+edit {
+  file: "lib/wire/BUILD.buri"
+  replace: "{ tool: \"std/codegen/proto\", inputs: [\"gone.proto\"] },"
+  with: "{ tool: \"std/codegen/proto\", inputs: [\"point.proto\"] },"
+}
+
+# `proto_sources` is retired on a binary as well as on a library, and the two
+# rules are two reserved numbers rather than one.
+edit {
+  file: "cmd/app/BUILD.buri"
+  replace: "binary {\n"
+  with: "binary {\n    proto_sources: [\"point.proto\"]\n\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 2
+  golden: "retired.txt"
+}

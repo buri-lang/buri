@@ -235,6 +235,40 @@ test "option and reserved are skipped rather than refused" {
     assert.eq(assert.some(m.fields.get(0)).name, "x");
 }
 
+test "reserved is skipped in all three scopes it may be written in" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // The file, an enum and a message. Only the middle one is covered above,
+    // and each is a branch of its own in the reader — a `reserved` the file
+    // level did not know about would swallow the declaration after it.
+    let text = withEdition(
+        ctx,
+        lines(ctx, [
+            "reserved 100 to 200;",
+            "reserved \"RetiredMessage\";",
+            "enum Colour {",
+            "  reserved 3, 4;",
+            "  reserved \"MAUVE\";",
+            "  COLOUR_UNSPECIFIED = 0;",
+            "  RED = 1;",
+            "}",
+            "message M {",
+            "  reserved 2 to max;",
+            "  int32 x = 1;",
+            "}",
+        ]),
+    );
+    let parsed = read(ctx, text);
+    assert.isEmpty(parsed.errors);
+    let e = assert.some(parsed.schema.enums.get(0));
+    assert.eq(e.name, "Colour");
+    assert.len(e.values, 2);
+    let m = assert.some(parsed.schema.messages.get(0));
+    assert.eq(m.name, "M");
+    assert.len(m.fields, 1);
+}
+
 test "a source-only feature is read past, so a schema can opt out of the naming lint" {
     let ctx = context {
         Alloc: alloc(),
