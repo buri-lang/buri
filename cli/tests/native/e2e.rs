@@ -2628,3 +2628,363 @@ fn a_client_reconnects_by_calling_connect_again() {
     );
     assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
 }
+
+// ---------------------------------------------------------------------------
+// A Buri client against a server no Buri server can be
+// ---------------------------------------------------------------------------
+//
+// The rows above put a Buri client on one end of the wire and a Buri server on
+// the other, which is the strongest thing this file can say about a socket that
+// behaves. What they cannot say anything about is a socket that does something
+// *this repository's own acceptor never does*: closing with a code other than
+// the one its program chose, fragmenting a message, sending a ping, or dropping
+// the connection with no close frame at all. Every one of those is a thing a
+// client has to cope with, and none is reachable from a `core/net/server`
+// program.
+//
+// So the far side of these rows is `harness::websocket`, a hand-written
+// listener — hand-written for `shared::Talking`'s reason, which is that the
+// only RFC 6455 implementation here lives inside the runtime archive and the
+// workspace may not grow a second one.
+
+/// A client that dials the port on its command line as many times as its second
+/// argument says, and prints how each socket ended.
+///
+/// One program and one line per session, which is what makes the whole of
+/// `CloseReason` one row: the server closes each session with a different code,
+/// and this prints the reason the program was handed for it.
+fn rounds_client() -> String {
+    String::from(
+        r#"from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+from "core/str" import * as str;
+
+/// Hooks that say nothing, so what this program prints is the ending and only
+/// the ending.
+fn quiet<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str): Client<C, Int> {
+    Client {
+        url: url,
+        onOpen: fn(_c, _socket, _response) => 0,
+        onMessage: fn(_c, _socket, seen, _message) => seen + 1,
+        onClose: fn(_c, _socket, _seen, _reason) => (),
+    }
+}
+
+/// Dial, print how it ended, and dial again. A self tail call, so a hundred
+/// sessions would cost one frame.
+fn dialling<C: Alloc + Sockets + Stdout + WebSocketClient>(ctx: C, url: Str, left: Int): () {
+    if (left <= 0) {
+        ()
+    } else {
+        let _said = match (websocket.connect(ctx, quiet(url))) {
+            .Err(e) => io.println(ctx, "refused ${e.cause}").ignore(),
+            .Ok(reason) => io.println(ctx, "ended ${reason}").ignore(),
+        };
+        dialling(ctx, url, left - 1)
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Env: host.env,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        WebSocketClient: host.websocketClient,
+    };
+    let args = env.args(ctx);
+    let port = args.get(0).withDefault("0");
+    let rounds = args.get(1).withDefault("0").toInt().withDefault(0);
+    let _ran = dialling(ctx, str.format(ctx, "ws://127.0.0.1:${port}/socket"), rounds);
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// Runs a linked client with two arguments, under the heap check every program
+/// in this domain answers.
+fn dialled_client_rounds(binary: &std::path::Path, port: u16, rounds: usize) -> crate::shared::Ran {
+    crate::shared::ran_command(
+        std::process::Command::new(binary)
+            .arg(port.to_string())
+            .arg(rounds.to_string())
+            .env("BURI_RT_HEAP_CHECK", "1"),
+    )
+}
+
+/// **Every close a far side can send reaches the program as the reason it
+/// names.**
+///
+/// `core/net/websocket` maps a wire code to a `CloseReason` in nine arms, and
+/// this is all of them over a real socket: the seven codes the enum names, one
+/// it does not, a close frame carrying no code at all, and a connection dropped
+/// without one. The last three are `.Abnormal` — the enum's catch-all — by
+/// three different routes, so a mapping that handled only one of them would
+/// show up here as one line out of ten.
+///
+/// **A Buri server cannot be the far side of this row.** `server.run` closes a
+/// socket with what its own program asked for, and nothing in it will drop a
+/// connection mid-flight or send a code this language has no name for. So the
+/// listener is `harness::websocket`, one session per ending, in order.
+#[test]
+fn a_client_reads_every_close_a_far_side_can_send() {
+    unless_ready!();
+    use crate::websocket::Step;
+    // Seven names, one number the enum does not name, an empty close frame, and
+    // no close frame at all.
+    let endings: Vec<(Step, &str)> = vec![
+        (Step::Close(Some(1000)), "ended .Normal"),
+        (Step::Close(Some(1001)), "ended .GoingAway"),
+        (Step::Close(Some(1002)), "ended .ProtocolError"),
+        (Step::Close(Some(1003)), "ended .Unsupported"),
+        (Step::Close(Some(1008)), "ended .Policy"),
+        (Step::Close(Some(1009)), "ended .TooLarge"),
+        (Step::Close(Some(1011)), "ended .InternalError"),
+        (Step::Close(Some(4000)), "ended .Abnormal"),
+        (Step::Close(None), "ended .Abnormal"),
+        (Step::Drop, "ended .Abnormal"),
+    ];
+    let client = built("e2e-client-close-codes", &rounds_client());
+    let serving = crate::websocket::serving(
+        endings.iter().map(|(step, _)| vec![step.clone()]).collect(),
+    );
+    let port = serving.port;
+    let said = dialled_client_rounds(&client, port, endings.len());
+    let sessions = serving.heard();
+    assert_eq!(
+        said.status, 0,
+        "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
+        said.status, said.stdout, said.stderr
+    );
+    let lines: Vec<&str> = said.stdout.lines().filter(|l| l.starts_with("ended ")).collect();
+    let wanted: Vec<&str> = endings.iter().map(|(_, line)| *line).collect();
+    assert_eq!(
+        lines, wanted,
+        "a close code reached the program as the wrong reason.\nthe client said:\n{}\nthe \
+         server heard:\n{sessions:?}",
+        said.stdout
+    );
+}
+
+/// The client for the sizes row: say six things of its own, then print one line
+/// per thing it is told, and one for the ending.
+///
+/// **Both directions in one program**, because a framing that is wrong is
+/// usually wrong in only one of them: a client masks every frame it writes and
+/// a server masks none, and a length that stops fitting in one octet — or in
+/// two — is a different header on each side of the wire.
+fn sizing_client() -> String {
+    String::from(
+        r#"from "core/effect" import { Alloc, Env, Sockets, Stdout, WebSocketClient };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+from "core/str" import * as str;
+
+fn feed<C: Alloc + Sockets + Stdout + WebSocketClient>(url: Str, large: Int): Client<C, Int> {
+    Client {
+        url: url,
+        onOpen: fn(c, socket, _response) => {
+            // Nothing, one octet, and past both length boundaries, in both
+            // framings. Six messages, well inside the outbound bound.
+            let _empty = socket.send(c, .Text(""));
+            let _one = socket.send(c, .Text("x"));
+            let _many = socket.send(c, .Text("a".repeat(c, large)));
+            let _none = socket.send(c, .Binary([]));
+            let _byte = socket.send(c, .Binary([7]));
+            let _bytes = socket.send(c, .Binary(list.repeat(c, 7, large)));
+            0
+        },
+        onMessage: fn(c, _socket, seen, message) => {
+            let _said = match (message) {
+                .Text(text) => io.println(c, "text ${text.len()} ${text}").ignore(),
+                .Binary(data) => io.println(c, "binary ${data.len()}").ignore(),
+            };
+            seen + 1
+        },
+        onClose: fn(c, _socket, seen, reason) => {
+            io.println(c, "closed after ${seen} ${reason}").ignore()
+        },
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Env: host.env,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        WebSocketClient: host.websocketClient,
+    };
+    let args = env.args(ctx);
+    let port = args.get(0).withDefault("0");
+    // Past 125 and past 65535, which are the two points where a frame's length
+    // stops fitting where it was. Given on the command line so the number is
+    // written down once, in the test that also reads it back.
+    let large = args.get(1).withDefault("0").toInt().withDefault(0);
+    let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
+    match (websocket.connect(ctx, feed(url, large))) {
+        .Err(e) => .Err(e.detail),
+        .Ok(reason) => {
+            let _said = io.println(ctx, "ended ${reason}").ignore();
+            .Ok(())
+        },
+    }
+}
+"#,
+    )
+}
+
+/// **A message of nothing, of one octet and of seventy kilobytes crosses whole,
+/// in both framings and in both directions — and a ping and a fragmentation
+/// never reach the program at all.**
+///
+/// Six claims about size and two about what a program is *not* told, in one
+/// exchange:
+///
+/// * **Nothing, one, and many.** A payload's length lives in the frame header
+///   in one of three widths — under 126 inline, up to 65535 in two octets,
+///   larger in eight — and 70000 is past both boundaries. An empty message is
+///   the other end of the same header: a frame whose length is zero is a
+///   message and not the absence of one, and a client that dropped it would
+///   lose a keep-alive a program really did send.
+/// * **Both framings.** `.Text` and `.Binary` are two opcodes, and a `[U8]` of
+///   nothing is not a `Str` of nothing.
+/// * **Both directions.** The server records what it was told and this row
+///   asserts that list too, because a length read correctly one way is not
+///   thereby read correctly the other.
+/// * **A ping is the transport's.** `Frame` has three variants rather than
+///   five, and this is the row that says so over a real socket: the server
+///   pings, the program is told nothing, and the socket goes on working — which
+///   the message *after* the ping is the evidence for.
+/// * **A fragmented message is one message.** Three frames go out — one text
+///   with `FIN` clear and two continuations — and `onMessage` runs once with
+///   the whole of it. The payload is not ASCII, so a reassembly that cut a
+///   multi-octet character in half would print something else.
+#[test]
+fn a_client_carries_every_size_and_is_told_nothing_of_a_ping() {
+    unless_ready!();
+    use crate::websocket::{Heard, Step};
+    const LARGE: usize = 70000;
+    /// Sixteen octets and twelve characters, two of which take more than one.
+    const SPANS: &[u8] = "h\u{e9}llo \u{1f30a} done".as_bytes();
+    let client = built("e2e-client-sizes", &sizing_client());
+    let serving = crate::websocket::serving(vec![vec![
+        // What the client said in `onOpen`, in the order it said it.
+        Step::Hear,
+        Step::Hear,
+        Step::Hear,
+        Step::Hear,
+        Step::Hear,
+        Step::Hear,
+        // And the same six shapes back the other way.
+        Step::Text(String::new()),
+        Step::Text(String::from("x")),
+        Step::Text("a".repeat(LARGE)),
+        Step::Binary(Vec::new()),
+        Step::Binary(vec![7]),
+        Step::Binary(vec![7; LARGE]),
+        // A heartbeat no program may see, and a message the transport has to
+        // put back together.
+        Step::Ping(b"beat".to_vec()),
+        // Cut at octet 2 and octet 9, which is the middle of the `\u{e9}` and
+        // the middle of the `\u{1f30a}`: neither piece is text on its own.
+        Step::Fragments(
+            [&SPANS[..2], &SPANS[2..9], &SPANS[9..]]
+                .iter()
+                .map(|piece| piece.to_vec())
+                .collect(),
+        ),
+        Step::Close(Some(1000)),
+    ]]);
+    let port = serving.port;
+    let said = dialled_client_rounds(&client, port, LARGE);
+    let sessions = serving.heard();
+    assert_eq!(
+        said.status, 0,
+        "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
+        said.status, said.stdout, said.stderr
+    );
+    let large = "a".repeat(LARGE);
+    // `Str::len` counts Unicode scalar values, so the fragmented message is
+    // twelve of them and not the sixteen octets it took on the wire — and the
+    // three fragments cut two of those characters in half.
+    let wanted = format!(
+        "text 0 \ntext 1 x\ntext {LARGE} {large}\nbinary 0\nbinary 1\nbinary {LARGE}\n\
+         text 12 h\u{e9}llo \u{1f30a} done\nclosed after 7 .Normal\nended .Normal\n"
+    );
+    assert_eq!(
+        said.stdout, wanted,
+        "a message did not cross whole, or a ping reached the program.\nstderr:\n{}",
+        said.stderr
+    );
+    // And the other direction, as the far side actually read it off the wire.
+    assert_eq!(
+        sessions,
+        vec![vec![
+            Heard::Text(String::new()),
+            Heard::Text(String::from("x")),
+            Heard::Text("a".repeat(LARGE)),
+            Heard::Binary(Vec::new()),
+            Heard::Binary(vec![7]),
+            Heard::Binary(vec![7; LARGE]),
+        ]],
+        "what the client wrote is not what the far side read.\nthe client said:\n{}",
+        said.stdout
+    );
+}
+
+/// **A server that accepts the connection and then says nothing is a socket
+/// that never opened, and the sentence says the server went.**
+///
+/// The fourth way a dial fails, beside the three rows above: not a port with
+/// nobody on it, not a status that is not `101`, and not a signature for
+/// somebody else's handshake — a listener that took the connection and closed
+/// it without answering at all. A client that read that as an empty response
+/// head would say "this is not HTTP"; what it owes the program is that the
+/// server went away before it answered.
+///
+/// **The read deadline itself has no row here and cannot have one.** A server
+/// that accepts and then *holds* the connection open is refused after thirty
+/// seconds, and thirty seconds of wall clock is both a large share of this
+/// suite's five-minute bar and exactly the kind of timing verdict
+/// `cli/tests/README.md` forbids deciding a test with. What is asserted instead
+/// is the same read's other exit — the one that answers zero — which is what a
+/// real broken server actually produces.
+#[test]
+fn a_server_that_answers_nothing_at_all_is_a_socket_that_never_opened() {
+    unless_ready!();
+    let client = built("e2e-client-dial-silent", &dialling_client());
+    let serving = crate::websocket::serving(vec![vec![crate::websocket::Step::Silence]]);
+    let port = serving.port;
+    let said = dialled_client(&client, port);
+    let _sessions = serving.heard();
+    assert_eq!(
+        said.status, 0,
+        "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
+        said.status, said.stdout, said.stderr
+    );
+    assert!(
+        said.stdout.contains("client refused: .Transport"),
+        "a server that answered nothing was not a transport failure.\nthe client said:\n{}",
+        said.stdout
+    );
+    assert!(
+        said.stdout.contains("before answering the handshake"),
+        "the refusal never said the server went without answering.\nthe client said:\n{}",
+        said.stdout
+    );
+    assert!(
+        !said.stdout.contains("client opened") && !said.stdout.contains("client closed"),
+        "a hook ran for a socket that never opened.\nthe client said:\n{}",
+        said.stdout
+    );
+}

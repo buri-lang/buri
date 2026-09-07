@@ -142,6 +142,12 @@ mod sweep;
 #[path = "../harness/ci.rs"]
 mod ci;
 
+// And the third: the hand-written WebSocket server the client rows in `e2e`
+// dial. It lives in `harness/` rather than beside `shared::Talking` because
+// `language::conformance` dials it too, from the other test binary.
+#[path = "../harness/websocket.rs"]
+mod websocket;
+
 // What more than one backend suite needs: the allocation probe, the shape a
 // run produces, the conformance corpus as a repository, and the product's own
 // link line. One copy, because what those suites assert is that the backends
