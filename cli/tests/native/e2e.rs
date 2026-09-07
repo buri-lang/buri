@@ -2117,6 +2117,15 @@ fn a_discarded_binding_releases_what_it_discarded() {
 /// answers `.Closed`. So the row waits for a process to exit rather than
 /// signalling one.
 fn echoing_socket_server() -> String {
+    echoing_socket_server_for(1)
+}
+
+/// The same server, with a request limit a row chooses.
+///
+/// One upgrade spends one request, so the number is how many sockets this
+/// server will serve before its accept loop is done — which is what the
+/// reconnect row needs two of.
+fn echoing_socket_server_for(sockets: u32) -> String {
     format!(
         r#"from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
 from "core/host" import * as host;
@@ -2136,7 +2145,7 @@ export fn main(): Result<(), Str> {{
     let plan = server.Server {{
         port: 0,
         onRequest: fn(_c, _request) => http.status(404),
-        requestLimit: .Some(1),
+        requestLimit: .Some({sockets}),
         idleTimeoutMillis: .Some(20000),
         websocket: .Some(server.WebSocket {{
             path: "/socket",
@@ -2177,6 +2186,7 @@ export fn main(): Result<(), Str> {{
 }}
 "#,
         padding = padding(),
+        sockets = sockets,
     )
 }
 
@@ -2233,7 +2243,10 @@ export fn main(): Result<(), Str> {
     });
     match (dialled) {
         .Err(e) => {
-            let _said = io.println(ctx, "client refused: ${websocket.errorText(e)}").ignore();
+            let _said = io.println(
+                ctx,
+                "client refused: ${e.cause} ${websocket.errorText(e)} ${e.detail}",
+            ).ignore();
             .Ok(())
         },
         .Ok(reason) => {
@@ -2363,4 +2376,255 @@ fn a_client_that_dials_a_port_nobody_holds_says_so() {
         "`onClose` ran for a socket that never opened.\nthe client said:\n{}",
         said.stdout
     );
+}
+
+/// A one-shot server that answers one connection with `answer` and stops.
+///
+/// **What no Buri server can be made to say.** The two refusals below are a
+/// handshake this repository's own acceptor would never write — a status that
+/// is not `101`, and a `101` signing somebody else's key — so the far side has
+/// to be a listener this test holds. It reads the request head first, because a
+/// server that answered before reading would be testing this client's patience
+/// rather than its answer.
+///
+/// Every wait is bounded by `shared::SERVER_DEADLINE`, so a client that never
+/// dials is a joined thread and a failing assertion rather than a job CI has to
+/// kill.
+fn one_answer(answer: &'static str) -> (u16, std::thread::JoinHandle<()>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("a bound port");
+    let port = listener.local_addr().expect("the bound port").port();
+    let serving = std::thread::spawn(move || {
+        let deadline = crate::shared::SERVER_DEADLINE;
+        let Ok((mut socket, _from)) = listener.accept() else { return };
+        let _read = socket.set_read_timeout(Some(deadline));
+        let _written = socket.set_write_timeout(Some(deadline));
+        let mut head: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 512];
+        while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+            match socket.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+            }
+        }
+        let _sent = socket.write_all(answer.as_bytes());
+        let _flushed = socket.flush();
+    });
+    (port, serving)
+}
+
+/// **A server that does not switch protocols is a socket that never opened, and
+/// the program is told which status it got.**
+///
+/// The second of the three ways a dial can fail, as a whole program: the port
+/// answers, the connection is made, and what comes back is an ordinary `404`.
+/// `connect` answers `.Err(.Transport)` carrying a sentence with the status in
+/// it, and neither hook runs — a socket that never opened has no state for
+/// `onClose` to be handed.
+#[test]
+fn a_client_told_something_other_than_101_says_which_status_it_got() {
+    unless_ready!();
+    let client = built("e2e-client-dial-not-101", &dialling_client());
+    let (port, serving) = one_answer(
+        "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+    );
+    let said = dialled_client(&client, port);
+    serving.join().expect("the one-shot server finished");
+    assert_eq!(
+        said.status, 0,
+        "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
+        said.status, said.stdout, said.stderr
+    );
+    assert!(
+        said.stdout.contains("client refused: .Transport"),
+        "a 404 to a handshake was not a transport failure.\nthe client said:\n{}",
+        said.stdout
+    );
+    assert!(
+        said.stdout.contains("404"),
+        "the refusal never named the status the server answered.\nthe client said:\n{}",
+        said.stdout
+    );
+    assert!(
+        !said.stdout.contains("client opened") && !said.stdout.contains("client closed"),
+        "a hook ran for a socket that never opened.\nthe client said:\n{}",
+        said.stdout
+    );
+}
+
+/// **A `101` that signs the wrong key is refused, and the program is told which
+/// check failed.**
+///
+/// The third way, and the one the handshake exists for. `sec-websocket-accept`
+/// is SHA-1 over the key this client sent and RFC 6455's constant, so a server
+/// answering `101` with a signature for somebody else's key did not read this
+/// request — a cache, a proxy, or an answer meant for another client. The value
+/// below is the RFC's own example, which signs `dGhlIHNhbXBsZSBub25jZQ==` and
+/// never the sixteen random octets this program offered.
+#[test]
+fn a_client_handed_a_signature_for_another_handshake_refuses_it() {
+    unless_ready!();
+    let client = built("e2e-client-dial-bad-accept", &dialling_client());
+    let (port, serving) = one_answer(
+        "HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\nconnection: Upgrade\r\n\
+         sec-websocket-accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n",
+    );
+    let said = dialled_client(&client, port);
+    serving.join().expect("the one-shot server finished");
+    assert_eq!(
+        said.status, 0,
+        "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
+        said.status, said.stdout, said.stderr
+    );
+    assert!(
+        said.stdout.contains("client refused: .Transport"),
+        "a signature for another handshake was not a transport failure.\nthe client said:\n{}",
+        said.stdout
+    );
+    assert!(
+        said.stdout.contains("sec-websocket-accept"),
+        "the refusal never named the check that failed.\nthe client said:\n{}",
+        said.stdout
+    );
+    assert!(
+        !said.stdout.contains("client opened") && !said.stdout.contains("client closed"),
+        "a hook ran for a socket that never opened.\nthe client said:\n{}",
+        said.stdout
+    );
+}
+
+/// A client that dials twice, sleeping between the two, and prints what each
+/// session heard.
+///
+/// **The loop `core/net/websocket` documents instead of a knob.** `connect`
+/// returns when the socket closes, so a second socket is a second call — with
+/// `time.sleepMs` between the tries, which is the whole of what a backoff is
+/// here. The session number is threaded through the recursion, so the two lines
+/// out say which session heard what.
+fn reconnecting_client() -> String {
+    String::from(
+        r#"from "core/effect" import { Alloc, Clock, Env, Sockets, Stdout, WebSocketClient };
+from "core/env" import * as env;
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/net/server" import { CloseReason };
+from "core/net/websocket" import * as websocket;
+from "core/net/websocket" import { Client };
+from "core/str" import * as str;
+from "core/time" import * as time;
+
+fn saying<C: Alloc + Sockets + Stdout + WebSocketClient>(
+    url: Str,
+    session: Int,
+    word: Str,
+): Client<C, Int> {
+    Client {
+        url: url,
+        onOpen: fn(c, socket, _response) => {
+            let _sent = socket.send(c, .Text(word));
+            0
+        },
+        onMessage: fn(c, socket, seen, message) => {
+            match (message) {
+                .Text(text) => {
+                    let _said = io.println(c, "session ${session} ${text}").ignore();
+                    let _closed = socket.close(c, .Normal);
+                    seen + 1
+                },
+                .Binary(_data) => seen,
+            }
+        },
+        onClose: fn(_c, _socket, _seen, _reason) => (),
+    }
+}
+
+/// Dial, and when the socket has closed, sleep and dial again.
+fn following<C: Alloc + Clock + Sockets + Stdout + WebSocketClient>(
+    ctx: C,
+    url: Str,
+    session: Int,
+    left: Int,
+): Int {
+    let word = if (session == 1) { "one" } else { "two" };
+    match (websocket.connect(ctx, saying(url, session, word))) {
+        .Err(e) => {
+            let _said = io.println(ctx, "client refused: ${e.detail}").ignore();
+            session - 1
+        },
+        .Ok(_reason) => {
+            if (left <= 1) {
+                session
+            } else {
+                let _slept = time.sleepMs(ctx, 50);
+                following(ctx, url, session + 1, left - 1)
+            }
+        },
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Clock: host.clock,
+        Env: host.env,
+        Sockets: host.sockets,
+        Stdout: host.stdout,
+        WebSocketClient: host.websocketClient,
+    };
+    let port = env.args(ctx).first().withDefault("0");
+    let url = str.format(ctx, "ws://127.0.0.1:${port}/socket");
+    let sessions = following(ctx, url, 1, 2);
+    let _said = io.println(ctx, "reconnected ${sessions}").ignore();
+    .Ok(())
+}
+"#,
+    )
+}
+
+/// **Reconnecting is a loop around `connect`, and the second session is a
+/// second socket.**
+///
+/// Two sessions over one port, each with its own upgrade, its own three hooks
+/// and its own close, from a program that names no reconnect field because there
+/// is none: it calls `connect` again.
+///
+/// The server's request limit is two, so it ends on its own once the second
+/// socket has closed, and the row waits for a process to exit rather than
+/// signalling one.
+#[test]
+fn a_client_reconnects_by_calling_connect_again() {
+    unless_ready!();
+    let server = built("e2e-client-server-reconnect", &echoing_socket_server_for(2));
+    let client = built("e2e-client-dial-reconnect", &reconnecting_client());
+    let running = crate::shared::announced(&server);
+    let port = running.2;
+    let said = dialled_client(&client, port);
+    let out = crate::shared::finished(running);
+    assert_eq!(
+        said.status, 0,
+        "the client exited {}.\nstdout:\n{}\nstderr:\n{}",
+        said.status, said.stdout, said.stderr
+    );
+    for line in ["session 1 echo one", "session 2 echo two"] {
+        assert!(
+            said.stdout.contains(line),
+            "the client never said `{line}`.\nit said:\n{}\nthe server said:\n{}",
+            said.stdout,
+            out.stdout
+        );
+    }
+    assert!(
+        said.stdout.contains("reconnected 2"),
+        "the loop did not run twice.\nthe client said:\n{}",
+        said.stdout
+    );
+    // Two upgrades on the server's side: a second `connect` is a second socket
+    // rather than the first one carried on with.
+    assert_eq!(
+        out.stdout.matches("server opened").count(),
+        2,
+        "the server did not upgrade twice.\nit said:\n{}",
+        out.stdout
+    );
+    assert_eq!(out.status, 0, "stdout:\n{}\nstderr:\n{}", out.stdout, out.stderr);
 }

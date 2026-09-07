@@ -35,13 +35,50 @@
 use crate::compiler::middle::monomorphize::{FuncKind, Program, ProgramRoots};
 use crate::compiler::semantics::typed::{self, ExprKind};
 
+/// Which edges a walk takes at a chunk node.
+///
+/// A `middle::chunks` node holds a reference to the function it fetches, so
+/// that every pass after it — parkability, sharing, this one — sees a real
+/// function reference rather than a name in a string. Two questions are then
+/// asked of the same graph and they want different answers: *what does this
+/// program contain* follows the edge, and *what would this program contain if
+/// the chunk were not there* does not. The second is how a chunk's own members
+/// are found.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Chunks {
+    /// Follow a chunk node into what it fetches.
+    Followed,
+    /// Stop at a chunk node. What only a chunk reaches is then unreached.
+    Deferred,
+}
+
 /// Drops every function no root reaches.
 pub fn run(program: &mut Program) {
-    let mut reached = vec![false; program.funcs.len()];
-    let mut work: Vec<usize> = match &program.roots {
+    let reached = reachable(program, &program_roots(program), Chunks::Followed);
+    for (func, seen) in program.funcs.iter_mut().zip(reached) {
+        if !seen {
+            func.kind = FuncKind::Unbuilt;
+        }
+    }
+}
+
+/// The slots this program starts at: its entry, or every one of its tests.
+pub fn program_roots(program: &Program) -> Vec<usize> {
+    match &program.roots {
         ProgramRoots::Main(entry) => vec![entry.index()],
         ProgramRoots::Tests(tests) => tests.iter().map(|t| t.func.index()).collect(),
-    };
+    }
+}
+
+/// Every function `roots` reaches, one row per [`Program::funcs`] slot.
+///
+/// The walk `run` drops by, and the walk `middle::chunks` splits by. One
+/// function rather than two, because a chunk holding a function the artifact
+/// also holds, or missing one it needs, is the same defect as a dropped live
+/// function — and it would be found by a different piece of code.
+pub fn reachable(program: &Program, roots: &[usize], chunks: Chunks) -> Vec<bool> {
+    let mut reached = vec![false; program.funcs.len()];
+    let mut work: Vec<usize> = roots.to_vec();
     for f in &work {
         if let Some(seen) = reached.get_mut(*f) {
             *seen = true;
@@ -52,7 +89,7 @@ pub fn run(program: &mut Program) {
         let Some(func) = program.funcs.get(f) else { continue };
         let Some(body) = func.body() else { continue };
         let mut callees = Vec::new();
-        references(body, &mut callees);
+        references(body, chunks, &mut callees);
         for c in callees {
             match reached.get_mut(c) {
                 // An index the graph does not have is skipped rather than
@@ -65,12 +102,7 @@ pub fn run(program: &mut Program) {
             work.push(c);
         }
     }
-
-    for (func, seen) in program.funcs.iter_mut().zip(reached) {
-        if !seen {
-            func.kind = FuncKind::Unbuilt;
-        }
-    }
+    reached
 }
 
 /// Every function this body can reach.
@@ -82,14 +114,31 @@ pub fn run(program: &mut Program) {
 /// names the function a merged tail-recursive group became, which cannot be
 /// dead while a member is live — but this pass runs before that rewrite and
 /// after it in a second run, and it costs one arm to be right in both.
-fn references(e: &typed::Expr, out: &mut Vec<usize>) {
-    typed::walk(e, &mut |e| match &e.kind {
+fn references(e: &typed::Expr, chunks: Chunks, out: &mut Vec<usize>) {
+    // A chunk node under `Deferred` is a leaf: its one child is the reference
+    // to the function the chunk holds, and following it is exactly what this
+    // walk is being asked not to do.
+    if chunks == Chunks::Deferred && is_chunk(e) {
+        return;
+    }
+    match &e.kind {
         ExprKind::CallFn { func, .. } | ExprKind::FnRef(func) => {
             out.extend(func.func().map(|i| i.index()));
         }
         ExprKind::Continue { func: Some(f), .. } => out.push(f.index()),
         _ => {}
-    });
+    }
+    typed::children(e, &mut |c| references(c, chunks, out));
+}
+
+/// Whether this node fetches a chunk.
+fn is_chunk(e: &typed::Expr) -> bool {
+    match &e.kind {
+        ExprKind::Intrinsic { name, .. } => {
+            crate::compiler::backend::intrinsic_keys::lazy_chunk_of(name).is_some()
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -137,6 +186,7 @@ mod tests {
             stylesheet: String::new(),
             inline_styles: false,
             themes: false,
+            chunks: Vec::new(),
         }
     }
 

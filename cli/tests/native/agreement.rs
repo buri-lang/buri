@@ -3404,6 +3404,131 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **A timer is a task that sleeps**, and the sleep is a wait on every backend.
+///
+/// The row above proves the order; this one proves the waiting. `core/tasks`
+/// ships no `Timer` and no `setTimeout` — the whole claim is that
+/// `clock.sleepMillis` inside a spawned task is one — so a backend where the
+/// sleep answered without waiting would pass every ordering assertion in this
+/// file and still have no timers in it.
+///
+/// The clock is read on the calling task, before and after the scope, and what
+/// is printed is a comparison rather than a duration: a program that says
+/// `waited: true` says the same thing on a machine of any speed, and a sleep
+/// that did nothing prints `waited: false` on all of them. Fifty milliseconds
+/// three times over is the whole cost of the row.
+#[test]
+fn a_spawned_timer_waits_on_the_clock_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.scope timer",
+        r#"
+from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout, Tasks: host.tasks,
+  };
+  let started = time.now(ctx).0;
+  let _ = tasks.scope(ctx, fn(c, here) => {
+    let _ = tasks.spawn(c, here, fn(c2) => {
+      let _ = time.sleepMs(c2, 50);
+      let _ = io.println(c2, "the timer fired").ignore();
+      ()
+    });
+    ()
+  });
+  let waited = match (time.now(ctx).0 - started >= 50) {
+    true => "true",
+    false => "false",
+  };
+  let _ = io.println(ctx, "waited: ${waited}").ignore();
+  .Ok(())
+}
+"#,
+        "the timer fired\nwaited: true\n",
+    );
+}
+
+/// **Stopping is cooperative**, and this is what that looks like on every
+/// backend: a spawned loop asks an actor whether to carry on, and ends when it
+/// is told not to.
+///
+/// `core/tasks` has no `cancel` and deliberately nothing to add one to, so the
+/// module's answer to "how do I stop a background task" is this program. It is
+/// also the one shape that puts the two concurrency modules inside each other —
+/// a `sendMessage` on a task the scope's drain is running — and the pair have
+/// to agree about it wherever they both exist.
+#[test]
+fn a_spawned_loop_stops_when_its_actor_says_so_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.scope with an actor",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+
+enum Ask {
+  MayI,
+}
+
+enum Turn {
+  Carry,
+  Stop,
+}
+
+fn gate<C: Alloc + Tasks>(turns: Int): Actor<C, Int, Ask, Turn> {
+  Actor {
+    state: turns,
+    step: fn(c, left, message) => {
+      match (left > 0) {
+        true => Stepped { state: left - 1, answer: .Carry },
+        false => Stepped { state: left, answer: .Stop },
+      }
+    },
+  }
+}
+
+fn frames<C: Alloc + Stdout + Tasks>(
+  ctx: C,
+  keeper: Address<C, Int, Ask, Turn>,
+  n: Int,
+): () {
+  match (keeper.sendMessage(ctx, .MayI)) {
+    .Ok(.Carry) => {
+      let _ = io.println(ctx, "frame ${n}").ignore();
+      frames(ctx, keeper, n + 1)
+    },
+    _stopped => {
+      let _ = io.println(ctx, "the loop stopped").ignore();
+      ()
+    },
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let keeper = actor.start(ctx, gate(3));
+  let _ = tasks.scope(ctx, fn(c, here) => {
+    let _ = tasks.spawn(c, here, fn(c2) => frames(c2, keeper, 0));
+    ()
+  });
+  let _ = keeper.stop(ctx).ignore();
+  .Ok(())
+}
+"#,
+        "frame 0\nframe 1\nframe 2\nthe loop stopped\n",
+    );
+}
+
 /// A task that aborts stops the program, with the same message and the same
 /// status on every backend — and with what was printed before it flushed.
 ///
@@ -3467,7 +3592,8 @@ export fn main(): Result<(), Str> {
 /// nothing about the other.
 ///
 /// Five claims in eight lines of output: a send sees the state the sends before
-/// it left; three sends arrive in the order they were sent; sixty-five sends all
+/// it left; three sends arrive in the order they were sent, read out of an
+/// answer that is a different number for a different order; sixty-five sends all
 /// arrive and leave nothing for `stop` to discard, because every one of them ran
 /// the mailbox down before it answered; `onStop` runs once with the final state,
 /// and the three actors' hooks answer their own numbers; and every operation
@@ -3486,6 +3612,7 @@ from "core/io" import * as io;
 
 enum CounterMessage {
   Add(Int),
+  Push(Int),
   Get,
 }
 
@@ -3500,6 +3627,7 @@ fn counter<C: Alloc + Stdout + Tasks>(): Actor<C, Int, CounterMessage, CounterAn
     step: fn(c, count, message) => {
       match (message) {
         .Add(n) => Stepped { state: count + n, answer: .Done },
+        .Push(n) => Stepped { state: count * 10 + n, answer: .Done },
         .Get => Stepped { state: count, answer: .Count(count) },
       }
     },
@@ -3543,11 +3671,13 @@ export fn main(): Result<(), Str> {
   let _ = counted.sendMessage(ctx, .Add(2)).ignore();
   let _ = io.println(ctx, "total ${total(counted.sendMessage(ctx, .Get))}").ignore();
 
-  // Three sends, and the answer is the order they were written in.
+  // Three sends, and the answer is the order they were written in. `Push`
+  // multiplies before it adds, so 123 and 321 are different numbers and the
+  // order is what the answer reads out.
   let queued = actor.start(ctx, counter());
-  let _ = queued.sendMessage(ctx, .Add(10)).ignore();
-  let _ = queued.sendMessage(ctx, .Add(20)).ignore();
-  let _ = queued.sendMessage(ctx, .Add(30)).ignore();
+  let _ = queued.sendMessage(ctx, .Push(1)).ignore();
+  let _ = queued.sendMessage(ctx, .Push(2)).ignore();
+  let _ = queued.sendMessage(ctx, .Push(3)).ignore();
   let _ = io.println(ctx, "batched ${total(queued.sendMessage(ctx, .Get))}").ignore();
 
   // Sixty-five sends, past the mailbox's sixty-four: every one of them ran the
@@ -3580,8 +3710,124 @@ fn gone2(r: Result<CounterAnswer, Stopped>): Str {
   }
 }
 "#,
-        "total 3\nbatched 60\nstopped at 65\nstopped at 3\nstopped at 60\n\
+        "total 3\nbatched 123\nstopped at 65\nstopped at 3\nstopped at 123\n\
          after stopped\nasked stopped\nagain stopped\n",
+    );
+}
+
+/// **A step that sends to the actor running it, on every backend.**
+///
+/// Taking the state is non-blocking, so a send made from inside a step finds
+/// the state already out and answers `.Err(.Stopped)` rather than waiting for
+/// itself. The message is posted all the same, and the loop that was already
+/// running steps it — once — before it puts the state back.
+///
+/// That is the one arm of `sendMessage` a single-driver program reaches where
+/// the post succeeds and the drive does not, and it is the arm that hands a
+/// reply slot back unanswered: the sender takes the slot it opened, finds
+/// nothing in it, and the runtime bumps that slot's generation so the answer
+/// the step writes afterwards lands nowhere rather than in whoever holds the
+/// index by then. Both runtimes reuse slots behind a generation and the two
+/// halves are separate code, so this row is what says they agree.
+///
+/// It is also the only way a program fills the mailbox: nothing drains while a
+/// step holds the state, so sixty-four posts from inside one is the bound, and
+/// all sixty-four are stepped when the step returns.
+///
+/// The message carries the function rather than the address because a step
+/// cannot name its own address — a state or a message that held one would be a
+/// type defined in terms of itself — and `fn(C) => Int` names no actor.
+#[test]
+fn a_step_that_sends_to_its_own_actor_is_refused_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "actor reentrancy",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped, Stopped };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+enum Reentrant<C> {
+  Reenter(fn(C) => Int),
+  Tick,
+  Get,
+}
+
+enum Reentered {
+  Ticked,
+  Reentered(Int),
+  Count(Int),
+}
+
+fn reentrant<C: Alloc + Tasks>(): Actor<C, Int, Reentrant<C>, Reentered> {
+  Actor {
+    state: 0,
+    step: fn(c, count, message) => {
+      match (message) {
+        .Reenter(f) => {
+          let call = f;
+          Stepped { state: count, answer: .Reentered(call(c)) }
+        },
+        .Tick => Stepped { state: count + 1, answer: .Ticked },
+        .Get => Stepped { state: count, answer: .Count(count) },
+      }
+    },
+  }
+}
+
+fn ticks<C: Alloc + Tasks>(
+  ctx: C,
+  address: Address<C, Int, Reentrant<C>, Reentered>,
+  left: Int,
+): Int {
+  match (left <= 0) {
+    true => 0,
+    false => {
+      let stepped = match (address.sendMessage(ctx, .Tick)) {
+        .Ok(_answered) => 1,
+        .Err(_gone) => 0,
+      };
+      stepped + ticks(ctx, address, left - 1)
+    },
+  }
+}
+
+fn number(answered: Result<Reentered, Stopped>): Int {
+  match (answered) {
+    .Ok(.Reentered(n)) => n,
+    .Ok(.Count(n)) => n,
+    .Ok(.Ticked) => -2,
+    .Err(_gone) => -1,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+
+  // One send from inside a step: refused, and stepped anyway.
+  let counted = actor.start(ctx, reentrant());
+  let refused = counted.sendMessage(ctx, .Reenter(fn(c) => ticks(c, counted, 1)));
+  let _ = io.println(ctx, "reentered ${number(refused)}").ignore();
+  let _ = io.println(ctx, "counted ${number(counted.sendMessage(ctx, .Get))}").ignore();
+  let _ = counted.stop(ctx).ignore();
+
+  // Sixty-four of them: the mailbox at its bound, and every one of them is
+  // stepped when the step that posted them returns.
+  let filled = actor.start(ctx, reentrant());
+  let fanned = filled.sendMessage(ctx, .Reenter(fn(c) => ticks(c, filled, 64)));
+  let _ = io.println(ctx, "fanned ${number(fanned)}").ignore();
+  let _ = io.println(ctx, "filled ${number(filled.sendMessage(ctx, .Get))}").ignore();
+  let _ = filled.stop(ctx).ignore();
+  .Ok(())
+}
+"#,
+        "reentered 0\ncounted 1\nfanned 0\nfilled 64\n",
     );
 }
 

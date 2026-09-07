@@ -1,0 +1,30 @@
+error: a function parameter ends with `,` [missing-separator]
+  --> main.buri:23:39
+   |
+23 | fn describe<C: Alloc>(ctx: C, n: extra Int): Str {
+   |                                       ^
+   |
+   = fix: write `,` here
+error: expected `:`, found `)` [unexpected-token]
+  --> main.buri:23:43
+   |
+23 | fn describe<C: Alloc>(ctx: C, n: extra Int): Str {
+   |                                           ^
+   |
+   = expected: `:`
+   = actual: `)`
+   = fix: write `:` here
+error: there is nothing named `describe` in scope [unresolved-name]
+  --> main.buri:48:23
+   |
+48 |     let f = lazy.load(describe);
+   |                       ^^^^^^^^
+   |
+   = fix: declare `describe`, or import it — a name is in scope only from this module's own declarations and its imports
+error: `_0` is not callable [not-callable]
+  --> main.buri:49:15
+   |
+49 |     assert.eq(f(ctx, 7), "n is 7");
+   |               ^
+   |
+   = fix: call a function, a lambda, or a field holding one — `(x.f)(...)` for a field

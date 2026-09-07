@@ -261,6 +261,23 @@ pub fn run_snippet_in(
     name: &str,
     text: &str,
 ) -> Result<String, Diagnostics> {
+    let (source, chunks) = compile_snippet_js(ws, map, name, text)?;
+    execute(name, &source, &chunks)
+}
+
+/// The same up to running it: the JavaScript a snippet that exports `main`
+/// compiles to.
+///
+/// [`run_snippet_in`] is this and then a subprocess. `build::generators` is the
+/// other caller — the generator this toolchain ships is a Buri program that
+/// imports `std/codegen/proto`, and this is what turns it into an artifact the
+/// build can hand a request on standard input.
+pub fn compile_snippet_js(
+    ws: Option<&Workspace>,
+    map: &mut SourceMap,
+    name: &str,
+    text: &str,
+) -> Result<(String, Vec<String>), Diagnostics> {
     let mut cache = crate::parsing::parser::Cache::new();
     let analysis =
         analyze_snippet_in(ws, map, &mut cache, name, text, crate::compiler::modules::Role::Entry);
@@ -284,19 +301,22 @@ pub fn run_snippet_in(
         return Err(diags);
     }
     let flags = crate::commands::arguments::Flags::default();
-    let source = actions::emit(
+    actions::emit_all(
         &mut program,
         &analysis.checked.tables,
         crate::compiler::backend::Target { platform: crate::build::buildfile::Platform::Js, arch: None },
         &flags,
         &mut diags,
-    )?;
-    execute(name, &source)
+    )
 }
 
 /// Writes the emitted module to a scratch file and runs it under the JS
 /// runtime, because an ES module has to come from a file to be imported.
-fn execute(name: &str, source: &str) -> Result<String, Diagnostics> {
+///
+/// A `core/lazy` chunk goes beside it under the name the module will ask for,
+/// for the same reason: an example that splits itself has to be able to find
+/// its own halves.
+fn execute(name: &str, source: &str, chunks: &[String]) -> Result<String, Diagnostics> {
     use std::process::Command;
     let fail = |msg: String, fix: &str| {
         let mut d = Diagnostics::new();
@@ -318,6 +338,12 @@ fn execute(name: &str, source: &str) -> Result<String, Diagnostics> {
     if let Err(e) = std::fs::write(&path, source) {
         return Err(fail(format!("cannot write {}: {e}", path.display()), "check TMPDIR"));
     }
+    let written = actions::chunk_paths(&path, chunks);
+    for (at, text) in &written {
+        if let Err(e) = std::fs::write(at, text) {
+            return Err(fail(format!("cannot write {}: {e}", at.display()), "check TMPDIR"));
+        }
+    }
     let out = match Command::new(crate::commands::test::js_runtime()).arg(&path).output() {
         Ok(o) => o,
         Err(e) => {
@@ -328,6 +354,9 @@ fn execute(name: &str, source: &str) -> Result<String, Diagnostics> {
         }
     };
     let _ = std::fs::remove_file(&path);
+    for (at, _) in &written {
+        let _ = std::fs::remove_file(at);
+    }
     if !out.status.success() {
         return Err(fail(
             format!(

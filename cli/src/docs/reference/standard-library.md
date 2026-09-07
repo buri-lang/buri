@@ -190,6 +190,9 @@ unordered, so it answers `.Equal` for a pair it could not order.
   table and one to write the tree; a type name resolves through an `OrdMap`, so
   a schema of `n` declarations costs O(n log t) in the `t` types in scope.
   [The proto reference](./build/proto.md) is the mapping, and it is a promise.
+  This is the module the build runs: `generators: [{ tool: "std/codegen/proto",
+  ... }]` compiles it and hands it a request, the same way it runs a tool of
+  your own.
 
 ## Collections
 
@@ -389,8 +392,8 @@ holds the PNG to a golden checked in beside the suite. The toolchain paints it
 itself, so neither needs a browser.
 
 `ui/web` is the same tree on a server. A worker renders it to HTML and sends
-the state it rendered from with it; the page takes that markup over and reads
-the state back out.
+the state it rendered from with it; the page reads that state back, builds the
+same tree, and resumes on the markup that arrived.
 
 ```buri
 from "core/effect" import { Alloc };
@@ -414,9 +417,14 @@ fn answer<C: Alloc>(ctx: C, path: Str, state: Json): Response {
 `render` takes no context and cannot need one: every constructor in `ui/node` is
 unbounded in `C`, so nothing in a tree can act while it is being written out.
 `shell` puts the state in an inert `<script id="buri-state">` and the compiler's
-stylesheet in the head. On the page, `web.resume(ctx)` picks that state up —
-`web.state(ctx)` reads it — and renders nothing, so the reader keeps looking at
-the markup that arrived.
+stylesheet in the head.
+
+On the page, `web.state(ctx)` reads that state back and `web.resume(ctx, tree)`
+takes the document over. It creates no element and no run of text — the renderer
+takes the node the server already wrote for each one — and what it adds is the
+listeners and the computations. So a server-rendered button works, and nothing
+the reader is looking at is built twice. A tree the markup does not match is
+`.Err` naming the node it wanted.
 
 Routing is a match. A page function takes the path as a `Prop<Str>`: the worker
 passes `.Const(request.path())` and the page passes `web.route(ctx)`, which is
@@ -512,7 +520,8 @@ only with TLS, because ALPN chooses it inside the handshake: a `Server` naming
 no `protocols` offers HTTP/1.1. The server answers as many requests at once as
 the acceptor said it would host, because `run` puts each handler on a task of
 its own, which is why `serve` needs `Tasks` and `Alloc` beside `Listen`. Only
-`LINUX` and `MACOS` grant `Listen`, and `WEB` grants no `Tasks` either.
+`LINUX` and `MACOS` grant `Listen`, so only they can serve — `Tasks` itself is
+granted everywhere, a page included.
 
 **A `Server` with a `websocket` speaks WebSockets, and the upgrade is
 invisible.** With hooks present, a client that asks for a socket at the path the
@@ -568,12 +577,19 @@ negotiated subprotocol arrives, and on `LINUX` and `MACOS` it is the head the
 server really sent; a page cannot see its own handshake, so there `Response`
 carries the subprotocol and the extensions and nothing else.
 
+`LINUX` and `MACOS` write the handshake here and check every clause of the
+answer, so a `101` signing another handshake's key is `.Err(.Transport)` naming
+that check. Everywhere else the engine's own `WebSocket` owns the handshake and
+decides how strictly to check it — `node` refuses that `101` and `bun` accepts
+it — because a page never sees the key it sent.
+
 `connect` is bounded `WebSocketClient + Sockets`. The first dials and the second
 pushes, and the hooks are handed your context, so both have to be in it.
-**Every platform grants both**, `WEB` included: holding a port open is a native
-program's authority, and dialling out is not. On a page `connect` follows
-`ui.mount` — it suspends without holding the event loop, so an interface goes on
-rendering while the socket is idle and a pushed frame wakes it like a click.
+**Every platform grants both**, `WEB` and `CLOUDFLARE_WORKER` included: holding
+a port open is a native program's authority, and dialling out is not. On a page
+`connect` follows `ui.mount` — it suspends without holding the event loop, so an
+interface goes on rendering while the socket is idle and a pushed frame wakes it
+like a click. A worker dials the same way while it answers a request.
 
 `Client` has no header list, because a browser's `WebSocket` cannot send request
 headers. A token or a subprotocol goes in the URL, which is what every browser
@@ -661,6 +677,15 @@ a scope to a handler that spawns later. A library cannot spawn: it exposes a
 a loop ends by finding its socket closed or by asking an actor whether to carry
 on, because there is no way to unwind a task from outside it.
 
+Both carry `Alloc` beside `Tasks`: `spawn` copies the task out of whatever arena
+it was written in, and a scope drains its rounds through `parallel`.
+
+Rounds are why the platform table above covers a spawned task too. They are also
+why a task that never ends starves the ones behind it under `buri run`: the
+round they wait for never finishes. And a task spawned *after* the body returned
+runs on the task that spawned it, which is what lets a page's handler spawn once
+`main` has gone.
+
 `core/actor` is the other half of concurrency: state that outlives one call,
 behind a mailbox. An actor is a *value*, an initial state and a
 `step: fn(C, S, M) => Stepped<S, R>`, and `start` gives it a mailbox and answers
@@ -682,7 +707,12 @@ enum CounterMessage {
 fn counter<C>(initial: Int): Actor<C, Int, CounterMessage, Int> {
     Actor {
         state: initial,
-        step: fn(c, count, message) => Stepped { state: count + 1, answer: count + 1 },
+        step: fn(c, count, message) => {
+            match (message) {
+                .Increment => Stepped { state: count + 1, answer: count + 1 },
+                .Get => Stepped { state: count, answer: count },
+            }
+        },
     }
 }
 ```
@@ -691,7 +721,9 @@ It needs no test double: `step` is an ordinary function in an ordinary field, so
 you test an actor by calling it. The mailbox holds sixty-four messages and you
 cannot configure it. **The actor steps on the task that drives it.**
 `sendMessage` runs the mailbox down before it answers, and `stop` before it runs
-`onStop`. So an actor is not yet a way to get work done in the background.
+`onStop`. So an actor is not yet a way to get work done in the background. A
+step that sends to its own actor gets `.Err(.Stopped)` rather than waiting for
+itself, and the message it posted is stepped once the step returns.
 
 `core/net/http` documents `Request` and `Response`, the two types `Net.fetch`
 speaks in. It re-exports them from `core/effect`, where the effect's own
@@ -755,10 +787,12 @@ socket. So you test a broadcast room with no listener, no port and no client.
 `sockets()` and a script: `connect` dials it, gets a socket of *that* double's,
 receives those messages in order, and closes normally when the script runs out.
 So the pushes a client makes land in `sent()` and the whole of
-`core/net/websocket` runs with no network at all. A URL that is neither `ws://`
-nor `wss://` is the refusal — `.Err(.Unsupported)`, the cause a real client
-gives a scheme it cannot speak — which is how you test what your program does
-when the socket never opens.
+`core/net/websocket` runs with no network at all. Every dial replays the script
+on a socket of its own, so a reconnect loop gets a second session rather than a
+socket that was already spent. A URL that is neither `ws://` nor `wss://` is the
+refusal — `.Err(.Unsupported)`, the cause a real client gives a scheme it cannot
+speak — which is how you test what your program does when the socket never
+opens.
 
 `entropy()` is the one double that is the *opposite* of what the effect
 promises, and the only place in this language where these octets are predictable
@@ -821,6 +855,42 @@ operation is *defined* rather than measured. A `Str` of *n* UTF-8 bytes charges
 `16 + n`, a `[T]` of *n* charges `16 + n * stride(T)`, and a view charges
 nothing. Those rows are charged by definition and reported to no allocator. The
 model sits beside `Alloc` in `core/effect`.
+
+## Loading code later
+
+[`core/lazy`](../../compiler/standard_library/sources/lazy.buri) — one
+declaration, `load`.
+
+```buri
+from "core/effect" import { Stdout };
+from "core/io" import * as io;
+from "core/lazy" import * as lazy;
+
+fn admin<C: Stdout>(ctx: C): () {
+    io.println(ctx, "admin").ignore()
+}
+
+fn route<C: Stdout>(ctx: C, path: Str): () {
+    if (path == "/admin") {
+        let page = lazy.load(admin);
+        page(ctx)
+    } else {
+        io.println(ctx, "home").ignore()
+    }
+}
+```
+
+`load(f)` answers `f`. On `JS`, `WEB` and `CLOUDFLARE_WORKER` it also moves `f`,
+and everything only `f` reaches, into a chunk beside the artifact —
+`<artifact>.0.mjs` — which the program fetches when it reaches the `load`. A
+native build has one file and ignores the whole thing.
+
+The fetch is at the `load`, not at the first call of what it answers, so write
+the `load` on the path that needs the code. `route` above never fetches the
+chunk for `/`.
+
+`load` takes the name of a function; anything else is `lazy-not-a-function`.
+There has to be a body to move.
 
 ## What is deliberately not here
 

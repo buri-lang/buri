@@ -3,7 +3,8 @@
 //! A website in Buri is one binary with two entries. A worker answers the
 //! request: it builds the tree, renders it to HTML, and sends the document with
 //! the state it rendered from embedded in it. A page picks that document up: it
-//! takes over the markup the worker sent and reads the state back out.
+//! reads the state back out, builds the same tree from it, and resumes on top of
+//! the markup that arrived.
 //!
 //! ```buri
 //! from "core/effect" import { Alloc };
@@ -30,6 +31,12 @@
 //! document the runtime supplies rather than at a browser's, so what the worker
 //! writes is what the page would have built. A second renderer would be a
 //! second thing to be right.
+//!
+//! **A resumed page is live, and is not rebuilt.** `resume` runs that same
+//! renderer against the document the reader is already looking at: each element
+//! and each run of text is the one the server wrote, and what the walk adds is
+//! the handlers and the computations. So a button works, a signal re-renders
+//! the smallest thing that read it, and nothing flashes.
 //!
 //! **Routing is ordinary Buri.** There is no route table and no matcher here:
 //! a page function takes the path as a `Prop<Str>` and matches on it. The
@@ -100,21 +107,31 @@ fn stylesheet(): Str;
 
 // --- The page's half -----------------------------------------------------------
 
-/// Takes over the page the server sent.
+/// Takes over the page the server sent, with `root` — the tree the worker
+/// rendered — made live on top of it.
 ///
-/// The markup stays exactly as it arrived — nothing here renders, and nothing
-/// re-renders what the server already wrote — and the state `shell` embedded is
-/// picked up, where `state` reads it.
+/// The markup stays exactly as it arrived. Nothing here creates an element or a
+/// run of text: the renderer walks `root` against the document, takes the node
+/// already sitting where each one belongs, and adds what markup cannot carry —
+/// the handlers, and the computations that re-run when a signal changes. So a
+/// button in server-rendered markup works, and the reader never sees the page
+/// rebuilt.
 ///
-/// `.Err` is for a platform with nowhere to resume: a browser whose document
-/// has no body yet, or a JavaScript host with no document at all.
-export fn resume<C: Ui>(ctx: C): Result<(), Str>;
+/// Build `root` from the state the worker sent, which `state` answers before
+/// this is called. A tree built from something else is a tree the markup does
+/// not match, and that is the `.Err` below.
+///
+/// `.Err` twice: a platform with nowhere to resume — a browser whose document
+/// has no body yet, or a JavaScript host with no document at all — and a tree
+/// that is not what the markup says. A resume that guessed at the difference
+/// would leave the reader looking at both answers.
+export fn resume<C: Ui>(ctx: C, root: Node<C>): Result<(), Str>;
 
 /// The state the server embedded, as the JSON text `shell` was given.
 ///
-/// `.None` before `resume` has run, and on a page no server rendered. Read it
-/// with `json.parse` and `json.decode`, which is the same pair the worker
-/// encoded it with.
+/// `.None` on a page no server rendered. Read it with `json.parse` and
+/// `json.decode`, which is the same pair the worker encoded it with, and build
+/// the tree `resume` takes out of what comes back.
 export fn state<C: Ui>(ctx: C): Option<Str>;
 
 /// The path of the page's address now, as `/guide/routing`.

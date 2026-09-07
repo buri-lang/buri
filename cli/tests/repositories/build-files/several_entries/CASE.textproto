@@ -17,6 +17,11 @@
 #     reactive graph, so `mount` is not in its bytes; the page never reaches
 #     `fetch`, so the worker's bridge is not in its.
 #
+#   * **`buri run` runs the page, and never the worker.** A worker is called by
+#     its platform, once per request, so there is nothing to start. `//cmd/site`
+#     runs its page; `//cmd/worker`, which declares a worker and nothing else,
+#     is refused.
+#
 # Then the two refusals: an entry the binary does not export, and an entry
 # whose signature is not the one its platform fixes.
 #
@@ -68,6 +73,22 @@ file {
 run {
   args: ["build", "//cmd/site", "--check-reproducible"]
   exit: 0
+}
+
+# `buri run` starts a program, so a binary with a page and a worker runs the
+# page: it mounts into the document the runtime supplies and prints nothing.
+run {
+  args: ["run", "//cmd/site"]
+  exit: 0
+}
+
+# And a binary that is only a worker has nothing to start at all. The refusal
+# says why rather than handing a JavaScript runtime a module that would sit
+# there exporting a `fetch` nobody calls.
+run {
+  args: ["run", "//cmd/worker"]
+  exit: 2
+  golden: "no_worker_to_run.txt"
 }
 
 # Refusal one: an output naming a function `main.buri` does not export. The page

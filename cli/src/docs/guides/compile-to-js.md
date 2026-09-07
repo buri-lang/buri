@@ -88,6 +88,79 @@ every package in the build, and an HTML shell that links the one and loads the
 other. Serve the directory. Writing the page is
 [user interfaces](./user-interfaces.md).
 
+## A worker
+
+`platform: CLOUDFLARE_WORKER` is the other JavaScript artifact: a module the
+platform *calls*, once per request, rather than a program that starts itself.
+`entry` names the exported function it enters through.
+
+```textproto schema=build
+# cmd/site/BUILD.buri
+binary {
+    outputs: [
+        { platform: WEB, entry: "main" },
+        { platform: CLOUDFLARE_WORKER, entry: "fetch" },
+    ]
+}
+```
+
+```text
+$ buri build //cmd/site
+.buri/out/web/cmd/site/main.mjs (47662 bytes)
+.buri/out/cloudflare-worker/cmd/site/fetch.mjs (35559 bytes)
+```
+
+Two entries out of one `main.buri`, and the platform fixes each one's signature:
+a page is `fn main(): Result<(), Str>`, a worker is
+`fn fetch(request: Request): Response`. The wrong shape is a type error.
+
+Each entry is its own dead-code root, so the page carries nothing only the
+worker reaches and the worker carries nothing only the page does. Each is
+checked against its own platform's grants too, which is what lets `main` bind
+`Ui: host.ui` beside a `fetch` that cannot.
+
+The worker's module ends in `export default { fetch }` instead of the
+self-starting epilogue every other JavaScript output gets. `buri run` never runs
+one: there is nothing to start. Build it, and let the platform call it.
+[Build a website](./websites.md) is both halves end to end.
+
+## Shipping part of it later
+
+`core/lazy` splits a function, and everything only that function reaches, into a
+file beside the artifact:
+
+```buri
+from "core/effect" import { Stdout };
+from "core/io" import * as io;
+from "core/lazy" import * as lazy;
+
+fn editor<C: Stdout>(ctx: C): () {
+    io.println(ctx, "editing").ignore()
+}
+
+fn open<C: Stdout>(ctx: C, wanted: Bool): () {
+    if (wanted) {
+        let page = lazy.load(editor);
+        page(ctx)
+    } else {
+        io.println(ctx, "reading").ignore()
+    }
+}
+```
+
+```text
+$ ls .buri/out/web/cmd/basket/
+basket.0.mjs  basket.css  basket.html  basket.mjs
+```
+
+`basket.0.mjs` is the editor. The page fetches it when it reaches the `load` and
+not before, so a reader who never opens the editor never downloads it. The name
+is derived from the module's own URL at run time — nothing configures it, and
+serving the directory is still all there is to do.
+
+`load` takes the name of a function, and a native build ignores it and hands the
+function straight back.
+
 ## What changes about the program
 
 **The effects `main` may ask for.** A platform *is* the set of effects its host

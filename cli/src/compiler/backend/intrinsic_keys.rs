@@ -37,6 +37,32 @@ pub fn prim_trait_op(key: &str) -> bool {
     )
 }
 
+/// `core/lazy`'s one declaration, and the node the split pass leaves where a
+/// call to it stood.
+///
+/// Two names for one feature, because they belong to two moments. [`LAZY_LOAD`]
+/// is the key `core/lazy`'s bodyless `load` monomorphizes to.
+/// `middle::chunks` finds every call to it, decides which of them can be split,
+/// and rewrites the call into a [`lazy_chunk_key`] node carrying the chunk's
+/// number. **No backend ever sees `lazy.load`**: a native build has the call
+/// replaced by its argument and a JavaScript one has it replaced by the chunk
+/// node. So this is what two passes agree through, rather than something a code
+/// generator implements.
+pub const LAZY_LOAD: &str = "lazy.load";
+
+/// The prefix a chunk node's name carries. The chunk's number follows it.
+pub const LAZY_CHUNK: &str = "lazy.chunk.";
+
+/// The name of the node that fetches chunk `n`.
+pub fn lazy_chunk_key(n: usize) -> String {
+    format!("{LAZY_CHUNK}{n}")
+}
+
+/// The chunk a node names, or `None` for every other intrinsic.
+pub fn lazy_chunk_of(key: &str) -> Option<usize> {
+    key.strip_prefix(LAZY_CHUNK)?.parse().ok()
+}
+
 /// The `core/bits` operations, asked ahead of emission.
 ///
 /// The unsigned-width family is spelled out rather than derived from a suffix,

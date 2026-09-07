@@ -1176,8 +1176,12 @@ impl TestSockets {
         socketsIsOpen(self.0, socket.0)
     }
 
-    /// A WebSocket client that dials this double: one socket, and `messages`
-    /// delivered on it in order.
+    /// A WebSocket client that dials this double: a socket per dial, and
+    /// `messages` delivered on it in order.
+    ///
+    /// **Every dial delivers the script again**, so a reconnect loop — the shape
+    /// `core/net/websocket` documents, a loop around `connect` with a sleep in it
+    /// — gets a second session rather than a socket that was already spent.
     ///
     /// Two `dialling` calls are two clients on one double, and two `sockets()`
     /// calls are two worlds — exactly as two `fs()` calls are two filesystems.
@@ -1224,7 +1228,7 @@ fn socketsIsOpen(handle: I64, socket: Int): Bool;
 
 // --- WebSocketClient ----------------------------------------------------------
 
-/// A WebSocket client with a script instead of a network: it dials once,
+/// A WebSocket client with a script instead of a network: every time it dials it
 /// delivers the messages it was given in order, and then closes normally.
 ///
 /// **It is minted by a `sockets()` rather than minting sockets of its own.** The
@@ -1269,6 +1273,9 @@ export struct TestWebSocketClient(I64);
 impl WebSocketClient for TestWebSocketClient {
     /// Mints a socket on the `sockets()` double this one was built with, and
     /// answers it with a `101` carrying no headers.
+    ///
+    /// **A second dial is a second session**, with the script back at its first
+    /// message, so a reconnect loop reads the same frames it read the first time.
     ///
     /// **A URL that is not `ws://` or `wss://` is `.Err(.Unsupported)`**, which
     /// is the one refusal this double can honestly produce, and it is the cause a
