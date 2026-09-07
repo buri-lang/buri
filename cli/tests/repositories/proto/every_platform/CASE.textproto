@@ -38,8 +38,11 @@ run {
   golden: "worker.txt"
 }
 
-# And it runs. The bytes are the wire format's: field 1 varint 1 (0x08 0x01),
-# field 2 varint 300 (0x10 0xac 0x02).
+# And it runs. `buri run` picks the host's own platform where this toolchain
+# builds one, so on a machine with a native backend this is the generated module
+# through a code generator and a linker, and a `.mjs` everywhere else. The
+# answer is the same either way: the bytes are the wire format's — field 1
+# varint 1 (0x08 0x01), field 2 varint 300 (0x10 0xac 0x02).
 run {
   args: ["run", "//cmd/app"]
   exit: 0
