@@ -1,0 +1,6 @@
+binary {
+    outputs: [
+        { platform: WEB, entry: "main" },
+        { platform: JS, entry: "main" },
+    ]
+}

@@ -1,0 +1,21 @@
+// Two outputs, one entry. Nothing says two outputs have to enter through two
+// functions: a page and a plain JavaScript program can be the same program, and
+// the body is then checked against both platforms rather than either.
+from "core/effect" import { Alloc, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+
+derive Eq for Page;
+/// Exported, and not a function. An output cannot enter through it.
+export struct Page {
+    title: Str,
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdout: host.stdout,
+    };
+    let _ = io.println(ctx, Page { title: "both" }.title).ignore();
+    .Ok(())
+}

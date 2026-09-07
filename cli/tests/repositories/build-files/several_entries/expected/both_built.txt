@@ -1,0 +1,2 @@
+.buri/out/web/cmd/both/main.mjs (N bytes)
+.buri/out/js/cmd/both/main.mjs (N bytes)
