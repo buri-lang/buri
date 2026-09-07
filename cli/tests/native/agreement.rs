@@ -3653,6 +3653,72 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **The monotonic clock only goes forward**, on every backend, and that is the
+/// whole of what `Monotonic` promises.
+///
+/// `Clock.monotonicNanoseconds` is a different reading on every platform —
+/// `performance.now()` under JavaScript, a baseline `std::time::Instant` under
+/// a native binary — so this is a claim about three separate pieces of code
+/// that no conformance file can reach: the test double moves only when a test
+/// moves it, and a double that never goes backwards says nothing about the one
+/// a program actually runs on.
+///
+/// What is printed is four verdicts rather than any number, because a number
+/// off a real clock is a different number on every run and on every machine. A
+/// reading with no time between it and the last may repeat — a coarse
+/// `performance.now()` does exactly that — so the run is checked for
+/// *non-decreasing* rather than strictly increasing, and the sleep beside it is
+/// what says the clock is not simply frozen.
+#[test]
+fn the_monotonic_clock_never_goes_backwards_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "time.monotonic",
+        r#"
+from "core/effect" import { Alloc, Clock, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/time" import * as time;
+
+fn verdict(ok: Bool): Str {
+  match (ok) {
+    true => "true",
+    false => "false",
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout,
+  };
+
+  // Two hundred readings back to back, with nothing between them but the call.
+  let readings = list.range(ctx, 0, 200).mapCtx(ctx, fn(c, _i) => time.monotonic(c).0);
+  let ordered = list.range(ctx, 1, 200).all(fn(i) => {
+    readings.get(i).withDefault(0) >= readings.get(i - 1).withDefault(0)
+  });
+  let _ = io.println(ctx, "ordered: ${verdict(ordered)}").ignore();
+
+  // A reading is no time after itself, and that needs no clock at all.
+  let here = time.monotonic(ctx);
+  let _ = io.println(ctx, "still: ${verdict(here.duration(here).isZero())}").ignore();
+
+  // And it is not frozen: fifty milliseconds of sleep is at least fifty
+  // milliseconds of elapsed time, measured off this clock rather than the wall
+  // one.
+  let before = time.monotonic(ctx);
+  let _ = time.sleepMs(ctx, 50);
+  let waited = time.elapsed(ctx, before);
+  let _ = io.println(ctx, "moved: ${verdict(waited.millis() >= 50)}").ignore();
+  let _ = io.println(ctx, "forward: ${verdict(!waited.isNegative())}").ignore();
+  .Ok(())
+}
+"#,
+        "ordered: true\nstill: true\nmoved: true\nforward: true\n",
+    );
+}
+
 /// **Stopping is cooperative**, and this is what that looks like on every
 /// backend: a spawned loop asks an actor whether to carry on, and ends when it
 /// is told not to.
