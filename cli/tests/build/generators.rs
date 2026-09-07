@@ -19,6 +19,11 @@
 //! build needs one; the claim is that a repository pays for that **once**, not
 //! once per target, per platform, or per build.
 //!
+//! The last two are about what an *input* may be, and are here rather than in
+//! `repositories/generators/` because neither fixture is text a corpus could
+//! hold: a schema that is not UTF-8, and one a megabyte long — past any pipe
+//! buffer, which is what the request's own thread is for.
+//!
 //! ```text
 //! cargo test -p buri --test build generators::
 //! ```
@@ -185,6 +190,152 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
     let after = std::fs::metadata(&after_second[0]).expect("the generator's module").modified().ok();
     assert_eq!(before, after, "the generator's module was rewritten by a build that had one");
 }
+
+// ---------------------------------------------------------------------------
+// What an input may be
+// ---------------------------------------------------------------------------
+
+/// **A file that is there is never reported as absent**, and the sentence is
+/// the one a `sources` entry gets about the same bytes.
+///
+/// A schema saved in UTF-16 is the shape somebody actually meets. Reading it
+/// used to answer `None` the way a missing file does, so the report said
+/// `gone.proto does not exist` and offered "create the file" about a file the
+/// author could see in the directory the caret named.
+///
+/// Rust rather than a repository case because the fixture is bytes that are not
+/// text, and nothing else in `cli/tests/repositories/` is.
+#[test]
+fn an_input_that_is_not_text_is_reported_as_unreadable_rather_than_absent() {
+    let scratch = Scratch::repo("generators-not-utf8");
+    scratch.write(
+        "lib/wire/BUILD.buri",
+        "library {\n    sources: [\"beside.buri\"]\n\n    \
+         generators: [{ tool: \"std/codegen/proto\", inputs: [\"point.proto\"] }]\n}\n",
+    );
+    scratch.write("lib/wire/lib.buri", "export fn here(): Int { 1 }\n");
+    scratch.write("lib/wire/beside.buri", "export fn beside(): Int { 2 }\n");
+    std::fs::write(scratch.path("lib/wire/point.proto"), b"edition = \"2026\";\n\xff\xfe\n")
+        .expect("a schema that is not UTF-8");
+
+    let run = scratch.run(&["build", "//lib/wire"]);
+    run.exits(1)
+        .says("cannot read lib/wire/point.proto")
+        .says("check the file exists and is readable");
+    assert!(
+        !run.all().contains("does not exist"),
+        "a file that is there was reported as absent:\n{}",
+        run.all()
+    );
+
+    // The same bytes under `sources`, which is the wording this one now
+    // matches. A generator's input and a rule's source are the same question
+    // about the same file, and two answers to it would be two bugs to fix.
+    std::fs::write(scratch.path("lib/wire/beside.buri"), b"export fn beside(): Int { \xff\xfe }\n")
+        .expect("a source that is not UTF-8");
+    scratch.write(
+        "lib/wire/BUILD.buri",
+        "library {\n    sources: [\"beside.buri\"]\n}\n",
+    );
+    scratch
+        .run(&["build", "//lib/wire"])
+        .exits(1)
+        .says("cannot read lib/wire/beside.buri")
+        .says("check the file exists and is readable");
+}
+
+/// **A request larger than a pipe holds crosses it whole.**
+///
+/// The build writes the request on one thread and drains both of the tool's
+/// streams on two more, because a pipe holds a page or two: a request bigger
+/// than that blocks the write, and a build waiting for an exit that the block
+/// prevents is two processes waiting on each other. A megabyte is far past any
+/// platform's buffer, so this is the row that fails if the feeding thread is
+/// ever folded back into the wait.
+///
+/// The generator answers with the input's own length, so a request that arrived
+/// truncated is a wrong number rather than a hang.
+#[test]
+fn an_input_larger_than_a_pipe_crosses_it_whole() {
+    let scratch = Scratch::repo("generators-large-input");
+    scratch.write(
+        "lib/wire/BUILD.buri",
+        "library {\n    generators: [{ tool: \"//cmd/gen\", inputs: [\"big.txt\"] }]\n\n    \
+         visibility: [\"//visibility:public\"]\n}\n",
+    );
+    // One megabyte, which no pipe buffer on either platform holds.
+    const SIZE: usize = 1_000_000;
+    scratch.write("lib/wire/big.txt", &"x".repeat(SIZE));
+    scratch.write("lib/wire/lib.buri", "from \"//lib/wire/units\" export { size };\n");
+    scratch.write("cmd/gen/BUILD.buri", "binary {\n    outputs: [{ platform: JS }]\n}\n");
+    scratch.write("cmd/gen/main.buri", MEASURING_GENERATOR);
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }]\n}\n",
+    );
+    scratch.write(
+        "cmd/app/main.buri",
+        "from \"core/effect\" import { Alloc, Stdout };\n\
+         from \"core/host\" import * as host;\n\
+         from \"core/io\" import * as io;\n\
+         from \"//lib/wire\" import { size };\n\n\
+         export fn main(): Result<(), Str> {\n  \
+         let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  \
+         let _ = io.println(ctx, \"size=${size}\").ignore();\n  \
+         .Ok(())\n\
+         }\n",
+    );
+
+    scratch.run(&["run", "//cmd/app"]).ok().says(&format!("size={SIZE}"));
+}
+
+/// A generator that answers with the number of bytes it was handed.
+const MEASURING_GENERATOR: &str = r#"from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdin: host.stdin, Stdout: host.stdout };
+  let line = io.readLine(ctx).okOr("no request")?;
+  let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
+  let text = firstInput(request).withDefault("");
+  let source = str.format(ctx, "export let size: Int = ${text.len()};\n");
+  let unit: Json = .Object([
+    ("name", .Str("units")),
+    ("text", .Str(source)),
+    ("anchors", .Array(list.empty())),
+  ]);
+  let response: Json = .Object([
+    ("modules", .Array([unit])),
+    ("diagnostics", .Array(list.empty())),
+  ]);
+  let _ = io.println(ctx, "${json.stringify(ctx, response)}").ignore();
+  .Ok(())
+}
+
+fn firstInput(request: Json): Option<Str> {
+  let inputs = match (request) {
+    .Object(fields) => fields.find(fn(f) => f.0 == "inputs").map(fn(f) => f.1),
+    _ => .None,
+  };
+  let items = match (inputs.withDefault(.Null)) {
+    .Array(xs) => xs,
+    _ => list.empty(),
+  };
+  let pair = match (items.get(0).withDefault(.Null)) {
+    .Array(xs) => xs,
+    _ => list.empty(),
+  };
+  match (pair.get(1).withDefault(.Null)) {
+    .Str(s) => .Some(s),
+    _ => .None,
+  }
+}
+"#;
 
 /// Every `.mjs` under `.buri/out/toolchain/`, sorted.
 fn toolchain_artifacts(scratch: &Scratch) -> Vec<std::path::PathBuf> {
