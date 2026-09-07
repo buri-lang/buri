@@ -233,13 +233,18 @@ address the server did not render, or built from a state it did not send:
 
 ```text
 this page is not the markup the server sent: wanted <button>, found nothing left
+this page is not the markup the server sent: <main> holds more than the tree does
 ```
 
-That is the `.Err` from `resume`, and the page above turns it into `main`'s. A
-resume that guessed at the difference would leave the reader looking at both
-answers, so it stops and says which node it wanted. Text is the exception: a run
-that differs is written, because the numbers a page renders come from a state
-that is allowed to have moved on.
+Both are the `.Err` from `resume`, and the page above turns it into `main`'s.
+The first is a node the tree wanted and the markup does not have; the second is
+the same disagreement from the other end, a node the markup has and the tree
+never accounted for. A resume that guessed would leave the reader looking at
+both answers, so it stops and names what it found.
+
+Text is the exception: a run that differs is written rather than refused,
+because the numbers a page renders come from a state that is allowed to have
+moved on.
 
 ## Location is the page's alone
 
