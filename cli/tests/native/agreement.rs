@@ -3694,7 +3694,7 @@ export fn main(): Result<(), Str> {
   };
 
   // Two hundred readings back to back, with nothing between them but the call.
-  let readings = list.range(ctx, 0, 200).mapCtx(ctx, fn(c, i) => time.monotonic(c).0);
+  let readings = list.range(ctx, 0, 200).mapCtx(ctx, fn(c, _i) => time.monotonic(c).0);
   let ordered = list.range(ctx, 1, 200).all(fn(i) => {
     readings.get(i).withDefault(0) >= readings.get(i - 1).withDefault(0)
   });
