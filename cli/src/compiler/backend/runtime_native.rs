@@ -376,7 +376,7 @@ pub fn net_intrinsic(key: &str) -> bool {
     }
     let Some(rest) = key.strip_prefix("host.") else { return false };
     let Some((effect, _operation)) = rest.split_once('.') else { return false };
-    matches!(effect, "HostListen" | "HostSockets" | "HostTasks")
+    matches!(effect, "HostListen" | "HostSockets" | "HostTasks" | "HostWebSocketClient")
 }
 
 /// Whether an intrinsic key is one only a `crypto` runtime answers.
@@ -578,11 +578,12 @@ mod tests {
     }
 
     #[test]
-    fn the_networking_family_is_three_effects() {
+    fn the_networking_family_is_four_effects() {
         for key in [
             "host.HostListen.listen",
             "host.HostSockets.socketSendText",
             "host.HostTasks.parallel",
+            "host.HostWebSocketClient.connectSocket",
         ] {
             assert!(net_intrinsic(key), "{key} is not recognised as networking");
         }
