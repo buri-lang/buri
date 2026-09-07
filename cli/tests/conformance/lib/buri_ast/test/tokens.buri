@@ -39,7 +39,7 @@ test "nothing comes of nothing" {
         Alloc: alloc(),
     };
     assert.isEmpty(ast.tokenize(ctx, ""));
-    assert.isEmpty(ast.tokenize(ctx, "   \n\t "));
+    assert.isEmpty(ast.tokenize(ctx, "   \n\t\r "));
 }
 
 // --- spans -----------------------------------------------------------------------
