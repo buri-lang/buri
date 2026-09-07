@@ -122,6 +122,14 @@
 //! exactly once. `sendMessage` sees the state its own message left behind. And
 //! `onStop` runs once with the final state.
 //!
+//! A step that sends to the actor running it is the one case where a post
+//! succeeds and nothing steps it here: the state is out, taking it does not
+//! wait, and the send is answered `.Err(.Stopped)` rather than waiting for
+//! itself. The message is not lost — the loop already running steps it before
+//! it puts the state back — and nothing else drains a mailbox while a step
+//! holds the state, which makes this the one shape that reaches the bound
+//! below.
+//!
 //! What it costs today is that an actor does not run *between* the calls that
 //! drive it, so an actor is not yet a way to get work done in the background.
 //! Giving an actor a carrier of its own needs a step whose closure outlives the
@@ -325,9 +333,13 @@ impl<C: Alloc + Tasks, S, M, R> Address<C, S, M, R> {
     /// scope, it is leaving *all* of them — `copyOut` copies onto whichever
     /// allocator is active, which inside a scope is the arena about to go back.
     ///
-    /// `.Err(.Stopped)` covers two cases: the actor was gone before the message
-    /// was posted, or it went before the answer came. A step that runs to its
-    /// end always answers, because returning a `Stepped` is answering.
+    /// `.Err(.Stopped)` covers three cases: the actor was gone before the
+    /// message was posted, it went before the answer came, or the caller is a
+    /// step of this same actor and is holding the state, so the drive below
+    /// finds nothing to step with. Only the last one leaves the message in the
+    /// mailbox, where the loop that is already running steps it. A step that
+    /// runs to its end always answers, because returning a `Stepped` is
+    /// answering.
     export fn sendMessage(self, ctx: C, message: M): Result<R, Stopped> {
         let reply = Reply(replyOpen(ctx));
         let posted = Posted { slot: reply.0, message: message };
@@ -543,9 +555,11 @@ fn closing<C: Tasks, S, M, R>(
 
 /// What was put in `reply`, at the type the sender is waiting for.
 ///
-/// Taking an *unanswered* slot answers `.None` and is not an error. It gives
-/// the slot back for the next message, which keeps a mailbox closed under a
-/// sender from leaking one slot per message.
+/// Taking an *unanswered* slot answers `.None` and is not an error. Two sends
+/// end there: one into a closed mailbox, and one a step made to its own actor.
+/// The take gives the slot back for the next message either way, so neither
+/// leaks a slot per message, and the runtime moves the slot's generation with
+/// it so the answer a step writes afterwards lands nowhere.
 fn answering<C: Tasks, R>(ctx: C, reply: Reply<R>): Option<[Carried<R>]> {
     replyTake(ctx, reply.0)
 }

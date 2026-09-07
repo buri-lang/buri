@@ -682,7 +682,12 @@ enum CounterMessage {
 fn counter<C>(initial: Int): Actor<C, Int, CounterMessage, Int> {
     Actor {
         state: initial,
-        step: fn(c, count, message) => Stepped { state: count + 1, answer: count + 1 },
+        step: fn(c, count, message) => {
+            match (message) {
+                .Increment => Stepped { state: count + 1, answer: count + 1 },
+                .Get => Stepped { state: count, answer: count },
+            }
+        },
     }
 }
 ```
@@ -691,7 +696,9 @@ It needs no test double: `step` is an ordinary function in an ordinary field, so
 you test an actor by calling it. The mailbox holds sixty-four messages and you
 cannot configure it. **The actor steps on the task that drives it.**
 `sendMessage` runs the mailbox down before it answers, and `stop` before it runs
-`onStop`. So an actor is not yet a way to get work done in the background.
+`onStop`. So an actor is not yet a way to get work done in the background. A
+step that sends to its own actor gets `.Err(.Stopped)` rather than waiting for
+itself, and the message it posted is stepped once the step returns.
 
 `core/net/http` documents `Request` and `Response`, the two types `Net.fetch`
 speaks in. It re-exports them from `core/effect`, where the effect's own
