@@ -13,23 +13,14 @@ overloading, macros, reflection.
 ## Not in v0.3
 
 Loops, and the `|>` pipe operator. Both were specified for this version, then
-cut.
+cut. Neither bought expressive power: `for (x in xs) with (acc = init) { body }`
+desugars to the tail-recursive local function `xs.fold` already is, and a tail
+call costs one frame (Section 8.3.1); method syntax (Section 6.7) chains
+operations that belong to a type with no import, and cutting `|>` freed the
+receiver to move to the front of the argument list (Section 10.7).
 
-There is no `for` and no `while`. The sugar that was specified — `for (x in xs)
-with (acc = init) { body }` — desugared to a tail-recursive local function,
-which is exactly what `xs.fold(fn(n, x) => n + x, 0)` already is. So it bought
-familiar syntax and no new expressive power, and charged a `Range` type, two new
-operators, and a body typing rule that changed shape with its `with` clause.
-Write the fold, or write the recursion; a tail call costs one frame (Section
-8.3.1).
-
-There is no `x |> f(a)` either. Method syntax (Section 6.7) chains operations
-that belong to a type, and resolves them with no import. Cutting the operator
-also freed the receiver to move to the front of the argument list (Section
-10.7).
-
-`resolved-questions.md` has the full argument for both, and the case a future
-proposal has to beat.
+[`resolved-questions.md`](./resolved-questions.md) has the full argument for
+both, and the case a future proposal has to beat.
 
 ## Deferred to a later version
 
@@ -51,7 +42,7 @@ would not pay:
 1. **A struct is already an array** in the JavaScript representation, so
    `[Point]` is an array of arrays. A columnar `{ xs: [Float], ys: [Float] }`
    really is faster in a JIT, but you get that today by writing the two-field
-   struct yourself, and a library adds nothing.
+   struct yourself.
 2. **You cannot type a generic `MultiArrayList<T>`.** Exposing "column *i* of
    `T`, at `T`'s *i*-th field type" needs dependent or row types, and Section 5.5
    has no records.
@@ -71,23 +62,21 @@ value, so a handler takes an `Arguments` and asks it by name instead.
    charges for it in effectful higher-order code: every effectful traversal goes
    through a `*Ctx` combinator or hand-written recursion. The alternative encodes
    a captured-effect row in the function type, say
-   `fn(Str) => Str uses { fs: Fs }`. That is more expressive, but it adds an
-   effect system to a language whose selling point is not having one. This is
-   the language's sharpest unresolved
-   trade-off, and cutting loops put the full cost back on it. Traits do not help:
-   a trait method that needs an effect must declare the context in its signature.
-   Honest, but not convenient.
+   `fn(Str) => Str uses { fs: Fs }` — more expressive, but it adds an effect
+   system to a language whose selling point is not having one. This is the
+   language's sharpest unresolved trade-off, and cutting loops put the full cost
+   back on it. Traits do not help: a trait method that needs an effect must
+   declare the context in its signature.
 2. *`Alloc` granularity.* Demanding `Alloc` for every size-dependent result is
    principled and noisy. Only real code can say whether the noise is worth the
    guarantee.
 3. *Indexing returns `Option`.* Correct, and occasionally miserable. A
    `list.getOr(default, i, xs)` helper and better pattern matching over arrays
    may absorb most of the pain.
-4. *Trampolining higher-order tail calls.* Section 8.3.1 says how to eliminate
-   tail calls on a target with no native support, and the first two cases are
+4. *Trampolining higher-order tail calls.* Section 8.3.1's first two cases are
    exact and free. The third — a tail call through a value of function type —
    costs an allocation per bounce, and nobody knows how often that shape turns up
-   in real Buri code. If it turns out to be common, the fix is probably call-site
+   in real Buri code. If it is common, the fix is probably call-site
    specialization rather than a language change.
 5. *Methods are not extensible, and not available on type variables* (6.7.3).
    Resolving through the receiver's defining module keeps methods import-free and
@@ -96,23 +85,19 @@ value, so a handler takes an `Arguments` and asks it by name instead.
    extending a foreign type. Neither gap has a fix that keeps resolution
    import-free and collision-free.
 6. *Whether the compilation invariants survive contact with real features.*
-   `cli/src/docs/guides/compile-speed.md` writes them down, which is the point,
-   but every one is the kind of property a reasonable-looking addition erodes.
-   Interleaving name resolution with type inference is the fragile one.
+   `cli/src/docs/guides/compile-speed.md` writes them down, and every one is the
+   kind of property a reasonable-looking addition erodes. Interleaving name
+   resolution with type inference is the fragile one.
 7. *Holding the line on 5.12.5.* Restricted traits are cheap precisely because
    resolution is a lookup. Each deferred feature — blanket impls, associated
    types, `where` chains, foreign impls — looks reasonable on its own, and
-   together they turn the lookup into a search. By then the compiler's
-   architecture assumes constant-time resolution. The risk is not what it cost to
+   together they turn the lookup into a search. The risk is not what it cost to
    build; it is how hard it will be to refuse the next request.
 8. *Must-use is hard-coded to `Result` (5.7.1).* A general `@mustUse` marker on
-   user types would be more honest than a compiler that knows one type by name,
-   but it would be the first attribute syntax in a language with none, and
-   `Result` covers the case that actually bites. Revisit if a second must-use
-   type shows up in practice.
+   user types would be more honest, but it would be the first attribute syntax in
+   a language with none, and `Result` covers the case that actually bites.
+   Revisit if a second must-use type shows up in practice.
 
-An answered question leaves this list. `resolved-questions.md` keeps the ones
-that did, with what the answer cost.
-
-A bare "Section N.M" above points at a section of the language reference, under
-[`cli/src/docs/language/`](../cli/src/docs/language/).
+An answered question leaves this list; `resolved-questions.md` keeps the ones
+that did. A bare "Section N.M" above points at a section of the language
+reference, under [`cli/src/docs/language/`](../cli/src/docs/language/).
