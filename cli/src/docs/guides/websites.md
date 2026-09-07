@@ -242,9 +242,19 @@ the same disagreement from the other end, a node the markup has and the tree
 never accounted for. A resume that guessed would leave the reader looking at
 both answers, so it stops and names what it found.
 
-Text is the exception: a run that differs is written rather than refused,
-because the numbers a page renders come from a state that is allowed to have
-moved on.
+Text and attributes are the exception: a run of text or an attribute that
+differs is written rather than refused, because the numbers a page renders come
+from a state that is allowed to have moved on. What is refused is the *shape* —
+an element that is not there, one that is not the same element, or one the tree
+never accounted for.
+
+Resume once. A second `resume` on the same document walks markup the first one
+has already taken over, so it answers the same `.Err`.
+
+A worker's tree holds no `field` and no `toggle`. Both bind to a `Signal`, and
+only `Ui` makes one — which a worker does not have. Render the shell of a form
+on the server and build the fields on the page, or make the whole form a page
+that mounts rather than resumes.
 
 ## Location is the page's alone
 

@@ -62,6 +62,11 @@ from "ui/prop" import { Prop };
 /// once, a `choose` renders the branch its condition takes, and an `each`
 /// renders the rows the list has. Handlers are never called, because what this
 /// answers is text.
+///
+/// An element that holds nothing still writes its closing tag — `<main></main>`
+/// — except for the ones HTML says hold nothing, which close themselves:
+/// `<img />`, `<input />`, `<hr />`. A parser reads `<main />` as an opening tag
+/// and puts the rest of the page inside it.
 export fn render<C>(root: Node<C>): Str;
 
 /// The document `body` goes in, with `state` embedded in it for the page to
@@ -110,6 +115,14 @@ fn stylesheet(): Str;
 ///
 /// Build `root` from the state the worker sent, which `state` answers before
 /// this is called. A tree built from something else does not match the markup.
+///
+/// What the markup says is its *shape*: an element that is not there, one that
+/// is not the same element, or one the tree never accounted for. A run of text
+/// or an attribute that differs is written rather than refused, because a page
+/// renders from a state that is allowed to have moved on.
+///
+/// Resume once. A second call walks markup the first one has already taken
+/// over, and answers the same `.Err`.
 ///
 /// `.Err` twice: a platform with nowhere to resume — a browser whose document
 /// has no body yet, or a JavaScript host with no document at all — and a tree
