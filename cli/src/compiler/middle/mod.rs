@@ -23,9 +23,9 @@
 //! in layer A.
 //!
 //! ```text
-//! monomorphize -> inline -> dce -> tail_calls -> decision
-//!                                                   |
-//!                 +---------------------------------+
+//! monomorphize -> inline -> dce -> tail_calls -> decision -> chunks
+//!                                                              |
+//!                 +--------------------------------------------+
 //!                 |                                 |
 //!                js       derives -> fuse -> closures -> rc -> layout -> lower -> ir
 //!                                                                               |
@@ -56,6 +56,7 @@
 //! with no module behind it, is visible from this file alone. See
 //! `design/native/BUILD-AND-WATCH.md` §5.
 
+pub mod chunks;
 pub mod closures;
 pub mod dce;
 pub mod decision;
@@ -81,6 +82,12 @@ use crate::compiler::middle::monomorphize::Program;
 #[derive(Default)]
 pub struct Options {
     pub inline: inline::Options,
+    /// Whether this artifact can have chunks beside it.
+    ///
+    /// `false` is the answer for a native build, which is one file, and it is
+    /// the default because every caller that is not building a JavaScript
+    /// artifact wants `core/lazy`'s `load` to be the identity it promises.
+    pub split_lazy: bool,
 }
 
 /// Layer A: the passes every backend's input has been through.
@@ -101,6 +108,10 @@ pub fn run(program: &mut Program, opts: &Options) {
     // inside the one that has them today.
     tail_calls::rewrite(program);
     decision::run(program);
+    // Last, because a chunk is a partition of the functions there *are*: an
+    // inlined body, a dropped one and a merged tail-call group all move the
+    // line this pass draws.
+    chunks::run(program, opts.split_lazy);
 }
 
 /// The extra passes the native branch runs, after [`run`] and before

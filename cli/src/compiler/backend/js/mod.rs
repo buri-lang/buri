@@ -88,18 +88,31 @@ impl Backend for Js {
         let out = generate::generate(program, tables, opts.profile, opts.target.platform);
         // Debug builds stay readable: the names are what make a stack trace
         // useful, and `--release` is where size matters.
-        let stmts = javascript::minify(out.stmts, &out.roots, release);
-        let bytes = javascript::print(&stmts, !release).into_bytes();
-        // One unit, always. `Vec<Emitted>` is the shape because the native
-        // backends emit one object per codegen unit and relink only the ones
-        // that moved; a special case for the backend that has one unit would
-        // be a second code path through the build system for the only backend
-        // currently covered by tests.
-        Ok(vec![Emitted {
+        let render = |stmts: Vec<javascript::Stmt>, roots: &[String]| {
+            let stmts = javascript::minify(stmts, roots, release);
+            javascript::print(&stmts, !release).into_bytes()
+        };
+        // Unit zero is the artifact; the rest are its `core/lazy` chunks, in
+        // the order `middle::chunks` numbered them — which is the order
+        // `$lazy(n)` asks for them in and the order the build system names the
+        // files by. Nearly every program has exactly the one.
+        let generate::Output { stmts, roots, chunks, .. } = out;
+        let mut emitted = Vec::with_capacity(chunks.len().saturating_add(1));
+        let bytes = render(stmts, &roots);
+        emitted.push(Emitted {
             name: String::from("main.mjs"),
             key: crate::build::cache::ActionKey::of(&bytes),
             bytes,
-        }])
+        });
+        for (n, chunk) in chunks.into_iter().enumerate() {
+            let bytes = render(chunk.stmts, &chunk.roots);
+            emitted.push(Emitted {
+                name: format!("chunk.{n}.mjs"),
+                key: crate::build::cache::ActionKey::of(&bytes),
+                bytes,
+            });
+        }
+        Ok(emitted)
     }
 }
 

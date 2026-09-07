@@ -1971,6 +1971,7 @@ mod tests {
         assert!(!diags.has_errors(), "monomorphization failed");
         let opts = middle::Options {
             inline: crate::compiler::middle::inline::Options { inline },
+            ..middle::Options::default()
         };
         middle::run(&mut program, &opts);
         middle::native(&mut program);

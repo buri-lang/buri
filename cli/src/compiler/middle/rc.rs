@@ -1396,6 +1396,12 @@ pub fn suspends(key: &str) -> bool {
                 | "actor.mailboxPush"
                 | "actor.mailboxClose"
         )
+        // A `core/lazy` chunk node. It waits on a file the program has not
+        // fetched yet, which is the longest wait in the list on a cold page —
+        // and unlike everything above it, it is spelled as an inline
+        // `ExprKind::Intrinsic` rather than reached through a declaration, so
+        // `body_parks` is what asks.
+        || crate::compiler::backend::intrinsic_keys::lazy_chunk_of(key).is_some()
 }
 
 /// Whether an intrinsic key **hands a value of this program to another
@@ -5547,6 +5553,7 @@ export fn main(): Result<(), Str> {
             stylesheet: String::new(),
             inline_styles: false,
             themes: false,
+            chunks: Vec::new(),
         }
     }
 
