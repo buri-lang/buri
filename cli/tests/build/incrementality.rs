@@ -1449,3 +1449,174 @@ fn fail_on_finding_reaches_a_cached_finding() {
     assert_eq!(status(&warm, "lint //lib/kit"), "cached", "the finding was not a cached one");
     assert_eq!(warm.stderr, cold.stderr, "a cached finding was not promoted");
 }
+
+// ---------------------------------------------------------------------------
+// A generator's key
+// ---------------------------------------------------------------------------
+
+/// A repository whose generated code depends on three separate things.
+///
+/// `//cmd/gen` writes one `export let` whose value is the number in its input
+/// times a constant it imports from `//lib/factor`. So the generated module
+/// moves when the input moves, when the tool's own source moves, and when the
+/// *tool's dependency* moves — three edits reaching one artifact by three
+/// routes. `//lib/other` is on none of them.
+fn generated_repository(name: &str) -> Scratch {
+    let scratch = Scratch::repo(name);
+    scratch
+        .write("lib/factor/BUILD.buri", "library {\n    visibility: [\"//visibility:public\"]\n}\n");
+    scratch.write("lib/factor/lib.buri", "export fn factor(): Int { 2 }\n");
+    scratch.write(
+        "cmd/gen/BUILD.buri",
+        "binary {\n    dependencies: [\"//lib/factor\"]\n\n    outputs: [{ platform: JS }]\n}\n",
+    );
+    scratch.write("cmd/gen/main.buri", GENERATOR);
+    scratch.write(
+        "lib/wire/BUILD.buri",
+        "library {\n    generators: [{ tool: \"//cmd/gen\", inputs: [\"units.txt\"] }]\n\n    \
+         visibility: [\"//visibility:public\"]\n}\n",
+    );
+    scratch.write("lib/wire/units.txt", "3\n");
+    scratch.write("lib/wire/lib.buri", "from \"//lib/wire/units\" export { width };\n");
+    scratch
+        .write("lib/other/BUILD.buri", "library {\n    visibility: [\"//visibility:public\"]\n}\n");
+    scratch.write("lib/other/lib.buri", "export fn unrelated(): Int { 1 }\n");
+    scratch.write(
+        "cmd/app/BUILD.buri",
+        "binary {\n    dependencies: [\"//lib/other\", \"//lib/wire\"]\n\n    \
+         outputs: [{ platform: JS }]\n}\n",
+    );
+    scratch.write(
+        "cmd/app/main.buri",
+        "from \"core/effect\" import { Alloc, Stdout };\n\
+         from \"core/host\" import * as host;\n\
+         from \"core/io\" import * as io;\n\
+         from \"//lib/other\" import { unrelated };\n\
+         from \"//lib/wire\" import { width };\n\n\
+         export fn main(): Result<(), Str> {\n  \
+         let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  \
+         let _ = io.println(ctx, \"width=${width * unrelated()}\").ignore();\n  \
+         .Ok(())\n\
+         }\n",
+    );
+    scratch
+}
+
+/// The tool [`generated_repository`] runs: the input's number times the
+/// constant `//lib/factor` exports.
+const GENERATOR: &str = r#"from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "//lib/factor" import { factor };
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdin: host.stdin, Stdout: host.stdout };
+  let line = io.readLine(ctx).okOr("no request")?;
+  let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
+  let text = firstInput(request).withDefault("0");
+  let n = text.trim().toInt().withDefault(0) * factor();
+  let source = str.format(ctx, "export let width: Int = ${n};\n");
+  let unit: Json = .Object([
+    ("name", .Str("units")),
+    ("text", .Str(source)),
+    ("anchors", .Array(list.empty())),
+  ]);
+  let response: Json = .Object([
+    ("modules", .Array([unit])),
+    ("diagnostics", .Array(list.empty())),
+  ]);
+  let _ = io.println(ctx, "${json.stringify(ctx, response)}").ignore();
+  .Ok(())
+}
+
+fn firstInput(request: Json): Option<Str> {
+  let inputs = match (request) {
+    .Object(fields) => fields.find(fn(f) => f.0 == "inputs").map(fn(f) => f.1),
+    _ => .None,
+  };
+  let items = match (inputs.withDefault(.Null)) {
+    .Array(xs) => xs,
+    _ => list.empty(),
+  };
+  let pair = match (items.get(0).withDefault(.Null)) {
+    .Array(xs) => xs,
+    _ => list.empty(),
+  };
+  match (pair.get(1).withDefault(.Null)) {
+    .Str(s) => .Some(s),
+    _ => .None,
+  }
+}
+"#;
+
+/// **Three routes to one generated module, and each edit takes exactly one.**
+///
+/// `generate`'s key is the tool plus the inputs. The tool is a *target*, so
+/// "the tool" is its whole closure — and the half that is easy to leave out is
+/// the tool's own dependency, which no file of the declaring rule mentions. An
+/// edit there that did not move the key would serve a generated module written
+/// by a program that no longer exists.
+///
+/// Each half has its negative twin, because a key that moves on everything
+/// proves as little as one that moves on nothing. And every step ends with what
+/// the program *prints*, so a key that moved without the artifact following it
+/// fails here rather than looking right.
+#[test]
+fn a_generate_key_moves_with_the_input_the_tool_and_the_tools_own_dependency() {
+    let scratch = generated_repository("explain-generate-keys");
+    scratch.run(&["run", "//cmd/app"]).ok().says("width=6");
+    let before = keys(scratch.run(&["build", "//...", "--explain"]).ok());
+
+    // A library on no path to the generator. Its own compile moves; nothing
+    // about generation does.
+    scratch.edit("lib/other/lib.buri", "{ 1 }", "{ 1 + 0 }");
+    let after = keys(scratch.run(&["build", "//...", "--explain"]).ok());
+    assert_ne!(before["compile //lib/other"], after["compile //lib/other"]);
+    assert_eq!(
+        before["generate //lib/wire"], after["generate //lib/wire"],
+        "an edit to a library the tool does not use re-ran the generator"
+    );
+    assert_eq!(before["link //cmd/gen"], after["link //cmd/gen"]);
+
+    // The input. Generation moves; the tool does not.
+    let before = after;
+    scratch.write("lib/wire/units.txt", "5\n");
+    let after = keys(scratch.run(&["build", "//...", "--explain"]).ok());
+    assert_ne!(
+        before["generate //lib/wire"], after["generate //lib/wire"],
+        "editing an input did not move the generate key"
+    );
+    assert_eq!(
+        before["link //cmd/gen"], after["link //cmd/gen"],
+        "editing an input rebuilt the tool"
+    );
+    scratch.run(&["run", "//cmd/app"]).ok().says("width=10");
+
+    // The tool's own source. Both move, and no source of `//lib/wire` was
+    // touched.
+    let before = after;
+    scratch.edit("cmd/gen/main.buri", "* factor()", "* factor() + 1");
+    let after = keys(scratch.run(&["build", "//...", "--explain"]).ok());
+    assert_ne!(before["link //cmd/gen"], after["link //cmd/gen"]);
+    assert_ne!(
+        before["generate //lib/wire"], after["generate //lib/wire"],
+        "editing the tool did not move the generate key"
+    );
+    scratch.run(&["run", "//cmd/app"]).ok().says("width=11");
+
+    // The tool's *dependency*, which is the half a key built from the tool's
+    // own bytes would miss.
+    let before = after;
+    scratch.edit("lib/factor/lib.buri", "{ 2 }", "{ 3 }");
+    let after = keys(scratch.run(&["build", "//...", "--explain"]).ok());
+    assert_ne!(before["compile //lib/factor"], after["compile //lib/factor"]);
+    assert_ne!(
+        before["generate //lib/wire"], after["generate //lib/wire"],
+        "editing a library the tool is built from did not move the generate key"
+    );
+    scratch.run(&["run", "//cmd/app"]).ok().says("width=16");
+}
