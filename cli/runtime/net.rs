@@ -89,13 +89,13 @@
 //!
 //! **`quinn` still costs the archive nothing**, which is the argument for
 //! landing a crate a slice ahead of its caller all over again: turning `net-h3`
-//! on changes the figure above by tens of bytes and not by a QUIC
-//! implementation, because the whole crate is dropped by `lto = "fat"` while
+//! on changes the figure above by 4 544 bytes and not by a QUIC
+//! implementation, because the whole crate is dropped by the LTO while
 //! nothing calls it. The price of HTTP/3 is a number the slice that drives it
 //! will produce and not one this slice had to guess at.
 //!
 //! Twenty-four bytes was what four unreferenced crates cost, because
-//! `lto = "fat"` is whole-program across the dependency rlibs and Rust code
+//! the LTO is whole-program across the dependency rlibs and Rust code
 //! that nothing reaches does not reach the archive. What LTO cannot touch is a
 //! dependency's **native** object code: about 845 KB of the TLS figure is
 //! `ring`'s C and AArch64 assembly, which a `staticlib` bundles whether the
