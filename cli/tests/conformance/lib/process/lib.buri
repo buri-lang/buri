@@ -1,0 +1,6 @@
+// The process conformance package.
+//
+// `core/proc`: a `Command`, what `run` hands the `Spawn` effect, and where
+// `which` looks. The double records what was run and answers what the test
+// scripted, so nothing here starts a program — `native::e2e` is where a real
+// child runs.

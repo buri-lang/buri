@@ -2412,12 +2412,16 @@ function $signalNumber(name) {
 //
 // Draining while it runs is what keeps a child that writes more than a pipe
 // holds from deadlocking, and it is why this is `spawn` and a promise rather
-// than `spawnSync`. An empty `workingDirectory` means this process's own, and
-// `environment` is name and value alternating and used only when
-// `replaceEnvironment` says so — the encoding `core/proc`'s `run` writes.
-async function $host_HostSpawn_spawnProcess(self, program, args, at, environment, replace, input) {
+// than `spawnSync`. `plan` is the program, the working directory — empty for
+// this process's own — and then the arguments, and `environment` is name and
+// value alternating and used only when `replace` says so: the encoding
+// `core/proc`'s `run` writes and `effect Spawn` argues for.
+async function $host_HostSpawn_spawnProcess(self, plan, environment, replace, input) {
   const cp = $childProcessOrNull();
   if (cp === null) return $err([6, "this platform cannot start a process"]);
+  const program = plan.length > 0 ? plan[0] : "";
+  const at = plan.length > 1 ? plan[1] : "";
+  const args = plan.slice(2);
   const options = {};
   if (at !== "") options.cwd = at;
   if (replace) {
@@ -5691,8 +5695,11 @@ function $host_testing_newSpawn() {
   return $tmint({ calls: [] });
 }
 
-function $host_testing_recordSpawn(h, program, args) {
-  $tslot(h).calls.push([program, args.slice()]);
+// The plan is the program, the working directory and then the arguments, and
+// the split happens here for the reason `host_testing.buri` gives: a Buri body
+// would need an `Alloc` and an effect method takes only `self`.
+function $host_testing_recordSpawn(h, plan) {
+  $tslot(h).calls.push([plan.length > 0 ? plan[0] : "", plan.slice(2)]);
   return 0;
 }
 

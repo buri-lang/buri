@@ -2568,26 +2568,27 @@ pub extern "C" fn buri_rt_host_testing_new_spawn() -> i64 {
     install(Slot::Spawn { calls: Vec::new() })
 }
 
-/// `recordSpawn(handle, program, arguments)` — one command, recorded.
+/// `recordSpawn(handle, plan)` — one command, recorded.
 ///
 /// The program and its arguments and nothing else: a `SpawnCall` a test writes
 /// down should be short enough to read.
 ///
 /// # Safety
-/// The program is a live `Str` view and `xs` points at `count` [`BuriStr`]s.
+/// `xs` points at `count` [`BuriStr`]s.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_host_testing_record_spawn(
     handle: i64,
-    _base: *mut u8,
-    ptr: *const u8,
-    len: u64,
     xs: *const u8,
     count: u64,
 ) {
-    // SAFETY: the caller promises the range.
-    let program = String::from_utf8_lossy(unsafe { view(ptr, len) }).into_owned();
     // SAFETY: forwarded to the caller.
-    let arguments = unsafe { strings(xs, count) };
+    let plan = unsafe { strings(xs, count) };
+    // The plan is the program, the working directory and then the arguments,
+    // which is `spawnProcess`'s own encoding: the split happens here because a
+    // Buri body would need an `Alloc` to make the two lists and an effect
+    // method takes only `self`.
+    let program = plan.first().cloned().unwrap_or_default();
+    let arguments: Vec<String> = plan.iter().skip(2).cloned().collect();
     with(handle, (), |slot| {
         if let Slot::Spawn { calls } = slot {
             calls.push(SpawnLog { program, arguments });

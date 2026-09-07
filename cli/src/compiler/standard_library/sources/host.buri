@@ -172,9 +172,7 @@ export struct HostSpawn {}
 impl Spawn for HostSpawn {
     fn spawnProcess(
         self,
-        program: Str,
-        arguments: [Str],
-        workingDirectory: Str,
+        plan: [Str],
         environment: [Str],
         replaceEnvironment: Bool,
         stdin: [U8],

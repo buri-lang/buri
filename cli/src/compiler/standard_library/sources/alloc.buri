@@ -649,21 +649,12 @@ impl<C: Proc> Proc for Scoped<C> {
 impl<C: Spawn> Spawn for Scoped<C> {
     fn spawnProcess(
         self,
-        program: Str,
-        arguments: [Str],
-        workingDirectory: Str,
+        plan: [Str],
         environment: [Str],
         replaceEnvironment: Bool,
         stdin: [U8],
     ): Result<Output, IoError> {
-        self.0.spawnProcess(
-            program,
-            arguments,
-            workingDirectory,
-            environment,
-            replaceEnvironment,
-            stdin,
-        )
+        self.0.spawnProcess(plan, environment, replaceEnvironment, stdin)
     }
 }
 
