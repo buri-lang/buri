@@ -7,7 +7,7 @@ fix: use it, delete the `let`, or write `_` in its place
 adapted-from: habit-hooks (https://github.com/habit-hooks/habit-hooks) guides/unused-variable.md, © 2026 Ivett Ördög, used under the MIT license
 ---
 An unused local is dead weight: every reader has to prove to themselves that it
-does not matter. It usually means one of three things.
+does not matter. It is usually one of three things.
 
 - A computation whose result nobody consumes. Delete the computation, not just
   the binding.
@@ -17,4 +17,3 @@ does not matter. It usually means one of three things.
 Decide which it is before deleting. If the right-hand side has side effects you
 still need, keep the call but drop the binding. If the value was meant to be
 returned or passed on, finish that thread rather than silencing the warning.
-Suppressing it with a throwaway name hides the question instead of answering it.

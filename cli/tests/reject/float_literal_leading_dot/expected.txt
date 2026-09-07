@@ -12,12 +12,9 @@ error: expected an identifier, found `5` [unexpected-token]
     ──────────
 
     Write what the message names. This is the parser's catch-all, so the useful
-    half of it is always the "expected" part.
-
-    A mistake the parser can name — a separator, a terminator, an arrow, a
-    delimiter that never closed — carries its own code and says which construct
-    wanted it. This one is what is left: a token that begins nothing the grammar
-    admits, in a position where several things would have fitted.
+    half of it is always the "expected" part. A mistake the parser can name — a
+    separator, a terminator, an arrow, a delimiter that never closed — carries
+    its own code instead.
 
 error: there is nothing named `half` in scope [unresolved-name]
  --> cmd/float_literal_leading_dot/main.buri:9:30
@@ -37,6 +34,6 @@ error: there is nothing named `half` in scope [unresolved-name]
     ───
 
     There is no prelude and no ambient scope. A module's available names are the
-    ones it declares plus the ones its own imports name. That is what makes the
-    suggestion trustworthy: it is drawn from exactly the set the file put there.
+    ones it declares plus the ones its own imports name, which is what makes the
+    suggestion trustworthy.
 

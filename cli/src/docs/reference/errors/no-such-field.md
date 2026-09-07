@@ -16,7 +16,7 @@ Correct the spelling, or name a field the type declares.
 ## Why
 
 There is no structural typing and no inheritance. A value's fields are exactly
-the ones its declaration lists, which is also how the diagnostic can offer the
+the ones its declaration lists, which is how the diagnostic can offer the
 nearest name the type does have.
 
 ## A program that provokes it

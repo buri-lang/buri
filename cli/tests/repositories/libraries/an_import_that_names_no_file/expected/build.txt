@@ -59,11 +59,6 @@ error: there is no type `Cents` [unresolved-type]
   |
   = fix: declare it, import it, or correct the spelling
 
-    What to do
-    ──────────
-
-    Declare it, import it, or correct the spelling.
-
     Why
     ───
 
