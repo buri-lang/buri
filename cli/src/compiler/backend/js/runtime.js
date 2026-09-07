@@ -2303,6 +2303,240 @@ function $host_HostProc_exitWith(self, code) {
   return 0;
 }
 
+// --- Sockets and WebSocketClient --------------------------------------------
+//
+// A page cannot hold a port open, so `Listen` is not granted here and there is
+// no acceptor in this file. What a page *can* do is dial somebody else's
+// socket, and these five bodies are that: `connectSocket` mints a socket,
+// `connectReceive` reads it, and `Sockets`' three methods write on it.
+//
+// All of it runs on the platform's own `WebSocket` — node 22 and later, Bun,
+// and every browser — so there is no dependency and no build step behind any
+// of this.
+//
+// `$wsLive` is the whole of the state: one row per socket a program still
+// holds, keyed by the number it carries around. A row is the `WebSocket`, a
+// queue of frames that have arrived and nobody has asked for, and a queue of
+// callers waiting for one. **That pairing is the point.** A message that lands
+// while nobody is asking goes on the first queue and is answered by the next
+// `connectReceive`, so nothing is lost between two reads — which is exactly
+// what awaiting the event itself would get wrong.
+const $wsLive = new Map();
+let $wsNext = 1;
+
+// `Frame`'s three variants and the three `ServeFailure` causes this file
+// answers with, as the indices `core/effect` declares them in. A payloadless
+// enum is its variant index in generated code, so these are the whole of the
+// mapping.
+const $FRAME_TEXT = 0;
+const $FRAME_BINARY = 1;
+const $FRAME_CLOSED = 2;
+const $SERVE_UNSUPPORTED = 3;
+const $SERVE_CLOSED = 5;
+const $SERVE_TRANSPORT = 6;
+
+// One thing that arrived, handed to whoever is waiting or queued for whoever
+// asks next.
+function $wsArrived(row, item) {
+  const waiting = row.waiting.shift();
+  if (waiting) {
+    waiting(item);
+  } else {
+    row.frames.push(item);
+  }
+}
+
+// A close event as the wire number `Received.code` carries. RFC 6455 reserves
+// 1005 for "the far side sent no code" and 1006 for "there was no close frame
+// at all"; `core/net/server`'s `reasonOf` reads both as `.Abnormal`.
+function $wsCloseCode(event) {
+  if (event.wasClean === false) return 1006;
+  const code = Number(event.code);
+  return code > 0 ? code : 1005;
+}
+
+// A binary message, as the array of numbers a `[U8]` is. `binaryType` asks for
+// an `ArrayBuffer` and the engines here honour it, but a `Blob` costs one
+// `await` to read and a runtime that hands one over should still work.
+async function $wsOctets(data) {
+  if (data instanceof ArrayBuffer) return Array.from(new Uint8Array(data));
+  if (ArrayBuffer.isView(data)) {
+    return Array.from(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+  }
+  return Array.from(new Uint8Array(await data.arrayBuffer()));
+}
+
+// What a page can know about the handshake, and it is less than a native
+// program knows. The browser's `WebSocket` never shows the response, so the
+// two fields it does expose are the two headers here — the negotiated
+// subprotocol and extensions — and nothing else. On LINUX and MACOS
+// `Connected.headers` is the head the server actually sent, so a reader should
+// not take the two for the same list. Names are lowercase, which is what
+// `Header` states.
+function $wsHandshakeHeaders(ws) {
+  const out = [];
+  if (ws.protocol) out.push(["sec-websocket-protocol", ws.protocol]);
+  if (ws.extensions) out.push(["sec-websocket-extensions", ws.extensions]);
+  return out;
+}
+
+// Whether this is a URL a WebSocket can be dialled on at all, and the scheme to
+// name when it is not. A scheme the platform does not speak is `.Unsupported`,
+// which is a fact about the platform; everything that goes wrong once the dial
+// has started is `.Transport`, which is a fact about the attempt. Keeping the
+// two apart is what lets this backend and the native one answer the same value.
+function $wsDials(url) {
+  return url.startsWith("ws://") || url.startsWith("wss://");
+}
+
+function $wsScheme(url) {
+  const mark = url.indexOf("://");
+  return mark > 0 ? url.slice(0, mark) : url;
+}
+
+// The close reason rides in the close frame, which leaves 123 octets for it,
+// and a longer one throws. So it is cut to fit rather than losing the close —
+// and cut on a character boundary, by stepping back over any continuation
+// octets (`10xxxxxx`) the cut would have orphaned.
+function $wsReason(text) {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length <= 123) return text;
+  let end = 123;
+  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end -= 1;
+  return new TextDecoder().decode(bytes.subarray(0, end));
+}
+
+// `Sockets`' three, over the sockets `connectSocket` minted. Every one of them
+// is total and none of them waits, which is what `effect Sockets` declares: a
+// handle naming no open socket is one that has already gone, so the call is a
+// no-op. `()` is `0`, as everywhere else in this file.
+function $host_HostSockets_socketSendText(self, socket, text) {
+  const row = $wsLive.get(Number(socket));
+  if (row === undefined) return 0;
+  row.ws.send(text);
+  return 0;
+}
+
+function $host_HostSockets_socketSendBytes(self, socket, body) {
+  const row = $wsLive.get(Number(socket));
+  if (row === undefined) return 0;
+  row.ws.send(new Uint8Array(body));
+  return 0;
+}
+
+function $host_HostSockets_socketClose(self, socket, code, reason) {
+  const row = $wsLive.get(Number(socket));
+  if (row === undefined) return 0;
+  // A page may only send 1000 or a private code in 3000–4999; every other
+  // number throws. So the rest — 1001 for going away, 1011 for an internal
+  // error — go out as 1000, because closing for the wrong reason beats not
+  // closing at all.
+  const wanted = Number(code);
+  const sent = wanted === 1000 || (wanted >= 3000 && wanted <= 4999) ? wanted : 1000;
+  row.ws.close(sent, $wsReason(reason));
+  // The row stays until `connectReceive` answers the close: `.Closed` is the
+  // last thing a socket says, and it has not said it yet.
+  return 0;
+}
+
+// Dials a socket and completes the handshake.
+//
+// The handlers go on before the open is awaited, so a message that arrives in
+// the same turn as the open lands on the queue instead of in the gap between
+// two `addEventListener` calls. Before the socket is open an `error` or a
+// `close` is the handshake failing; after it, both are the socket ending.
+async function $host_HostWebSocketClient_connectSocket(self, url) {
+  if (typeof globalThis.WebSocket !== "function") {
+    return $err([
+      $SERVE_UNSUPPORTED,
+      "this runtime has no WebSocket: node before 22 is the usual reason",
+    ]);
+  }
+  // The scheme is checked before anything is constructed, so a scheme this
+  // platform cannot speak is `.Unsupported` rather than whatever sentence the
+  // constructor would have thrown.
+  if (!$wsDials(url)) {
+    const said = "a WebSocket speaks ws:// and wss://, and not " + $wsScheme(url);
+    return $err([$SERVE_UNSUPPORTED, said]);
+  }
+  let ws;
+  try {
+    ws = new globalThis.WebSocket(url);
+  } catch (e) {
+    // A malformed URL, or a page refusing an insecure socket on a secure
+    // origin — the constructor is where both are reported, and its own message
+    // says which.
+    return $err([$SERVE_TRANSPORT, String((e && e.message) || e)]);
+  }
+  ws.binaryType = "arraybuffer";
+  const row = { ws, frames: [], waiting: [], open: false };
+  let settle;
+  const opening = new Promise((r) => {
+    settle = r;
+  });
+  ws.onopen = () => {
+    row.open = true;
+    settle(null);
+  };
+  ws.onmessage = (e) => {
+    if (typeof e.data === "string") {
+      $wsArrived(row, { frame: $FRAME_TEXT, text: e.data });
+    } else {
+      $wsArrived(row, { frame: $FRAME_BINARY, data: e.data });
+    }
+  };
+  ws.onerror = () => {
+    if (row.open) {
+      // An `error` on an open socket is the connection breaking, and the
+      // wire has no number for that: 1006 is what it is called.
+      $wsArrived(row, { frame: $FRAME_CLOSED, code: 1006 });
+    } else {
+      settle("the connection failed before the handshake finished");
+    }
+  };
+  ws.onclose = (e) => {
+    if (row.open) {
+      $wsArrived(row, { frame: $FRAME_CLOSED, code: $wsCloseCode(e) });
+    } else {
+      settle("the socket closed before the handshake finished");
+    }
+  };
+  // One await on a promise three handlers resolve. Nothing spins and nothing
+  // blocks, so a page keeps rendering while this is in flight — the same
+  // thing that let `Net.fetch` onto a page.
+  const failed = await opening;
+  if (failed !== null) return $err([$SERVE_TRANSPORT, failed]);
+  const handle = $wsNext++;
+  $wsLive.set(handle, row);
+  // The status is `101` and the body is empty because a handshake that
+  // finished answered `101` with no body, and a page never sees either.
+  return $ok([BigInt(handle), 101n, $wsHandshakeHeaders(ws), []]);
+}
+
+// The next thing on that socket, awaited if nothing has arrived yet.
+//
+// A ping and a pong never reach here: the browser answers them and a page
+// cannot see one, which is why `Frame` has three variants and not five.
+async function $host_HostWebSocketClient_connectReceive(self, socket) {
+  const key = Number(socket);
+  const row = $wsLive.get(key);
+  if (row === undefined) return $err([$SERVE_CLOSED, "this socket has already gone"]);
+  const item =
+    row.frames.length !== 0
+      ? row.frames.shift()
+      : await new Promise((arrive) => row.waiting.push(arrive));
+  if (item.frame === $FRAME_CLOSED) {
+    // `.Closed` is the last answer a socket gives. It leaves the table here,
+    // so a later `connectReceive` is `.Err(.Closed)` and a send to it is
+    // dropped — which is what makes "the close hook is the last thing that
+    // runs" true with no second call to release the socket.
+    $wsLive.delete(key);
+    return $ok([$FRAME_CLOSED, "", [], BigInt(item.code)]);
+  }
+  if (item.frame === $FRAME_TEXT) return $ok([$FRAME_TEXT, item.text, [], 0n]);
+  return $ok([$FRAME_BINARY, "", await $wsOctets(item.data), 0n]);
+}
+
 // --- core/actor -------------------------------------------------------------
 //
 // The mailbox, the state and the reply slots. Nine functions, and between them
@@ -4495,10 +4729,9 @@ function $test_replay(index) {
 // what the far side would be told, there is no far side, and a number nothing
 // can read back is state held for its own sake.
 
-// `Frame`'s two framings, as the variant indices `core/effect` declares. The
-// third, `.Closed`, is never written here: only the two sends write this log.
-const $SOCKET_TEXT = 0;
-const $SOCKET_BINARY = 1;
+// The framings are `$FRAME_TEXT` and `$FRAME_BINARY`, the same two indices the
+// client above writes. `$FRAME_CLOSED` never reaches this log: only the two
+// sends write it.
 
 function $host_testing_sockets() {
   return $handle({ sent: [] });
@@ -4538,17 +4771,87 @@ function $tsockpush(self, socket, frame, text, data) {
 }
 
 function $host_testing_TestSockets_socketSendText(self, socket, text) {
-  return $tsockpush(self, socket, $SOCKET_TEXT, text, []);
+  return $tsockpush(self, socket, $FRAME_TEXT, text, []);
 }
 
 function $host_testing_TestSockets_socketSendBytes(self, socket, body) {
-  return $tsockpush(self, socket, $SOCKET_BINARY, "", body.slice());
+  return $tsockpush(self, socket, $FRAME_BINARY, "", body.slice());
 }
 
 function $host_testing_TestSockets_socketClose(self, socket, code, reason) {
   if (!$tsockwritable(self[0], socket)) return 0;
   $tslot(socket).open = false;
   return 0;
+}
+
+// A WebSocket client with a script instead of a network: it connects once,
+// delivers the messages it was handed in order, and then closes normally.
+//
+// **It writes through the `sockets()` double it was built on** rather than
+// minting a socket of its own kind, and that is why it is that double's own
+// method. The socket it answers is a socket of that double's, so the program's
+// `socket.send(...)` lands in that double's `sent()` and its `socket.close(...)`
+// shows up in that double's `isOpen()`. One log, one test, no network.
+//
+// It takes the **handle** and answers a bare `I64`, like `socketsOpen` and the
+// two readers beside it. `dialling` is a Buri body that wraps the answer in a
+// `TestWebSocketClient`, so the crossing carries the number and nothing else.
+//
+// **Nothing here waits.** There is no timer, no promise and no deadline in any
+// of it — the script is already in hand, so answering the next message is a
+// read of an array. Both bodies are therefore plain functions, which is what
+// `core/host/testing` declares. And two `dialling(...)` calls are two
+// independent worlds, exactly as two `sockets()` calls are.
+function $host_testing_socketsDialling(handle, messages) {
+  return $tmint({
+    owner: Number(handle),
+    script: messages.slice(),
+    at: 0,
+    socket: -1,
+    gone: false,
+  });
+}
+
+function $host_testing_TestWebSocketClient_connectSocket(self, url) {
+  const s = $slot(self);
+  if (!$wsDials(url)) {
+    // The double's one signature failure, so a test can check the refusal path
+    // with no network behind it — and it is the real client's answer for the
+    // real client's reason.
+    const said = "this double dials ws:// and wss://, and not " + $wsScheme(url);
+    return $err([$SERVE_UNSUPPORTED, said]);
+  }
+  // The same mint `socketsOpen` uses, on the double this client was handed.
+  const socket = $tmint({ owner: s.owner, open: true });
+  s.socket = Number(socket);
+  return $ok([socket, 101n, [], []]);
+}
+
+function $host_testing_TestWebSocketClient_connectReceive(self, socket) {
+  const s = $slot(self);
+  const key = Number(socket);
+  if (s.socket !== key || s.gone) {
+    return $err([$SERVE_CLOSED, "this socket has already gone"]);
+  }
+  // Two ways for the stream to end and one answer to both: the script runs
+  // out, or the program closed the socket and the `TestSockets` double no
+  // longer reports it open. Code 1000 is what `core/net/server`'s `reasonOf`
+  // reads as `.Normal`.
+  if (s.at >= s.script.length || !$tsockwritable(s.owner, socket)) {
+    s.gone = true;
+    // The socket is shut on the double that owns it before the `.Closed` goes
+    // out, exactly as `socketClose` would shut it. So it is already closed
+    // while `onClose` runs, and a push from that hook is dropped rather than
+    // recorded — which is the promise `core/net/websocket` makes.
+    if ($tsockwritable(s.owner, socket)) $tslot(socket).open = false;
+    return $ok([$FRAME_CLOSED, "", [], 1000n]);
+  }
+  // A `Message` is `[tag, payload]`, and its two variants are declared in
+  // `Frame`'s order: 0 is `.Text(Str)` and 1 is `.Binary([U8])`.
+  const message = s.script[s.at];
+  s.at += 1;
+  if (message[0] === $FRAME_TEXT) return $ok([$FRAME_TEXT, message[1], [], 0n]);
+  return $ok([$FRAME_BINARY, "", message[1].slice(), 0n]);
 }
 
 // A fresh, empty log, and the handle that names it. A bare `I64` rather than a

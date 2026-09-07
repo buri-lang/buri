@@ -575,12 +575,17 @@ export effect Listen {
 /// appear in Buri code" is a rule about the code people write — so the mapping
 /// lives one layer up from here.
 ///
-/// **Granted on LINUX and MACOS**, on `Listen`'s terms, granted and withheld
-/// together with it. There is an acceptor behind these three now. `listenUpgrade`
-/// is what mints a socket, and a handle that names no open socket counts as one
-/// that has already gone. That is what the third method promises for a socket
-/// somebody closed, so a made-up handle and a spent one are deliberately
-/// indistinguishable.
+/// **Granted on every platform**, because there are two ways to come by a
+/// socket now and only one of them is a server's. `listenUpgrade` mints one on
+/// `LINUX` and `MACOS`; `WebSocketClient.connectSocket` mints one everywhere, a
+/// page included. So this effect is granted wherever *either* half is, which
+/// today is all four platforms. It used to be granted with `Listen` and only
+/// with it, and the sentence that read "a page neither accepts connections nor
+/// holds one to push on" was true right up until a page could dial one.
+///
+/// A handle that names no open socket counts as one that has already gone. That
+/// is what the third method promises for a socket somebody closed, so a made-up
+/// handle and a spent one are deliberately indistinguishable.
 export effect Sockets {
     /// Enqueues a text frame. Never waits: the frame goes to the socket's
     /// outbound buffer, and a socket whose buffer is full is closed rather than
@@ -602,6 +607,74 @@ export effect Sockets {
     /// message sent afterwards is dropped rather than refused: the other end may
     /// already be gone, so "did this arrive" was never answerable here.
     fn socketClose(self, socket: Int, code: Int, reason: Str): ();
+}
+
+/// Being a WebSocket client rather than a WebSocket server.
+///
+/// `Listen` is the accepting half: a program that holds a port, takes a
+/// connection, and upgrades it. This is the other half — a program that dials
+/// somebody else's socket and reads what they push at it. They are two
+/// authorities for the reason `Net` and `Listen` are two: dialling out is not
+/// accepting in, and a context that grants one should not grant the other by
+/// accident.
+///
+/// **Two methods, and they are `listenUpgrade` and `listenReceive` from the
+/// other end.** The first mints a socket, the second waits for what arrives on
+/// it, and everything between them — the framing, the masking, the ping and the
+/// pong, the close handshake — is the platform's exactly as it is for a server.
+/// `core/net/websocket` is the module a program calls, and its `Client` carries
+/// the same three hooks `core/net/server`'s `WebSocket` does.
+///
+/// **Writing on the socket is `Sockets`' and not this effect's.** A socket
+/// minted here is the same inert handle a server's is, so `socket.send` and
+/// `socket.close` are the same two methods over the same effect, and a client
+/// that pushes says `C: WebSocketClient + Sockets` where it is written. That is
+/// why `Sockets` is granted on all four platforms now and this one is too: the
+/// authority to write on a socket is worth having wherever a socket can be
+/// obtained, and a page can obtain one by dialling even though it can never
+/// accept one.
+///
+/// **Every method names the noun it acts on**, on `Sockets`' rule: a bare
+/// `connect` would have claimed a common verb out of the namespace every effect
+/// bound beside this one shares, and `receive` was the word `Listen` already
+/// declined to take.
+///
+/// **Granted on LINUX, MACOS, JS and WEB** — every platform. Dialling out is
+/// what a page does; it is holding a port open that a page cannot do. On WEB
+/// the two methods suspend without holding the event loop, which is the same
+/// thing that let `Net.fetch` onto a page.
+export effect WebSocketClient {
+    /// Dials `url` and completes the opening handshake, answering the socket and
+    /// the response that opened it.
+    ///
+    /// **Waits.** A name is resolved, a connection is made, and on `wss://` a
+    /// TLS handshake happens before a byte of WebSocket is spoken.
+    ///
+    /// `url` is `ws://…` or `wss://…`. Any other scheme is
+    /// `.Err(.Unsupported)`; a connection that could not be made, a server that
+    /// answered something other than `101`, and a handshake whose
+    /// `sec-websocket-accept` did not check out are `.Err(.Transport)` with a
+    /// sentence saying which.
+    ///
+    /// **Headers and a subprotocol are not arguments here.** A program that
+    /// wants either builds the URL and reads the answer: `Connected` carries the
+    /// response's own header fields, which is where a negotiated subprotocol
+    /// arrives.
+    fn connectSocket(self, url: Str): Result<Connected, ServeError>;
+
+    /// The next thing to arrive on a socket this effect minted.
+    ///
+    /// **Waits**, and it is `listenReceive` from the other end — the same
+    /// `Received`, the same three frames, the same rule that `.Closed` is the
+    /// last answer a socket gives and that asking again is `.Err(.Closed)`. It
+    /// flushes the outbound queue on its way in for the same reason, which is
+    /// what makes `socketSendText` a call that never waits on a client socket
+    /// either.
+    ///
+    /// **One caller per socket**, on `listenReceive`'s terms: two callers would
+    /// each get some of the stream, which is a program dividing its own messages
+    /// in half.
+    fn connectReceive(self, socket: Int): Result<Received, ServeError>;
 }
 
 derive Eq, Show for IoError;
@@ -844,6 +917,42 @@ export struct Received {
     /// the wire at all — an outbound buffer that filled, say — without a peer
     /// being able to claim the same thing by sending it.
     export code: Int,
+}
+
+derive Eq, Show for Connected;
+/// A WebSocket client's opening handshake, answered.
+///
+/// **Flat, and a struct rather than a pair**, which is `Received`'s shape for
+/// `Received`'s reason: `cli/runtime/lib.rs` §2.1 gives a non-enum value its own
+/// out-pointer and it crosses whole, so the runtime writes one shape and the
+/// program reads one shape. `core/net/websocket` builds the `Response` a program
+/// wanted out of the last three fields, on the Buri side of the boundary —
+/// exactly the division that puts `Message` one layer up from `Received`.
+///
+/// The response is the `101` the server answered, and it is where a negotiated
+/// subprotocol arrives. That is why a subprotocol is not an argument to
+/// `connectSocket`: a program asks for one by building the URL and the headers
+/// it dials with, and reads what it got here.
+export struct Connected {
+    /// The socket, on `listenUpgrade`'s terms: opaque, minted by the platform,
+    /// and the thing `Sockets`' three methods name.
+    export socket: Int,
+    /// The response's status. `101` on every handshake that finished, because a
+    /// handshake that answered anything else is an `.Err` and never reaches
+    /// here.
+    export status: Int,
+    /// The response's header fields, lowercased on the way in like every other
+    /// `Header` in this language.
+    ///
+    /// **A page knows less than a native program does.** The browser's own
+    /// `WebSocket` never shows the handshake response, so on `JS` and `WEB` this
+    /// carries what the platform does expose — the negotiated subprotocol and
+    /// extensions — and nothing else. On `LINUX` and `MACOS` it is the head the
+    /// server actually sent.
+    export headers: [Header],
+    /// The response's body. Empty on every handshake that finished: a `101`
+    /// carries none, and the octets after it are the socket.
+    export body: [U8],
 }
 
 derive Eq, Show for Method;

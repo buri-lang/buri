@@ -586,6 +586,7 @@ fn effect_binding(name: &str) -> Option<(&'static str, &'static str)> {
         "tasks" => ("__effect.Tasks", "tasks"),
         "listen" => ("__effect.Listen", "listen"),
         "sockets" => ("__effect.Sockets", "sockets"),
+        "websocketclient" => ("__effect.WebSocketClient", "websocketClient"),
         _ => return None,
     })
 }

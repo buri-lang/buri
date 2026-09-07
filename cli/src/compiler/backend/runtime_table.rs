@@ -616,6 +616,30 @@ pub const ENTRIES: &[Entry] = &[
         Ret::Void,
     ),
     e("host.HostSockets.socketClose", "buri_rt_host_sockets_socket_close", Ret::Void),
+    // -- WebSocketClient, the other way to come by a socket -----------------
+    //
+    // Two rows, and they are `listenUpgrade` and `listenReceive` from the
+    // client's end. `connectSocket` answers a `Connected` — a struct, so §2.1's
+    // second shape again: the socket and the `101`'s three fields come back
+    // through the out-pointer whole and `core/net/websocket` builds the
+    // `Response` a program wanted. `connectReceive` answers the *same*
+    // `Received` a server's socket does, because the socket a client dialled
+    // and the socket a server accepted are one value in one table in
+    // `cli/runtime/net.rs` — which is also why the three `Sockets` rows above
+    // needed nothing added to write on a client socket.
+    //
+    // `self` is `HostWebSocketClient`, an empty struct, so it flattens to
+    // nothing; the URL flattens to its three `Str` leaves by §2 rule 1.
+    e(
+        "host.HostWebSocketClient.connectSocket",
+        "buri_rt_host_web_socket_client_connect_socket",
+        Ret::Res,
+    ),
+    e(
+        "host.HostWebSocketClient.connectReceive",
+        "buri_rt_host_web_socket_client_connect_receive",
+        Ret::Res,
+    ),
     // -- core/alloc's counters ----------------------------------------------
     //
     // Four scalars in, one scalar out, and no context anywhere in them: the
@@ -947,6 +971,26 @@ pub const ENTRIES: &[Entry] = &[
         "host_testing.TestSockets.socketClose",
         "buri_rt_host_testing_test_sockets_socket_close",
         Ret::Void,
+    ),
+    // `sockets().dialling(messages)` — a client with a script instead of a
+    // network. Three rows: the mint and the client's two effect methods.
+    //
+    // The client is minted by a `TestSockets` rather than minting sockets of
+    // its own, and that is the whole reason it needs no `Sockets`
+    // implementation: the socket it answers is one of *that* double's, so a
+    // program's `socket.send` is recorded by `sent()` and its `close` shows up
+    // in `isOpen`. One double writes and one double reads, which is the same
+    // division `effect Sockets`' header draws.
+    e("host_testing.socketsDialling", "buri_rt_host_testing_sockets_dialling", Ret::Scalar),
+    e(
+        "host_testing.TestWebSocketClient.connectSocket",
+        "buri_rt_host_testing_test_web_socket_client_connect_socket",
+        Ret::Res,
+    ),
+    e(
+        "host_testing.TestWebSocketClient.connectReceive",
+        "buri_rt_host_testing_test_web_socket_client_connect_receive",
+        Ret::Res,
     ),
     // The one key here that no Buri declaration produces: `middle::monomorphize`
     // emits it after every `test` body, so that "a fault whose call never
