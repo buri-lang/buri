@@ -8,10 +8,10 @@
 //! ```buri
 //! from "core/effect" import { Alloc };
 //! from "core/json" import { Json };
-//! from "core/net/http" import { Response };
 //! from "core/net/http" import * as http;
-//! from "ui/node" import { Node };
+//! from "core/net/http" import { Response };
 //! from "ui/node" import * as ui;
+//! from "ui/node" import { Node };
 //! from "ui/prop" import { Prop };
 //! from "ui/web" import * as web;
 //!

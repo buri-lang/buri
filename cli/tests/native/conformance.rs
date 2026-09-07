@@ -647,6 +647,14 @@ const PACKAGES: &[Case] = &[
              theme *is* on the other side is a `:root` block, and there is no \
              document here to put one in",
     ),
+    excluded(
+        "web/document.buri",
+        "`ui/web`'s `render` and `shell`, which are the same document one \
+             level along: a tree rendered to HTML for a worker to send. A \
+             website is built for WEB and CLOUDFLARE_WORKER, both of them \
+             JavaScript, so there is no native artifact for this to be the \
+             answer of",
+    ),
 ];
 
 /// Why this host cannot build and run a native artifact, or `None`.
