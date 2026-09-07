@@ -1198,14 +1198,63 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         fields: &[ir::ValueId],
     ) {
         let slots = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
+        let boxed = self.boxed_fields(code.ty_of(dest));
         let mut pieces = Vec::with_capacity(slots.len());
-        for f in fields {
+        for (i, f) in fields.iter().enumerate() {
             let fs = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(*f));
             let value = self.get(state, *f);
-            pieces.extend(repr::disassemble(&self.builder, &fs, value));
+            let taken = repr::disassemble(&self.builder, &fs, value);
+            if boxed.get(i).copied().unwrap_or(false) {
+                state.observed.allocates = true;
+                pieces.push(self.box_value(code, *f, &fs, &taken).into());
+                continue;
+            }
+            pieces.extend(taken);
         }
         let value = repr::assemble(self.ctx, &self.builder, &slots, &pieces);
         self.set(state, dest, value);
+    }
+
+    /// Which of an aggregate's fields `middle::layout` keeps behind an
+    /// indirection, in declaration order.
+    ///
+    /// The empty answer for anything that is not a struct, which is what the
+    /// callers want: an enum's variants are laid out per variant and a scalar
+    /// has no fields at all.
+    fn boxed_fields(&mut self, ty: ir::Type) -> Vec<bool> {
+        let ir::Type::Agg(id) = ty else { return Vec::new() };
+        let owner = self.program.type_info(id).ty.clone();
+        let fields = crate::compiler::semantics::types::field_types(self.tables, &owner);
+        fields.iter().map(|f| self.reprs.boxes(&owner, f)).collect()
+    }
+
+    /// A **boxed** field's value: one block holding the field's bytes, and the
+    /// pointer that goes where the field would have been.
+    ///
+    /// `stencil/emit.rs`'s `box_into` is the same three steps, and
+    /// `repr.rs`'s `Site::Boxed` is what releases and copies what this builds.
+    fn box_value(
+        &mut self,
+        code: &ir::Code,
+        field: ir::ValueId,
+        slots: &[Slot],
+        pieces: &[BasicValueEnum<'ctx>],
+    ) -> PointerValue<'ctx> {
+        let (_, size, align) = self.dest_shape(code, field);
+        let alloc = self.rt_alloc();
+        let bytes = self.ctx.i64_type().const_int(u64::from(size.max(1)), false);
+        let block = match self.builder.build_call(alloc, &[bytes.into()], "box") {
+            Ok(call) => {
+                attrs::set_call_convention(call, attrs::C);
+                call.try_as_basic_value()
+                    .basic()
+                    .and_then(|v| v.try_into().ok())
+                    .unwrap_or_else(|| self.ptr_ty().const_null())
+            }
+            Err(_) => self.ptr_ty().const_null(),
+        };
+        self.store_slots(block, slots, align, pieces);
+        block
     }
 
     fn get_field(
@@ -1227,6 +1276,18 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         let want = repr::ir_slots(&mut self.reprs, self.program, code.ty_of(dest));
         let taken: Vec<BasicValueEnum<'ctx>> =
             pieces.get(start..end).map(<[_]>::to_vec).unwrap_or_default();
+        // A boxed field holds the block's pointer, so the value is the bytes it
+        // names — one load per slot, `stencil/emit.rs`'s `unbox_from`.
+        if self.boxed_fields(code.ty_of(agg)).get(index).copied().unwrap_or(false) {
+            let Some(BasicValueEnum::PointerValue(block)) = taken.first().copied() else {
+                return;
+            };
+            let (_, _, align) = self.dest_shape(code, dest);
+            let loaded = self.load_slots(block, &want, align);
+            let value = repr::assemble(self.ctx, &self.builder, &want, &loaded);
+            self.set(state, dest, value);
+            return;
+        }
         let value = repr::assemble(self.ctx, &self.builder, &want, &taken);
         self.set(state, dest, value);
     }
