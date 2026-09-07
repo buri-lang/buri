@@ -1,0 +1,14 @@
+error: `a context` does not satisfy `Clock` [unsatisfied-bound]
+  --> cmd/generator_reaches_beyond_its_context/main.buri:26:17
+   |
+26 |         let _ = time.now(c);
+   |                 ^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Clock`, or use a type that has one
+error: `a context` does not satisfy `FsRead` [unsatisfied-bound]
+  --> cmd/generator_reaches_beyond_its_context/main.buri:27:17
+   |
+27 |         let _ = fs.exists(c, path.of(c, "units.txt"));
+   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `FsRead`, or use a type that has one

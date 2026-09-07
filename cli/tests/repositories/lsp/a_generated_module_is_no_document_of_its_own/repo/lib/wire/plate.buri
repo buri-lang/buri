@@ -1,0 +1,4 @@
+// The hand-written half of this case. Whatever the twin below writes here, a
+// person can open this file and act on it — which is the difference the two
+// lints turn on.
+export fn plate(): Int { 1 }

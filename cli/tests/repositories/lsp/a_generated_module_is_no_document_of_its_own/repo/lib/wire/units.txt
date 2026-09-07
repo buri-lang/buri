@@ -1,4 +1,4 @@
 # The plate's width, in millimetres.
 ~from "core/list" import * as list;
-~fn helper(): Int { 0 }
+~export fn helper(): Int { 0 }
 width 3
