@@ -277,3 +277,120 @@ test "the pattern shapes print on one line" {
             .concat(ctx, "        whole @ (_, ()) => 4,\n    }\n}\n"),
     );
 }
+
+test "a float and a character pattern print the literal's own spelling" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let arms = [
+        ast.Arm { pattern: pat(.LitFloat(1.5)), guard: [], body: ex(.Int(1)) },
+        ast.Arm { pattern: pat(.LitFloat(2.0)), guard: [], body: ex(.Int(2)) },
+        ast.Arm { pattern: pat(.LitChar('q')), guard: [], body: ex(.Int(3)) },
+        ast.Arm { pattern: pat(.LitChar('\n')), guard: [], body: ex(.Int(4)) },
+    ];
+    assert.eq(
+        ast.print(ctx, fnOf([], [ex(.Match([id("x")], arms))])).text,
+        "export fn go(): Int {\n    match (x) {\n        1.5 => 1,\n"
+            .concat(ctx, "        2.0 => 2,\n        'q' => 3,\n        '\\n' => 4,\n")
+            .concat(ctx, "    }\n}\n"),
+    );
+}
+
+test "an array pattern closed by a bare rest prints the two dots alone" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let arms = [
+        ast.Arm {
+            pattern: pat(.Array([pat(.LitInt(1))], [.Anonymous])),
+            guard: [],
+            body: ex(.Int(1)),
+        },
+        ast.Arm {
+            pattern: pat(.Array([], [.Anonymous])),
+            guard: [],
+            body: ex(.Int(2)),
+        },
+    ];
+    assert.eq(
+        ast.print(ctx, fnOf([], [ex(.Match([id("x")], arms))])).text,
+        "export fn go(): Int {\n    match (x) {\n        [1, ..] => 1,\n".concat(
+            ctx,
+            "        [..] => 2,\n    }\n}\n",
+        ),
+    );
+}
+
+// --- the whole operator ladder ---------------------------------------------------
+
+test "a tree that leans right needs no parentheses on any rung" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let product = bin(.Rem, bin(.Div, bin(.Mul, id("h"), id("i")), id("j")), id("k"));
+    let sum = bin(.Add, id("g"), product);
+    let bits = bin(.BitOr, id("d"), bin(.BitXor, id("e"), bin(.BitAnd, id("f"), sum)));
+    let e = bin(.Or, id("a"), bin(.And, id("b"), bin(.Eq, id("c"), bits)));
+    assert.eq(
+        ast.print(ctx, letOf(e)).text,
+        "let X: Int = a || b && c == d | e ^ f & g + h * i / j % k;\n",
+    );
+}
+
+test "a lower rung under a higher one is parenthesised on every rung" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        ast.print(ctx, letOf(bin(.And, bin(.Or, id("a"), id("b")), id("c")))).text,
+        "let X: Int = (a || b) && c;\n",
+    );
+    assert.eq(
+        ast.print(ctx, letOf(bin(.Eq, bin(.And, id("a"), id("b")), id("c")))).text,
+        "let X: Int = (a && b) == c;\n",
+    );
+    assert.eq(
+        ast.print(ctx, letOf(bin(.BitOr, bin(.Eq, id("a"), id("b")), id("c")))).text,
+        "let X: Int = (a == b) | c;\n",
+    );
+    assert.eq(
+        ast
+            .print(ctx, letOf(bin(.BitXor, bin(.BitOr, id("a"), id("b")), id("c"))))
+            .text,
+        "let X: Int = (a | b) ^ c;\n",
+    );
+    assert.eq(
+        ast
+            .print(ctx, letOf(bin(.BitAnd, bin(.BitXor, id("a"), id("b")), id("c"))))
+            .text,
+        "let X: Int = (a ^ b) & c;\n",
+    );
+    assert.eq(
+        ast.print(ctx, letOf(bin(.Add, bin(.BitAnd, id("a"), id("b")), id("c")))).text,
+        "let X: Int = (a & b) + c;\n",
+    );
+    assert.eq(
+        ast.print(ctx, letOf(bin(.Div, bin(.Add, id("a"), id("b")), id("c")))).text,
+        "let X: Int = (a + b) / c;\n",
+    );
+    // The right operand of a rung it shares is the other half: `%` and `/` are
+    // one rung, and the ladder associates left.
+    assert.eq(
+        ast.print(ctx, letOf(bin(.Rem, id("a"), bin(.Div, id("b"), id("c"))))).text,
+        "let X: Int = a % (b / c);\n",
+    );
+}
+
+test "the unary operators print in front of their operand" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        ast.print(ctx, letOf(ex(.Unary(.Not, [id("ok")])))).text,
+        "let X: Int = !ok;\n",
+    );
+    // A unary under a unary takes parentheses: an operand binds tighter than a
+    // prefix operator can reach.
+    let flipped = ex(.Unary(.BitNot, [ex(.Unary(.Neg, [id("n")]))]));
+    assert.eq(ast.print(ctx, letOf(flipped)).text, "let X: Int = ~(-n);\n");
+}

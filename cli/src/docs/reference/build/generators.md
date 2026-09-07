@@ -101,6 +101,11 @@ The module is internal to the rule, so another package reaches it through
 `lib.buri` and nothing else. `unused-import` and `dead-code` step around it:
 both ask a person to make an edit, and here there is no file to edit.
 
+The name has to be the generator's own. Two entries naming one module, or a
+module named after a `.buri` file of the package — `lib.buri` included — is
+[`generator-module-taken`](../errors/generator-module-taken.md), and whichever
+was there first is what the build compiles.
+
 ## What a generator says
 
 A generator answers with diagnostics as well as modules. One whose `code` names
