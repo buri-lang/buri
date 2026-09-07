@@ -14,19 +14,16 @@ variant nothing constructs, a test that asserts nothing.
 Each finding carries a stable code, so you can grep a report and name a specific
 check when you talk about it. Every finding is a warning: one catalogue, one
 severity, the same in every repository. The code is also the page. `buri docs
-lint <code>` reads one, `buri docs lint` lists every one, and the lints section
-of this documentation is that same list.
+lint <code>` reads one, and `buri docs lint` lists every one.
 
-A repository decides the rest once, for all of itself, in `REPO.buri`'s [`lint`
+A repository decides the rest once, in `REPO.buri`'s [`lint`
 block](../build/repo-config.md#lint). `check_during_build` runs these checks
 during `buri build` and `buri test`. `fail_on_finding` makes what they report
 fail the command. [`rules`](../build/repo-config.md#rules) turns a rule off by
 the name the finding prints: `enabled(rule) = override.unwrap_or(default)`, and
-`default: DISABLED` gives you an allow list. There is still no per-rule
-severity, no per-directory exemption and no per-file suppression comment. A rule
-is on for the repository or off for it, so one file answers "is this rule on
-here" rather than whichever line somebody added to the file they were already
-editing.
+`default: DISABLED` gives you an allow list. There is no per-rule severity, no
+per-directory exemption and no per-file suppression comment, so one file answers
+"is this rule on here".
 
 Turning a rule off drops it from the report rather than downgrading it, and
 never quietly. Whenever this repository runs less than the whole catalogue, the
@@ -37,11 +34,8 @@ REPO.buri turns off 2 of 25 lint rules: discarded-result, hex-digit-table
 no findings
 ```
 
-A check that did not run, with nothing on the screen saying it did not, is worse
-than the finding it was hiding.
-
 Import order is not a lint. `buri format` sorts imports, so an unsorted import
-run is not a finding to report. It is a file nobody has formatted.
+run is a file nobody has formatted rather than a finding to report.
 
 ## What it reads
 
@@ -54,8 +48,7 @@ Two rules answer differently in a test source, and neither is a skip:
 
 - `dead-code` never fires there. A test source may not `export` and nothing may
   import one, so it holds no declaration the rule could ask about. The runner
-  reaches a `test` declaration, not the program, which makes it a root by
-  definition.
+  reaches a `test` declaration, which makes it a root by definition.
 - `ctx-rebinding` never fires there. A test source is one of the few places you
   may *build* a context, so `let ctx = …` is the real thing — the same answer
   the rule gives inside `main`.
@@ -63,18 +56,15 @@ Two rules answer differently in a test source, and neither is a skip:
 A `testing/` module has both. Its surface is `testing/lib.buri`, which decides
 what leaves the test-only half exactly as `lib.buri` decides what leaves the
 library. So `dead-code` reports an `export` that file does not carry, and
-`unused-type`, `unused-field` and `unused-variant` leave alone what it does. You
-write a fixture for somebody else's suite, and that suite lives in a package
-this analysis never loaded.
+`unused-type`, `unused-field` and `unused-variant` leave alone what it does: the
+suite that uses a fixture lives in a package this analysis never loaded.
 
 ## Exit status
 
-`0` if there was nothing to report, `1` if there was anything at all. Severity
-does not enter into it. Every finding is a warning, a type error riding along in
-the same report is an error, and both exit `1`, because a warning still answers
-the question you asked. Running the linter is itself the request to be told, and
-no script can branch on a report that exits zero either way. So `buri lint
-//...` works directly as a gate, with no flag to make it one.
+`0` if there was nothing to report, `1` if there was anything at all. Every
+finding is a warning, a type error riding along in the same report is an error,
+and both exit `1`, because a warning still answers the question you asked. So
+`buri lint //...` works directly as a gate, with no flag to make it one.
 
 `2` is not a report at all. It is the run that could not start: a target pattern
 that names nothing, or a build file that does not read.
@@ -86,20 +76,16 @@ end found, and every finding those errors cannot have caused. The errors cover
 the whole closure, tests included, so `buri lint` says more here than `buri
 build` does. A bound naming an effect that no longer exists shows up in a
 library source, in a testing source and in a key of a context a test source
-builds, while a build compiles only the first of the three. A file with a
-mistake in one function is still a file with an import nothing uses. Hold the
-second answer back until you fix the first, and the tool tells you one thing at
-a time about a file you are already looking at. A syntax error is an error in
-the report like any other: the linter analyses the declarations the parser did
-recover, and still reads the file beside a broken one.
+builds, while a build compiles only the first of the three. A syntax error is an
+error in the report like any other: the linter analyses the declarations the
+parser did recover, and still reads the file beside a broken one.
 
 What a mistake takes away is the tree under it. A rule that reads bodies goes
 quiet for exactly the body that failed — the declaration the error landed in,
-and no other — because reading a truncated tree would report the gap rather than
-the code, calling a name unused because its only use went missing. A rule that
-reads the source rather than the tree answers the same either way: parameter
-counts, nesting depth, function length, warning comments, test titles, duplicate
-imports, unused imports.
+and no other — because reading a truncated tree would call a name unused because
+its only use went missing. A rule that reads the source rather than the tree
+answers the same either way: parameter counts, nesting depth, function length,
+warning comments, test titles, duplicate imports, unused imports.
 
 The silence runs one way. The linter may miss a finding inside a broken body,
 and it never invents one there. Fix the error and run the linter again to see
@@ -108,8 +94,7 @@ what the gap was hiding.
 There is one file the linter does not read around, and it is a build file. A
 `BUILD.buri` or `REPO.buri` that does not parse is the shape of the repository
 rather than something in it: nothing downstream knows which files a package
-holds or what it may see. So the run stops there and names the file, rather than
-reporting a graph it had to guess at.
+holds or what it may see. So the run stops there and names the file.
 
 ## `--fix`
 
@@ -124,24 +109,20 @@ finding the first pass could not see.
 
 Two kinds of answer, applied differently. A build file that disagrees with the
 code goes to `buri gen`, which already writes exactly that file and keeps
-`tags`, `visibility`, `outputs`, and comments. So `lint --fix` and `gen` can
-never end up disagreeing about what a `BUILD.buri` should say. A source edit
-lands as bytes, one edit per statement rather than one per name, because two
-adjacent unused names share the comma between them.
+`tags`, `visibility`, `outputs`, and comments. A source edit lands as bytes, one
+edit per statement rather than one per name, because two adjacent unused names
+share the comma between them.
 
 It leaves everything else alone and reports it. A cycle has no mechanical
-answer, because which of the two edges to cut is a design decision. A tool that
-picks one is not fixing the finding, it is deleting the policy that raised it.
+answer, because which of the two edges to cut is a design decision.
 
 **`--fix` edits; it does not reformat.** It writes the bytes the findings name
 and checks that the result still parses. Running the file through the formatter
-would answer that question too, but it would also rewrite everything the fix did
-not touch, turning one deliberate edit into a diff nobody asked for. Run `buri
-format` when you want the file formatted.
+would rewrite everything the fix did not touch, turning one deliberate edit into
+a diff nobody asked for. Run `buri format` when you want the file formatted.
 
 Where two edits in one file overlap, it applies none of that file's edits and
-reports the findings instead. Guessing which of two answers you meant is the one
-thing a rewriting tool must not do.
+reports the findings instead.
 
 ## What a second run costs
 
@@ -159,10 +140,8 @@ the byte: a record carries findings and nothing else, so the code that sorts,
 promotes and prints a fresh finding is what prints a cached one.
 
 A record holds what the *catalogue* found. The linter applies which rules this
-repository runs after it reads the record back. So a record written before a
-`rules` block turned a rule off cannot defeat that block, and a record that
-never held a rule cannot answer for turning it back on. That is also why editing
-`REPO.buri` re-analyses everything, as the key below says.
+repository runs after it reads the record back, so a record written before a
+`rules` block turned a rule off cannot defeat that block.
 
 ```
 buri lint //... --explain
@@ -181,12 +160,11 @@ key covers the target and the build graph rather than the closure, so it does
 *not* move when you edit a source. What moved is inside the record, and one
 target keeps one entry however long you edit it.
 
-Three things make a record unusable, and each of them ends in re-analysis rather
-than in a stale answer. A file the record names moved, appeared, or went away.
-An edit to a `BUILD.buri` or `REPO.buri` changed the key for every target,
-because a build file decides what a closure *is*. Or the toolchain moved,
-because the key holds this `buri`'s version, which puts a record an older one
-wrote out of reach rather than trusting it.
+Three things make a record unusable, and each ends in re-analysis rather than in
+a stale answer. A file the record names moved, appeared, or went away. An edit
+to a `BUILD.buri` or `REPO.buri` changed the key for every target, because a
+build file decides what a closure *is*. Or the toolchain moved, because the key
+holds this `buri`'s version.
 
 `buri clean` drops the records with the rest of the cache. Two `buri lint` runs
 on one repository can safely overlap: each record goes to a temporary file and

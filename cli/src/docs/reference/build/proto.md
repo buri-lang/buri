@@ -10,10 +10,9 @@ proto2, and any older edition. See [Editions, and only
 one](#editions-and-only-one) below.
 
 The import path is the schema's own path, extension included:
-`//lib/proto/address.proto` names `lib/proto/address.proto` on disk. One
-spelling, the file's name. You never learn where generated code lands, because
-it lands nowhere. Nothing reaches the source tree, so there is no `_pb.buri` to
-check in and no step to forget to run.
+`//lib/proto/address.proto` names `lib/proto/address.proto` on disk. Nothing
+reaches the source tree, so there is no `_pb.buri` to check in and no step to
+forget to run.
 
 ## Declaring the schema
 
@@ -32,20 +31,16 @@ stray `.buri` gets, and the fix names `proto_sources` rather than `sources`.
 
 The generated module belongs to the declaring rule, so the library boundary
 applies to it unchanged. `//lib/wire/point.proto` is internal to `//lib/wire`,
-and another package reaches its types the way it reaches anything else, through
-`lib.buri` re-exporting them. A schema exports everything it declares, because
-that is what a schema *is*, and `lib.buri` decides which of those names leave
-the library.
+and another package reaches its types through `lib.buri` re-exporting them. A
+schema exports everything it declares, because that is what a schema *is*, and
+`lib.buri` decides which of those names leave the library.
 
-One schema may `import` another, and both must belong to the same rule. The
-generated modules import each other, and the boundary governs that import like
-any other. So sharing a schema across packages means re-exporting its generated
-types from the owning library's `lib.buri`. The boundary gives a hand-written
-module the same answer.
+One schema may `import` another, and both must belong to the same rule. So
+sharing a schema across packages means re-exporting its generated types from the
+owning library's `lib.buri`.
 
-Two hygiene rules step around a generated module on purpose. `unused-import` and
-`dead-code` both ask a person to make an edit, and here there is no file to
-edit. The module is a function of the schema.
+`unused-import` and `dead-code` step around a generated module. Both ask a
+person to make an edit, and here there is no file to edit.
 
 ## Editions, and only one
 
@@ -53,12 +48,10 @@ A schema declares `edition = "2026";`. Buri accepts nothing else: not
 `syntax = "proto3"`, not proto2, not edition 2023 or 2024, and not a file that
 declares nothing.
 
-That is a strong requirement, and the next section is the reason. Editions
-changed what a *singular field* means, and no reader can paper over the change.
-Under proto3 a singular scalar has no presence. Under editions it has presence
-by default. This mapping cannot read a file that says `proto3` a little
-differently. It would read it wrongly. Buri refuses it and puts the migration in
-the `fix`:
+Editions changed what a *singular field* means, and no reader can paper over the
+change. Under proto3 a singular scalar has no presence; under editions it has
+presence by default. Buri refuses an older file and puts the migration in the
+`fix`:
 
 ```text
 error: `syntax = "proto3"` is not accepted [proto-syntax-declaration]
@@ -75,14 +68,9 @@ error: `syntax = "proto3"` is not accepted [proto-syntax-declaration]
     had none
 ```
 
-One edition rather than a range, for the same reason there is one spelling of an
-import path. A schema means one thing. A reader that quietly accepted an older
-set of feature defaults would decode the file in front of it as a different
-file. Moving the requirement forward means changing one constant in
-`build/protoschema.rs`. Every feature that affects the wire or the JSON resolves
-identically at editions 2023, 2024 and 2026, because protobuf gives a feature
-the default of the closest edition at or before it, and nobody has introduced
-such a default since 2023.
+Every feature that affects the wire or the JSON resolves identically at editions
+2023, 2024 and 2026, because protobuf gives a feature the default of the closest
+edition at or before it, and nobody has introduced such a default since 2023.
 
 ## Messages, fields, and presence
 
@@ -125,19 +113,11 @@ derive Eq, Show for Person;
 
 ### Presence is the headline
 
-**A singular field is `Option<T>`.** Editions made presence the default and
-removed the `optional` label that used to ask for it. This is no longer the
-exception it was under proto3. It is what a field is.
-
-That buys you two different messages for *absent* and *set to the zero value*,
-and both survive a round trip:
+**A singular field is `Option<T>`.** That buys you two different messages for
+*absent* and *set to the zero value*, and both survive a round trip:
 
 - `.None` is not written at all. Nothing on the wire, nothing in the JSON.
 - `.Some(0)` goes out as two bytes and reads back as `.Some(0)`.
-
-Under proto3 those were the same message, and one of them did not survive. That
-is the whole difference, and it is why the requirement earns a refusal rather
-than a compatibility mode.
 
 `features.field_presence = IMPLICIT` asks for the old behaviour, on a file, a
 message, or a single field. An implicit field is a bare `T`. A value equal to
@@ -146,13 +126,12 @@ skips the field when it holds that default. That is exactly what a proto3
 singular field was, which makes it the migration for one.
 
 A singular *message* field is `Option<T>` whatever the feature says. That is
-protobuf's rule rather than this mapping's. A message field always tracks
-presence, because there is no "default message" for an absent one to mean.
+protobuf's rule rather than this mapping's: there is no "default message" for an
+absent one to mean.
 
-Buri refuses `LEGACY_REQUIRED` by name. It is the third value, and it describes
-a proto2 `required` field. A field that must be there is a promise the format
-cannot keep across versions, so editions carries the value only to describe
-files that already exist.
+Buri refuses `LEGACY_REQUIRED` by name. It describes a proto2 `required` field,
+and a field that must be there is a promise the format cannot keep across
+versions.
 
 ## Names
 
@@ -165,9 +144,8 @@ A field whose name collides with a Buri keyword gets a trailing underscore, so
 not ours to rename.
 
 Nested types flatten with an underscore, because Buri has no nested type
-namespace to put them in. `Everything.Note` is `Everything_Note`, a module-level
-declaration beside its parent. The name keeps the nesting visible, which a bare
-`Note` would not. A `oneof` named `contact` inside `Everything` becomes
+namespace. `Everything.Note` is `Everything_Note`, a module-level declaration
+beside its parent. A `oneof` named `contact` inside `Everything` becomes
 `Everything_Contact` by the same rule.
 
 ## Scalars
@@ -184,10 +162,9 @@ declaration beside its parent. The name keeps the nesting visible, which a bare
 **64-bit fields round-trip on every backend.** An `Int` is an `I64` everywhere,
 and on the JavaScript backend an `I64` is a `BigInt`
 ([`core/num`](../standard-library.md)). So a `uint64` or `int64` field carrying
-a value past 2^53 survives with every digit. Most double-backed protobuf
-implementations still carry that caveat and this one does not. One thing does
-hold on every backend: a `uint64` above 2^63 reads back negative, which is what
-a signed reading of those bits gives you.
+a value past 2^53 survives with every digit. One thing does hold on every
+backend: a `uint64` above 2^63 reads back negative, which is what a signed
+reading of those bits gives you.
 
 Negative numbers cost bytes. The encoder writes a negative `int32` or `int64` as
 the ten-byte varint of its 64-bit two's complement, exactly as protoc writes
@@ -205,17 +182,17 @@ enum Shade {
 ```
 
 becomes a Buri enum whose variants carry the proto value names verbatim:
-`Shade.SHADE_UNSPECIFIED`, `Shade.DARK`. The mapping keeps the names as written
-because proto3 JSON writes an enum as the *name* of its value. Renaming them
-here would make the document say one thing and the type another.
+`Shade.SHADE_UNSPECIFIED`, `Shade.DARK`. Proto3 JSON writes an enum as the
+*name* of its value, so renaming them here would make the document say one thing
+and the type another.
 
 An open enum's first value must be zero, and this reader requires it too. The
 zero value is what an unset field means.
 
 **Editions enums are open, and an open enum keeps what it does not recognise.**
-`features.enum_type` defaults to `OPEN`. Its contract is that a value the schema
-does not name is part of the *value* rather than an unknown field, so every
-generated enum carries one extra variant:
+`features.enum_type` defaults to `OPEN`. A value the schema does not name is
+part of the *value* rather than an unknown field, so every generated enum
+carries one extra variant:
 
 ```text
 export enum Shade {
@@ -227,14 +204,13 @@ export enum Shade {
 ```
 
 So a message written by a newer schema survives an older one reading it and
-writing it again, which is the entire point of the rule. In JSON the
-unrecognised value goes out as its number, which is what the mapping says. If a
+writing it again. In JSON the unrecognised value goes out as its number. If a
 schema already has a value called `Unrecognized`, that meaning wins and the
 extra variant becomes `Unrecognized_`.
 
 Buri refuses `features.enum_type = CLOSED` by name. A closed enum makes an
 unrecognised value an unknown *field*, and a generated struct has nowhere to
-keep one. Honouring it would silently lose what an open enum keeps.
+keep one.
 
 ## `oneof`
 
@@ -285,50 +261,42 @@ and `decodeEJson(Json, path): Result<E, ProtoError>`.
 [The guide](../../guides/proto.md#use-the-types) shows it in use.
 
 `ProtoError` comes from [`core/proto`](../standard-library.md). Every case of it
-carries a byte offset or a field number. A decoder that says only "malformed" of
-a four-kilobyte message is a decoder you debug by bisection.
+carries a byte offset or a field number, so a failure is not something you
+bisect for.
 
 ### Why the codecs are generated Buri
 
 `derive ToJson` walks a *descriptor* the compiler already ships: field names,
-variant shapes, element types. Reusing that walk here was the obvious move, and
-it does not fit. A protobuf message is made of field *numbers* and wire *types*,
-and the descriptor carries neither. A runtime walk would need a second,
-proto-specific descriptor emitted beside the first. At that point generating
-Buri is strictly better. The real checker checks the generated codec, the real
-optimiser optimises it, dead-code elimination reaches it with everything else,
-and it needs no new intrinsic and no runtime privilege. What the schemas *share*
-lives in `core/proto`: tags, wire types, packed readers, the error type. So the
-generated part of a schema is only the part that differs between schemas.
+variant shapes, element types. A protobuf message is made of field *numbers* and
+wire *types*, which that descriptor carries neither of. Generating Buri instead
+means the real checker checks the generated codec, the real optimiser optimises
+it, dead-code elimination reaches it, and it needs no new intrinsic. What the
+schemas *share* lives in `core/proto`: tags, wire types, packed readers, the
+error type.
 
 ## The wire format
 
 Ordinary proto3. Three things you would otherwise have to check:
 
-- **The encoder writes a field that was set, and skips one that was not.** Under
-  the edition's default presence that is all there is to it. It is what makes
-  `defaultM()`, every field `.None`, encode to zero bytes. An `IMPLICIT` field
-  has no "was set", so proto3's rule applies there instead: the encoder writes
-  it unless it holds the type's default.
+- **The encoder writes a field that was set, and skips one that was not.** It is
+  what makes `defaultM()`, every field `.None`, encode to zero bytes. An
+  `IMPLICIT` field has no "was set", so proto3's rule applies there instead: the
+  encoder writes it unless it holds the type's default.
 - **A repeated numeric field is packed.** `features.repeated_field_encoding`
   defaults to `PACKED`, and `EXPANDED` asks for one whole field per element. A
   repeated `string`, `bytes`, or message field is never packed, whatever the
-  feature says. Packing strings would be indistinguishable from one long string.
-  A reader accepts both forms of the numeric one, because a writer may send
-  either.
-- **A reader skips a field the schema does not know**, which is proto3's forward
-  compatibility and the whole of it. It *drops* the skipped bytes rather than
-  keeping them, because a generated type has nowhere to put them. So re-encoding
-  a message decoded from a newer schema loses the fields that schema added. A
-  known field arriving with a wire type it cannot have gets skipped the same
-  way, which keeps a reader nobody has rebuilt from crashing on a schema change.
+  feature says. A reader accepts both forms of the numeric one, because a writer
+  may send either.
+- **A reader skips a field the schema does not know.** It *drops* the skipped
+  bytes rather than keeping them, because a generated type has nowhere to put
+  them, so re-encoding a message decoded from a newer schema loses the fields
+  that schema added. A known field arriving with a wire type it cannot have gets
+  skipped the same way.
 
 A singular field that appears twice in one message takes the last occurrence.
 For a scalar that is what the specification says. For a *message* field the
 specification asks for a recursive merge instead, and last-wins is the rule a
-generated struct with no mutation can express. Nothing this toolchain writes
-produces such a message, so you only see the difference reading one from a
-writer that does.
+generated struct with no mutation can express.
 
 Wire types 3 and 4 are proto2's groups, and the reader refuses them rather than
 skipping them. A group is a nesting the reader would have to understand to get
@@ -340,12 +308,10 @@ Fields go out in schema order, so the same value is always the same bytes.
 ## The JSON mapping
 
 `encodeMJson` writes proto3 JSON, which is **not** what `derive ToJson` writes.
-Four differences, and each one is why the codec is generated rather than
-derived:
+Four differences:
 
 - A 64-bit integer is a **string**. A JSON number is a double, and
-  `9007199254740993` is not one. A reader accepts a number as well, because the
-  mapping asks a reader to be more permissive than a writer.
+  `9007199254740993` is not one. A reader accepts a number as well.
 - `bytes` is **base64**, padded, not an array of numbers.
 - An enum is the **name** of its value, not a tagged object. A number is
   accepted on the way in, and an unrecognised one is the zero value, exactly as
@@ -355,16 +321,15 @@ derived:
   the tagged form, and no other protobuf implementation reads it.
 
 Beyond those, the writer omits a field that was not set and writes one that was,
-including at its zero value. That is explicit presence showing through into JSON
-as well. It omits an `IMPLICIT` field holding its default, and omits an empty
-repeated field rather than writing `[]`. On the way in, an absent member and a
-`null` member mean the same thing, and the reader ignores a member the schema
-does not know.
+including at its zero value. It omits an `IMPLICIT` field holding its default,
+and omits an empty repeated field rather than writing `[]`. On the way in, an
+absent member and a `null` member mean the same thing, and the reader ignores a
+member the schema does not know.
 
 One deviation from the specification, recorded rather than hidden. The writer
 puts members in schema order with a `oneof`'s case last, rather than strictly in
-field-number order. JSON objects are unordered, no conforming reader can notice,
-and the alternative is an interleave that buys nothing.
+field-number order. JSON objects are unordered, so no conforming reader can
+notice.
 
 A failure names the path it happened at, written the way
 [`core/json`](../standard-library.md) writes one: `$` for the document, `.name`
@@ -385,35 +350,28 @@ export struct Any {
 }
 ```
 
-That is the whole of it. **There is no unpacking.** `value` holds the encoded
-bytes of some other message. Only a runtime type registry could say which
-message the `type_url` names, a table mapping a URL to a decoder, populated by
-every schema linked into the program. This toolchain has no such registry and is
-not getting one. A program that wants what is inside an `Any` decodes `value`
-itself, with the codec for the type it expects:
+**There is no unpacking.** `value` holds the encoded bytes of some other
+message, and only a runtime type registry could say which message the
+`type_url` names. This toolchain has no such registry. A program that wants what
+is inside an `Any` decodes `value` itself, with the codec for the type it
+expects:
 
 ```text
 let inner = decodeErrorInfo(ctx, detail.value)?;
 ```
 
-Two consequences, stated rather than discovered:
+Two consequences:
 
 - **The JSON is the two-field object**, `{"typeUrl": "…", "value": "…"}`, with
   the bytes base64 as any `bytes` field is. Canonical `Any` JSON inlines the
-  held message and adds an `@type` member, and producing that needs the same
-  registry the unpacking would. Any implementation reads a document written here
-  as an ordinary message, and one expecting the canonical form does *not* read
-  it as an `Any`.
-- **Nothing checks the `type_url`.** This toolchain neither validates nor
-  resolves that `Str`. Whether the bytes match the URL is between the two
-  programs exchanging them.
+  held message and adds an `@type` member, which needs the same registry. Any
+  implementation reads a document written here as an ordinary message, and one
+  expecting the canonical form does *not* read it as an `Any`.
+- **Nothing checks the `type_url`.** Whether the bytes match the URL is between
+  the two programs exchanging them.
 
 The binary format is exact. An `Any` written here is an `Any` everywhere,
 because the wire encoding of the message is its two fields and always was.
-
-That is why `Any` is not in the table below. Every construct that *is* there
-asks for a semantics this mapping cannot express. `Any` only asks for a struct,
-and dynamic dispatch was never in the message.
 
 ## What is not supported
 
@@ -432,7 +390,7 @@ Buri refuses each of these by name, with the reason and the edit, under
 | `features.field_presence = LEGACY_REQUIRED` | A field that must be there is a promise the format cannot keep across versions. |
 | `features.enum_type = CLOSED` | An unrecognised value would become an unknown field, which a generated struct has nowhere to keep. |
 | `features.message_encoding = DELIMITED` | The group encoding again, under its new name. |
-| `features.utf8_validation = NONE` | A `string` field becomes a `Str`, and a `Str` is text. There is no unvalidated one for the bytes to become. Declare the field `bytes`. |
+| `features.utf8_validation = NONE` | A `string` field becomes a `Str`, and a `Str` is text. Declare the field `bytes`. |
 | `features.json_format = LEGACY_BEST_EFFORT` | It describes what proto2 did to JSON. This writes the one mapping editions defines. |
 | `option features = { ... }` | The block form of a feature. One spelling of a thing is enough. |
 
@@ -442,8 +400,7 @@ reader reads past them rather than refusing. That is what lets a schema opt out
 of the naming style protoc enforces from edition 2024 on.
 
 `option` and `reserved` are the two statements the reader *skips* rather than
-refuses. Neither says anything about the shape of a message, and `option` in
-particular is how a schema talks to code generators that are not this one.
+refuses. Neither says anything about the shape of a message.
 
 You write an `import` inside a schema from the repository root, the way protoc
 resolves one against `-I.`:
@@ -454,29 +411,25 @@ import "lib/proto/address.proto";
 
 ## Is it right?
 
-Protobuf ships a conformance suite, a C++ runner that forks an implementation
-and drives a few thousand wire-format and JSON edge cases at it. Buri is
-onboarded to it. `cli/tests/proto/` holds the vendored schemas, a testee that is
-a Buri binary, and a failure list filing every expected failure under a reason.
-It is the only test in this repository whose ground truth comes from somewhere
-else.
+Protobuf ships a conformance suite, a C++ runner that drives a few thousand
+wire-format and JSON edge cases at an implementation. Buri is onboarded to it.
+`cli/tests/proto/` holds the vendored schemas, a testee that is a Buri binary,
+and a failure list filing every expected failure under a reason.
 
 ```text
 CONFORMANCE SUITE PASSED: 970 successes, 1314 skipped, 456 expected failures, 0 unexpected failures.
 ```
 
 [`cli/tests/proto/README.md`](../../../../tests/proto/README.md) files every
-expected failure under one of seven reasons, along with the defects the suite
-found. One of the seven is worth naming here, because it is not a gap. The
+expected failure under one of seven reasons. One of the seven is not a gap: the
 reference implementation is proto3 and the schema under test is edition 2026, so
 the two disagree about whether a writer writes a field set to its zero value.
-Both are right about their own schema, and that difference is what this page is
-mostly about.
+Both are right about their own schema.
 
-The conformance run is not part of `cargo test`. A suite that needs a C++ build
-of another project is a suite that does not run. `cli/tests/vectors/proto.rs`
-replays recorded exchanges through the same testee under cargo, which is the
-half that can be hermetic.
+The conformance run is not part of `cargo test`, because a suite that needs a
+C++ build of another project is a suite that does not run.
+`cli/tests/vectors/proto.rs` replays recorded exchanges through the same testee
+under cargo.
 
 ## Caching
 
@@ -492,5 +445,4 @@ run    link //cmd/app js 1c42f9658fa5
 
 The action is `keyed` rather than `cached` for the same reason `compile` is.
 This toolchain caches a binary's whole closure under one `link` key, so the
-generated module has a key and no cache entry of its own. Saying so beats
-claiming a hit that did not happen.
+generated module has a key and no cache entry of its own.
