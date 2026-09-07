@@ -1,0 +1,1 @@
+error: `./apps/hello/main.buri` already exists; `buri init` never writes over a file
