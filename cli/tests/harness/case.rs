@@ -33,6 +33,7 @@
 //!
 //! ```text
 //! doc:  "one line saying what the case is about"
+//! not_a_repository: true
 //! run  { args: [...]  exit: 1  golden: "lint.txt"  stream: ALL  stdin: "session.jsonl" }
 //! run  { args: [...]  exit: 1  golden: "order.txt"  stream: MERGED }
 //! run  { args: ["build"]  exit: 0  cwd: "lib/money" }
@@ -42,6 +43,13 @@
 //! path { path: ".buri/out"  exists: false }
 //! path { path: "out"  symlink: ".buri/out/js" }
 //! ```
+//!
+//! `not_a_repository` says the tree under `repo/` has no `REPO.buri` on
+//! purpose. Only `buri init` needs it — the command refuses at a `REPO.buri`
+//! and refuses again anywhere inside one, so a case about it has to start
+//! somewhere that is not a repository yet. Every other case is held to having
+//! a root, which is what keeps a fixture that lost its `REPO.buri` from
+//! quietly becoming a case about a loose directory.
 //!
 //! `run { cwd }` is how the no-argument forms are covered: CLI.md says a
 //! command with no target operates on the whole repository wherever it is run,
@@ -483,10 +491,21 @@ pub fn load_case(dir: &Path) -> Case {
     );
 
     let mut doc = None;
+    let mut not_a_repository = false;
     let mut steps = Vec::new();
     for field in &parsed.document.fields {
         match field.name.as_str() {
             "doc" => doc = Some(as_str(&name, "doc", &field.value)),
+            "not_a_repository" => {
+                not_a_repository = match &field.value {
+                    Value::Ident(word, _) if word == "true" => true,
+                    Value::Ident(word, _) if word == "false" => false,
+                    other => panic!(
+                        "{name}: not_a_repository is {}, not true or false",
+                        other.kind()
+                    ),
+                }
+            }
             "run" => {
                 let message = as_message(&name, "run", &field.value);
                 steps.push(Step::Run {
@@ -554,7 +573,8 @@ pub fn load_case(dir: &Path) -> Case {
                 });
             }
             other => panic!(
-                "{name}: CASE.textproto has no field `{other}`; the forms are doc, run, edit, file, path"
+                "{name}: CASE.textproto has no field `{other}`; the forms are doc, \
+                 not_a_repository, run, edit, file, path"
             ),
         }
     }
@@ -565,8 +585,22 @@ pub fn load_case(dir: &Path) -> Case {
         "{name}: CASE.textproto runs nothing, so it proves nothing"
     );
     assert!(
-        dir.join("repo/REPO.buri").is_file(),
-        "{name}: repo/REPO.buri is missing, so the case has no repository"
+        dir.join("repo").is_dir(),
+        "{name}: repo/ is missing, so the case has nothing to run in"
+    );
+    // `buri init` is the one command whose subject is a directory that is not
+    // a repository yet — it refuses at a `REPO.buri` and refuses again
+    // anywhere inside one — so its cases say so and everything else is held to
+    // having a root.
+    assert!(
+        not_a_repository != dir.join("repo/REPO.buri").is_file(),
+        "{name}: {}",
+        if not_a_repository {
+            "`not_a_repository` is declared and repo/REPO.buri is there anyway"
+        } else {
+            "repo/REPO.buri is missing, so the case has no repository — write \
+             `not_a_repository: true` if that is the point"
+        }
     );
     Case { name, dir: dir.to_path_buf(), doc, steps, subst }
 }

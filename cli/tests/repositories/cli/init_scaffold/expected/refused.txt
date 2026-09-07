@@ -1,0 +1,1 @@
+error: `.` is already a Buri repository; `buri init` never writes over one

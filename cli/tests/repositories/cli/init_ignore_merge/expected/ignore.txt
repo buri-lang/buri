@@ -1,0 +1,7 @@
+# What my editor leaves behind.
+.DS_Store
+node_modules/
+
+# Everything the build writes.
+.buri/
+out
