@@ -544,6 +544,15 @@ pub const ENTRIES: &[Entry] = &[
     e("host.HostFs.removeDir", "buri_rt_host_fs_remove_dir", Ret::ResMsg),
     e("host.HostFs.makeDir", "buri_rt_host_fs_make_dir", Ret::ResMsg),
     e("host.HostFs.syncFile", "buri_rt_host_fs_sync_file", Ret::ResMsg),
+    // `metadata`'s `.Ok` is a **struct** rather than a `Str` or a list, which
+    // costs no column: `Ret::Out`'s pointer is the destination's own slot, so
+    // the entry writes `Metadata`'s three fields where they already belong and
+    // `cli/runtime/host.rs`'s `BuriMetadata` is the layout transcribed —
+    // `net.rs`'s `BuriRequest` one level down.
+    e("host.HostFs.metadata", "buri_rt_host_fs_metadata", Ret::ResMsg),
+    e("host.HostFs.readRange", "buri_rt_host_fs_read_range", Ret::ResMsg),
+    e("host.HostFs.realPath", "buri_rt_host_fs_real_path", Ret::ResMsg),
+    e("host.HostFs.copyFile", "buri_rt_host_fs_copy_file", Ret::ResMsg),
     // -- Env, and Stdin beside it -------------------------------------------
     //
     // Four rows and no new shape between them, which is what made them the
@@ -558,6 +567,20 @@ pub const ENTRIES: &[Entry] = &[
     // and nothing else.
     e("host.HostEnv.variable", "buri_rt_host_env_variable", Ret::Opt),
     e("host.HostEnv.args", "buri_rt_host_env_args", Ret::Out),
+    // Three more of the same two shapes: two `Str`s and a `[(Str, Str)]`,
+    // which is `[Header]`'s layout and so is `list_of_headers`' block.
+    e("host.HostEnv.currentDirectory", "buri_rt_host_env_current_directory", Ret::Out),
+    e("host.HostEnv.allVariables", "buri_rt_host_env_all_variables", Ret::Out),
+    e(
+        "host.HostEnv.operatingSystemName",
+        "buri_rt_host_env_operating_system_name",
+        Ret::Out,
+    ),
+    // Starting a program. `self` is `HostSpawn`, an empty struct, so the C call
+    // is the six pieces of a `Command` flattened — a `Str`, a `[Str]`, a `Str`,
+    // a `[Str]`, a `Bool` and a `[U8]` — and `Output`'s three fields leave
+    // through the one out-pointer `Ret::ResMsg` gives, as `Metadata` does.
+    e("host.HostSpawn.spawnProcess", "buri_rt_host_spawn_process", Ret::ResMsg),
     e("host.HostStdin.readLine", "buri_rt_host_stdin_read_line", Ret::Opt),
     e("host.HostStdin.readBytes", "buri_rt_host_stdin_read_bytes", Ret::Opt),
     // -- the scalar capabilities --------------------------------------------
@@ -898,6 +921,13 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.fsRemoveDir", "buri_rt_host_testing_fs_remove_dir", Ret::ResMsg),
     e("host_testing.fsMakeDir", "buri_rt_host_testing_fs_make_dir", Ret::Res),
     e("host_testing.fsSyncFile", "buri_rt_host_testing_fs_sync_file", Ret::Res),
+    e("host_testing.fsMetadata", "buri_rt_host_testing_fs_metadata", Ret::Res),
+    // The one of the four that can say something: a negative offset or count is
+    // `.Other` with a sentence, and the sentence is the one the JavaScript
+    // double writes.
+    e("host_testing.fsReadRange", "buri_rt_host_testing_fs_read_range", Ret::ResMsg),
+    e("host_testing.fsRealPath", "buri_rt_host_testing_fs_real_path", Ret::Res),
+    e("host_testing.fsCopyFile", "buri_rt_host_testing_fs_copy_file", Ret::Res),
     // -- the fault plan's promise -------------------------------------------
     //
     // The plan itself never crosses. It is a list of Buri values holding an
@@ -1003,6 +1033,27 @@ pub const ENTRIES: &[Entry] = &[
     e("host_testing.TestEnv.arguments", "buri_rt_host_testing_test_env_arguments", Ret::Out),
     e("host_testing.TestEnv.variable", "buri_rt_host_testing_test_env_variable", Ret::Opt),
     e("host_testing.TestEnv.args", "buri_rt_host_testing_test_env_args", Ret::Out),
+    e(
+        "host_testing.TestEnv.currentDirectory",
+        "buri_rt_host_testing_test_env_current_directory",
+        Ret::Out,
+    ),
+    e(
+        "host_testing.TestEnv.allVariables",
+        "buri_rt_host_testing_test_env_all_variables",
+        Ret::Out,
+    ),
+    e(
+        "host_testing.TestEnv.operatingSystemName",
+        "buri_rt_host_testing_test_env_operating_system_name",
+        Ret::Out,
+    ),
+    // The spawn double is a log and nothing else — the scripted answer holds an
+    // `IoError`, which §2.1 cannot hand back across a row, so it stays in the
+    // program and `spawnProcess` is a Buri body. `TestNet`'s arrangement.
+    e("host_testing.newSpawn", "buri_rt_host_testing_new_spawn", Ret::Scalar),
+    e("host_testing.recordSpawn", "buri_rt_host_testing_record_spawn", Ret::Void),
+    e("host_testing.spawnCalls", "buri_rt_host_testing_spawn_calls", Ret::Out),
     // `sockets()` — a socket with no network behind it. Seven rows: the double,
     // the mint, the three `Sockets` methods and the two readers. `sent` and
     // `isOpen` take the **handle** rather than the `TestSockets`, in
@@ -1499,21 +1550,32 @@ mod tests {
             carrying,
             vec![
                 "host.HostFs.appendFile",
+                "host.HostFs.copyFile",
                 "host.HostFs.makeDir",
+                "host.HostFs.metadata",
                 "host.HostFs.readDir",
                 "host.HostFs.readFile",
                 "host.HostFs.readFileBytes",
+                "host.HostFs.readRange",
+                "host.HostFs.realPath",
                 "host.HostFs.removeDir",
                 "host.HostFs.removeFile",
                 "host.HostFs.renameFile",
                 "host.HostFs.syncFile",
                 "host.HostFs.writeFile",
                 "host.HostFs.writeFileBytes",
-                // The one double with a sentence to give: a `TestFs` whose
+                // Starting a program fails the way the filesystem does and for
+                // the same reason: `ENOEXEC` and `E2BIG` have no `IoError`
+                // variant either, and the string is the only place a refused
+                // `spawn` says which it was.
+                "host.HostSpawn.spawnProcess",
+                // Two doubles with a sentence to give. A `TestFs` whose
                 // directory still holds something answers `.Other` for the same
-                // reason a real one does, and writes the same words the
-                // JavaScript double writes so one conformance block reads the
-                // same on both backends.
+                // reason a real one does, and a `readRange` at a negative
+                // offset says so — both in the words the JavaScript double
+                // writes, so one conformance block reads the same on both
+                // backends.
+                "host_testing.fsReadRange",
                 "host_testing.fsRemoveDir",
             ]
         );
