@@ -10,21 +10,18 @@ Three ideas define it:
   borrowing, and no lifetimes. Values are values.
 - **Effects travel through arguments.** The ability to allocate, read a file, or
   open a socket is a *value* of an unforgeable type. A function nobody handed one
-  to cannot perform that effect. So you read purity off a signature instead of
-  taking the compiler's word for it.
+  to cannot perform that effect, so you read purity off a signature.
 - **The grammar is context-free and unambiguous.** Parsing never consults name
-  resolution or types. `design/grammar-rationale.md` records each design decision
-  that pays for this, and what it gave up.
+  resolution or types. `design/grammar-rationale.md` records what that cost.
 
 Version 0.3 is deliberately small: primitives, arrays, tuples, structs, enums,
 functions, methods, and traits. You declare data and behaviour separately. There
 is no mutable state, no inheritance, and no dynamic dispatch. A method is an
 ordinary function whose first parameter is `self`. A trait is an interface a type
-satisfies nominally. Neither adds a runtime mechanism.
+satisfies nominally.
 
 There are also no loops. You iterate with recursion — guaranteed tail-call
-eliminated — or with a fold. A `for`/`while` sugar was drafted for this version
-and cut; `design/non-goals.md` records why.
+eliminated — or with a fold. `design/non-goals.md` records why.
 
 ### 1.1 A taste
 
