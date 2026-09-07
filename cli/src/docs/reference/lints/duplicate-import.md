@@ -6,16 +6,7 @@ note: two statements for one module drift apart, and the top of the file stops b
 fix: merge the two into one import
 adapted-from: habit-hooks (https://github.com/habit-hooks/habit-hooks) guides/duplicate-import.md, © 2026 Ivett Ördög, used under the MIT license
 ---
-Two import statements pulling from the same module is a small thing that
-reliably grows into a confusing one. The second import is easy to miss, so the
-two drift. One gets a name the other lacks. An edit updates one and not the
-other. And you can no longer trust the top of the file to say what comes from
-where.
-
-Merge them into a single statement that names everything this file takes from
-that module. If the split was deliberate — a type-only import kept separate from
-a value import — that intent is worth keeping, but say it with the language's
-own type-import syntax rather than two plain imports that look accidental.
-
-Done right, each module appears exactly once in the import list, and that one
-line is the whole truth about what this file borrows from it.
+Merge them into one statement that names everything this file takes from that
+module. If the split was deliberate — a type-only import kept separate from a
+value import — say that with the language's own type-import syntax rather than
+two plain imports that look accidental.

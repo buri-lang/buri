@@ -16,12 +16,10 @@ edit as bytes, so an editor's quick fix writes it for you.
 
 ## Why
 
-The arrow tells the pattern from the expression, which is why a pattern and an
-expression may be spelled the same way. `1` on the left of the arrow matches the
-value one; `1` on the right *is* the value one. Without the arrow, the two
-readings are the same tokens, and the parser would have to guess where one
-stopped. So the arrow is required rather than inferred, and leaving it out is
-this error rather than a mismatch three lines further on.
+The arrow tells the pattern from the expression, which is why the two may be
+spelled the same way. `1` on the left matches the value one; `1` on the right
+*is* the value one. Without the arrow the parser would have to guess where the
+pattern stopped.
 
 ## A program that provokes it
 

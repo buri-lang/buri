@@ -16,13 +16,11 @@ Write the value out, or make it a module-level `let`, or apply it outside the
 
 ## Why
 
-A style the compiler cannot evaluate is not normally an error. It degrades to
-the inline tier, which is where `Computed` already lives. `On` and `At` are the
-exception: they have nowhere to degrade *to*. There is no inline form of
-`:hover` and none of `@media (min-width: 64rem)`. Both exist only as rules in a
-stylesheet, and the compiler writes the stylesheet at compile time. So a style
-under one of those is statically known, or the compiler rejects the program here
-rather than silently losing its hover state.
+A style the compiler cannot evaluate normally degrades to the inline tier, which
+is where `Computed` already lives. `On` and `At` have nowhere to degrade *to*:
+there is no inline form of `:hover` and none of `@media (min-width: 64rem)`.
+Both exist only as rules in a stylesheet, which the compiler writes at compile
+time.
 
 ## A program that provokes it
 

@@ -15,8 +15,7 @@ Rename one of them.
 ## Why
 
 A name is how you refer to the thing, and two of them in one scope leave the
-reference with no answer. `match` tells variants apart by name, a call tells
-functions apart by name, and neither has anything else to fall back on.
+reference with no answer.
 
 ## A program that provokes it
 

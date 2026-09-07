@@ -44,18 +44,6 @@ fn expensiveDefault(): Int {
 }
 ```
 
-## Why
-
-`??` was a second way to say `withDefault`, and the two were not equally
-reachable. You find the method by typing `.` after a value; you had to learn the
-operator from the precedence table. It was also the only right-associative rung
-in that table, so every reader of the grammar paid for it once and every
-implementation of the parser paid for it again.
-
-Removing it leaves one spelling, and the one that composes: a method sits in a
-chain beside `map`, `filter` and `okOr`, where the operator had to interrupt
-one.
-
 ## A program that provokes it
 
 ```buri fail code=retired-coalesce

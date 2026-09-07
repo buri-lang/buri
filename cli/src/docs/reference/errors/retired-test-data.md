@@ -45,14 +45,7 @@ shorter spelling of the same test is `assert.eq(render(), "coffee  $4.50")`.
 ## Why
 
 `data` named files on disk, and the *runner* read them and handed the suite
-their contents. That made a suite's filesystem a fact about the build rather
-than about the program, and only a suite the toolchain ran under a runner could
-be told it. A linked test binary has no runner: `data()` there was empty, so a
-package that declared `data` read `.Err(.NotFound)` where `buri test` read the
-file. The toolchain hid that by sending every suite declaring `data` back to
-JavaScript — one build-file field deciding which backend a suite was allowed to
-run on, to protect an answer the two backends did not agree about.
-
-`fs().files([...])` is the same seeding written where it can be honest. It is
-the suite's own text, both backends read it the same way, and nothing in the
-build file decides what the program sees.
+their contents. A linked test binary has no runner: `data()` there was empty, so
+a package that declared `data` read `.Err(.NotFound)` where `buri test` read the
+file. `fs().files([...])` is the same seeding written in the suite's own text,
+where both backends read it the same way.

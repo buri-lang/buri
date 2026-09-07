@@ -16,9 +16,8 @@ an `impl` — or drop `Eq` from this `derive`.
 
 ## Why
 
-A derived implementation is exactly that fold: `Outer`'s `eq` is its fields'
-`eq`. So a derive is only ever as available as the components it is built from,
-and the diagnostic names the component rather than the type you wrote it on.
+A derive is only ever as available as the components it is built from, which is
+why the diagnostic names the component rather than the type you wrote it on.
 
 ## A program that provokes it
 

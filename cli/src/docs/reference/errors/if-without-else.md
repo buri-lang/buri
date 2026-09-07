@@ -16,9 +16,8 @@ Add `else { ... }`.
 
 ## Why
 
-There is no statement form of `if` to fall back on. An `if` has a value, so it
-has one on both paths, and a missing `else` is a value the language would have
-to invent.
+An `if` has a value, so it has one on both paths. A missing `else` would be a
+value the language had to invent.
 
 ## A program that provokes it
 

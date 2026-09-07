@@ -1,12 +1,9 @@
 # Tasks and actors
 
-Two modules cover concurrency, and they answer two different questions.
-`core/tasks` runs a piece of a program more than once at a time, and runs work
-in the background. `core/actor` keeps state that outlives one call. Both carry
-`Tasks` in their bounds, because running a program's own work concurrently is
-authority. A signature that names it says the caller was granted that right, so
-a reader looking for what a program can do finds it where they look for
-everything else.
+Two modules cover concurrency. `core/tasks` runs a piece of a program more than
+once at a time, and runs work in the background. `core/actor` keeps state that
+outlives one call. Both carry `Tasks` in their bounds, because running a
+program's own work concurrently is authority like any other.
 
 ## `parallel` runs a list of work
 
@@ -36,23 +33,18 @@ export fn main(): Result<(), Str> {
 ```
 
 The results come back **in the items' order**, whatever order the work finished
-in. That promise is why this module has one signature rather than a family of
-them. A result list in completion order would be untestable, because there is no
-way to write "assert one of these six outputs". Each call gets the item's own
-index, so a task can name where it is without a counter to keep it in.
+in, and each call gets the item's own index.
 
-The `c` a task receives is the caller's whole context, every effect `ctx`
-carried, so a task may do anything its caller could and nothing it could not. It
-arrives as a parameter rather than by capture because a lambda may not capture
-an effect-carrying value ([effects](../language/effects.md)).
+The `c` a task receives is the caller's whole context, so a task may do anything
+its caller could and nothing it could not. It arrives as a parameter because a
+lambda may not capture an effect-carrying value
+([effects](../language/effects.md)).
 
 Every task has finished before `parallel` returns, so nothing outlives the
-context that granted it. That keeps "a program that never names `host.fs`
-cannot read a file" true of the program's lifetime and not only of its call
-graph.
+context that granted it.
 
-How much of it actually overlaps is the platform's business, and deliberately
-not the signature's:
+How much actually overlaps is the platform's business, and deliberately not the
+signature's:
 
 | Backend | Today |
 |---|---|
@@ -130,9 +122,8 @@ spawned it.
 ## An actor is a value
 
 An actor is an initial state and a step, and two enums are its protocol: one for
-what you may send, one for what comes back. Nothing else about it is
-addressable, so the state is reachable only through the messages the enum
-declares.
+what you may send, one for what comes back. The state is reachable only through
+the messages the enum declares.
 
 ```buri name=books
 from "core/actor" import { Actor, Stepped };
@@ -168,9 +159,8 @@ fn ledger<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Ledger, Entered> {
 
 The step answers a `Stepped`: the state the next message sees, and the answer
 this one gets. A message nobody needs an answer to answers a variant that says
-so — `.Recorded` — so the pairing between a request and its answer is written
-once, in the two enums. `onStop` is an `Option` a literal may leave out, and
-leaving it out means no hook at all.
+so — `.Recorded`. `onStop` is an `Option` a literal may leave out, and leaving it
+out means no hook at all.
 
 The mailbox holds sixty-four messages and is not configurable. A send runs the
 mailbox down before it answers, so the bound is what limits how much work may
@@ -211,8 +201,8 @@ after stop: true
 ```
 
 `start` gives the actor a mailbox and answers an `Address`, which is inert data.
-It holds no context, so a lambda may capture one, and that is what lets an
-address be a request handler's shared state, or another actor's.
+It holds no context, so a lambda may capture one — which is what lets an address
+be a request handler's shared state, or another actor's.
 
 `stop` closes the mailbox, discards what is still in it, and runs `onStop` once
 with the final state. Every `sendMessage` and second `stop` after that answers
@@ -220,43 +210,36 @@ with the final state. Every `sendMessage` and second `stop` after that answers
 
 **The actor steps on the task that drives it.** `sendMessage` posts, runs the
 mailbox down until its own answer is there, and hands that answer back. `stop`
-closes and then runs the hook. That is a scheduling decision rather than a
-semantic one: one sender's messages arrive in order, the actor steps each
-message exactly once, and a send sees the state its own message left. But it
-does mean an actor is not yet a way to get work done in the background.
+closes and then runs the hook. One sender's messages arrive in order, the actor
+steps each message exactly once, and a send sees the state its own message left.
+So an actor is not yet a way to get work done in the background.
 
 ## Why the state goes behind a mailbox
 
 State threaded through arguments works for as long as there is one call to
-thread it through. A long-lived program does not have one. A server's handler
-answers and returns, and the next request arrives on a fresh frame and possibly
-a different worker, so there is nowhere for a running total to sit. Threading it
-would mean handing every function the whole of the program's state and trusting
-callers to pass on what they were given.
+thread it through, and a long-lived program does not have one: a server's
+handler answers and returns, and the next request arrives on a fresh frame.
 
-A mailbox removes the question. The state is a local of the actor's own loop,
-and nothing else in the program has a name for it. So an update is a rebinding
-rather than a write, and the protocol enum is the complete list of what anybody
-may do to it. [Build a web server](./web-server.md) is that shape at work: the
-handler holds an address, not a counter.
+Behind a mailbox the state is a local of the actor's own loop, and nothing else
+in the program has a name for it. An update is a rebinding rather than a write,
+and the protocol enum is the complete list of what anybody may do to it.
+[Build a web server](./web-server.md) is that shape at work: the handler holds
+an address, not a counter.
 
 ## Effects bound what a step may do
 
-`Actor<C, S, M, R>`'s `C` is the caller's context, exactly as `parallel`'s is.
-So a step may do anything the code around it could — allocate, print, read a
-clock, ask another actor — and nothing more. `ledger` above says
-`C: Alloc + Stdout + Tasks` because its `onStop` prints. One whose hook did not
-print would not name `Stdout`, and nothing a caller binds could add it.
-
-That is [effects and capabilities](./effects.md) with no exception carved out
-for concurrency: the bound is the whole claim, and it is settled at
-`actor.start`, on the context the step will be handed.
+`Actor<C, S, M, R>`'s `C` is the caller's context, exactly as `parallel`'s is,
+so a step may do anything the code around it could and nothing more. `ledger`
+above says `C: Alloc + Stdout + Tasks` because its `onStop` prints. One whose
+hook did not print would not name `Stdout`, and nothing a caller binds could add
+it. The bound is settled at `actor.start`, on the context the step will be
+handed ([effects and capabilities](./effects.md)).
 
 ## Testing
 
-`step` is an ordinary function in an ordinary struct field. A test that wants to
-know what one message does simply calls it: no mailbox, no address, and no
-context but the one the step itself needs.
+`step` is an ordinary function in a struct field, so a test that wants to know
+what one message does calls it: no mailbox, no address, and no context but the
+one the step itself needs.
 
 ```buri role=test use=books
 from "core/host/testing" import { alloc, stdout, tasks };
@@ -273,6 +256,7 @@ test "a recorded amount is added to the running total" {
 }
 ```
 
+<<<<<<< HEAD
 `core/actor` ships no test double, and that follows from the shape rather than
 being an omission: a mailbox is a queue, the order is the order, and the one
 thing a double would decide is decided in Buri where a test can read it.
@@ -282,6 +266,12 @@ covers a spawned task too, because a scope runs its round through
 `Tasks.parallel`. So a test of background work asserts an order it chose rather
 than one it hoped for, and no test here waits on real time. Both are
 [testing your code](./testing.md).
+=======
+`core/actor` ships no test double: a mailbox is a queue, and the order is the
+order. `core/tasks` does have one — `tasks()` makes the order the work runs in a
+value the test writes down, with `anyOrder()`, `seed(n)` and `everyOrder()`.
+Both are [testing your code](./testing.md).
+>>>>>>> main
 
 ## Next
 
@@ -289,5 +279,5 @@ than one it hoped for, and no test here waits on real time. Both are
   behind a handler.
 - [Effects and capabilities](./effects.md) — where a program's authority is
   written.
-- [The standard library](../reference/standard-library.md) — the map, including
-  where a message lives while the runtime holds it.
+- [The standard library](../reference/standard-library.md) — where a message
+  lives while the runtime holds it.

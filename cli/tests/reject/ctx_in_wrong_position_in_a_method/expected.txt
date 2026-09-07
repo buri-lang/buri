@@ -15,9 +15,8 @@ error: `ctx` must come first, or immediately after `self` [ctx-not-first]
      Why
      ───
 
-     The position is what makes effectfulness readable. You answer "can this
-     function touch the world?" from the first two parameters and stop. A ctx in
-     fourth place would turn that into a question about the whole signature.
+     The position is what makes effectfulness readable: you answer "can this
+     function touch the world?" from the first two parameters and stop.
 
 error: `ctx` must come first, or immediately after `self` [ctx-not-first]
   --> cmd/ctx_in_wrong_position_in_a_method/main.buri:17:40

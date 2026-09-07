@@ -15,17 +15,14 @@ error: field `0` of `Node` is private to its module [private-to-module]
      ───
 
      export is the whole of visibility. A declaration, a field or a method
-     without it is reachable only from the module that wrote it. One rule, so
-     one code: the same error covers a function you cannot call, a field you
-     cannot name, and a variant of an enum whose own declaration is private.
+     without it is reachable only from the module that wrote it, so one code
+     covers a function you cannot call, a field you cannot name, and a variant
+     of an enum whose own declaration is private.
 
      The unusual half is that a struct with any private field cannot be
      constructed anywhere else at all, not merely read: writing Scope(0) names
-     the hidden field. That makes a private field an invariant rather than an
-     inconvenience, and it is how the standard library mints a type only from
-     the inside. ui/effect's Scope is the worked example. The runtime hands a
-     reactive closure one, and no program can build one, which is what "a
-     closure can never capture a context" rests on.
+     the hidden field. That makes a private field an invariant, and it is how
+     the standard library mints a type only from the inside.
 
      Functional update still works, because it never names the hidden fields.
 

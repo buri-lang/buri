@@ -13,14 +13,13 @@ error: this file already has a test called "pads the cents place" [duplicate-tes
 
 ## What to do
 
-Rename one of them, so each test in this file has its own title.
+Rename one of them.
 
 ## Why
 
-A title is how the report names a failing test and how `--filter` selects one,
-so two tests sharing a title in one file cannot be told apart. Two *different*
-files may use the same title. They are separate modules, and the report names
-the file and the line each failure came from.
+A title is how the report names a failing test and how `--filter` selects one.
+Two *different* files may reuse a title, since the report names the file and the
+line each failure came from.
 
 ## A program that provokes it
 

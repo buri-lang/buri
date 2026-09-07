@@ -10,14 +10,8 @@ error: `Fs` is not a trait or effect [not-a-trait]
     What to do
     ──────────
 
-    Name a declared trait or effect, or declare the one you meant.
-
-    Why
-    ───
-
-    A bound resolves to a declaration, and the compiler then checks it with a
-    table lookup. There are no where clauses and no structural constraints, so a
-    bound has nothing else it could name.
+    Name a declared trait or effect, or declare the one you meant. There are no
+    where clauses and no structural constraints.
 
 error: `C` does not satisfy `Alloc` [unsatisfied-bound]
  --> lib/db/manager.buri:7:5
@@ -53,8 +47,7 @@ error: expected `Str`, found `Int` [type-mismatch]
 
      There is no promotion of any kind, in either direction. A language that
      widened silently would make the width of an arithmetic result depend on the
-     shape of the expression rather than on what you wrote, and the one place
-     that matters is the one place nobody looks.
+     shape of the expression rather than on what you wrote.
 
 error: `Fs` is not a declared effect [not-an-effect]
   --> lib/db/test/residency.buri:14:9
@@ -67,14 +60,8 @@ error: `Fs` is not a declared effect [not-an-effect]
      What to do
      ──────────
 
-     Name an effect the platform declares, as in Alloc or Stdout.
-
-     Why
-     ───
-
-     A context binds effects to implementations, so every key has to be an
-     effect. The set is core/effect's, plus ui/effect's where the platform
-     grants them.
+     Every key in a context has to be an effect. The set is core/effect's, plus
+     ui/effect's where the platform grants them.
 
 error: expected `Str`, found `Int` [type-mismatch]
   --> lib/db/test/residency.buri:16:23

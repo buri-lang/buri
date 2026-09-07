@@ -16,9 +16,8 @@ Give it a `self` parameter, or move it out of the `impl` block.
 
 ## Why
 
-An `impl` block declares methods, and method lookup goes through the receiver's
-type. A constructor-shaped function has no receiver, so it belongs at the top
-level.
+Method lookup goes through the receiver's type, so a function with no receiver
+belongs at the top level.
 
 ## A program that provokes it
 

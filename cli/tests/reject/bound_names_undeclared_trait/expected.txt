@@ -10,12 +10,6 @@ error: `Bogus` is not a trait or effect [not-a-trait]
     What to do
     ──────────
 
-    Name a declared trait or effect, or declare the one you meant.
-
-    Why
-    ───
-
-    A bound resolves to a declaration, and the compiler then checks it with a
-    table lookup. There are no where clauses and no structural constraints, so a
-    bound has nothing else it could name.
+    Name a declared trait or effect, or declare the one you meant. There are no
+    where clauses and no structural constraints.
 

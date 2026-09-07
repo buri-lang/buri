@@ -1,8 +1,8 @@
 # Reproducible builds
 
 Two builds of one commit in one configuration produce byte-identical artifacts.
-This page shows how to check that on your own tree, and how to find out why a
-build you expected to be free was not.
+Here is how to check that on your own tree, and how to find out why a build you
+expected to be free was not.
 
 ## Verify it
 
@@ -17,13 +17,10 @@ Silence and exit `0` mean the artifacts agree. If they do not, the command exits
 
 It builds every requested binary twice and compares the bytes: two freshly
 opened sessions, the cache off, two separate output directories. Those three
-details are what make it a check. Nothing memoised carries a difference across,
-a cache hit cannot compare an entry with itself, and an artifact that embedded
-the path it was written to differs.
+details are what make it a check rather than a rerun.
 
-It is not part of an ordinary build. A repository should not have to remember to
-run it, and doing it every time doubles every build. Run it when a rebuild
-surprised you, and in whatever job you would put a slow check in.
+It doubles every build, so it is not part of an ordinary one. Run it when a
+rebuild surprised you, and in whatever job you would put a slow check in.
 
 ## Debug a cache miss
 
@@ -69,8 +66,8 @@ changed.
 
 If nothing you edited explains a key that moved, the input is one of the others
 in it: the toolchain version, the build mode, or the platform. A release
-invalidates every entry in every repository, which is correct, because an
-artifact built by a different compiler is a different artifact.
+invalidates every entry in every repository, because an artifact built by a
+different compiler is a different artifact.
 
 ## When the cache is the suspect
 
@@ -78,25 +75,24 @@ artifact built by a different compiler is a different artifact.
 $ buri build //apps/hello --force
 ```
 
-`--force` runs the actions and ignores the entries. `buri clean` drops the cache
-entirely:
+`--force` runs the actions and ignores the entries. `buri clean` drops the
+cache:
 
 ```text
 $ buri clean
 dropped .buri/out and .buri/cache
 ```
 
-Needing either is worth reporting. The cache is keyed on the content of every
-input, never on a timestamp, so a stale entry is a bug rather than a fact of
-life.
+Needing either is worth reporting: the cache is keyed on the content of every
+input, never on a timestamp, so a stale entry is a bug.
 
 ## The one trap, and it is not yours
 
 If you **build the compiler from source**, two `buri` binaries built from
-different code at the same version compute the same keys. So the first build
+different code at the same version compute the same keys, so the first build
 after you rebuild the compiler mixes both compilers' output. It is the only
-build that does, which is what makes it easy to dismiss as noise. Compare on a
-fresh tree, pass `--force`, or run `buri clean` in between.
+build that does, which makes it easy to dismiss as noise. Compare on a fresh
+tree, pass `--force`, or run `buri clean` in between.
 
 ---
 

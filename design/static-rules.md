@@ -5,11 +5,10 @@ catalogue carries it to a reader, so nobody writing Buri has to look any of this
 up.**
 
 The grammar accepts a superset of well-formed programs, and the checker sorts out
-the rest afterward. Each rule gets one line here and is argued where it is cited:
-this page is the index, not the explanation. It was section 13 of the
-specification, and the compiler's comments cite the rule numbers below. A bare
-"Section N.M" points at a section of the language reference, under
-[`cli/src/docs/language/`](../cli/src/docs/language/).
+the rest afterward. Each rule gets one line here and is argued where it is cited.
+It was section 13 of the specification, and the compiler's comments cite the rule
+numbers below. A bare "Section N.M" points at a section of the language
+reference, under [`cli/src/docs/language/`](../cli/src/docs/language/).
 
 1. The head of a struct literal (`Expr { ... }`) must be a type path — optionally
    with type arguments, or the inferred-type dot form `.Variant` — not an

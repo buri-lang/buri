@@ -16,9 +16,8 @@ Rename the method, or rename the field.
 
 ## Why
 
-A `.` resolves to a field before a method. If the two shared a name, `sq.side`
-would mean one thing and `sq.side()` another, decided by a rule nobody should
-have to remember.
+A `.` resolves to a field before a method, so `sq.side` and `sq.side()` sharing
+a name would be decided by a rule nobody should have to remember.
 
 ## A program that provokes it
 

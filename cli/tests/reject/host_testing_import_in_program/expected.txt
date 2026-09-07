@@ -11,16 +11,10 @@ error: this is a test-only module [test-only-import]
      What to do
      ──────────
 
-     Import it from a file listed in a target's test.sources, or drop the
-     import.
+     Import it from a test source, or drop the import.
 
-     Why
-     ───
-
-     The path carries the restriction rather than a field, so you can see it
-     where the import is written and there is nothing to remember to declare.
      Any module path with a testing *directory* segment is covered:
      core/testing/assert, //lib/ledger/testing, //lib/testing/fakes. A file
-     called testing.buri is not one, because the segment that would have made it
-     test-only is the file's own name.
+     called testing.buri is not one, because that segment is the file's own
+     name.
 
