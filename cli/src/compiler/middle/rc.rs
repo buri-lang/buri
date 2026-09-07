@@ -1066,20 +1066,37 @@ pub fn release_then_retain<V: Copy + PartialEq>(ops: &[(RcOp, V)]) -> Option<V> 
 /// The call graph is exact, so the answer is a fact rather than an
 /// approximation — the whole reason this is worth doing here rather than in a
 /// backend.
-/// The list operations that write into their receiver where they can.
+/// The intrinsic parameters that are **handed over** rather than lent, and the
+/// position each is in.
 ///
-/// Under [`Options::sharing`] each of these **consumes** its receiver, so a
-/// caller that keeps the list duplicates it and the duplication is a mark the
-/// backend can see. Native does not need the promotion: `cli/runtime/list.rs`'s
-/// `append_dest` asks the count at run time, and a count is the thing
-/// JavaScript does not have.
-const GROWS_ITS_RECEIVER: &[&str] = &[
-    "list.push",
-    "list.concat",
-    "list.reverse",
-    "list.take",
-    "list.drop",
-    "list.slice",
+/// Under [`Options::sharing`] each of these consumes the argument, so a caller
+/// that keeps the value duplicates it and the duplication is a mark the backend
+/// can see. Native needs none of it: `cli/runtime/list.rs`'s `append_dest` asks
+/// the count at run time, and a count is the thing JavaScript does not have.
+///
+/// Two families:
+///
+///  * **The six that write into their receiver.** What they answer is that
+///    list, changed, and the caller has no use for the one it passed.
+///  * **The four folds, and their seed.** A fold answers what its last step
+///    returned, and the first step is handed the seed. Borrowed, the runtime
+///    had to mark the seed on the way in — `$list_foldCtx`'s
+///    `acc = $share(acc)` — and a marked accumulator is a list the first step
+///    copies whole. One copy per fold reads as a constant until the fold is
+///    inside a walk: `core/buri/ast`'s printer calls `docs` once per
+///    declaration, and one copy of everything printed so far, per declaration,
+///    is the shape that made printing a schema quadratic.
+const TAKEN_BY: &[(&str, usize)] = &[
+    ("list.push", 0),
+    ("list.concat", 0),
+    ("list.reverse", 0),
+    ("list.take", 0),
+    ("list.drop", 0),
+    ("list.slice", 0),
+    ("list.fold", 2),
+    ("list.foldCtx", 3),
+    ("list.foldResult", 2),
+    ("list.foldResultCtx", 3),
 ];
 
 fn infer_ownership(
@@ -1113,10 +1130,10 @@ fn infer_ownership(
     if opts.sharing {
         for (i, f) in program.funcs.iter().enumerate() {
             let FuncKind::Intrinsic(key) = &f.kind else { continue };
-            if !GROWS_ITS_RECEIVER.contains(&key.as_str()) {
+            let Some((_, at)) = TAKEN_BY.iter().find(|(k, _)| *k == key.as_str()) else {
                 continue;
-            }
-            if let Some(slot) = own.get_mut(i).and_then(|r| r.first_mut()) {
+            };
+            if let Some(slot) = own.get_mut(i).and_then(|r| r.get_mut(*at)) {
                 *slot = ir::Ownership::Own;
             }
         }
@@ -2395,7 +2412,20 @@ impl Scan<'_> {
         // shape, the answer is the same both times, and a caller that could
         // pass a different one is a way for the mode and the count to disagree.
         let takes = self.tail_shaped_base(base) || fresh(base);
-        if (mode == Mode::Own || takes) && self.counted_ty(&e.ty.clone()) {
+        // A projection out of a value **no name reaches** is not a second
+        // reference to anything: the base is a temporary this expression just
+        // made, the projection is what survives it, and there is nobody left to
+        // read the base again. `core/buri/ast`'s `typeList` is the shape —
+        // `types.foldCtx(ctx, …, (out, false)).0`, where the fold answers a
+        // fresh `(Out, Bool)` and the `.0` is the whole of what is kept — and
+        // marking what came out of it made the next push into that `Out` copy
+        // the whole list, once per type printed.
+        //
+        // `sharing` only. On the native branch the increment is a count
+        // somebody has to give back, and [`fresh`] is one half of the pair
+        // that says who; [`Scan::drop_temporary`] is the other.
+        let nameless = self.opts.sharing && fresh(base) && borrowed_root(base).is_none();
+        if (mode == Mode::Own || takes) && self.counted_ty(&e.ty.clone()) && !nameless {
             self.push(id, Position::After, RcOp::IncRef, Target::Node(id));
             // Perceus's drop specialisation, with the answer deferred: a field
             // read out of a parent this expression is the last use of is a

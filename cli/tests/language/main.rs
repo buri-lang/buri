@@ -15,7 +15,7 @@
 //! | [`golden_javascript`] | `golden_javascript/` | What does the backend *compile to*, construct by construct? |
 //! | [`js_streams`] | four generated programs | Does everything a program printed reach the stream, whichever of the three ways it ended and whether the stream is a pipe or a file? |
 //! | [`scoped_bodies`] | `repositories/lsp/*/repo`, `example/` | Does an analysis that checks one file's bodies answer what a whole-closure one answers, for that file? |
-//! | [`sharing`] | `runtime.js`, two generated programs | Is a list this backend did not allocate never written to, and is growing one in a loop linear? |
+//! | [`sharing`] | `runtime.js`, four generated programs | Is a list this backend did not allocate never written to, is growing one in a loop linear — beside another field as well as alone — and is `core/buri/ast`'s printer linear because of it? |
 //! | [`symbols`] | `example/`, `repositories/testing/*/repo` | Does every function a program will define have a mangled symbol of its own? |
 //!
 //! ```text
