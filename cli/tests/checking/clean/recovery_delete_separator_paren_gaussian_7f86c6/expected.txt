@@ -1,7 +1,0 @@
-error: a tuple-pattern element ends with `,` [missing-separator]
-  --> main.buri:33:15
-   |
-33 |     let (first next) = g.nextGaussian();
-   |               ^
-   |
-   = fix: write `,` here
