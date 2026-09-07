@@ -1,0 +1,19 @@
+error: there is nothing named `dependencies` in scope [unresolved-name]
+  --> main.buri:29:9
+   |
+29 |         dependencies[ :],
+   |         ^^^^^^^^^^^^
+   |
+   = fix: declare `dependencies`, or import it — a name is in scope only from this module's own declarations and its imports
+error: this struct literal is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:29:21
+   |
+29 |         dependencies[ :],
+   |                     ^
+   |
+  --> main.buri:18:27
+   |
+18 |     let request = Request {
+   |                           ^ opened here
+   |
+   = fix: write `}` here

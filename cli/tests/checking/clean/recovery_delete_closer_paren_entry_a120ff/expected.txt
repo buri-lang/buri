@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:34:48
+   |
+34 |     let person = assert.some(out.modules.get(1);
+   |                                                ^
+   |
+  --> main.buri:34:29
+   |
+34 |     let person = assert.some(out.modules.get(1);
+   |                             ^ opened here
+   |
+   = fix: write `)` here

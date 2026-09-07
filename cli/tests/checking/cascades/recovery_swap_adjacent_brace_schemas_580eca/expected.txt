@@ -1,0 +1,17 @@
+error: expected `=`, found `bytes` [unexpected-token]
+  --> main.buri:66:16
+   |
+66 |     let wanted bytes =.toUtf8(ctx, piece);
+   |                ^^^^^
+   |
+   = expected: `=`
+   = actual: `bytes`
+   = fix: write `=` here
+error: there is nothing named `wanted` in scope [unresolved-name]
+  --> main.buri:70:37
+   |
+70 |         .find(fn(pair) => pair.1 == wanted);
+   |                                     ^^^^^^
+   |
+   = did you mean `printed`?
+   = fix: correct the spelling, or declare it

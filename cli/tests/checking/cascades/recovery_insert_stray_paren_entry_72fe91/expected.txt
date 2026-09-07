@@ -1,0 +1,23 @@
+error: expected `(Str, Str)`, found `(Str, <error>, Str)` [type-mismatch]
+  --> main.buri:24:13
+   |
+24 |             (
+   |             ^ the element type is `(Str, Str)`
+   |
+   = expected: `(Str, Str)`
+   = actual: `(Str, <error>, Str)`
+   = fix: produce a `(Str, Str)` here, or change what surrounds it to accept a `(Str, <error>, Str)`
+error: a tuple element ends with `,` [missing-separator]
+  --> main.buri:25:39
+   |
+25 |                 "lib/wire/point.proto"extra ,
+   |                                       ^
+   |
+   = fix: write `,` here
+error: there is nothing named `extra` in scope [unresolved-name]
+  --> main.buri:25:39
+   |
+25 |                 "lib/wire/point.proto"extra ,
+   |                                       ^^^^^
+   |
+   = fix: declare `extra`, or import it — a name is in scope only from this module's own declarations and its imports

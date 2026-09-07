@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:50:87
+   |
+50 |     let octets = bytes.toUtf8(ctx, text).slice(ctx, origin.span.start, origin.span.end;
+   |                                                                                       ^
+   |
+  --> main.buri:50:47
+   |
+50 |     let octets = bytes.toUtf8(ctx, text).slice(ctx, origin.span.start, origin.span.end;
+   |                                               ^ opened here
+   |
+   = fix: write `)` here

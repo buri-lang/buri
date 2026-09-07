@@ -1,0 +1,29 @@
+error: a tuple has arity 2 or more [tuple-arity]
+  --> main.buri:20:13
+   |
+20 |             (
+   |             ^
+   |
+   = `(e)` is grouping and `()` is the unit value
+   = fix: drop the parentheses for one element, or write `()` for none
+error: expected `(Str, Str)`, found `(Str)` [type-mismatch]
+  --> main.buri:20:13
+   |
+20 |             (
+   |             ^ the element type is `(Str, Str)`
+   |
+   = expected: `(Str, Str)`
+   = actual: `(Str)`
+   = fix: produce a `(Str, Str)` here, or change what surrounds it to accept a `(Str)`
+error: this tuple is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:21:42
+   |
+21 |                 "lib/proto/address.proto"@ ,
+   |                                          ^
+   |
+  --> main.buri:20:13
+   |
+20 |             (
+   |             ^ opened here
+   |
+   = fix: write `)` here
