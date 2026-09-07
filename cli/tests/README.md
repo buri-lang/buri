@@ -539,6 +539,7 @@ does *not* end in `.buri`: only the tree under `repo/` is a Buri repository.
 
 ```
 doc:  "one line saying what the case is about"
+not_a_repository: true
 run  { args: ["lint", "//cmd/app"]  exit: 1  golden: "lint.txt" }
 run  { args: ["build"]  exit: 0  cwd: "lib/money" }
 edit { file: "cmd/app/BUILD.buri"  replace: "..."  with: "..." }
@@ -546,6 +547,11 @@ file { path: "cmd/f/main.buri"  golden: "formatted.buri" }
 path { path: ".buri/out"  exists: false }
 path { path: "out"  symlink: ".buri/out/js" }
 ```
+
+`not_a_repository` says the tree under `repo/` has no `REPO.buri` on purpose.
+Only the `init_*` cases declare it: `buri init` refuses at a `REPO.buri` and
+anywhere inside one, so its subject is a directory that is not a repository
+yet. Every other case is held to having a root.
 
 `cwd` runs the command from a directory inside the repository, which is the only
 way to ask what a command with no target operates on. `path` covers the commands
