@@ -2275,8 +2275,11 @@ fn dialled_client(binary: &std::path::Path, port: u16) -> crate::shared::Ran {
 #[test]
 fn a_buri_client_and_a_buri_server_carry_a_message_both_ways() {
     unless_ready!();
-    let server = built("e2e-client-server", &echoing_socket_server());
-    let client = built("e2e-client-dial", &dialling_client());
+    // A name per row and not a name per program: `built` writes into a
+    // directory named for its first argument, and two rows here run at the same
+    // time.
+    let server = built("e2e-client-server-both-ways", &echoing_socket_server());
+    let client = built("e2e-client-dial-both-ways", &dialling_client());
     let running = crate::shared::announced(&server);
     let port = running.2;
     let said = dialled_client(&client, port);
@@ -2329,8 +2332,8 @@ fn a_buri_client_and_a_buri_server_carry_a_message_both_ways() {
 #[test]
 fn a_client_that_dials_a_port_nobody_holds_says_so() {
     unless_ready!();
-    let server = built("e2e-client-server", &echoing_socket_server());
-    let client = built("e2e-client-dial", &dialling_client());
+    let server = built("e2e-client-server-refused", &echoing_socket_server());
+    let client = built("e2e-client-dial-refused", &dialling_client());
     // A port this machine really did hand out a moment ago, and then took back.
     let running = crate::shared::announced(&server);
     let port = running.2;
