@@ -237,10 +237,15 @@ export effect Proc {
 /// still two parameters. The effect dispatches on the first, and the work happens
 /// with the second.
 ///
-/// **Granted on LINUX, MACOS and JS**, and withheld from WEB — the same three as
-/// the filesystem, for a reason of the same kind. `parallel` returns only when
-/// the last task has finished, and a page has an interface that freezing is
-/// visible in. A page's concurrency is its event loop.
+/// **Granted on every platform, WEB included.** It was withheld from the page
+/// until `core/tasks` gained a `scope`: `parallel` returns only when the last
+/// task has finished, and that is the one shape a page's host is built to
+/// avoid. What answers it is that a page's concurrency *is* its event loop and
+/// a task is what a program puts on one — the JavaScript host starts tasks
+/// together and awaits them together, so a page waiting for a task is a page
+/// with an outstanding promise. `core/tasks`'s `spawn` is how a page says
+/// "keep this socket open" or "fire this in five minutes", and there was no
+/// other way to say it.
 ///
 /// How much of it runs at once belongs to the platform and not to this
 /// signature. JavaScript starts the tasks together and awaits them together, on

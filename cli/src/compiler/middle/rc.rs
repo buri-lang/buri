@@ -1426,7 +1426,13 @@ pub fn crosses_tasks(key: &str) -> bool {
     // be counted, read and released by a thread that is not this one", and it
     // is true of all nine keys — a `replyPut` on one carrier and the
     // `replyTake` that reads it on another is the same hand-off as the queue's.
-    key.starts_with("actor.") || key.starts_with("host.HostTasks.")
+    // `core/tasks`'s scopes, by prefix and for the mailbox's reason exactly: a
+    // spawned task **waits** in a scope until a round picks it up, and the
+    // round that picks it up runs on a carrier of its own on a native release
+    // build. The closure and everything it captured are what cross.
+    key.starts_with("actor.")
+        || key.starts_with("host.HostTasks.")
+        || key.starts_with("tasks.scope")
 }
 
 fn worse(a: ir::Purity, b: ir::Purity) -> ir::Purity {
@@ -3434,6 +3440,13 @@ export fn main(): Result<(), Str> {
         // The rows that do not exist yet, and are covered anyway.
         assert!(crosses_tasks("host.HostTasks.start"));
         assert!(crosses_tasks("host.HostTasks.send"));
+        // `core/tasks`'s scopes: a spawned task waits in one until a round on
+        // another carrier picks it up.
+        assert!(crosses_tasks("tasks.scopePush"));
+        assert!(crosses_tasks("tasks.scopeTaskAt"));
+        // The module's other keys are not the scope's: `tasks.parallel` is the
+        // Buri wrapper and hands nothing over itself.
+        assert!(!crosses_tasks("tasks.parallel"));
 
         // Everything that waits but hands nothing over: `suspends` and
         // `crosses_tasks` are different questions about the same list, and

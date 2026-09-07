@@ -2227,6 +2227,77 @@ async function $host_HostTasks_parallel(self, ctx, xs, f) {
   return $own(out);
 }
 
+// --- core/tasks: the scope a task is spawned into ----------------------------
+//
+// Six functions and one table, and they are the same table `cli/runtime/rt.rs`
+// holds: a queue per scope, the round it last cut, and one flag saying who is
+// draining it.
+//
+// **Nothing here calls a spawned task.** `core/tasks::running` does, in Buri,
+// after asking for it back — which is what lets one implementation serve both
+// this backend and the native one, where calling a Buri closure from the
+// runtime is the boundary that does not exist. What a task crosses as is a
+// one-element list, exactly as an actor's message does, so `$share` on the way
+// in for the same reason.
+//
+// None of them waits, so none of them is `async`: the waiting is
+// `Tasks.parallel`'s, one level up, where `core/tasks::draining` runs a round.
+//
+// **A scope is never removed from this table.** `scope` returns when its body
+// and every task spawned into it have finished, and the handle stays live so
+// that a handler spawning later still names somewhere to go. On a page that is
+// the whole of what keeps a scope alive: the page is the outer scope.
+const $scopes = [];
+
+function $scopeAt(handle) {
+  const i = Number(handle);
+  return i >= 0 && i < $scopes.length ? $scopes[i] : undefined;
+}
+
+function $tasks_scopeOpen(c) {
+  $scopes.push({ waiting: [], round: [], draining: true });
+  return BigInt($scopes.length - 1);
+}
+
+function $tasks_scopePush(c, handle, task) {
+  const s = $scopeAt(handle);
+  if (s === undefined) return undefined;
+  s.waiting.push($share(task));
+  return $some(BigInt(s.waiting.length));
+}
+
+function $tasks_scopeRound(c, handle) {
+  const s = $scopeAt(handle);
+  if (s === undefined) return $own([]);
+  s.round = s.waiting.splice(0);
+  return $own(s.round.map((_, i) => BigInt(i)));
+}
+
+function $tasks_scopeTaskAt(c, handle, index) {
+  const s = $scopeAt(handle);
+  if (s === undefined) return undefined;
+  const at = Number(index);
+  if (at < 0 || at >= s.round.length) return undefined;
+  const held = s.round[at];
+  if (held === undefined) return undefined;
+  s.round[at] = undefined;
+  return $some(held);
+}
+
+function $tasks_scopeEnter(c, handle) {
+  const s = $scopeAt(handle);
+  if (s === undefined || s.draining) return false;
+  s.draining = true;
+  return true;
+}
+
+function $tasks_scopeLeave(c, handle) {
+  const s = $scopeAt(handle);
+  if (s === undefined) return false;
+  s.draining = false;
+  return s.waiting.length > 0;
+}
+
 function $host_HostProc_exitWith(self, code) {
   $exit(Number(code));
   return 0;

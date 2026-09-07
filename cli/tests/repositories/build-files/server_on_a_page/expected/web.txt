@@ -58,6 +58,11 @@ error: `listen` implements `Listen`, which is not allowed on the WEB platform [e
      widen too: Sockets was granted with Listen and only with it, until
      WebSocketClient let a page get a socket without accepting one.
 
+     Tasks shows the other direction. It landed granted by nobody, then on the
+     three platforms that are not a page, and now on all four — one edit to one
+     row each time, and nothing to change in a program already written against
+     the signature.
+
      A program that provokes it
      ──────────────────────────
 
@@ -65,11 +70,3 @@ error: `listen` implements `Listen`, which is not allowed on the WEB platform [e
      the documentation harness which output to check the snippet as; without one
      it checks with the whole host granted.
 
-error: `tasks` implements `Tasks`, which is not allowed on the WEB platform [effect-not-on-platform]
-  --> cmd/app/main.buri:18:21
-   |
-18 |         Tasks: host.tasks,
-   |                     ^^^^^
-   |
-   = a platform is the set of effects its host exports; `parallel` returns only when the last task has finished, which freezes a page; a page's concurrency is its event loop, and the effect that reaches it lands with the servers
-   = fix: drop `Tasks` from the context, or build this target for a platform that grants it: LINUX, MACOS, JS
