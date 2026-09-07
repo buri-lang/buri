@@ -389,8 +389,8 @@ holds the PNG to a golden checked in beside the suite. The toolchain paints it
 itself, so neither needs a browser.
 
 `ui/web` is the same tree on a server. A worker renders it to HTML and sends
-the state it rendered from with it; the page takes that markup over and reads
-the state back out.
+the state it rendered from with it; the page reads that state back, builds the
+same tree, and resumes on the markup that arrived.
 
 ```buri
 from "core/effect" import { Alloc };
@@ -414,9 +414,14 @@ fn answer<C: Alloc>(ctx: C, path: Str, state: Json): Response {
 `render` takes no context and cannot need one: every constructor in `ui/node` is
 unbounded in `C`, so nothing in a tree can act while it is being written out.
 `shell` puts the state in an inert `<script id="buri-state">` and the compiler's
-stylesheet in the head. On the page, `web.resume(ctx)` picks that state up —
-`web.state(ctx)` reads it — and renders nothing, so the reader keeps looking at
-the markup that arrived.
+stylesheet in the head.
+
+On the page, `web.state(ctx)` reads that state back and `web.resume(ctx, tree)`
+takes the document over. It creates no element and no run of text — the renderer
+takes the node the server already wrote for each one — and what it adds is the
+listeners and the computations. So a server-rendered button works, and nothing
+the reader is looking at is built twice. A tree the markup does not match is
+`.Err` naming the node it wanted.
 
 Routing is a match. A page function takes the path as a `Prop<Str>`: the worker
 passes `.Const(request.path())` and the page passes `web.route(ctx)`, which is
