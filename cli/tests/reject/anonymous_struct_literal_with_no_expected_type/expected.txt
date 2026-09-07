@@ -12,28 +12,20 @@ error: nothing here says what this literal builds [struct-literal-type]
 
      Write the type in front of the {. An annotation on the binding does the
      same job, so let w: World = { hi: "hi" }; and World { hi: "hi" } are both
-     answers. Which reads better is a question about the line, not about the
-     rule.
+     answers.
 
      Why
      ───
 
      The compiler reads an anonymous literal's type from above and never solves
-     for it. That is the whole claim the shorter syntax makes: the type is
-     already written down somewhere you can see, so leaving it out of the
-     literal costs you nothing. A literal that worked its type out from its own
-     fields would be a search instead, and the answer would depend on the order
-     the checker happened to visit the expression in.
+     for it, so the rule is deliberately narrow. The expected type reaches a
+     literal in a let with an annotation, an argument of a call, the value of a
+     field, a match arm and a function's result — the places a type is already
+     spelled out. Nowhere else, and never from the fields.
 
-     So the rule is deliberately narrow. The expected type reaches a literal in
-     a let with an annotation, an argument of a call, the value of a field, a
-     match arm and a function's result — the places a type is already spelled
-     out. Nowhere else, and never from the fields.
-
-     The compiler accepts a generic struct only where every one of its type
-     arguments is settled. Holder<Int> is a type you can see. Holder<?>, where
-     the argument is still an inference variable, is one the fields would have
-     to decide, and deciding it here is the inference this is not.
+     A generic struct is accepted only where every one of its type arguments is
+     settled. Holder<Int> is a type you can see; Holder<?>, where the argument
+     is still an inference variable, is one the fields would have to decide.
 
      An enum is not a struct. A type alone does not say which variant a literal
      builds, so .Variant { ... } names it and stays the way to write one.
