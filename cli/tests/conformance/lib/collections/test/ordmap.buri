@@ -863,3 +863,37 @@ test "countBy counts the elements under each key, in key order" {
     assert.eq(assert.some(counts.get(2)), 3);
     assert.isTrue(ordmap.countBy(ctx, list.empty<Int>(), fn(n: Int) => n).isEmpty());
 }
+
+// --- a list built inside the call that folds it -------------------------------
+//
+// The `map.of` rule, one module over: `ordmap.of(ctx, xs.map(ctx, f))` gives
+// `list.map`'s result element the type `(K, V)` out of `ordmap.of`'s signature
+// before the lambda is looked at, so the lambda's body is the only thing that
+// says what `K` and `V` are. Sizes only, for the reason
+// `collections/map.buri` gives at the same case.
+
+test "ordmap.of over a list mapped inside the call keeps every entry" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        ordmap.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(),
+        40,
+    );
+    assert.eq(
+        ordmap.of(ctx, list.range(ctx, 0, 40).mapCtx(ctx, fn(_c, i) => (i, i))).len(),
+        40,
+    );
+    let named = list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i));
+    assert.eq(ordmap.of(ctx, named).len(), 40);
+}
+
+test "ordset.of over a list mapped inside the call keeps every item" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(
+        ordset.of(ctx, list.range(ctx, 0, 40).map(ctx, fn(i) => (i, i))).len(),
+        40,
+    );
+}
