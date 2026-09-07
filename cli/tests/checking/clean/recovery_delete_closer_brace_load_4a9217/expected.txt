@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:69:47
+   |
+69 |     assert.eq([1, 2, 3].map(ctx, f), [2, 4, 6];
+   |                                               ^
+   |
+  --> main.buri:69:14
+   |
+69 |     assert.eq([1, 2, 3].map(ctx, f), [2, 4, 6];
+   |              ^ opened here
+   |
+   = fix: write `)` here

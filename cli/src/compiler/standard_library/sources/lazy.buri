@@ -1,0 +1,81 @@
+//! core/lazy — code that ships in a file of its own and arrives when it is
+//! asked for.
+//!
+//! `load(f)` answers `f`. On the JavaScript backends it also moves `f`, and
+//! everything only `f` reaches, out of the artifact and into a chunk beside
+//! it — `<artifact>.0.mjs` — which the program fetches when it reaches the
+//! `load`. A native build ignores the whole thing and hands back `f`.
+//!
+//! ```buri run
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//! from "core/lazy" import * as lazy;
+//!
+//! // Big, and reached on one path out of many. It belongs in its own chunk.
+//! fn report<C: Alloc + Stdout>(ctx: C, rows: Int): () {
+//!     io.println(ctx, "report over ${rows} rows").ignore()
+//! }
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let _ = io.println(ctx, "starting").ignore();
+//!     let reporter = lazy.load(report);
+//!     let _ = reporter(ctx, 12);
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! starting
+//! report over 12 rows
+//! ```
+//!
+//! ## `load` is where the fetch happens
+//!
+//! The chunk arrives at the `load`, not at the first call of what it answers.
+//! So write the `load` on the path that needs the code:
+//!
+//! ```buri
+//! from "core/effect" import { Stdout };
+//! from "core/io" import * as io;
+//! from "core/lazy" import * as lazy;
+//!
+//! fn admin<C: Stdout>(ctx: C): () {
+//!     io.println(ctx, "admin").ignore()
+//! }
+//!
+//! fn route<C: Stdout>(ctx: C, path: Str): () {
+//!     if (path == "/admin") {
+//!         let page = lazy.load(admin);
+//!         page(ctx)
+//!     } else {
+//!         io.println(ctx, "home").ignore()
+//!     }
+//! }
+//! ```
+//!
+//! A `route` that took the `/` arm never fetched the chunk. A `load` at the
+//! top of a body fetches it every time that body runs, which is a slower way
+//! of shipping one file.
+//!
+//! ## What goes in the chunk
+//!
+//! Everything `f` reaches that nothing else in the artifact reaches. A helper
+//! two `load`s share is in both chunks; a helper the rest of the program calls
+//! stays in the artifact and the chunk reads it from there. So splitting is
+//! worth the most where the split code is the code nothing else touches — a
+//! route, an editor, a chart.
+//!
+//! `load` takes the **name of a function**. A lambda, a local holding one, or
+//! anything that is not a function at all is `lazy-not-a-function`: there has
+//! to be a body to move.
+
+/// Answers `f`, having fetched the chunk it was split into.
+///
+/// One file per `load`ed function, written beside the artifact and fetched
+/// when this call runs. Native backends have no chunks and answer `f`.
+export fn load<F>(f: F): F;

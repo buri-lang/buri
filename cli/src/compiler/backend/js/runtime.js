@@ -631,17 +631,22 @@ function $list_get(xs, i) {
 }
 
 // A higher-order runtime function marks what it hands to a callback: the
-// element belongs to `xs`, and the seed still belongs to whoever passed it.
-// Everything after the first iteration is the callback's own fresh result, so
-// an accumulator threaded through a fold is marked once and never again.
+// element belongs to `xs`, so a callback that keeps one keeps a second name
+// for it.
+//
+// The **seed does not**, and that is a decision rather than an omission. A
+// fold's accumulator parameter is owned (`middle/rc.rs`'s `TAKEN_BY`), so a
+// caller still holding what it seeded the fold with has already marked it, and
+// marking again here would cost the first step a copy of the whole
+// accumulator. Once per fold reads as a constant until the fold is inside a
+// walk, and then it is one copy of everything built so far per step of the
+// walk.
 function $list_fold(xs, f, acc) {
-  acc = $share(acc);
   for (let i = 0; i < xs.length; i++) acc = f(acc, $share(xs[i]));
   return acc;
 }
 
 function $list_foldCtx(xs, c, f, acc) {
-  acc = $share(acc);
   for (let i = 0; i < xs.length; i++) acc = f(c, acc, $share(xs[i]));
   return acc;
 }
@@ -649,7 +654,7 @@ function $list_foldCtx(xs, c, f, acc) {
 // Stops at the first .Err, which is how a fallible fold is written without an
 // early exit.
 function $list_foldResult(xs, f, acc) {
-  let cur = [0, $share(acc)];
+  let cur = [0, acc];
   for (let i = 0; i < xs.length; i++) {
     cur = f(cur[1], $share(xs[i]));
     if (cur[0] !== 0) return cur;
@@ -658,7 +663,7 @@ function $list_foldResult(xs, f, acc) {
 }
 
 function $list_foldResultCtx(xs, c, f, acc) {
-  let cur = [0, $share(acc)];
+  let cur = [0, acc];
   for (let i = 0; i < xs.length; i++) {
     cur = f(c, cur[1], $share(xs[i]));
     if (cur[0] !== 0) return cur;
@@ -5285,6 +5290,33 @@ function $sat(v, lo, hi) {
 // allocates; constructing the Template itself does not.
 function $str_format(c, t) {
   return t;
+}
+
+// --- Lazily loaded chunks ------------------------------------------------------
+
+// One promise per chunk, so a second `load` of the same one is a hit rather
+// than a second request.
+let $lazyChunks = [];
+
+// Chunk `n` of this artifact, which sits beside it as `<artifact>.<n>.mjs`.
+// The name is derived from `import.meta.url` rather than written into the
+// artifact, so nothing here records where the build ran or what the output
+// directory was called.
+//
+// `env` is a thunk answering everything the chunk borrows from this module.
+// The chunk is handed them rather than importing them back, because this
+// module is still evaluating — a chunk is fetched from inside a call this
+// module's own top-level `await` is waiting on, and a cycle there is a program
+// that never finishes starting.
+function $lazy(n, env) {
+  if (!$lazyChunks[n]) {
+    const here = import.meta.url;
+    $lazyChunks[n] = import(here.slice(0, here.length - 4) + "." + n + ".mjs").then(function (m) {
+      m.$bind(env());
+      return m;
+    });
+  }
+  return $lazyChunks[n];
 }
 
 // --- A website ----------------------------------------------------------------

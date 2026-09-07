@@ -190,6 +190,9 @@ unordered, so it answers `.Equal` for a pair it could not order.
   table and one to write the tree; a type name resolves through an `OrdMap`, so
   a schema of `n` declarations costs O(n log t) in the `t` types in scope.
   [The proto reference](./build/proto.md) is the mapping, and it is a promise.
+  This is the module the build runs: `generators: [{ tool: "std/codegen/proto",
+  ... }]` compiles it and hands it a request, the same way it runs a tool of
+  your own.
 
 ## Collections
 
@@ -830,6 +833,42 @@ operation is *defined* rather than measured. A `Str` of *n* UTF-8 bytes charges
 `16 + n`, a `[T]` of *n* charges `16 + n * stride(T)`, and a view charges
 nothing. Those rows are charged by definition and reported to no allocator. The
 model sits beside `Alloc` in `core/effect`.
+
+## Loading code later
+
+[`core/lazy`](../../compiler/standard_library/sources/lazy.buri) — one
+declaration, `load`.
+
+```buri
+from "core/effect" import { Stdout };
+from "core/io" import * as io;
+from "core/lazy" import * as lazy;
+
+fn admin<C: Stdout>(ctx: C): () {
+    io.println(ctx, "admin").ignore()
+}
+
+fn route<C: Stdout>(ctx: C, path: Str): () {
+    if (path == "/admin") {
+        let page = lazy.load(admin);
+        page(ctx)
+    } else {
+        io.println(ctx, "home").ignore()
+    }
+}
+```
+
+`load(f)` answers `f`. On `JS`, `WEB` and `CLOUDFLARE_WORKER` it also moves `f`,
+and everything only `f` reaches, into a chunk beside the artifact —
+`<artifact>.0.mjs` — which the program fetches when it reaches the `load`. A
+native build has one file and ignores the whole thing.
+
+The fetch is at the `load`, not at the first call of what it answers, so write
+the `load` on the path that needs the code. `route` above never fetches the
+chunk for `/`.
+
+`load` takes the name of a function; anything else is `lazy-not-a-function`.
+There has to be a body to move.
 
 ## What is deliberately not here
 

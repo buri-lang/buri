@@ -89,6 +89,11 @@ pub fn build_target(
     // a stale `.css` beside a fresh `.mjs` is exactly the failure a cache is
     // supposed to be incapable of.
     let sheet_key = key.companion("stylesheet");
+    // A `core/lazy` chunk is in the cache for the stylesheet's reason and one
+    // more: the module *fetches* it by name at run time, so a hit that
+    // reproduced the module and not its chunks would be a program that loads
+    // and then cannot find half of itself.
+    let chunks_key = key.companion("chunks");
     if !flags.force {
         if let Some(bytes) = cache.get(&key) {
             let stylesheet = if platform == Platform::Web {
@@ -96,12 +101,13 @@ pub fn build_target(
             } else {
                 Some(String::new())
             };
-            if let Some(stylesheet) = stylesheet {
+            let chunks = cache.get(&chunks_key).and_then(|b| decode_chunks(&b));
+            if let (Some(stylesheet), Some(chunks)) = (stylesheet, chunks) {
                 if let Some(parent) = path.parent() {
                     let _ = std::fs::create_dir_all(parent);
                 }
                 if std::fs::write(&path, &bytes).is_ok()
-                    && write_companions(&path, output, &stylesheet, &mut diagnostics)
+                    && write_companions(&path, output, &stylesheet, &chunks, &mut diagnostics)
                 {
                     explain_link(crate::build::cache::Status::Cached);
                     link_out_symlink(session, output);
@@ -117,6 +123,7 @@ pub fn build_target(
     if platform == Platform::Web {
         cache.put(&sheet_key, compiled.stylesheet.as_bytes());
     }
+    cache.put(&chunks_key, &encode_chunks(&compiled.chunks));
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -127,7 +134,7 @@ pub fn build_target(
         );
         return Err(diagnostics);
     }
-    if !write_companions(&path, output, &compiled.stylesheet, &mut diagnostics) {
+    if !write_companions(&path, output, &compiled.stylesheet, &compiled.chunks, &mut diagnostics) {
         return Err(diagnostics);
     }
     link_out_symlink(session, output);
@@ -149,6 +156,12 @@ pub struct Compiled {
     pub module: String,
     /// The same rules, as CSS, for the companion `.css` a WEB output writes.
     pub stylesheet: String,
+    /// What `core/lazy`'s `load` split out, in `$lazy`'s own numbering: chunk
+    /// `n` is written as `<artifact>.<n>.mjs` beside the module and is fetched
+    /// by the module at run time.
+    ///
+    /// Empty for nearly every program, and always empty for a native output.
+    pub chunks: Vec<String>,
 }
 
 /// The `link` action itself: sources in, artifact bytes out, and nothing on
@@ -266,8 +279,9 @@ pub fn compile_artifact(
     // the `.css` a WEB output writes and the `<style>` `mount` installs are
     // one string produced once.
     let stylesheet = program.stylesheet.clone();
-    let module = emit(&mut program, &analysis.checked.tables, target, flags, diagnostics)?;
-    Ok(Compiled { module, stylesheet })
+    let (module, chunks) =
+        emit_all(&mut program, &analysis.checked.tables, target, flags, diagnostics)?;
+    Ok(Compiled { module, stylesheet, chunks })
 }
 
 /// The first byte at which two artifacts differ, or `None` when they are the
@@ -504,6 +518,21 @@ pub fn emit(
     flags: &Flags,
     diagnostics: &mut Diagnostics,
 ) -> Result<String, Diagnostics> {
+    emit_all(program, tables, target, flags, diagnostics).map(|(module, _)| module)
+}
+
+/// [`emit`], and the chunks `core/lazy` split out beside the module.
+///
+/// Two functions rather than one because the chunks are a build-system
+/// concern — they are files, written and cached beside the artifact — and every
+/// caller that only wants a program to run wants [`emit`].
+pub fn emit_all(
+    program: &mut monomorphize::Program,
+    tables: &crate::compiler::semantics::types::Tables,
+    target: Target,
+    flags: &Flags,
+    diagnostics: &mut Diagnostics,
+) -> Result<(String, Vec<String>), Diagnostics> {
     let profile = profile_of(flags);
     prepare(program, target);
 
@@ -531,23 +560,37 @@ pub fn emit(
             return Err(std::mem::take(diagnostics));
         }
     };
-    // One unit, and this is the backend for which that is always true. The
-    // vector is the shape because a native build emits one object per codegen
-    // unit; taking element zero here is what the JavaScript `Linker` does, and
-    // it does it in one place rather than two.
-    let Some(unit) = units.into_iter().next() else {
+    // Unit zero is the module; anything after it is a `core/lazy` chunk, in
+    // `$lazy`'s own numbering. The vector is the shape because a native build
+    // emits one object per codegen unit; taking element zero here is what the
+    // JavaScript `Linker` does, and it does it in one place rather than two.
+    let mut text = Vec::new();
+    for unit in units {
+        match String::from_utf8(unit.bytes) {
+            Ok(source) => text.push(source),
+            Err(_) => {
+                diagnostics.push(Diagnostic::error(
+                    Span::NONE,
+                    String::from("internal error: the backend emitted bytes that are not text"),
+                ));
+                return Err(std::mem::take(diagnostics));
+            }
+        }
+    }
+    if text.is_empty() {
         diagnostics.push(Diagnostic::error(
             Span::NONE,
             String::from("internal error: the backend emitted no codegen unit"),
         ));
         return Err(std::mem::take(diagnostics));
-    };
-    match String::from_utf8(unit.bytes) {
-        Ok(source) => Ok(source),
-        Err(_) => {
+    }
+    let chunks = text.split_off(1);
+    match text.into_iter().next() {
+        Some(module) => Ok((module, chunks)),
+        None => {
             diagnostics.push(Diagnostic::error(
                 Span::NONE,
-                String::from("internal error: the backend emitted bytes that are not text"),
+                String::from("internal error: the backend emitted no codegen unit"),
             ));
             Err(std::mem::take(diagnostics))
         }
@@ -581,7 +624,14 @@ pub fn prepare(
     program: &mut monomorphize::Program,
     target: Target,
 ) -> Option<crate::compiler::middle::rc::Plan> {
-    middle::run(program, &middle::Options::default());
+    // A chunk is a second file beside the artifact, so only a target that
+    // writes files can have one. `middle::chunks` takes `core/lazy`'s `load`
+    // back out everywhere else, which is the identity the module promises.
+    let opts = middle::Options {
+        split_lazy: !target.platform.is_native(),
+        ..middle::Options::default()
+    };
+    middle::run(program, &opts);
     // The native branch is chosen by what the artifact *is*, and a WEB artifact
     // is JavaScript: closure conversion and reference counting are the same
     // pessimisation for a page that they are for a script.
@@ -1711,6 +1761,64 @@ pub fn artifact_path(session: &Session, target: TargetId, output: &Output) -> Pa
 /// and the module has nothing to do about them.
 ///
 /// Returns an empty vector for every platform that is not WEB.
+/// Where chunk `n` of a module sits: `<artifact>.<n>.mjs`, beside it.
+///
+/// The module derives the same name from `import.meta.url` at run time
+/// (`runtime.js`'s `$lazy`), so this and that are one convention written twice
+/// and the file name is the whole of the agreement between them.
+pub fn chunk_path(module: &Path, n: usize) -> PathBuf {
+    let base = module
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| String::from("main"));
+    module.with_file_name(format!("{base}.{n}.mjs"))
+}
+
+/// Every chunk of a module, with the path each is written to.
+pub fn chunk_paths(module: &Path, chunks: &[String]) -> Vec<(PathBuf, String)> {
+    chunks.iter().enumerate().map(|(n, text)| (chunk_path(module, n), text.clone())).collect()
+}
+
+/// The chunks of one build, as the single blob the cache stores them under.
+///
+/// A count, then each chunk's byte length and its bytes. Length-prefixed rather
+/// than joined by a separator, because a chunk is generated JavaScript and there
+/// is no byte sequence it cannot contain — and it starts with the count so that
+/// a program with no chunks still writes something. An empty cache entry is
+/// indistinguishable from an interrupted write, which is a claim
+/// `hermeticity::two_concurrent_builds_leave_the_cache_intact` makes of every
+/// entry there is.
+fn encode_chunks(chunks: &[String]) -> Vec<u8> {
+    let mut out = format!("{}\n", chunks.len()).into_bytes();
+    for c in chunks {
+        out.extend_from_slice(format!("{}\n", c.len()).as_bytes());
+        out.extend_from_slice(c.as_bytes());
+    }
+    out
+}
+
+/// The inverse. `None` for a blob this toolchain did not write, which a caller
+/// reads as a cache miss rather than as an empty set of chunks.
+fn decode_chunks(bytes: &[u8]) -> Option<Vec<String>> {
+    let (count, mut rest) = frame(bytes)?;
+    let count: usize = count.parse().ok()?;
+    let mut out = Vec::new();
+    for _ in 0..count {
+        let (len, body) = frame(rest)?;
+        let len: usize = len.parse().ok()?;
+        out.push(String::from_utf8(body.get(..len)?.to_vec()).ok()?);
+        rest = body.get(len..)?;
+    }
+    Some(out)
+}
+
+/// One newline-terminated number, and everything after it.
+fn frame(bytes: &[u8]) -> Option<(&str, &[u8])> {
+    let end = bytes.iter().position(|b| *b == b'\n')?;
+    let head = std::str::from_utf8(bytes.get(..end)?).ok()?;
+    Some((head, bytes.get(end.checked_add(1)?..)?))
+}
+
 pub fn web_companions(module: &Path, output: &Output, stylesheet: &str) -> Vec<(PathBuf, String)> {
     if output.platform() != Platform::Web {
         return Vec::new();
@@ -1774,9 +1882,19 @@ fn write_companions(
     module: &Path,
     output: &Output,
     stylesheet: &str,
+    chunks: &[String],
     diagnostics: &mut Diagnostics,
 ) -> bool {
-    for (path, text) in web_companions(module, output, stylesheet) {
+    // A chunk left over from a build that had more of them is a file the
+    // module no longer fetches and a reader would have to guess about.
+    let mut stale = chunks.len();
+    while std::fs::remove_file(chunk_path(module, stale)).is_ok() {
+        stale = stale.saturating_add(1);
+    }
+    let companions = web_companions(module, output, stylesheet)
+        .into_iter()
+        .chain(chunk_paths(module, chunks));
+    for (path, text) in companions {
         if let Err(e) = std::fs::write(&path, &text) {
             diagnostics.push(
                 Diagnostic::error(Span::NONE, format!("cannot write {}: {e}", path.display()))
