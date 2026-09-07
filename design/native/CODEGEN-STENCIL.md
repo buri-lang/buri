@@ -157,12 +157,11 @@ within ±4 % of each other with no trend. `stencil/abi.rs::NREGS`.
 The convention is not the C one, so two things cross the boundary, and both
 are hand-written rather than emitted from stencils:
 
-* **`main`** — `stencil/asm.rs`, two hand-encoded entry-point shims that
-  behave the way the removed backend's shims did: `buri_rt_argv_init`, then
-  the root or each `test` block behind `buri_rt_test_enter`, then
-  `buri_rt_flush`, and the exit convention of `cli/runtime/lib.rs` §6. Each
-  shim sets the first argument register to the Buri stack and calls a
-  frame-threaded body.
+* **`main`** — `stencil/asm.rs`, two hand-encoded entry-point shims:
+  `buri_rt_argv_init`, then the root or each `test` block behind
+  `buri_rt_test_enter`, then `buri_rt_flush`, and the exit convention of
+  `cli/runtime/lib.rs` §6. Each shim sets the first argument register to the
+  Buri stack and calls a frame-threaded body.
 * **a runtime call** — `stencil/rtcall.rs`. §5.
 
 ## 3. Where the stencils come from
@@ -743,13 +742,12 @@ call site:
   what this is still for.
 
 **The cross product this design rejects is over operand *kinds*** — the
-paper's §5.1 axis, register / slot / immediate — and neither family is that
-one. Every argument of both is a slot, so both are the same 132 shapes; what
-the slots family has more of is *holes per stencil*, not stencils. Either
-family materialises an operand that is not already a frame word — a literal, a
-narrow field, an address, a glue symbol — into the scratch area first and
-reads it from there, so the two differ only in what they do with the operands
-that were already in the frame.
+paper's §5.1 axis, register / slot / immediate. Every argument of both
+families is a slot, so both are the same 132 shapes; what the slots family has
+more of is *holes per stencil*, not stencils. Either family materialises an
+operand that is not already a frame word into the scratch area first, so the
+two differ only in what they do with the operands that were already in the
+frame.
 
 **What it bought.** On `dot`'s inner loop, one `a.get(i)` — six integer
 arguments, three of them frame words:
@@ -773,12 +771,11 @@ so the chain is gone. **An instruction count is the wrong unit for this
 boundary, and this table is here to say so rather than to be believed.**
 
 Against the incumbent the four kernels went **1.86× → 1.38×** of Cranelift
-`opt_level=none`, past the 1.49× the pre-parity prototype reached, and the
-geomean against LLVM `-O0` — the bar the paper claims — went **1.190 →
-0.927**, the first time any measurement in this repository has cleared it. The
-cell a developer actually waits on moves with it: `buri test //suite/heavy`
-incremental at a hundred thousand lines is **1.56× → 1.26×**, and the same
-1.26× on three corpora nothing was tuned on.
+`opt_level=none`, and the geomean against LLVM `-O0` — the bar the paper
+claims — went **1.190 → 0.927**, the first time any measurement in this
+repository has cleared it. The cell a developer waits on moves with it:
+`buri test //suite/heavy` incremental at a hundred thousand lines is
+**1.56× → 1.26×**, and the same 1.26× on three corpora nothing was tuned on.
 
 **What is left is a C function's own frame.** Of the twenty-one instructions,
 six stage the operands that were not already frame words — a literal, a null,
@@ -821,14 +818,13 @@ its type (`sources.rs::write`'s convention: "a frame slot is never partially
 defined"), and the typed stencils reinterpret the low bytes. So an `I8` of
 `-3` is `0xfd` in its slot, and handing that word to a C parameter declared
 `int64_t` renders `253`. Every narrow *signed* value crossing to the runtime
-is widened first (`rtcall::int_bits`). This is a class of bug, not an
-instance: it is invisible in the emitted stencil, invisible in the IR, and
-shows up as an unsigned number in a rendered string.
+is widened first (`rtcall::int_bits`). It is invisible in the emitted stencil,
+invisible in the IR, and shows up as an unsigned number in a rendered string.
 
-**Coming back**, and the x86-64 port found this one rather than a reading. A
-`crt` stencil **declares** the entry it calls, and the declared return type
-has to be the one the entry actually returns: both psABIs leave the upper bits
-of an integer return narrower than a register **unspecified**.
+**Coming back.** A `crt` stencil **declares** the entry it calls, and the
+declared return type has to be the one the entry actually returns: both psABIs
+leave the upper bits of an integer return narrower than a register
+**unspecified**.
 `buri_rt_str_eq` answers a `u8`, `buri_rt_char_to_upper` a `u32`, and a
 fallible entry's discriminant a C `int` — three widths, and a stencil
 declaring `uint64_t` for the first two reads whatever was in the register
@@ -1043,10 +1039,10 @@ after:   addr=0x108f282c8  stack=0x104f28000  delta = 64.001 MiB
 ```
 
 Before, the program wrote **13,656 bytes past the end of its own block** and
-faulted only when it reached a page nothing had mapped. `size -m` on that
+faulted only when it reached a page nothing had mapped — `size -m` on that
 binary shows `__bss` is 64 MiB *plus forty bytes*, so there was other
-zero-fill data in the neighbourhood for a wider frame or a longer-lived
-program to land on. After, the first byte past the usable stack is unmapped.
+zero-fill data in the neighbourhood to land on. After, the first byte past the
+usable stack is unmapped.
 
 Two tests in `cli/tests/native/stencil.rs` hold the two halves.
 `a_runaway_recursion_faults_at_the_guard` links a non-tail recursion with the
@@ -1057,13 +1053,11 @@ stack rather than carved out of it.
 
 ## 9. What is not here, and who else is not
 
-Named rather than left to be discovered. Every one is a refusal, so a program
-that needs one is told; none is a wrong answer.
+Every one is a refusal, so a program that needs one is told; none is a wrong
+answer.
 
 **Refused by every backend**, and not a stencil gap. `native/conformance.rs`'s
-`PACKAGES` records the reason per package. The removed backend refused the
-same six conformance files for the same three reasons, which is one of the
-things parity meant. They are:
+`PACKAGES` records the reason per package:
 
 * an **inexact** numeric conversion. `x.toT()` where not every value fits
   answers `Result<T, RangeError>` (SPEC 6.2.1), and `RangeError` is a struct
@@ -1073,30 +1067,25 @@ things parity meant. They are:
 * **`json.*`, and `ToJson::toJson` called directly on a primitive.**
   `json.decode` is a descriptor-driven walker, and the five `bool.toJson` /
   `char.toJson` / `str.toJson` / `num.<T>.toJson` keys are the trait's own
-  leaves. `derivePrimJson` was on this line and is not any more: both backends
-  build `Json`'s primitive arm now (VALUE-MODEL.md §12 row 10), and the five
-  keys above are the same answer reached through the trait rather than through
-  the derive.
+  leaves. `derivePrimJson` is not on this line: both backends build `Json`'s
+  primitive arm (VALUE-MODEL.md §12 row 10).
 * **`core/math`'s thirteen transcendentals**, which are refused rather than
   unwritten; `cli/runtime/math.rs` argues it.
 
 **stencil's own, and each is a sentence rather than a wrong answer:**
 
 * **macOS on x86-64.** No stencil library is built for it, and none is
-  intended: a stencil is the bytes clang emitted for a C function, so that
-  combination needs x86-64 instructions in a Mach-O, and nothing this
-  repository runs on or ships to is that. It is the one native triple with no
-  debug backend at all. `mod.rs::supported` refuses it by name,
+  intended: that combination needs x86-64 instructions in a Mach-O, and
+  nothing this repository runs on or ships to is that. It is the one native
+  triple with no debug backend at all. `mod.rs::supported` refuses it by name,
   `an_unsupported_cross_target_is_refused_with_a_reason` holds the sentence,
   and `RelKind::r_type` answers `None` for the two x86-64 kinds precisely so a
-  Mach-O object can never carry one. The other three targets all emit, link
-  and run (§3.2, §10.3).
+  Mach-O object can never carry one (§3.2, §10.3).
 * **Linux execution from this host.** Both Linux targets emit objects that a
   real linker accepts and fully resolves, and that is as far as *this* machine
   can go — §10.1 says why. CI runs the programs on both (§10.2, §10.3).
-* **Debug information** — neither DWARF nor `.buri_symbols`. The removed
-  backend recorded the same gap for itself, so nothing regressed with the
-  flip; §11 is what closing it would start from.
+* **Debug information** — neither DWARF nor `.buri_symbols`; §11 is what
+  closing it would start from.
 * **An element wider than the staging room a frame keeps**
   (`lists.rs::STAGE`). A `zip`, a `flatten` and a `sortBy` move whole elements
   between two blocks through the frame, and the frame's scratch is a constant;
@@ -1136,11 +1125,11 @@ unreachable from here, and none of them is a missing effort:
   the static switch — so one cannot be produced here either. There is no
   `qemu`, no `docker`, and no initialised `podman` machine.
 
-That is exactly where `cli/benches/compiler.rs`'s `lower+linux-*` rows already
-stopped when Cranelift took them: they lower and emit object bytes, and
-nothing is linked and nothing is run in any native row.
+That is where `cli/benches/compiler.rs`'s `lower+linux-*` rows already stop:
+they lower and emit object bytes, and nothing is linked or run in any native
+row.
 
-**What was checked here**, and it is more than nothing:
+**What was checked here:**
 
 | claim | how |
 |---|---|
@@ -1158,9 +1147,8 @@ nothing is linked and nothing is run in any native row.
 | macOS is unregressed | the existing 997-file conformance corpus, unchanged |
 
 The link in that suite uses a **generated stub** in place of `libburi_rt.a`,
-derived from whatever the objects themselves leave undefined. That is honest
-about what it proves: the *shape* of every reference, and nothing about what
-the referent does.
+derived from whatever the objects themselves leave undefined. So it proves the
+*shape* of every reference and nothing about what the referent does.
 
 ### 10.2 What a Linux run had to confirm, and where it is confirmed
 
@@ -1185,8 +1173,7 @@ artifact through the CLI under each linker in turn and checks the image for a
 defined `buri$stencil$stack`, a `.bss` still `NOBITS`, a `PT_GNU_STACK`
 without `E`, `ET_DYN` with no `PT_INTERP` and no `DT_NEEDED` — then runs it.
 
-Two things there remain **uncovered**, and neither is a step that could be
-renamed into existence:
+Two things remain **uncovered**:
 
 * **Leak parity as §9 states it.** What runs is heap-stats accounting on both
   suites on one box. "Both backends leave *exactly the same* blocks" is not
@@ -1194,13 +1181,11 @@ renamed into existence:
   comparison in §9 was made by hand and has no harness here.
 * **The run-side kernels.** `cli/benches/compiler.rs` measures compile phases,
   and the four kernels behind §1's 1.38× have no harness in this repository.
-  Nor is stencil a selectable emitter for the benchmark's `lower+*` rows. Both
-  are repo-side hooks.
+  Nor is stencil a selectable emitter for the benchmark's `lower+*` rows.
 
-Two decisions inside those jobs are load-bearing rather than tidy. They use
-**apt and not the flake**, because the question is whether *the CI image's*
-clang can produce objects, and a `nix develop` would answer for nixpkgs' clang
-instead — the same file's `nix` job holds the flake green. And they export
+Two decisions inside those jobs are load-bearing. They use **apt and not the
+flake**, because the question is whether *the CI image's* clang can produce
+objects — the same file's `nix` job holds the flake green. And they export
 **`CC=clang`**: `sources::compile_flags` passes `--target=` and
 `-print-resource-dir` for both Linux targets including the host's own, gcc
 understands neither, and `cli/build.rs` degrades to an empty library rather
@@ -1248,10 +1233,9 @@ The six:
    `llvm-mc -triple=x86_64-unknown-linux-gnu` and read back against what it is
    named for; the tests carry that listing as their comments.
 
-2. **`jit.rs`: the patcher.** Four small functions, and §3.2's table had
-   already decided the shapes. `patch_rel32` serves a branch, a call and a
-   `jcc` alike — the same arithmetic, unlike A64 where they are different
-   fields — and is what `patch_branch` and `patch_cond` become on this target,
+2. **`jit.rs`: the patcher.** Four small functions, whose shapes §3.2's table
+   had already decided. `patch_rel32` serves a branch, a call and a `jcc`
+   alike — the same arithmetic, unlike A64 where they are different fields —
    with no veneer because a 32-bit displacement always reaches.
    `patch_pc32_imm` is the `lea` → `mov` rewrite for `Imm32`, in the seven
    bytes the `lea` occupied. `patch_imm64_x86_64` is the pool retarget for
@@ -1289,12 +1273,11 @@ The six:
    have worked, because InstCombine folds `bitcast(xor(bitcast x, signbit))`
    straight back to `fneg` and the `xorps` constant would have returned.
 
-6. **`swap_arms` has no x86-64 counterpart**, and still does not. It is the
-   twin of `fold_cond`, `fold_cond` is unnecessary here, and whether picking
-   the fall-through arm is worth an instruction-motion pass on this ISA is a
-   measurement — one that now *can* be made, since CI runs these programs, but
-   one this change did not make. It is the single thing on this list left
-   open.
+6. **`swap_arms` has no x86-64 counterpart.** It is the twin of `fold_cond`,
+   `fold_cond` is unnecessary here, and whether picking the fall-through arm
+   is worth an instruction-motion pass on this ISA is a measurement — one that
+   now *can* be made, since CI runs these programs. It is the single thing on
+   this list left open.
 
 What a maintainer's own machine can say is bounded the same way §10.1 bounds
 it, with one thing worth naming.
