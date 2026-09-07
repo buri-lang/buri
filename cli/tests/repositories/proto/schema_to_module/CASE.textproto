@@ -1,18 +1,22 @@
 # Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
 # but not a Buri file: only repo/ below is a Buri repository.
 
-doc: "a .proto in a package is a source like any other: undeclared until a rule lists it, placed by `buri gen`, keyed by its contents, and reachable only through lib.buri"
+doc: "a .proto in a package is a generator's input: undeclared until a `generators` entry names it, hand-authored because `buri gen` cannot place it, keyed by its contents, and reachable only through lib.buri"
 
-# A schema no rule lists is `unused-library`, exactly as a stray .buri is —
-# and the fix names `proto_sources` rather than `sources`.
+# A schema no entry hands to a tool is `unused-library`, exactly as a stray
+# .buri is — and the fix names `generators` rather than `sources`. Nothing can
+# read it either: the module a schema becomes is the one a generator handed
+# back, and nothing ran one.
 run {
   args: ["lint", "//lib/wire"]
   exit: 1
   golden: "undeclared.txt"
 }
 
-# `buri gen` places it, because where a file lives is something the tool can
-# derive. What rule it belongs to is the same question asked of a .buri.
+# `buri gen` leaves it alone. Which generator owns a file is not something the
+# tool can derive — `generators` is hand-authored, like `visibility` and
+# `outputs` — so the field it does manage, `sources`, is the whole of what it
+# has to say here.
 run {
   args: ["gen", "//lib/wire"]
   exit: 0
@@ -22,6 +26,28 @@ run {
 file {
   path: "lib/wire/BUILD.buri"
   golden: "regenerated.buri"
+}
+
+# The field that used to declare it is retired, and says so by name rather than
+# as an unknown field somebody might read as their own typo.
+edit {
+  file: "lib/wire/BUILD.buri"
+  replace: "library {"
+  with: "library {\n    proto_sources: [\"point.proto\"]"
+}
+
+run {
+  args: ["lint", "//lib/wire"]
+  exit: 2
+  golden: "retired.txt"
+}
+
+# So the entry is written by hand, which is the one step of this walkthrough
+# that is a person's.
+edit {
+  file: "lib/wire/BUILD.buri"
+  replace: "    proto_sources: [\"point.proto\"]"
+  with: "    generators: [\n        { tool: \"std/codegen/proto\", inputs: [\"point.proto\"] },\n    ]"
 }
 
 run {
@@ -36,7 +62,7 @@ run {
   golden: "clean.txt"
 }
 
-# The generated module carries a `proto` action of its own, keyed on the
+# The generated module carries a `generate` action of its own, keyed on the
 # schema's contents.
 run {
   args: ["build", "//cmd/app", "--explain"]
@@ -73,9 +99,9 @@ run {
   golden: "after_edit.txt"
 }
 
-# A generated module is internal to the rule that declared the schema: another
-# package reaches it the way it reaches any other internal module, through
-# `lib.buri`.
+# A generated module is internal to the rule that declared the generator:
+# another package reaches it the way it reaches any other internal module,
+# through `lib.buri`.
 edit {
   file: "cmd/app/main.buri"
   replace: "from \"//lib/wire\" import"

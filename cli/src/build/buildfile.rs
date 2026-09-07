@@ -31,6 +31,14 @@ const REPO_FILE_RULES: &[&str] = &["tag", "lint"];
 /// `library` rule is still an unknown field and still gets told so.
 const RETIRED_TEST_FIELDS: &[&str] = &["data"];
 
+/// The fields a `library` rule used to declare and no longer does. Same rule as
+/// [`RETIRED_TEST_FIELDS`]: the name is passed over by `check_known` and gets
+/// its own page instead of a near miss.
+const RETIRED_LIBRARY_FIELDS: &[&str] = &["proto_sources"];
+
+/// The same, for a `binary` rule.
+const RETIRED_BINARY_FIELDS: &[&str] = &["proto_sources"];
+
 #[derive(Clone, Debug)]
 pub struct Spanned<T> {
     pub value: T,
@@ -325,9 +333,6 @@ pub struct Generator {
 #[derive(Clone, Debug, Default)]
 pub struct Library {
     pub sources: Vec<Spanned<String>>,
-    /// The `.proto` schemas this rule owns. Each one becomes a module, and the
-    /// module belongs to this rule exactly as a `.buri` source does.
-    pub proto_sources: Vec<Spanned<String>>,
     /// The generators this rule runs. Every module one hands back belongs to
     /// this rule exactly as a `.buri` source does.
     pub generators: Vec<Generator>,
@@ -350,7 +355,6 @@ pub struct Library {
 #[derive(Clone, Debug, Default)]
 pub struct Binary {
     pub sources: Vec<Spanned<String>>,
-    pub proto_sources: Vec<Spanned<String>>,
     /// Exactly the same meaning as on a library.
     pub generators: Vec<Generator>,
     pub dependencies: Vec<Spanned<String>>,
@@ -988,10 +992,20 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     reader.check_known(&message, BUILD_FILE_RULES, &[], "a build file");
 
     let library = reader.sub_message(&message, "library").map(|(m, span)| {
-        reader.check_known(m, textproto::schema_order("library"), &[], "a `library` rule");
+        // Before `check_known`, for the reason `test`'s `data` is: a schema is
+        // a generator's input now, and `proto_sources` is a field this schema
+        // retired rather than one it never had.
+        for f in m.all("proto_sources") {
+            reader.templated("retired-proto-sources", f.name_span);
+        }
+        reader.check_known(
+            m,
+            textproto::schema_order("library"),
+            RETIRED_LIBRARY_FIELDS,
+            "a `library` rule",
+        );
         Library {
             sources: reader.strings(m, "sources"),
-            proto_sources: reader.strings(m, "proto_sources"),
             generators: reader.generators(m),
             dependencies: reader.strings(m, "dependencies"),
             tags: reader.strings(m, "tags"),
@@ -1006,7 +1020,15 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
     let binary = reader.sub_message(&message, "binary").map(|(m, span)| {
         // A binary has no `platforms` field of its own — `outputs` already
         // says — and no `visibility`, because nothing can depend on a binary.
-        reader.check_known(m, textproto::schema_order("binary"), &[], "a `binary` rule");
+        for f in m.all("proto_sources") {
+            reader.templated("retired-proto-sources", f.name_span);
+        }
+        reader.check_known(
+            m,
+            textproto::schema_order("binary"),
+            RETIRED_BINARY_FIELDS,
+            "a `binary` rule",
+        );
         for bad in ["platforms", "visibility"] {
             if let Some(f) = m.get(bad) {
                 let note = if bad == "platforms" {
@@ -1024,7 +1046,6 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         }
         Binary {
             sources: reader.strings(m, "sources"),
-            proto_sources: reader.strings(m, "proto_sources"),
             generators: reader.generators(m),
             dependencies: reader.strings(m, "dependencies"),
             tags: reader.strings(m, "tags"),

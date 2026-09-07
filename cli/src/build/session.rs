@@ -76,14 +76,26 @@ pub fn open_at(root: &std::path::Path, flags: &Flags) -> Result<Session, String>
     // `--dense` means the same thing here as it does for `buri docs`: the
     // headings and the code, none of the prose.
     crate::diagnostics::print_bodies(!flags.dense);
-    Ok(Session {
+    let mut session = Session {
         root,
         map,
         parsed: crate::parsing::parser::Cache::new(),
         diagnostics,
         workspace: std::rc::Rc::new(workspace),
         rendering,
-    })
+    };
+    // A `generators` entry names a program, and running it needs a session to
+    // build the tool with — so it cannot happen while the graph is loading, and
+    // it has to happen before anything analyses a module a generator produced.
+    // Here, because this is where a repository becomes something to ask
+    // questions of. `build::sources` runs them again with the editor's unsaved
+    // text, and a rule whose inputs have not moved since is a lookup.
+    crate::build::generators::prepare(
+        &mut session,
+        flags,
+        &crate::build::sources::Overlay::new(),
+    );
+    Ok(session)
 }
 
 impl Session {

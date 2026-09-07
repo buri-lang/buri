@@ -547,7 +547,6 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
     };
     if let Some(lib) = &p.build.library {
         push(&lib.sources, &mut declared);
-        push(&lib.proto_sources, &mut declared);
         // A generator's input is declared by the entry that hands it over.
         // Without this every one of them is a file no rule lists.
         for g in &lib.generators {
@@ -562,7 +561,6 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
     }
     if let Some(bin) = &p.build.binary {
         push(&bin.sources, &mut declared);
-        push(&bin.proto_sources, &mut declared);
         for g in &bin.generators {
             push(&g.inputs, &mut declared);
         }
@@ -613,13 +611,9 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
         }
         // Which field a file belongs in follows from what it is, and the fix
         // has to say which — the rule is the same rule ("everything is
-        // declared"), so the code is the same code. A file that is neither a
-        // source nor a schema is nobody's but a generator's.
-        let field = match () {
-            _ if rel.ends_with(".buri") => "sources",
-            _ if rel.ends_with(".proto") => "proto_sources",
-            _ => "generators",
-        };
+        // declared"), so the code is the same code. Anything that is not a
+        // `.buri` is nobody's but a generator's, a schema included.
+        let field = if rel.ends_with(".buri") { "sources" } else { "generators" };
         diagnostics.push(
             Diagnostic::templated("unused-library", Span::point(p.build_file_id, 0))
                 .with_bind("package_path", p.path.as_str())

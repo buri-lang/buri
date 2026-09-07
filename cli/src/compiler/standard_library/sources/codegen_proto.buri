@@ -166,6 +166,18 @@ export struct Entry {
     export origin: ast.Origin,
 }
 
+/// The file a diagnostic names when it says where a type was declared.
+///
+/// The module path for a type reached through an import, and the input's own
+/// path for one declared here — which is what a reader of the diagnostic can
+/// act on, because the module path is what an `import` in this file writes.
+fn declaredIn(e: Entry): Str {
+    match (e.inModule) {
+        .Some(m) => m,
+        .None => e.origin.file,
+    }
+}
+
 /// Whether two entries are the same declaration reached twice, rather than two
 /// declarations claiming one name.
 fn sameAs(a: Entry, b: Entry): Bool {
@@ -2275,7 +2287,7 @@ fn reportAmbiguous<C: Alloc>(
     origin: ast.Origin,
 ): Gen {
     let candidates = claimants
-        .mapCtx(ctx, fn(c, e) => str.format(c, "${e.buri} in ${e.origin.file}"))
+        .mapCtx(ctx, fn(c, e) => str.format(c, "${e.buri} in ${declaredIn(e)}"))
         .sort(ctx)
         .join(ctx, ", or ");
     let d = Diagnostic {
@@ -2304,7 +2316,7 @@ fn duplicateDiagnostics<C: Alloc>(ctx: C, t: Table): [Diagnostic] {
                 note: .Some(
                     str.format(
                         c,
-                        "declared in ${first.origin.file} and in ${second.origin.file}",
+                        "declared in ${declaredIn(first)} and in ${declaredIn(second)}",
                     ),
                 ),
                 fix: .Some(
@@ -2656,10 +2668,60 @@ fn baseName<C: Alloc>(ctx: C, path: Str): Str {
     }
 }
 
+/// What one file's `import`s reached: the schemas to resolve its field types
+/// against, and what to say about the ones that reached nothing.
+struct Resolved {
+    deps: [(Str, schema.Schema)],
+    diagnostics: [Diagnostic],
+}
+
+/// The schemas one file imports, looked up among everything the request
+/// carries.
+///
+/// Its imports and not its siblings: a type is reachable from a file only when
+/// that file says so, which is what makes deleting an `import` change what
+/// resolves. `available` is keyed by module path, and so is the lookup, so an
+/// import written `./a.proto` and an input spelled `a.proto` are one key.
+fn resolveImports<C: Alloc>(
+    ctx: C,
+    available: [(Str, schema.Schema)],
+    imports: [schema.Import],
+): Resolved {
+    let seed = Resolved { deps: [], diagnostics: [] };
+    imports.foldCtx(
+        ctx,
+        fn(c, acc: Resolved, i) => {
+            let wanted = importModulePath(c, i.path);
+            match (available.find(fn(entry) => entry.0 == wanted)) {
+                .Some(entry) => Resolved { ..acc, deps: acc.deps.push(c, entry) },
+                .None => {
+                    let d = Diagnostic {
+                        code: "proto-import-not-found",
+                        message: str.format(
+                            c,
+                            "\"${i.path}\" names no schema in this repository",
+                        ),
+                        note: .Some(
+                            "an import inside a schema is written from the repository root, the way protoc resolves one against `-I.`",
+                        ),
+                        fix: .Some(
+                            "write the path from the repository root, as in `import \"proto/address.proto\";`",
+                        ),
+                        origin: .Some(i.origin),
+                    };
+                    Resolved { ..acc, diagnostics: acc.diagnostics.push(c, d) }
+                },
+            }
+        },
+        seed,
+    )
+}
+
 /// The generator's entry point: hand this to `core/codegen`'s `run`.
 ///
 /// Every input is read as a schema before any of them is generated, because a
-/// field's type may live in any of the others.
+/// field's type may live in any of the others — but only in the ones the file
+/// imports, so the schemas are read together and resolved one at a time.
 export fn emit<C: Alloc>(ctx: C, request: Request): Response {
     let read = request
         .inputs
@@ -2669,26 +2731,25 @@ export fn emit<C: Alloc>(ctx: C, request: Request): Response {
         .mapCtx(ctx, fn(c, d) => {
             (importModulePath(c, d.0), schema.parse(c, d.1, d.0).schema)
         });
+    // Everything an `import` in any of these files could name, under the module
+    // path the import writes.
+    let available = read
+        .mapCtx(ctx, fn(c, entry) => (importModulePath(c, entry.0), entry.1.schema))
+        .concat(ctx, dependencies);
     let seed: ([(Str, ast.Module)], [Diagnostic]) = ([], []);
     let built = read.foldCtx(
         ctx,
         fn(c, acc: ([(Str, ast.Module)], [Diagnostic]), entry) => {
             let (modules, diagnostics) = acc;
             let (path, parsed) = entry;
-            let siblings = read
-                .filter(c, fn(other) => other.0 != path)
-                .mapCtx(c, fn(d, other) => {
-                    (importModulePath(d, other.0), other.1.schema)
-                });
-            let out = generate(
-                c,
-                path,
-                parsed.schema,
-                siblings.concat(c, dependencies),
-            );
+            let resolved = resolveImports(c, available, parsed.schema.imports);
+            let out = generate(c, path, parsed.schema, resolved.deps);
             (
                 modules.push(c, (baseName(c, path), out.tree)),
-                diagnostics.concat(c, parsed.errors).concat(c, out.diagnostics),
+                diagnostics
+                    .concat(c, parsed.errors)
+                    .concat(c, resolved.diagnostics)
+                    .concat(c, out.diagnostics),
             )
         },
         seed,

@@ -145,10 +145,6 @@ pub struct Loader<'a> {
     /// See [`Loaded::test_platforms`].
     test_platforms: HashMap<crate::build::workspace::PackageId, Vec<Platform>>,
     test_sources: Vec<ModuleId>,
-    /// The schema each `.proto` module was generated from, kept because a
-    /// schema importing another needs that one's declarations to resolve its
-    /// field types — and because a diamond should be read once.
-    schemas: HashMap<String, crate::build::protoschema::Schema>,
 }
 
 impl<'a> Loader<'a> {
@@ -168,7 +164,6 @@ impl<'a> Loader<'a> {
             stack: Vec::new(),
             generated_rules: std::collections::BTreeSet::new(),
             test_sources: Vec::new(),
-            schemas: HashMap::default(),
             platform: None,
             test_platforms: HashMap::default(),
         }
@@ -224,12 +219,11 @@ impl<'a> Loader<'a> {
 
         match target.kind {
             RuleKind::Library => {
-                let Some(lib) = &pkg.build.library else { return };
+                if pkg.build.library.is_none() {
+                    return;
+                }
                 self.check_testing_surface_declared(target);
                 self.load_path(&pkg.module_path("lib.buri"), Role::Source, Span::NONE);
-                for src in &lib.proto_sources {
-                    self.load_declared_proto(target, &src.value, src.span);
-                }
                 self.load_closure_generators(target);
                 let Some(lib) = &pkg.build.library else { return };
                 for src in &lib.sources {
@@ -252,7 +246,9 @@ impl<'a> Loader<'a> {
                 }
             }
             RuleKind::Binary => {
-                let Some(bin) = &pkg.build.binary else { return };
+                if pkg.build.binary.is_none() {
+                    return;
+                }
                 // A `testing/` surface belongs to the library rule. A package
                 // that has no library rule still has the directory, and
                 // nothing else would look at it, so the binary asks on its
@@ -260,9 +256,6 @@ impl<'a> Loader<'a> {
                 // told twice.
                 if !pkg.has_library() {
                     self.check_testing_surface_declared(target);
-                }
-                for src in &bin.proto_sources {
-                    self.load_declared_proto(target, &src.value, src.span);
                 }
                 self.load_closure_generators(target);
                 let Some(bin) = &pkg.build.binary else { return };
@@ -450,29 +443,6 @@ impl<'a> Loader<'a> {
         self.load_file(&path, disk, role, span)
     }
 
-    /// A `.proto` a rule lists in `proto_sources`.
-    fn load_declared_proto(&mut self, target: TargetId, rel: &str, span: Span) -> Option<ModuleId> {
-        let ws = self.ws?;
-        let pkg = ws.package(target.package);
-        if !rel.ends_with(".proto") {
-            self.diags.push(
-                Diagnostic::templated("proto-source-not-a-schema", span).with_bind("source", rel),
-            );
-            return None;
-        }
-        let disk = pkg.dir.join(rel);
-        if !disk.is_file() {
-            self.diags.push(
-                Diagnostic::templated("no-such-source", span)
-                    .with_bind("source", rel)
-                    .with_bind("field", "proto_sources"),
-            );
-            return None;
-        }
-        let path = pkg.module_path(rel);
-        self.load_proto(&path, disk, Role::Source, span)
-    }
-
     /// Every rule in this target's closure that declares a generator.
     ///
     /// Over the closure rather than over the target, because a dependency's
@@ -602,90 +572,6 @@ impl<'a> Loader<'a> {
         self.load_source_in(path, role, module.text.clone(), pkg)
     }
 
-    /// Reads a `.proto` schema and loads the module it *becomes*.
-    ///
-    /// This is the one module in a compilation that is generated rather than
-    /// read. Everything downstream is unchanged: the generated text goes
-    /// through `load_source_in`, the same seam the documentation harness
-    /// compiles a fenced block through, so the real parser and the real checker
-    /// see it. A type error in generated code is therefore a toolchain bug that
-    /// fails loudly rather than a wrong program that compiles.
-    fn load_proto(
-        &mut self,
-        path: &str,
-        disk: PathBuf,
-        role: Role,
-        span: Span,
-    ) -> Option<ModuleId> {
-        if let Some(id) = self.by_path.get(path) {
-            return Some(*id);
-        }
-        if let Some(at) = self.stack.iter().position(|p| p == path) {
-            let cycle = self.stack.get(at..).unwrap_or_default().join(" -> ");
-            self.diags.push(
-                Diagnostic::templated("proto-circular-import", span)
-                    .with_bind("cycle", cycle)
-                    .with_bind("path", path),
-            );
-            return None;
-        }
-
-        let rel = match self.ws {
-            Some(ws) => ws.rel_of(&disk),
-            None => disk.display().to_string(),
-        };
-        let file = match self.map.load(&rel, &disk) {
-            Ok(f) => f,
-            Err(e) => {
-                self.diags.push(
-                    Diagnostic::error(span, format!("cannot read {rel}: {e}"))
-                        .with_fix("check the file exists and is readable"),
-                );
-                return None;
-            }
-        };
-        let parsed = crate::build::protoschema::parse(self.map.text(file), file);
-        for d in parsed.errors {
-            self.diags.push(d);
-        }
-        let schema = parsed.schema;
-        self.schemas.insert(path.to_string(), schema.clone());
-
-        // A schema's imports are written from the repository root, so they are
-        // module paths once `//` is put in front of them. They have to be
-        // loaded first: a field's type may live in any of them.
-        self.stack.push(path.to_string());
-        let mut deps: Vec<(String, crate::build::protoschema::Schema)> = Vec::new();
-        for import in &schema.imports {
-            let dep_path = crate::build::protogen::import_module_path(&import.path);
-            match self.ws.map(|ws| ws.resolve_module(&dep_path)) {
-                Some(Ok(ModuleLocation::InPackage(m))) if m.kind == ModuleKind::Proto => {
-                    self.load_proto(&dep_path, m.file, role, import.span);
-                }
-                _ => {
-                    self.diags.push(crate::build::protogen::unresolved_import(
-                        import.span,
-                        &import.path,
-                    ));
-                    continue;
-                }
-            }
-            if let Some(dep) = self.schemas.get(&dep_path) {
-                deps.push((dep_path, dep.clone()));
-            }
-        }
-        let mut gen_diags = Vec::new();
-        let generated =
-            crate::build::protogen::generate(&rel, &schema, &deps, &mut gen_diags);
-        for d in gen_diags {
-            self.diags.push(d);
-        }
-        self.stack.pop();
-
-        let pkg = self.ws.and_then(|ws| ws.owning_package(&disk));
-        self.load_source_in(path, role, generated.source, pkg)
-    }
-
     fn load_std(&mut self, path: &str, span: Span) -> Option<ModuleId> {
         if let Some(id) = self.by_path.get(path) {
             return Some(*id);
@@ -765,7 +651,6 @@ impl<'a> Loader<'a> {
             Ok(ModuleLocation::InPackage(m)) => {
                 let (canonical, kind, file) = (m.path, m.kind, m.file);
                 let id = match kind {
-                    ModuleKind::Proto => self.load_proto(&canonical, file, role, span),
                     ModuleKind::Generated => self.load_generated(&canonical, role),
                     _ => self.load_file(&canonical, file, role, span),
                 };
@@ -1026,10 +911,10 @@ impl<'a> Loader<'a> {
 
         match loc.kind {
             // A `//pkg/inner` import resolves only inside `//pkg`. A
-            // generated `.proto` module is one of these: it belongs to the
-            // rule that declared the schema, and reaches the outside world the
-            // way every other internal module does — through `lib.buri`.
-            ModuleKind::Internal | ModuleKind::Proto | ModuleKind::Generated => {
+            // generated module is one of these: it belongs to the rule that
+            // declared the generator, and reaches the outside world the way
+            // every other internal module does — through `lib.buri`.
+            ModuleKind::Internal | ModuleKind::Generated => {
                 if Some(loc.package) != importer_pkg {
                     let owner = ws.package(loc.package).label();
                     self.diags.push(

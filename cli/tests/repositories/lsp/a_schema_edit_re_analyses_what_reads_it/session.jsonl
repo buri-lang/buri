@@ -1,7 +1,7 @@
 # One JSON-RPC request per line. `<scratch>` becomes the copied repository.
 # A `!` line is the harness acting as the editor would; see harness/case.rs.
 #
-# `//lib/wire` declares `point.proto` in `proto_sources`; `//lib/reader` reads
+# `//lib/wire` hands `point.proto` to `std/codegen/proto`; `//lib/reader` reads
 # the module that schema becomes; `//lib/other` sees neither. What the session
 # is about is that a generated module carries no path on disk, so a key built
 # from the modules alone cannot see a schema move — and every answer below is

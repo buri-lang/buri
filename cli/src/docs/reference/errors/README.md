@@ -159,7 +159,7 @@ joining; the template supplies the backticks.
 | `{expected_plural}` | The plural of what a bare word should have been (`platforms`, `architectures`), because the fix names the whole set. |
 | `{exports}` | The names a test's import asked for, quoted and joined (`` `a`, `b` ``), or the phrase `what the test needs`. |
 | `{feature}` | The `features.<name>` a schema wrote. |
-| `{field}` | A field's name: a build-file field as the schema spells it (`sources`, `arch`), a struct field as the source wrote it, or the `sources`/`proto_sources` a file belongs under. |
+| `{field}` | A field's name: a build-file field as the schema spells it (`sources`, `arch`), a struct field as the source wrote it, or the `sources`/`generators` a file belongs under. |
 | `{field_type}` | The type of the field that blocks a derive. |
 | `{fields}` | The `diagnostics::names` enumeration of the fields with no value, or with no pattern. |
 | `{first_origin}` | The first of the two schemas that declare one proto type. |

@@ -113,7 +113,6 @@ library {
 | Field | Meaning |
 |---|---|
 | `sources` | Every `.buri` file in the package that belongs to this library, **excluding** `lib.buri` and the test sources. Package-relative, may descend into subdirectories. |
-| `proto_sources` | Every `.proto` schema in the package that belongs to this library. Each becomes a module named by its own path, holding the types it declares and their codecs. See [`proto.md`](./proto.md). |
 | `generators` | Programs the build runs, whose output becomes a module of this library. Each entry names a `tool` and the `inputs` handed to it. Hand-authored — `buri gen` never writes it. See [`generators.md`](./generators.md). |
 | `dependencies` | Labels of libraries this one may use. |
 | `tags` | Labels saying what this code is. `REPO.buri` declares the policy they carry. See [`tags.md`](./tags.md). |
@@ -126,10 +125,9 @@ library {
 entry point, the way `binary` names `main.buri`.
 
 Every other `.buri` file in the package must appear in exactly one rule's
-`sources`, `test.sources`, or `testing.sources`, and every `.proto` in exactly
-one rule's `proto_sources`. A `generators` entry declares its `inputs` the same
-way, whatever they are called. A file that appears in none, or in two, is an
-error:
+`sources`, `test.sources`, or `testing.sources`. A `generators` entry declares
+its `inputs` the same way, whatever they are called, and a `.proto` schema is
+one of those. A file that appears in none, or in two, is an error:
 
 ```
 error: lib/ledger/posting/interest.buri is not declared by any rule

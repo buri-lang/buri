@@ -511,7 +511,6 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         "" => &["library", "binary", "tag", "lint"],
         "library" => &[
             "sources",
-            "proto_sources",
             "generators",
             "dependencies",
             "tags",
@@ -522,7 +521,6 @@ pub fn schema_order(message: &str) -> &'static [&'static str] {
         ],
         "binary" => &[
             "sources",
-            "proto_sources",
             "generators",
             "dependencies",
             "tags",

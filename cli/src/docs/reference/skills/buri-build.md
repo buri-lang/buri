@@ -119,7 +119,7 @@ library {
 | Field | Meaning |
 |---|---|
 | `sources` | Every `.buri` in the package belonging to this library, **excluding** `lib.buri` and the test sources. Package-relative, may descend. |
-| `proto_sources` | Every `.proto` schema belonging to it; each becomes a module. |
+| `generators` | Programs the build runs, whose output becomes a module of this library. Each entry names a `tool` and its `inputs`. A `.proto` schema goes here, under `std/codegen/proto`. |
 | `dependencies` | Labels of libraries this one may use. Libraries only. |
 | `tags` | Labels saying what this code is. The policy lives in `REPO.buri`. |
 | `platforms` | Omit unless the code is genuinely platform-specific. Unset means all. |
@@ -268,8 +268,8 @@ buri format               canonical layout for sources and build files
 buri lint //...           the graph rules: missing-dep, visibility, tags
 ```
 
-`gen` rewrites exactly seven fields, sorted: `sources`, `proto_sources`,
-`dependencies`, `test.sources`, `test.dependencies`, `testing.sources` and
-`testing.dependencies`. It touches nothing else — rules, `tags`, `platforms`,
-`visibility`, `outputs`, `timeout_seconds` and every comment survive — and it
-never creates a build file.
+`gen` rewrites exactly six fields, sorted: `sources`, `dependencies`,
+`test.sources`, `test.dependencies`, `testing.sources` and
+`testing.dependencies`. It touches nothing else — rules, `generators`, `tags`,
+`platforms`, `visibility`, `outputs`, `timeout_seconds` and every comment
+survive — and it never creates a build file.
