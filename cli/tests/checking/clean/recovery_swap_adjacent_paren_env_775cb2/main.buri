@@ -1,0 +1,88 @@
+// core/env — the process's environment.
+//
+// `get` and `args` were the whole module; this is the rest of it. Everything
+// runs against `core/host/testing`'s `env()`, which answers `/` for the
+// directory and `test` for the platform whatever machine the suite is on —
+// `native::e2e` is where the real process answers.
+
+from "core/effect" import { Alloc, Env };
+from "core/env" import * as env;
+from "core/host/testing" import { alloc, env as testEnv };
+from "core/path" import * as path;
+from "core/testing/assert" import * as assert;
+
+test "the current directory is a path" {
+    let ctx = context {
+        Alloc: alloc(),
+        Env: testEnv(),
+    };
+    assert.eq(env.currentDirectory(ctx), path.of(ctx, "/"));
+}
+
+test "all answers every variable, sorted by name" {
+    let ctx = context {
+        Alloc: alloc(),
+        Env: testEnv().variables([("PATH", "/bin"), ("HOME", "/h"), ("LANG", "C")]),
+    };
+    assert.eq(env.all(ctx), [("HOME", "/h"), ("LANG", "C"), ("PATH", "/bin")]);
+}
+
+test "an environment with nothing in it answers nothing" {
+    let ctx = context {
+        Alloc: alloc(),
+        Env: testEnv(),
+    };
+    assert.isEmpty(env.all(ctx));
+}
+
+test "the last binding of a name is the one all reports" {
+    let ctx = context {
+        Alloc: alloc(),
+        Env: testEnv().variables([("K", "one"), ("K", "two")]),
+    };
+    assert.eq(env.all(ctx), [("K", "two")]);
+    assert.eq(assert.some(env.get(ctx, "K")), "two");
+}
+
+test "the temporary directory is TMPDIR, or /tmp where nothing set it" {
+    let bare = context {
+        Alloc: alloc(),
+        Env: testEnv(),
+    };
+    assert.eq(env.temporaryDirectory(bare), path.of(bare, "/tmp"));
+    let set = context {
+        Alloc: alloc(),
+        Env: testEnv().variables([("TMPDIR", "/scratch/")]),
+    };
+    assert.eq(env.temporaryDirectory(set), path.of(set, "/scratch"));
+}
+
+test "the home directory is HOME, or nothing at all" {
+    let bare = context {
+        Alloc: alloc(),
+        Env: testEnv(),
+    };
+    assert.none(env.homeDirectory(bare));
+    let set = context {
+        Alloc: alloc(),
+        Env: testEnv().variables([("HOME", "/home/ada")]),
+    };
+    assert.eq(assert.some(env.homeDirectory(set)), path.of(set, "/home/ada"));
+}
+
+test "the double is not an operating system" {
+    let ctx = context {
+        Env: testEnv(),
+    };
+    assert.eq(env.operatingSystem(ctx), "test");
+}
+
+test "the two builders still compose, and neither touches the rest" {
+    let ctx = context {
+        Alloc: alloc(),
+        Env: testEnv().variables([("A", "1")]).arguments(["--verbose"]),
+    };
+    assert.eq(env.args(ctx), ["--verbose"]);
+    assert.eq(env.all(ctx), [("A", "1")]);
+    assert.eq(env.currentDirectory(ctx), path.of(ctx"/" ,));
+}

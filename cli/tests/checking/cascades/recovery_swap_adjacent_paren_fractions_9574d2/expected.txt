@@ -1,0 +1,31 @@
+error: `eq` takes 2 arguments, but 3 were given [wrong-argument-count]
+  --> main.buri:20:5
+   |
+20 |     assert.eq(time.secondsFloat(1.5)time ,.millis(1500));
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 3
+   = fix: pass exactly 2
+error: a call argument ends with `,` [missing-separator]
+  --> main.buri:20:37
+   |
+20 |     assert.eq(time.secondsFloat(1.5)time ,.millis(1500));
+   |                                     ^
+   |
+   = fix: write `,` here
+error: there is nothing named `time` in scope [unresolved-name]
+  --> main.buri:20:37
+   |
+20 |     assert.eq(time.secondsFloat(1.5)time ,.millis(1500));
+   |                                     ^^^^
+   |
+   = `time` is a module namespace; name a member of it
+   = fix: correct the spelling, or declare it
+error: `.millis` needs a known expected type [unannotated-variant]
+  --> main.buri:20:43
+   |
+20 |     assert.eq(time.secondsFloat(1.5)time ,.millis(1500));
+   |                                           ^^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.millis(...)`, or annotate what this value is being used as

@@ -1,0 +1,28 @@
+error: `stdin` takes 0 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:30:16
+   |
+30 |         Stdin: stdin(.lines(["only"]),
+   |                ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 0
+   = actual: 1
+   = fix: pass exactly 0
+error: `.lines` needs a known expected type [unannotated-variant]
+  --> main.buri:30:22
+   |
+30 |         Stdin: stdin(.lines(["only"]),
+   |                      ^^^^^^
+   |
+   = fix: write the qualified form, as in `Option.lines(...)`, or annotate what this value is being used as
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:31:5
+   |
+31 |     };
+   |     ^
+   |
+  --> main.buri:30:21
+   |
+30 |         Stdin: stdin(.lines(["only"]),
+   |                     ^ opened here
+   |
+   = fix: write `)` here

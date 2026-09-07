@@ -1,0 +1,9 @@
+error: expected an expression, found `?` [unexpected-token]
+  --> main.buri:16:5
+   |
+16 |     ? assert.eq(io.readAll(ctx), "one\ntwo\nthree");
+   |     ^
+   |
+   = expected: an expression
+   = actual: `?`
+   = fix: write a value here

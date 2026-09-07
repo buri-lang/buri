@@ -1,0 +1,30 @@
+error: a context binding ends with `,` [missing-separator]
+  --> main.buri:46:36
+   |
+46 |         Stdin: stdin().lines(["a"])extra ,
+   |                                    ^
+   |
+   = fix: write `,` here
+error: expected `:`, found `,` [unexpected-token]
+  --> main.buri:46:42
+   |
+46 |         Stdin: stdin().lines(["a"])extra ,
+   |                                          ^
+   |
+   = expected: `:`
+   = actual: `,`
+   = fix: write `:` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:48:26
+   |
+48 |     assert.eq(io.readAll(ctx), "a");
+   |                          ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:49:29
+   |
+49 |     assert.none(io.readLine(ctx));
+   |                             ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

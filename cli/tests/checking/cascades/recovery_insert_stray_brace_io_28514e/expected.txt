@@ -1,0 +1,16 @@
+error: expected `:`, found `Stdin` [unexpected-token]
+  --> main.buri:55:15
+   |
+55 |         extra Stdin: stdin().bytes([0, 255, 10, 65]),
+   |               ^^^^^
+   |
+   = expected: `:`
+   = actual: `Stdin`
+   = fix: write `:` here
+error: there is nothing named `ctx` in scope [unresolved-name]
+  --> main.buri:57:31
+   |
+57 |     assert.eq(io.readAllBytes(ctx), [0, 255, 10, 65]);
+   |                               ^^^
+   |
+   = fix: declare `ctx` as a parameter of this function

@@ -1,0 +1,12 @@
+error: this tuple is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:27:76
+   |
+27 |     assert.eq(env.all(ctx), [("HOME", "/h"), ("LANG", "C"), ("PATH", "/bin"]);
+   |                                                                            ^
+   |
+  --> main.buri:27:61
+   |
+27 |     assert.eq(env.all(ctx), [("HOME", "/h"), ("LANG", "C"), ("PATH", "/bin"]);
+   |                                                             ^ opened here
+   |
+   = fix: write `)` here

@@ -1,0 +1,33 @@
+error: expected a pattern, found `@` [unexpected-token]
+  --> main.buri:28:9
+   |
+28 |     let @ id = assert.some(uuid.parse("550e8400-e29b-41d4-a716-446655440000"));
+   |         ^
+   |
+   = expected: a pattern
+   = actual: `@`
+   = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `id` in scope [unresolved-name]
+  --> main.buri:31:22
+   |
+31 |         .insert(ctx, id, "ada")
+   |                      ^^
+   |
+   = did you mean `Add`?
+   = fix: correct the spelling, or declare it
+error: there is nothing named `id` in scope [unresolved-name]
+  --> main.buri:33:25
+   |
+33 |     assert.eq(table.get(id), .Some("ada"));
+   |                         ^^
+   |
+   = did you mean `Add`?
+   = fix: correct the spelling, or declare it
+error: there is nothing named `id` in scope [unresolved-name]
+  --> main.buri:36:52
+   |
+36 |     assert.eq(table.get(assert.some(uuid.fromBytes(id.0))), .Some("ada"));
+   |                                                    ^^
+   |
+   = did you mean `Add`?
+   = fix: correct the spelling, or declare it
