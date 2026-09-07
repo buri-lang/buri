@@ -2,15 +2,13 @@
 //!
 //! `core/net/http` is the client half: `http.send(ctx, request)` makes one
 //! request and answers one response. This is the other half — a program that
-//! *is* a server rather than one that talks to one. They are two modules
-//! because they are two authorities. `Net` in a context means the program talks
-//! to servers. `Listen` means it accepts connections, and `Sockets` means it
-//! can push on one somebody else accepted.
+//! *is* a server. Two modules because two authorities: `Net` means the program
+//! talks to servers, `Listen` means it accepts connections, and `Sockets` means
+//! it can push on one somebody else accepted.
 //!
 //! **The same two types.** `Request` and `Response` are `core/effect`'s, the
-//! ones `core/net/http` re-exports. This language has one shape for an HTTP
-//! message, not one per direction, so a handler here answers with the same
-//! `Response` a client reads, and builds it with the same
+//! ones `core/net/http` re-exports, so a handler here answers with the same
+//! `Response` a client reads and builds it with the same
 //! `http.text` / `http.status` / `withHeader`.
 //!
 //! ```buri
@@ -47,12 +45,9 @@
 //! (SPEC 5.6), which is why the example above is three lines long.
 //!
 //! **`.None` is not "the default". It is the absence of a choice, and the
-//! runtime turns that absence into a default.** Elision makes the distinction
-//! easy to miss, so it is worth a sentence: writing nothing does not commit
-//! this module to a number, and nothing here promises "the default address is
-//! `127.0.0.1`". The acceptor picks, and a toolchain whose runtime picks
-//! differently is not breaking this module's contract. A program that wants a
-//! number pinned writes the number.
+//! runtime turns that absence into a default.** Writing nothing commits this
+//! module to no number, so a toolchain whose runtime picks differently is not
+//! breaking the contract. A program that wants a number pinned writes it.
 //!
 //! `bind` renders the `.None`s into what `effect Listen` calls *unset*, and
 //! this is the whole of the encoding:
@@ -73,15 +68,12 @@
 //! contract.
 //!
 //! **`protocols` and `tls` cross as one list**, which `effect Listen` calls the
-//! plan and `bind` builds. That matters here for one reason: it is why there is
-//! room for a knob at all. `listenBind` spends the ten integer arguments a
-//! runtime call has, and a list crosses as a pointer and a length however many
-//! things are in it. So the fields a `Server` grows from now on are variants of
+//! plan and `bind` builds. A list crosses as a pointer and a length however many
+//! things are in it, so the fields a `Server` grows from now on are variants of
 //! `Serve` rather than arguments nobody has room for.
 //!
-//! **How many handlers run at once is still not on this list**, and it is not a
-//! `Server` field at all — not for want of room, but because it is an *answer*
-//! rather than a setting. The acceptor says how many it will host on
+//! **How many handlers run at once is not a `Server` field**, because it is an
+//! *answer* rather than a setting. The acceptor says how many it will host on
 //! `Listener.handlers`, and `run` fans out to that number. A program that has
 //! to bound its own concurrency bounds it inside its handler.
 //!
@@ -92,21 +84,14 @@
 //! the one listener. A slow handler therefore holds up its own connection and
 //! nothing else, which is what "many connections in flight" means here.
 //!
-//! **A worker pool and not a task per request.** That is `effect Tasks`'s shape
-//! showing through rather than a compromise. `parallel` is the whole of that
-//! effect and it has no detached spawn: every task finishes before the call
-//! returns, which keeps a task from outliving the context that granted it. So
-//! there is no way to say "answer this one somewhere else and come back for the
-//! next". The loop that accepts is the loop that answers, and running several
-//! of *those* is how they overlap. A program gets bounded concurrency it can
-//! read off `Listener.handlers`, which beats an unbounded one: a server that
-//! starts a task per connection lets its clients decide its worst day.
+//! **A worker pool and not a task per request.** `Tasks.parallel` has no
+//! detached spawn — every task finishes before the call returns — so the loop
+//! that accepts is the loop that answers, and running several of those is how
+//! they overlap. The concurrency is bounded, and the bound is
+//! `Listener.handlers`.
 //!
-//! `Tasks` in the bound is the visible price, and it is the right one. Handlers
-//! running at the same time is authority — the right to run a program's own
-//! work concurrently — and this language puts authority in the context, where a
-//! reader looks for it. A program that grants `Listen` and not `Tasks` is not a
-//! slower server. It does not compile, and the message names what is missing.
+//! A program that grants `Listen` and not `Tasks` is not a slower server. It
+//! does not compile, and the message names what is missing.
 //!
 //! ## TLS, and the protocol ALPN chooses
 //!
@@ -116,12 +101,10 @@
 //!
 //! **HTTP/2 comes with TLS and only with TLS.** ALPN chooses it inside the
 //! handshake (RFC 7540 §3.3), so a `Server` asking for `.Http2` without a
-//! certificate gets `.Err(.Unsupported)` from `bind` with a message saying so.
-//! Refused, rather than quietly served in HTTP/1.1 — a server that did not do
-//! what it was configured to do is the failure you find in production. A
-//! `Server` with a certificate and no `protocols` offers HTTP/1.1: `.None` is
-//! the absence of a choice, and growing a certificate is not a program asking
-//! for a second protocol.
+//! certificate gets `.Err(.Unsupported)` from `bind` with a message saying so,
+//! rather than being quietly served in HTTP/1.1. A `Server` with a certificate
+//! and no `protocols` offers HTTP/1.1: growing a certificate is not a program
+//! asking for a second protocol.
 //!
 //! ```buri
 //! from "core/effect" import { Alloc, Listen, Tasks };
@@ -167,25 +150,20 @@
 //!    and `serve` returns `.Ok(())`.
 //!
 //! So a `main` that ends with `serve(…)` falls off its own end when something
-//! asks it to stop. Whatever the program does after `serve` — flush a log,
-//! close a database, print a line — happens. That is the whole point of
-//! catching the signal rather than dying under it.
+//! asks it to stop, and whatever the program does after `serve` — flush a log,
+//! close a database, print a line — happens.
 //!
 //! `drainMillis` is how long step 2 may take. It bounds the *waiting*, not the
 //! handlers: a handler still running when it expires still answers the request
 //! it was given. What runs out is the patience of the workers with nothing left
-//! to do. A client that opened a connection and sent nothing is the case it
-//! exists for.
+//! to do.
 //!
 //! **A second signal is not a second drain.** The platform hands the signal
 //! back to the operating system when it catches the first one, so a second
 //! `Ctrl-C` during a slow shutdown terminates the process the ordinary way.
-//! That is what pressing it twice means everywhere else, and it stands between
-//! a handler that will not return and a process nobody can stop.
 //!
-//! A program that holds no port is not affected at all. The signals are the
-//! platform's only while a listener is open, so a program that is not a server
-//! keeps the operating system's own behaviour.
+//! The signals are the platform's only while a listener is open, so a program
+//! that is not a server keeps the operating system's own behaviour.
 //!
 //! ## What is here, and what is not yet
 //!
@@ -200,15 +178,13 @@
 //! **The upgrade is invisible.** A `Server` with a `websocket` accepts upgrade
 //! requests at the path its hooks name and runs `onOpen`. A `Server` without
 //! one does not, and the same request reaches `onRequest` like any other. There
-//! is no branch in a handler, no "accept the upgrade" call, and no way for a
-//! program to be half upgraded.
+//! is no branch in a handler and no "accept the upgrade" call.
 //!
-//! **The hooks say where they are served, and saying it is not optional.**
-//! `WebSocket.path` is a plain required field. A request to any other path is
-//! an ordinary request even when it carries every RFC 6455 header, so the rest
-//! of a WebSocket server's URL space is still the handler's. The match is
-//! exact: it ignores the query string and normalises nothing, so `"/socket"`
-//! and `"/socket/"` are two different paths.
+//! **The hooks say where they are served, and `WebSocket.path` is required.** A
+//! request to any other path is an ordinary request even when it carries every
+//! RFC 6455 header. The match is exact: it ignores the query string and
+//! normalises nothing, so `"/socket"` and `"/socket/"` are two different
+//! paths.
 //!
 //! ```buri
 //! from "core/actor" import * as actor;
@@ -272,10 +248,10 @@
 //!   current one, and `onMessage` answers the next — so per-socket state is a
 //!   value on a stack rather than a table keyed by socket. Above it is an
 //!   actor's address; it could as easily be a room name or a count.
-//! * **`Socket` is inert**: one integer, copyable, comparable, and — the point —
-//!   sendable to an actor, which can then push on it long after the request
-//!   that opened it returned. `socket.send` and `socket.close` need `C: Sockets`
-//!   and nothing else.
+//! * **`Socket` is inert**: one integer, copyable, comparable, and sendable to
+//!   an actor, which can then push on it long after the request that opened it
+//!   returned. `socket.send` and `socket.close` need `C: Sockets` and nothing
+//!   else.
 //! * **`send` never waits.** It hands the message to the socket's outbound
 //!   buffer. A buffer that fills closes the socket with `.Overflow` and runs
 //!   `onClose`. The platform drops a message to a socket that has already
@@ -285,13 +261,10 @@
 //!   `.Binary` and nothing else.
 //!
 //! **A socket costs a worker.** Its whole life — `onOpen`, every `onMessage`,
-//! `onClose` — runs on the one worker that accepted it. That makes "hooks on
-//! one socket run in order" true by construction rather than by a lock, and it
-//! lets the state be a local threaded through a tail call. The bill: a server
-//! holding `listener.handlers` sockets has no worker left to accept with. That
-//! is the same bound F3 put on requests in flight, it is readable off the
-//! `Listener`, and it moves on the day a task can outlive the call that started
-//! it.
+//! `onClose` — runs on the one worker that accepted it, so the hooks on one
+//! socket run in order by construction rather than by a lock. The bill: a
+//! server holding `listener.handlers` sockets has no worker left to accept
+//! with.
 //!
 //! A shutdown closes any open socket with `.GoingAway` — the WebSocket half of
 //! the GOAWAY an HTTP/2 connection gets — so a drain does not wait out its
@@ -312,21 +285,17 @@ from "core/effect" export {
 ///
 /// `port` and `onRequest` are the two a server cannot be without: a port to
 /// hold, and something to answer with. Everything else is an `Option` a literal
-/// may leave out, and `.None` means "the runtime chooses" — the module header
-/// argues that convention rather than merely stating it.
+/// may leave out, and `.None` means "the runtime chooses".
 ///
 /// `C` is the caller's own context, and `onRequest` is handed it. A handler may
 /// therefore do anything the context it was written beside can do: allocate a
 /// response body, print a line, read a clock, start a task. None of that
 /// authority passes through `Listen`, because `run`'s workers call the handler
-/// themselves. That is why the effect has five small methods and not one big
-/// one.
+/// themselves.
 ///
 /// `S` is **the state one socket carries**. On a server with no `websocket`
-/// nothing constrains it, and the checker settles it as `()`
-/// (guides/compile-speed.md: a variable no constraint reached is unit). So a
-/// program that is not a WebSocket server writes exactly what it wrote before
-/// this field existed and never spells the parameter at all.
+/// nothing constrains it and the checker settles it as `()`, so a program that
+/// is not a WebSocket server never spells the parameter at all.
 export struct Server<C, S> {
     /// The port to hold. `0` asks the operating system to choose one, and
     /// `bind` answers with the number it chose.
@@ -346,10 +315,8 @@ export struct Server<C, S> {
     /// Stop after answering this many requests, and return `.Ok(())`. `.None`
     /// serves until the listener closes.
     ///
-    /// It is a knob, not a debugging aid. A server that answers one request and
-    /// exits is a real shape — a one-shot callback receiver, an OAuth redirect
-    /// catcher, a test — and this field means something other than a kill can
-    /// *finish* a server.
+    /// It is a knob, not a debugging aid: a one-shot callback receiver, an OAuth
+    /// redirect catcher and a test are all servers that finish.
     export requestLimit: Option<Int>,
     /// Give up waiting for a connection after this long, and return
     /// `.Err(.Timeout)`. `.None` waits indefinitely, which is what an ordinary
@@ -358,11 +325,9 @@ export struct Server<C, S> {
     /// How long a shutdown may wait for the requests already in flight.
     /// `.None` leaves the number to the runtime.
     ///
-    /// A deployment sets this one, because a deployment decides how long a
-    /// process has to stop: a supervisor that sends `SIGTERM` and then
-    /// `SIGKILL` ten seconds later is asking a question this field answers. The
-    /// module header writes out the three steps of a drain. The short version
-    /// is that this bounds the middle one.
+    /// A deployment sets this one: a supervisor that sends `SIGTERM` and then
+    /// `SIGKILL` ten seconds later is asking a question this field answers. It
+    /// bounds the middle step of the drain the module header writes out.
     export drainMillis: Option<Int>,
     /// The certificate this server presents, and therefore whether it speaks
     /// TLS at all. `.None` is a cleartext server.
@@ -373,44 +338,31 @@ export struct Server<C, S> {
     /// HTTP/1.1.
     export tls: Option<Tls>,
     /// What this server does with a WebSocket, and the path it does it at.
-    /// `.None` is a server that has none, and there an upgrade request is an
-    /// ordinary request. It reaches `onRequest` like any other, which is where
-    /// a server that does not do WebSockets should answer it.
     ///
     /// **The upgrade is invisible.** There is no "accept the upgrade" call and
     /// no branch in a handler. With hooks present, a client that asks for a
-    /// socket *at `WebSocket.path`* gets one and `onOpen` runs. Without them,
-    /// nothing about the request is special. That is the whole of the switch,
-    /// and it is why this is an `Option` of the hooks rather than a `Bool`
-    /// beside them.
-    ///
-    /// **The hooks name their path and it is not optional**, so a WebSocket
-    /// server is still an ordinary server everywhere else. An upgrade request
-    /// to any path but that one reaches `onRequest` exactly as it would on a
-    /// server whose `websocket` is `.None`.
+    /// socket *at `WebSocket.path`* gets one and `onOpen` runs. Without them —
+    /// or at any other path — the request reaches `onRequest` like any other.
     export websocket: Option<WebSocket<C, S>>,
     /// How many messages one socket's outbound buffer holds before the socket
     /// closes with `.Overflow`. `.None` leaves the number to the runtime.
     ///
-    /// It is a `Server` field rather than a `WebSocket` one because it is a
-    /// *bind*-time knob. `bind` tells the acceptor once, when the port opens,
-    /// and every socket on the listener gets the same bound. It sits here with
-    /// `drainMillis` for that reason, not because the two are related.
+    /// It is a `Server` field rather than a `WebSocket` one because `bind` tells
+    /// the acceptor once, when the port opens, and every socket on the listener
+    /// gets the same bound.
     export socketBuffer: Option<Int>,
 }
 
 derive Eq, Show for Tls;
 /// Where a server reads its identity from.
 ///
-/// **Two paths and not two PEM documents**, which is a shape decision worth the
-/// sentence. A certificate is a file that expires and gets rotated, and a
-/// private key written into a source file is a private key in a version control
-/// system. So a program names where to read them, and the runtime does the
-/// reading — once, when the port opens. A certificate that is missing,
-/// unreadable, or does not match its key is an `.Err` from `bind` rather than a
-/// handshake failure at three in the morning.
+/// **Two paths and not two PEM documents**: certificates expire and get
+/// rotated, and a key written into a source file is a key in version control. So
+/// a program names where to read them, and the runtime reads them once, when the
+/// port opens. A certificate that is missing, unreadable, or does not match its
+/// key is an `.Err` from `bind` rather than a handshake failure later.
 ///
-/// Both fields are required, because half an identity is not one.
+/// Both fields are required.
 export struct Tls {
     /// The PEM file holding the certificate chain, leaf first.
     export certificate: Str,
@@ -421,14 +373,10 @@ export struct Tls {
 }
 
 //
-// Two knobs a reader might look for are still absent: **how long one connection
-// may take to send its head**, and **the largest body the acceptor will read**.
-// Both exist, and both are the runtime's own numbers. They used to be absent
-// because `listenBind` had no argument left to carry them. That is no longer
-// true — the plan is a list, and a list holds as many options as anyone writes
-// — so they are absent now for the ordinary reason: nobody has needed to name
-// them yet. The day somebody does, they become two variants of `Serve` and two
-// fields here.
+// Two knobs a reader might look for are absent: **how long one connection may
+// take to send its head**, and **the largest body the acceptor will read**.
+// Both are the runtime's own numbers. The day a program needs to name one, it
+// becomes a variant of `Serve` and a field here.
 
 /// The whole of a server: bind the port, answer requests until the listener is
 /// done, give the port back.
@@ -436,12 +384,10 @@ export struct Tls {
 /// `.Ok(())` means the server stopped the way it was asked to — its request
 /// limit spent, its listener closed, or the platform asked it to stop and it
 /// finished draining. An error is a reason it could not go on, and it gives the
-/// port back on that path too. The module header's "Stopping" section writes
-/// out the third of those.
+/// port back on that path too.
 ///
 /// A program that needs the port *while* the server runs — anything binding
-/// `port: 0` — wants `bind` and `run` instead. They are this function's two
-/// halves, exported for exactly that.
+/// `port: 0` — wants this function's two halves, `bind` and `run`.
 export fn serve<C: Alloc + Listen + Tasks, S>(
     ctx: C,
     server: Server<C, S>,
@@ -460,11 +406,7 @@ export fn serve<C: Alloc + Listen + Tasks, S>(
 /// bind and the loop.
 ///
 /// **`Alloc` is in the bound because the plan is a list.** `listenBind` takes
-/// one `[Serve]` — the shape `effect Listen` argues for, and the reason a
-/// certificate fit into a call that was already at its argument budget.
-/// Building a list allocates, and this language says that in the bound rather
-/// than in a comment. `serve` already carried `Alloc` for `run`'s fan-out, so
-/// nothing that called `serve` changes.
+/// one `[Serve]`, and building it allocates.
 export fn bind<C: Alloc + Listen, S>(
     ctx: C,
     server: Server<C, S>,
@@ -482,16 +424,12 @@ export fn bind<C: Alloc + Listen, S>(
 /// takes.
 ///
 /// Protocols first, then the identity, then the shutdown, then the socket
-/// buffer — the order the acceptor reads them in. It walks the protocols to
-/// decide what it may offer, reads the certificate to decide whether it can
-/// offer anything at all, asks about the drain only when somebody asks it to
-/// stop, and asks about the buffer only once a socket exists. An empty list is
-/// a caller who chose nothing, and `.None` on every field is exactly that.
+/// buffer — the order the acceptor reads them in.
 ///
-/// **An absent option is an absent element**, which makes this the `.None`
-/// convention rather than an encoding of it. There is no "unset"
+/// **An absent option is an absent element.** There is no "unset"
 /// `.DrainMillis` to render, because a plan that does not mention the drain
-/// already says "this program did not choose one".
+/// already says the program chose none. An empty list is a caller who chose
+/// nothing at all.
 fn planned<C: Alloc, S>(ctx: C, server: Server<C, S>): [Serve] {
     let spoken: [Serve] = server.protocols.withDefault([]).map(ctx, fn(p) => .Speak(p));
     let secured: [Serve] = match (server.tls) {
@@ -513,14 +451,9 @@ fn planned<C: Alloc, S>(ctx: C, server: Server<C, S>): [Serve] {
 /// The most workers this module will start, whatever a `Listener` says.
 ///
 /// A `Listener` is inert data and a program may write one for itself, so `run`
-/// believes its `handlers` only inside a range it can host. A fan-out of a
-/// million would be a program that stops making progress rather than a fast
-/// one, and that number would have come from the program rather than from an
-/// acceptor. The runtime's own ceiling is the same sixty-four
-/// (`cli/runtime/net.rs`, where the reason is that a worker waiting for a
-/// connection holds a carrier). The two agreeing is a fact about this toolchain
-/// rather than a promise: the clamp is here because this module cannot check
-/// what minted the value.
+/// believes its `handlers` only inside a range it can host: sixty-four, which is
+/// the runtime's own ceiling too. The clamp is here because this module cannot
+/// check what minted the value.
 let MAX_HANDLERS: Int = 64;
 
 /// `asked`, believed inside the range above. At least one: a server with no
@@ -536,11 +469,9 @@ fn hosted(asked: Int): Int {
 /// One worker's whole job: which listener to answer on, and what to answer
 /// with.
 ///
-/// It exists so the fan-out's closure captures **nothing**. A task gets its
-/// item and its context and takes nothing from the frame it was written in
-/// (SPEC 10.6), so the two things a worker needs travel as the item rather than
-/// as a capture. That is also why `run` can hand every worker the same value
-/// and let the acceptor decide who gets which request.
+/// It exists so the fan-out's closure captures **nothing**. A task gets its item
+/// and its context and takes nothing from the frame it was written in (SPEC
+/// 10.6), so what a worker needs travels as the item.
 struct Worker<C, S> {
     handle: Int,
     onRequest: fn(C, Request) => Response,
@@ -553,20 +484,14 @@ struct Worker<C, S> {
 /// **`listener.handlers` workers, each running the whole accept loop.** They all
 /// accept on the one listener and the acceptor hands each connection to
 /// whichever asks first, so a handler that takes a second holds up its own
-/// connection and no other. The loop itself is `answering` below, and it is a
-/// tail call: this language has no loops (design/non-goals.md), and
-/// `middle/tail_calls.rs` rewrites a self tail call into one, so each worker
-/// costs one frame however long it runs.
+/// connection and no other. The loop is `answering` below, and it is a self tail
+/// call, so each worker costs one frame however long it runs.
 ///
-/// **One handler is no fan-out at all**, and that is worth the branch. An
-/// acceptor that hosts one — every test double in this repository, and the
-/// development backend's own answer — gets the loop on the calling task, with no
-/// task started, no list built and no result folded. It is the server this
-/// module was before F3, reached by asking rather than by a flag.
+/// **One handler is no fan-out at all**: the loop runs on the calling task, with
+/// no task started, no list built and no result folded.
 ///
-/// It takes the whole `Server` rather than its `onRequest` so the two halves of
-/// `serve` take the same value in and hand the same value out. `bind` already
-/// spent `port`, `address` and the bind knobs, so this ignores them.
+/// It takes the whole `Server` rather than its `onRequest`, and ignores the
+/// fields `bind` already spent.
 ///
 /// The answer is the **first** failure any worker reported, and `.Ok(())` when
 /// every one of them ended the ordinary way. A worker that fails closes the
@@ -616,24 +541,17 @@ fn together<C: Alloc + Listen + Tasks, S>(
 /// One request, then the rest of them.
 ///
 /// Four calls per turn: accept a connection, read its request, answer it, go
-/// round. The first two are two rather than one because only the first of them
-/// waits — `effect Listen` argues that where they are declared.
+/// round. Only the first of them waits.
 ///
-/// The third is `taking`, and it is where a connection stops being a request
-/// and becomes a socket if the client asked for one. A socket runs to its close
-/// on this worker and then the loop goes round, so `.Ok(())` from `taking`
-/// means "this connection is finished with" whichever kind it was.
+/// The third is `taking`, where a connection becomes a socket if the client
+/// asked for one. A socket runs to its close on this worker and then the loop
+/// goes round, so `.Ok(())` from `taking` means the connection is finished with
+/// whichever kind it was.
 ///
-/// `.Closed` is the ordinary end and becomes `.Ok(())` here. This is the one
-/// place that translation happens, so no caller of this module ever has to know
-/// that a listener signs off by failing.
-///
-/// This reads `.Closed` from **either** call, which is a deliberate widening
-/// rather than a convenience. An acceptor may notice it is done when it takes
-/// the last response as easily as when it is next asked for a request, and
-/// which of the two it picks is a fact about the acceptor. Reading only one
-/// would turn the other spelling into a failure a server would have to know
-/// about.
+/// `.Closed` is the ordinary end and becomes `.Ok(())` here, so no caller of
+/// this module has to know that a listener signs off by failing. It is read from
+/// **either** call, because an acceptor may notice it is done when it takes the
+/// last response as easily as when it is next asked for a request.
 fn answering<C: Listen, S>(
     ctx: C,
     handle: Int,
@@ -659,21 +577,15 @@ fn answering<C: Listen, S>(
 /// One connection, once its request has been read: a socket if the client
 /// asked for one at the path the hooks name, and an ordinary request otherwise.
 ///
-/// **Every way the upgrade does not happen ends in `onRequest`**, which is what
-/// "the upgrade is invisible" means from the loop's side. There are three of
-/// them and they all end in the same call. A server with no hooks never asks. A
-/// server whose hooks are served at another path never asks either, because
-/// this compares the path before speaking to the acceptor at all. And a server
-/// that does ask gets `.Err` for every request that was not an upgrade. All
-/// three leave the connection untouched, so the handler answers a client that
-/// sent `GET /` to a WebSocket server, a client that sent an upgrade to
-/// `/other`, and a client that sent an upgrade to a plain server alike — the
-/// handler is where a program's own answer lives.
+/// **Every way the upgrade does not happen ends in `onRequest`.** A server with
+/// no hooks never asks; a server whose hooks are served at another path never
+/// asks either, because this compares the path first; and a server that does ask
+/// gets `.Err` for every request that was not an upgrade. All three leave the
+/// connection untouched.
 ///
-/// **This compares the path in Buri, not in the runtime.** `listenUpgrade`
-/// takes a connection and nothing else, and it stays that way: the request has
-/// already been read by the time this runs, `Request.path` is pure, and a
-/// routing rule behind the C ABI would be a rule a program could not read.
+/// **This compares the path in Buri, not in the runtime.** `listenUpgrade` takes
+/// a connection and nothing else, so a routing rule never sits behind the C
+/// ABI.
 fn taking<C: Listen, S>(
     ctx: C,
     connection: Int,
@@ -712,15 +624,10 @@ fn answered<C: Listen>(
 
 /// A socket, from the hook that opens it to the hook that closes it.
 ///
-/// **The socket's whole life runs on the worker that accepted it.** The state
-/// is a local of this frame, threaded through `pumping`'s self tail call —
-/// `core/actor`'s shape, here for the same reason: there is no way to hand a
-/// runtime a Buri value to hold between two calls of its own, so the value
-/// stays where Buri values stay. It costs exactly what it says. A socket
+/// **The socket's whole life runs on the worker that accepted it.** The state is
+/// a local of this frame, threaded through `pumping`'s self tail call. A socket
 /// occupies one of `listener.handlers` workers until it closes, so a server
 /// holding more sockets than it has handlers has no worker left to accept with.
-/// `Listener.handlers` is the number, a program can read it, and it is the same
-/// bound F3 put on requests in flight.
 ///
 /// The answer is `.Ok(())` however the socket ended. A socket closing is not a
 /// listener failing, and the worker goes back to accepting.
@@ -739,14 +646,12 @@ fn opened<C: Listen, S>(
 /// One message, then the next, then the close.
 ///
 /// A self tail call, so a socket that carries a million messages costs one
-/// frame — `answering`'s property, one level down (design/non-goals.md;
-/// `middle/tail_calls.rs`).
+/// frame.
 ///
-/// **`.Err` is a close too.** A socket that is already gone when this asks —
-/// its listener closed under it, or a handle spent twice — reaches `onClose` as
-/// `.Abnormal` rather than getting dropped. The hook is where a program undoes
-/// what `onOpen` did, and a socket that skipped it would leak whatever that
-/// was.
+/// **`.Err` is a close too.** A socket that is already gone when this asks — its
+/// listener closed under it, or a handle spent twice — reaches `onClose` as
+/// `.Abnormal` rather than getting dropped, so a program always gets to undo
+/// what `onOpen` did.
 fn pumping<C: Listen, S>(ctx: C, hooks: WebSocket<C, S>, socket: Socket, state: S): () {
     match (ctx.listenReceive(socket.0)) {
         .Err(_gone) => closed(ctx, hooks, socket, state, .Abnormal),
@@ -792,10 +697,9 @@ fn closed<C: Listen, S>(
 ///
 /// `.Closed` is the ordinary end and becomes `.Ok(())`. Anything else is a
 /// reason this worker cannot go on, and **it closes the listener before
-/// reporting that** — the other workers are blocked in an accept nothing else
-/// would interrupt, and a server whose first worker failed at nine in the
-/// morning should not still be holding a port at noon. Closing is idempotent, so
-/// every worker doing it is one close and n - 1 no-ops.
+/// reporting that**, because the other workers are blocked in an accept nothing
+/// else would interrupt. Closing is idempotent, so every worker doing it is one
+/// close and n - 1 no-ops.
 fn ending<C: Listen>(ctx: C, handle: Int, e: ServeError): Result<(), ServeError> {
     match (e.cause) {
         .Closed => .Ok(()),
@@ -809,16 +713,13 @@ fn ending<C: Listen>(ctx: C, handle: Int, e: ServeError): Result<(), ServeError>
 /// A `ServeError`'s cause as one line of English, for a `main` that answers
 /// `Result<(), Str>`.
 ///
-/// A free function rather than a method, for `http.errorText`'s reason:
-/// `core/effect` declares `ServeError`, and a method must live in its type's
-/// defining module.
+/// A free function rather than a method, because `core/effect` declares
+/// `ServeError` and a method must live in its type's defining module.
 ///
-/// The **cause only**, and it costs no context. Each answer is a constant per
-/// variant, so this needs no `Alloc` and works from anywhere, including the
-/// `.mapErr` of a `main` whose context grants nothing but `Listen`. `e.detail`
-/// holds the platform's own words, and a program that wants both writes
-/// `"${server.errorText(e)}: ${e.detail}"` — one interpolation, at the place
-/// that already knows whether it has somewhere to print it.
+/// The **cause only**, and it costs no context: each answer is a constant per
+/// variant, so this needs no `Alloc` and works from anywhere. `e.detail` holds
+/// the platform's own words, and a program that wants both writes
+/// `"${server.errorText(e)}: ${e.detail}"`.
 export fn errorText(e: ServeError): Str {
     match (e.cause) {
         .AddressInUse => "the address is already in use",
@@ -837,24 +738,20 @@ derive Eq, Show for Socket;
 /// An open WebSocket, as a value a program can hold.
 ///
 /// **Inert, and deliberately so.** It is one integer the acceptor minted and
-/// nobody else understands — `Listener`'s arrangement, one level down — so a
-/// program may copy it, put it in a list, compare it, and *send it to an
-/// actor*, which is the point. A socket that carried its own connection would
-/// be a value only the task that accepted it could hold.
+/// nobody else understands, so a program may copy it, put it in a list, compare
+/// it, and *send it to an actor*.
 ///
 /// Its two methods need `C: Sockets` and nothing else, which lets an actor that
 /// was handed a socket push on it long after the request that opened it
-/// returned. Reading from a socket is not here and is not a `Socket` method.
-/// That is the accepting half of being a server, it belongs to whoever holds
-/// the listener, and `effect Listen` draws the line.
+/// returned. Reading from a socket is not a `Socket` method: that belongs to
+/// whoever holds the listener.
 export struct Socket(export Int);
 
 derive Eq, Show for Message;
 /// One WebSocket message.
 ///
-/// Two variants and not four. A ping and a pong are the transport keeping a
-/// connection alive, the platform answers them, and a program that had to
-/// answer them could forget to.
+/// Two variants and not four: a ping and a pong are the transport keeping a
+/// connection alive, and the platform answers them.
 export enum Message {
     /// A UTF-8 message. The wire's text frame.
     Text(Str),
@@ -865,11 +762,9 @@ export enum Message {
 derive Eq, Show for CloseReason;
 /// Why a socket closed.
 ///
-/// **An enum and never a wire code**, which is this module's half of the
-/// bargain `effect Sockets` describes. `socketClose` takes an `Int` because a
-/// close code is what crosses to a platform, and nothing above this line ever
-/// writes one. `codeOf` and `reasonOf` are the two halves of the mapping, and
-/// they are the only places in this language anyone spells a close code.
+/// **An enum and never a wire code.** `codeOf` and `reasonOf` are the two halves
+/// of the mapping, and they are the only places in this language anyone spells a
+/// close code.
 ///
 /// Seven of the nine are RFC 6455's. Two are not, and both are things a socket
 /// is *told* rather than things a program says.
@@ -911,14 +806,11 @@ export enum CloseReason {
 /// **`onOpen` decides what a socket carries.** It answers the socket's first
 /// state, every later hook gets the current one, and `onMessage` answers the
 /// next. So per-socket state is an ordinary value on an ordinary stack, not a
-/// table somebody has to key by socket. The counter-per-socket example in the
-/// module header is the shape: `onOpen` starts an actor and the state is its
-/// address.
+/// table somebody has to key by socket.
 ///
-/// **Hooks on one socket run in order; sockets run concurrently.** The first
-/// half holds by construction — one worker owns a socket for its whole life,
-/// and the hooks are three calls in a row on that worker. The second is the
-/// same fan-out that answers requests. Any hook may do anything its `C` allows,
+/// **Hooks on one socket run in order; sockets run concurrently.** One worker
+/// owns a socket for its whole life, and the sockets are spread over the same
+/// fan-out that answers requests. Any hook may do anything its `C` allows,
 /// including waiting.
 ///
 /// `C` is the caller's own context, exactly as `Server.onRequest`'s is, so a
@@ -933,14 +825,10 @@ export struct WebSocket<C, S> {
     /// request's `path`, which does not include the query string — so a token
     /// in `?t=…` reaches `onOpen` on the `Request` and nobody has to spell it
     /// here. It is `==` with no normalisation of any kind: `"/socket"` and
-    /// `"/socket/"` are two different paths, and a socket served at one is not
-    /// served at the other. That costs a program the trailing slash it meant to
-    /// write. It buys a rule with no cases in it, which is the trade this
-    /// module makes everywhere it compares a string.
+    /// `"/socket/"` are two different paths.
     ///
     /// A request to any other path is an ordinary request and reaches
-    /// `onRequest`, upgrade headers and all — see `Server.websocket`, which
-    /// writes that list out.
+    /// `onRequest`, upgrade headers and all.
     export path: Str,
     /// This server accepted a client's upgrade. Answers the socket's first
     /// state.
@@ -967,12 +855,10 @@ impl Socket {
     /// bytes leave when the socket's own worker next pumps it, which for an
     /// idle socket is at once. A buffer that fills closes the socket with
     /// `.Overflow` — see `Server.socketBuffer` — and a message to a socket that
-    /// has already closed is dropped, because "did this arrive" was never a
-    /// question this side could answer.
+    /// has already closed is dropped.
     ///
-    /// `C: Sockets` and nothing more, which is what makes a socket something an
-    /// actor can hold: the task that pushes here need never have seen a
-    /// listener.
+    /// `C: Sockets` and nothing more, so the task that pushes here need never
+    /// have seen a listener.
     export fn send<C: Sockets>(self, ctx: C, message: Message): () {
         match (message) {
             .Text(text) => ctx.socketSendText(self.0, text),
@@ -991,11 +877,10 @@ impl Socket {
 
 /// A `CloseReason` as the number the far side gets.
 ///
-/// **`.Overflow` and `.Abnormal` both say 1011**, and the mapping is
-/// deliberately not a bijection. They are reasons a socket *ended*, not things
-/// one end tells the other, and 1011 — "this end broke" — is the true sentence
-/// for both from the far side's point of view. 1006, which is what `.Abnormal`
-/// comes back as, may not be sent at all (RFC 6455 §7.4.1).
+/// **`.Overflow` and `.Abnormal` both say 1011**, so the mapping is not a
+/// bijection. They are reasons a socket *ended* rather than things one end tells
+/// the other, and 1006 — what `.Abnormal` comes back as — may not be sent at all
+/// (RFC 6455 §7.4.1).
 fn codeOf(reason: CloseReason): Int {
     match (reason) {
         .Normal => 1000,
@@ -1011,7 +896,7 @@ fn codeOf(reason: CloseReason): Int {
 }
 
 /// The words that travel beside the code. Constant per variant, so this costs
-/// no context — `errorText`'s reason, for `errorText`'s kind of function.
+/// no context.
 fn phraseOf(reason: CloseReason): Str {
     match (reason) {
         .Normal => "closing normally",
@@ -1029,9 +914,8 @@ fn phraseOf(reason: CloseReason): Str {
 /// The number a socket closed with, as the reason a program reads.
 ///
 /// **A negative code is the platform's own**, never the far side's. Wire codes
-/// are unsigned, so nothing a peer can send reaches this arm. That makes
-/// `.Overflow` something this server knows about its own socket rather than a
-/// claim a client could make about it.
+/// are unsigned, so nothing a peer can send reaches this arm: `.Overflow` is
+/// something this server knows about its own socket.
 ///
 /// Every other number this enum does not name is `.Abnormal`, including 1005
 /// and 1006 — the two RFC 6455 reserves for "there was no code" and "there was
