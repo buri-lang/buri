@@ -31,6 +31,12 @@ error: there is no type `Cents` [unresolved-type]
   |
   = fix: declare it, import it, or correct the spelling
 
+    What to do
+    ──────────
+
+    Correct the spelling, or bring the type into scope — a module declares it or
+    an import names it, and there is no third way.
+
     Why
     ───
 
