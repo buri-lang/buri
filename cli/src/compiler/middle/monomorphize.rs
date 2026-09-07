@@ -2731,7 +2731,8 @@ mod tests {
         ui_effect.Scope.read ui_node.mount \
         ui_testing.Headless.memo ui_testing.Headless.read \
         ui_testing.Headless.signal ui_testing.Headless.write \
-        ui_testing.Observer.read ui_testing.render";
+        ui_testing.Observer.read ui_testing.render \
+        ui_web.render ui_web.resume ui_web.state";
 
     #[test]
     fn the_generic_intrinsics_are_exactly_these() {
