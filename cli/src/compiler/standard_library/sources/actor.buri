@@ -63,14 +63,11 @@
 //!
 //! ## Two enums are the protocol
 //!
-//! `M` is what you may send and `R` is what comes back. The two enums declare
-//! the pairing once, rather than once per message. A message nobody needs an
-//! answer to still answers a variant that says so — `.Done` above. Every step
-//! answers *something*, so by the time `sendMessage` returns the actor has
-//! finished with the message.
-//!
-//! An actor whose answers are all one shape says so directly. `R` is any type,
-//! so `Actor<C, Int, Tick, ()>` is an actor nobody asks anything.
+//! `M` is what you may send and `R` is what comes back. A message nobody needs
+//! an answer to still answers a variant that says so — `.Done` above. Every
+//! step answers *something*, so by the time `sendMessage` returns the actor has
+//! finished with the message. `R` is any type, so `Actor<C, Int, Tick, ()>` is
+//! an actor nobody asks anything.
 //!
 //! ## Testing an actor is calling `step`
 //!
@@ -98,69 +95,42 @@
 //! }
 //! ```
 //!
-//! answers `8`.
+//! answers `8`. So this module ships **no test double**: there is nothing here
+//! to fake.
 //!
-//! So this module ships **no test double**. There is nothing here to fake. A
-//! mailbox is a queue, the order is the order, and the one thing a double would
-//! decide — when the actor runs — happens below, in Buri, where a test can
-//! read it.
-//!
-//! ## When the actor runs, and why that is written down here
+//! ## When the actor runs
 //!
 //! **The actor steps on the task that drives it.** `sendMessage` posts a
 //! message, runs the mailbox down until its own answer is there, and hands that
 //! answer back. `stop` closes the mailbox, discards what is left, and runs
-//! `onStop`. A mailbox with one driver never holds a message across a call, so
-//! the bound below only limits how much work may *wait* for a driver that is
-//! busy elsewhere.
+//! `onStop`. Whatever drives the actor, and in whatever order:
 //!
-//! This is a *scheduling* decision, not a semantic one, and `core/tasks`
-//! already ships the same shape. `parallel` runs its steps on carriers of their
-//! own where the artifact says it may, and one after another where it does not,
-//! and answers the same list either way. The answers here are the same either
-//! way too. One sender's messages arrive in order. The actor steps each message
-//! exactly once. `sendMessage` sees the state its own message left behind. And
-//! `onStop` runs once with the final state.
+//! - One sender's messages arrive in order.
+//! - The actor steps each message exactly once.
+//! - `sendMessage` sees the state its own message left behind.
+//! - `onStop` runs once, with the final state.
 //!
 //! A step that sends to the actor running it gets `.Err(.Stopped)`. The state
 //! is out and taking it does not wait, so the send does not wait for itself.
 //! The message is not lost: the loop already running steps it before it puts
-//! the state back. Nothing else drains a mailbox while a step holds the state,
-//! which makes this the one shape a program can fill the bound below with.
+//! the state back.
 //!
-//! What it costs today is that an actor does not run *between* the calls that
-//! drive it, so an actor is not yet a way to get work done in the background.
-//! Giving an actor a carrier of its own needs a step whose closure outlives the
-//! call that handed it over, and neither native backend has that boundary yet.
-//! `cli/runtime/rt.rs` §2 writes it up from the other side. Nothing in this
-//! module's surface changes on the day it lands.
+//! An actor does not run *between* the calls that drive it, so it is not yet a
+//! way to get work done in the background.
 //!
 //! ## Where the messages live
 //!
 //! In the runtime, as whole blocks. A message is posted as a one-element
 //! `[Carried<Posted<M>>]` and handed back as one. The runtime takes a reference
 //! on the block, keeps the pointer, and gives every one of them back — to the
-//! step, or to `stop`'s discard loop. That is the one place this language's
-//! runtime holds onto a value of the program between two calls, and
-//! `cli/runtime/lib.rs` §3 states the rule it amends.
+//! step, or to `stop`'s discard loop.
 //!
 //! **`core/alloc`'s `copyAcross` builds every one of those blocks.** It is a
 //! deep copy made with every arena left behind. Four crossings hand a value
 //! over: `start`'s initial state, `sendMessage`'s message, the state a step
 //! leaves behind, and the answer a step gives. All four outlive the call that
 //! made them, so without the copy a value made inside an `alloc.scoped` body
-//! would reach the runtime *in pages the scope is about to unmap*. A plain
-//! `copyOut` is not enough here, and using it was the bug this rule replaced:
-//! `copyOut` copies onto whichever allocator is active, and inside a scope that
-//! is the scope's own arena. `cli/tests/conformance/lib/actor/test/scoped.buri`
-//! reads each of the four back after its scope has ended.
-//!
-//! Coming back the other way, **every block is asked for through the value that
-//! knows its type** — an `Address`, a `Reply` — and never through a bare
-//! handle. "Taking a block back", below the loop, says why: the entries are
-//! type-erased at the key, so the type argument written at the call is the only
-//! thing that says what the block holds, and the compiler generates the release
-//! from it.
+//! would reach the runtime *in pages the scope is about to unmap*.
 
 from "core/alloc" import * as alloc;
 from "core/effect" import { Alloc, Tasks };
@@ -174,8 +144,8 @@ from "core/effect" import { Alloc, Tasks };
 /// code around it could: allocate, print, read a clock, ask another actor. `S`
 /// is the state, `M` is what you may send, and `R` is what comes back.
 ///
-/// `onStop` is an `Option`, so a literal may leave it out and the checker fills
-/// in `.None` (SPEC 5.6). That is no hook at all, rather than an empty one.
+/// A literal may leave `onStop` out, and the checker fills in `.None` (SPEC
+/// 5.6).
 export struct Actor<C, S, M, R> {
     /// The state before any message.
     export state: S,
@@ -190,11 +160,6 @@ export struct Actor<C, S, M, R> {
 derive Eq, Show for Stepped;
 /// What one step produced: the state to carry forward, and the answer to the
 /// message.
-///
-/// A struct rather than a tuple. The JavaScript backend evaluates a tuple
-/// destructured out of a call once per element, and a step is arbitrary program
-/// code that may print, allocate or send. A named field is read once whatever
-/// the backend does with it.
 export struct Stepped<S, R> {
     /// What the next message sees.
     export state: S,
@@ -205,12 +170,7 @@ export struct Stepped<S, R> {
 /// Where messages go — the actor's public half.
 ///
 /// It carries the mailbox's handle and the two functions `Actor` declared,
-/// because `sendMessage` and `stop` need them and a handle alone could not
-/// supply them. That is the one difference from the note this module was
-/// designed against, which wrote `Address<M>`. A step reachable only through
-/// the address would have to keep its closure in the runtime, past the frame of
-/// the call that handed it over, and neither native backend has a boundary for
-/// that (see the module header).
+/// because `sendMessage` and `stop` need them.
 ///
 /// Otherwise it is inert data. It holds no context, so a lambda may capture one
 /// (SPEC 10.6), which is what makes an address usable as another actor's
@@ -218,8 +178,7 @@ export struct Stepped<S, R> {
 export struct Address<C, S, M, R> {
     /// The mailbox, as the runtime knows it. It stays this module's own: an
     /// address is the authority to send, not the number that authority is
-    /// spelled with, and nothing outside here could do anything with an `Int`
-    /// the runtime issued.
+    /// spelled with.
     handle: Int,
     /// `Actor::step`, carried.
     step: fn(C, S, M) => Stepped<S, R>,
@@ -238,10 +197,6 @@ struct Reply<R>(Int);
 
 derive Eq, Show for Stopped;
 /// The one way an actor operation fails: there is no actor any more.
-///
-/// One variant rather than none. A `Result<R, Stopped>` a program can `match`
-/// is worth more than a `Bool`, and a send that fails for some second reason
-/// later belongs here as a second variant rather than in a second error type.
 export enum Stopped {
     /// The mailbox is closed. `stop` did it, and nothing reopens it.
     Stopped,
@@ -258,8 +213,7 @@ export enum Stopped {
 /// no block at all — `list.get` answers `.None` on a null block, at any index —
 /// so an actor whose state is `()` or whose answer is `()` would hand over a
 /// carrier nothing could read out of. One word beside the value puts every
-/// carrier's stride above zero. That is cheaper than a second shape for the
-/// empty case, and much cheaper than teaching the runtime what `T` is.
+/// carrier's stride above zero.
 struct Carried<T> {
     /// Zero, always. See above: it is here to be *some* bytes.
     pad: Int,
@@ -269,10 +223,8 @@ struct Carried<T> {
 
 /// A message, and the slot its answer goes into.
 ///
-/// The pairing rides with the message rather than inside it, which is what took
-/// `Reply` off the public surface. A protocol enum used to carry the slot in
-/// the variants that expected an answer. Now every message has one and no enum
-/// says so.
+/// The pairing rides with the message rather than inside it, so every message
+/// has a slot and no protocol enum says so.
 struct Posted<M> {
     /// The reply slot `sendMessage` opened for this message.
     slot: Int,
@@ -285,15 +237,11 @@ fn carried<T>(value: T): Carried<T> {
     Carried { pad: 0, value: value }
 }
 
-/// How many messages may wait in a mailbox.
+/// How many messages may wait in a mailbox: 64.
 ///
-/// **The bound is written here and not only in the runtime.** This is the one
-/// place this module departs from `core/net/server`'s convention that a default
-/// is the runtime's to choose. A reader of this module has to know the number:
-/// `mailboxPush` waits for room, so a driver that filled a mailbox and then
-/// stopped driving it waits here, and documenting that means saying how many.
-/// `cli/runtime/rt.rs`'s `MAILBOX` is the same number from the other side, and
-/// `the_default_mailbox_is_the_one_core_actor_names` holds the two together.
+/// The number is here, not only in the runtime, because a reader has to know
+/// it. `mailboxPush` waits for room, so a driver that filled a mailbox and then
+/// stopped driving it waits here.
 let MAILBOX: Int = 64;
 
 // --- Starting -----------------------------------------------------------------
@@ -301,9 +249,7 @@ let MAILBOX: Int = 64;
 /// Gives the actor a mailbox and answers where to send it messages.
 ///
 /// The initial state moves into the runtime as a one-element `[Carried<S>]` and
-/// does not come back out until a step asks for it. That makes "the state is
-/// reachable only through the protocol" true of the value, not just of the
-/// reader's intent.
+/// does not come back out until a step asks for it.
 ///
 /// `core/alloc`'s `copyAcross` deep-copies the state out of every arena on the
 /// way in, because the runtime holds it past this call and an actor started
@@ -325,19 +271,13 @@ impl<C: Alloc + Tasks, S, M, R> Address<C, S, M, R> {
     ///
     /// `core/alloc`'s `copyAcross` deep-copies the message **out of every
     /// arena** before posting it, so the mailbox holds a block on the platform
-    /// allocator whatever scope this call was made inside. It is the same copy
-    /// a value takes when it leaves a scope, at a second site. It is
-    /// `copyAcross` rather than `copyOut` because this value is not leaving one
-    /// scope, it is leaving *all* of them — `copyOut` copies onto whichever
-    /// allocator is active, which inside a scope is the arena about to go back.
+    /// allocator whatever scope this call was made inside.
     ///
     /// `.Err(.Stopped)` covers three cases: the actor was gone before the
     /// message was posted, it went before the answer came, or the caller is a
     /// step of this same actor and is holding the state, so the drive below
     /// finds nothing to step with. Only the last one leaves the message in the
-    /// mailbox, where the loop that is already running steps it. A step that
-    /// runs to its end always answers, because returning a `Stepped` is
-    /// answering.
+    /// mailbox, where the loop that is already running steps it.
     export fn sendMessage(self, ctx: C, message: M): Result<R, Stopped> {
         let reply = Reply(replyOpen(ctx));
         let posted = Posted { slot: reply.0, message: message };
@@ -366,9 +306,8 @@ impl<C: Alloc + Tasks, S, M, R> Address<C, S, M, R> {
     /// Closes the mailbox, discards what is still in it, and runs `onStop`
     /// once with the final state.
     ///
-    /// A second `stop` answers `.Err(.Stopped)`, which makes "once" a property
-    /// of the actor rather than of the caller's discipline. Every
-    /// `sendMessage` after this one answers `.Err(.Stopped)` too.
+    /// A second `stop` answers `.Err(.Stopped)`, and so does every
+    /// `sendMessage` after this one.
     export fn stop(self, ctx: C): Result<(), Stopped> {
         match (closing(ctx, self)) {
             .None => .Err(.Stopped),
@@ -385,12 +324,9 @@ impl<C: Alloc + Tasks, S, M, R> Address<C, S, M, R> {
 
 // --- The loop -----------------------------------------------------------------
 //
-// Three small functions, and the middle one is the actor. `draining` holds the
-// state as a **local of its own frame** and threads it through `step`, so
-// nothing else in the program has a name for it and an update is a rebinding
-// rather than a write. It is a self tail call, so an actor that answers a
-// million messages uses one frame (`middle/tail_calls.rs`; design/non-goals.md
-// has no loops).
+// `draining` holds the state as a local of its own frame and threads it through
+// `step`, so an update is a rebinding rather than a write. It is a self tail
+// call, so an actor that answers a million messages uses one frame.
 
 /// Every message now in the mailbox, in the order it arrived, each one answered
 /// into the slot it came with.
@@ -431,18 +367,8 @@ fn draining<C: Alloc + Tasks, S, M, R>(
 ///
 /// The state going back takes `start`'s copy, for the same reason: a step that
 /// ran inside an `alloc.scoped` body built the next state *there*, and the
-/// runtime keeps it long after that body has answered.
-///
-/// **That copy is the one cost among this module's crossings that is not
-/// constant.** It deep-copies the state once per *drive*, not per message —
-/// `draining` above runs the whole mailbox down and this happens once after it.
-/// It is unconditional, because a copy that decided for itself whether it was
-/// needed would be a memory-safety primitive with a path that skips the safety.
-/// The cheaper form exists and is deliberately not taken: `arenaEnter` answers
-/// what arena the carrier was in, so `copyAcross` could hand the value straight
-/// back where that answer is "none" and no page is going to be unmapped. That
-/// change comes with a benchmark attached, and it belongs to whoever holds the
-/// budget rather than to the slice that closed the hole.
+/// runtime keeps it long after that body has answered. That deep copy is
+/// unconditional, and it runs once per *drive* rather than once per message.
 fn drive<C: Alloc + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): Bool {
     match (taking(ctx, address)) {
         .None => false,
@@ -471,10 +397,9 @@ fn drive<C: Alloc + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): Bool 
 /// — the `sendMessage` that opened it took it when its own drive answered
 /// nothing.
 ///
-/// **`popped` and not `mailboxPop`**, and this is the site the rule below was
-/// written for. Nothing here ever looks *inside* the block, so a direct call
-/// would leave the intrinsic's `M` determined by nothing at all. See "Taking a
-/// block back".
+/// **`popped` and not `mailboxPop`.** Nothing here ever looks *inside* the
+/// block, so a direct call would leave the intrinsic's `M` determined by
+/// nothing at all. See "Taking a block back".
 fn discarding<C: Alloc + Tasks, S, M, R>(ctx: C, address: Address<C, S, M, R>): () {
     match (popped(ctx, address)) {
         .None => (),
@@ -501,31 +426,17 @@ fn ending<C: Alloc + Tasks, S>(
 // --- Taking a block back ------------------------------------------------------
 //
 // **Every block the runtime hands back is asked for through the handle's own
-// value, so it comes back at the type it went in at.** The wrappers below are
-// one line each, and none of them is a convenience: they are where this module
-// states the half of the crossing the runtime cannot.
+// value, so it comes back at the type it went in at.**
 //
-// The nine entries in the next section are *generic intrinsics*. Their key
-// carries no type arguments (`middle/monomorphize.rs`'s `GENERIC_INTRINSICS`),
-// so the archive compiles once against no Buri type and a `[T]` crosses as two
-// words whatever `T` is. The runtime therefore never frees one. It takes a
-// reference, keeps the pointer, and gives that reference back. **The release is
-// the program's**, and the release the compiler generates for a block is the
-// one its *type* asks for — the walk that decrements every counted pointer
-// inside it.
-//
-// So the type argument at each of these calls is not decoration. It is the only
-// thing that says what is inside the block. Where a call leaves it undetermined
-// the checker resolves it to `()` — a type with nothing inside — and the
-// generated release frees the block and lets go of nothing. That was a real
-// defect: `stop` on an actor with messages still waiting called `mailboxPop` at
-// a type nothing determined, because a discard loop never looks inside what it
-// is dropping, and every undelivered message's payload leaked.
-//
-// Naming the handle's owner rather than its `Int` makes that bug unwriteable.
-// An `Address<C, S, M, R>` determines all of its types, a `Reply<R>` determines
-// its one, and a caller that ignores the answer entirely still calls at the
-// right type.
+// The nine entries in the next section are *generic intrinsics*: their key
+// carries no type arguments, so the runtime never frees one. It takes a
+// reference, keeps the pointer, and gives that reference back. The release is
+// the program's, and the compiler generates it from the block's *type*. So the
+// type argument at each call is the only thing that says what is inside the
+// block. Where a call leaves it undetermined the checker resolves it to `()`
+// and the generated release lets go of nothing, leaking whatever the block
+// held. An `Address<C, S, M, R>` determines all of its types and a `Reply<R>`
+// determines its one, so the wrappers below make that leak unwriteable.
 
 /// The oldest message in `address`'s mailbox, at the type it was posted at.
 fn popped<C: Tasks, S, M, R>(
@@ -577,15 +488,11 @@ fn filling<C: Alloc + Tasks, R>(ctx: C, reply: Reply<R>, value: R): Option<Int> 
 // an answer as an `[R]`. That is what makes them implementable against a runtime
 // compiled once that knows no Buri type — a `[T]` is two words whatever `T` is
 // (VALUE-MODEL.md §4), so nothing about the element crosses and no stride, glue
-// or descriptor is needed. `middle/monomorphize.rs`'s `GENERIC_INTRINSICS`
-// records that argument, beside the four carriers it is a fifth alternative to.
+// or descriptor is needed.
 //
-// Each one is bound by `Tasks`, for `core/list`'s reason: the authority is in
-// the signature and the key is the module's. An actor is scheduling and memory,
-// not the outside world, and there is no second implementation of it for a test
-// to bind. So these are module functions and not the methods of an effect (SPEC
-// 10.2 is about reaching *the outside world* through a context, and
-// `core/list`'s allocating combinators are the precedent).
+// Each one is bound by `Tasks` but is a module function rather than an effect
+// method, for `core/list`'s reason: an actor is scheduling and memory, not the
+// outside world, and there is no second implementation for a test to bind.
 
 /// Opens a mailbox with `state` inside it and `bound` messages of room, and
 /// answers its handle. A negative bound asks the runtime for its own.
@@ -606,8 +513,6 @@ fn mailboxPop<C: Tasks, M>(ctx: C, handle: Int): Option<[Carried<M>]>;
 /// that was already closed.
 ///
 /// **Waits for the state**, so a `stop` racing a step lets that step finish.
-/// That is the note's "lets the current message finish", enforced here rather
-/// than asked of the caller.
 fn mailboxClose<C: Tasks, S>(ctx: C, handle: Int): Option<[Carried<S>]>;
 
 /// Takes the state out. `.None` for a closed actor, or one whose state is
