@@ -314,8 +314,12 @@ means.
 ## Golden values and fixture files
 
 A golden is a value in the suite's own source, compared with `assert.eq`. There
-is no `--accept` and no golden directory. You rewrite one in your editor, and a
-diff review approves it.
+is no `--accept`. You rewrite one in your editor, and a diff review approves it.
+
+A picture is the one exception, because nobody hand-writes a PNG.
+`ui/testing`'s `snapshot` compares what a tree paints against a golden in
+`test/__snapshots__/` beside the suite, and `buri test --update` records it. The
+[user interfaces guide](user-interfaces.md#snapshots) has the rest.
 
 Hand a test a filesystem when the code under test is what does the reading, as
 in `fs().files([("statement.txt", "coffee")])`. Do not use one merely to hold an

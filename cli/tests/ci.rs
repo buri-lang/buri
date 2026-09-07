@@ -1230,6 +1230,13 @@ fn the_published_crate_ships_the_runtime() {
         "switch_macos_arm64.s",
         "switch_linux_arm64.s",
         "switch_linux_x86_64.s",
+        // And the three faces `paint.rs` reaches through `include_bytes!`, for
+        // the same reason and with the same failure: a snapshot suite has no
+        // fonts, so a toolchain installed from a tarball would fail here rather
+        // than paint badly.
+        "fonts/Roboto-Regular.ttf",
+        "fonts/Roboto-Bold.ttf",
+        "fonts/Roboto-Italic.ttf",
     ] {
         let wanted = format!("runtime/{name}");
         assert!(

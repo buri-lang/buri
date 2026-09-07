@@ -237,9 +237,10 @@ crate-type = ["staticlib"]
 # and the alternative is implementing its traversal traits over a second tree of
 # our own. `cosmic-text` carries `swash` because that is where it rasterizes a
 # glyph, and `tiny-skia`'s `png-format` is **off**: `paint.rs` writes the PNG
-# itself, in eighty lines of stored deflate blocks with a hand-rolled CRC-32 and
-# Adler-32, and the point of that is a byte string two zlib versions cannot
-# disagree about. `cli/runtime/fonts/` is the other half of the same decision —
+# itself — row filters, a fixed-Huffman deflate over a fixed-chain match finder,
+# and a hand-rolled CRC-32 and Adler-32 — and the point of that is a byte string
+# two zlib versions cannot disagree about, which a general deflate encoder is
+# free not to give. `cli/runtime/fonts/` is the other half of the same decision —
 # three bundled faces, 135 740 bytes, and no system font enumeration ever — so
 # that a snapshot is the same picture on Linux and on macOS.
 #

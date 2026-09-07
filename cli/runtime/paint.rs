@@ -29,9 +29,10 @@
 //!   *absolute* edge of a box. `taffy` computes in `f32` and its own rounding
 //!   is turned off, so no number is rounded twice and no box is ever a pixel
 //!   wider than the gap it was given.
-//! * The PNG is written here, by [`encode`], with stored deflate blocks and a
-//!   hand-rolled CRC-32 and Adler-32. Two zlib versions cannot disagree about a
-//!   byte that no zlib produced.
+//! * The PNG is written here, by [`encode`] — row filters, a fixed-Huffman
+//!   deflate over a fixed-chain match finder, and a hand-rolled CRC-32 and
+//!   Adler-32. Two zlib versions cannot disagree about a byte that no zlib
+//!   produced.
 //! * Nothing in the output path iterates a hash map.
 //!
 //! # What it paints, and what it does not
@@ -1106,7 +1107,16 @@ fn paint(scene: &Scene, styles: &[Computed]) -> Result<Pixmap, String> {
 
     let mut ids: Vec<Option<NodeId>> = vec![None; scene.nodes.len()];
     let roots = build(scene, styles, &mut tree, &scene.roots, &mut ids)?;
+    // **The canvas is an unstyled `stack`, sized to the viewport**, and that is
+    // load-bearing rather than tidy: wrapping a tree in `ui.stack([], [...])`
+    // must not move a pixel. An unstyled `stack` lowers to `display: flex;
+    // flex-direction: column` (`$tree_declare`'s tag 6) and takes flexbox's own
+    // `align-items: stretch`, so the canvas has to be the same thing. `taffy`'s
+    // default is a *row*, whose cross axis is vertical, and a canvas left at it
+    // stretches its child's height — which the same child one `stack` deeper
+    // would not do.
     let viewport = Style {
+        flex_direction: FlexDirection::Column,
         size: Size {
             width: Dimension::length(scene.width as f32),
             height: Dimension::length(scene.height as f32),
@@ -1508,17 +1518,28 @@ fn straight(pixmap: &Pixmap) -> Vec<u8> {
 
 const SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
 
-/// The largest a stored deflate block may be.
-const STORED: usize = 65535;
+/// Bytes to a pixel, which is fixed: this file writes 8-bit RGBA and nothing
+/// else. The row filters are defined in terms of it.
+const BPP: usize = 4;
 
-/// Writes an 8-bit RGBA PNG: one `IHDR`, one `IDAT` of stored deflate blocks,
-/// one `IEND`.
+/// Writes an 8-bit RGBA PNG: one `IHDR`, one `IDAT`, one `IEND`.
 ///
-/// Stored blocks rather than compressed ones because the point is a byte string
-/// two machines cannot disagree about. A deflate encoder has freedom — hash
-/// chains, match lengths, window sizes — and two zlib versions use it
-/// differently; a stored block has none. The file is bigger, and a snapshot is
-/// a test fixture rather than a download.
+/// **The encoder is written here rather than taken from a crate, and that is
+/// the whole point of it.** A golden is compared byte for byte, so the same
+/// pixels have to produce the same file on every machine and in every version —
+/// and a general deflate encoder gives itself freedom (match choice, block
+/// splitting, tree building) that two releases of it spend differently. This
+/// one has none:
+///
+/// * **Fixed Huffman**, block type 01, the static trees of RFC 1951 §3.2.6.
+///   Nothing is built from the data, so there is no tie to break.
+/// * **One hash-chain match finder**, with a fixed window, a fixed chain limit
+///   and a greedy choice. No randomness, no time budget, no hash-map walk.
+/// * **No floating point anywhere**, so nothing turns on a rounding mode.
+///
+/// The row filters in front of it are where most of the saving on flat colour
+/// comes from. They are picked by the standard minimum-sum-of-absolute-
+/// differences rule, in integers, with the lowest filter number winning a tie.
 fn encode(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&SIGNATURE);
@@ -1531,35 +1552,8 @@ fn encode(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
     header.extend_from_slice(&[8, 6, 0, 0, 0]);
     chunk(&mut out, b"IHDR", &header);
 
-    // Filter type 0 on every row: a snapshot is compared, not shipped, so the
-    // cheapest filter is the right one and it is one fewer thing to get wrong.
-    let stride = (width as usize).saturating_mul(4);
-    let mut raw = Vec::with_capacity(rgba.len().saturating_add(height as usize));
-    for row in 0..height as usize {
-        raw.push(0);
-        let start = row.saturating_mul(stride);
-        let end = start.saturating_add(stride);
-        raw.extend_from_slice(rgba.get(start..end).unwrap_or(&[]));
-    }
-
-    let mut zlib = vec![0x78, 0x01];
-    let mut offset = 0_usize;
-    loop {
-        let end = raw.len().min(offset.saturating_add(STORED));
-        let block = raw.get(offset..end).unwrap_or(&[]);
-        let last = u8::from(end == raw.len());
-        let len = u16::try_from(block.len()).unwrap_or(0);
-        zlib.push(last);
-        zlib.extend_from_slice(&len.to_le_bytes());
-        zlib.extend_from_slice(&(!len).to_le_bytes());
-        zlib.extend_from_slice(block);
-        offset = end;
-        if last == 1 {
-            break;
-        }
-    }
-    zlib.extend_from_slice(&adler32(&raw).to_be_bytes());
-    chunk(&mut out, b"IDAT", &zlib);
+    let raw = filter_rows(width, height, rgba);
+    chunk(&mut out, b"IDAT", &deflate(&raw));
 
     chunk(&mut out, b"IEND", &[]);
     out
@@ -1570,6 +1564,390 @@ fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
     out.extend_from_slice(kind);
     out.extend_from_slice(data);
     out.extend_from_slice(&crc32([kind.as_slice(), data]).to_be_bytes());
+}
+
+// ---------------------------------------------------------------------------
+// The row filters
+// ---------------------------------------------------------------------------
+
+/// PNG's Paeth predictor, §6.6, transcribed. `a` winning a three-way tie is
+/// part of the definition rather than a choice made here.
+fn paeth(a: u8, b: u8, c: u8) -> u8 {
+    let p = i32::from(a) + i32::from(b) - i32::from(c);
+    let pa = (p - i32::from(a)).abs();
+    let pb = (p - i32::from(b)).abs();
+    let pc = (p - i32::from(c)).abs();
+    if pa <= pb && pa <= pc {
+        a
+    } else if pb <= pc {
+        b
+    } else {
+        c
+    }
+}
+
+/// One row through one filter. `previous` is the row above in its unfiltered
+/// form, and is all zeroes for the first row.
+fn apply_filter(kind: u8, line: &[u8], previous: &[u8], out: &mut [u8]) {
+    for i in 0..line.len() {
+        let left = |row: &[u8]| i.checked_sub(BPP).and_then(|j| row.get(j)).copied().unwrap_or(0);
+        let x = line.get(i).copied().unwrap_or(0);
+        let a = left(line);
+        let b = previous.get(i).copied().unwrap_or(0);
+        let c = left(previous);
+        let value = match kind {
+            1 => x.wrapping_sub(a),
+            2 => x.wrapping_sub(b),
+            3 => x.wrapping_sub(((u16::from(a) + u16::from(b)) / 2) as u8),
+            4 => x.wrapping_sub(paeth(a, b, c)),
+            _ => x,
+        };
+        if let Some(slot) = out.get_mut(i) {
+            *slot = value;
+        }
+    }
+}
+
+/// The heuristic every PNG encoder uses: the filtered bytes summed as signed
+/// magnitudes, which is smallest when the row came out closest to flat.
+fn filter_cost(row: &[u8]) -> u32 {
+    let mut sum = 0_u32;
+    for &b in row {
+        sum = sum.saturating_add(if b < 128 { u32::from(b) } else { 256 - u32::from(b) });
+    }
+    sum
+}
+
+/// The image as filtered rows: a filter byte, then the row, for each row.
+fn filter_rows(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
+    let stride = (width as usize).saturating_mul(BPP);
+    let mut out = Vec::with_capacity(rgba.len().saturating_add(height as usize));
+    let mut line = vec![0_u8; stride];
+    let mut previous = vec![0_u8; stride];
+    let mut candidate = vec![0_u8; stride];
+    let mut best = vec![0_u8; stride];
+    for row in 0..height as usize {
+        line.fill(0);
+        let start = row.saturating_mul(stride);
+        let source = rgba.get(start..).unwrap_or(&[]);
+        let taken = source.len().min(stride);
+        if let (Some(into), Some(from)) = (line.get_mut(..taken), source.get(..taken)) {
+            into.copy_from_slice(from);
+        }
+
+        let mut chosen = 0_u8;
+        let mut cheapest = u32::MAX;
+        for kind in 0..5_u8 {
+            apply_filter(kind, &line, &previous, &mut candidate);
+            let cost = filter_cost(&candidate);
+            // Strictly cheaper, so the lowest filter number wins a tie.
+            if cost < cheapest {
+                cheapest = cost;
+                chosen = kind;
+                best.copy_from_slice(&candidate);
+            }
+        }
+        out.push(chosen);
+        out.extend_from_slice(&best);
+        previous.copy_from_slice(&line);
+    }
+    out
+}
+
+/// One filtered row, put back. `row` is rebuilt left to right, so the byte the
+/// filters call `a` is already unfiltered by the time it is read.
+fn unfilter(kind: u8, row: &mut [u8], previous: &[u8]) -> Result<(), String> {
+    if kind > 4 {
+        return Err(format!("the PNG uses row filter {kind}, which does not exist"));
+    }
+    for i in 0..row.len() {
+        let left = |r: &[u8]| i.checked_sub(BPP).and_then(|j| r.get(j)).copied().unwrap_or(0);
+        let a = left(row);
+        let b = previous.get(i).copied().unwrap_or(0);
+        let c = left(previous);
+        let add = match kind {
+            1 => a,
+            2 => b,
+            3 => ((u16::from(a) + u16::from(b)) / 2) as u8,
+            4 => paeth(a, b, c),
+            _ => 0,
+        };
+        if let Some(slot) = row.get_mut(i) {
+            *slot = slot.wrapping_add(add);
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Deflate
+// ---------------------------------------------------------------------------
+
+/// How far back a match may reach — deflate's maximum, and a constant, so the
+/// same input always searches the same bytes.
+const WINDOW: usize = 32768;
+const MIN_MATCH: usize = 3;
+const MAX_MATCH: usize = 258;
+/// How many candidates one position tries before taking what it has. A count
+/// rather than a time budget: a deadline would make the output depend on how
+/// busy the machine was.
+const CHAIN: usize = 128;
+const HASH_SIZE: usize = 1 << 15;
+/// The empty slot in a hash chain.
+const NONE: u32 = u32::MAX;
+
+/// `(first length, extra bits)` for symbols 257..=285, RFC 1951 §3.2.5.
+const LENGTHS: [(u16, u8); 29] = [
+    (3, 0),
+    (4, 0),
+    (5, 0),
+    (6, 0),
+    (7, 0),
+    (8, 0),
+    (9, 0),
+    (10, 0),
+    (11, 1),
+    (13, 1),
+    (15, 1),
+    (17, 1),
+    (19, 2),
+    (23, 2),
+    (27, 2),
+    (31, 2),
+    (35, 3),
+    (43, 3),
+    (51, 3),
+    (59, 3),
+    (67, 4),
+    (83, 4),
+    (99, 4),
+    (115, 4),
+    (131, 5),
+    (163, 5),
+    (195, 5),
+    (227, 5),
+    (258, 0),
+];
+
+/// `(first distance, extra bits)` for distance codes 0..=29, same section.
+const DISTANCES: [(u16, u8); 30] = [
+    (1, 0),
+    (2, 0),
+    (3, 0),
+    (4, 0),
+    (5, 1),
+    (7, 1),
+    (9, 2),
+    (13, 2),
+    (17, 3),
+    (25, 3),
+    (33, 4),
+    (49, 4),
+    (65, 5),
+    (97, 5),
+    (129, 6),
+    (193, 6),
+    (257, 7),
+    (385, 7),
+    (513, 8),
+    (769, 8),
+    (1025, 9),
+    (1537, 9),
+    (2049, 10),
+    (3073, 10),
+    (4097, 11),
+    (6145, 11),
+    (8193, 12),
+    (12289, 12),
+    (16385, 13),
+    (24577, 13),
+];
+
+/// Deflate packs its own fields low bit first and its Huffman codes high bit
+/// first, so this writer offers both and no call site has to remember which.
+struct BitWriter {
+    out: Vec<u8>,
+    held: u32,
+    count: u32,
+}
+
+impl BitWriter {
+    fn new(capacity: usize) -> Self {
+        Self { out: Vec::with_capacity(capacity), held: 0, count: 0 }
+    }
+
+    /// A plain field: the low bit goes out first.
+    fn bits(&mut self, value: u32, width: u32) {
+        let mask = if width >= 32 { u32::MAX } else { (1_u32 << width) - 1 };
+        self.held |= (value & mask) << self.count;
+        self.count = self.count.saturating_add(width);
+        while self.count >= 8 {
+            self.out.push((self.held & 0xff) as u8);
+            self.held >>= 8;
+            self.count = self.count.saturating_sub(8);
+        }
+    }
+
+    /// A Huffman code: the high bit goes out first.
+    fn code(&mut self, code: u32, width: u32) {
+        for i in (0..width).rev() {
+            self.bits((code >> i) & 1, 1);
+        }
+    }
+
+    fn finish(mut self) -> Vec<u8> {
+        if self.count > 0 {
+            self.out.push((self.held & 0xff) as u8);
+        }
+        self.out
+    }
+}
+
+/// The fixed literal/length tree, RFC 1951 §3.2.6, as `(code, width)`.
+fn fixed_code(symbol: u16) -> (u32, u32) {
+    match symbol {
+        0..=143 => (0x30 + u32::from(symbol), 8),
+        144..=255 => (0x190 + u32::from(symbol) - 144, 9),
+        256..=279 => (u32::from(symbol) - 256, 7),
+        _ => (0xc0 + u32::from(symbol).saturating_sub(280), 8),
+    }
+}
+
+fn hash_at(data: &[u8], pos: usize) -> Option<usize> {
+    let a = u32::from(*data.get(pos)?);
+    let b = u32::from(*data.get(pos.checked_add(1)?)?);
+    let c = u32::from(*data.get(pos.checked_add(2)?)?);
+    Some((((a << 10) ^ (b << 5) ^ c) as usize) & (HASH_SIZE - 1))
+}
+
+fn remember(data: &[u8], pos: usize, head: &mut [u32], prev: &mut [u32]) {
+    let Some(h) = hash_at(data, pos) else { return };
+    let Ok(here) = u32::try_from(pos) else { return };
+    let earlier = head.get(h).copied().unwrap_or(NONE);
+    if let Some(slot) = prev.get_mut(pos & (WINDOW - 1)) {
+        *slot = earlier;
+    }
+    if let Some(slot) = head.get_mut(h) {
+        *slot = here;
+    }
+}
+
+fn common_prefix(data: &[u8], a: usize, b: usize, limit: usize) -> usize {
+    let mut n = 0;
+    while n < limit {
+        let (Some(x), Some(y)) = (data.get(a.saturating_add(n)), data.get(b.saturating_add(n)))
+        else {
+            break;
+        };
+        if x != y {
+            break;
+        }
+        n = n.saturating_add(1);
+    }
+    n
+}
+
+/// The longest match at `at`, or `(0, 0)` for none.
+///
+/// Greedy, and the chain is walked newest first for at most [`CHAIN`] steps, so
+/// what it answers is a function of the bytes alone.
+fn longest_match(data: &[u8], at: usize, head: &[u32], prev: &[u32]) -> (usize, usize) {
+    let limit = MAX_MATCH.min(data.len().saturating_sub(at));
+    if limit < MIN_MATCH {
+        return (0, 0);
+    }
+    let Some(h) = hash_at(data, at) else { return (0, 0) };
+    let floor = at.saturating_sub(WINDOW);
+    let mut best = 0_usize;
+    let mut distance = 0_usize;
+    let mut candidate = head.get(h).copied().unwrap_or(NONE);
+    let mut steps = CHAIN;
+    while candidate != NONE && steps > 0 {
+        steps = steps.saturating_sub(1);
+        let pos = candidate as usize;
+        if pos < floor || pos >= at {
+            break;
+        }
+        let length = common_prefix(data, pos, at, limit);
+        if length > best {
+            best = length;
+            distance = at.saturating_sub(pos);
+            if length == limit {
+                break;
+            }
+        }
+        let next = prev.get(pos & (WINDOW - 1)).copied().unwrap_or(NONE);
+        // A chain always walks backwards. Anything else is a slot the window
+        // has wrapped over, and following it would not terminate.
+        if next != NONE && next as usize >= pos {
+            break;
+        }
+        candidate = next;
+    }
+    if best >= MIN_MATCH { (best, distance) } else { (0, 0) }
+}
+
+/// The index in `table` of the last entry whose base is at or below `value`.
+fn code_for(table: &[(u16, u8)], value: usize) -> usize {
+    let mut found = 0;
+    for (index, (base, _)) in table.iter().enumerate() {
+        if usize::from(*base) <= value {
+            found = index;
+        }
+    }
+    found
+}
+
+/// One zlib stream: the two-byte header, one fixed-Huffman block, the Adler-32.
+fn deflate(raw: &[u8]) -> Vec<u8> {
+    let mut bits = BitWriter::new(raw.len() / 2);
+    // The last block, and block type 01.
+    bits.bits(1, 1);
+    bits.bits(1, 2);
+
+    let mut head = vec![NONE; HASH_SIZE];
+    let mut prev = vec![NONE; WINDOW];
+    let mut at = 0_usize;
+    while at < raw.len() {
+        let (length, distance) = longest_match(raw, at, &head, &prev);
+        if length >= MIN_MATCH {
+            let index = code_for(&LENGTHS, length);
+            let (base, extra) = LENGTHS.get(index).copied().unwrap_or((3, 0));
+            let (code, width) = fixed_code(257_u16.saturating_add(index as u16));
+            bits.code(code, width);
+            if extra > 0 {
+                bits.bits(length.saturating_sub(usize::from(base)) as u32, u32::from(extra));
+            }
+            let which = code_for(&DISTANCES, distance);
+            let (first, dextra) = DISTANCES.get(which).copied().unwrap_or((1, 0));
+            bits.code(which as u32, 5);
+            if dextra > 0 {
+                bits.bits(distance.saturating_sub(usize::from(first)) as u32, u32::from(dextra));
+            }
+            // Every position inside the match is remembered too, so a later
+            // match can start anywhere within it.
+            for step in 0..length {
+                remember(raw, at.saturating_add(step), &mut head, &mut prev);
+            }
+            at = at.saturating_add(length);
+        } else {
+            let byte = raw.get(at).copied().unwrap_or(0);
+            let (code, width) = fixed_code(u16::from(byte));
+            bits.code(code, width);
+            remember(raw, at, &mut head, &mut prev);
+            at = at.saturating_add(1);
+        }
+    }
+    let (code, width) = fixed_code(256);
+    bits.code(code, width);
+
+    // `0x78 0x01`: deflate with a 32 KiB window and no preset dictionary. The
+    // two bytes read as a big-endian number are a multiple of 31, which is what
+    // RFC 1950 asks of the header.
+    let mut out = vec![0x78, 0x01];
+    out.extend_from_slice(&bits.finish());
+    out.extend_from_slice(&adler32(raw).to_be_bytes());
+    out
 }
 
 /// CRC-32, the reflected `0xEDB88320` polynomial PNG asks for, a bit at a time.
@@ -1604,6 +1982,10 @@ fn adler32(data: &[u8]) -> u32 {
     (b << 16) | a
 }
 
+// ---------------------------------------------------------------------------
+// Reading a PNG back
+// ---------------------------------------------------------------------------
+
 /// The pixels of a PNG this painter wrote.
 #[derive(Debug)]
 struct Image {
@@ -1633,12 +2015,14 @@ fn pixel_bytes(width: u32, height: u32) -> Result<usize, String> {
         .ok_or_else(|| format!("the image {width}x{height} is too large to hold"))
 }
 
-/// Reads back what [`encode`] wrote: 8-bit RGBA, stored deflate blocks, filter
-/// zero on every row.
+/// Reads back what [`encode`] wrote: 8-bit RGBA, all five row filters, and
+/// deflate's stored and fixed-Huffman blocks.
 ///
-/// Deliberately no wider than that. A golden comes from [`render`], so a PNG
-/// this cannot read is a PNG that did not come from here, and saying so beats
-/// carrying an inflater for a case that never happens.
+/// Dynamic Huffman is the one thing it refuses, and that is a decision rather
+/// than an omission: a golden comes from [`render`], nothing here writes a
+/// dynamic block, and reading one would mean carrying a code-length decoder for
+/// a case that cannot arise. Stored blocks stay readable because this file used
+/// to write them.
 fn decode(png: &[u8]) -> Result<Image, String> {
     let bad = |what: &str| format!("the PNG {what}");
     if png.get(..8) != Some(&SIGNATURE) {
@@ -1652,12 +2036,7 @@ fn decode(png: &[u8]) -> Result<Image, String> {
 
     while offset < png.len() {
         let head = png.get(offset..offset.saturating_add(8)).ok_or_else(|| bad("ends mid-chunk"))?;
-        let len = u32::from_be_bytes([
-            *head.first().ok_or_else(|| bad("ends mid-chunk"))?,
-            *head.get(1).ok_or_else(|| bad("ends mid-chunk"))?,
-            *head.get(2).ok_or_else(|| bad("ends mid-chunk"))?,
-            *head.get(3).ok_or_else(|| bad("ends mid-chunk"))?,
-        ]) as usize;
+        let len = be32(head, 0).ok_or_else(|| bad("ends mid-chunk"))? as usize;
         let kind = head.get(4..8).ok_or_else(|| bad("ends mid-chunk"))?.to_vec();
         let start = offset.saturating_add(8);
         let end = start.checked_add(len).ok_or_else(|| bad("names a chunk longer than itself"))?;
@@ -1684,9 +2063,9 @@ fn decode(png: &[u8]) -> Result<Image, String> {
     if !seen_header {
         return Err(bad("has no IHDR"));
     }
-    let raw = inflate_stored(&zlib)?;
+    let raw = inflate(&zlib)?;
 
-    let stride = (width as usize).checked_mul(4).ok_or_else(|| bad("is too wide to hold"))?;
+    let stride = (width as usize).checked_mul(BPP).ok_or_else(|| bad("is too wide to hold"))?;
     let expected = stride
         .checked_add(1)
         .and_then(|n| n.checked_mul(height as usize))
@@ -1695,53 +2074,158 @@ fn decode(png: &[u8]) -> Result<Image, String> {
         return Err(bad("holds fewer rows than its header says"));
     }
     let mut rgba = Vec::with_capacity(pixel_bytes(width, height)?);
-    for row in 0..height as usize {
-        let start = row.saturating_mul(stride.saturating_add(1));
-        if raw.get(start) != Some(&0) {
-            return Err(bad("uses a row filter this painter does not write"));
-        }
+    let mut previous = vec![0_u8; stride];
+    let mut row = vec![0_u8; stride];
+    for index in 0..height as usize {
+        let start = index.saturating_mul(stride.saturating_add(1));
+        let kind = raw.get(start).copied().ok_or_else(|| bad("ends mid-row"))?;
         let from = start.saturating_add(1);
-        rgba.extend_from_slice(raw.get(from..from.saturating_add(stride)).unwrap_or(&[]));
+        let line = raw.get(from..from.saturating_add(stride)).ok_or_else(|| bad("ends mid-row"))?;
+        row.copy_from_slice(line);
+        unfilter(kind, &mut row, &previous)?;
+        rgba.extend_from_slice(&row);
+        previous.copy_from_slice(&row);
     }
     Ok(Image { width, height, rgba })
 }
 
 fn be32(data: &[u8], at: usize) -> Option<u32> {
     let slice = data.get(at..at.checked_add(4)?)?;
-    Some(u32::from_be_bytes([
-        *slice.first()?,
-        *slice.get(1)?,
-        *slice.get(2)?,
-        *slice.get(3)?,
-    ]))
+    Some(u32::from_be_bytes([*slice.first()?, *slice.get(1)?, *slice.get(2)?, *slice.get(3)?]))
 }
 
-/// A zlib stream of stored blocks, unwrapped.
-fn inflate_stored(zlib: &[u8]) -> Result<Vec<u8>, String> {
+/// The other end of [`BitWriter`], reading the two orders it writes.
+struct BitReader<'a> {
+    data: &'a [u8],
+    at: usize,
+    bit: u32,
+}
+
+impl BitReader<'_> {
+    fn bit(&mut self) -> Option<u32> {
+        let byte = *self.data.get(self.at)?;
+        let value = (u32::from(byte) >> self.bit) & 1;
+        self.bit = self.bit.saturating_add(1);
+        if self.bit == 8 {
+            self.bit = 0;
+            self.at = self.at.saturating_add(1);
+        }
+        Some(value)
+    }
+
+    fn bits(&mut self, width: u32) -> Option<u32> {
+        let mut value = 0;
+        for i in 0..width {
+            value |= self.bit()? << i;
+        }
+        Some(value)
+    }
+
+    fn code(&mut self, width: u32) -> Option<u32> {
+        let mut value = 0;
+        for _ in 0..width {
+            value = (value << 1) | self.bit()?;
+        }
+        Some(value)
+    }
+
+    /// To the next byte boundary, which is where a stored block's length sits.
+    fn align(&mut self) {
+        if self.bit != 0 {
+            self.bit = 0;
+            self.at = self.at.saturating_add(1);
+        }
+    }
+}
+
+/// One symbol of the fixed literal/length tree.
+///
+/// RFC 1951 §3.2.6's table, read the other way: seven bits up to `0010111` is
+/// an end-or-length symbol, and every longer code starts above the range the
+/// shorter one claimed, so the width tells itself apart with no table.
+fn fixed_symbol(reader: &mut BitReader) -> Option<u16> {
+    let seven = reader.code(7)?;
+    if seven <= 0x17 {
+        return u16::try_from(256 + seven).ok();
+    }
+    let eight = (seven << 1) | reader.bit()?;
+    if (0x30..=0xbf).contains(&eight) {
+        return u16::try_from(eight - 0x30).ok();
+    }
+    if (0xc0..=0xc7).contains(&eight) {
+        return u16::try_from(280 + eight - 0xc0).ok();
+    }
+    let nine = (eight << 1) | reader.bit()?;
+    if (0x190..=0x1ff).contains(&nine) {
+        return u16::try_from(144 + nine - 0x190).ok();
+    }
+    None
+}
+
+/// A zlib stream of stored and fixed-Huffman blocks, unwrapped.
+fn inflate(zlib: &[u8]) -> Result<Vec<u8>, String> {
     let bad = |what: &str| format!("the PNG's compressed data {what}");
     if zlib.len() < 2 {
         return Err(bad("is shorter than a zlib header"));
     }
-    let mut out = Vec::new();
-    let mut at = 2_usize;
+    let mut reader = BitReader { data: zlib, at: 2, bit: 0 };
+    let mut out: Vec<u8> = Vec::new();
     loop {
-        let header = *zlib.get(at).ok_or_else(|| bad("ends mid-block"))?;
-        if header & 0b110 != 0 {
-            return Err(bad("is not the stored deflate this painter writes"));
+        let last = reader.bits(1).ok_or_else(|| bad("ends mid-block"))?;
+        match reader.bits(2).ok_or_else(|| bad("ends mid-block"))? {
+            0 => {
+                reader.align();
+                let len = reader.bits(16).ok_or_else(|| bad("ends mid-block"))? as usize;
+                reader.bits(16).ok_or_else(|| bad("ends mid-block"))?;
+                for _ in 0..len {
+                    let byte = reader.bits(8).ok_or_else(|| bad("ends mid-block"))?;
+                    out.push(byte as u8);
+                }
+            }
+            1 => inflate_fixed(&mut reader, &mut out)?,
+            _ => return Err(bad("is not the deflate this painter writes")),
         }
-        let len = u16::from_le_bytes([
-            *zlib.get(at.saturating_add(1)).ok_or_else(|| bad("ends mid-block"))?,
-            *zlib.get(at.saturating_add(2)).ok_or_else(|| bad("ends mid-block"))?,
-        ]) as usize;
-        let from = at.saturating_add(5);
-        let to = from.checked_add(len).ok_or_else(|| bad("names a block longer than itself"))?;
-        out.extend_from_slice(zlib.get(from..to).ok_or_else(|| bad("ends mid-block"))?);
-        at = to;
-        if header & 1 == 1 {
-            break;
+        if last == 1 {
+            return Ok(out);
         }
     }
-    Ok(out)
+}
+
+fn inflate_fixed(reader: &mut BitReader, out: &mut Vec<u8>) -> Result<(), String> {
+    let bad = |what: &str| format!("the PNG's compressed data {what}");
+    loop {
+        let symbol = fixed_symbol(reader).ok_or_else(|| bad("holds a code no tree has"))?;
+        match symbol {
+            0..=255 => out.push(symbol as u8),
+            256 => return Ok(()),
+            257..=285 => {
+                let index = usize::from(symbol).saturating_sub(257);
+                let (base, extra) =
+                    LENGTHS.get(index).copied().ok_or_else(|| bad("names no length"))?;
+                let more = reader.bits(u32::from(extra)).ok_or_else(|| bad("ends mid-match"))?;
+                let length = usize::from(base).saturating_add(more as usize);
+
+                let which = reader.code(5).ok_or_else(|| bad("ends mid-match"))? as usize;
+                let (first, dextra) =
+                    DISTANCES.get(which).copied().ok_or_else(|| bad("names no distance"))?;
+                let more = reader.bits(u32::from(dextra)).ok_or_else(|| bad("ends mid-match"))?;
+                let distance = usize::from(first).saturating_add(more as usize);
+
+                if distance == 0 || distance > out.len() {
+                    return Err(bad("copies from before the start of the image"));
+                }
+                let from = out.len().saturating_sub(distance);
+                for step in 0..length {
+                    let byte = out
+                        .get(from.saturating_add(step))
+                        .copied()
+                        .ok_or_else(|| bad("copies past what it has written"))?;
+                    out.push(byte);
+                }
+            }
+            _ => return Err(bad("names a symbol the fixed tree does not have")),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1894,6 +2378,51 @@ mod tests {
         assert!(!ink(60, 120), "the run should not reach the right half");
     }
 
+    /// The same scene with one declaration-less box wrapped around everything,
+    /// which is exactly what `ui.stack([], [tree])` writes.
+    fn wrapped(scene: &str) -> String {
+        let mut out = String::new();
+        for (index, line) in scene.lines().enumerate() {
+            out.push_str(line);
+            out.push('\n');
+            if index == 1 {
+                out.push_str("e 0 \n");
+                continue;
+            }
+            if index < 2 {
+                continue;
+            }
+            out.truncate(out.len() - line.len() - 1);
+            let (kind, rest) = line.split_at(2);
+            let (digits, body) = rest.split_once(' ').unwrap_or((rest, ""));
+            let depth: usize = digits.parse::<usize>().unwrap() + 1;
+            out.push_str(&format!("{kind}{depth} {body}\n"));
+        }
+        out
+    }
+
+    /// The claim the whole feature rests on: a `stack` that says nothing is not
+    /// a thing a snapshot can see.
+    #[test]
+    fn an_unstyled_box_around_the_tree_changes_nothing() {
+        let scenes = [
+            "buri-scene 1\nviewport 200 120\n\
+             e 0 font-size:18px;color:rgb(20,20,20)\n\
+             t 1 Ada Lovelace\n",
+            "buri-scene 1\nviewport 200 120\n\
+             e 0 padding:12px;gap:6px;background-color:rgb(240,240,245)\n\
+             e 1 width:60px;height:24px;background-color:rgb(220,40,40);border-radius:4px\n\
+             t 1 under the box\n",
+        ];
+        for scene in scenes {
+            let plain = render(&Request { scene, stylesheet: "", state: "rest" }).unwrap();
+            let deeper = wrapped(scene);
+            let nested =
+                render(&Request { scene: &deeper, stylesheet: "", state: "rest" }).unwrap();
+            assert_eq!(plain, nested, "wrapping this scene changed it:\n{deeper}");
+        }
+    }
+
     /// The first column holding ink, or `None` for a blank picture.
     fn first_inked_column(image: &Image) -> Option<u32> {
         (0..image.width)
@@ -2028,6 +2557,107 @@ mod tests {
         // Adler-32 of "Wikipedia" is the value RFC 1950 quotes.
         assert_eq!(adler32(b"Wikipedia"), 0x11e6_0398);
         assert_eq!(adler32(&[]), 1);
+        // And one worked out by hand: over "abc", `a` runs 1, 98, 196, 295 and
+        // `b` is 98 + 196 + 295 = 589, so the answer is 589 << 16 | 295.
+        assert_eq!(adler32(b"abc"), 0x024d_0127);
+    }
+
+    #[test]
+    fn each_row_filter_puts_its_row_back() {
+        let previous: Vec<u8> = (0..24_u8).map(|i| i.wrapping_mul(17)).collect();
+        let line: Vec<u8> = (0..24_u8).map(|i| i.wrapping_mul(31).wrapping_add(7)).collect();
+        for kind in 0..5_u8 {
+            let mut filtered = vec![0_u8; line.len()];
+            apply_filter(kind, &line, &previous, &mut filtered);
+            unfilter(kind, &mut filtered, &previous).unwrap();
+            assert_eq!(filtered, line, "filter {kind} did not come back");
+        }
+    }
+
+    #[test]
+    fn a_row_filter_that_does_not_exist_is_refused() {
+        let mut row = vec![0_u8; 4];
+        assert!(unfilter(5, &mut row, &[0; 4]).is_err());
+    }
+
+    /// A row identical to the one above costs nothing under both `Up` and
+    /// `Paeth`, so this is also the tie-break: the lower number wins.
+    #[test]
+    fn a_repeated_row_is_filtered_against_the_one_above_it() {
+        let row: Vec<u8> = (0..40_u8).map(|i| i.wrapping_mul(23)).collect();
+        let mut rgba = Vec::new();
+        for _ in 0..4 {
+            rgba.extend_from_slice(&row);
+        }
+        let raw = filter_rows(10, 4, &rgba);
+        let stride = 41;
+        assert_eq!(raw.get(stride), Some(&2));
+        assert_eq!(raw.get(stride * 2), Some(&2));
+        assert!(raw[stride + 1..stride * 2].iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn the_encoder_gives_back_the_pixels_it_was_given() {
+        let flat = vec![255_u8; 32 * 24 * 4];
+        let gradient: Vec<u8> = (0..32_u32 * 24)
+            .flat_map(|i| {
+                let x = (i % 32) as u8;
+                let y = (i / 32) as u8;
+                // The alpha channel is its own ramp, so a filter that only
+                // suited the colour channels would show up here.
+                [x.wrapping_mul(8), y.wrapping_mul(10), 128, x.wrapping_add(y).wrapping_mul(3)]
+            })
+            .collect();
+        let noisy: Vec<u8> =
+            (0..32_u64 * 24 * 4).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
+        for pixels in [flat, gradient, noisy] {
+            let back = decode(&encode(32, 24, &pixels)).unwrap();
+            assert_eq!((back.width, back.height), (32, 24));
+            assert_eq!(back.rgba, pixels);
+        }
+    }
+
+    #[test]
+    fn two_encodes_of_the_same_pixels_are_the_same_bytes() {
+        let pixels: Vec<u8> = (0..64_u32 * 64 * 4).map(|i| ((i / 7) % 251) as u8).collect();
+        assert_eq!(encode(64, 64, &pixels), encode(64, 64, &pixels));
+    }
+
+    #[test]
+    fn the_compressed_stream_is_one_final_fixed_huffman_block() {
+        let raw = b"the same words the same words the same words".to_vec();
+        let stream = deflate(&raw);
+        // RFC 1950's header check: the first two bytes, big-endian, divide by 31.
+        assert_eq!(stream[0], 0x78);
+        assert_eq!(u16::from_be_bytes([stream[0], stream[1]]) % 31, 0);
+        // BFINAL then BTYPE, low bit first: 1, then 01, is `0b011`.
+        assert_eq!(stream[2] & 0b111, 0b011);
+        assert_eq!(&stream[stream.len() - 4..], adler32(&raw).to_be_bytes());
+        assert_eq!(inflate(&stream).unwrap(), raw);
+    }
+
+    /// Repetition has to actually be spent: a run of one byte is a match, not
+    /// four thousand literals.
+    #[test]
+    fn a_repetitive_stream_comes_out_far_smaller_than_it_went_in() {
+        let raw = vec![7_u8; 4096];
+        let stream = deflate(&raw);
+        assert!(stream.len() < 64, "4096 identical bytes became {} bytes", stream.len());
+        assert_eq!(inflate(&stream).unwrap(), raw);
+    }
+
+    /// The stored blocks this file used to write are still readable, so a
+    /// golden recorded before the encoder changed still opens.
+    #[test]
+    fn a_stored_block_still_inflates() {
+        let body = b"stored, uncompressed, and final";
+        let len = u16::try_from(body.len()).unwrap();
+        let mut stream = vec![0x78, 0x01, 1];
+        stream.extend_from_slice(&len.to_le_bytes());
+        stream.extend_from_slice(&(!len).to_le_bytes());
+        stream.extend_from_slice(body);
+        stream.extend_from_slice(&adler32(body).to_be_bytes());
+        assert_eq!(inflate(&stream).unwrap(), body);
     }
 
     #[test]

@@ -362,6 +362,11 @@ imports.
 second reserved root. They have a page of their own:
 [user interfaces](../guides/user-interfaces.md).
 
+Two of them answer what a tree *looks* like. `ui/node`'s `describe` resolves one
+to a scene document, and `ui/testing`'s `snapshot` paints that document and
+holds the PNG to a golden checked in beside the suite. The toolchain paints it
+itself, so neither needs a browser.
+
 ## The platform
 
 [`core/effect`](../../compiler/standard_library/sources/effect.buri) declares
