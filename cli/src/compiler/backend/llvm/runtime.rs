@@ -1874,9 +1874,6 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
         ret: Ret::Out,
     },
-    // The other row with a release beside its retain, for `signal`'s reason:
-    // a cell keeps the bytes it was written, so the write that replaces them
-    // gives the old ones back.
     Entry {
         key: "ui_testing.observer",
         symbol: "buri_rt_ui_testing_observer",
@@ -1889,6 +1886,9 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
         ret: Ret::Out,
     },
+    // The other row with a release beside its retain, for `signal`'s reason:
+    // a cell keeps the bytes it was written, so the write that replaces them
+    // gives the old ones back.
     Entry {
         key: "ui_testing.Headless.write",
         symbol: "buri_rt_ui_testing_headless_write",
@@ -2421,8 +2421,8 @@ mod tests {
     /// Every row with a deferred body has it **last**, and it is a key the
     /// other table marks `Extra::Compute`. That invariant is what lets a table
     /// with no per-argument column describe the same C signature: "skip the
-    /// last argument and append six" and "write six where it stood" are the
-    /// same list.
+    /// last argument and append seven" and "write seven where it stood" are
+    /// the same list.
     #[test]
     fn a_deferred_body_is_the_last_argument_of_a_key_the_shared_table_names() {
         use crate::compiler::backend::runtime_table::{self, Extra};

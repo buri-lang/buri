@@ -1067,9 +1067,12 @@ pub const ENTRIES: &[Entry] = &[
     // -- the reactive graph, and the snapshot it paints ----------------------
     //
     // `cli/runtime/ui.rs` holds the graph and `cli/runtime/snapshot.rs` the
-    // painter's entry. The first six are what a *snapshot* reaches, and the
-    // rest is what a `ui/testing` suite reaches — the graph itself and the
-    // recorder that says when a computation ran.
+    // painter's entry. Seven of these are what a *snapshot* reaches —
+    // `rootScope`, `Scope.read`, `headless`, `Headless`'s `signal`, `read` and
+    // `write`, and `paint`. The rest is what a `ui/testing` **suite** reaches:
+    // the graph's two computations, the observer that reads a cell from
+    // outside every computation, and the recorder that says when a computation
+    // ran.
     //
     // `Ui.memo` and `Ui.watch` are what [`Extra::Compute`] was added for: both
     // take a Buri closure the runtime keeps and calls later, which is
