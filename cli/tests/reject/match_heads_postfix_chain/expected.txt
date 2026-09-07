@@ -22,7 +22,3 @@ error: a `match` is an operand, not the head of a `.` [postfix-on-a-block]
      followed by a block. Neither you nor the parser could tell which was meant
      (design/grammar-rationale.md 12.13).
 
-     Refusing the chain outright keeps the } at the end of a block-like
-     expression from being a place where the next token decides what the file
-     means.
-

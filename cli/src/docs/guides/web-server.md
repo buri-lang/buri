@@ -2,14 +2,13 @@
 
 Being a server is three authorities, and a program names the ones it uses.
 `Listen` accepts connections. `Sockets` pushes on one somebody else accepted.
-`Net`, which is `core/net/http`'s effect, talks *out* to other servers. They are
-three rather than one because a program that answers requests need not be one
-that can make them, and a context is where you write that down.
+`Net`, which is `core/net/http`'s effect, talks *out* to other servers. A
+program that answers requests need not be one that can make them.
 
-`core/net/server` is the accepting half. `core/net/http` is the client half, and
-the place `Request` and `Response` are documented. There is one shape for an
-HTTP message here, so a handler answers with the same `Response` a client reads,
-built by the same `http.text`, `http.json` and `http.status`.
+`core/net/server` is the accepting half; `core/net/http` is the client half, and
+where `Request` and `Response` are documented. A handler answers with the same
+`Response` a client reads, built by the same `http.text`, `http.json` and
+`http.status`.
 
 ## Two routes and a JSON body
 
@@ -22,10 +21,9 @@ binary {
 }
 ```
 
-`LINUX` and `MACOS` are the platforms that grant `Listen`, and `outputs` is
-where a binary says which it is for. One that declares none builds for JS, which
-grants neither `Listen` nor `Sockets`. See
-[what refuses to serve](#what-refuses-to-serve).
+`LINUX` and `MACOS` are the platforms that grant `Listen`. A binary that
+declares no `outputs` builds for JS, which grants neither `Listen` nor
+`Sockets`. See [what refuses to serve](#what-refuses-to-serve).
 
 ```buri
 // cmd/server/main.buri
@@ -82,29 +80,27 @@ $ curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/nope
 ```
 
 `request.path()` is the URL's path with neither query nor fragment, and it is
-pure: asking a request where it is going costs no allocation. `request.query()`
-is everything after the first `?`. Routing is an ordinary `match`, and `route`
-is an ordinary function. Nothing about it knows it is a handler.
+pure. `request.query()` is everything after the first `?`. Routing is an ordinary
+`match`, and `route` is an ordinary function: nothing about it knows it is a
+handler.
 
 `Tasks` is in the bound because `run` fans the accept loop out over
-`listener.handlers` workers rather than driving one. Handlers running at the same
-time is authority like any other, so a program that grants `Listen` and not
-`Tasks` does not compile.
+`listener.handlers` workers. Handlers running at the same time is authority like
+any other, so a program that grants `Listen` and not `Tasks` does not compile.
 
 Every field of `Server` but `port` and `onRequest` is an `Option` the literal may
 leave out: the address, the protocols, a certificate, a request limit, an idle
 timeout, a drain deadline, the WebSocket hooks, a socket buffer. Leaving one out
-is not choosing a default. It is declining to choose, and the runtime picks.
-`buri docs core/net/server` has the table of what this one picks. `bind` and
-`run` are `serve`'s two halves, for a program that needs the port number before
-it answers anything.
+declines to choose, and the runtime picks — `buri docs core/net/server` has the
+table. `bind` and `run` are `serve`'s two halves, for a program that needs the
+port number first.
 
 ## State that outlives a request
 
 A handler answers and returns, so anything it has to remember lives behind a
-mailbox. An actor is a value: an initial state and a step. `start` gives it a
-mailbox and answers an `Address` a handler may capture, because an address holds
-no context of its own.
+mailbox. An actor is an initial state and a step; `start` gives it a mailbox and
+answers an `Address` a handler may capture, because an address holds no context
+of its own.
 
 ```buri name=counting
 # from "core/actor" import * as actor;
@@ -180,20 +176,16 @@ model.
 
 A `Server` with a `websocket` field speaks WebSockets, and the upgrade is
 invisible. `onOpen` answers what the socket carries, every later hook is handed
-it, and `onMessage` answers the next. So per-socket state is a value rather than
-a table keyed by socket, and an actor's address is a good thing for it to be. A
-`Socket` is inert, which is what makes that work: one integer, copyable, and
-sendable to an actor that can push on it long after the request that opened it
-returned. `broadcast` above is the shape. The hooks are in
-[the standard library](../reference/standard-library.md).
+it, and `onMessage` answers the next, so per-socket state is a value rather than
+a table keyed by socket. A `Socket` is inert — one integer, sendable to an actor
+that can push on it long after the request that opened it returned. The hooks are
+in [the standard library](../reference/standard-library.md).
 
 The hooks name the path they are served at, and naming it is not optional:
 `WebSocket { path: "/socket", onOpen: …, onMessage: …, onClose: … }`. The match
 is the request's path exactly, with no query string and no normalisation, so
 `"/socket"` and `"/socket/"` are two different paths. A request to any other
-path is an ordinary request that reaches `onRequest`, upgrade headers and all,
-so the rest of a WebSocket server's URL space still routes the way the `match`
-above routes it.
+path reaches `onRequest`, upgrade headers and all.
 
 ### Dial one instead
 
@@ -239,9 +231,9 @@ with a script instead of a server, and the pushes your hooks make land in that
 ## Stopping
 
 `SIGTERM` and `SIGINT` do not kill a program holding a port. The platform stops
-accepting, answers the requests in flight, and then tells the accept loop the
-listener is closed. So `serve` returns `.Ok(())`, `main` falls off its own end,
-and whatever a program does after `serve` still happens:
+accepting, answers the requests in flight, and tells the accept loop the listener
+is closed. So `serve` returns `.Ok(())` and whatever a program does after `serve`
+still happens:
 
 ```text
 $ ./.buri/out/macos-arm64/cmd/server/server &
@@ -259,7 +251,7 @@ behaviour.
 ## Testing a handler
 
 A handler is a function of a context and a request, so a test calls it. Nothing
-here binds `Listen`, opens a port, or starts a server:
+here binds `Listen`, opens a port or starts a server:
 
 ```buri role=test use=counting
 from "core/host/testing" import { alloc, sockets, tasks };
@@ -294,7 +286,7 @@ test "a broadcast reaches every socket in the room" {
 Mark the three functions `export` and the suite reaches them through the
 binary's entry point: `from "//cmd/server/main.buri" import { broadcast, hits,
 route };`. That file is the whole of a binary's surface. [Testing your
-code](./testing.md) is the rest of it.
+code](./testing.md) is the rest.
 
 ```text
 $ buri test //cmd/server
@@ -302,7 +294,7 @@ $ buri test //cmd/server
 ```
 
 Two of the three authorities have a double in `core/host/testing`, and the third
-deliberately does not:
+does not:
 
 | | |
 |---|---|
@@ -310,10 +302,9 @@ deliberately does not:
 | `tasks()` | Program order by default, then `anyOrder()`, `seed(n)`, `everyOrder()` and `faults([...])` — the double whose subject is scheduling rather than state |
 | `Listen` | **No double.** What a fake acceptor answers is the test's own decision, so it is a struct with an `impl Listen`, written where it is needed |
 
-The asymmetry is not an omission. A hand-written `Sockets` could record nothing,
-because an effect method takes only `self` and `self` is immutable. So the
-recording half has to be a handle into runner-side state, and the deciding half
-does not.
+A hand-written `Sockets` could record nothing, because an effect method takes
+only `self` and `self` is immutable. So the recording half has to be a handle
+into runner-side state, and the deciding half does not.
 
 ## What refuses to serve
 
@@ -346,14 +337,14 @@ error: `tasks` implements `Tasks`, which is not allowed on the WEB platform [eff
 ```
 
 The compiler checks each entry of `outputs` against the whole graph separately,
-so a binary can pass for MACOS and fail for JS. [Compile to
-JavaScript](./compile-to-js.md) is that half.
+so a binary can pass for MACOS and fail for JS.
+[Compile to JavaScript](./compile-to-js.md) is that half.
 
 ## Next
 
 - [Tasks and actors](./concurrency.md) — `parallel`, actors as values, and what
   bounds a step.
-- [Effects and capabilities](./effects.md) — why a context is where a program's
-  authority is written.
+- [Effects and capabilities](./effects.md) — where a program's authority is
+  written.
 - [The standard library](../reference/standard-library.md) — every `Server`
   field, the WebSocket hooks, and the drain.

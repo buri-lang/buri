@@ -7,9 +7,9 @@ description: Use when working with Buri types, generics, traits, derives, effect
 
 `buri docs language/types` and `buri docs language/effects` are the normative
 text. **Look in the library before writing a helper.** `buri docs core/list`
-renders a module from the source the compiler checked, and bare `buri docs`
-lists every module. `buri docs search <intent>` takes a phrase like "pad a
-string" or "group by key", and prints each hit as the command that reads it.
+renders one module, and bare `buri docs` lists every module.
+`buri docs search <intent>` takes a phrase like "pad a string" or "group by
+key", and prints each hit as the command that reads it.
 
 ## Primitives
 
@@ -26,7 +26,7 @@ string" or "group by key", and prints each hit as the command that reads it.
 `Int = I64`, `Float = F64`, `Uint = U64`, `Byte = U8` are **aliases, not
 distinct types**, so `Int` and `I64` interoperate with no conversion. There is
 no `null`; absence is `Option<T>`. Everyday code writes `Int` and `Float`. Code
-with a size on the wire writes `U8`, `I32`, `F32`. There is no numeric tower.
+with a size on the wire writes `U8`, `I32`, `F32`.
 
 ## Composites
 
@@ -42,7 +42,7 @@ let maybe = xs[0];                      // Option<Int>, never Int
   identical fields are different types.
 - Fields stay module-private unless you `export` them. Nobody outside the
   module can build a struct with a private field from scratch, but
-  `{ ..u, name: "x" }` still works, because it never names the hidden fields.
+  `{ ..u, name: "x" }` still works.
 - A literal gives every *required* field a value. You may leave out a field
   whose **declared** type is `Option<...>`, and it comes out `.None`. The
   compiler judges the declaration, so `type Maybe = Option<Str>` counts and the
@@ -87,11 +87,9 @@ trait Show {
 ```
 
 - **Conformance is nominal.** A type satisfies a trait only where an `impl` or
-  a `derive` says so, and nothing follows from shape. Checking `T: Ord` costs
-  one lookup keyed by `(trait, type)`.
+  a `derive` says so, and nothing follows from shape.
 - An `impl` may appear only in its type's defining module, so you cannot
-  implement a trait for somebody else's type. There is no coherence pass, no
-  orphan rule, no instance search.
+  implement a trait for somebody else's type.
 - `impl Trait for Type { ... }` supplies conformance, and `impl Type { ... }`
   declares the type's own methods. They share a namespace and resolve the same
   way, and only the type's own methods take `export`.
@@ -130,8 +128,8 @@ let total = Meters(1.5) + Meters(2.0);     // Meters
 ```
 
 **An operator implementation cannot allocate or perform an effect**: `a + b`
-has no argument position for a context. So `Matrix + Matrix` is not expressible,
-and matrix addition, which allocates, is `a.add(ctx, b)` instead.
+has no argument position for a context. So `Matrix + Matrix` is not
+expressible; matrix addition allocates, so it is `a.add(ctx, b)`.
 
 Integer-specific behaviour is trait-shaped too: `Bounded`, `Checked`,
 `Wrapping`, `Saturating`. Every built-in integer satisfies all four, and the
@@ -140,8 +138,7 @@ float types satisfy `Bounded` only.
 ### What traits deliberately lack
 
 No blanket implementations, no associated types, no `where` clauses, no
-supertraits, no trait objects, no dynamic dispatch. The compiler monomorphizes
-generic code: it typechecks a body once and verifies bounds at the call site.
+supertraits, no trait objects, no dynamic dispatch.
 
 ## Method resolution
 
@@ -162,11 +159,11 @@ generic code: it typechecks a body once and verifies bounds at the call site.
 | `Option<T>` `Result<T, E>` | `core/option` `core/result` |
 | tuples, function types, `Template` | none — no methods |
 
-Three consequences. **You cannot extend a type's methods**: `impl Str { ... }`
-in your module is an error, so write a free function. **Methods are not
-values**: `sq.area` is not one, so wrap the call in a lambda. **The receiver's
-type must be known.** Where two bounds declare the same method name, call the
-trait method as a function to disambiguate: `Ord.compare(x, y)`.
+**You cannot extend a type's methods**: `impl Str { ... }` in your module is an
+error, so write a free function. **Methods are not values**: `sq.area` is not
+one, so wrap the call in a lambda. **The receiver's type must be known.** Where
+two bounds declare the same method name, call the trait method as a function to
+disambiguate: `Ord.compare(x, y)`.
 
 ## Effects
 
@@ -176,9 +173,10 @@ only platform modules may declare one. `core/effect` declares `Alloc`, `Net`,
 `WEB`), `Listen` (`LINUX` and `MACOS`, where a program serves a page), and
 `Sockets` and `WebSocketClient` (everywhere: a page dials a socket, and never
 accepts one). `core/fs` is a platform module too, and it declares the
-filesystem's two, `FsRead` and `FsWrite`. Reading your configuration does not earn you the
-right to delete it. They live there rather than in `core/effect` because every
-method names a `Path` (`core/path`), which `core/fs` re-exports.
+filesystem's
+two, `FsRead` and `FsWrite`: reading your configuration does not earn you the
+right to delete it. Every method there names a `Path` (`core/path`), which
+`core/fs` re-exports.
 
 An effect is a trait in every other respect but three:
 
@@ -194,11 +192,9 @@ An effect is a trait in every other respect but three:
   `effect-method-call`. Only `core/*` and an `impl` supplying an effect keep
   the method form, which lets a wrapper delegate with `self.0.readFile(path)`.
   Every `core/fs` function takes a `Path`, built once with
-  `path.of(ctx, text)`. A `Str` parameter would take any `Str`, and a path with
-  one separator too many fails to open and comes back `.NotFound`, exactly like
-  a missing file. **A print returns `Result<(), IoError>`**, so drop one with
-  `let _ = io.println(ctx, "hi").ignore();`, and `buri lint` reports it like any
-  other drop.
+  `path.of(ctx, text)`. **A print returns `Result<(), IoError>`**, so drop one
+  with `let _ = io.println(ctx, "hi").ignore();`, and `buri lint` reports it
+  like any other drop.
 
 ### The `ctx` rule
 
@@ -212,14 +208,13 @@ fn sneaky<C: FsRead>(a: Int, handle: C): Bool                           // ERROR
 fn twoWorlds<A: FsRead, B: Net>(ctx: A, other: B): ()                   // ERROR
 ```
 
-The compiler enforces the convention rather than leaving it to you:
-**receiver first, context second, everything else after**.
+**Receiver first, context second, everything else after**, and the compiler
+enforces it rather than leaving it to you.
 
 > A function is effectful if and only if it has a `ctx` parameter or an
 > effect-carrying `self`.
 
-That is the purity theorem in usable form. Purity is not a keyword. It is one
-missing argument, in a fixed position and with a fixed name.
+That is the purity theorem in usable form.
 
 ### The three tiers
 
@@ -229,9 +224,9 @@ missing argument, in a fixed position and with a fixed name.
 | **Deterministic** | `ctx` bounded by `Alloc` alone | `xs.map(ctx, f)` |
 | **Effectful** | `ctx` bounded by anything else | `fs.readText(ctx, p)` |
 
-One rule decides the tier. An operation with a fixed result size is pure; one
-whose result size depends on runtime data names `Alloc`. Fixed-size construction
-— literals, tuples, enum payloads, closures, `Template`s — never needs it.
+An operation with a fixed result size is pure; one whose result size depends on
+runtime data names `Alloc`. Fixed-size construction — literals, tuples, enum
+payloads, closures, `Template`s — never needs it.
 
 ### The capture rule
 
@@ -277,13 +272,13 @@ context Fixture {
 
 **Where you may build a context:** `main`'s body, a test source, or a test-only
 module (a path with a `testing` segment). Never inside a lambda, and nowhere
-else, which is why the purity theorem holds in ordinary code.
+else.
 
 ### Restricting what propagates
 
 **Static confinement**: bound the callee to fewer effects. It receives the
 same value, and it can neither use nor pass on anything its bounds do not name.
-That holds transitively, because `C` stays opaque downstream.
+That holds transitively.
 
 ```buri
 fn logOnly<C: Stdout>(ctx: C, msg: Str): () {

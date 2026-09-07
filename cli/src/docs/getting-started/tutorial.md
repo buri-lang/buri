@@ -2,13 +2,11 @@
 
 You are going to build `convert`, a command line program that turns one length
 into another: two libraries, a binary that depends on them, and the tests that
-hold all three up. You start from an empty directory and finish with a program
-that runs. It takes about half an hour.
+hold all three up. It takes about half an hour.
 
-Do [your first program](./first-program.md) first. This page assumes `buri` is
-installed and that you have run `buri test` and `buri run` once.
-
-This is what you are building:
+Do [your first program](./first-program.md) first: this page assumes `buri` is
+installed and that you have run `buri test` and `buri run` once. Here is what
+you are building:
 
 ```text
 $ buri run //apps/convert -- 26.2 mi km
@@ -17,14 +15,14 @@ $ buri run //apps/convert -- 26.2 mi km
 
 ## 1. The repository
 
-Make every directory you need, and move in:
+Make the directories, and move in:
 
 ```text
 $ mkdir -p convert/libs/units/test convert/libs/convert/test convert/apps/convert
 $ cd convert
 ```
 
-Write `REPO.buri`. That file makes this directory the repository root, and `//`
+Write `REPO.buri`. It makes this directory the repository root, and `//`
 resolves against it in every label and every module path:
 
 ```textproto schema=repo
@@ -38,8 +36,8 @@ lint {
 ## 2. The library that knows about lengths
 
 Write `libs/units/BUILD.buri`. A directory with a build file in it is a
-package. This one declares a library, listing its sources, its tests, and who
-may depend on it one path at a time:
+package. This one declares a library, listing its sources, its tests and who may
+depend on it, one path at a time:
 
 ```textproto schema=build
 library {
@@ -52,8 +50,8 @@ library {
 }
 ```
 
-Write `libs/units/units.buri`. This is the whole of what the program knows
-about lengths, and none of it can touch the world:
+Write `libs/units/units.buri`. This is the whole of what the program knows about
+lengths, and none of it can touch the world:
 
 ```buri repo=cli/tests/tutorial package=//libs/units
 from "core/effect" import { Alloc };
@@ -142,9 +140,9 @@ impl Quantity {
 }
 ```
 
-Write `libs/units/lib.buri`. It is not in `sources`, because the rule kind
-names it. It is the library's entire public surface: a name missing from it
-cannot be reached from another package, as a function or as a method:
+Write `libs/units/lib.buri`. It is not in `sources`, because the rule kind names
+it. It is the library's entire public surface: a name missing from it cannot be
+reached from another package, as a function or as a method:
 
 ```buri repo=cli/tests/tutorial package=//libs/units
 //! The public surface of //libs/units. `metres` is exported by units.buri and
@@ -155,8 +153,8 @@ from "//libs/units/units.buri" export {
 };
 ```
 
-Write `libs/units/test/units.buri`. The suite imports the library by label,
-exactly as a dependent does, so it can only assert on what dependents can call:
+Write `libs/units/test/units.buri`. The suite imports the library by label, as a
+dependent does, so it can only assert on what dependents can call:
 
 ```buri repo=cli/tests/tutorial package=//libs/units role=test
 from "core/effect" import { Alloc };
@@ -195,8 +193,8 @@ $ buri test //libs/units
 ## 3. The second library: the command line
 
 `//libs/units` knows nothing about a command line, and it stays that way. Write
-`libs/convert/BUILD.buri`. This one has a `dependencies` list, and the edge it
-declares is the only reason `//libs/units` is reachable from here:
+`libs/convert/BUILD.buri`. The `dependencies` edge it declares is the only reason
+`//libs/units` is reachable from here:
 
 ```textproto schema=build
 library {
@@ -211,8 +209,8 @@ library {
 ```
 
 Write `libs/convert/convert.buri`. Everything above `run` is pure. `run` is the
-one function that reads the world and writes to it, and its bounds say exactly
-which parts of the world it gets:
+one function that reads the world and writes to it, and its bounds say which
+parts of the world it gets:
 
 ```buri repo=cli/tests/tutorial package=//libs/convert
 from "core/effect" import { Alloc, Env, Stdout };
@@ -293,9 +291,9 @@ from "//libs/convert/convert.buri" export {
 
 ## 4. A test that hands `run` a world of our own
 
-`run` needs `Env` to read the command line. A test hands it one: a struct with
-the effect's two methods on it. An effect is an ordinary interface, so there is
-no mocking framework and nothing global to stub.
+`run` needs `Env` to read the command line, and a test hands it one: a struct
+with the effect's two methods. There is no mocking framework and nothing global
+to stub.
 
 Write `libs/convert/test/convert.buri`:
 
@@ -343,16 +341,16 @@ test "run reads its arguments and prints one line" {
 }
 ```
 
-The last test never opens a terminal and never reads a real command line.
-`FixedArgs` is the arguments, `stdout()` is a captured stream, and `captured()`
-reads back what the program wrote to it. Run every suite in the repository:
+That last test never opens a terminal: `FixedArgs` is the arguments, `stdout()`
+is a captured stream, and `captured()` reads back what the program wrote. Run
+every suite in the repository:
 
 ```text
 $ buri test
 6 passed, 0 failed, 0 skipped (0.2s, 3 cached)
 ```
 
-The three cached ones are `//libs/units`, unchanged since you last ran it.
+The three cached ones are `//libs/units`, unchanged since you ran it.
 
 ## 5. The binary
 
@@ -365,9 +363,9 @@ binary {
 }
 ```
 
-Write `apps/convert/main.buri`. This is the only file in the repository allowed
-to import `core/host`, and the `context` it builds is the program's entire
-effect budget:
+Write `apps/convert/main.buri`. This is the only file allowed to import
+`core/host`, and the `context` it builds is the program's entire effect
+budget:
 
 ```buri repo=cli/tests/tutorial package=//apps/convert role=entry
 from "core/effect" import { Alloc, Env, Stdout };
@@ -401,9 +399,9 @@ $ buri run //apps/convert -- 5 km ft
 
 ## 6. Format and lint the whole repository
 
-`buri format` is the one canonical layout: four-space indent, sorted imports,
-no options. It prints the files it rewrote. `buri lint` runs the checks beyond
-type checking:
+`buri format` is the one canonical layout: four-space indent, sorted imports, no
+options. It prints the files it rewrote. `buri lint` runs the checks beyond type
+checking:
 
 ```text
 $ buri format
@@ -411,20 +409,18 @@ $ buri lint
 no findings
 ```
 
-`buri format` printed nothing, because every file above was already laid out
-the way it lays a file out.
-
-That is the program, in eleven files: two libraries, each with a build file, a
-surface, a source file and a suite; a binary with a build file and a `main`;
-and a repository root over the top of them.
+`buri format` printed nothing, because every file above was already laid out the
+way it lays a file out. That is the program, in eleven files: two libraries with
+a build file, a surface, a source file and a suite each; a binary with a build
+file and a `main`; and a repository root over them.
 
 ## Where to go next
 
 - [The build system](../guides/build-system.md) — packages, labels,
-  dependencies and visibility, in more detail than this tutorial needed.
+  dependencies and visibility.
 - [Testing](../guides/testing.md) — fixtures, fault plans, and the rest of
   `core/host/testing`.
-- [Restricting effects](../guides/effects.md) — what a `ctx` bound buys, and
-  how to hand a callee less of the world than you hold.
+- [Restricting effects](../guides/effects.md) — how to hand a callee less of the
+  world than you hold.
 - [The standard library](../reference/standard-library.md) — what is in
   `core/*`, and what each module costs.

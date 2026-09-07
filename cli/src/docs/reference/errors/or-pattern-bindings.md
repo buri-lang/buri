@@ -15,9 +15,9 @@ Bind the same names in every alternative, or split this into separate arms.
 
 ## Why
 
-One arm has one body, and the compiler checks it once. The body can name only
-what every alternative supplies, at the same type. An alternative that binds `y`
-where another binds `x` leaves the body with a name that is sometimes missing.
+One arm has one body, and it can name only what every alternative supplies, at
+the same type. An alternative that binds `y` where another binds `x` leaves the
+body with a name that is sometimes missing.
 
 ## A program that provokes it
 

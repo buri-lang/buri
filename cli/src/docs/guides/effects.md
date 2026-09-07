@@ -1,8 +1,7 @@
 # Effects and capabilities
 
-A Buri signature says what a function may do to the world, and it says it in one
-place. The mechanism is a parameter named `ctx` and the bounds written on its
-type. Everything below follows from those two things.
+A Buri signature says what a function may do to the world, in one place: a
+parameter named `ctx`, and the bounds written on its type.
 
 ```buri
 # from "core/effect" import { Alloc };
@@ -31,31 +30,22 @@ methods are the operations it grants. `core/effect` declares most of them:
 `Tasks`, `Listen`, `Sockets` and `WebSocketClient`. `core/fs` is a platform
 module too, and it declares the filesystem's `FsRead` and `FsWrite`. **Only a platform module may
 declare an effect**, so the set of things a Buri program can do to the world is
-closed. Your own code cannot add to it.
+closed.
 
-The filesystem is two effects rather than one because it is two grants: a
-program that reads its configuration has not thereby earned the right to delete
-it. So `<C: Alloc + FsRead>` is a sentence the compiler holds a whole call graph
-to. Nothing that function passes `ctx` to can ask for `FsWrite` from a context
-that does not bind it. A program that does both binds both, and that is the
-price of the distinction being visible at all. The two live in `core/fs` rather
-than in `core/effect` for a dependency reason. Every one of their methods names
-a `Path`, and `core/path` names `Alloc`, so the declarations sit on the side of
-that dependency where they can say what they mean.
+The filesystem is two effects because it is two grants: a program that reads its
+configuration has not thereby earned the right to delete it. Nothing a function
+passes `ctx` to can ask for `FsWrite` from a context that does not bind it.
 
 Otherwise an effect is a trait: same declaration shape, same nominal
-conformance, same `impl`, same bounds. `<C: Alloc + FsRead>` and `<T: Ord + Show>`
-are the same feature, and the language has no second constraint mechanism. Two
-rules keep effects and traits apart. You may pass an effect-carrying value only
-as `self` or `ctx`, and no type may implement both an effect and a trait, so a
-`T: Ord` is never secretly a context. Together they make one sentence true:
-**a function is effectful if and only if it has a `ctx` parameter or an
-effect-carrying `self`.** You never scan a signature to find out.
+conformance, same `impl`, same bounds. Two rules keep the two apart. You may
+pass an effect-carrying value only as `self` or `ctx`, and no type may implement
+both an effect and a trait, so a `T: Ord` is never secretly a context. Together
+they make one sentence true: **a function is effectful if and only if it has a
+`ctx` parameter or an effect-carrying `self`.**
 
-You also do not perform an effect *on* the context: `io.println(ctx, text)`
-rather than `ctx.println(text)`. The operation is a free function in the module
-that wraps the effect, which puts the authority where the reader is already
-looking and splits *which* effect from *what* it does into two names.
+You do not perform an effect *on* the context: `io.println(ctx, text)` rather
+than `ctx.println(text)`. The operation is a free function in the module that
+wraps the effect, which splits *which* effect from *what* it does.
 
 ## Authority starts at `core/host` and passes through `main`
 
@@ -90,19 +80,15 @@ export fn main(): Result<(), Str> {
 
 That `context` block is the program's entire effect budget, and you audit it by
 reading it. It binds `FsRead` and not `FsWrite`, so this program cannot write a
-file: the half it was not given is as unreachable as the effects it never
-mentioned. It cannot open a socket either — not in its own code, not in a
-dependency, not in a build script. Nothing anywhere can obtain a value bounded
-by `Net`, and there is no ambient `host` to reach for. A platform that
-does not grant an effect does not export it at all, so asking for one you were
-not given is a compile error on the line that asked: `effect-not-on-platform`,
-reported while you edit the file rather than when you build it.
+file, and it cannot open a socket in its own code, a dependency or a build
+script, because nothing anywhere can obtain a value bounded by `Net`. A platform
+that does not grant an effect does not export it, so asking for one is a compile
+error on the line that asked: `effect-not-on-platform`.
 
 ## Giving a callee less is naming fewer bounds
 
-Because effects are bounds, you hand a callee less authority by naming fewer of
-them. It receives the same value, and it cannot use or pass on anything its
-bounds omit:
+You hand a callee less authority by naming fewer bounds. It receives the same
+value, and cannot use or pass on anything its bounds omit:
 
 ```buri
 # from "core/effect" import { Alloc, Stdout };
@@ -133,10 +119,9 @@ No copy, no wrapper, no runtime cost. The confinement is transitive: `C` is
 opaque at every downstream call site, so `logOnly` cannot hand its context to
 anything that asks for more than it has.
 
-That is a fact about the type checker. Sometimes you want the *value* to lack
-the effect rather than merely be unable to name it — at a trust boundary, where
-something may later escape the type system. Then wrap the context in a type that
-satisfies fewer effects:
+At a trust boundary you may want the *value* to lack the effect rather than
+merely be unable to name it. Then wrap the context in a type that satisfies
+fewer effects:
 
 ```buri
 # from "core/effect" import { Alloc, IoError, Region };
@@ -161,19 +146,18 @@ impl<C: Alloc + FsRead> ReadOnly<C> {
 }
 ```
 
-Attenuation narrows the whole context rather than subtracting one effect from
-it, which is what keeps the `ctx` rule satisfiable: the callee still holds
-exactly one effect-carrying value. Use bounds by default, a wrapper at a
-boundary.
+Attenuation narrows the whole context rather than subtracting one effect, so the
+callee still holds exactly one effect-carrying value. Use bounds by default, a
+wrapper at a boundary.
 
 ## Test doubles fall out for free
 
-An effect is an ordinary interface, so an implementation of one is a struct with
-methods, and the standard library has already written the ones a test wants.
+An effect is an ordinary interface, so an implementation is a struct with
+methods, and the standard library has written the ones a test wants.
 `core/host/testing` is `core/host`'s surface for a test source: `alloc()`,
 `fs()`, `clock()`, `net()` and the rest, each real where it can be and hermetic
-everywhere else. A test builds its context exactly the way `main` does. The code
-under test does not change, because there was never a global to stub:
+everywhere else. A test builds its context the way `main` does, and the code
+under test does not change:
 
 ```buri role=test
 # from "core/effect" import { Alloc };
@@ -201,8 +185,7 @@ reads back binds the *same* value under both names — `let disk = memory(); ...
 FsRead: disk, FsWrite: disk` — because two calls would be two filesystems with
 nothing in common.
 
-There is no mocking framework, and nothing about `load` had to be written for
-testability. [`reference/build/testing.md`](../reference/build/testing.md#the-runners-context)
+[`reference/build/testing.md`](../reference/build/testing.md#the-runners-context)
 has every double the runner ships and what each one does.
 
 ## `Alloc` is an effect, and that is the point
@@ -214,17 +197,15 @@ otherwise referentially transparent, while `time.now(ctx)` is not. Only a result
 whose size depends on runtime data needs it. Struct literals, tuples, enum
 payloads, array literals, closures and templates never do.
 
-`Alloc` is also the one effect whose implementation grants nothing: `allocate`
+`Alloc` is the one effect whose implementation grants nothing: `allocate`
 answers a region, which is a number nothing reads. So `core/alloc` ships
 `generalPurpose()`, `arena()` and `fixedBuffer(n)`, and you may import it
-anywhere rather than only from `main`. Binding one is how a program says what it
-is willing to spend, not how it acquires authority it was not given. Whether
-that much bookkeeping is worth the guarantee is an open question, flagged as one
-in `design/non-goals.md`.
+anywhere rather than only from `main`. Binding one says what a program is
+willing to spend, not what authority it holds.
 
 ## The exact rules
 
-This page is the shape of the thing. [`language/effects.md`](../language/effects.md)
-is the specification: what makes a type effect-carrying, why a lambda may not
-capture one, the purity theorem and its three qualifiers, and the calling
-convention every signature above follows.
+[`language/effects.md`](../language/effects.md) is the specification: what makes
+a type effect-carrying, why a lambda may not capture one, the purity theorem and
+its three qualifiers, and the calling convention every signature above
+follows.

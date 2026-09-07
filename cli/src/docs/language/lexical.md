@@ -16,24 +16,21 @@ offside rule. Whitespace separates tokens and means nothing else.
 /// doc comment; attaches to the declaration that follows
 ```
 
-A fourth form documents the *file*: a `//!` line, legal above the first item of
-a module and nowhere else. That is the whole difference between the two. `///`
-attaches down to the declaration under it, and `//!` attaches up to the module
-around it. A `//!` further down the file is `module-doc-not-first`: down there it
-is a mistyped `///` far more often than a note about the module.
+A fourth form documents the *file*: a `//!` line, legal above the first item of a
+module and nowhere else. `///` attaches down to the declaration under it, `//!`
+up to the module around it. A `//!` further down the file is
+`module-doc-not-first`.
 
 The third slash decides whether prose is **published**. `buri docs <module>`
 renders a module's `//!` text and every exported declaration's `///`, the
-language server shows that same text on hover, and `buri docs search` reads it. A
-`//` reaches none of them, however carefully you write it. Four slashes —
-`////` — is an ordinary comment again, so a banner rule publishes nothing.
+language server shows it on hover, and `buri docs search` reads it. A `//`
+reaches none of them, and four slashes — `////` — is an ordinary comment again.
 
 ### 3.3 Identifiers and naming
 
 `IDENT` is `[A-Za-z_][A-Za-z0-9_]*` minus keywords and reserved words.
 
-The conventions below are **not enforced by the grammar, by design**: a parser
-that depends on capitalization is a parser that depends on convention.
+The conventions below are **not enforced by the grammar**.
 
 | Kind | Convention | Example |
 |---|---|---|
@@ -50,20 +47,18 @@ that depends on capitalization is a parser that depends on convention.
 
 `for` appears only in `impl ... for ...` and `derive ... for ...`. `self` is
 legal only as the first parameter of a function inside an `impl` block; `Self`
-only inside a trait or `impl`.
-`test` is reserved everywhere, so no function may be named `test`, but a `test`
-declaration is legal only in a test source (Section 11.2). `context` is reserved
-everywhere too, and a `context` declaration or expression is legal only where
+only inside a trait or `impl`. `test` and `context` are reserved everywhere, so
+no function may be named either, but a `test` declaration is legal only in a test
+source (Section 11.2) and a `context` declaration or expression only where
 Section 11.3 says.
 
 `ctx` is legal as the parameter after `self` (Section 10.2). It is also legal as
 a `let` binding name inside `main`'s body, a test source, or a test-only module,
 because that is where you build contexts. Nowhere else.
 
-`const` is a keyword no production uses. It used to spell a module-level binding,
-back before `let` was the only binding keyword. It stays reserved so that source
-still carrying one gets `const-declaration`, which names `let` and carries the
-edit, rather than reading as a name and failing later.
+`const` is a keyword no production uses. It stays reserved so that source still
+carrying one gets `const-declaration`, which names `let` and carries the edit,
+rather than reading as a name and failing later.
 
 `assert` is **not** a keyword; assertions are the ordinary module
 `core/testing/assert` (Section 11.2.1).
@@ -95,9 +90,8 @@ falls back to `Int` / `Float`; see Section 5.1.1.
 
 A string literal containing at least one `${ ... }` hole has type `Template`, not
 `Str`. A `Template` is a fixed-size value: a statically known array of literal
-fragments plus the evaluated holes. **Constructing a `Template` allocates
-nothing**, which is why `io.println(ctx, "hi ${name}")` needs only the `stdout`
-effect and can stream directly to the sink.
+fragments plus the evaluated holes. **Constructing one allocates nothing**, so
+`io.println(ctx, "hi ${name}")` needs only the `stdout` effect.
 
 To turn a `Template` into a `Str` you must allocate:
 
@@ -107,30 +101,29 @@ let greeting: Str = str.format(ctx, "Hello, ${name}!");
 
 A hole expression must have type `Int` (any width), `Float` (any width), `Bool`,
 `Char`, `Str`, **or a type whose `Show` is derived** — a `derive Show` type, an
-array of one, or a tuple of them, all the way down. Such a hole renders exactly
-as `derive Show` renders it, so `"${p}"` and `"${p.show(ctx)}"` produce the same
+array of one, or a tuple of them, all the way down. Such a hole renders as
+`derive Show` renders it, so `"${p}"` and `"${p.show(ctx)}"` produce the same
 text.
 
-A derived hole costs the call site nothing. A derived `Show` is a fold over the
-type's shape, and the run time performs it, which is why a derived `x.show(ctx)`
-drops its context. So `io.println(ctx, "${point}")` still needs only the `stdout`
-effect.
+A derived hole costs the call site nothing: a derived `Show` is a fold the run
+time performs, so a derived `x.show(ctx)` drops its context and
+`io.println(ctx, "${point}")` still needs only the `stdout` effect.
 
-A hole will not take a **hand-written** `impl Show`. Something has to call its
-`show<C: Alloc>(self, ctx: C)`, and a `Template` names no context to call it
-with, so you write the conversion yourself:
+A hole will not take a **hand-written** `impl Show`. A `Template` names no
+context to call its `show<C: Alloc>(self, ctx: C)` with, so write the conversion
+yourself:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let line: Str = str.format(ctx, "the suit is ${suit.show(ctx)}");
 ```
 
-A bounded type parameter works the same way. A `T: Show` may be instantiated at a
+A bounded type parameter works the same way: a `T: Show` may be instantiated at a
 type whose `Show` is hand-written, so the compiler rejects `"${x}"` in a generic
-body. Write `"${x.show(ctx)}"` instead.
+body. Write `"${x.show(ctx)}"`.
 
 In argument position, a `Str` widens to a `Template`. This is the only implicit
-conversion in the language, and it exists so that `io.println(ctx, "hi")` and
-`io.println(ctx, "hi ${name}")` are both well-typed.
+conversion in the language, and it is what makes `io.println(ctx, "hi")` and
+`io.println(ctx, "hi ${name}")` both well-typed.
 
 Escape `\$` to write a literal dollar sign before a brace.
 

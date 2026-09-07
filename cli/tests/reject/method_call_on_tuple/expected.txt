@@ -20,6 +20,5 @@ error: `(I64, I64)` has no method `len` [no-such-method]
 
     A method is looked up in exactly one place: the module that declares the
     receiver's type. There is no extension mechanism, so nobody can add a method
-    to a type from outside. That is also what makes resolution a single lookup
-    rather than a search.
+    to a type from outside.
 
