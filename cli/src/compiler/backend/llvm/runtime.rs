@@ -1636,13 +1636,15 @@ pub const ENTRIES: &[Entry] = &[
         key: "host_testing.recordTcpRead",
         symbol: "buri_rt_host_testing_record_tcp_read",
         args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar],
-        ret: Ret::Opt,
+        ret: Ret::Sum,
     },
     Entry {
         key: "host_testing.recordTcpWrite",
         symbol: "buri_rt_host_testing_record_tcp_write",
         args: &[Arg::Scalar, Arg::Scalar, Arg::List],
-        ret: Ret::Scalar,
+        // A `Bool`, and the archive answers a `u8` — `host.HostFs.fileExists`'s
+        // shape, and for its reason: the C boundary has no `i1`.
+        ret: Ret::Int(8),
     },
     Entry {
         key: "host_testing.recordTcpClose",
