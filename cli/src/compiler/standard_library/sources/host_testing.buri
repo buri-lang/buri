@@ -1168,6 +1168,16 @@ impl TestSockets {
     export fn isOpen(self, socket: Socket): Bool {
         socketsIsOpen(self.0, socket.0)
     }
+
+    /// A WebSocket client that dials this double: one socket, and `messages`
+    /// delivered on it in order.
+    ///
+    /// Two `dialling` calls are two clients on one double, and two `sockets()`
+    /// calls are two worlds — exactly as two `fs()` calls are two filesystems.
+    /// See `TestWebSocketClient` for what the client does with the script.
+    export fn dialling(self, messages: [Message]): TestWebSocketClient {
+        TestWebSocketClient(socketsDialling(self.0, messages))
+    }
 }
 
 /// One push, as the runner hands it back: which socket, which framing, and the
@@ -1210,12 +1220,17 @@ fn socketsIsOpen(handle: I64, socket: Int): Bool;
 /// A WebSocket client with a script instead of a network: it dials once,
 /// delivers the messages it was given in order, and then closes normally.
 ///
-/// **It is handed a `sockets()` rather than minting sockets of its own.** The
+/// **It is minted by a `sockets()` rather than minting sockets of its own.** The
 /// socket `connect` gets is one of that double's, so everything a program pushes
 /// is recorded by its `sent()` and a program that closes shows up in its
 /// `isOpen`. That is `effect Sockets`' own division — reading a socket is one
-/// authority and writing on it is another — with a double on each side of it,
-/// and it is why this type implements `WebSocketClient` and nothing else.
+/// authority and writing on it is another — with a double on each side of it, and
+/// it is why this type implements `WebSocketClient` and nothing else.
+///
+/// It is a method on `TestSockets` and not a builder of its own for a reason the
+/// language decides rather than this module: a `TestSockets` carries an effect,
+/// so it may be passed only as `ctx` or as `self` (`effect-param-not-ctx`), and
+/// `self` is the one of those two that is not a lie about what the call does.
 ///
 /// ```buri ignore why="a test source is the one place a `test` block is legal, and this file is not one"
 /// from "core/effect" import { Sockets, WebSocketClient };
@@ -1227,7 +1242,7 @@ fn socketsIsOpen(handle: I64, socket: Int): Bool;
 ///     let pushes = testing.sockets();
 ///     let ctx = context {
 ///         Sockets: pushes,
-///         WebSocketClient: testing.websocketClient(pushes, [.Text("one"), .Text("two")]),
+///         WebSocketClient: pushes.dialling([.Text("one"), .Text("two")]),
 ///     };
 ///     let closed = websocket.connect(ctx, websocket.Client {
 ///         url: "ws://example/socket",
@@ -1266,12 +1281,9 @@ impl WebSocketClient for TestWebSocketClient {
     fn connectReceive(self, socket: Int): Result<Received, ServeError>;
 }
 
-/// A client that will deliver `messages` on the socket it mints, in order.
-///
-/// `sockets` is the double the socket belongs to. Two `websocketClient` calls
-/// are two clients, and two `sockets()` calls are two worlds, exactly as two
-/// `fs()` calls are two filesystems.
-export fn websocketClient(sockets: TestSockets, messages: [Message]): TestWebSocketClient;
+/// The client's socket, minted on the double that will record what is pushed on
+/// it, and the number that names the client.
+fn socketsDialling(handle: I64, messages: [Message]): I64;
 
 derive Eq, Show for FsCall;
 // --- The call log -------------------------------------------------------------

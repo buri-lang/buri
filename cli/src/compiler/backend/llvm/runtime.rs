@@ -1720,20 +1720,19 @@ pub const ENTRIES: &[Entry] = &[
         args: &[Arg::Scalar, Arg::Scalar, Arg::Scalar, Arg::Str],
         ret: Ret::Void,
     },
-    // `websocketClient(sockets, messages)` — a client with a script instead of
-    // a network, and three rows: the double and its two effect methods.
+    // `sockets().dialling(messages)` — a client with a script instead of a
+    // network, and three rows: the mint and the client's two effect methods.
     //
-    // The double is handed a `TestSockets` and mints its socket on *that*
-    // double, which is why it needs no `Sockets` implementation of its own: a
-    // program's `socket.send` is recorded by that double's `sent()` and its
-    // `close` shows up in `isOpen`. The script crosses as an `Arg::List` of
-    // `Message`, which the archive reads by tag exactly as it reads a `[Serve]`
-    // plan.
+    // The client mints its socket on the `TestSockets` that made it, which is
+    // why it needs no `Sockets` implementation of its own: a program's
+    // `socket.send` is recorded by that double's `sent()` and its `close` shows
+    // up in `isOpen`. The script crosses as an `Arg::List` of `Message`, which
+    // the archive reads by tag exactly as it reads a `[Serve]` plan.
     Entry {
-        key: "host_testing.websocketClient",
-        symbol: "buri_rt_host_testing_websocket_client",
+        key: "host_testing.socketsDialling",
+        symbol: "buri_rt_host_testing_sockets_dialling",
         args: &[Arg::Scalar, Arg::List],
-        ret: Ret::Out,
+        ret: Ret::Scalar,
     },
     Entry {
         key: "host_testing.TestWebSocketClient.connectSocket",

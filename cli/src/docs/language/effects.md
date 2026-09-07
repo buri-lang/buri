@@ -331,17 +331,24 @@ Nothing changed for a program already written against the signature, and no
 second mechanism — no "not implemented" flag, no feature gate — was ever
 involved.
 
-`Listen` and `Sockets` — "I accept connections" and "I can write to open
-sockets" — came the same way. They also show a platform list that is neither
-everything nor the three non-page platforms: `LINUX` and `MACOS`, and nowhere
-else. Holding a port open is a native program's authority. A page is served
-rather than serving, and its host has no way to accept a connection at all. So
-`Listen: host.listen` under `platform: JS` or `platform: WEB` is refused with
-that reason, and nothing later is going to lift it. The two move together,
-because being a server is one authority in two halves: accepting a connection,
-and writing to one somebody already accepted.
+`Listen` — "I accept connections" — came the same way. It also shows a platform
+list that is neither everything nor the three non-page platforms: `LINUX` and
+`MACOS`, and nowhere else. Holding a port open is a native program's authority.
+A page is served rather than serving, and its host has no way to accept a
+connection at all. So `Listen: host.listen` under `platform: JS` or
+`platform: WEB` is refused with that reason, and nothing later is going to lift
+it.
 
-That pair is also what an empty row was never promising. An empty list says
+`Sockets` — "I can write to open sockets" — used to be granted with it and only
+with it, on the ground that a page neither accepts connections nor holds one to
+push on. The second half of that stopped being true. `WebSocketClient` dials a
+socket rather than accepting one, a page dials every day, and so both of those
+are granted everywhere. The rule that replaced the pairing is the one worth
+remembering: **`Sockets` is granted wherever a socket can be come by**, from
+either half. A platform that could obtain a socket and not write on it would
+hand out a handle nothing can use.
+
+That row is also what an empty one was never promising. An empty list says
 "nobody grants this today" and never "everybody will": `Listen`'s row gained the
 two platforms that can serve and will never gain the other two. The row says who
 grants the effect now, and the reason says why — nothing in it was ever a

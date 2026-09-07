@@ -347,6 +347,7 @@ implements them all, and only the module that exports `main` may import it.
 [`core/crypto`](../../compiler/standard_library/sources/crypto.buri),
 [`core/net/http`](../../compiler/standard_library/sources/http.buri),
 [`core/net/server`](../../compiler/standard_library/sources/server.buri),
+[`core/net/websocket`](../../compiler/standard_library/sources/websocket.buri),
 [`core/proc`](../../compiler/standard_library/sources/proc.buri),
 [`core/tasks`](../../compiler/standard_library/sources/tasks.buri) and
 [`core/actor`](../../compiler/standard_library/sources/actor.buri) are the interfaces
@@ -450,6 +451,37 @@ is closed. `serve` returns `.Ok(())`, and whatever a program does after `serve`
 still happens. `drainMillis` bounds how long the middle step may take, and a
 second signal is the operating system's own, so `Ctrl-C` twice stops a process
 that will not drain. The platform holds the signals only while it holds a port.
+
+`core/net/websocket` is the client half of the same socket: a program that
+*dials* one somebody else is holding. It is the same three hooks over the same
+`Socket`, `Message` and `CloseReason`, which it re-exports from
+`core/net/server`, so one end reads like the other.
+
+A `Client<C, S>` carries a `url` and the hooks. `connect(ctx, client)` dials,
+runs `onOpen`, runs `onMessage` for every frame, runs `onClose`, and answers the
+`CloseReason` the socket ended with. It returns *when the socket closes*, so
+reconnecting is a loop around it with `time.sleepMs` in the retry, and backoff
+is your own arithmetic rather than a knob. An `.Err` is a socket that never
+opened — a URL this platform cannot dial, a machine that refused, a server that
+did not answer `101`. Everything after that is an `.Ok`, because a socket
+closing is the ordinary end of one.
+
+`onOpen` is handed the `Response` that opened the socket where a server's is
+handed the `Request` that asked, and that is the whole difference. It is where a
+negotiated subprotocol arrives, and on `LINUX` and `MACOS` it is the head the
+server really sent; a page cannot see its own handshake, so there `Response`
+carries the subprotocol and the extensions and nothing else.
+
+`connect` is bounded `WebSocketClient + Sockets`. The first dials and the second
+pushes, and the hooks are handed your context, so both have to be in it.
+**Every platform grants both**, `WEB` included: holding a port open is a native
+program's authority, and dialling out is not. On a page `connect` follows
+`ui.mount` — it suspends without holding the event loop, so an interface goes on
+rendering while the socket is idle and a pushed frame wakes it like a click.
+
+`Client` has no header list, because a browser's `WebSocket` cannot send request
+headers. A token or a subprotocol goes in the URL, which is what every browser
+client does, and what came back is on the response in `onOpen`.
 
 `core/fs` is the one module that declares its own effects, and it declares
 **two**. `FsRead` is four methods and `FsWrite` is eight. Reading and writing
@@ -592,6 +624,15 @@ seed is the order's own number, so a failure names a line that replays it.
 `Socket` with no network behind it, `sent()` reads back `[(Socket, Message)]`,
 and `isOpen(s)` says whether this double will still take a message for that
 socket. So you test a broadcast room with no listener, no port and no client.
+
+`sockets().dialling(messages)` doubles the reading half, for a client. It is a
+`sockets()` and a script: `connect` dials it, gets a socket of *that* double's,
+receives those messages in order, and closes normally when the script runs out.
+So the pushes a client makes land in `sent()` and the whole of
+`core/net/websocket` runs with no network at all. A URL that is neither `ws://`
+nor `wss://` is the refusal — `.Err(.Unsupported)`, the cause a real client
+gives a scheme it cannot speak — which is how you test what your program does
+when the socket never opens.
 
 `entropy()` is the one double that is the *opposite* of what the effect
 promises, and the only place in this language where these octets are predictable

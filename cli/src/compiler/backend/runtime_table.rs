@@ -944,16 +944,16 @@ pub const ENTRIES: &[Entry] = &[
         "buri_rt_host_testing_test_sockets_socket_close",
         Ret::Void,
     ),
-    // `websocketClient(sockets, messages)` — a client with a script instead of
-    // a network. Three rows: the double and its two effect methods.
+    // `sockets().dialling(messages)` — a client with a script instead of a
+    // network. Three rows: the mint and the client's two effect methods.
     //
-    // The double is handed a `TestSockets` rather than minting sockets of its
-    // own, and that is the whole reason it needs no `Sockets` implementation:
-    // the socket it answers is one of *that* double's, so a program's
-    // `socket.send` is recorded by `sent()` and its `close` shows up in
-    // `isOpen`. One double writes and one double reads, which is the same
+    // The client is minted by a `TestSockets` rather than minting sockets of
+    // its own, and that is the whole reason it needs no `Sockets`
+    // implementation: the socket it answers is one of *that* double's, so a
+    // program's `socket.send` is recorded by `sent()` and its `close` shows up
+    // in `isOpen`. One double writes and one double reads, which is the same
     // division `effect Sockets`' header draws.
-    e("host_testing.websocketClient", "buri_rt_host_testing_websocket_client", Ret::Out),
+    e("host_testing.socketsDialling", "buri_rt_host_testing_sockets_dialling", Ret::Scalar),
     e(
         "host_testing.TestWebSocketClient.connectSocket",
         "buri_rt_host_testing_test_web_socket_client_connect_socket",

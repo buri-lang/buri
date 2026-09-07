@@ -28,8 +28,8 @@ fn load<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, Str> {
 An **effect** is an interface declared with `effect` instead of `trait`, and its
 methods are the operations it grants. `core/effect` declares most of them:
 `Alloc`, `Net`, `Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`, `Proc`,
-`Tasks`, `Listen` and `Sockets`. `core/fs` is a platform module too, and it
-declares the filesystem's `FsRead` and `FsWrite`. **Only a platform module may
+`Tasks`, `Listen`, `Sockets` and `WebSocketClient`. `core/fs` is a platform
+module too, and it declares the filesystem's `FsRead` and `FsWrite`. **Only a platform module may
 declare an effect**, so the set of things a Buri program can do to the world is
 closed. Your own code cannot add to it.
 
