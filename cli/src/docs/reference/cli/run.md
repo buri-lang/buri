@@ -4,8 +4,8 @@ Builds exactly one binary target and runs it. Everything after `--` goes to the
 program instead of to `buri`.
 
 With no target argument it matches the whole repository, so bare `buri run`
-works in a repository that declares one binary and means that one. Where it
-matches several, the error names them and you pick.
+works in a repository that declares one binary. Where it matches several, the
+error names them and you pick.
 
 ## Authority
 
