@@ -119,7 +119,11 @@ export fn groupBy<A, K: Ord, C: Alloc>(
 
 /// How many elements answer each key, the keys in key order. `core/map` has the
 /// same pair for an unordered answer.
-export fn countBy<A, K: Ord, C: Alloc>(ctx: C, xs: [A], key: fn(A) => K): OrdMap<K, Int> {
+export fn countBy<A, K: Ord, C: Alloc>(
+    ctx: C,
+    xs: [A],
+    key: fn(A) => K,
+): OrdMap<K, Int> {
     xs.foldCtx(
         ctx,
         fn(c, acc: OrdMap<K, Int>, x) => {
@@ -547,10 +551,7 @@ fn shrinkRoot<K, V>(n: Node<K, V>): Node<K, V> {
 /// pays for one root-to-leaf path rather than the two that `first` followed by
 /// `remove` costs. It compares nothing: the smallest key is wherever the shape
 /// says it is.
-fn takeFirst<K: Ord, V, C: Alloc>(
-    ctx: C,
-    n: Node<K, V>,
-): Option<((K, V), Node<K, V>)> {
+fn takeFirst<K: Ord, V, C: Alloc>(ctx: C, n: Node<K, V>): Option<((K, V), Node<K, V>)> {
     let entries = entriesOf(n);
     let children = childrenOf(n);
     match (children.get(0)) {

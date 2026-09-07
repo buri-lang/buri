@@ -186,11 +186,7 @@ export fn distinct<T: Hash + Eq, C: Alloc>(ctx: C, xs: [T]): [T] {
 
 /// [`distinct`] over a key: the first element answering each key is kept, and
 /// the rest go. O(n), and one `key` call per element.
-export fn distinctBy<A, K: Hash + Eq, C: Alloc>(
-    ctx: C,
-    xs: [A],
-    key: fn(A) => K,
-): [A] {
+export fn distinctBy<A, K: Hash + Eq, C: Alloc>(ctx: C, xs: [A], key: fn(A) => K): [A] {
     let (kept, _seen) = xs.foldCtx(
         ctx,
         fn(c, acc: ([A], Set<K>), x) => {
