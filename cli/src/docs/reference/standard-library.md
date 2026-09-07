@@ -520,7 +520,8 @@ only with TLS, because ALPN chooses it inside the handshake: a `Server` naming
 no `protocols` offers HTTP/1.1. The server answers as many requests at once as
 the acceptor said it would host, because `run` puts each handler on a task of
 its own, which is why `serve` needs `Tasks` and `Alloc` beside `Listen`. Only
-`LINUX` and `MACOS` grant `Listen`, and `WEB` grants no `Tasks` either.
+`LINUX` and `MACOS` grant `Listen`, so only they can serve — `Tasks` itself is
+granted everywhere, a page included.
 
 **A `Server` with a `websocket` speaks WebSockets, and the upgrade is
 invisible.** With hooks present, a client that asks for a socket at the path the
@@ -669,6 +670,15 @@ a scope to a handler that spawns later. A library cannot spawn: it exposes a
 a loop ends by finding its socket closed or by asking an actor whether to carry
 on, because there is no way to unwind a task from outside it.
 
+Both carry `Alloc` beside `Tasks`: `spawn` copies the task out of whatever arena
+it was written in, and a scope drains its rounds through `parallel`.
+
+Rounds are why the platform table above covers a spawned task too. They are also
+why a task that never ends starves the ones behind it under `buri run`: the
+round they wait for never finishes. And a task spawned *after* the body returned
+runs on the task that spawned it, which is what lets a page's handler spawn once
+`main` has gone.
+
 `core/actor` is the other half of concurrency: state that outlives one call,
 behind a mailbox. An actor is a *value*, an initial state and a
 `step: fn(C, S, M) => Stepped<S, R>`, and `start` gives it a mailbox and answers
@@ -690,7 +700,12 @@ enum CounterMessage {
 fn counter<C>(initial: Int): Actor<C, Int, CounterMessage, Int> {
     Actor {
         state: initial,
-        step: fn(c, count, message) => Stepped { state: count + 1, answer: count + 1 },
+        step: fn(c, count, message) => {
+            match (message) {
+                .Increment => Stepped { state: count + 1, answer: count + 1 },
+                .Get => Stepped { state: count, answer: count },
+            }
+        },
     }
 }
 ```
@@ -699,7 +714,9 @@ It needs no test double: `step` is an ordinary function in an ordinary field, so
 you test an actor by calling it. The mailbox holds sixty-four messages and you
 cannot configure it. **The actor steps on the task that drives it.**
 `sendMessage` runs the mailbox down before it answers, and `stop` before it runs
-`onStop`. So an actor is not yet a way to get work done in the background.
+`onStop`. So an actor is not yet a way to get work done in the background. A
+step that sends to its own actor gets `.Err(.Stopped)` rather than waiting for
+itself, and the message it posted is stepped once the step returns.
 
 `core/net/http` documents `Request` and `Response`, the two types `Net.fetch`
 speaks in. It re-exports them from `core/effect`, where the effect's own
