@@ -1,0 +1,17 @@
+env true true true true
+temporary true false true
+metadata file 5 directory NotFound
+kinds true true false false
+entries deep:directory note.txt:file
+walk deep deep/b.bin note.txt
+empty 0 NotFound NotADirectory
+window true 0 1 0 Other Other
+copy 5 5 NotFound Other
+canonical true true true NotFound
+which true true
+true 0 0 0
+failed true true NotFound
+large 0 300000
+child true false
+nowhere NotFound
+left false NotFound
