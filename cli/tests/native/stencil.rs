@@ -1699,6 +1699,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "memory/allocators.buri",
     "memory/captures.buri",
     "memory/copyout.buri",
+    "memory/discards.buri",
     "memory/scoped.buri",
     "numbers/bits.buri",
     "numbers/integers.buri",

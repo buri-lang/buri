@@ -530,19 +530,39 @@ fn safety_fires(input: &str) -> Option<String> {
         Ok(text) => text,
         Err(finding) => return Some(finding),
     };
-    if all.contains("panicked at") {
+    if said(&all, input, "panicked at") {
         return Some(format!("the toolchain panicked:\n{}", indent(&all)));
     }
-    if all.contains("overflowed its stack") || all.contains("stack overflow") {
+    if said(&all, input, "overflowed its stack") || said(&all, input, "stack overflow") {
         return Some(format!("the toolchain overflowed its stack:\n{}", indent(&all)));
     }
-    if all.contains("internal compiler error") {
+    if said(&all, input, "internal compiler error") {
         return Some(format!(
             "an invariant the toolchain claims input cannot break was broken by input:\n{}",
             indent(&all)
         ));
     }
     None
+}
+
+/// Whether the report says `phrase` **and the input did not put it there**.
+///
+/// A diagnostic quotes the line it is about, so every phrase above can reach
+/// the report by having been written in the source rather than by the
+/// toolchain having anything to say. `reject/type_alias_cycles_to_itself` has
+/// "the compiler overflowed its stack" in a comment — the sentence that
+/// explains why the fixture exists — and a mutation that leaves that comment
+/// where the parser will quote it back reported a stack overflow the compiler
+/// had not had. That is a finding about the detector, and it takes hours off
+/// somebody who tries to replay it.
+///
+/// The trade is a phrase the search will not see: a *real* overflow on an
+/// input that already contains the words is missed. That is the safe
+/// direction. The evidence for a genuine one is not a string anyway — a stack
+/// overflow kills the process, and [`run_watched`] reports a signal before this
+/// function is ever asked.
+fn said(all: &str, input: &str, phrase: &str) -> bool {
+    all.contains(phrase) && !input.contains(phrase)
 }
 
 /// Runs the binary with a deadline.
