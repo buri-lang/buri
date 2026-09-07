@@ -250,10 +250,10 @@ falls through. Each stencil goes into the library with up to four twins, and
 
 A stencil is the bytes clang emitted for a C function, so it belongs to an
 **instruction set** and to a **container**, and a toolchain bakes one library
-per pair. `abi::Tgt` names the three. It lives in `abi.rs` for the same reason
-`NREGS` does: the build script picks a target to compile *for* and the emitter
-picks a target to look a library up *by*, and a disagreement about the
-spelling would be arm64 bytes inside an x86-64 object.
+per pair. `abi::Tgt` names the three, in `abi.rs`: the build script picks a
+target to compile *for* and the emitter picks a target to look a library up
+*by*, and a disagreement about the spelling would be arm64 bytes inside an
+x86-64 object.
 
 | target | container | reader | extractor | writer | keys | bytes |
 |---|---|---|---|---|---|---|
@@ -663,8 +663,8 @@ It is sound because the *shape* of a marshalled call depends on the key and on
 the operand and result IR types alone, and those are the same at both sites: a
 `Body::Runtime` function's signature **is** its caller's argument and
 destination types. `rtcall.rs` is one implementation of `cli/runtime/lib.rs`
-§2's rule and both sites hand it the same list, so a shape refused at one is
-refused at the other, with the same sentence.
+§2's rule, so a shape refused at one site is refused at the other with the
+same sentence.
 
 Two keys are deliberately still called: `core/list`'s closure surface and the
 two `deriveArray*` derives, which `lists.rs` open-codes as a **loop** whose
