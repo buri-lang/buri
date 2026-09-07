@@ -109,3 +109,29 @@ run {
   exit: 1
   golden: "fetch_takes_a_request.txt"
 }
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "export fn fetch(): Response {"
+  with: "export fn fetch(request: Request): Response {"
+}
+
+edit {
+  file: "cmd/site/main.buri"
+  replace: "    http.text(ctx, \"you are nowhere\")"
+  with: "    http.text(ctx, request.path())"
+}
+
+# Refusal three: an `entry` that could not be a function name at all. The
+# compiler has nothing to look up, so the reader refuses it where it is written.
+edit {
+  file: "cmd/site/BUILD.buri"
+  replace: "entry: \"fetch\""
+  with: "entry: \"fetch handler\""
+}
+
+run {
+  args: ["build", "//cmd/site"]
+  exit: 2
+  golden: "entry_is_not_a_name.txt"
+}
