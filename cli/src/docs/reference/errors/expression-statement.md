@@ -16,18 +16,15 @@ Bind it — `let _ = ...;` — or make it the block's result expression.
 
 ## Why
 
-A block is `let`s followed by a result expression. There is no third statement
+A block is `let`s followed by a result expression; there is no third statement
 form. A test source is the one exception, which is what lets `assert.eq(...)`
-stand alone. There, any expression of type `()` may stand alone, terminated by
+stand alone: there, any expression of type `()` may stand alone, terminated by
 `;` — a `match` or an `if` whose branches all assert included.
 
 Between this rule and `result-discarded`, a value can be thrown away in exactly
-two places: bound to a `_`, or left standing. Both refuse a `Result`, which is
-what makes must-use total rather than a convention. A statement whose type is
-`Result` is therefore *both* errors at once, and the fix has to answer both.
-`.ignore()` alone settles the type and leaves the statement standing. `let _ =
-...;` alone binds a `Result` that may not be dropped. The edit is the two
-together, which is what a program printing a line writes:
+two places — bound to a `_`, or left standing — and both refuse a `Result`. So a
+statement whose type is `Result` is *both* errors at once, and the edit is
+`.ignore()` and `let _ =` together:
 
 ```buri role=entry
 # from "core/effect" import { Alloc, Stdout };

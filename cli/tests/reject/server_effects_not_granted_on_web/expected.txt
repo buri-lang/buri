@@ -11,118 +11,57 @@ error: `HostListen` implements `Listen`, which is not allowed on the WEB platfor
      ──────────
 
      Drop the effect from the context, or build this target for a platform that
-     grants it.
+     grants it. If the fix names no platform to build for, no platform grants
+     the effect yet, and dropping it is the whole fix.
 
-     If the fix names no platform to build for, no platform grants the effect.
-     An effect may be declared ahead of the runtime that will answer it, and its
-     row then names no platform at all, so dropping it from the context is the
-     whole fix. No effect is in that state today — every effect core/effect
-     declares is granted somewhere — but the clause is there for the day one is.
-
-     Where the error lands
-     ─────────────────────
-
-     On the import, when the program imported the name directly:
-
-       from "core/host" import { fs };
-       //                        ^^ here
-
-     On the member reference, when the host came in as a namespace:
-
-       from "core/host" import * as host;
-       // ...
-           FsRead: host.fs,
-       //               ^^ here
-
-     A namespace import names no effect, so that line has nothing to refuse
-     until the program reaches for a member. The member reference is where the
-     program asked for the authority. A named import *is* that request, so
-     pointing anywhere else would leave you tracing back.
+     The error lands on the import when the program imported the name directly,
+     and on the member reference when the host came in as * as host — a
+     namespace import names no effect, so there is nothing to refuse until the
+     program reaches for a member.
 
      Which platforms it is checked against
      ─────────────────────────────────────
 
-     The compiler checks a module against the platforms it is compiling for.
-     That is one of three answers:
-
-     - A build producing one output is checked against that output.
-     buri build --output=js on a binary that also declares a WEB output compiles
-     the JS one, and refusing it on WEB's behalf would report an error where
-     nothing is building. A documentation snippet pinned with platform= on its
-     fence works the same way.
+     - A build producing one output is checked against that output, so
+     buri build --output=js on a binary that also declares WEB compiles only the
+     JS one. A snippet pinned with platform= on its fence works the same way.
 
      - A binary's entry point — main.buri, the one module that may import
      core/host at all — is checked against every platform its outputs name, plus
-     every platform its suite names in test.platforms. All of them have to
-     compile, so a binary declaring [MACOS, WEB] and binding FsRead: host.fs is
-     refused, and the message names WEB. The suite's platforms count because a
-     batched test binary links main in.
+     every platform its suite names in test.platforms. So a binary declaring
+     [MACOS, WEB] and binding FsRead: host.fs is refused, naming WEB.
 
      - Every other module is checked against the platforms **its own rule
-     declared**. A rule that declared none is never checked. A library that says
-     nothing about platforms is platform-generic: it may end up in a page or in
-     a server, and neither is a fact about the library. This is not the
-     whole-closure intersection platform-violation uses. That one answers "may
-     this be built for X" and treats unset as "all" — the right answer for a
-     policy check, the wrong one for a compile error. Today it refuses nothing:
-     a library reaching for core/host meets host-import first, whatever its
-     platforms field says.
+     declared**. A rule that declared none is never checked, because a library
+     that says nothing about platforms is platform-generic.
 
      An effect type is never platform-bound. from "core/fs" import { FsRead } is
-     legal on every platform, a page included. A bound demands an implementation
-     rather than being one, so a generic function taking ctx: FsRead compiles
-     wherever you write it. So does a test double: core/host/testing builds one
-     for every effect and is available everywhere. A platform binds the host
-     half — the value main binds, and the implementation struct beside it.
+     legal on every platform, a page included, and so is core/host/testing's
+     double for every effect. A platform binds the host half — the value main
+     binds.
 
      Why
      ───
 
      A platform *is* the set of effects its host exports, so a platform that
-     does not grant an effect exports no name for it. Asking for it is an error
-     on the line that asked, and no second declaration anywhere has to be kept
-     in step.
+     does not grant an effect exports no name for it. The check needs only the
+     build file and the import line, both of which the editor has, so the
+     language server reports it as you type. The refusals that stay late —
+     native-run-not-available, cryptography-not-available,
+     networking-not-available — are about what *this toolchain* was built with
+     instead.
 
-     The error arrives while you *edit* the file, which is why the compiler asks
-     here rather than at link time. The check needs only the build file and the
-     import line, and the editor has both. So the language server reports it as
-     you type, instead of a build reporting it minutes later. The refusals that
-     stay late — native-run-not-available, cryptography-not-available,
-     networking-not-available — are about what *this toolchain* was built with.
-     That is a fact about the machine, not about the program.
-
-     The same sentence covers an effect *nobody* grants. A declaration may land
-     before its implementation, since the signature is the expensive thing to
-     change once programs are written against it. The table gives that effect an
-     empty list of platforms. No new mechanism, no "not implemented yet" flag:
-     the effect is withheld everywhere for a stated reason, and granting it
-     later edits one row.
-
-     Tasks is the worked example, in both directions. It landed declared and
-     granted by nobody, so all four platforms refused it with that reason.
-     Editing that one row granted it on three, and programs written against the
-     signature it was reviewed with started compiling.
-
-     An empty list still promises nothing about filling. Listen shows what that
-     looks like once the runtime arrives. It landed declared and granted by
-     nobody, and it is granted now on LINUX and MACOS, because holding a port
-     open is a native program's authority. It will never be granted on JS or
-     WEB, because a page is served rather than serving and its host cannot
-     accept a connection. Half of that row filled and the other half never will.
-     The row says who grants the effect now and the reason says why. Nothing in
-     it was ever a schedule.
-
-     A row can also *widen*, and Sockets is the one that did. It was granted
-     with Listen and only with it, because a page neither accepted connections
-     nor held one to push on. Then WebSocketClient landed and a page could dial
-     one, so the reason no longer held and the row now names every platform.
-     What changed was the reason, not the mechanism.
+     An effect nobody grants yet gets the same sentence, from an empty row in
+     the same table. Listen is granted on LINUX and MACOS, where holding a port
+     open is a native program's authority, and never will be on JS or WEB. A row
+     says who grants an effect now, not when the rest will fill — and it can
+     widen too: Sockets was granted with Listen and only with it, until
+     WebSocketClient let a page get a socket without accepting one.
 
      A program that provokes it
      ──────────────────────────
 
-     The same source under platform: WEB compiles and mounts. platform=JS on the
-     fence tells the documentation harness which output to check it as. Without
-     one, the harness checks a snippet with the whole host granted, because the
-     snippet builds no output.
+     The same source under platform: WEB compiles and mounts. platform=JS tells
+     the documentation harness which output to check the snippet as; without one
+     it checks with the whole host granted.
 

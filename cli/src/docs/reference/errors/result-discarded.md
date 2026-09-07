@@ -17,15 +17,13 @@ to supply one — or, when you really mean to drop it, the explicit and greppabl
 
 ## Why
 
-You can throw a `Result` away in two places and no third: bound to a `_` in a
-`let`, or left standing as an expression statement. Both are this error, so
+There are two places you can throw a `Result` away and no third: bound to a `_`
+in a `let`, or left standing as an expression statement. Both are this error, so
 must-use is total rather than a convention. `.ignore()` is then the single
 spelling of a deliberate drop, which `buri lint` reports as `discarded-result`.
 
-The compiler looks for the `_` anywhere in the pattern, not only at its head.
-`let (count, _) = (1, mayFail());` drops the failure exactly as thoroughly as
-`let _ =` does, and a rule that read only the head would have a one-character
-way around it.
+The compiler looks for the `_` anywhere in the pattern, not only at its head, so
+`let (count, _) = (1, mayFail());` is this error too.
 
 ## A program that provokes it
 

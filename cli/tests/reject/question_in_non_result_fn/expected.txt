@@ -16,6 +16,5 @@ error: `?` on a `Result` needs a `Result` return type, not `I64` [question-mark-
     ───
 
     ? is an early return of the error, so the function it sits in has to be able
-    to return one. If it aborted instead, every ? would be a possible crash.
-    This language refuses to have that.
+    to return one.
 

@@ -22,10 +22,8 @@ error: this block is missing its closing `}` [unclosed-delimiter]
      Why
      ───
 
-     An abandoned construct takes the rest of the file with it. Whatever closer
-     comes next is read as this construct's, the count is off by one from there
-     on, and the errors that follow are about the miscount rather than about the
-     program. Naming the opener stops that. The parser reads on as though the
-     closer had been written, so it still checks the declarations after the
-     mistake and still reports them on their own terms.
+     An abandoned construct takes the rest of the file with it: whatever closer
+     comes next is read as this construct's, and the errors that follow are
+     about the miscount rather than about the program. Naming the opener stops
+     that.
 

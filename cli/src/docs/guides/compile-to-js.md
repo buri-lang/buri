@@ -1,8 +1,8 @@
 # Compile to JavaScript
 
 A binary's `outputs` say what it produces. `platform: JS` is a module for node
-or bun. `platform: WEB` is a page. Both emit JavaScript. They are two platforms
-rather than two modes of one because they grant different effects.
+or bun, `platform: WEB` is a page, and both emit JavaScript. They are two
+platforms rather than two modes of one because they grant different effects.
 
 ## A module for node or bun
 
@@ -23,7 +23,7 @@ $ buri build //cmd/web
 .buri/out/js/cmd/web/web.mjs (3543 bytes)
 ```
 
-The artifact is one self-contained ES module. Run it with whatever you have:
+The artifact is one self-contained ES module:
 
 ```text
 $ node .buri/out/js/cmd/web/web.mjs
@@ -32,19 +32,17 @@ basket total: $36.50
 
 `buri run //cmd/web` does the same through the toolchain, resolving `bun` or
 `node` from `PATH`, or from `BURI_JS` naming one. You need nothing else: no
-`package.json`, no bundler, and no runtime dependency to install.
+`package.json`, no bundler, no runtime dependency to install.
 
-An ES module is the only kind this toolchain emits. `module: ESM` says so
-explicitly and is the field's only accepted value. The compiler refuses anything
-else where you wrote it.
+`module: ESM` is the field's only accepted value, and the compiler refuses
+anything else where you wrote it.
 
 A binary that declares no `outputs` at all builds for JS, which is why
-`buri run` works in a fresh `buri init` repository before anything has said
-where the program ships.
+`buri run` works in a fresh `buri init` repository.
 
 ## Alongside a native binary
 
-`outputs` is a list. Each entry is a separate artifact, checked separately
+`outputs` is a list, and each entry is a separate artifact checked separately
 against the whole graph:
 
 ```textproto schema=build
@@ -58,8 +56,7 @@ binary {
 
 `buri build` produces both. `--output=js` picks one, and so does
 `buri run --output=js`. The compiler checks the two independently, so a binary
-can pass for Linux and fail for JS. That is what you want, because the JS host
-grants less.
+can pass for Linux and fail for JS, because the JS host grants less.
 
 ## A page in a browser
 
@@ -88,24 +85,23 @@ basket.css  basket.html  basket.mjs
 
 Three files: the module, the styles the compiler extracted and deduped across
 every package in the build, and an HTML shell that links the one and loads the
-other. Serve the directory. Writing the page itself is
+other. Serve the directory. Writing the page is
 [user interfaces](./user-interfaces.md).
 
 ## What changes about the program
 
 **The effects `main` may ask for.** A platform *is* the set of effects its host
 exports. Under `WEB`, `core/host` exports no `fs`, `stdin`, `env` or `proc`, and
-it exports `ui` and `watch` there and nowhere else. Ask for one a platform does
-not grant and you get a compile error on the line that asked, reported as
-`effect-not-on-platform`. `buri docs error effect-not-on-platform` has the
-table, and the rule about which platforms a module is checked against.
+exports `ui` and `watch` there and nowhere else. Ask for one a platform does not
+grant and you get `effect-not-on-platform` on the line that asked.
+`buri docs error effect-not-on-platform` has the table.
 
 **Nothing else.** No source file changes meaning across platforms, because there
 is no conditional compilation. Numbers included: an `Int` is an `I64`
 everywhere, and on this backend an `I64` is a `BigInt`, so a value past 2^53
 keeps every digit.
 
-If a library must not reach a JavaScript output at all, say so with a tag rather
-than by convention: [enforce policy with tags](./tags-policy.md). The fields
-themselves are in [`build-files.md`](../reference/build/build-files.md), and the
-platform rules in [`tags.md`](../reference/build/tags.md).
+If a library must not reach a JavaScript output at all, say so with a tag:
+[enforce policy with tags](./tags-policy.md). The fields are in
+[`build-files.md`](../reference/build/build-files.md), and the platform rules in
+[`tags.md`](../reference/build/tags.md).

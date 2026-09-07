@@ -16,25 +16,19 @@ Nothing in those four lines handles anything. Both arms answer `()`, the failure
 is gone, and all the `match` did was spell out `core/result.ignore` — whose
 body, in `core/result`, is these same four lines.
 
-**The real fix is to handle the error.** A write that failed is a thing that
-happened, and the program usually has an answer for it: `match` on the `Result`
-and *do something* in the `.Err` arm — count it, report it, fall back — or `?`
-to hand it to a caller who can. That is what a dropped `Result` almost always
-wants, so try it first.
+**The real fix is to handle the error.** `match` on the `Result` and *do
+something* in the `.Err` arm — count it, report it, fall back — or `?` to hand
+it to a caller who can.
 
 If the drop is genuinely deliberate — a cache write whose failure changes
-nothing a caller could act on, a best-effort `remove` of a file that may not be
-there — then `ignore()` is how to say so. It is one call, it is greppable, and
-`buri docs lint discarded-result` is the rule that collects every one of them
-into a single report.
+nothing a caller could act on — then `ignore()` is how to say so. It is one
+call, it is greppable, and `buri docs lint discarded-result` is the rule that
+collects every one of them into a single report.
 
 **Yes, this rule reports the explicit form too, and that is the point.** It
-exists because the other rule made this shape attractive. `discarded-result`
-names `ignore()`, so authors in a repository gated on "lint clean" reach for the
-four-line `match` instead. The drop then scatters to where only a reader who
-thought to look would find it — exactly what `discarded-result` was written to
-prevent. Both forms are reported now, so writing this one out buys nothing. The
-report asks that somebody decided, not that the count reaches zero.
+exists because `discarded-result` names `ignore()`, so authors in a repository
+gated on "lint clean" reach for the four-line `match` instead. Both forms are
+reported now, so writing this one out buys nothing.
 
 The rule fires on this shape and nothing near it: two arms, `.Ok` and `.Err`, no
 guards, nothing read out of either payload, and both bodies the unit value. A

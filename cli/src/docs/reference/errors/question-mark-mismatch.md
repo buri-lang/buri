@@ -16,8 +16,7 @@ Return a `Result` from this function, or handle the error here with `match` or
 ## Why
 
 `?` is an early return of the error, so the function it sits in has to be able
-to return one. If it aborted instead, every `?` would be a possible crash. This
-language refuses to have that.
+to return one.
 
 ## A program that provokes it
 

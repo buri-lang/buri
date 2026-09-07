@@ -11,16 +11,14 @@ Rust-shaped data declarations, Roc-shaped ideas about platforms and effects.
 The normative text ships in the binary: `buri docs language/lexical`,
 `language/modules`, `language/types`, `language/expressions`, `language/patterns`,
 `language/evaluation`, `language/functions`, `language/effects` and
-`language/programs`. `buri docs search <words>` searches every page at once, prose
-and names alike, so `buri docs search compare ints` works. Each hit prints as the
-command that reads it.
+`language/programs`. `buri docs search <words>` searches every page at once, and
+each hit prints as the command that reads it.
 
 **Explore the library before writing a helper.** Bare `buri docs` lists every
-`core/*` and `ui/*` module in one screen. `buri docs core/str` renders one module
-from the source the compiler checked, and `buri docs core/str.padStart` renders a
-single item. Comparators, hex, base64, varints, grouping, checksums, dates,
-argument parsing and a CLI are already there. Hand-roll one and you get a wrong
-answer that compiles.
+`core/*` and `ui/*` module. `buri docs core/str` renders one module, and
+`buri docs core/str.padStart` a single item. Comparators, hex, base64, varints,
+grouping, checksums, dates, argument parsing and a CLI are already there.
+Hand-roll one and you get a wrong answer that compiles.
 
 ## The twelve things that will trip you up
 
@@ -53,9 +51,7 @@ answer that compiles.
   statement. Consume it with `?`, `match` or `.withDefault(...)`, or drop it
   on purpose with `.ignore()`, which `buri lint` reports as
   `discarded-result`. **A print returns one too.** A line the program does not
-  care about reads `let _ = io.println(ctx, "hi").ignore();`. A program that
-  does care handles it, and uses `mapErr` to carry the `IoError` into its own
-  error type.
+  care about reads `let _ = io.println(ctx, "hi").ignore();`.
 - **No relative imports.** A module path is `core/...`, `ui/...`, or
   `//...` from the repository root, and means the same module everywhere.
 - **Methods live in an `impl` block in their type's own module.** You reach
@@ -113,13 +109,12 @@ a program that may import `core/host` and build a context. `.Ok(())` exits 0.
 `.Err(msg)` prints `msg` on stderr and exits 1.
 
 **Import the effect names.** `context { Alloc: host.alloc }` without
-`from "core/effect" import { Alloc };` above it fails with `not-an-effect`, a
-common first mistake.
+`from "core/effect" import { Alloc };` above it fails with `not-an-effect`.
 
 ## Modules
 
-The path comes first, before the specifier list, so an editor can complete the
-names. Import declarations end in `;`.
+The path comes first, before the specifier list. Import declarations end
+in `;`.
 
 ```buri
 from "core/list" import { map, filter };
@@ -129,8 +124,7 @@ from "//lib/money" import { Cents };
 ```
 
 - The grammar has no `from "core/list" import *;`. The only wildcard form is
-  `* as <name>`, so every unqualified name in a module is written in that
-  module.
+  `* as <name>`.
 - A declaration stays module-private unless you prefix it with `export`.
   Struct fields carry their own `export`, so you export a struct's name and its
   representation separately. An enum's variants take the enum's visibility and
@@ -249,12 +243,9 @@ patterns must be irrefutable.
 
 Strict, with a fully specified order: `let` bindings top to bottom, call
 arguments left to right, binary operands left to right except `&&` and `||`.
-That order is what makes effect sequencing mean anything, since effects are
-ordinary calls rather than a monad.
 
-Values are immutable, so lambdas capture by value and you cannot observe the
-capture. The one exception is the effect capture rule in the `buri-types`
-skill.
+Values are immutable, so lambdas capture by value. The one exception is the
+effect capture rule in the `buri-types` skill.
 
 ## Strings and numbers
 
@@ -284,16 +275,15 @@ a line however short they are, no options.
 **The third slash is what publishes.** `//` runs to the end of the line and
 `/* */` nests, and neither is ever rendered. `///` above a declaration is a
 **documentation comment**, and `//!` at the top of a file documents the module.
-`buri docs <module>`, editor hover and `buri docs search` read those two, and
-the test suite compiles their fenced examples like any other. So put a note a
-*caller* needs in a `///` above the `export fn`, `struct`, `enum`, field or
-variant it describes, and keep `//` for the reader of the body. A `//!` lower
-down the file is `module-doc-not-first`: it attaches upward, to the module, so
-it is legal only above the first item.
+`buri docs <module>`, editor hover and `buri docs search` read those two. So put
+a note a *caller* needs in a `///` above the `export fn`, `struct`, `enum`,
+field or variant it describes, and keep `//` for the reader of the body. A `//!`
+lower down the file is `module-doc-not-first`: it is legal only above the first
+item.
 
 ## When something does not compile
 
 Every diagnostic ends with a code in brackets, such as `[unsatisfied-bound]`.
 `buri docs error <code>` explains one and shows a program that provokes it, and
-`buri docs error` lists them all. A `buri lint` finding carries a code the same
-way; look it up with `buri docs lint <code>`.
+`buri docs error` lists them all. A `buri lint` finding carries one too:
+`buri docs lint <code>`.
