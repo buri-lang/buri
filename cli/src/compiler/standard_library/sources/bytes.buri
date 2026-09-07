@@ -62,6 +62,157 @@ export fn toUtf8<C: Alloc>(ctx: C, s: Str): [U8];
 /// The string those bytes encode, or where they stopped being one.
 export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
 
+/// The same decoding, with every byte that cannot be part of a valid encoding
+/// replaced by U+FFFD instead of refused.
+///
+/// One replacement per *maximal subpart*, which is the Unicode substitution rule
+/// and the one `fs.readText` and every browser follow: a truncated three-byte
+/// sequence costs one replacement character, not three. Overlongs, surrogates
+/// and anything past U+10FFFF are refused a byte at a time, so `ed a0 80` — a
+/// lone surrogate — becomes three.
+///
+/// Reach for this on a body somebody else wrote. Reach for `fromUtf8` on
+/// anything whose bytes you have a claim about, because a replacement character
+/// is a wrong answer that reads like a right one.
+///
+/// ```buri run
+/// from "core/bytes" import * as bytes;
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     // "hi", then a euro sign with its last byte cut off.
+///     let raw: [U8] = [104, 105, 226, 130];
+///     let text = bytes.fromUtf8Lossy(ctx, raw);
+///     let _ = io.println(ctx, "${text} ${text.len()}").ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// hi� 3
+/// ```
+export fn fromUtf8Lossy<C: Alloc>(ctx: C, bytes: [U8]): Str {
+    str.fromChars(ctx, lossy(ctx, bytes, 0, list.empty<Char>()))
+}
+
+let REPLACEMENT: Char = '\u{FFFD}';
+
+/// One scalar value per step, or one replacement character and the length of the
+/// maximal subpart that failed. Tail-recursive over the whole input.
+fn lossy<C: Alloc>(ctx: C, b: [U8], i: Int, acc: [Char]): [Char] {
+    if (i >= b.len()) {
+        acc
+    } else {
+        let lead = b.get(i).withDefault(0).toI64();
+        if (lead < 0x80) {
+            lossy(ctx, b, i + 1, acc.push(ctx, scalar(lead)))
+        } else {
+            let width = sequenceWidth(lead);
+            let taken = valid(b, i, width);
+            if (taken == width) {
+                lossy(ctx, b, i + width, acc.push(ctx, scalar(assemble(b, i, width))))
+            } else {
+                // The maximal subpart: what was consumed before the byte that
+                // did not belong, and never fewer than one byte.
+                lossy(ctx, b, i + if (taken < 1) { 1 } else { taken }, acc.push(ctx, REPLACEMENT))
+            }
+        }
+    }
+}
+
+/// How many bytes a lead byte claims, or 1 for a byte that can lead nothing —
+/// a continuation byte on its own, `c0`, `c1`, or anything from `f5` up.
+fn sequenceWidth(lead: Int): Int {
+    if (lead >= 0xc2 && lead <= 0xdf) {
+        2
+    } else if (lead >= 0xe0 && lead <= 0xef) {
+        3
+    } else if (lead >= 0xf0 && lead <= 0xf4) {
+        4
+    } else {
+        1
+    }
+}
+
+/// How many of the `width` bytes at `i` are what the sequence needs. `width`
+/// means the whole sequence is there; anything less names the first byte that
+/// is not, and a lead byte that leads nothing answers 0.
+fn valid(b: [U8], i: Int, width: Int): Int {
+    if (width == 1) {
+        0
+    } else {
+        let lead = b.get(i).withDefault(0).toI64();
+        // The second byte's range is narrower than 80..bf for four lead bytes,
+        // and that is what rejects an overlong encoding and a surrogate before
+        // the code point is ever assembled.
+        let low = if (lead == 0xe0) {
+            0xa0
+        } else if (lead == 0xf0) {
+            0x90
+        } else {
+            0x80
+        };
+        let high = if (lead == 0xed) {
+            0x9f
+        } else if (lead == 0xf4) {
+            0x8f
+        } else {
+            0xbf
+        };
+        continuations(b, i, width, low, high, 1)
+    }
+}
+
+fn continuations(b: [U8], i: Int, width: Int, low: Int, high: Int, at: Int): Int {
+    if (at >= width) {
+        width
+    } else if (i + at >= b.len()) {
+        at
+    } else {
+        let x = b.get(i + at).withDefault(0).toI64();
+        let lo = if (at == 1) { low } else { 0x80 };
+        let hi = if (at == 1) { high } else { 0xbf };
+        if (x < lo || x > hi) { at } else { continuations(b, i, width, low, high, at + 1) }
+    }
+}
+
+/// The code point a checked sequence spells.
+fn assemble(b: [U8], i: Int, width: Int): Int {
+    let lead = b.get(i).withDefault(0).toI64();
+    let head = if (width == 2) {
+        lead % 32
+    } else if (width == 3) {
+        lead % 16
+    } else {
+        lead % 8
+    };
+    tail(b, i, width, 1, head)
+}
+
+fn tail(b: [U8], i: Int, width: Int, at: Int, acc: Int): Int {
+    if (at >= width) {
+        acc
+    } else {
+        tail(b, i, width, at + 1, acc * 64 + b.get(i + at).withDefault(0).toI64() % 64)
+    }
+}
+
+/// The character a code point names, or the replacement character when it names
+/// none. Every caller has already checked the ranges, so the second arm is
+/// unreachable.
+fn scalar(code: Int): Char {
+    match (code.wrapToU32().toChar()) {
+        .Ok(c) => c,
+        .Err(_e) => REPLACEMENT,
+    }
+}
+
 // --- Hexadecimal ---------------------------------------------------------------
 
 /// Lowercase, two characters per byte, no separator.
@@ -108,12 +259,49 @@ export fn fromHex<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
 
 // --- Base64 ---------------------------------------------------------------------
 //
-// The standard alphabet, always padded. No URL-safe variant and no unpadded
-// form.
+// Two alphabets over one encoder. The standard one is always padded; the URL-safe
+// one never is, which is what every format that reaches for it expects.
 
 let B64: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+/// RFC 4648 §5: `-` and `_` where the standard alphabet has `+` and `/`.
+let B64URL: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
 export fn toBase64<C: Alloc>(ctx: C, b: [U8]): Str {
+    encode64(ctx, b, B64)
+}
+
+/// The URL- and filename-safe alphabet, **unpadded**: `-` and `_` for `+` and
+/// `/`, and no trailing `=`. This is the spelling a JWT, a signed cookie and a
+/// URL-safe id use, and the one `fromBase64Url` reads back.
+///
+/// ```buri run
+/// from "core/bytes" import * as bytes;
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let raw: [U8] = [251, 255];
+///     let _ = io
+///         .println(ctx, "${bytes.toBase64(ctx, raw)} ${bytes.toBase64Url(ctx, raw)}")
+///         .ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// +/8= -_8
+/// ```
+export fn toBase64Url<C: Alloc>(ctx: C, bytes: [U8]): Str {
+    withoutPadding(encode64(ctx, bytes, B64URL))
+}
+
+fn encode64<C: Alloc>(ctx: C, b: [U8], alphabet: Str): Str {
     let n = b.len();
     list
         .range(ctx, 0, (n + 2) / 3)
@@ -124,20 +312,46 @@ export fn toBase64<C: Alloc>(ctx: C, b: [U8]): Str {
             let b2 = b.get(i + 2).withDefault(0).toI64();
             let left = n - i;
             str.fromChars(c, [
-                B64.charAt(b0 / 4).withDefault('A'),
-                B64.charAt(b0 % 4 * 16 + b1 / 16).withDefault('A'),
+                alphabet.charAt(b0 / 4).withDefault('A'),
+                alphabet.charAt(b0 % 4 * 16 + b1 / 16).withDefault('A'),
                 if (left > 1) {
-                    B64.charAt(b1 % 16 * 4 + b2 / 64).withDefault('A')
+                    alphabet.charAt(b1 % 16 * 4 + b2 / 64).withDefault('A')
                 } else {
                     '='
                 },
-                if (left > 2) { B64.charAt(b2 % 64).withDefault('A') } else { '=' },
+                if (left > 2) { alphabet.charAt(b2 % 64).withDefault('A') } else { '=' },
             ])
         })
         .join(ctx, "")
 }
 
+/// Pure: `slice` is a view, so this walks back over the `=`s without copying.
+fn withoutPadding(text: Str): Str {
+    if (text.endsWith("=")) {
+        withoutPadding(text.slice(0, text.len() - 1))
+    } else {
+        text
+    }
+}
+
 export fn fromBase64<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
+    decode64(ctx, text, B64)
+}
+
+/// Reads the URL-safe alphabet, padded or not. A length that no base64 has —
+/// one character past a group of four — is an error at the end of the input.
+export fn fromBase64Url<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
+    let short = text.len() % 4;
+    if (short == 1) {
+        .Err(DecodeError(text.len()))
+    } else if (short == 0) {
+        decode64(ctx, text, B64URL)
+    } else {
+        decode64(ctx, text.concat(ctx, "=".repeat(ctx, 4 - short)), B64URL)
+    }
+}
+
+fn decode64<C: Alloc>(ctx: C, text: Str, alphabet: Str): Result<[U8], DecodeError> {
     let cs = text.chars(ctx);
     if (cs.len() % 4 != 0 || cs.len() == 0) {
         if (cs.len() == 0) {
@@ -146,7 +360,7 @@ export fn fromBase64<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
             .Err(DecodeError(cs.len()))
         }
     } else {
-        match (firstNonBase64(cs, 0, cs.len())) {
+        match (firstNonBase64(cs, alphabet, 0, cs.len())) {
             .Some(i) => .Err(DecodeError(i)),
             .None => {
                 let groups = cs.len() / 4;
@@ -155,10 +369,10 @@ export fn fromBase64<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
                     .range(ctx, 0, groups)
                     .map(ctx, fn(g) => {
                         let i = g * 4;
-                        let a = sextet(cs.get(i));
-                        let b = sextet(cs.get(i + 1));
-                        let c = sextet(cs.get(i + 2));
-                        let d = sextet(cs.get(i + 3));
+                        let a = sextet(cs.get(i), alphabet);
+                        let b = sextet(cs.get(i + 1), alphabet);
+                        let c = sextet(cs.get(i + 2), alphabet);
+                        let d = sextet(cs.get(i + 3), alphabet);
                         [
                             (a * 4 + b / 16).wrapToU8(),
                             (b % 16 * 16 + c / 4).wrapToU8(),
@@ -182,30 +396,30 @@ fn padding(cs: [Char]): Int {
 
 /// The alphabet position of a character, or 0 — the caller has already checked
 /// that every character is in the alphabet.
-fn sextet(c: Option<Char>): Int {
+fn sextet(c: Option<Char>, alphabet: Str): Int {
     match (c) {
         .None => 0,
-        .Some(ch) => if (ch == '=') { 0 } else { alphabetIndex(ch, 0) },
+        .Some(ch) => if (ch == '=') { 0 } else { alphabetIndex(ch, alphabet, 0) },
     }
 }
 
-fn alphabetIndex(ch: Char, i: Int): Int {
-    match (B64.charAt(i)) {
+fn alphabetIndex(ch: Char, alphabet: Str, i: Int): Int {
+    match (alphabet.charAt(i)) {
         .None => 0,
-        .Some(b) => if (b == ch) { i } else { alphabetIndex(ch, i + 1) },
+        .Some(b) => if (b == ch) { i } else { alphabetIndex(ch, alphabet, i + 1) },
     }
 }
 
 /// Pure validation: every character is in the alphabet, and `=` appears only in
 /// the last one or two positions.
-fn firstNonBase64(cs: [Char], i: Int, n: Int): Option<Int> {
+fn firstNonBase64(cs: [Char], alphabet: Str, i: Int, n: Int): Option<Int> {
     match (cs.get(i)) {
         .None => .None,
         .Some(c) => {
             if (c == '=') {
-                if (i >= n - 2) { firstNonBase64(cs, i + 1, n) } else { .Some(i) }
-            } else if (inAlphabet(c, 0)) {
-                firstNonBase64(cs, i + 1, n)
+                if (i >= n - 2) { firstNonBase64(cs, alphabet, i + 1, n) } else { .Some(i) }
+            } else if (inAlphabet(c, alphabet, 0)) {
+                firstNonBase64(cs, alphabet, i + 1, n)
             } else {
                 .Some(i)
             }
@@ -213,11 +427,113 @@ fn firstNonBase64(cs: [Char], i: Int, n: Int): Option<Int> {
     }
 }
 
-fn inAlphabet(ch: Char, i: Int): Bool {
-    match (B64.charAt(i)) {
+fn inAlphabet(ch: Char, alphabet: Str, i: Int): Bool {
+    match (alphabet.charAt(i)) {
         .None => false,
-        .Some(b) => b == ch || inAlphabet(ch, i + 1),
+        .Some(b) => b == ch || inAlphabet(ch, alphabet, i + 1),
     }
+}
+
+// --- Searching, splitting and joining ------------------------------------------
+//
+// What framing a stream and reading a multipart body need: find a delimiter, cut
+// on it, put the pieces back. `core/str` has the same five over text; these are
+// the octet versions, and they do not care whether the octets are text at all.
+//
+// The search is a plain scan, O(n*m) in the worst case and with no
+// preprocessing. A delimiter here is a boundary marker or a CRLF, so m is small
+// and the table a smarter algorithm would build costs more than it saves.
+
+/// Where `needle` first appears in `haystack`, or `.None`. An empty needle is at
+/// 0.
+export fn indexOf(haystack: [U8], needle: [U8]): Option<Int> {
+    indexOfFrom(haystack, needle, 0)
+}
+
+/// The same search, started at `start`. A negative `start` reads as 0, and one
+/// past the end answers `.None` — except for an empty needle, which is at the
+/// end too.
+///
+/// The parameter is `start` rather than the `from` the shape suggests, because
+/// `from` opens an import.
+export fn indexOfFrom(haystack: [U8], needle: [U8], start: Int): Option<Int> {
+    scanFor(haystack, needle, if (start < 0) { 0 } else { start })
+}
+
+fn scanFor(haystack: [U8], needle: [U8], at: Int): Option<Int> {
+    if (at + needle.len() > haystack.len()) {
+        .None
+    } else if (equalAt(haystack, needle, at, 0)) {
+        .Some(at)
+    } else {
+        scanFor(haystack, needle, at + 1)
+    }
+}
+
+/// Whether `haystack` begins with `prefix`. An empty prefix always does.
+export fn startsWith(haystack: [U8], prefix: [U8]): Bool {
+    prefix.len() <= haystack.len() && equalAt(haystack, prefix, 0, 0)
+}
+
+/// Whether `haystack` ends with `suffix`. An empty suffix always does.
+export fn endsWith(haystack: [U8], suffix: [U8]): Bool {
+    suffix.len() <= haystack.len()
+        && equalAt(haystack, suffix, haystack.len() - suffix.len(), 0)
+}
+
+/// Whether `needle` sits at `at`. Every caller has checked that it fits.
+fn equalAt(haystack: [U8], needle: [U8], at: Int, i: Int): Bool {
+    if (i >= needle.len()) {
+        true
+    } else if (haystack.get(at + i).withDefault(0) != needle.get(i).withDefault(0)) {
+        false
+    } else {
+        equalAt(haystack, needle, at, i + 1)
+    }
+}
+
+/// The pieces between the occurrences of `separator`, empty ones included: n
+/// separators give n + 1 pieces. An empty separator answers the whole input as
+/// one piece rather than one piece per byte.
+export fn split<C: Alloc>(ctx: C, bytes: [U8], separator: [U8]): [[U8]] {
+    if (separator.isEmpty()) {
+        [bytes]
+    } else {
+        splitFrom(ctx, bytes, separator, 0, list.empty<[U8]>())
+    }
+}
+
+fn splitFrom<C: Alloc>(
+    ctx: C,
+    b: [U8],
+    separator: [U8],
+    at: Int,
+    acc: [[U8]],
+): [[U8]] {
+    match (indexOfFrom(b, separator, at)) {
+        .Some(i) => {
+            splitFrom(
+                ctx,
+                b,
+                separator,
+                i + separator.len(),
+                acc.push(ctx, b.slice(ctx, at, i)),
+            )
+        },
+        .None => acc.push(ctx, b.slice(ctx, at, b.len())),
+    }
+}
+
+/// The parts with `separator` between each pair — `split`'s inverse when no part
+/// holds the separator.
+export fn join<C: Alloc>(ctx: C, parts: [[U8]], separator: [U8]): [U8] {
+    list
+        .range(ctx, 0, parts.len())
+        .mapCtx(ctx, fn(c, i) => {
+            let part = parts.get(i).withDefault(list.empty<U8>());
+            if (i == 0) { part } else { separator.concat(c, part) }
+        })
+        .flatten(ctx)
 }
 
 // --- Varints -----------------------------------------------------------------------
@@ -421,6 +737,44 @@ export fn fromU32Le(x: U32): [U8] {
         bits.shrU32(x, 16).wrapToU8(),
         bits.shrU32(x, 24).wrapToU8(),
     ]
+}
+
+/// Two octets, most significant first. This is the width every length-prefixed
+/// record format uses, so it is here beside the other two.
+export fn fromU16BigEndian(value: U16): [U8] {
+    let v = value.toI64();
+    [(v / 256).wrapToU8(), v.wrapToU8()]
+}
+
+/// Two octets, least significant first.
+export fn fromU16LittleEndian(value: U16): [U8] {
+    let v = value.toI64();
+    [v.wrapToU8(), (v / 256).wrapToU8()]
+}
+
+/// The `U16` the two octets at `at` spell, most significant first, or `.None` if
+/// there are not two of them.
+export fn toU16BigEndian(bytes: [U8], at: Int): Option<U16> {
+    if (at < 0 || at + 2 > bytes.len()) {
+        .None
+    } else {
+        .Some(
+            (bytes.get(at).withDefault(0).toI64() * 256
+                + bytes.get(at + 1).withDefault(0).toI64()).wrapToU16(),
+        )
+    }
+}
+
+/// The same two octets read least significant first.
+export fn toU16LittleEndian(bytes: [U8], at: Int): Option<U16> {
+    if (at < 0 || at + 2 > bytes.len()) {
+        .None
+    } else {
+        .Some(
+            (bytes.get(at + 1).withDefault(0).toI64() * 256
+                + bytes.get(at).withDefault(0).toI64()).wrapToU16(),
+        )
+    }
 }
 
 /// The `U64` the eight octets at `at` spell, most significant first, or `.None`
