@@ -493,7 +493,7 @@ export fn toRadix<C: Alloc>(ctx: C, value: Int, radix: Int): Str {
 
 /// The digits of a number at or below zero, most significant first.
 fn countDown<C: Alloc>(ctx: C, n: Int, base: Int, acc: [Char]): [Char] {
-    let digit = char.fromDigit(0 - n % base, base).withDefault('0');
+    let digit = character.fromDigit(0 - n % base, base).withDefault('0');
     let rest = n / base;
     let next = [digit].concat(ctx, acc);
     if (rest == 0) { next } else { countDown(ctx, rest, base, next) }

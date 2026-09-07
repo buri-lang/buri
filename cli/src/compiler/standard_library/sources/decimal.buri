@@ -51,7 +51,7 @@
 //! number. `of` and `parse` are what establish it, so build a `Decimal` through
 //! one of them rather than writing the literal out.
 
-from "core/char" import * as char;
+from "core/character" import * as character;
 from "core/effect" import { Alloc };
 from "core/math" import * as math;
 from "core/num" import * as num;
@@ -466,7 +466,7 @@ fn scan(text: Str, at: Int, acc: Int, places: Int, digits: Int): Option<(Int, In
 
 /// The digits of a number at or below zero, most significant first.
 fn countDown<C: Alloc>(ctx: C, n: Int, acc: [Char]): [Char] {
-    let digit = char.fromDigit(0 - n % 10, 10).withDefault('0');
+    let digit = character.fromDigit(0 - n % 10, 10).withDefault('0');
     let rest = n / 10;
     let next = [digit].concat(ctx, acc);
     if (rest == 0) { next } else { countDown(ctx, rest, next) }
