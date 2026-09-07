@@ -232,8 +232,10 @@ test "a SHA-1 digest is twenty bytes, and the three functions differ" {
 
 // --- the rest of the NIST and RFC vectors --------------------------------------------
 
-test "the 896-bit NIST message, which is eight blocks of nothing round" {
-    // The multi-block vector from FIPS 180-4's appendix, for both widths.
+test "the two multi-block NIST messages" {
+    // FIPS 180-4's appendix writes one message per width: 896 bits for the
+    // 1024-bit block and 448 for the 512-bit one, so neither lands on a
+    // boundary.
     assert.eq(
         hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
         "204a8fc6dda82f0a0ced7beb8e08a41657c16ef468b228a8279be331a703c33596fd15c13b1b07f9aa1d3bea57789ca031ad85c7a71dd70354ec631238ca3445",
