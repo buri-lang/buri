@@ -809,20 +809,13 @@ pub fn tool_target(workspace: &Workspace, tool: &str) -> Option<TargetId> {
 // Running one
 // ---------------------------------------------------------------------------
 
-/// How long a generator may take before the build stops waiting.
-///
-/// A generator that hangs must fail with a sentence naming the tool, never hold
-/// a build open. Generous, because the number bounds a runaway rather than
-/// measuring the work.
-const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
-
 /// The program a toolchain generator *is*.
 ///
 /// `std/codegen/proto` is the whole of the list, and there is nothing in here
 /// a user could not have written: `core/codegen`'s `run`, over the `emit` the
 /// standard library exports. What the build runs is this, compiled to
-/// JavaScript and handed a request on standard input — the same protocol, the
-/// same subprocess, the same deadline a `//label` tool gets.
+/// JavaScript and handed a request on standard input — the same protocol and
+/// the same subprocess a `//label` tool gets.
 const GENERATOR_MAIN_NAME: &str = "toolchain-generator-main";
 
 const PROTO_MAIN: &str = r#"from "core/codegen" import * as codegen;
@@ -941,9 +934,10 @@ pub fn run_artifact(artifact: &std::path::Path, request: &Request) -> Result<Res
     // Each pipe on a thread of its own, and none of them read after the wait.
     // A pipe holds a page or two: a generator writing more than that — a schema
     // of any size produces far more — blocks on the write, and this process
-    // waiting for an exit that the block prevents is a deadlock the deadline
-    // then reports as a hang. Draining while the tool runs is what makes the
-    // size of the answer not matter.
+    // waiting for an exit that the block prevents is two processes waiting on
+    // each other, with nothing to end it. Draining while the tool runs is what
+    // makes the size of the answer not matter, and it is what makes the wait
+    // below safe to be a plain one.
     let mut stdin = child.stdin.take().ok_or("the generator has no standard input")?;
     let line = format!("{}\n", request.encode());
     let feeding = std::thread::spawn(move || {
@@ -963,27 +957,22 @@ pub fn run_artifact(artifact: &std::path::Path, request: &Request) -> Result<Res
     };
     let reading_out = drain(child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
     let reading_err = drain(child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>));
-    let deadline = std::time::Instant::now().checked_add(DEADLINE);
-    loop {
-        match child.try_wait().map_err(|e| e.to_string())? {
-            Some(_) => break,
-            None => {
-                if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(format!(
-                        "the generator did not answer within {} seconds",
-                        DEADLINE.as_secs()
-                    ));
-                }
-                std::thread::sleep(std::time::Duration::from_millis(2));
-            }
-        }
-    }
+    // **Waited for, not timed.** This used to poll under a sixty-second
+    // deadline and kill the tool at it, and that number could only ever measure
+    // the machine: a two-thousand-field schema is five seconds on an idle
+    // laptop and past sixty on a four-core runner with sixteen tests on it,
+    // which is how CI came to fail a build every other host completed. Nothing
+    // else the build spawns — `cc`, a linker, the JavaScript runtime — carries
+    // a clock either. The one bound in this toolchain that stops a subprocess
+    // is `timeout_seconds` on a `test` rule, which a person wrote in a build
+    // file about their own tests. A generator that never answers is a program
+    // its author can run and interrupt, and the suite that drives this has a
+    // cap of its own that can tell a stuck process from a busy one
+    // (`cli/tests/harness/hang.rs`).
+    let status = child.wait().map_err(|e| e.to_string())?;
     let _ = feeding.join();
     let stdout = reading_out.join().unwrap_or_default();
     let stderr = reading_err.join().unwrap_or_default();
-    let status = child.wait().map_err(|e| e.to_string())?;
     if !status.success() {
         return Err(said(&format!("the generator {}", how_it_ended(&status)), &stderr));
     }

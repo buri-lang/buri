@@ -184,7 +184,11 @@ took a CI job with it. So:
   so a client that failed reports as the client failing;
 * two things bound a `#[test]` here: the harness's per-invocation hang cap
   (`harness/hang.rs`) for anything it spawns through the CLI, and each CI job's
-  `timeout-minutes` outside that.
+  `timeout-minutes` outside that. The cap kills a child that has stopped using
+  the **processor**, not one that has merely gone quiet — it reads the child's
+  process tree out of `/proc` or `libproc` — because a wall clock cannot tell a
+  build that is stuck from one that is slow on a loaded runner, and killing the
+  second is a flake.
 
 A broken server is a failing test with a sentence, never a job CI has to kill.
 

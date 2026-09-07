@@ -119,6 +119,11 @@ signal, and the tail of standard error, in the note. A tool built from the
 target that declares it is
 [`generator-cycle`](../errors/generator-cycle.md).
 
+Taking a long time is not a failure. Nothing puts a clock on a generator, so the
+build waits for as long as the tool runs, the way it waits for a compiler or a
+linker. The one deadline in the build system is `timeout_seconds` on a `test`
+rule, and you write that one yourself.
+
 ## The cache
 
 Running a generator is an action like any other, keyed on the tool's linked
