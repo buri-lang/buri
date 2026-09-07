@@ -150,6 +150,42 @@ pub enum Extra {
     /// signature — which is what lets this table, which names no *shape* per
     /// argument, describe the same call `llvm/runtime.rs`'s `Arg::Step` does.
     Step,
+    /// The seven words a **deferred body** crosses on: a Buri closure the
+    /// runtime keeps and calls later, rather than during the call that handed
+    /// it over.
+    ///
+    /// ```text
+    ///   entry     the generated C-ABI thunk, `void(state, index, in, out)`
+    ///   state     the record this backend built, read once and copied
+    ///   bytes     how many bytes of it there are
+    ///   frame_at  where in the copy to write a working frame, or -1
+    ///   stride    how many bytes the body writes through `out`
+    ///   release   the release glue for what it writes, or null
+    ///   body      the release glue for the record itself, or null
+    /// ```
+    ///
+    /// The thunk is [`Extra::Step`]'s, unchanged: a reactive body is
+    /// `fn(Scope) => T`, which is a step of one element whose element is the
+    /// scope, so the same generator serves both and there is one thunk shape
+    /// in the archive rather than two.
+    ///
+    /// The other four words are what *deferring* costs. A step runs during the
+    /// call that handed it over, so its record and its working frame both sit
+    /// past the caller's own frame and are gone when it returns; a memo runs on
+    /// the first read and a watcher on every change. So the runtime **copies**
+    /// the record — `bytes` says how much — and supplies the frame itself,
+    /// writing its address at `frame_at`. That offset is a number rather than
+    /// a constant because the two backends' records differ: the frame-threaded
+    /// one keeps a frame word, the LLVM one uses the machine stack and passes
+    /// `-1`.
+    ///
+    /// `stride` and `release` are [`Extra::Owned`]'s pair once more, for the
+    /// same reason: a memo holds its answer until the next run replaces it.
+    /// `body` is the same idea one level out — the graph keeps the *closure*
+    /// for the life of the program, so the count on its environment is taken
+    /// at the call site and given back at exit, and this is what gives it
+    /// back.
+    Compute,
 }
 
 /// What comes back.
@@ -299,6 +335,11 @@ const fn cx(entry: Entry, at: usize) -> Entry {
 /// A runtime-driven step ([`Extra::Step`]).
 const fn es(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
     Entry { key, symbol, extra: Extra::Step, ret, by_ref: None, ctx: None }
+}
+
+/// A deferred body ([`Extra::Compute`]).
+const fn ec(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
+    Entry { key, symbol, extra: Extra::Compute, ret, by_ref: None, ctx: None }
 }
 
 /// Every key this backend has a runtime body for.
@@ -1027,22 +1068,23 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `cli/runtime/ui.rs` holds the graph and `cli/runtime/snapshot.rs` the
     // painter's entry. These six are what a *snapshot* reaches, which is less
-    // than the whole of `ui/testing`: `Ui.memo` and
-    // `Ui.watch` are not here because they take a Buri
-    // closure and are not here, because the closure shape they need is not one
-    // either native backend generates yet. `ui/node`'s `describe` is written so
-    // that a snapshot needs neither — `rootScope` is the untracked scope it
-    // reads props under, and an untracked read subscribes nothing.
+    // than the whole of `ui/testing`. `Ui.memo` and `Ui.watch` are here, and
+    // they are what [`Extra::Compute`] was added for: both take a Buri closure
+    // the runtime keeps and calls later, which is [`Extra::Step`]'s thunk with
+    // a lifetime problem to answer. `ui/node`'s `describe` needs neither —
+    // `rootScope` is the untracked scope it reads props under, and an
+    // untracked read subscribes nothing — so a *snapshot* still reaches none
+    // of it.
     //
     // Three of them are generic and each carries §2 rule 4's pair. The type is
     // a bare `T` rather than a `[T]`'s element, which is what
     // `stencil/rtcall.rs`'s `element_ty` widened for: `signal` and `write` name
     // it in a `by_ref` argument, and the two `read`s name it in the result.
     //
-    // `write` carries a third word, the release, and is the one row in this
-    // table that does. A cell keeps what it was written, so the write that
-    // replaces the bytes is the one call in the archive that has a reference to
-    // give back — see [`Extra::Owned`].
+    // `signal` and `write` carry a third word, the release, and are the only
+    // rows in this table that do. A cell keeps what it was written, so the
+    // write that replaces the bytes gives the old ones back and the exit walk
+    // gives the last ones back — see [`Extra::Owned`].
     //
     // `Ret::Out` on both `read`s although a `T` is often a scalar. One key is
     // one C signature, and `read` at `Str` and at `Bool` is one key — so the
@@ -1051,12 +1093,23 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_node.rootScope", "buri_rt_ui_node_root_scope", Ret::Out),
     el("ui_effect.Scope.read", "buri_rt_ui_effect_scope_read", Ret::Out),
     e("ui_testing.headless", "buri_rt_ui_testing_headless", Ret::Out),
-    er("ui_testing.Headless.signal", "buri_rt_ui_testing_headless_signal", Ret::Scalar, 1),
+    eo("ui_testing.Headless.signal", "buri_rt_ui_testing_headless_signal", Ret::Scalar, 1),
     el("ui_testing.Headless.read", "buri_rt_ui_testing_headless_read", Ret::Out),
     e("ui_testing.observer", "buri_rt_ui_testing_observer", Ret::Out),
     el("ui_testing.Observer.read", "buri_rt_ui_testing_observer_read", Ret::Out),
     eo("ui_testing.Headless.write", "buri_rt_ui_testing_headless_write", Ret::Void, 2),
+    ec("ui_testing.Headless.memo", "buri_rt_ui_testing_headless_memo", Ret::Scalar),
+    ec("ui_testing.Headless.watch", "buri_rt_ui_testing_headless_watch", Ret::Void),
     e("ui_testing.paint", "buri_rt_ui_testing_paint", Ret::Void),
+    // The recorder: how a computation says that it ran. A reactive body holds
+    // a `Scope`, which grants reading the graph and nothing else, so it cannot
+    // write a signal and it cannot print — the log lives on this side, exactly
+    // as `core/host/testing`'s captured stdout does.
+    e("ui_testing.recorder", "buri_rt_ui_testing_recorder", Ret::Out),
+    e("ui_testing.Recorder.record", "buri_rt_ui_testing_recorder_record", Ret::Void),
+    e("ui_testing.Recorder.recorded", "buri_rt_ui_testing_recorder_recorded", Ret::Out),
+    e("ui_testing.Recorder.note", "buri_rt_ui_testing_recorder_note", Ret::Scalar),
+    e("ui_testing.Recorder.noted", "buri_rt_ui_testing_recorder_noted", Ret::Out),
 ];
 
 /// The entry for a key, or `None` where this backend has no body for it.

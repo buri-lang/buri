@@ -211,6 +211,13 @@ impl Jit<'_> {
             if entry.extra == Extra::Step && step_call(entry.key).is_some_and(|c| c.func == i) {
                 continue;
             }
+            // And a **deferred body** is not flattened either, for the same
+            // reason and at a fixed position: it is the last argument of every
+            // [`Extra::Compute`] row, which is what lets one table with no
+            // per-argument column describe the call.
+            if entry.extra == Extra::Compute && i + 1 == args.len() {
+                continue;
+            }
             for leaf in self.leaves(prog, t)? {
                 let at = slot + leaf.offset;
                 if leaf.float {
@@ -267,6 +274,10 @@ impl Jit<'_> {
 
         if entry.extra == Extra::Step {
             self.step_extra(prog, st, entry, dest.map(|d| d.1), args, &mut ints)?;
+        }
+
+        if entry.extra == Extra::Compute {
+            self.compute_extra(prog, st, entry, args, &mut ints)?;
         }
 
         let dslot = dest.map(|d| d.0).unwrap_or(0);
@@ -876,6 +887,74 @@ impl Jit<'_> {
         ints.push(Src::Addr(state));
         ints.push(Src::Imm(u64::from(in_stride)));
         ints.push(Src::Imm(u64::from(out_stride)));
+        Ok(())
+    }
+
+    /// [`Extra::Compute`]'s six words: a body the runtime keeps and calls
+    /// later.
+    ///
+    /// It is [`Self::step_extra`] with the lifetime turned around. The record
+    /// is built in the same place and holds the same first two words, and the
+    /// thunk is the same `Helper::Entry` — a body is `fn(Scope) => T`, which is
+    /// a step of one element whose element is the scope, so the generator needs
+    /// no second shape. What differs is everything about *when*: the runtime
+    /// copies the record, because this frame will be gone; it supplies the
+    /// working frame, because this one will be gone too; and it holds the
+    /// closure for the life of the program, so the count on the closure's
+    /// environment is taken **here**, at the call site, exactly as
+    /// `emit::json_prim` takes one on a `Str` an intrinsic put in an enum.
+    fn compute_extra(
+        &mut self,
+        prog: &ir::Program,
+        st: &mut Fn2,
+        entry: &Entry,
+        args: &[(u32, ir::Type)],
+        ints: &mut Vec<Src>,
+    ) -> Result<(), String> {
+        let Some((fslot, fty)) = args.last().copied() else {
+            return Err(format!("{}: no body argument", entry.key));
+        };
+        let Some(ty) = source_ty(prog, fty) else {
+            return Err(format!("{}: a body with no type", entry.key));
+        };
+        let Ty::Fn(params, ret) = ty.clone() else {
+            return Err(format!("{}: a body that is not a function", entry.key));
+        };
+        if params.len() != 1 {
+            return Err(format!("{}: a body taking {} arguments", entry.key, params.len()));
+        }
+        let widths: Vec<u32> =
+            params.iter().map(|t| self.layouts_of(t.clone()).size).collect();
+        let (_, bytes) = super::glue::state_shape(&widths, None);
+        let state = st.frame.size;
+        self.mv(state, fslot, 16);
+        // The graph keeps the closure, so the graph owes it a reference.
+        // `middle::rc` releases the argument at this call, which is its last
+        // use, and without this the environment would be freed under a memo
+        // that has not run yet.
+        if self.rc_counted(&ty) {
+            self.walk_rc(st, &ty, state, true, 0)?;
+        }
+        let stride = u64::from(self.layouts_of((*ret).clone()).stride);
+        let release = self.value_release((*ret).clone());
+        let thunk =
+            self.helper(super::glue::Helper::Entry { params, ret: *ret, index: None });
+        ints.push(Src::Sym(thunk));
+        ints.push(Src::Addr(state));
+        ints.push(Src::Imm(u64::from(bytes)));
+        // This backend's record keeps a frame word, and `E_FRAME` is where.
+        ints.push(Src::Imm(u64::from(super::glue::E_FRAME)));
+        ints.push(Src::Imm(stride));
+        match release {
+            Some(name) => ints.push(Src::Sym(name)),
+            None => ints.push(Src::Imm(0)),
+        }
+        // And the record's own walk, which is the closure's: what gives back
+        // the reference taken above, at exit, when the graph lets the body go.
+        match self.value_release(ty) {
+            Some(name) => ints.push(Src::Sym(name)),
+            None => ints.push(Src::Imm(0)),
+        }
         Ok(())
     }
 

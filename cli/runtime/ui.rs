@@ -78,7 +78,9 @@
 //! the answer one `:root{...}` block per theme in the order they were passed.
 
 use crate::abort::die;
-use crate::value::{str_of, BuriStr};
+use crate::list::{Release, Retain};
+use crate::memory::{buri_rt_stack_acquire, buri_rt_stack_release};
+use crate::value::{list_of_strs, str_of, BuriList, BuriStr};
 use std::sync::Mutex;
 
 /// A runaway is a program whose watchers write what they read. The limit is not
@@ -94,18 +96,40 @@ const RUNAWAY: &str = "a reactive update did not settle";
 
 /// The generated C-ABI thunk a memo's or a watcher's body is reached through.
 ///
-/// `lib.rs` §2 rule 5, in the shape `rt.rs`'s `Tasks.parallel` already uses:
-/// `state` is the backend's own record and is never read here, `scope` is the
-/// computation the body belongs to — the one field a Buri `Scope` carries —
-/// and `out` is where a memo's answer goes, at the stride the memo was made
-/// with.
-pub type ComputeEntry = unsafe extern "C" fn(state: *mut u8, scope: i64, out: *mut u8);
+/// **The same four words `list.rs`'s `StepEntry` declares**, and deliberately
+/// so: a reactive body is `fn(Scope) => T`, which is a step of one element
+/// whose element is the scope. `state` is the backend's own record, `index` is
+/// the loop counter a step gets and a body ignores, `arg` points at the scope
+/// the body is being run under, and `out` is where a memo's answer goes, at
+/// the stride the memo was made with. One thunk shape means one thunk
+/// generator per backend rather than two.
+pub type ComputeEntry =
+    unsafe extern "C" fn(state: *mut u8, index: i64, arg: *const u8, out: *mut u8);
 
 /// A body, as the graph holds it.
+///
+/// # A deferred call needs a frame of its own
+///
+/// A step runs *during* the call that handed it over, so the record and the
+/// working frame both sit past the caller's own and are gone when it returns.
+/// A memo runs on the first read and a watcher on every change — long after —
+/// so neither may point at a frame that has been left. Two things follow, and
+/// they are the whole of what makes a deferred body work:
+///
+/// * the record is **copied** into a block of this crate's own, which lives as
+///   long as the node does — which is the life of the program, because a cell
+///   is never disposed;
+/// * the working frame is **this crate's**, acquired per run from
+///   [`crate::memory::buri_rt_stack_acquire`] and given back at the end of it.
+///   `frame_at` is where in the record the backend wants that address written,
+///   or `-1` for a backend whose thunk needs no such word. The frame-threaded
+///   backend names its own `E_FRAME`; the LLVM one uses the machine stack and
+///   names nothing.
 #[derive(Clone, Copy)]
 struct Compute {
     entry: ComputeEntry,
     state: *mut u8,
+    frame_at: i64,
 }
 
 // SAFETY: `state` is the backend's record for one computation, handed back
@@ -132,6 +156,16 @@ struct Node {
     value: Vec<u8>,
     stride: usize,
     compute: Option<Compute>,
+    /// The release glue for the value this node holds, or `None`. A cell holds
+    /// what it was written and a memo holds what it computed, so the write and
+    /// the next run are where the reference goes back — and [`give_back`] is
+    /// where the last one does.
+    release: Release,
+    /// The release glue for the **body**'s record, or `None`. The record's
+    /// first two words are the closure `{ code, env }`, so this is the walk
+    /// generated for the closure's own type: what takes back the reference
+    /// [`buri_rt_ui_memo`]'s caller gave the graph.
+    body: Release,
     deps: Vec<i64>,
     subs: Vec<i64>,
     dirty: bool,
@@ -180,12 +214,28 @@ impl Graph {
 
     /// A fresh node, owned by whatever is running.
     fn make(&mut self, kind: Kind, value: Vec<u8>, stride: usize, compute: Option<Compute>) -> i64 {
+        self.make_releasing(kind, value, stride, compute, None, None)
+    }
+
+    /// [`Graph::make`], for a node whose value or body the graph has to give
+    /// back.
+    fn make_releasing(
+        &mut self,
+        kind: Kind,
+        value: Vec<u8>,
+        stride: usize,
+        compute: Option<Compute>,
+        release: Release,
+        body: Release,
+    ) -> i64 {
         let owner = self.current;
         self.nodes.push(Node {
             kind,
             value,
             stride,
             compute,
+            release,
+            body,
             deps: Vec::new(),
             subs: Vec::new(),
             // A memo has never run, so it is out of date by construction.
@@ -340,19 +390,46 @@ fn run(id: i64) {
     // A watcher answers `()` and writes nothing, but a destination it could
     // never write to would be a null pointer in a generated thunk's hands.
     let mut out = vec![0u8; stride.max(8)];
+    // The scope the body is run under is the node itself, and it crosses as
+    // the step's element: a pointer to the one word a Buri `Scope` carries.
+    let scope = id;
+    // The frame this body works in, and the whole reason a deferred call needs
+    // one: the frame it was handed over in has been left.
+    let frame = if compute.frame_at >= 0 { buri_rt_stack_acquire() } else { std::ptr::null_mut() };
+    if let Ok(at) = usize::try_from(compute.frame_at) {
+        // SAFETY: the backend asked for the frame at this offset in a record
+        // of its own, and `keep` copied the whole of it.
+        unsafe { compute.state.add(at).cast::<*mut u8>().write(frame) };
+    }
     // SAFETY: `entry` is the thunk the backend generated for this computation
-    // and `state` the record it was generated against; `out` is a live buffer
-    // of at least the stride the memo was made with.
-    unsafe { (compute.entry)(compute.state, id, out.as_mut_ptr()) };
+    // and `state` the copy of the record it was generated against; `out` is a
+    // live buffer of at least the stride the memo was made with, and `scope`
+    // one live word.
+    unsafe {
+        (compute.entry)(compute.state, id, std::ptr::addr_of!(scope).cast(), out.as_mut_ptr());
+    }
+    if !frame.is_null() {
+        // SAFETY: this thread acquired it a few lines above and the thunk has
+        // returned, so nothing is inside it.
+        unsafe { buri_rt_stack_release(frame) };
+    }
     let mut g = lock();
     g.current = outer_current;
     g.tracking = outer_tracking;
+    let mut spent = Vec::new();
     if let Some(n) = g.get_mut(id) {
         if n.kind == Kind::Memo {
             out.truncate(stride);
-            n.value = out;
+            spent = std::mem::replace(&mut n.value, out);
         }
         n.dirty = false;
+    }
+    let glue = g.get(id).and_then(|n| n.release);
+    drop(g);
+    if !spent.is_empty() {
+        // SAFETY: `spent` is the copy of a whole value of the memo's type that
+        // the node held until the line above, and the graph no longer names it.
+        unsafe { walk(glue, spent.as_mut_ptr()) };
     }
 }
 
@@ -540,11 +617,44 @@ unsafe fn write_changed(id: i64, value: *const u8, stride: usize) -> bool {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_ui_memo(
     entry: ComputeEntry,
-    state: *mut u8,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
     stride: usize,
+    release: Release,
+    body: Release,
 ) -> i64 {
+    // SAFETY: forwarded to the caller's promise.
+    let state = unsafe { keep(state, bytes) };
     let mut g = lock();
-    g.make(Kind::Memo, Vec::new(), stride, Some(Compute { entry, state }))
+    g.make_releasing(
+        Kind::Memo,
+        Vec::new(),
+        stride,
+        Some(Compute { entry, state, frame_at }),
+        release,
+        body,
+    )
+}
+
+/// The backend's record, in a block of this crate's own that outlives the call
+/// that handed it over.
+///
+/// Leaked on purpose: a memo and a watcher live for the life of the program
+/// (`design/native/DECISIONS.md`, "a scope stays open for the life of the
+/// program"), so the block that holds one's body has exactly that lifetime and
+/// the process reclaims it.
+///
+/// # Safety
+/// `state` points at `bytes` readable bytes, or is null with a zero count.
+unsafe fn keep(state: *const u8, bytes: usize) -> *mut u8 {
+    give_back_at_exit();
+    if state.is_null() || bytes == 0 {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: the caller promises `bytes` readable bytes.
+    let copy = unsafe { std::slice::from_raw_parts(state, bytes) }.to_vec();
+    Box::leak(copy.into_boxed_slice()).as_mut_ptr()
 }
 
 /// `Ui.watch(run)` — a node that runs for its effect, now and on every change.
@@ -556,10 +666,25 @@ pub unsafe extern "C" fn buri_rt_ui_memo(
 /// # Safety
 /// As [`buri_rt_ui_memo`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_ui_watch(entry: ComputeEntry, state: *mut u8) {
+pub unsafe extern "C" fn buri_rt_ui_watch(
+    entry: ComputeEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    body: Release,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    let state = unsafe { keep(state, bytes) };
     let id = {
         let mut g = lock();
-        g.make(Kind::Watcher, Vec::new(), 0, Some(Compute { entry, state }))
+        g.make_releasing(
+            Kind::Watcher,
+            Vec::new(),
+            0,
+            Some(Compute { entry, state, frame_at }),
+            None,
+            body,
+        )
     };
     run(id);
 }
@@ -834,8 +959,6 @@ pub unsafe extern "C" fn buri_rt_ui_theme_variables(out: *mut BuriStr) {
 // `core/list` needed no such word — nothing there holds a value past the call
 // — which is why the retain travelled alone until the graph arrived.
 
-use crate::list::{Release, Retain};
-
 /// Runs a per-value glue function — the retain or the release — over one
 /// value, where there is one to run.
 ///
@@ -888,11 +1011,17 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_signal(
     initial: *const u8,
     stride: usize,
     glue: Retain,
+    drop: Release,
 ) -> i64 {
+    give_back_at_exit();
     // SAFETY: forwarded to the caller's promise.
     let id = unsafe { buri_rt_ui_signal(initial, stride) };
     let mut g = lock();
     if let Some(n) = g.get_mut(id) {
+        // The cell holds this value until the next write, and the last one it
+        // holds goes back at exit, so the glue that gives it back is kept here
+        // rather than asked for again at every write.
+        n.release = drop;
         let at = n.value.as_mut_ptr();
         // SAFETY: the cell holds one whole value of that type.
         unsafe { walk(glue, at) };
@@ -932,8 +1061,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_read(
 /// reference and gives none back.
 ///
 /// # Safety
-/// As [`buri_rt_ui_testing_headless_signal`]; `drop` is the release glue for
-/// that type or null.
+/// As [`buri_rt_ui_testing_headless_signal`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_ui_testing_headless_write(
     _self: i64,
@@ -964,6 +1092,55 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_write(
         // SAFETY: `old` is the copy of a whole value of that type the cell held
         // until the write above, and the graph no longer names it.
         unsafe { walk(drop, old.as_mut_ptr()) };
+    }
+}
+
+// ---------------------------------------------------------------------------
+// What the graph gives back at exit
+// ---------------------------------------------------------------------------
+
+/// The graph holds a value per cell and a body per computation **for the life
+/// of the program**, which is the design and not an oversight: a signal is
+/// never disposed, so the reference it takes on what it holds is one nothing
+/// gives back while the program is running. This is where it does.
+///
+/// It matters because the heap check is an exit audit over `live_blocks`, and
+/// a graph that kept its references would read as a leak of one block per cell
+/// and one per body — a real number, growing with the program, that nothing
+/// could tell apart from a defect.
+///
+/// **Registered after the audit, so it runs before it.** `atexit` is
+/// last-in-first-out, so [`crate::memory::arm_heap_audit`] is called first,
+/// on the way to making the first node.
+fn give_back_at_exit() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        crate::memory::arm_heap_audit();
+        // SAFETY: `give_back` is an `extern "C" fn()` taking no arguments and
+        // returning normally, which is the whole of `atexit`'s contract.
+        unsafe { atexit(give_back) };
+    });
+}
+
+unsafe extern "C" {
+    fn atexit(f: extern "C" fn()) -> i32;
+}
+
+/// Every reference the graph is holding, given back.
+extern "C" fn give_back() {
+    let mut g = lock();
+    for n in &mut g.nodes {
+        let release = n.release;
+        if !n.value.is_empty() {
+            // SAFETY: the node holds one whole value of the type `release` was
+            // generated for, and after this the graph names it no more.
+            unsafe { walk(release, n.value.as_mut_ptr()) };
+            n.value.clear();
+        }
+        let Some(compute) = n.compute.take() else { continue };
+        // SAFETY: the record's first words are the closure `{ code, env }`,
+        // which is what `body` was generated for.
+        unsafe { walk(n.body, compute.state) };
     }
 }
 
@@ -1002,6 +1179,162 @@ pub unsafe extern "C" fn buri_rt_ui_testing_observer_read(
         read_into(id, stride, out);
         walk(glue, out);
     }
+}
+
+/// `Headless.memo(compute)`.
+///
+/// # Safety
+/// `entry` is the thunk the backend generated for this body, `state` points at
+/// `bytes` readable bytes of the record it was generated against, `frame_at`
+/// is an offset inside that record or negative, and `release` is the release
+/// glue for what the body answers or null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_headless_memo(
+    _self: i64,
+    entry: ComputeEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    stride: usize,
+    release: Release,
+    body: Release,
+) -> i64 {
+    // SAFETY: forwarded to the caller's promise.
+    unsafe { buri_rt_ui_memo(entry, state, bytes, frame_at, stride, release, body) }
+}
+
+/// `Headless.watch(run)`.
+///
+/// It takes the stride and the release its sibling takes, and uses neither: a
+/// watcher answers `()`, so there is nothing to keep and nothing to give back.
+/// One shape for both keys, because `Extra::Compute` is one emission rule.
+///
+/// # Safety
+/// As [`buri_rt_ui_testing_headless_memo`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_headless_watch(
+    _self: i64,
+    entry: ComputeEntry,
+    state: *const u8,
+    bytes: usize,
+    frame_at: i64,
+    _stride: usize,
+    _release: Release,
+    body: Release,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    unsafe { buri_rt_ui_watch(entry, state, bytes, frame_at, body) };
+}
+
+// ---------------------------------------------------------------------------
+// The recorder
+// ---------------------------------------------------------------------------
+
+/// Every recorder a program has made: a tag log and a value log each.
+///
+/// One table rather than one allocation per handle, for the reason the graph
+/// is one table: a `Recorder` is an index nothing else can produce, so a test
+/// can only reach the one it made, and `recorder()` answering a fresh index is
+/// the whole of the isolation `ui/testing`'s header promises.
+static RECORDERS: Mutex<Vec<(Vec<String>, Vec<i64>)>> = Mutex::new(Vec::new());
+
+fn recorders() -> std::sync::MutexGuard<'static, Vec<(Vec<String>, Vec<i64>)>> {
+    match RECORDERS.lock() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// A `[Int]` from a slice of them: one block at an eight-byte stride.
+fn list_of_ints(items: &[i64]) -> BuriList {
+    if items.is_empty() {
+        return BuriList { ptr: std::ptr::null_mut(), len: 0 };
+    }
+    let ptr = crate::memory::buri_rt_alloc((items.len() * 8) as u64);
+    for (i, item) in items.iter().enumerate() {
+        // SAFETY: `i * 8` is inside the block just allocated, and the block is
+        // 16-aligned so every eight-byte slot in it is aligned.
+        unsafe { ptr.add(i * 8).cast::<i64>().write(*item) };
+    }
+    BuriList { ptr, len: items.len() as u64 }
+}
+
+/// `recorder()` — a fresh, empty log.
+///
+/// # Safety
+/// `out` is writable and aligned for eight bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_recorder(out: *mut i64) {
+    let mut all = recorders();
+    all.push((Vec::new(), Vec::new()));
+    let id = (all.len() as i64) - 1;
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(id) };
+}
+
+/// `Recorder.record(tag)`.
+///
+/// # Safety
+/// `ptr` and `len` are a readable UTF-8 range.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_recorder_record(
+    handle: i64,
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+) {
+    // The stored length carries VALUE-MODEL.md §3.1's ASCII flag in bit 63,
+    // and every entry that takes a `Str` masks it off itself
+    // (`cli/runtime/text.rs`'s header).
+    let n = (len & crate::value::BURI_RT_STR_LEN_MASK) as usize;
+    let tag = if ptr.is_null() || n == 0 {
+        String::new()
+    } else {
+        // SAFETY: the caller promises `n` readable bytes at `ptr`.
+        String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(ptr, n) }).into_owned()
+    };
+    let mut all = recorders();
+    if let Some(entry) = usize::try_from(handle).ok().and_then(|i| all.get_mut(i)) {
+        entry.0.push(tag);
+    }
+}
+
+/// `Recorder.recorded()`.
+///
+/// # Safety
+/// `out` is writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_recorder_recorded(handle: i64, out: *mut BuriList) {
+    let tags = {
+        let all = recorders();
+        usize::try_from(handle).ok().and_then(|i| all.get(i)).map(|e| e.0.clone())
+    };
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(list_of_strs(&tags.unwrap_or_default())) };
+}
+
+/// `Recorder.note(value)` — appended, and answered.
+#[unsafe(no_mangle)]
+pub extern "C" fn buri_rt_ui_testing_recorder_note(handle: i64, value: i64) -> i64 {
+    let mut all = recorders();
+    if let Some(entry) = usize::try_from(handle).ok().and_then(|i| all.get_mut(i)) {
+        entry.1.push(value);
+    }
+    value
+}
+
+/// `Recorder.noted()`.
+///
+/// # Safety
+/// As [`buri_rt_ui_testing_recorder_recorded`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_recorder_noted(handle: i64, out: *mut BuriList) {
+    let values = {
+        let all = recorders();
+        usize::try_from(handle).ok().and_then(|i| all.get(i)).map(|e| e.1.clone())
+    };
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(list_of_ints(&values.unwrap_or_default())) };
 }
 
 /// `Scope.read(id)`, at the key the tables name.
@@ -1047,11 +1380,15 @@ mod tests {
     /// A body written in Rust, so a case can say what a computation does.
     struct Body(Box<dyn Fn(i64) -> i64>);
 
-    unsafe extern "C" fn call(state: *mut u8, scope: i64, out: *mut u8) {
-        // SAFETY: every case hands a live `Body` and eight writable bytes.
+    /// The four-word thunk shape the two backends generate, written by hand:
+    /// the state is the `Body` box, the index is the step's and unused, and
+    /// the argument is the scope.
+    unsafe extern "C" fn call(state: *mut u8, _index: i64, arg: *const u8, out: *mut u8) {
+        // SAFETY: every case hands a live `Body`, a live scope word and eight
+        // writable bytes.
         unsafe {
-            let body = &*state.cast::<Body>();
-            let answer = (body.0)(scope);
+            let body = &*state.cast::<*const Body>().read();
+            let answer = (body.0)(arg.cast::<i64>().read());
             out.cast::<i64>().write(answer);
         }
     }
@@ -1096,19 +1433,24 @@ mod tests {
     /// as long as the graph may run it.
     fn memo(body: impl Fn(i64) -> i64 + 'static) -> (Box<Body>, i64) {
         let held = Box::new(Body(Box::new(body)));
-        let state = (&raw const *held).cast_mut().cast::<u8>();
-        // SAFETY: `call` is the thunk `held` was written for, and `held` is a
-        // heap box the case keeps.
-        let id = unsafe { buri_rt_ui_memo(call, state, 8) };
+        // A record of one word, the way a backend builds one: the graph copies
+        // it, so the case's box has to be reachable *through* it rather than
+        // be it.
+        let record: [*const Body; 1] = [&raw const *held];
+        // SAFETY: `call` is the thunk `held` was written for, `record` names
+        // it, and `held` is a heap box the case keeps.
+        let id = unsafe {
+            buri_rt_ui_memo(call, (&raw const record).cast(), 8, -1, 8, None)
+        };
         (held, id)
     }
 
     /// A watcher, likewise. It has already run once by the time this answers.
     fn watcher(body: impl Fn(i64) -> i64 + 'static) -> Box<Body> {
         let held = Box::new(Body(Box::new(body)));
-        let state = (&raw const *held).cast_mut().cast::<u8>();
+        let record: [*const Body; 1] = [&raw const *held];
         // SAFETY: as `memo`.
-        unsafe { buri_rt_ui_watch(call, state) };
+        unsafe { buri_rt_ui_watch(call, (&raw const record).cast(), 8, -1) };
         held
     }
 

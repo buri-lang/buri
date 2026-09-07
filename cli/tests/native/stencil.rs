@@ -1082,6 +1082,70 @@ export fn main(): Result<(), Str> {
     assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
 }
 
+/// **A memo and a watcher run natively**, which is the runtime calling back
+/// into Buri code long after the call that handed the body over.
+///
+/// The whole of `Extra::Compute` is in this program: a memo that runs on the
+/// first read and not before, a watcher that runs once when it is registered
+/// and again on every write, and the dependency edges both learn by running.
+#[test]
+fn a_memo_and_a_watcher_run_under_the_native_backend() {
+    if !supported() {
+        return;
+    }
+    let source = r#"
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/prop" import { memo, Prop };
+from "ui/signal" import { signal, watch };
+from "ui/testing" import { headless, observer, recorder };
+
+test "a memo is lazy, caches, and recomputes when its source changes" {
+    let ctx = context {
+        Alloc: alloc.generalPurpose(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 2);
+    let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
+    assert.eq(log.noted().len(), 0);
+    let _ = watch(ctx, fn(s) => ignore(doubled.read(s) + doubled.read(s)));
+    assert.eq(log.noted(), [4]);
+    let _ = n.set(ctx, 5);
+    assert.eq(log.noted(), [4, 10]);
+}
+
+test "a watcher runs when it is registered and again on every change" {
+    let ctx = context {
+        Alloc: alloc.generalPurpose(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 1);
+    let _ = watch(ctx, fn(s) => ignore(log.note(n.get(s))));
+    assert.eq(log.noted(), [1]);
+    let _ = n.set(ctx, 7);
+    assert.eq(log.noted(), [1, 7]);
+}
+
+fn ignore(value: Int): () {
+    let _ = value;
+}
+"#;
+    let binary = build_tests("graph", source);
+    let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the graph did not answer natively:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// **Writing a reactive cell over and over leaks nothing**, which is the half
 /// of the graph's ABI that a value assertion cannot see.
 ///

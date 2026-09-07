@@ -1642,6 +1642,19 @@ fn heap_check() -> HeapCheck {
     })
 }
 
+/// Registers the exit audit, if this process is running one, without
+/// allocating.
+///
+/// `atexit` runs its handlers last-registered-first, so anything that has to
+/// tidy up *before* the audit looks has to be registered *after* it. The graph
+/// in [`crate::ui`] is the one such thing: it holds a value and a body per node
+/// for the life of the program by design, and gives them back at exit. It calls
+/// this first so that the order is the one it needs rather than the one the
+/// first allocation happened to produce.
+pub(crate) fn arm_heap_audit() {
+    let _ = heap_check();
+}
+
 /// Stop the process because this section found a defect. Never returns.
 ///
 /// `_exit` rather than `std::process::exit`: this is reachable from inside an
