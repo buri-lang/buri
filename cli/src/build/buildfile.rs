@@ -306,12 +306,31 @@ pub struct TestingSurface {
     pub span: Span,
 }
 
+/// One `generators` entry: a program the build runs, and the files it is
+/// handed.
+///
+/// The tool is a string rather than a resolved target because a label naming
+/// nothing is a diagnostic the build graph gets to report, in the same place
+/// and the same way a `dependencies` entry naming nothing is.
+#[derive(Clone, Debug)]
+pub struct Generator {
+    /// A `//label` naming a binary in this repository, or the name of a
+    /// generator the toolchain ships.
+    pub tool: Spanned<String>,
+    /// Package-relative paths, no globs.
+    pub inputs: Vec<Spanned<String>>,
+    pub span: Span,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Library {
     pub sources: Vec<Spanned<String>>,
     /// The `.proto` schemas this rule owns. Each one becomes a module, and the
     /// module belongs to this rule exactly as a `.buri` source does.
     pub proto_sources: Vec<Spanned<String>>,
+    /// The generators this rule runs. Every module one hands back belongs to
+    /// this rule exactly as a `.buri` source does.
+    pub generators: Vec<Generator>,
     pub dependencies: Vec<Spanned<String>>,
     pub tags: Vec<Spanned<String>>,
     pub platforms: Vec<Spanned<Platform>>,
@@ -332,6 +351,8 @@ pub struct Library {
 pub struct Binary {
     pub sources: Vec<Spanned<String>>,
     pub proto_sources: Vec<Spanned<String>>,
+    /// Exactly the same meaning as on a library.
+    pub generators: Vec<Generator>,
     pub dependencies: Vec<Spanned<String>>,
     pub tags: Vec<Spanned<String>>,
     pub outputs: Vec<Output>,
@@ -729,6 +750,48 @@ impl Reader {
         })
     }
 
+    /// `generators`, parsed. A repeated message field, written either as a
+    /// list of blocks or as repeated blocks — the same two spellings
+    /// [`Reader::outputs`] takes, and read the same way.
+    fn generators(&mut self, message: &Message) -> Vec<Generator> {
+        let mut out = Vec::new();
+        for f in message.all("generators") {
+            let items: Vec<&Value> = match &f.value {
+                Value::List(items, _) => items.iter().collect(),
+                other => vec![other],
+            };
+            for item in items {
+                let Value::Message(m, span) = item else {
+                    let kind = item.kind().to_string();
+                    self.wrong_kind(item.span(), "generators", "a block", &kind);
+                    continue;
+                };
+                self.check_known(m, textproto::schema_order("generators"), &[], "a generator");
+                let inputs = self.strings(m, "inputs");
+                // A generator *is* its tool, so an entry without one is
+                // rejected and dropped rather than carried forward for the
+                // build to guess about — the same rule an `outputs` entry with
+                // no platform is held to.
+                let tool = match m.get("tool") {
+                    Some(field) => match &field.value {
+                        Value::Str(s, sp) => Spanned::new(s.clone(), *sp),
+                        other => {
+                            let kind = other.kind().to_string();
+                            self.wrong_kind(other.span(), "tool", "a string", &kind);
+                            continue;
+                        }
+                    },
+                    None => {
+                        self.templated("generator-without-a-tool", *span);
+                        continue;
+                    }
+                };
+                out.push(Generator { tool, inputs, span: *span });
+            }
+        }
+        out
+    }
+
     fn outputs(&mut self, message: &Message) -> Vec<Output> {
         let mut out = Vec::new();
         for f in message.all("outputs") {
@@ -929,6 +992,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         Library {
             sources: reader.strings(m, "sources"),
             proto_sources: reader.strings(m, "proto_sources"),
+            generators: reader.generators(m),
             dependencies: reader.strings(m, "dependencies"),
             tags: reader.strings(m, "tags"),
             platforms: reader.platforms(m, "platforms"),
@@ -961,6 +1025,7 @@ pub fn read_build_file(text: &str, file: FileId) -> ReadResult<BuildFile> {
         Binary {
             sources: reader.strings(m, "sources"),
             proto_sources: reader.strings(m, "proto_sources"),
+            generators: reader.generators(m),
             dependencies: reader.strings(m, "dependencies"),
             tags: reader.strings(m, "tags"),
             outputs: reader.outputs(m),

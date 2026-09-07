@@ -295,6 +295,12 @@ fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
                 // is a pure function of its bytes, so editing a schema changes
                 // this key exactly as editing a source does.
                 sources.extend(lib.proto_sources.iter().map(|x| x.value.clone()));
+                // A generator's input is an input like any other: the modules
+                // it becomes are a pure function of its bytes, so editing one
+                // changes this key exactly as editing a source does.
+                sources.extend(
+                    lib.generators.iter().flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
+                );
                 if let Some(testing) = &lib.testing {
                     sources.push("testing/lib.buri".into());
                     sources.extend(testing.sources.iter().map(|x| x.value.clone()));
@@ -305,11 +311,23 @@ fn contribute(session: &Session, member: TargetId, k: &mut KeyBuilder) {
             if let Some(bin) = &package.build.binary {
                 sources.extend(bin.sources.iter().map(|x| x.value.clone()));
                 sources.extend(bin.proto_sources.iter().map(|x| x.value.clone()));
+                sources.extend(
+                    bin.generators.iter().flat_map(|g| g.inputs.iter().map(|x| x.value.clone())),
+                );
             }
         }
     }
     sources.sort();
     k.rule_identity(&package.label(), kind, &sources);
+    // What a generator produced, rather than only what it was given. The
+    // inputs above catch an edit to a declared file; this catches everything
+    // else that decides the modules this rule is compiled from — the tool's own
+    // sources above all, which are in no list here and are what a generator
+    // *is*. Without it, editing the tool left every dependent's `link` key
+    // where it was and the cache served the old artifact.
+    for module in crate::build::generators::modules_of(&session.workspace, member) {
+        k.input(&format!("{}/{}", package.label(), module.name), module.text.as_bytes());
+    }
     // Read in parallel, hashed in order. A key is a fold over the sources in
     // sorted order and that fold stays exactly where it was, on this thread; a
     // library of three hundred and sixty files is three hundred and sixty
@@ -383,8 +401,9 @@ fn proto_key(session: &Session, target: TargetId, output: &Output, flags: &Flags
 }
 
 /// Reports every action a build of `target` involves, deepest first: one
-/// `proto` line per rule that declares a schema, one `compile` line per closure
-/// member, then the `link` that consumed them.
+/// `proto` line per rule that declares a schema, one `generate` line per rule
+/// that declares a generator, one `compile` line per closure member, then the
+/// `link` that consumed them.
 fn explain_closure(session: &Session, target: TargetId, output: &Output, flags: &Flags) {
     if !flags.explain {
         return;
@@ -399,6 +418,16 @@ fn explain_closure(session: &Session, target: TargetId, output: &Output, flags: 
                 &session.workspace.label(member),
                 platform,
                 &proto_key(session, member, output, flags),
+            );
+        }
+        if !crate::build::generators::declared(&session.workspace, member).is_empty() {
+            crate::build::cache::explain(
+                true,
+                crate::build::cache::Status::Keyed,
+                Action::Generate,
+                &session.workspace.label(member),
+                platform,
+                &crate::build::generators::rule_key(session, member, output, flags),
             );
         }
         let key = compile_key(session, member, output, flags);

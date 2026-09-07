@@ -52,6 +52,22 @@ pub fn regenerate(session: &mut Session, package: PackageId) -> Result<Option<Up
     files.sort();
     schemas.sort();
 
+    // A generator's input is already declared, by the entry that hands it over.
+    // `gen` never writes `generators` — it cannot know which generator owns a
+    // file — so an input that happens to wear one of the two extensions this
+    // walk collects must not be placed in `sources` or `proto_sources` on top
+    // of it.
+    let generated_inputs: BTreeSet<String> = {
+        let mut out = BTreeSet::new();
+        for kind in [RuleKind::Library, RuleKind::Binary] {
+            let target = crate::build::workspace::TargetId { package, kind };
+            out.extend(crate::build::generators::inputs(&session.workspace, target));
+        }
+        out
+    };
+    files.retain(|f| !generated_inputs.contains(f));
+    schemas.retain(|f| !generated_inputs.contains(f));
+
     let mut lib_protos = Vec::new();
     let mut bin_protos = Vec::new();
     let mut lib_sources = Vec::new();

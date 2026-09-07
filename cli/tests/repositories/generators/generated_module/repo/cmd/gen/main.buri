@@ -1,0 +1,188 @@
+//! A generator: one line of JSON in, one line of JSON out.
+//!
+//! It reads `name value` a line and writes a module declaring each name as an
+//! exported `Int`. A line it cannot read is a diagnostic pointing at that line
+//! in the input; an input that declares nothing is a diagnostic with no origin
+//! at all, which lands on the `generators` entry instead.
+//!
+//! `main` names `Alloc`, `Stdin` and `Stdout` and nothing else, which is what
+//! makes what it writes a function of what it was handed.
+
+from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/json" import * as json;
+from "core/json" import { Json };
+from "core/list" import * as list;
+from "core/str" import * as str;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdin: host.stdin,
+        Stdout: host.stdout,
+    };
+    let line = io.readLine(ctx).okOr("the generator was handed no request")?;
+    let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
+    let input = firstInput(request).okOr("the request names no input")?;
+    io
+        .println(ctx, "${json.stringify(ctx, respond(ctx, input.0, input.1))}")
+        .mapErr(fn(_e) => "could not write the response")
+}
+
+/// One declaration read off one line: what to write, and where it came from.
+struct Read {
+    text: Str,
+    start: Int,
+    end: Int,
+}
+
+fn respond<C: Alloc>(ctx: C, path: Str, text: Str): Json {
+    let reads = text
+        .lines(ctx)
+        .filterMapCtx(ctx, fn(c, line) => declaration(c, text, line));
+    let source = reads.mapCtx(ctx, fn(_c, r) => r.text).join(ctx, "");
+    let diagnostics = badLines(ctx, path, text).concat(
+        ctx,
+        emptyInput(ctx, path, reads),
+    );
+    .Object([
+        (
+            "modules",
+            .Array([
+                .Object([
+                    ("name", .Str("units")),
+                    ("text", .Str(source)),
+                    ("anchors", .Array(anchorsOf(ctx, path, reads))),
+                ]),
+            ]),
+        ),
+        ("diagnostics", .Array(diagnostics)),
+    ])
+}
+
+/// One `export let` per readable line, and where in the input it was written.
+fn declaration<C: Alloc>(ctx: C, whole: Str, line: Str): Option<Read> {
+    let trimmed = line.trim();
+    let split = trimmed.splitOnce(" ")?;
+    let value = split.1.trim().toInt()?;
+    let start = whole.indexOf(trimmed)?;
+    .Some(Read {
+        text: str.format(ctx, "export let ${split.0}: Int = ${value};\n"),
+        start: start,
+        end: start + trimmed.len(),
+    })
+}
+
+/// One anchor per declaration: its region of the generated text, against the
+/// line of the input it came from. The region starts where everything printed
+/// before it ended.
+fn anchorsOf<C: Alloc>(ctx: C, path: Str, reads: [Read]): [Json] {
+    list
+        .range(ctx, 0, reads.len())
+        .mapCtx(ctx, fn(c, i) => {
+            let start = reads.slice(c, 0, i).fold(fn(acc, r) => acc + r.text.len(), 0);
+            let length = reads.get(i).map(fn(r) => r.text.len()).withDefault(0);
+            .Object([
+                ("start", .Num(start.toF64())),
+                ("end", .Num((start + length).toF64())),
+                ("file", .Str(path)),
+                (
+                    "span",
+                    span(
+                        reads.get(i).map(fn(r) => r.start).withDefault(0),
+                        reads.get(i).map(fn(r) => r.end).withDefault(0),
+                    ),
+                ),
+            ])
+        })
+}
+
+fn span(start: Int, end: Int): Json {
+    .Object([("start", .Num(start.toF64())), ("end", .Num(end.toF64()))])
+}
+
+/// A line that is not `name value`, reported where it is written.
+fn badLines<C: Alloc>(ctx: C, path: Str, text: Str): [Json] {
+    text
+        .lines(ctx)
+        .filterMapCtx(ctx, fn(c, line) => {
+            let trimmed = line.trim();
+            if (trimmed.isEmpty() || declaration(c, text, line).isSome()) {
+                .None
+            } else {
+                let start = text.indexOf(trimmed).withDefault(0);
+                .Some(
+                    diagnostic(
+                        "units-unreadable-line",
+                        str.format(c, "`${trimmed}` is not `name value`"),
+                        .Object([
+                            ("file", .Str(path)),
+                            ("span", span(start, start + trimmed.len())),
+                        ]),
+                    ),
+                )
+            }
+        })
+}
+
+/// An input that declares nothing. There is no line to point at, so the
+/// diagnostic carries no origin and lands on the `generators` entry.
+fn emptyInput<C: Alloc>(ctx: C, path: Str, reads: [Read]): [Json] {
+    if (reads.isEmpty()) {
+        [
+            diagnostic(
+                "units-declares-nothing",
+                str.format(ctx, "${path} declares no unit"),
+                .Null,
+            ),
+        ]
+    } else {
+        list.empty()
+    }
+}
+
+fn diagnostic(code: Str, message: Str, origin: Json): Json {
+    .Object([
+        ("code", .Str(code)),
+        ("message", .Str(message)),
+        ("note", .Null),
+        ("fix", .Null),
+        ("origin", origin),
+    ])
+}
+
+fn firstInput(request: Json): Option<(Str, Str)> {
+    field(request, "inputs")
+        .andThen(fn(v) => asArray(v))
+        .andThen(fn(items) => items.first())
+        .andThen(fn(pair) => asPair(pair))
+}
+
+fn field(value: Json, name: Str): Option<Json> {
+    match (value) {
+        .Object(fields) => fields.find(fn(f) => f.0 == name).map(fn(f) => f.1),
+        _ => .None,
+    }
+}
+
+fn asArray(value: Json): Option<[Json]> {
+    match (value) {
+        .Array(items) => .Some(items),
+        _ => .None,
+    }
+}
+
+fn asStr(value: Json): Option<Str> {
+    match (value) {
+        .Str(s) => .Some(s),
+        _ => .None,
+    }
+}
+
+fn asPair(value: Json): Option<(Str, Str)> {
+    let items = asArray(value)?;
+    let path = items.get(0).andThen(fn(v) => asStr(v))?;
+    let text = items.get(1).andThen(fn(v) => asStr(v))?;
+    .Some((path, text))
+}
