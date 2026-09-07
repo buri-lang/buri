@@ -21,10 +21,11 @@
 //! build needs one; the claim is that a repository pays for that **once**, not
 //! once per target, per platform, or per build.
 //!
-//! The last two are about what an *input* may be, and are here rather than in
-//! `repositories/generators/` because neither fixture is text a corpus could
-//! hold: a schema that is not UTF-8, and one a megabyte long — past any pipe
-//! buffer, which is what the request's own thread is for.
+//! The last three are here rather than in `repositories/generators/` because
+//! none of their fixtures is something a corpus could hold: a schema that is
+//! not UTF-8; a megabyte through every one of the tool's three pipes, past any
+//! platform's buffer; and the printer's own text compared byte for byte with
+//! the file beside it.
 //!
 //! ```text
 //! cargo test -p buri --test build generators::
@@ -270,17 +271,18 @@ fn an_input_that_is_not_text_is_reported_as_unreadable_rather_than_absent() {
         .says("check the file exists and is readable");
 }
 
-/// **A request larger than a pipe holds crosses it whole.**
+/// **All three pipes carry more than a pipe holds.**
 ///
 /// The build writes the request on one thread and drains both of the tool's
-/// streams on two more, because a pipe holds a page or two: a request bigger
-/// than that blocks the write, and a build waiting for an exit that the block
-/// prevents is two processes waiting on each other. A megabyte is far past any
-/// platform's buffer, so this is the row that fails if the feeding thread is
-/// ever folded back into the wait.
+/// streams on two more, because a pipe holds a page or two: a stream bigger
+/// than that blocks whoever is writing it, and a build waiting for an exit that
+/// the block prevents is two processes waiting on each other with nothing to
+/// end it. So the tool here is handed a megabyte, answers with a module holding
+/// all of it, and writes a hundred kilobytes on standard error on the way — a
+/// megabyte and a hundred kilobytes being far past any platform's buffer.
 ///
-/// The generator answers with the input's own length, so a request that arrived
-/// truncated is a wrong number rather than a hang.
+/// The generator answers with the input's own length and with the input itself,
+/// so a stream that arrived truncated is a wrong number rather than a hang.
 #[test]
 fn an_input_larger_than_a_pipe_crosses_it_whole() {
     let scratch = Scratch::repo("generators-large-input");
@@ -292,7 +294,10 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
     // One megabyte, which no pipe buffer on either platform holds.
     const SIZE: usize = 1_000_000;
     scratch.write("lib/wire/big.txt", &"x".repeat(SIZE));
-    scratch.write("lib/wire/lib.buri", "from \"//lib/wire/units\" export { size };\n");
+    scratch.write(
+        "lib/wire/lib.buri",
+        "from \"//lib/wire/units\" export { echoed, size };\n",
+    );
     scratch.write("cmd/gen/BUILD.buri", "binary {\n    outputs: [{ platform: JS }]\n}\n");
     scratch.write("cmd/gen/main.buri", MEASURING_GENERATOR);
     scratch.write(
@@ -304,19 +309,20 @@ fn an_input_larger_than_a_pipe_crosses_it_whole() {
         "from \"core/effect\" import { Alloc, Stdout };\n\
          from \"core/host\" import * as host;\n\
          from \"core/io\" import * as io;\n\
-         from \"//lib/wire\" import { size };\n\n\
+         from \"//lib/wire\" import { echoed, size };\n\n\
          export fn main(): Result<(), Str> {\n  \
          let ctx = context { Alloc: host.alloc, Stdout: host.stdout };\n  \
-         let _ = io.println(ctx, \"size=${size}\").ignore();\n  \
+         let _ = io.println(ctx, \"size=${size} echoed=${echoed.len()}\").ignore();\n  \
          .Ok(())\n\
          }\n",
     );
 
-    scratch.run(&["run", "//cmd/app"]).ok().says(&format!("size={SIZE}"));
+    scratch.run(&["run", "//cmd/app"]).ok().says(&format!("size={SIZE} echoed={SIZE}"));
 }
 
-/// A generator that answers with the number of bytes it was handed.
-const MEASURING_GENERATOR: &str = r#"from "core/effect" import { Alloc, Stdin, Stdout };
+/// A generator that answers with the bytes it was handed and how many there
+/// were, and that fills standard error before it does.
+const MEASURING_GENERATOR: &str = r#"from "core/effect" import { Alloc, Stderr, Stdin, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/json" import * as json;
@@ -325,11 +331,20 @@ from "core/list" import * as list;
 from "core/str" import * as str;
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdin: host.stdin, Stdout: host.stdout };
+  let ctx = context {
+    Alloc: host.alloc,
+    Stderr: host.stderr,
+    Stdin: host.stdin,
+    Stdout: host.stdout,
+  };
   let line = io.readLine(ctx).okOr("no request")?;
   let request = json.parse(ctx, line).mapErr(fn(_e) => "the request is not JSON")?;
   let text = firstInput(request).withDefault("");
-  let source = str.format(ctx, "export let size: Int = ${text.len()};\n");
+  let _ = io.eprintln(ctx, "e".repeat(ctx, 100000)).ignore();
+  let source = str.format(
+    ctx,
+    "export let size: Int = ${text.len()};\nexport let echoed: Str = \"${text}\";\n",
+  );
   let unit: Json = .Object([
     ("name", .Str("units")),
     ("text", .Str(source)),

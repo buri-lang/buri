@@ -111,3 +111,17 @@ run {
   exit: 1
   golden: "taken.txt"
 }
+
+# And back. Seven failures in a row leave nothing behind: the tool answers, the
+# rule's previous answer goes with it, and the program runs again.
+edit {
+  file: "lib/wire/mode.txt"
+  replace: "taken"
+  with: "two"
+}
+
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "recovered.txt"
+}
