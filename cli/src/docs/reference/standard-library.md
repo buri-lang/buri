@@ -104,17 +104,43 @@ unordered, so it answers `.Equal` for a pair it could not order.
   same reason there is **no `Builder`**: `[[U8]].flatten` is what building looks
   like here.
 
-  `fromU64Be` and its seven relatives cover both ends of both widths, in both
-  directions. Writing one is *pure*: an array literal of a fixed size allocates
-  nothing a context has to grant. Reading answers an `Option`, because a number
-  assembled out of octets that were not there is a wrong answer wearing the
-  shape of a right one.
+  `fromU64Be` and its eleven relatives cover both ends of all three widths, in
+  both directions — 16, 32 and 64 bits, which is every length prefix a record
+  format writes. Writing one is *pure*: an array literal of a fixed size
+  allocates nothing a context has to grant. Reading answers an `Option`, because
+  a number assembled out of octets that were not there is a wrong answer wearing
+  the shape of a right one.
+
+  **Base64 comes in two alphabets.** `toBase64` is the standard one and always
+  pads; `toBase64Url` is RFC 4648 §5 and never does, which is what a JWT, a
+  signed cookie and a URL-safe id expect. `fromBase64Url` reads either. Neither
+  alphabet reads the other's output.
+
+  `indexOf`, `startsWith`, `endsWith`, `split` and `join` are `core/str`'s five
+  over octets, for framing a stream and cutting a multipart body. The search is
+  a plain scan with no preprocessing, O(n*m) in the worst case; a delimiter is a
+  boundary marker or a CRLF, so the table a smarter algorithm would build costs
+  more than it saves.
+
+  `fromUtf8Lossy` is the one decoder here that does not refuse. It substitutes
+  U+FFFD once per *maximal subpart*, which is what `fs.readText` and every
+  browser do — a truncated three-byte sequence costs one replacement character,
+  not three. Reach for it on a body somebody else wrote, and for `fromUtf8` on
+  bytes you have a claim about.
 
 - **`core/json`** — a `Json` tree, `parse`, and `stringify`. **An object is an
   ordered association list, not a map**, so key order round-trips, nothing needs
   a `Hash` bound, and `get` costs O(n). Every number is a `Float`, which is what
-  JSON says a number is. `MAX_DEPTH` caps nesting, because parsing recurses and
-  the recursion is not in tail position.
+  JSON says a number is — `asInt` is the conversion an integer field pays either
+  way, done once and answering `.None` when the number was not whole.
+  `MAX_DEPTH` caps nesting, because parsing recurses and the recursion is not in
+  tail position.
+
+  `stringifyPretty` lays a document out over lines; `stringifySorted` puts every
+  object's keys in `Str` order at every depth, so two documents that differ only
+  in key order render alike — which is what a golden file or a digest over a
+  document needs. `asObject`, `keys` and `path` read one: `doc.path(["user",
+  "name"])` is `get` down a chain instead of nested `andThen`s.
 
   **`derive ToJson` and `derive FromJson` map it onto your own types**, and
   `encode` and `decode` are the two functions that use them. Both sit on
@@ -274,18 +300,42 @@ to the same type.
 
 A `Duration` counts **nanoseconds**. An `Instant` counts milliseconds, which is
 what the clock reports. `time.seconds(30)`, `millis`, `micros`, `nanos`,
-`minutes` and `hours` build one, and `add`, `sub`, `mul`, `negate` and `abs`
-combine them. **Every one of those saturates**, because overflow is undefined
-behaviour and a deadline is where a program can least afford it.
+`minutes`, `hours` and `secondsFloat` build one, `ZERO` is the empty one, and
+`add`, `sub`, `mul`, `divide`, `negate` and `abs` combine them. `ratio` and
+`asSecondsFloat` answer a `Float`, because a length over a length is a number.
+**Every one of those saturates**, because overflow is undefined behaviour and a
+deadline is where a program can least afford it.
 `instant.hasPassed(deadline)` is that whole check. Its `Show` prints `1.5s`,
 `300ms`, `750us` or `1ns`: the largest unit the length reaches, with the exact
 fraction. There is no `m` or `h`, because a fraction of an hour is not a decimal.
+
+**Measure elapsed time with `Monotonic`, not with `Instant`.** `time.now` is
+wall time: NTP steps it, sometimes backwards, and it counts whole milliseconds,
+so a measurement taken from two `Instant`s can come out negative for work that
+really happened. `time.monotonic(ctx)` reads a clock that only goes forward, in
+nanoseconds, and `time.elapsed(ctx, started)` is the difference. The reading has
+no epoch and means nothing on its own, which is why it is a separate type. Every
+platform that grants `Clock` grants it, and `core/host/testing`'s `clock()`
+moves both readings together, so a test can assert an elapsed time without
+waiting for one.
 
 **There is no timezone database, and there will not be one.** tzdata runs to
 megabytes and changes several times a year, and this toolchain has no
 dependencies and ships no data files. `Zoned` carries a fixed offset in
 minutes, which covers UTC, a stored offset, and arithmetic within one offset.
-It does not cover `America/New_York`, and it does not pretend to.
+It does not cover `America/New_York`, and it does not pretend to. `date.zoned`
+reads a moment in an offset and `zonedToInstant` reads it back.
+
+`formatDateTime` writes RFC 3339 and `parseDateTime` reads it, applying the
+offset so the answer is UTC; `parseZoned` reads the same text and keeps the
+offset. `formatHttpDate` writes the IMF-fixdate a `Date`, `Expires` or
+`Last-Modified` header carries, and `parseHttpDate` reads all three spellings
+RFC 9110 makes a recipient accept — including the obsolete two-digit year,
+which reads 00-68 as 2000-2068 because no pure function can ask what year it is.
+`isoWeek` answers the week-based year and the week, which is a pair because the
+1st of January is not always in week 1. `monthsUntil`, `yearsUntil`,
+`startOfMonth` and `endOfMonth` are the calendar-unit arithmetic beside
+`daysUntil`.
 
 ## Randomness
 
@@ -333,12 +383,19 @@ it is the answer another implementation gives.
 ## Cryptography
 
 [`core/crypto`](../../compiler/standard_library/sources/crypto.buri) — SHA-256,
-HMAC-SHA-256, a constant-time comparison, and the platform's cryptographic
-randomness.
+SHA-512, their HMACs, SHA-1, a constant-time comparison, and the platform's
+cryptographic randomness.
 
 The hashes are written in Buri rather than handed to the platform, because a
-dependency tree is a second thing to audit. The NIST vectors check them, and
-check the independent SHA-256 the build cache uses.
+dependency tree is a second thing to audit. The NIST vectors check them, RFC
+4231's check the HMACs, and the same vectors check the independent SHA-256 the
+build cache uses. A `Digest` is as many bytes as the function that made it: 32,
+64 or 20.
+
+**`sha1` is legacy interop only.** A chosen-prefix collision has been published,
+so anything that trusts two inputs to have two digests can be forged. Use it to
+read a git object id, an S3 ETag or an old signature, and never to protect
+something new.
 
 `randomBytes` and `token` are the half *not* written here. They perform the
 `Entropy` effect, and the operating system supplies the octets: `getrandom(2)`
@@ -374,6 +431,27 @@ Deliberately absent, and not by oversight:
 `sha256` is **not a password hash**. It is fast, which is the wrong property. It
 is also the wrong size for a flipped-bit guard: thirty-two octets of frame on a
 log record where four would do. [`core/hash`](#checksums) covers that case.
+
+## Identifiers
+
+[`core/uuid`](../../compiler/standard_library/sources/uuid.buri) — a `Uuid` is
+sixteen octets with RFC 9562's version and variant fields fixed, and it carries
+`Eq`, `Ord`, `Hash` and `Show`.
+
+**A `Str` is not a `Uuid`.** `parse` is the only way in from text and answers
+`.None` for anything that is not thirty-six characters in the canonical
+hyphenated shape; `fromBytes` takes sixteen octets and no other count; `text` is
+the way back, always lowercase. `zero()` is the nil identifier.
+
+`version4(ctx)` is sixteen octets from `Entropy` with the two fields stamped
+over them — 122 random bits, and nothing about it ordered. `version7(ctx)` puts
+forty-eight bits of Unix milliseconds at the front, so two of them sort in the
+order they were made by their octets and by their text both. That is what a
+database primary key wants, and version 4 scatters writes across the whole
+index instead.
+
+**Neither is a secret.** A version 7 identifier says when it was minted, to the
+millisecond. A bearer token is [`crypto.token`](#cryptography).
 
 ## User interfaces
 
@@ -451,6 +529,7 @@ implements them all, and only the module that exports `main` may import it.
 [`core/time`](../../compiler/standard_library/sources/time.buri),
 [`core/random`](../../compiler/standard_library/sources/random.buri),
 [`core/crypto`](../../compiler/standard_library/sources/crypto.buri),
+[`core/uuid`](../../compiler/standard_library/sources/uuid.buri),
 [`core/net/http`](../../compiler/standard_library/sources/http.buri),
 [`core/net/server`](../../compiler/standard_library/sources/server.buri),
 [`core/net/websocket`](../../compiler/standard_library/sources/websocket.buri),

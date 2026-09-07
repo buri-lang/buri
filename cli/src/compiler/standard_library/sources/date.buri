@@ -670,8 +670,8 @@ fn offsetText<C: Alloc>(ctx: C, offsetMinutes: Int): Str {
 ///         Alloc: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
-///     let when = date.fromInstant(Instant(784_111_777_000));
-///     let _ = io.println(ctx, date.formatHttpDate(ctx, when)).ignore();
+///     let moment = date.fromInstant(Instant(784_111_777_000));
+///     let _ = io.println(ctx, date.formatHttpDate(ctx, moment)).ignore();
 ///     .Ok(())
 /// }
 /// ```
