@@ -34,8 +34,8 @@
 /// `cli/runtime/lib.rs` §2 rule 1: every parameter is a scalar leaf, flattened
 /// in declaration order. A `Str` is three parameters and a `[T]` is two.
 ///
-/// Most variants consume one Buri argument and emit its leaves. [`Arg::Stride`]
-/// and [`Arg::Retain`] consume **no** Buri argument at all: they are §2 rule
+/// Most variants consume one Buri argument and emit its leaves. [`Arg::Stride`],
+/// [`Arg::Retain`] and [`Arg::Release`] consume **no** Buri argument at all: they are §2 rule
 /// 4's "a generic parameter is a pointer and a stride", where the two extra
 /// words come from `middle::layout` and from the backend's own glue rather than
 /// from the call. That is why this is a description of the *C* parameter list
@@ -73,6 +73,14 @@ pub enum Arg {
     /// counted pointers (`cli/runtime/list.rs`'s header). Consumes no Buri
     /// argument.
     Retain,
+    /// The per-value **release** glue, or null where the type holds no counted
+    /// pointers. Consumes no Buri argument.
+    ///
+    /// [`Arg::Retain`]'s mirror, and it appears on exactly the rows the other
+    /// table marks `Extra::Owned`: the ones whose value the runtime *keeps*
+    /// and later writes over. Nothing in `core/list` does, which is why the
+    /// retain travelled alone for as long as the graph was not here.
+    Release,
     // -- the closure trampoline ---------------------------------------------
     /// A **runtime-driven step**: four parameters, from one Buri closure
     /// argument (`backend/intrinsic_keys.rs`'s `step_call`).
@@ -97,16 +105,37 @@ pub enum Arg {
     /// variant keeps "which stride is which" a property of this table instead
     /// of an ordering convention between two independent rows.
     Step,
+    /// A **deferred body**: seven parameters, from one Buri closure argument.
+    ///
+    /// ```text
+    ///   entry     the generated `ccc` thunk, `void(state, index, in, out)`
+    ///   state     this backend's own record, opaque to the runtime
+    ///   bytes     how many bytes of it there are
+    ///   frame_at  where in the copy to write a working frame, or -1
+    ///   stride    how many bytes the body writes through `out`
+    ///   release   the release glue for what it writes, or null
+    ///   body      the release glue for the record itself, or null
+    /// ```
+    ///
+    /// [`Arg::Step`] with the lifetime turned around, and the other table's
+    /// `Extra::Compute` argues the shape. The thunk is the same one, because a
+    /// reactive body is `fn(Scope) => T` and that is a step of one element. The
+    /// record is copied by the runtime rather than pointed at, because the
+    /// `alloca` it is built in is gone by the time a memo first runs. This
+    /// backend's thunk works on the machine stack and wants no frame word, so
+    /// `frame_at` is always `-1` here.
+    Compute,
 }
 
 impl Arg {
     /// How many C parameters this shape emits.
     pub fn leaves(self) -> usize {
         match self {
+            Arg::Compute => 7,
             Arg::Step => 4,
             Arg::Str => 3,
             Arg::Bytes | Arg::List | Arg::Elems => 2,
-            Arg::Scalar | Arg::Spilled | Arg::Stride | Arg::Retain => 1,
+            Arg::Scalar | Arg::Spilled | Arg::Stride | Arg::Retain | Arg::Release => 1,
             Arg::Dropped => 0,
         }
     }
@@ -114,7 +143,7 @@ impl Arg {
     /// Whether this shape takes the next Buri argument. The two shapes the
     /// backend supplies for itself do not.
     pub fn consumes(self) -> bool {
-        !matches!(self, Arg::Stride | Arg::Retain)
+        !matches!(self, Arg::Stride | Arg::Retain | Arg::Release)
     }
 }
 
@@ -1836,7 +1865,7 @@ pub const ENTRIES: &[Entry] = &[
     Entry {
         key: "ui_testing.Headless.signal",
         symbol: "buri_rt_ui_testing_headless_signal",
-        args: &[Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain],
+        args: &[Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain, Arg::Release],
         ret: Ret::Scalar,
     },
     Entry {
@@ -1846,9 +1875,39 @@ pub const ENTRIES: &[Entry] = &[
         ret: Ret::Out,
     },
     Entry {
+        key: "ui_testing.observer",
+        symbol: "buri_rt_ui_testing_observer",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.Observer.read",
+        symbol: "buri_rt_ui_testing_observer_read",
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Stride, Arg::Retain],
+        ret: Ret::Out,
+    },
+    // The other row with a release beside its retain, for `signal`'s reason:
+    // a cell keeps the bytes it was written, so the write that replaces them
+    // gives the old ones back.
+    Entry {
         key: "ui_testing.Headless.write",
         symbol: "buri_rt_ui_testing_headless_write",
-        args: &[Arg::Scalar, Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain],
+        args: &[Arg::Scalar, Arg::Scalar, Arg::Spilled, Arg::Stride, Arg::Retain, Arg::Release],
+        ret: Ret::Void,
+    },
+    // The deferred bodies. `Arg::Compute` is last for `Arg::Step`'s reason:
+    // the other table names no argument shapes, so "the closure is the last
+    // argument" is what lets one row describe one C signature in both.
+    Entry {
+        key: "ui_testing.Headless.memo",
+        symbol: "buri_rt_ui_testing_headless_memo",
+        args: &[Arg::Scalar, Arg::Compute],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_testing.Headless.watch",
+        symbol: "buri_rt_ui_testing_headless_watch",
+        args: &[Arg::Scalar, Arg::Compute],
         ret: Ret::Void,
     },
     Entry {
@@ -1856,6 +1915,37 @@ pub const ENTRIES: &[Entry] = &[
         symbol: "buri_rt_ui_testing_paint",
         args: &[Arg::Str, Arg::Str, Arg::Str],
         ret: Ret::Void,
+    },
+    // The recorder — `runtime_table.rs`'s group of the same name argues it.
+    Entry {
+        key: "ui_testing.recorder",
+        symbol: "buri_rt_ui_testing_recorder",
+        args: &[],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.Recorder.record",
+        symbol: "buri_rt_ui_testing_recorder_record",
+        args: &[Arg::Scalar, Arg::Str],
+        ret: Ret::Void,
+    },
+    Entry {
+        key: "ui_testing.Recorder.recorded",
+        symbol: "buri_rt_ui_testing_recorder_recorded",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
+    },
+    Entry {
+        key: "ui_testing.Recorder.note",
+        symbol: "buri_rt_ui_testing_recorder_note",
+        args: &[Arg::Scalar, Arg::Scalar],
+        ret: Ret::Scalar,
+    },
+    Entry {
+        key: "ui_testing.Recorder.noted",
+        symbol: "buri_rt_ui_testing_recorder_noted",
+        args: &[Arg::Scalar],
+        ret: Ret::Out,
     },
 ];
 
@@ -2272,10 +2362,11 @@ mod tests {
             Arg::Elems,
             Arg::Spilled,
             Arg::Step,
+            Arg::Compute,
         ] {
             assert!(shape.consumes(), "{shape:?}");
         }
-        for shape in [Arg::Stride, Arg::Retain] {
+        for shape in [Arg::Stride, Arg::Retain, Arg::Release] {
             assert!(!shape.consumes(), "{shape:?}");
             assert_eq!(shape.leaves(), 1);
         }
@@ -2292,6 +2383,11 @@ mod tests {
             let strides = e.args.iter().filter(|a| **a == Arg::Stride).count();
             let retains = e.args.iter().filter(|a| **a == Arg::Retain).count();
             assert_eq!(strides, retains, "{}", e.key);
+            // A release never travels alone: it is the retain's mirror over
+            // the same type, so a row with one and no stride would be a glue
+            // for a `T` this call never said the width of.
+            let releases = e.args.iter().filter(|a| **a == Arg::Release).count();
+            assert!(releases <= retains, "{}", e.key);
             // A row may name its `T` in the **result** rather than in an
             // argument, and then there is no `Arg::Elems` and no `Arg::Spilled`
             // to see: `ui_effect.Scope.read` and `ui_testing.Headless.read` are
@@ -2301,16 +2397,50 @@ mod tests {
             // as strong as it was, since a row with a stride and no mark
             // anywhere still fails.
             let by_result = runtime_table::entry(e.key)
-                .is_some_and(|shared| shared.extra == runtime_table::Extra::Element);
+                .is_some_and(|shared| {
+                    matches!(
+                        shared.extra,
+                        runtime_table::Extra::Element | runtime_table::Extra::Owned
+                    )
+                });
             let generic =
                 e.args.iter().any(|a| matches!(a, Arg::Elems | Arg::Spilled)) || by_result;
             // [`Arg::Step`] carries **both** of its strides itself, because a
             // step reads one element type and writes another and `Arg::Stride`
             // names exactly one. So a row with a step is generic and has no
             // separate stride, and the equivalence above holds of the rest.
-            let stepped = e.args.contains(&Arg::Step);
+            // [`Arg::Compute`] carries its one stride itself, for
+            // [`Arg::Step`]'s reason: it also names a release beside it, and
+            // the two travel as one shape rather than as three rows that have
+            // to be kept in order.
+            let stepped = e.args.contains(&Arg::Step) || e.args.contains(&Arg::Compute);
             assert_eq!(strides > 0, generic && !stepped, "{}", e.key);
         }
+    }
+
+    /// Every row with a deferred body has it **last**, and it is a key the
+    /// other table marks `Extra::Compute`. That invariant is what lets a table
+    /// with no per-argument column describe the same C signature: "skip the
+    /// last argument and append seven" and "write seven where it stood" are
+    /// the same list.
+    #[test]
+    fn a_deferred_body_is_the_last_argument_of_a_key_the_shared_table_names() {
+        use crate::compiler::backend::runtime_table::{self, Extra};
+        let mut checked = 0usize;
+        for e in ENTRIES {
+            let at = e.args.iter().position(|a| *a == Arg::Compute);
+            let shared = runtime_table::entry(e.key).map(|s| s.extra == Extra::Compute);
+            match (at, shared) {
+                (Some(at), Some(true)) => {
+                    assert_eq!(at + 1, e.args.len(), "{}", e.key);
+                    checked += 1;
+                }
+                (None, Some(true)) => panic!("{} is a deferred body and has no `Arg::Compute`", e.key),
+                (Some(_), _) => panic!("{} has a deferred body the other table does not name", e.key),
+                (None, _) => {}
+            }
+        }
+        assert_eq!(checked, 2, "the graph's two deferred bodies, and nothing else yet");
     }
 
     /// Every row with a step is one `backend/intrinsic_keys.rs` names, its
@@ -2382,9 +2512,15 @@ mod tests {
         let mut checked = 0usize;
         for shared in runtime_table::ENTRIES {
             let Some(here) = ENTRIES.iter().find(|e| e.key == shared.key) else { continue };
-            if shared.extra != Extra::Element {
+            if !matches!(shared.extra, Extra::Element | Extra::Owned) {
                 continue;
             }
+            assert_eq!(
+                here.args.iter().filter(|a| **a == Arg::Release).count(),
+                usize::from(shared.extra == Extra::Owned),
+                "{}: the two tables disagree about whether the runtime keeps this value",
+                shared.key
+            );
             assert_eq!(
                 here.args.iter().filter(|a| **a == Arg::Stride).count(),
                 1,
