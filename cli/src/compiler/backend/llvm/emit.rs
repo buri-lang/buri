@@ -5784,9 +5784,16 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
         // `$bits_trailingZeros(0)` is `64`, so zero has an answer.
         let zero_defined = self.ctx.bool_type().const_zero().into();
         let counted = match op {
-            "popCount" => Some(("llvm.ctpop", vec![x.into()])),
-            "leadingZeros" => Some(("llvm.ctlz", vec![x.into(), zero_defined])),
-            "trailingZeros" => Some(("llvm.cttz", vec![x.into(), zero_defined])),
+            "popCount" | "popCountU64" => Some(("llvm.ctpop", vec![x.into()])),
+            "leadingZeros" | "leadingZerosU64" => {
+                Some(("llvm.ctlz", vec![x.into(), zero_defined]))
+            }
+            "trailingZeros" | "trailingZerosU64" => {
+                Some(("llvm.cttz", vec![x.into(), zero_defined]))
+            }
+            // `llvm.bswap` answers at the operand's own width, which is the
+            // key's: `byteSwapU32` reverses four bytes and `byteSwapU64` eight.
+            "byteSwapU32" | "byteSwapU64" => Some(("llvm.bswap", vec![x.into()])),
             _ => None,
         };
         if let Some((name, argv)) = counted {
@@ -5800,8 +5807,8 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             return false;
         };
         let bits = match op {
-            "shlU8" | "shrU8" => 8,
-            "shlU32" | "shrU32" => 32,
+            "shlU8" | "shrU8" | "rotateLeftU8" | "rotateRightU8" => 8,
+            "shlU32" | "shrU32" | "rotateLeftU32" | "rotateRightU32" => 32,
             _ => 64,
         };
         self.shift_guard(state, n, bits);
@@ -5823,9 +5830,11 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
             // `llvm.fshl(x, x, n)` *is* a rotate, and it is defined for every
             // count — unlike `(x << n) | (x >> (w - n))`, whose second shift is
             // poison at `n == 0`. The range check has already ruled out `n >= w`.
-            "rotateLeft" | "rotateRight" => {
+            "rotateLeft" | "rotateRight" | "rotateLeftU8" | "rotateRightU8"
+            | "rotateLeftU32" | "rotateRightU32" | "rotateLeftU64"
+            | "rotateRightU64" => {
                 let name =
-                    if op == "rotateLeft" { "llvm.fshl" } else { "llvm.fshr" };
+                    if op.starts_with("rotateLeft") { "llvm.fshl" } else { "llvm.fshr" };
                 let ty = want.as_basic_type_enum();
                 let Some(v) =
                     self.llvm_intrinsic(name, &[ty], &[x.into(), x.into(), count.into()])

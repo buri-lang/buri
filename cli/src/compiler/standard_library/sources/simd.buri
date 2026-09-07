@@ -45,7 +45,9 @@
 //! 2.0 1.0 30.0
 //! ```
 
+from "core/bits" import * as bits;
 from "core/math" import * as math;
+from "core/num" import * as num;
 
 derive Eq, Show for F32x4;
 /// Four floats.
@@ -305,5 +307,288 @@ impl I32x4 {
             z: self.z.toF64(),
             w: self.w.toF64(),
         }
+    }
+}
+
+// --- Reductions, loads and the rest of the mask vocabulary --------------------------
+
+impl F32x4 {
+    /// The smallest of the four lanes.
+    ///
+    /// ```buri
+    /// from "core/simd" import * as simd;
+    ///
+    /// export fn floorOf(v: simd.F32x4): Float {
+    ///     v.minLane()
+    /// }
+    /// ```
+    ///
+    /// A horizontal reduction, like `sum`, so it is the one shape a vector unit
+    /// is bad at. `min` is the lane-wise pair.
+    ///
+    /// Comparison is `<`, which is false at `NaN` either side, so a `NaN` lane
+    /// does not win and does not poison the answer.
+    export fn minLane(self): Float {
+        let a = if (self.x < self.y) { self.x } else { self.y };
+        let b = if (self.z < self.w) { self.z } else { self.w };
+        if (a < b) { a } else { b }
+    }
+
+    /// The largest of the four lanes.
+    ///
+    /// ```buri
+    /// from "core/simd" import * as simd;
+    ///
+    /// export fn ceilingOf(v: simd.F32x4): Float {
+    ///     v.maxLane()
+    /// }
+    /// ```
+    ///
+    /// `minLane`'s twin, and a `NaN` lane behaves the same way there.
+    export fn maxLane(self): Float {
+        let a = if (self.x > self.y) { self.x } else { self.y };
+        let b = if (self.z > self.w) { self.z } else { self.w };
+        if (a > b) { a } else { b }
+    }
+
+    /// `self * multiplier + addend`, lane by lane.
+    ///
+    /// ```buri
+    /// from "core/simd" import * as simd;
+    ///
+    /// export fn step(position: simd.F32x4, velocity: simd.F32x4, dt: Float): simd.F32x4 {
+    ///     velocity.mulAdd(simd.splatF(dt), position)
+    /// }
+    /// ```
+    ///
+    /// **Two roundings, not one.** This is the multiply and the add written
+    /// together, not a fused multiply-add: an FMA rounds once and would answer
+    /// different bits on a backend that has the instruction and a backend that
+    /// does not.
+    export fn mulAdd(self, multiplier: F32x4, addend: F32x4): F32x4 {
+        self.mul(multiplier).add(addend)
+    }
+
+    /// Each lane truncated toward zero.
+    ///
+    /// ```buri
+    /// from "core/simd" import * as simd;
+    ///
+    /// export fn bucket(v: simd.F32x4): simd.I32x4 {
+    ///     v.toInt()
+    /// }
+    /// ```
+    ///
+    /// Total, which `x.toI64()` is not: a `NaN` lane becomes `0` and a lane past
+    /// either end of `Int` stops at that end. That is the saturating rule a
+    /// vector unit's own conversion has, and it means a vector of any four
+    /// floats converts.
+    export fn toInt(self): I32x4 {
+        I32x4 {
+            x: laneToInt(self.x),
+            y: laneToInt(self.y),
+            z: laneToInt(self.z),
+            w: laneToInt(self.w),
+        }
+    }
+}
+
+/// One lane's float truncated to an `Int`, saturating rather than wrapping.
+///
+/// The two bounds are tested before the conversion rather than after: `2^63` is
+/// not an `Int`, so there is no value to test afterwards.
+fn laneToInt(v: Float): Int {
+    let whole = math.trunc(v);
+    if (math.isNan(whole)) {
+        0
+    } else if (whole >= 9223372036854775808.0) {
+        num.maxValue<Int>()
+    } else if (whole <= -9223372036854775808.0) {
+        num.minValue<Int>()
+    } else {
+        whole.wrapToI64()
+    }
+}
+
+impl I32x4 {
+    /// The lane-wise comparison, as a mask of 1 and 0 — `F32x4.lessThan`'s twin.
+    ///
+    /// ```buri
+    /// from "core/simd" import * as simd;
+    ///
+    /// export fn under(v: simd.I32x4, limit: simd.I32x4): simd.I32x4 {
+    ///     v.lessThan(limit)
+    /// }
+    /// ```
+    export fn lessThan(self, o: I32x4): I32x4 {
+        I32x4 {
+            x: if (self.x < o.x) { 1 } else { 0 },
+            y: if (self.y < o.y) { 1 } else { 0 },
+            z: if (self.z < o.z) { 1 } else { 0 },
+            w: if (self.w < o.w) { 1 } else { 0 },
+        }
+    }
+
+    /// The lane-wise equality, as a mask of 1 and 0.
+    ///
+    /// ```buri
+    /// from "core/simd" import * as simd;
+    ///
+    /// export fn matching(a: simd.I32x4, b: simd.I32x4): simd.I32x4 {
+    ///     a.equalTo(b)
+    /// }
+    /// ```
+    export fn equalTo(self, o: I32x4): I32x4 {
+        I32x4 {
+            x: if (self.x == o.x) { 1 } else { 0 },
+            y: if (self.y == o.y) { 1 } else { 0 },
+            z: if (self.z == o.z) { 1 } else { 0 },
+            w: if (self.w == o.w) { 1 } else { 0 },
+        }
+    }
+
+    /// A mask inverted: every non-zero lane becomes `0` and every zero lane
+    /// becomes `1`.
+    ///
+    /// ```buri
+    /// from "core/simd" import * as simd;
+    ///
+    /// export fn outside(v: simd.I32x4, limit: simd.I32x4): simd.I32x4 {
+    ///     v.lessThan(limit).not()
+    /// }
+    /// ```
+    ///
+    /// **The mask's negation, not the bit pattern's.** Every comparison here
+    /// produces `1` or `0` and `select` reads "non-zero", so a bitwise
+    /// complement would turn `1` into `-2`, which still selects. `xor` with a
+    /// splat of `-1` is the bitwise complement when that is what you want.
+    export fn not(self): I32x4 {
+        I32x4 {
+            x: if (self.x == 0) { 1 } else { 0 },
+            y: if (self.y == 0) { 1 } else { 0 },
+            z: if (self.z == 0) { 1 } else { 0 },
+            w: if (self.w == 0) { 1 } else { 0 },
+        }
+    }
+
+    /// Every lane shifted left by `count`.
+    ///
+    /// ```buri
+    /// from "core/simd" import * as simd;
+    ///
+    /// export fn doubled(v: simd.I32x4): simd.I32x4 {
+    ///     v.shl(1)
+    /// }
+    /// ```
+    ///
+    /// A lane is an `Int`, so this is `bits.shl` four times and a `count` at or
+    /// beyond 64 aborts, exactly as that one does.
+    export fn shl(self, count: Int): I32x4 {
+        I32x4 {
+            x: bits.shl(self.x, count),
+            y: bits.shl(self.y, count),
+            z: bits.shl(self.z, count),
+            w: bits.shl(self.w, count),
+        }
+    }
+
+    /// Every lane shifted right by `count`, logically: the vacated places fill
+    /// with zeros, whatever the sign was.
+    ///
+    /// ```buri
+    /// from "core/simd" import * as simd;
+    ///
+    /// export fn halved(v: simd.I32x4): simd.I32x4 {
+    ///     v.shr(1)
+    /// }
+    /// ```
+    ///
+    /// `bits.shr` four times, so a `count` at or beyond 64 aborts.
+    export fn shr(self, count: Int): I32x4 {
+        I32x4 {
+            x: bits.shr(self.x, count),
+            y: bits.shr(self.y, count),
+            z: bits.shr(self.z, count),
+            w: bits.shr(self.w, count),
+        }
+    }
+}
+
+/// Four consecutive floats from a list, or `.None` when they are not all there.
+///
+/// ```buri
+/// from "core/simd" import * as simd;
+///
+/// export fn head(xs: [Float]): Option<simd.F32x4> {
+///     simd.loadF32x4(xs, 0)
+/// }
+/// ```
+///
+/// A short tail is `.None` rather than a padded vector, so a kernel decides for
+/// itself what to do with the remainder.
+export fn loadF32x4(items: [Float], at: Int): Option<F32x4> {
+    items
+        .get(at)
+        .andThen(fn(x) => {
+            items
+                .get(at + 1)
+                .andThen(fn(y) => {
+                    items
+                        .get(at + 2)
+                        .andThen(fn(z) => {
+                            items
+                                .get(at + 3)
+                                .map(fn(w) => F32x4 { x: x, y: y, z: z, w: w })
+                        })
+                })
+        })
+}
+
+/// Four consecutive integers from a list, or `.None` when they are not all
+/// there.
+///
+/// ```buri
+/// from "core/simd" import * as simd;
+///
+/// export fn headInts(xs: [Int]): Option<simd.I32x4> {
+///     simd.loadI32x4(xs, 0)
+/// }
+/// ```
+///
+/// `loadF32x4`'s twin, with the same rule about a short tail.
+export fn loadI32x4(items: [Int], at: Int): Option<I32x4> {
+    items
+        .get(at)
+        .andThen(fn(x) => {
+            items
+                .get(at + 1)
+                .andThen(fn(y) => {
+                    items
+                        .get(at + 2)
+                        .andThen(fn(z) => {
+                            items
+                                .get(at + 3)
+                                .map(fn(w) => I32x4 { x: x, y: y, z: z, w: w })
+                        })
+                })
+        })
+}
+
+/// `selectF` over integers: a `mask` lane that is non-zero takes from
+/// `whenTrue`, a zero one from `whenFalse`.
+///
+/// ```buri
+/// from "core/simd" import * as simd;
+///
+/// export fn clampLow(v: simd.I32x4, floorAt: simd.I32x4): simd.I32x4 {
+///     simd.selectI(v.lessThan(floorAt), floorAt, v)
+/// }
+/// ```
+export fn selectI(mask: I32x4, whenTrue: I32x4, whenFalse: I32x4): I32x4 {
+    I32x4 {
+        x: if (mask.x != 0) { whenTrue.x } else { whenFalse.x },
+        y: if (mask.y != 0) { whenTrue.y } else { whenFalse.y },
+        z: if (mask.z != 0) { whenTrue.z } else { whenFalse.z },
+        w: if (mask.w != 0) { whenTrue.w } else { whenFalse.w },
     }
 }

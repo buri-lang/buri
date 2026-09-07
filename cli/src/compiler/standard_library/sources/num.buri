@@ -234,3 +234,253 @@ fn significantNibbles(x: Int, upper: Int): Int {
         significantNibbles(x, upper - 1)
     }
 }
+
+// --- Integer arithmetic ----------------------------------------------------------
+//
+// `Int` only, and every one written out of `/`, `%` and `Checked`. `math.pow`
+// is the `Float` answer to `power` and rounds; these do not.
+
+/// `base` raised to `exponent`, or `.None` when the answer is not an `Int`.
+///
+/// ```buri
+/// from "core/num" import * as num;
+///
+/// export fn cube(x: Int): Option<Int> {
+///     num.power(x, 3)
+/// }
+/// ```
+///
+/// A negative exponent is `.None` — the answer is a fraction and `Int` holds
+/// none. `power(0, 0)` is `.Some(1)`, the empty product.
+///
+/// Exponentiation by squaring, so it costs about `log2(exponent)`
+/// multiplications, and every one of them is `checkedMul` rather than `*`.
+export fn power(base: Int, exponent: Int): Option<Int> {
+    if (exponent < 0) { .None } else { squaring(base, exponent, 1) }
+}
+
+/// One round of squaring: fold the low bit of `exponent` into `acc`, square the
+/// base, halve the exponent.
+///
+/// The square is taken only when a further round needs it, so `power(x, 1)`
+/// never asks whether `x * x` fits.
+fn squaring(base: Int, exponent: Int, acc: Int): Option<Int> {
+    if (exponent == 0) {
+        .Some(acc)
+    } else {
+        let folded = if (exponent % 2 == 1) {
+            acc.checkedMul(base)
+        } else {
+            .Some(acc)
+        };
+        folded.andThen(fn(a) => {
+            let half = exponent / 2;
+            if (half == 0) {
+                .Some(a)
+            } else {
+                base.checkedMul(base).andThen(fn(b) => squaring(b, half, a))
+            }
+        })
+    }
+}
+
+/// The largest number that divides both, never negative.
+///
+/// ```buri
+/// from "core/num" import * as num;
+///
+/// export fn simplify(top: Int, bottom: Int): (Int, Int) {
+///     let g = num.greatestCommonDivisor(top, bottom);
+///     if (g == 0) { (top, bottom) } else { (top / g, bottom / g) }
+/// }
+/// ```
+///
+/// `greatestCommonDivisor(0, 0)` is `0`. Sign is ignored, so `(-12, 18)` and
+/// `(12, 18)` both answer `6`.
+///
+/// **Two pairs answer a negative number**, and only these two: `(minValue, 0)`
+/// and `(0, minValue)`, whose common divisor is `2^63` and so is not an `Int`.
+export fn greatestCommonDivisor(a: Int, b: Int): Int {
+    magnitude(euclid(a, b))
+}
+
+/// Euclid's algorithm, tail-recursive.
+///
+/// `±1` is answered rather than divided into, because `minValue % -1` is the
+/// one remainder a machine has no room for.
+fn euclid(a: Int, b: Int): Int {
+    if (b == 0) { a } else if (b == 1 || b == -1) { 1 } else { euclid(b, a % b) }
+}
+
+/// `|x|`, with `minValue` left alone: its magnitude is not an `Int`.
+fn magnitude(x: Int): Int {
+    if (x < 0 && x != minValue<Int>()) { 0 - x } else { x }
+}
+
+/// The smallest positive number both divide, or `.None` when it is not an
+/// `Int`.
+///
+/// ```buri
+/// from "core/num" import * as num;
+///
+/// export fn together(everyA: Int, everyB: Int): Option<Int> {
+///     num.leastCommonMultiple(everyA, everyB)
+/// }
+/// ```
+///
+/// A zero either side answers `.Some(0)`. Sign is ignored, as it is for
+/// `greatestCommonDivisor`.
+export fn leastCommonMultiple(a: Int, b: Int): Option<Int> {
+    if (a == 0 || b == 0) {
+        .Some(0)
+    } else {
+        // Divide before multiplying, so what is tested for overflow is the
+        // answer rather than `a * b`, which leaves the range far sooner.
+        let scaled = a / greatestCommonDivisor(a, b);
+        scaled
+            .checkedMul(b)
+            .andThen(fn(p) => {
+                if (p == minValue<Int>()) { .None } else { .Some(magnitude(p)) }
+            })
+    }
+}
+
+/// The quotient that pairs with `remEuclid`, so
+/// `divideEuclidean(a, b) * b + remEuclid(a, b)` is `a` for every non-zero `b`
+/// — a negative one included, where `divFloor` and `remEuclid` part company.
+///
+/// ```buri
+/// from "core/num" import * as num;
+///
+/// export fn week(day: Int): Int {
+///     num.divideEuclidean(day, 7)
+/// }
+/// ```
+///
+/// Aborts on a zero divisor, exactly as `a / b` does.
+export fn divideEuclidean(dividend: Int, divisor: Int): Int {
+    let q = dividend / divisor;
+    if (dividend % divisor >= 0) { q } else if (divisor > 0) { q - 1 } else { q + 1 }
+}
+
+/// `dividend / divisor` rounded toward positive infinity, so
+/// `divideCeiling(7, 2)` is `4` where `7 / 2` is `3`.
+///
+/// ```buri
+/// from "core/num" import * as num;
+///
+/// export fn pages(items: Int, perPage: Int): Int {
+///     num.divideCeiling(items, perPage)
+/// }
+/// ```
+///
+/// Aborts on a zero divisor, exactly as `a / b` does.
+export fn divideCeiling(dividend: Int, divisor: Int): Int {
+    let q = dividend / divisor;
+    let r = dividend % divisor;
+    if (r == 0) { q } else if ((r > 0) == (divisor > 0)) { q + 1 } else { q }
+}
+
+/// Both halves of a division in one call: `(dividend / divisor,
+/// dividend % divisor)`, truncated toward zero as the two operators are.
+///
+/// ```buri
+/// from "core/num" import * as num;
+///
+/// export fn hoursAndMinutes(minutes: Int): (Int, Int) {
+///     num.quotientRemainder(minutes, 60)
+/// }
+/// ```
+///
+/// Aborts on a zero divisor, exactly as `a / b` does.
+export fn quotientRemainder(dividend: Int, divisor: Int): (Int, Int) {
+    (dividend / divisor, dividend % divisor)
+}
+
+/// The largest `r` with `r * r <= value`, or `.None` for a negative `value`.
+///
+/// ```buri
+/// from "core/num" import * as num;
+///
+/// export fn side(area: Int): Option<Int> {
+///     num.integerSquareRoot(area)
+/// }
+/// ```
+///
+/// Exact, which `math.sqrt(x.toF64())` stops being above `2^53`.
+///
+/// Newton's method from a power of two above the answer: about six divisions
+/// for a small number and never more than thirty-three.
+export fn integerSquareRoot(value: Int): Option<Int> {
+    if (value < 0) {
+        .None
+    } else if (value == 0) {
+        .Some(0)
+    } else {
+        // Half the bit length, rounded up. At or above the root for every
+        // `value`, and at most `2^32`, so `x + value / x` stays inside `Int`.
+        .Some(newton(value, bits.shl(1, (65 - bits.leadingZeros(value)) / 2)))
+    }
+}
+
+/// Newton's iteration, which descends to the root and then stops falling.
+fn newton(value: Int, x: Int): Int {
+    let next = (x + value / x) / 2;
+    if (next >= x) { x } else { newton(value, next) }
+}
+
+/// `|a - b|`, without the sign question either subtraction alone would raise.
+///
+/// ```buri
+/// from "core/num" import * as num;
+///
+/// export fn apart(a: Int, b: Int): Int {
+///     num.absoluteDifference(a, b)
+/// }
+/// ```
+///
+/// The difference itself still has to be an `Int`:
+/// `absoluteDifference(maxValue, minValue)` is `2^64 - 1`, and overflow is
+/// undefined (SPEC 6.2).
+export fn absoluteDifference(a: Int, b: Int): Int {
+    if (a >= b) { a - b } else { b - a }
+}
+
+/// `value` written in `radix`, base 2 to base 36, with lowercase letters past
+/// nine.
+///
+/// ```buri
+/// from "core/effect" import { Alloc };
+/// from "core/num" import * as num;
+///
+/// export fn binary<C: Alloc>(ctx: C, n: Int): Str {
+///     num.toRadix(ctx, n, 2)
+/// }
+/// ```
+///
+/// **A signed numeral, not a bit pattern.** `toRadix(ctx, -5, 2)` is `-101`
+/// where `toHex(ctx, -5, 0)` is the two's complement. `str.toRadix` reads back
+/// exactly what this writes.
+///
+/// A radix outside 2 to 36 is clamped into it: there is no digit alphabet past
+/// either end, and the signature has no room to say so.
+export fn toRadix<C: Alloc>(ctx: C, value: Int, radix: Int): Str {
+    let base = clamp(2, 36, radix);
+    if (value == 0) {
+        "0"
+    } else {
+        // Counted down from zero rather than up from the magnitude, because
+        // `minValue`'s magnitude is not an `Int` and its digits still are.
+        let below = if (value < 0) { value } else { 0 - value };
+        let digits = countDown(ctx, below, base, []);
+        str.fromChars(ctx, if (value < 0) { ['-'].concat(ctx, digits) } else { digits })
+    }
+}
+
+/// The digits of a number at or below zero, most significant first.
+fn countDown<C: Alloc>(ctx: C, n: Int, base: Int, acc: [Char]): [Char] {
+    let digit = char.fromDigit(0 - n % base, base).withDefault('0');
+    let rest = n / base;
+    let next = [digit].concat(ctx, acc);
+    if (rest == 0) { next } else { countDown(ctx, rest, base, next) }
+}

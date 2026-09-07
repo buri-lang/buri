@@ -1372,6 +1372,19 @@ fn runtime_calls(o: &mut Out) {
             ),
         );
     }
+    // The byte reversals, at the two widths `core/bits` declares them for.
+    // `__builtin_bswap*` is one instruction on both architectures this backend
+    // emits for, and there is no eight-bit form because one byte reversed is
+    // itself.
+    for w in [32u32, 64] {
+        o.push(
+            &format!("bits/byteSwap/{w}"),
+            format!(
+                "void $NAME(ARGS) {{ AT(uint64_t, _JIT_D) = \
+                 (uint64_t)__builtin_bswap{w}((uint{w}_t)AT(uint{w}_t, _JIT_A)); TAIL; }}"
+            ),
+        );
+    }
     // `sar` is `Int`'s alone: it is the arithmetic shift, and every other width
     // in `core/bits` is unsigned.
     o.push(

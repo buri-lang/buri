@@ -151,6 +151,12 @@ pub const MODULES: &[StdModule] = &[
     m("core/math", include_str!("sources/math.buri")),
     m("core/simd", include_str!("sources/simd.buri")),
     m("core/bits", include_str!("sources/bits.buri")),
+    // Integers with no width, and numbers whose value is their digits. Both are
+    // ordinary Buri over `Int` and `[Int]` — no runtime entry, no platform —
+    // and both declare methods only on their own type, so a program that has
+    // never heard of either does not pay to parse it.
+    m("core/bigint", include_str!("sources/bigint.buri")),
+    m("core/decimal", include_str!("sources/decimal.buri")),
     StdModule { platform: true, ..m("core/effect", include_str!("sources/effect.buri")) },
     StdModule { platform: true, ..m("core/host", include_str!("sources/host.buri")) },
     // `core/host`'s surface for a test source: the same names, called rather

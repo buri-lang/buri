@@ -3882,7 +3882,9 @@ impl Jit<'_> {
             _ => (64, false),
         };
         let stem = op.trim_end_matches(|c: char| c.is_ascii_digit()).trim_end_matches('U');
-        if matches!(stem, "popCount" | "leadingZeros" | "trailingZeros") {
+        // The one-operand family: three counts and the byte reversal, none of
+        // which takes a shift count and so none of which needs the range check.
+        if matches!(stem, "popCount" | "leadingZeros" | "trailingZeros" | "byteSwap") {
             let k = format!("bits/{stem}/{width}");
             if !self.has(&k) {
                 self.unsupported(format!("CallIntrinsic {key}"));
