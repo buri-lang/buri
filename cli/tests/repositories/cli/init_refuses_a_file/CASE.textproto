@@ -1,0 +1,38 @@
+# Every scaffold file but the ignore file keeps the never-overwrite rule, and
+# the refusal comes before the first byte is written: a half-written repository
+# is something a user can only undo by hand.
+#
+# So the message names the file, neither the `REPO.buri` nor the `.gitignore`
+# the run would have written is there, and the file that stopped it reads
+# exactly as it was written.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# and not a Buri file — nor is repo/ below a Buri repository, which is what
+# `not_a_repository` says.
+
+doc: "a scaffold file already on disk stops init before it writes anything"
+
+# `buri init` refuses at a `REPO.buri` and anywhere inside one, so the tree
+# it starts from is deliberately not a repository.
+not_a_repository: true
+
+run {
+  args: ["init"]
+  exit: 2
+  golden: "refused.txt"
+}
+
+path {
+  path: "REPO.buri"
+  exists: false
+}
+
+path {
+  path: ".gitignore"
+  exists: false
+}
+
+file {
+  path: "apps/hello/main.buri"
+  golden: "main.buri"
+}

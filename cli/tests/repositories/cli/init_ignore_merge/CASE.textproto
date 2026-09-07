@@ -1,0 +1,28 @@
+# `git init` before `buri init` is the ordinary way to start, and it leaves a
+# `.gitignore` at the target. That is the one scaffold collision `buri init`
+# does not refuse: every line already there stays where it is, and only the
+# entries the build needs and the file lacks are appended.
+#
+# The recorded file is the whole claim — the user's comment and both of their
+# lines first, in their order, then what was missing.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# and not a Buri file — nor is repo/ below a Buri repository, which is what
+# `not_a_repository` says.
+
+doc: "an existing ignore file keeps its lines and gains only the entries it lacks"
+
+# `buri init` refuses at a `REPO.buri` and anywhere inside one, so the tree
+# it starts from is deliberately not a repository.
+not_a_repository: true
+
+run {
+  args: ["init"]
+  exit: 0
+  golden: "updated.txt"
+}
+
+file {
+  path: ".gitignore"
+  golden: "ignore.txt"
+}
