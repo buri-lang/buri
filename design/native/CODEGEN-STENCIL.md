@@ -471,9 +471,7 @@ this repository has emitted at. Two sections:
 That in turn means the `adrp`/`ldr` pair reaching the pool crosses a section
 boundary, whose distance is the linker's choice — so nothing patches the pair
 at all. It stays exactly as clang emitted it, both immediate fields zero, with
-an `ARM64_RELOC_PAGE21`/`ARM64_RELOC_PAGEOFF12` pair naming the slot. That is
-what clang's GOT form was before the prototype retargeted it: the port comes
-back to the relocation it started from, once there is a linker to honour it.
+an `ARM64_RELOC_PAGE21`/`ARM64_RELOC_PAGEOFF12` pair naming the slot.
 
 The unit that owns `main` also carries a zero-filled `__DATA,__bss` section
 for the Buri stack (§8).
@@ -505,9 +503,8 @@ writers.
 The emitter's own work is copying stencils, and it always was fast. What was
 slow was everything arranged *around* the copying. All four findings below
 came out of one profile — a real repository's `buri test //...`, eighteen
-packages, 173 codegen units — where the whole of the compile was 5.8 s and the
-whole of the *running* was 1.2 s. §6.9 of `design/PERFORMANCE.md` is the
-measurement; this is what it changed.
+packages, 173 codegen units, 5.8 s of compiling against 1.2 s of running
+(`design/PERFORMANCE.md` §6.9).
 
 **One lowering, not two.** `build::actions::objects_named` lowers the program
 to hash the unit keys, and `emit_units` used to lower it again for the bytes.
@@ -533,11 +530,10 @@ that crosses a thread.
 
 **The units are compiled on a thread each.** `compile_unit` is a pure function
 of the whole-program tables — a `Jit`, a `Region` and a `Layouts` memo of its
-own, reading nothing another unit writes — which is `crate::parallel`'s
-contract exactly, and the whole-program work above the loop (the lowering,
-`frame_sigs`, `Cycles`) is what makes it one. `parallel::map` returns results
-in input order, so how the work divided does not affect §4.1's byte-for-byte
-reproducibility, and
+own, reading nothing another unit writes — and the whole-program work above
+the loop (the lowering, `frame_sigs`, `Cycles`) is what makes it one.
+`parallel::map` returns results in input order, so how the work divided does
+not affect §4.1's byte-for-byte reproducibility, and
 `emitting_one_program_twice_gives_the_same_objects_in_the_same_order` states
 that as a test.
 
@@ -568,17 +564,12 @@ its answer out of the library for the same reason.
 
 ### 4.3 A unit is emitted in parts, 2026-09-04
 
-§4.2 left the emission against one wall: **the largest single unit**. Units
-compile on a thread each, so an emission cannot finish before its biggest unit
-does, and on the repository §4.2 was measured against that unit is
-`core/ordmap` instantiated at one program's key types — 11,267 functions, 1.10
-s, the whole of a ten-thread emission.
-
-Splitting the unit is a build-system change: a unit is a cache key and an
-object file (ARCHITECTURE.md §5), so a smaller unit is a different cache, a
-different manifest and a different link line. Dividing the *inside* of a unit
-is not: the object is still one object, under the same key, holding the same
-symbols in the same order. That is what this is.
+§4.2 left the emission against the largest single unit: 11,267 functions, 1.10
+s, the whole of a ten-thread emission. Splitting the unit is a build-system
+change, so a smaller unit is a different cache, a different manifest and a
+different link line. Dividing the *inside* of a unit is not: the object is
+still one object, under the same key, holding the same symbols in the same
+order. That is what this is.
 
 **A part is a contiguous run of a unit's members, emitted into a region of its
 own.** `mod.rs::cut` cuts the unit's members — which `funcs_by_unit` yields in
@@ -598,24 +589,21 @@ one function is the same whatever the base is. So `append` moves a
 relocation's site by its section's base, moves a `Target::Pool` addend by the
 pool's, and rewrites no bytes at all.
 
-**What a part cannot share with the parts beside it, and what that costs.**
-Three things are per-`Jit` and become per-part: the constant pool's
-deduplication (`Region::pool_index`), the map of where a stencil's spilled
-constants were copied (`Jit::spilled`, x86-64 only), and the generated glue
-(`glue.rs`). The glue is the one that needs a decision, because a helper's
-symbol is minted from its index and two parts do not know what the other asked
-for. So `glue::symbol` takes *two* numbers, the part and the index, and two
-parts that both drop a `[Str]` get a copy each under different local names.
-Measured on a synthetic of the §6.9 shape, the whole of that costs about
-**1%** of the object bytes at `PART_MEMBERS = 512`, and about 0.2% more per
-halving.
+**What a part cannot share with the parts beside it.** Three things are
+per-`Jit` and become per-part: the constant pool's deduplication
+(`Region::pool_index`), the map of where a stencil's spilled constants were
+copied (`Jit::spilled`, x86-64 only), and the generated glue (`glue.rs`). The
+glue is the one that needs a decision, because a helper's symbol is minted
+from its index and two parts do not know what the other asked for. So
+`glue::symbol` takes *two* numbers, the part and the index, and two parts that
+both drop a `[Str]` get a copy each under different local names. Measured on a
+synthetic of the §6.9 shape, the whole of that costs about **1%** of the
+object bytes at `PART_MEMBERS = 512`, and about 0.2% more per halving.
 
 **What is kept per worker rather than per part**, because it is a memo and not
 an answer: the `Layouts` table and the counted-type classifier, handed between
 the parts one worker emits as `jit::Scratch` through `parallel::map_with`.
-They are caches of a pure function of the type tables, which is that
-function's scratch contract exactly; paying for them per part would have been
-most of what the division bought.
+Paying for them per part would have been most of what the division bought.
 
 **One flat work list, not a pool per unit.** Every unit's parts go into one
 `parallel::map_with`, and the per-unit pool that assembles the objects runs
@@ -717,17 +705,15 @@ and is where that fact lives.
 
 `cli/runtime/lib.rs` §2's rule is: the flattened Buri arguments, then the
 element pair, then the out-pointer. What differs here is only *where* an
-argument is. Cranelift builds a value list and lets its register allocator
-place it; this backend has no register allocator at the call boundary, so the
-stencil has to spell out where each argument is, and the shape is
+argument is. This backend has no register allocator at the call boundary, so
+the stencil has to spell out where each argument is, and the shape is
 `(integers, floats, result)` — 132 shapes per family, ten integers rather than
 eight because the ninth and tenth go on the **machine** stack, which is
-entirely clang's business (the stencil is the zero-register prototype, so
-nothing of this backend's is live across the call). `buri_rt_str_replace` is
-the entry that needs them, being three `Str`s flattened and an out-pointer.
-Integers and floats are counted separately, because AAPCS64 assigns the two
-register banks independently: a double in argument position three still goes
-in `d0` if it is the first float.
+entirely clang's business. `buri_rt_str_replace` is the entry that needs them,
+being three `Str`s flattened and an out-pointer. Integers and floats are
+counted separately, because AAPCS64 assigns the two register banks
+independently: a double in argument position three still goes in `d0` if it is
+the first float.
 
 There are **two families of that shape**, and `rtcall.rs::c_call_to` picks per
 call site:
@@ -765,10 +751,9 @@ The same kernel went **701.3 ms to 302.0 ms, a 57% cut**, which four
 instructions in a twenty-six-instruction sequence cannot explain. What the
 array family really cost was a *store-to-load round trip*: six `str`s into the
 scratch area immediately followed by three `ldp`s reading the same addresses
-back, a dependent chain through memory in the middle of the hottest loop in
-the program. The slots family reads each argument from where it already was,
-so the chain is gone. **An instruction count is the wrong unit for this
-boundary, and this table is here to say so rather than to be believed.**
+back, a dependent chain through memory in the hottest loop in the program. The
+slots family reads each argument from where it already was, so the chain is
+gone. **An instruction count is the wrong unit for this boundary.**
 
 Against the incumbent the four kernels went **1.86× → 1.38×** of Cranelift
 `opt_level=none`, and the geomean against LLVM `-O0` — the bar the paper
@@ -928,8 +913,8 @@ that needs it.
 `MakeClosure` allocates `[release fn][record]` and puts the pointer in the
 closure's `env` word, which is the shape VALUE-MODEL.md §7.1 pins for both
 native backends, and `walk_rc` counts that word. Carrying the environment by
-value in one word — what wave 1 did — cannot hold a `Str` and cannot be
-released, and both show up as refusals rather than as a smaller closure.
+value in one word cannot hold a `Str` and cannot be released, and both show up
+as refusals rather than as a smaller closure.
 
 ## 7. What a refusal is
 
@@ -1454,10 +1439,9 @@ three into `libc.a` and ships no `libpthread.a` stub, so against the staged
 sysroot `-lpthread` is `cannot find -lpthread` and the link stops there. They
 survive on one path only, which is `BURI_MUSL=off`.
 
-**Which libc**, beside "which linker", and on Linux it decides whether the
-artifact is portable at all. Three tiers, in order, with
-`BURI_MUSL` (`baked` | `system` | `off`) forcing the choice the way
-`BURI_LINKER` forces the flavour:
+**Which libc** decides whether a Linux artifact is portable at all. Three
+tiers, in order, with `BURI_MUSL` (`baked` | `system` | `off`) forcing the
+choice the way `BURI_LINKER` forces the flavour:
 
 1. **Baked.** `cli/build.rs` copied musl's `libc.a`, `libunwind.a` and the
    nine crt objects out of this rustc's own `self-contained/` directory — the
@@ -1488,11 +1472,11 @@ cc -fuse-ld=lld -o <artifact> <units...> libburi_rt.a \
    -Wl,-dead_strip -Wl,-oso_prefix,.
 ```
 
-No `-no_uuid`: it was there until macOS 26's dyld began rejecting binaries
-without an `LC_UUID`, and ld64's UUID is a content digest, so two identical
-links carry one UUID and keeping it costs no reproducibility. No
-`-platform_version` either — the driver computes it from the selected SDK and
-passes its own, and a second one is an error rather than an override.
+No `-no_uuid`: macOS 26's dyld rejects a binary without an `LC_UUID`, and
+ld64's UUID is a content digest, so two identical links carry one UUID and
+keeping it costs no reproducibility. No `-platform_version` either — the
+driver computes it from the selected SDK and passes its own, and a second one
+is an error rather than an override.
 `-oso_prefix,.` answers ARCHITECTURE.md §7's third source of nondeterminism on
 the linker's side: ld64 records an absolute `N_OSO` path for every input
 carrying debug information, the runtime archive is one, and the link runs *in*
@@ -1540,10 +1524,9 @@ standard the rest of this build system holds itself to (`arguments.rs`).
 ## 13. The backend this one replaced
 
 `DECISIONS.md`'s rule is that a reversed decision is reversed in the document
-that made it, with the reversal recorded there rather than deleted. Two of the
-three reversed here were made in `CODEGEN-CRANELIFT.md`, and that document
-went with its subject, so this section is the record and the index points at
-it.
+that made it. Two of the three reversed here were made in
+`CODEGEN-CRANELIFT.md`, and that document went with its subject, so this
+section is the record and the index points at it.
 
 **Reversed 2026-08-29.** Three rows moved at once:
 
@@ -1582,9 +1565,7 @@ it.
 **What did *not* have to be accepted.** The flip would have carried one
 behavioural difference: `str.concat` allocating unconditionally where the
 removed backend appended into a block it owned alone. That was closed before
-the flip rather than accepted with it. The three paths moved into the runtime
-as `buri_rt_str_concat`, both surviving backends allocate the same number of
-times, and MEMORY.md §5.3's O(log k) promise holds on the debug backend too
+the flip — the three paths moved into the runtime as `buri_rt_str_concat`
 (§5.0.1).
 
 **What was accepted with it, and is repaired by none of the above:**
@@ -1613,7 +1594,7 @@ times, and MEMORY.md §5.3's O(log k) promise holds on the debug backend too
 **What moved here rather than being deleted**, because none of it was
 Cranelift's: §0 (the IR both native backends consume), §4.1 (reproducibility
 of the object bytes), §5.3 (`I128`), §5.4 (aborts), §11 (debug info) and §12
-(linking). What went with the document was true only of a code generator this
-repository no longer contains: the CLIF construction rules, the settings
-table, and the `return_call` analysis behind DECISIONS.md's tail-call row —
-which CODEGEN-LLVM.md §5 argues on its own and never needed the other half.
+(linking). What went with the document was true only of the code generator:
+the CLIF construction rules, the settings table, and the `return_call`
+analysis behind DECISIONS.md's tail-call row, which CODEGEN-LLVM.md §5 argues
+on its own.
