@@ -214,19 +214,60 @@ fn following<C: Sockets + WebSocketClient>(ctx: C): Result<CloseReason, ServeErr
 ```
 
 The context grants `WebSocketClient` for the dialling and `Sockets` for the
-pushing, and every platform grants both — a page can dial even though it can
-never listen. `connect` returns when the socket closes, so reconnecting is a
-loop around it with `time.sleepMs` in the retry rather than a field on the
-`Client`. An `.Err` is a socket that never opened; a socket that opened and then
-ended is an `.Ok` carrying the reason.
+pushing, and every platform grants both — a page or a worker can dial even
+though neither can listen. An `.Err` is a socket that never opened; a socket
+that opened and then ended is an `.Ok` carrying the reason.
 
 `onOpen` is handed the `Response` that opened the socket, where the server's is
 handed the `Request` that asked. That is where a negotiated subprotocol arrives,
 and it is the only shape difference between the two ends.
 
-Testing one needs no network. `sockets().dialling([.Text("hi")])` is a client
-with a script instead of a server, and the pushes your hooks make land in that
-`sockets()` double's `sent()`.
+### Reconnecting is a loop
+
+There is no reconnect field, no backoff setting and no retry count, because
+`connect` returns when the socket closes. Call it again:
+
+```buri
+# from "core/effect" import { Clock, ServeError, Sockets, WebSocketClient };
+# from "core/net/server" import { CloseReason };
+# from "core/net/websocket" import * as websocket;
+# from "core/net/websocket" import { Client };
+# from "core/time" import * as time;
+
+/// Dials again every time the socket ends, waiting longer after each try.
+fn staying<C: Clock + Sockets + WebSocketClient>(
+    ctx: C,
+    client: Client<C, Int>,
+    waitMs: Int,
+): Result<CloseReason, ServeError> {
+    match (websocket.connect(ctx, client)) {
+        .Err(never) => .Err(never),
+        .Ok(_ended) => {
+            let _slept = time.sleepMs(ctx, waitMs);
+            staying(ctx, client, waitMs * 2)
+        },
+    }
+}
+```
+
+That is an ordinary tail call, so a client that reconnects a million times costs
+one stack frame. Give it a try count if you want it to stop.
+
+### Testing one needs no network
+
+`sockets().dialling([.Text("hi")])` is a client with a script instead of a
+server, and the pushes your hooks make land in that `sockets()` double's
+`sent()`. Every dial replays the script, so the loop above runs under it too.
+
+### On a page and in a worker
+
+`connect` follows `ui.mount`: it suspends without holding the event loop, so an
+interface goes on rendering while the socket is idle and a pushed frame wakes it
+like a click. What differs off the native platforms is who writes the handshake.
+`LINUX` and `MACOS` write it here and check every clause of the answer;
+everywhere else the engine's own `WebSocket` does, so how strictly it refuses a
+bad `101` is that engine's decision, and `onOpen`'s `Response` carries the
+negotiated subprotocol and extensions rather than the head the server sent.
 
 ## Stopping
 

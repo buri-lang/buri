@@ -825,7 +825,7 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     /// v4 bind, and the v6 bind either takes the same port or the pair is
     /// dropped and another port tried. A host with no IPv6 loopback keeps the
     /// v4 listener alone, which is what it can use.
-    fn loopback() -> (u16, Vec<TcpListener>) {
+    pub(crate) fn loopback() -> (u16, Vec<TcpListener>) {
         use std::net::{Ipv4Addr, Ipv6Addr};
         for _ in 0..32 {
             let v4 = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("a loopback listener");
@@ -854,7 +854,10 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     /// the loop is *for* is the `None`: a server that gives up is a case that
     /// fails with a message, and a server that cannot give up is a suite that
     /// hangs.
-    fn accept_within(listeners: &[TcpListener], patience: Duration) -> Option<TcpStream> {
+    pub(crate) fn accept_within(
+        listeners: &[TcpListener],
+        patience: Duration,
+    ) -> Option<TcpStream> {
         for listener in listeners {
             listener.set_nonblocking(true).ok()?;
         }
@@ -938,11 +941,31 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     }
 
     /// A PEM file under the temporary directory, named for this process.
-    fn bundle(name: &str, pem: &str) -> PathBuf {
+    pub(crate) fn bundle(name: &str, pem: &str) -> PathBuf {
         let path = std::env::temp_dir()
             .join(format!("buri-rt-tls-{}-{name}.pem", std::process::id()));
         std::fs::write(&path, pem).unwrap();
         path
+    }
+
+    /// The lock a case must hold before it points [`CERT_FILE_ENV`] anywhere.
+    ///
+    /// `SSL_CERT_FILE` is one variable shared by every thread in the process,
+    /// and cargo runs a crate's tests as threads. There are two writers now —
+    /// the case below, and `net.rs`'s `wss://` row, which needs this file's
+    /// fixture authority trusted while it dials — so "there is only one" has
+    /// stopped being the argument and this is what replaces it. A case takes it
+    /// for its whole body, so the variable is one case's at a time.
+    ///
+    /// Poisoning is ignored on purpose: a case that panicked while holding it
+    /// has already failed and reported why, and refusing the lock afterwards
+    /// would turn one failure into every other case failing for a reason that
+    /// is not theirs.
+    pub(crate) static TRUST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Hold [`TRUST_LOCK`] until the guard is dropped.
+    pub(crate) fn trust_lock() -> std::sync::MutexGuard<'static, ()> {
+        TRUST_LOCK.lock().unwrap_or_else(|held| held.into_inner())
     }
 
     /// Point the trust set at a file, for the duration of one case.
@@ -951,9 +974,9 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     /// 2024 because `setenv` and `getenv` share one `environ` across threads.
     /// Two things bound that here, and neither is "it is fine":
     ///
-    /// * **This is the only writer in the crate**, and all five cases are one
-    ///   `#[test]` for exactly that reason — five would be five threads writing
-    ///   the same variable.
+    /// * **Every writer holds [`TRUST_LOCK`]**, and all five cases below are
+    ///   one `#[test]` besides — five would be five threads writing the same
+    ///   variable even with the lock, each undoing the last.
     /// * The only other environment *reader* in the runtime is
     ///   `testing::resume_from`, a `OnceLock` over `BURI_TEST_FROM`, and
     ///   `host::buri_rt_host_env_get`, which no unit test in this crate calls.
@@ -962,7 +985,7 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     /// directly — would have tested everything except the lines that decide
     /// *where the trust source comes from*, which is the decision this file is
     /// about.
-    fn trust(path: &PathBuf) {
+    pub(crate) fn trust(path: &PathBuf) {
         unsafe { std::env::set_var(CERT_FILE_ENV, path) };
     }
 
@@ -991,6 +1014,9 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     /// assertion in finite time; none of them is a job that has to be killed.
     #[test]
     fn https_is_checked_against_the_trust_anchors() {
+        // Held for the whole case: `SSL_CERT_FILE` is one variable and
+        // `net.rs`'s `wss://` row writes it too.
+        let _trusting = trust_lock();
         let started = Instant::now();
         let ours = bundle("ca", CA_PEM);
         let stranger = bundle("other", OTHER_CA_PEM);

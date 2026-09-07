@@ -6709,6 +6709,130 @@ mod tests {
         close(handle);
     }
 
+    /// The same bounded wait, for a socket with no listener behind it.
+    ///
+    /// [`received_within`] closes a *listener* to bring its thread home, and a
+    /// dialled socket has none. Closing the socket writes the byte its own
+    /// `poll` is waiting on, which is the same way out.
+    #[cfg(feature = "net")]
+    fn dialled_within(socket: i64, within: Duration) -> Result<Received, ServeErr> {
+        let (said, heard) = std::sync::mpsc::channel();
+        let waiting = std::thread::spawn(move || {
+            let _sent = said.send(sockets::receive(socket));
+        });
+        let answered = heard.recv_timeout(within);
+        let late = answered.is_err();
+        if late {
+            sockets::close(socket, 1000, "the test gave up waiting");
+        }
+        let outcome = match answered {
+            Ok(outcome) => outcome,
+            Err(_) => heard
+                .recv_timeout(within)
+                .expect("the receive ended once the socket was closed"),
+        };
+        waiting.join().expect("the receiving thread finished");
+        assert!(!late, "a dialled socket answered nothing within {within:?}");
+        outcome
+    }
+
+    /// **`wss://` end to end, with the framing under TLS and the certificate
+    /// checked against the trust anchors.**
+    ///
+    /// The scheme decides one thing in this file — whether [`client::wrap`]
+    /// hands the socket to `tls.rs` before a byte of the handshake is written —
+    /// and this row is what says everything after that reads the same either
+    /// way: the deadlines cover the TLS handshake, the `101` is checked, the
+    /// overshoot goes to the framing, and a message crosses each way.
+    ///
+    /// Offline by construction, on `tls.rs`'s own terms. The listener is on the
+    /// loopback interface, the identity is that file's fixture, and the trust
+    /// anchors are a bundle this case wrote — so a certificate the whole world
+    /// distrusts is trusted here, and only here. The URL names `localhost`
+    /// because the fixture leaf carries `DNS:localhost` and no IP SAN, and
+    /// `loopback` binds both families on one port so that whichever address
+    /// this host answers that name with is a listener.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_wss_dial_speaks_the_same_handshake_with_tls_under_it() {
+        use crate::tls::tests as fixture;
+        // `SSL_CERT_FILE` is one variable shared by every thread in this
+        // process, and `tls.rs`'s own case writes it too.
+        let _trusting = fixture::trust_lock();
+        let leaf = fixture::bundle("wss-leaf", fixture::LEAF_PEM);
+        let key = fixture::bundle("wss-key", fixture::LEAF_KEY_PEM);
+        fixture::trust(&fixture::bundle("wss-ca", fixture::CA_PEM));
+
+        let config = crate::tls::server_config(&leaf, &key, Vec::new())
+            .expect("the fixture certificate and the key that signed it");
+        let (port, listeners) = fixture::loopback();
+        // A server that answers one dial: the `101` by hand, because the point
+        // is the client's own handshake, and the framing from `Role::Server`,
+        // because the point after that is that a `Wire::ClientTls` frames.
+        let serving = std::thread::spawn(move || {
+            let sock =
+                fixture::accept_within(&listeners, PROMPTLY).expect("the client connected");
+            let _read = sock.set_read_timeout(Some(PROMPTLY));
+            let _written = sock.set_write_timeout(Some(PROMPTLY));
+            let conn = rustls::ServerConnection::new(std::sync::Arc::new(config))
+                .expect("a server connection");
+            let mut stream = rustls::StreamOwned::new(conn, sock);
+            let mut head: Vec<u8> = Vec::new();
+            let mut chunk = [0u8; 512];
+            while find(&head, b"\r\n\r\n").is_none() {
+                match stream.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => head.extend_from_slice(chunk.get(..n).unwrap_or(&[])),
+                }
+            }
+            let text = String::from_utf8_lossy(&head).into_owned();
+            let offered = text
+                .lines()
+                .filter_map(|line| line.split_once(':'))
+                .find(|(name, _)| name.trim().eq_ignore_ascii_case("sec-websocket-key"))
+                .map(|(_, value)| value.trim().to_string())
+                .expect("the client offered a key");
+            let accept = tungstenite::handshake::derive_accept_key(offered.as_bytes());
+            let answer = format!(
+                "HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\n\
+                 connection: Upgrade\r\nsec-websocket-accept: {accept}\r\n\r\n"
+            );
+            stream.write_all(answer.as_bytes()).expect("the 101 was written");
+            stream.flush().expect("the 101 left");
+            let mut framing = tungstenite::WebSocket::from_raw_socket(
+                stream,
+                tungstenite::protocol::Role::Server,
+                Some(tungstenite::protocol::WebSocketConfig::default()),
+            );
+            let said = match framing.read().expect("the client's frame") {
+                tungstenite::Message::Text(text) => text.as_str().to_string(),
+                other => panic!("the client sent {other:?} rather than text"),
+            };
+            framing
+                .send(tungstenite::Message::Text(format!("echo {said}").into()))
+                .expect("the echo was framed");
+            let _flushed = framing.flush();
+            said
+        });
+
+        let open = client::connect(&format!("wss://localhost:{port}/socket"))
+            .expect("a wss handshake this fixture completed");
+        assert_eq!(open.status, 101, "a handshake over TLS answers 101 like any other");
+        assert!(
+            open.headers.iter().any(|(n, _)| n == "sec-websocket-accept"),
+            "the signature the client checked is one of the fields it hands back: {:?}",
+            open.headers
+        );
+        let socket = open.socket;
+        sockets::send_text(socket, "ping");
+        let back = dialled_within(socket, SOCKET_DEADLINE).expect("the server's echo");
+        assert_eq!(back.frame, 0, "a text frame arrived as frame {}", back.frame);
+        assert_eq!(back.text, "echo ping", "the echo crossed the TLS stream whole");
+        sockets::close(socket, 1000, "done");
+        let heard = serving.join().expect("the server finished");
+        assert_eq!(heard, "ping", "the client's frame reached the far side masked and whole");
+    }
+
     /// A dial to a port nobody holds is a `Transport` failure with a sentence.
     ///
     /// The port is one the kernel just handed out and this test then let go of,
