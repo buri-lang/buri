@@ -32,7 +32,7 @@
 //! of those skips with a message rather than failing.
 use buri::build::buildfile::{Arch, Platform};
 use buri::compiler::backend::runtime_native::{ARCHIVE, ARCHIVE_NAME, AVAILABLE};
-use buri::compiler::backend::{llvm, Options, Profile, Target};
+use buri::compiler::backend::{llvm, Backend, Options, Profile, Target};
 use buri::compiler::driver;
 use buri::compiler::middle;
 use buri::compiler::modules::Role;
@@ -290,6 +290,75 @@ pub fn build_at(name: &str, source: &str, probe: Option<&str>, profile: Profile)
     // static-PIE musl one, which is a whole sysroot and a `--target=` rather
     // than a list. A harness that links more permissively than the product is
     // a harness that cannot see the product's bugs.
+    let mut link = crate::shared::product_cc();
+    link.arg("-o").arg(&binary);
+    for object in &objects {
+        link.arg(object);
+    }
+    link.arg(archive());
+    link.args(crate::shared::product_link_args());
+    let linked = link.output().unwrap();
+    assert!(
+        linked.status.success(),
+        "linking failed:\n{}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
+    binary
+}
+
+/// A `.buri` source with `test` blocks, compiled as a **test binary** at
+/// `Profile::Release` and linked — which is what `buri test --release` builds
+/// on a native platform, because `backend::select` answers with this backend
+/// for a native release.
+///
+/// [`build_at`] cannot do it: its `lower` monomorphizes from `main`, and a
+/// source that imports a `testing` module has no `main` and could not import
+/// one (SPEC rule 35). So this goes through `Backend::emit`, which is the entry
+/// the *build* uses and the one that knows what a test root is.
+fn build_tests(name: &str, source: &str) -> PathBuf {
+    let mut map = SourceMap::new();
+    let mut cache = buri::parsing::parser::Cache::new();
+    let analysis = driver::analyze_snippet_in(
+        None,
+        &mut map,
+        &mut cache,
+        "main.buri",
+        source,
+        Role::TestSource,
+    );
+    assert!(!analysis.diagnostics.has_errors(), "{}", render(&analysis.diagnostics, &map));
+    let module_paths: Vec<String> =
+        analysis.loaded.modules.iter().map(|m| m.path.clone()).collect();
+    let mut diagnostics = Diagnostics::new();
+    let mut program = middle::monomorphize::run(
+        &analysis.checked,
+        module_paths,
+        &mut diagnostics,
+        middle::monomorphize::Roots::Tests,
+    );
+    assert!(!diagnostics.has_errors(), "{}", render(&diagnostics, &map));
+    middle::run(&mut program, &middle::Options::default());
+    middle::native(&mut program);
+
+    let opts = options(Profile::Release);
+    let sheet = program.stylesheet.clone();
+    let units = expect(llvm::Llvm.emit(&program, &analysis.checked.tables, &opts));
+    assert!(!units.is_empty(), "the backend emitted no codegen unit");
+
+    let dir = workspace().join(name);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // What `commands/test.rs` writes beside the binary and names in
+    // `BURI_SNAPSHOT_SHEET`: the artifact's extracted static styles, which is
+    // half of what a snapshot paints.
+    std::fs::write(dir.join("styles.css"), &sheet).unwrap();
+    let mut objects = Vec::new();
+    for unit in &units {
+        let path = dir.join(&unit.name);
+        std::fs::write(&path, &unit.bytes).unwrap();
+        objects.push(path);
+    }
+    let binary = dir.join("program");
     let mut link = crate::shared::product_cc();
     link.arg("-o").arg(&binary);
     for object in &objects {
@@ -3966,4 +4035,228 @@ fn a_broadcast_actor_reaches_a_socket_it_did_not_publish_on() {
         "the server did not run to its own end:\n{}",
         out.stdout
     );
+}
+
+// ---------------------------------------------------------------------------
+// The reactive graph, and the picture it paints
+// ---------------------------------------------------------------------------
+
+/// **A memo and a watcher run under the release backend**, which is the
+/// runtime calling back into Buri code long after the call that handed the
+/// body over (`runtime_table.rs`'s `Extra::Compute`).
+///
+/// The stencil backend answers the same program in
+/// `stencil::a_memo_and_a_watcher_run_under_the_native_backend`. Two backends
+/// generate the thunk and build the record, and neither of them is the one the
+/// runtime was written against, so both are asked.
+#[test]
+fn a_memo_and_a_watcher_run_under_the_release_backend() {
+    skip_unless_executable!();
+    let source = r#"
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/prop" import { memo, Prop };
+from "ui/signal" import { signal, watch };
+from "ui/testing" import { headless, observer, recorder };
+
+test "a memo is lazy, caches, and recomputes when its source changes" {
+    let ctx = context {
+        Alloc: alloc.generalPurpose(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 2);
+    let doubled = memo(ctx, fn(s) => log.note(n.get(s) * 2));
+    assert.eq(log.noted().len(), 0);
+    let _ = watch(ctx, fn(s) => ignore(doubled.read(s) + doubled.read(s)));
+    assert.eq(log.noted(), [4]);
+    let _ = n.set(ctx, 5);
+    assert.eq(log.noted(), [4, 10]);
+}
+
+test "a watcher runs when it is registered and again on every change" {
+    let ctx = context {
+        Alloc: alloc.generalPurpose(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 1);
+    let _ = watch(ctx, fn(s) => ignore(log.note(n.get(s))));
+    assert.eq(log.noted(), [1]);
+    let _ = n.set(ctx, 7);
+    assert.eq(log.noted(), [1, 7]);
+}
+
+fn ignore(value: Int): () {
+    let _ = value;
+}
+"#;
+    let binary = build_tests("graph", source);
+    let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the graph did not answer under the release backend:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// The package `repositories/ui/a_card_is_painted_and_compared/` builds, as one
+/// source: its library and its test block with the import between them removed.
+///
+/// Read rather than copied, so that this test and the repository case paint
+/// **the same tree** — which is the whole point of comparing against that
+/// case's checked-in golden.
+fn the_card_case() -> (String, PathBuf) {
+    let package = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/repositories/ui/a_card_is_painted_and_compared/repo/lib/card");
+    let library = std::fs::read_to_string(package.join("card.buri")).unwrap();
+    let suite = std::fs::read_to_string(package.join("test/card.buri")).unwrap();
+    let mut lines: Vec<String> = Vec::new();
+    for line in library.lines().chain(suite.lines()) {
+        // The one line that only makes sense across a package boundary.
+        if line.starts_with("from \"//lib/card\"") {
+            continue;
+        }
+        // Both files import `ui/node`, and one source may not import it twice.
+        if line.starts_with("from \"") && lines.iter().any(|seen| seen == line) {
+            continue;
+        }
+        // A test source is not a module anybody can name, so nothing in it may
+        // be exported (`test-source-export`).
+        lines.push(line.strip_prefix("export ").unwrap_or(line).to_string());
+    }
+    (lines.join("\n"), package)
+}
+
+/// **A snapshot, painted by a linked release program**, through the whole
+/// lifecycle a person drives: record, compare, and the failure with a diff
+/// beside it.
+///
+/// The bytes are asserted against the golden checked in beside the repository
+/// case, which the **stencil** backend recorded and which CI compares on both
+/// hosts. So one file answers three questions at once: that the release
+/// backend paints, that it paints the same bytes the development backend
+/// paints, and that both paint the same bytes on Linux and on macOS.
+///
+/// `buri test` on a native platform routes a release build here
+/// (`backend::select`), and the repository case cannot ask for one: a
+/// `--release` step in it would need this feature to be on, and the case runs
+/// in `build::repositories`, which is compiled without it.
+#[test]
+fn a_snapshot_is_painted_and_compared_by_a_linked_release_program() {
+    skip_unless_executable!();
+    let (source, package) = the_card_case();
+    let golden = std::fs::read(package.join("test/__snapshots__/card.png")).unwrap();
+    let binary = build_tests("snapshot", &source);
+
+    let snapshots = workspace().join("snapshot").join("__snapshots__");
+    let _ = std::fs::remove_dir_all(&snapshots);
+    std::fs::create_dir_all(&snapshots).unwrap();
+    let run = |update: bool| {
+        let mut cmd = Command::new(&binary);
+        cmd.env("BURI_TEST_FROM", "0")
+            .env("BURI_SNAPSHOT_DIR", &snapshots)
+            .env("BURI_SNAPSHOT_SHEET", workspace().join("snapshot").join("styles.css"));
+        if update {
+            cmd.env("BURI_SNAPSHOT_UPDATE", "1");
+        }
+        cmd.output().unwrap()
+    };
+
+    // `--update` records, and records the bytes the other backend recorded.
+    let recorded = run(true);
+    assert_eq!(
+        recorded.status.code(),
+        Some(0),
+        "recording the snapshot failed:\n{}",
+        String::from_utf8_lossy(&recorded.stderr)
+    );
+    let written = std::fs::read(snapshots.join("card.png")).unwrap();
+    assert_eq!(
+        written.len(),
+        golden.len(),
+        "the release backend painted {} bytes and the golden is {}",
+        written.len(),
+        golden.len()
+    );
+    assert!(
+        written == golden,
+        "the release backend painted a different picture from the one \
+         `repositories/ui/a_card_is_painted_and_compared/` has checked in"
+    );
+
+    // And comparing against it passes, leaving no difference behind.
+    let compared = run(false);
+    assert_eq!(
+        compared.status.code(),
+        Some(0),
+        "comparing against the golden just written failed:\n{}",
+        String::from_utf8_lossy(&compared.stderr)
+    );
+    assert!(!snapshots.join("card.diff.png").exists(), "a run that matched left a diff image");
+
+    // The negative twin: one word of the tree, and the report a reader gets.
+    let changed = source.replace(".Const(\"Ada\")", ".Const(\"Grace\")");
+    assert_ne!(changed, source, "the case no longer names the string this test changes");
+    let other = build_tests("snapshot-changed", &changed);
+    let out = Command::new(&other)
+        .env("BURI_TEST_FROM", "0")
+        .env("BURI_SNAPSHOT_DIR", &snapshots)
+        .env("BURI_SNAPSHOT_SHEET", workspace().join("snapshot-changed").join("styles.css"))
+        .output()
+        .unwrap();
+    assert_ne!(out.status.code(), Some(0), "a changed tree has to fail the test");
+    let said = String::from_utf8_lossy(&out.stderr);
+    assert!(said.contains("card.diff.png"), "the report names the file to look at: {said}");
+    assert!(snapshots.join("card.diff.png").exists(), "the difference was not written");
+}
+
+/// **A struct whose field is boxed** round-trips: built, read back, and
+/// released.
+///
+/// `middle::layout` puts a pointer where a field that would make its owner
+/// recursive would be (VALUE-MODEL.md §5.2), so the field's *slots* are one
+/// pointer and the value stored into it has its own. Building one is therefore
+/// an allocation and reading one is a load, and this backend used to do
+/// neither: it assembled a two-slot register out of one pointer, which the IR
+/// verifier caught as `Invalid InsertValueInst operands` the first time a
+/// program built one.
+///
+/// `ui/node`'s `Node<C>` is that program — `struct Node<C>(NodeKind<C>)`, whose
+/// one field mentions `Node` — and it is the whole of why a snapshot could not
+/// be painted here. This is the shape on its own, with the heap check on, so a
+/// box that is never freed fails here rather than in the file that happens to
+/// build one.
+#[test]
+fn a_boxed_field_round_trips() {
+    skip_unless_executable!();
+    let source = program(
+        r#"
+export enum Chain { End, Link(Box) }
+export struct Box { next: Chain, value: Int }
+
+fn total(c: Chain): Int {
+    match (c) {
+        .End => 0,
+        .Link(b) => b.value + total(b.next),
+    }
+}
+
+export fn main(): Result<(), Str> {
+    let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+    let chain = Chain.Link(Box { next: .Link(Box { next: .End, value: 20 }), value: 22 });
+    let _ = io.println(ctx, "${total(chain)}").ignore();
+    .Ok(())
+}
+"#,
+    );
+    let (out, err, status) = build_and_run_with("boxed-field", &source, Some(ALLOC_PROBE));
+    assert_eq!(status, Some(0), "{err}");
+    assert_eq!(out, "42\n");
+    assert_eq!(live_blocks(&err), 0, "a boxed field was not released: {err}");
 }

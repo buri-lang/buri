@@ -1062,8 +1062,10 @@ fn the_runtime_archive_is_real() {
     // 12 221 408 — **+3 073 688**, of which 135 740 is the fonts and the rest
     // is code, three quarters of it `cosmic-text`'s shaping stack and Unicode
     // tables. 12.5 MiB is the re-statement, and the archive stands at
-    // 12 238 768 with `core/tasks`'s six scope entries in it, which leaves
-    // 6.6 % of the margin.
+    // 12 286 680 — `core/tasks`'s six scope entries, the shadow blur, and the
+    // reactive graph's deferred bodies and its exit walk — which leaves 6.3 %
+    // of the margin. The graph cost 14 592 bytes of that, measured: it is a
+    // few hundred lines of `Vec` walking and no new dependency.
     //
     // **The Linux number is a measured delta on an earlier measured base, and
     // that is weaker than the line above.** No macOS host can link `ring`'s C

@@ -166,6 +166,19 @@ pub struct Reprs<'a> {
 }
 
 impl<'a> Reprs<'a> {
+    /// Whether `owner` keeps `member` behind an indirection — the box
+    /// `middle::layout` puts where a recursive field would be
+    /// (VALUE-MODEL.md §5.2).
+    ///
+    /// [`Reprs::place`] already asks it while flattening, and a backend has to
+    /// ask it again for a different reason: a boxed field's *slots* are one
+    /// pointer, and the value being stored into it has the field's own. So
+    /// building one is an allocation and reading one is a load, and this is
+    /// the question that says which fields those are.
+    pub fn boxes(&mut self, owner: &Ty, member: &Ty) -> bool {
+        self.layouts.boxes(owner, member)
+    }
+
     /// `cycles` is the recursion analysis of these same `tables`, taken once
     /// for the emission rather than once per unit: see [`Cycles`].
     pub fn new(tables: &'a Tables, cycles: std::sync::Arc<Cycles>) -> Reprs<'a> {

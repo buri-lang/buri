@@ -69,13 +69,13 @@
 //!     than through the derive.
 //!  3. **`core/math`'s thirteen transcendentals**, which are refused rather
 //!     than unwritten — `cli/runtime/math.rs` argues it. `numbers/floats.buri`.
-//!  4. **The reactive graph.** `ui/effect`'s `Ui` entries and `ui/testing`'s
-//!     recorder are `backend/js/runtime.js` and nowhere else, because no
-//!     native platform grants `Ui` — there is nothing on this side to render
-//!     to, and no document either: `ui/tree.buri` is the tree vocabulary and
-//!     the keyed reconciler under it, and `ui/theme.buri` is the block of
-//!     custom properties a document reads. `ui/reactivity.buri`,
-//!     `ui/tree.buri` and `ui/theme.buri`.
+//!  4. **The document.** `ui/tree.buri` is the tree vocabulary and the keyed
+//!     reconciler under it, and `ui/theme.buri` is the block of custom
+//!     properties a document reads. Both want a document to render into and
+//!     there is none on this side. The *graph* was here too until
+//!     `cli/runtime/ui.rs` ported it and `runtime_table.rs`'s `Extra::Compute`
+//!     gave a memo's body a way to cross the C boundary;
+//!     `ui/reactivity.buri` is in the set now.
 //!
 //! `semantics/generics.buri` was a fourth until a type parameter a program
 //! never determines stopped being a free variable: `Subst::default_unconstrained`
@@ -146,10 +146,9 @@
 //! every one of the nine still names what it named. One refusal did get
 //! shorter: `ui/theme.buri` no longer reaches `ui_testing.observer`, because
 //! none of its five contexts binds `Watch` any more. It is still out for
-//! `install`, `variables`, `render`, `stylesheet` and the `Headless` pair —
-//! the document and the reactive graph, which is a reason no wave of this
-//! backend retires. So the census is the same 32 files and 1,529 blocks, and
-//! `lib/ui`'s exclusion is now stated in terms of what it is really about.
+//! `install`, `variables`, `render` and `stylesheet` — the document, which is
+//! the half of `lib/ui` no wave of this backend retires. The other half, the
+//! graph, is in the set now.
 //!
 //! The half of this the corpus keeps for itself is
 //! `language::conformance::no_conformance_context_asks_for_a_bound_it_does_not_use`:
@@ -651,9 +650,9 @@ const PACKAGES: &[Case] = &[
     ),
     excluded(
         "ui/theme.buri",
-        "`ui/testing`'s `install` and `variables`, which are the custom \
-             properties a document reads. A theme is ordinary Buri — the \
-             enums, the mappings and the exhaustiveness that is the whole \
+        "`ui/testing`'s `install`, `variables` and `render`, which are the \
+             custom properties a document reads. A theme is ordinary Buri — \
+             the enums, the mappings and the exhaustiveness that is the whole \
              contract are all checked on every platform — but what a resolved \
              theme *is* on the other side is a `:root` block, and there is no \
              document here to put one in",
