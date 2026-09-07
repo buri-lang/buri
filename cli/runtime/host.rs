@@ -48,7 +48,7 @@ use crate::http;
 use crate::rng;
 use crate::value::{list_of_bytes, list_of_headers, list_of_strs, str_of, BuriList, BuriStr};
 use crate::BURI_OK;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::sync::Mutex;
 
 /// Bytes buffered before a flush happens on its own. `$host` flushes after 64
@@ -733,6 +733,205 @@ pub unsafe extern "C" fn buri_rt_host_fs_sync_file(
     }
 }
 
+
+/// `Metadata` — `struct { kind: EntryKind, size: Int, modified: Instant }`.
+///
+/// `EntryKind` is four variants with no payload, which `middle/layout.rs` gives
+/// a bare `i8` tag: the value *is* the index. `Instant` is a one-field struct
+/// over an `I64`, so it is the eight bytes and no wrapper. `size` therefore
+/// starts at offset 8, which is `#[repr(C)]`'s padding rule and the value
+/// model's alignment rule agreeing — the same arrangement `net.rs`'s
+/// `BuriRequest` has.
+#[repr(C)]
+pub struct BuriMetadata {
+    kind: i8,
+    size: i64,
+    modified: i64,
+}
+
+/// A `Metadata` for a filesystem with no clock behind it — `testing.rs`'s.
+///
+/// Here rather than there so the layout has one definition: two transcriptions
+/// of one struct is one of them being wrong.
+pub(crate) fn metadata_of(kind: i8, size: i64) -> BuriMetadata {
+    BuriMetadata { kind, size, modified: 0 }
+}
+
+/// What a `std::fs::Metadata` is, as `EntryKind`'s variant index.
+///
+/// A link is asked about first, because a link to a directory answers `true` to
+/// both — and this is `symlink_metadata`, so a link is a link and never what it
+/// points at.
+fn entry_kind(m: &std::fs::Metadata) -> i8 {
+    if m.file_type().is_symlink() {
+        2
+    } else if m.is_dir() {
+        1
+    } else if m.is_file() {
+        0
+    } else {
+        3
+    }
+}
+
+/// Milliseconds since the epoch, saturating at both ends.
+///
+/// A file whose timestamp is before 1970 — a restored archive, a clock that was
+/// wrong — answers a negative number rather than failing, and one the platform
+/// will not report answers 0. Neither is worth an `IoError` a caller would have
+/// to match on to read a directory.
+fn modified_millis(m: &std::fs::Metadata) -> i64 {
+    let Ok(at) = m.modified() else { return 0 };
+    match at.duration_since(std::time::UNIX_EPOCH) {
+        Ok(d) => i64::try_from(d.as_millis()).unwrap_or(i64::MAX),
+        Err(e) => -i64::try_from(e.duration().as_millis()).unwrap_or(i64::MAX),
+    }
+}
+
+/// `Fs::metadata` — `Result<Metadata, IoError>`.
+///
+/// `symlink_metadata` and not `metadata`: a link is `.Symlink` rather than
+/// whatever it points at, which is what makes `EntryKind` worth having and what
+/// keeps `core/fs`'s `walk` out of a loop.
+///
+/// # Safety
+/// The path must be a live `Str` view; both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_metadata(
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out_ok: *mut BuriMetadata,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let path = unsafe { text(ptr, len) };
+    match std::fs::symlink_metadata(&path) {
+        Ok(m) => {
+            let value = BuriMetadata {
+                kind: entry_kind(&m),
+                size: i64::try_from(m.len()).unwrap_or(i64::MAX),
+                modified: modified_millis(&m),
+            };
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out_ok.write(value) };
+            BURI_OK
+        }
+        // SAFETY: as above.
+        Err(e) => unsafe { fail(&e, out_err) },
+    }
+}
+
+/// `Fs::readRange` — `Result<[U8], IoError>`, a window of the file.
+///
+/// One `pread` rather than a read of the whole file, so the head of a large
+/// file costs the head. An offset past the end is the empty list, which is what
+/// a read at end of file is; a negative offset or count is the one failure this
+/// produces that the platform would not.
+///
+/// # Safety
+/// The path must be a live `Str` view; both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_read_range(
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    at: i64,
+    count: i64,
+    out_ok: *mut BuriList,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let path = unsafe { text(ptr, len) };
+    if at < 0 || count < 0 {
+        // SAFETY: the caller promises a writable destination.
+        unsafe { out_err.write(str_of("a negative offset or count")) };
+        return 6;
+    }
+    let mut file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        // SAFETY: as above.
+        Err(e) => return unsafe { fail(&e, out_err) },
+    };
+    if let Err(e) = file.seek(std::io::SeekFrom::Start(at as u64)) {
+        // SAFETY: as above.
+        return unsafe { fail(&e, out_err) };
+    }
+    let mut body = Vec::new();
+    if let Err(e) = file.take(count as u64).read_to_end(&mut body) {
+        // SAFETY: as above.
+        return unsafe { fail(&e, out_err) };
+    }
+    let value = list_of_bytes(&body);
+    // SAFETY: the caller promises a writable destination.
+    unsafe { out_ok.write(value) };
+    BURI_OK
+}
+
+/// `Fs::realPath` — `Result<Str, IoError>`, every link and every `..` resolved.
+///
+/// Every component has to exist, which is `realpath(3)`'s own rule and the
+/// reason `core/path` cannot answer this: `a/../b` and `b` are two files where
+/// `a` is a link, and only the filesystem knows.
+///
+/// # Safety
+/// The path must be a live `Str` view; both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_real_path(
+    _base: *mut u8,
+    ptr: *const u8,
+    len: u64,
+    out_ok: *mut BuriStr,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let path = unsafe { text(ptr, len) };
+    match std::fs::canonicalize(&path) {
+        Ok(resolved) => {
+            let value = str_of(&resolved.to_string_lossy());
+            // SAFETY: the caller promises a writable destination.
+            unsafe { out_ok.write(value) };
+            BURI_OK
+        }
+        // SAFETY: as above.
+        Err(e) => unsafe { fail(&e, out_err) },
+    }
+}
+
+/// `Fs::copyFile` — `Result<(), IoError>`, contents over `to`.
+///
+/// **Not atomic**, which is the difference from [`buri_rt_host_fs_rename_file`]:
+/// a reader of the destination can see half of it. Contents only — permissions,
+/// ownership and timestamps are not carried over, so the two backends promise
+/// the same thing, and `std::fs::copy`'s permission copy is the one place they
+/// would otherwise differ from node's.
+///
+/// # Safety
+/// Both paths must be live `Str` views; `out_err` writable and aligned.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_fs_copy_file(
+    _fbase: *mut u8,
+    fptr: *const u8,
+    flen: u64,
+    _tbase: *mut u8,
+    tptr: *const u8,
+    tlen: u64,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let (from, to) = unsafe { (text(fptr, flen), text(tptr, tlen)) };
+    let body = match std::fs::read(&from) {
+        Ok(body) => body,
+        // SAFETY: the caller promises a writable destination.
+        Err(e) => return unsafe { fail(&e, out_err) },
+    };
+    match std::fs::write(&to, body) {
+        Ok(()) => BURI_OK,
+        // SAFETY: as above.
+        Err(e) => unsafe { fail(&e, out_err) },
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Network
 // ---------------------------------------------------------------------------
@@ -988,6 +1187,187 @@ pub unsafe extern "C" fn buri_rt_host_env_args(out: *mut BuriList) {
     let value = list_of_strs(&args);
     // SAFETY: the caller promises a writable, aligned destination.
     unsafe { out.write(value) }
+}
+
+
+/// `Env::currentDirectory` — where the process is, as text.
+///
+/// A directory that has been removed under the process answers the empty
+/// string rather than failing: `core/env` promises a `Path`, `path.of` turns
+/// the empty string into `.`, and a program that cannot read its own directory
+/// has a `.` that means the same thing.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_env_current_directory(out: *mut BuriStr) {
+    let at = std::env::current_dir().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let value = str_of(&at);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `Env::allVariables` — every variable, as `(name, value)` pairs.
+///
+/// `[(Str, Str)]` is `[Header]`'s layout — two `Str`s back to back — so
+/// [`list_of_headers`] builds it, and the name says `Header` because that is
+/// the shape rather than the type.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriList`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_env_all_variables(out: *mut BuriList) {
+    let pairs: Vec<(String, String)> = std::env::vars_os()
+        .map(|(k, v)| (k.to_string_lossy().into_owned(), v.to_string_lossy().into_owned()))
+        .collect();
+    let value = list_of_headers(&pairs);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `Env::operatingSystemName` — the lower-case short name.
+///
+/// `std::env::consts::OS`'s words, with the one that differs from node's
+/// mapped: rust says `macos` and node says `darwin`, and `core/env` documents
+/// `macos`. The other two this toolchain builds for already agree.
+///
+/// # Safety
+/// `out` must be writable and aligned for a [`BuriStr`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_host_env_operating_system_name(out: *mut BuriStr) {
+    let value = str_of(std::env::consts::OS);
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(value) }
+}
+
+/// `Output` — `struct { code: Int, stdout: [U8], stderr: [U8] }`.
+///
+/// `BuriMetadata`'s arrangement: a struct is its fields back to back, so this
+/// is an `i64` and two 16-byte lists.
+#[repr(C)]
+pub struct BuriOutput {
+    code: i64,
+    stdout: BuriList,
+    stderr: BuriList,
+}
+
+/// `Spawn::spawnProcess` — `Result<Output, IoError>`.
+///
+/// Four flat arguments rather than a `Command`, which `core/proc`'s
+/// `effect Spawn` argues: `plan` is the program, then the working directory —
+/// empty for this process's own — then the arguments, and `environment` is name
+/// and value alternating, used only when `replaces` says so.
+///
+/// **Both streams are drained while the child runs.** `std::process::Child`'s
+/// `wait_with_output` does exactly that, which is what keeps a child writing
+/// more than a pipe holds from deadlocking — the same promise the JavaScript
+/// half keeps by listening on both `data` events.
+///
+/// A child killed by a signal reports `128 + signal`, which is the number a
+/// shell reports and the number node's half computes from the signal's name.
+///
+/// # Safety
+/// Every view must be live: the two `[Str]` lists as `(ptr, len)`, and the
+/// `[U8]` input. Both out-pointers writable and aligned.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn buri_rt_host_spawn_process(
+    pptr: *const u8,
+    plen: u64,
+    eptr: *const u8,
+    elen: u64,
+    replaces: u8,
+    iptr: *const u8,
+    ilen: u64,
+    out_ok: *mut BuriOutput,
+    out_err: *mut BuriStr,
+) -> i32 {
+    // SAFETY: forwarded.
+    let plan = unsafe { strs(pptr, plen) };
+    // SAFETY: forwarded.
+    let variables = unsafe { strs(eptr, elen) };
+    // SAFETY: forwarded.
+    let input = unsafe { view(iptr, ilen) }.to_vec();
+
+    let program = plan.first().cloned().unwrap_or_default();
+    let working = plan.get(1).cloned().unwrap_or_default();
+    let mut command = std::process::Command::new(&program);
+    command.args(plan.iter().skip(2));
+    if !working.is_empty() {
+        command.current_dir(&working);
+    }
+    if replaces != 0 {
+        command.env_clear();
+        for pair in variables.chunks_exact(2) {
+            command.env(&pair[0], &pair[1]);
+        }
+    }
+    command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        // SAFETY: the caller promises a writable destination.
+        Err(e) => return unsafe { fail(&e, out_err) },
+    };
+    if let Some(mut pipe) = child.stdin.take() {
+        // A child that never reads its input closes the pipe, and writing into
+        // a closed pipe is that child's choice rather than a failure of the
+        // run — so the write is dropped and the exit code is the answer.
+        let _ = pipe.write_all(&input);
+    }
+    let done = match child.wait_with_output() {
+        Ok(done) => done,
+        // SAFETY: as above.
+        Err(e) => return unsafe { fail(&e, out_err) },
+    };
+    let value = BuriOutput {
+        code: exit_code(&done.status),
+        stdout: list_of_bytes(&done.stdout),
+        stderr: list_of_bytes(&done.stderr),
+    };
+    // SAFETY: the caller promises a writable destination.
+    unsafe { out_ok.write(value) };
+    BURI_OK
+}
+
+/// The status a shell would report: the code, or `128 + signal`.
+fn exit_code(status: &std::process::ExitStatus) -> i64 {
+    if let Some(code) = status.code() {
+        return i64::from(code);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        return 128 + i64::from(status.signal().unwrap_or(0));
+    }
+    #[cfg(not(unix))]
+    {
+        128
+    }
+}
+
+/// The strings of a `[Str]` argument.
+///
+/// # Safety
+/// `ptr` must be the payload of a live `[Str]` of `len` elements, or null with
+/// `len == 0`.
+pub(crate) unsafe fn strs(ptr: *const u8, len: u64) -> Vec<String> {
+    if ptr.is_null() || len == 0 {
+        return Vec::new();
+    }
+    let stride = std::mem::size_of::<BuriStr>();
+    let mut out = Vec::with_capacity(len as usize);
+    for i in 0..len as usize {
+        // SAFETY: the caller promises `len` elements at `ptr`, and the stride
+        // is the one the layout gives a `Str`.
+        let element = unsafe { &*ptr.add(i * stride).cast::<BuriStr>() };
+        // SAFETY: an element of a live list holds a live `Str` view.
+        out.push(unsafe { element.as_str().into_owned() });
+    }
+    out
 }
 
 /// `Proc::exitWith`. Flushes first, and does not return.

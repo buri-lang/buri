@@ -51,7 +51,7 @@
 
 from "core/bytes" import * as bytes;
 from "core/bytes" import { DecodeError };
-from "core/char" import * as char;
+from "core/character" import * as character;
 from "core/effect" import { Alloc };
 from "core/list" import * as list;
 from "core/str" import * as str;
@@ -409,8 +409,8 @@ fn percent<C: Alloc>(ctx: C, b: U8): Str {
     let n = b.toI64();
     str.fromChars(ctx, [
         '%',
-        char.fromDigit(n / 16, 16).withDefault('0').toUpper(),
-        char.fromDigit(n % 16, 16).withDefault('0').toUpper(),
+        character.fromDigit(n / 16, 16).withDefault('0').toUpper(),
+        character.fromDigit(n % 16, 16).withDefault('0').toUpper(),
     ])
 }
 

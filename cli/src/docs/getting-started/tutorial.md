@@ -303,7 +303,8 @@ from "core/host/testing" import { alloc, stdout };
 from "core/testing/assert" import * as assert;
 from "//libs/convert" import { ConvertError, parseRequest, run };
 
-/// A test double for `Env`: an ordinary struct with the effect's two methods.
+/// A test double for `Env`: an ordinary struct with the effect's methods, and
+/// nothing but `args` doing any work.
 struct FixedArgs {
     export words: [Str],
 }
@@ -315,6 +316,18 @@ impl Env for FixedArgs {
 
     fn args(self): [Str] {
         self.words
+    }
+
+    fn currentDirectory(self): Str {
+        "/"
+    }
+
+    fn allVariables(self): [(Str, Str)] {
+        []
+    }
+
+    fn operatingSystemName(self): Str {
+        "test"
     }
 }
 

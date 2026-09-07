@@ -2204,6 +2204,74 @@ async function $host_HostFs_syncFile(self, at) {
   }
 }
 
+// `EntryKind`'s variant index, in `core/fs`'s declaration order. A link is
+// asked about first, because a link to a directory is both.
+function $entryKind(st) {
+  if (st.isSymbolicLink()) return 2;
+  if (st.isDirectory()) return 1;
+  if (st.isFile()) return 0;
+  return 3;
+}
+
+// `lstat` and not `stat`: `metadata` does not follow a link, which is what
+// makes `.Symlink` reachable and what keeps a walk out of a loop. `Metadata` is
+// `[kind, size, modified]` and `Instant` is a one-field struct, so the millis
+// arrive wrapped.
+async function $host_HostFs_metadata(self, at) {
+  const p = $osPath(at);
+  try {
+    const st = await $fsp().lstat(p);
+    return $ok([$entryKind(st), BigInt(Math.trunc(st.size)), [BigInt(Math.trunc(st.mtimeMs))]]);
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+}
+
+// A window of the file without reading the rest of it. An offset past the end
+// is the empty list, which is what a read at end of file is; a negative offset
+// or count is the one failure this can produce that the platform would not.
+async function $host_HostFs_readRange(self, at, from, count) {
+  const p = $osPath(at);
+  const start = Number(from);
+  const want = Number(count);
+  if (start < 0 || want < 0) return $err([6, "a negative offset or count"]);
+  let fh;
+  try {
+    fh = await $fsp().open(p, "r");
+    const buffer = Buffer.alloc(want);
+    const got = await fh.read(buffer, 0, want, start);
+    return $ok(Array.from(buffer.subarray(0, got.bytesRead)));
+  } catch (e) {
+    return $err($ioErr(e));
+  } finally {
+    if (fh !== undefined) {
+      try {
+        await fh.close();
+      } catch {}
+    }
+  }
+}
+
+async function $host_HostFs_realPath(self, at) {
+  const p = $osPath(at);
+  try {
+    return $ok(await $fsp().realpath(p));
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+}
+
+// Contents only, and not atomic: a reader of the destination can see half of
+// it. `EISDIR` on a directory source, which `$ioErr` reports as `.Other`.
+async function $host_HostFs_copyFile(self, source, destination) {
+  try {
+    await $fsp().copyFile($osPath(source), $osPath(destination));
+    return $ok(0);
+  } catch (e) {
+    return $err($ioErr(e));
+  }
+}
+
 // The wire spellings of `Method`, in the enum's declaration order
 // (`effect.buri`). A payloadless enum is its variant index in generated code,
 // so the index *is* the row, and this array is the whole of the mapping: the
@@ -2396,6 +2464,116 @@ function $host_HostEnv_args(self) {
   if (typeof Bun !== "undefined") return Bun.argv.slice(2);
   if (typeof process !== "undefined") return process.argv.slice(2);
   return [];
+}
+
+function $host_HostEnv_currentDirectory(self) {
+  return typeof process !== "undefined" ? process.cwd() : "/";
+}
+
+// In the engine's own order, which is insertion order over the object it built
+// the environment into. `core/env` promises no order at all.
+function $host_HostEnv_allVariables(self) {
+  const env = typeof process !== "undefined" ? process.env : {};
+  const out = [];
+  for (const name of Object.keys(env)) {
+    if (env[name] !== undefined) out.push([name, String(env[name])]);
+  }
+  return out;
+}
+
+// node's word for the platform, mapped to the one `core/env` documents.
+// Anything else passes through, which is the honest answer for a platform this
+// toolchain does not build for.
+function $host_HostEnv_operatingSystemName(self) {
+  if (typeof process === "undefined") return "unknown";
+  const p = process.platform;
+  if (p === "darwin") return "macos";
+  if (p === "win32") return "windows";
+  return String(p);
+}
+
+// The child process module, or null where there is none. `$fsOrNull`'s shape,
+// for the reason that file states: `$require` is a `const` the backend emits
+// only for a platform that can have one.
+function $childProcessOrNull() {
+  if (typeof $require === "function") return $require("node:child_process");
+  if (typeof require === "function") return require("node:child_process");
+  return null;
+}
+
+// A signal name as the number a shell reports, so `Output.code` is `128 +
+// signal` on both backends.
+function $signalNumber(name) {
+  try {
+    const os = typeof $require === "function" ? $require("node:os") : require("node:os");
+    return os.constants.signals[name] || 0;
+  } catch {
+    return 0;
+  }
+}
+
+// `Spawn.spawnProcess` — start it, feed it, drain both streams, wait.
+//
+// Draining while it runs is what keeps a child that writes more than a pipe
+// holds from deadlocking, and it is why this is `spawn` and a promise rather
+// than `spawnSync`. `plan` is the program, the working directory — empty for
+// this process's own — and then the arguments, and `environment` is name and
+// value alternating and used only when `replace` says so: the encoding
+// `core/proc`'s `run` writes and `effect Spawn` argues for.
+async function $host_HostSpawn_spawnProcess(self, plan, environment, replace, input) {
+  const cp = $childProcessOrNull();
+  if (cp === null) return $err([6, "this platform cannot start a process"]);
+  const program = plan.length > 0 ? plan[0] : "";
+  const at = plan.length > 1 ? plan[1] : "";
+  const args = plan.slice(2);
+  const options = {};
+  if (at !== "") options.cwd = at;
+  if (replace) {
+    const env = {};
+    for (let i = 0; i + 1 < environment.length; i += 2) env[environment[i]] = environment[i + 1];
+    options.env = env;
+  }
+  return await new Promise(function (resolve) {
+    let child;
+    try {
+      child = cp.spawn(program, args, options);
+    } catch (e) {
+      resolve($err($ioErr(e)));
+      return;
+    }
+    const out = [];
+    const err = [];
+    let settled = false;
+    const answer = function (v) {
+      if (!settled) {
+        settled = true;
+        resolve(v);
+      }
+    };
+    child.stdout.on("data", function (c) {
+      out.push(c);
+    });
+    child.stderr.on("data", function (c) {
+      err.push(c);
+    });
+    child.on("error", function (e) {
+      answer($err($ioErr(e)));
+    });
+    child.on("close", function (code, signal) {
+      const status = code === null ? 128 + $signalNumber(signal) : code;
+      answer(
+        $ok([
+          BigInt(status),
+          Array.from(Buffer.concat(out)),
+          Array.from(Buffer.concat(err)),
+        ]),
+      );
+    });
+    // A child that never reads its input closes the pipe, and writing into a
+    // closed pipe is `EPIPE` rather than a failure of the run.
+    child.stdin.on("error", function () {});
+    child.stdin.end(Uint8Array.from(input));
+  });
 }
 
 // `Tasks.parallel(self, ctx, items, f)` — every task started, then every task
@@ -5461,6 +5639,57 @@ function $host_testing_fsSyncFile(h, p) {
   );
 }
 
+// A flat map holds no links, so `kind` is `.File` for a file, `.Directory` for
+// a `makeDir` path, and never `.Symlink`. `modified` is the epoch: a hermetic
+// double has no clock behind it.
+function $host_testing_fsMetadata(h, p) {
+  const s = $tslot(h);
+  const call = ["metadata", p, ""];
+  const clean = p.replace(/\/+$/, "");
+  if (p in s.files) {
+    const size = BigInt(s.files[p].length);
+    return $host_testing_logged(s, call, $ok([0, size, [0n]]));
+  }
+  if (clean === "" || clean === "." || s.dirs.includes(clean)) {
+    return $host_testing_logged(s, call, $ok([1, 0n, [0n]]));
+  }
+  return $host_testing_logged(s, call, $err([0]));
+}
+
+// The window the file holds, clamped at both ends: past the end is empty, and
+// a short file gives back what it has.
+function $host_testing_fsReadRange(h, p, from, count) {
+  const s = $tslot(h);
+  const call = ["readRange", p, ""];
+  const start = Number(from);
+  const want = Number(count);
+  if (start < 0 || want < 0) {
+    return $host_testing_logged(s, call, $err([6, "a negative offset or count"]));
+  }
+  if (!(p in s.files)) return $host_testing_logged(s, call, $err([0]));
+  return $host_testing_logged(s, call, $ok(s.files[p].slice(start, start + want)));
+}
+
+// The path back as it was given: a flat map has no links and no `..` to
+// resolve. A path naming nothing is still `.NotFound`.
+function $host_testing_fsRealPath(h, p) {
+  const s = $tslot(h);
+  const call = ["realPath", p, ""];
+  const clean = p.replace(/\/+$/, "");
+  const there = p in s.files || s.dirs.includes(clean) || clean === "" || clean === ".";
+  return $host_testing_logged(s, call, there ? $ok(p) : $err([0]));
+}
+
+function $host_testing_fsCopyFile(h, from, to) {
+  const s = $tslot(h);
+  const call = ["copyFile", from, to];
+  if (s.ro) return $host_testing_logged(s, call, $err([2]));
+  const f = s.files;
+  if (!(from in f)) return $host_testing_logged(s, call, $err([0]));
+  f[to] = f[from].slice();
+  return $host_testing_logged(s, call, $ok(0));
+}
+
 // Millis in and millis out are both `I64`, so this one counts in `BigInt`.
 function $host_testing_clock() {
   return $handle({ now: 0n });
@@ -5563,6 +5792,50 @@ function $host_testing_TestEnv_variable(self, name) {
 
 function $host_testing_TestEnv_args(self) {
   return $slot(self).args.slice();
+}
+
+// `/` and `test`, whatever the machine running the suite is. A double that
+// answered the runner's own directory or platform would give one test two
+// answers on two machines.
+function $host_testing_TestEnv_currentDirectory(self) {
+  return "/";
+}
+
+// Sorted, unlike the real thing: a hermetic double owes a test one order.
+function $host_testing_TestEnv_allVariables(self) {
+  const v = $slot(self).vars;
+  return Object.keys(v)
+    .sort()
+    .map(function (k) {
+      return [k, v[k]];
+    });
+}
+
+function $host_testing_TestEnv_operatingSystemName(self) {
+  return "test";
+}
+
+// --- Spawn --------------------------------------------------------------------
+//
+// The log, and nothing else: the scripted answer stays in the program, because
+// `IoError.Other` carries a `Str` and §2.1 cannot hand one back across a row.
+
+function $host_testing_newSpawn() {
+  return $tmint({ calls: [] });
+}
+
+// The plan is the program, the working directory and then the arguments, and
+// the split happens here for the reason `host_testing.buri` gives: a Buri body
+// would need an `Alloc` and an effect method takes only `self`.
+function $host_testing_recordSpawn(h, plan) {
+  $tslot(h).calls.push([plan.length > 0 ? plan[0] : "", plan.slice(2)]);
+  return 0;
+}
+
+function $host_testing_spawnCalls(h) {
+  return $tslot(h).calls.map(function (c) {
+    return [c[0], c[1].slice()];
+  });
 }
 
 // `proc()` has no function here and no slot: `TestProc` records nothing,

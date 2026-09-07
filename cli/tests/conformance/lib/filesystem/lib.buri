@@ -1,0 +1,6 @@
+// The filesystem conformance package.
+//
+// `core/fs`'s surface over `core/host/testing`'s `fs()`: what a path is, what a
+// directory holds, what a copy leaves behind, and what a recursive delete takes
+// with it. Every block here is a map in memory, so the answers are answers
+// rather than whatever the machine running the suite happens to hold.

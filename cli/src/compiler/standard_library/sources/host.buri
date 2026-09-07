@@ -18,8 +18,12 @@ from "core/effect" import {
 
 // The filesystem's two effects are declared in `core/fs` rather than
 // `core/effect`, because their methods name `Path`. See that module's header.
-from "core/fs" import { FsRead, FsWrite };
+from "core/fs" import { FsRead, FsWrite, Metadata };
 from "core/path" import { Path };
+
+// And `Spawn` is declared in `core/proc` for the same reason: it names that
+// module's own `Command` and `Output`.
+from "core/process" import { Output, Spawn };
 
 // One `Request`, and it is `core/effect`'s.
 from "ui/effect" import { Location, Scope, Ui, Watch };
@@ -72,6 +76,12 @@ impl FsRead for HostFs {
     fn readDir(self, path: Path): Result<[Str], IoError>;
 
     fn readFileBytes(self, path: Path): Result<[U8], IoError>;
+
+    fn metadata(self, path: Path): Result<Metadata, IoError>;
+
+    fn readRange(self, path: Path, at: Int, count: Int): Result<[U8], IoError>;
+
+    fn realPath(self, path: Path): Result<Str, IoError>;
 }
 
 impl FsWrite for HostFs {
@@ -90,6 +100,8 @@ impl FsWrite for HostFs {
     fn makeDir(self, path: Path): Result<(), IoError>;
 
     fn syncFile(self, path: Path): Result<(), IoError>;
+
+    fn copyFile(self, source: Path, destination: Path): Result<(), IoError>;
 }
 
 export struct HostNet {}
@@ -134,12 +146,39 @@ impl Env for HostEnv {
     fn variable(self, name: Str): Option<Str>;
 
     fn args(self): [Str];
+
+    fn currentDirectory(self): Str;
+
+    fn allVariables(self): [(Str, Str)];
+
+    fn operatingSystemName(self): Str;
 }
 
 export struct HostProc {}
 
 impl Proc for HostProc {
     fn exitWith(self, code: Int): ();
+}
+
+/// Running another program.
+///
+/// **Granted on LINUX, MACOS and JS.** Not on WEB or a worker: neither has a
+/// process table to put a child in.
+///
+/// It is a separate grant from `HostProc` because starting a program is a
+/// bigger authority than ending one — a context that can run `sh` can do
+/// anything its user can. `core/proc` is the module a program calls; this is
+/// what a context binds.
+export struct HostSpawn {}
+
+impl Spawn for HostSpawn {
+    fn spawnProcess(
+        self,
+        plan: [Str],
+        environment: [Str],
+        replaceEnvironment: Bool,
+        stdin: [U8],
+    ): Result<Output, IoError>;
 }
 
 /// Running the program's own work concurrently.
@@ -291,6 +330,8 @@ export let entropy: HostEntropy = HostEntropy { };
 export let env: HostEnv = HostEnv { };
 
 export let proc: HostProc = HostProc { };
+
+export let spawn: HostSpawn = HostSpawn { };
 
 export let tasks: HostTasks = HostTasks { };
 

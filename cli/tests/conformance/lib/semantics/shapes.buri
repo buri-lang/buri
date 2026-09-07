@@ -10,7 +10,7 @@ from "core/effect" import {
     Region, Request, Response, Serve, ServeError, Sockets, Stdout, Tasks,
 };
 from "core/fs" import * as fs;
-from "core/fs" import { FsRead, FsWrite, Path };
+from "core/fs" import { FsRead, FsWrite, Metadata, Path };
 from "core/io" import * as io;
 from "core/list" import * as list;
 from "core/net/http" import * as http;
@@ -813,6 +813,22 @@ impl FsRead for StaticFs {
     fn readFileBytes(self, path: Path): Result<[U8], IoError> {
         .Err(.PermissionDenied)
     }
+
+    fn metadata(self, path: Path): Result<Metadata, IoError> {
+        if (path.text() == self.only) {
+            .Ok(Metadata { kind: .File, size: 0, modified: Instant(0) })
+        } else {
+            .Err(.NotFound)
+        }
+    }
+
+    fn readRange(self, path: Path, at: Int, count: Int): Result<[U8], IoError> {
+        .Err(.PermissionDenied)
+    }
+
+    fn realPath(self, path: Path): Result<Str, IoError> {
+        if (path.text() == self.only) { .Ok(self.only) } else { .Err(.NotFound) }
+    }
 }
 
 /// A filesystem that refuses every write and can read nothing at all.
@@ -856,6 +872,10 @@ impl FsWrite for RefusingFs {
     fn syncFile(self, path: Path): Result<(), IoError> {
         .Err(.PermissionDenied)
     }
+
+    fn copyFile(self, source: Path, destination: Path): Result<(), IoError> {
+        .Err(.PermissionDenied)
+    }
 }
 
 /// Attenuation (SPEC 10.8): a wrapper that satisfies each half of the
@@ -885,6 +905,18 @@ impl<C: FsRead> FsRead for Guarded<C> {
 
     fn readFileBytes(self, path: Path): Result<[U8], IoError> {
         self.0.readFileBytes(path)
+    }
+
+    fn metadata(self, path: Path): Result<Metadata, IoError> {
+        self.0.metadata(path)
+    }
+
+    fn readRange(self, path: Path, at: Int, count: Int): Result<[U8], IoError> {
+        self.0.readRange(path, at, count)
+    }
+
+    fn realPath(self, path: Path): Result<Str, IoError> {
+        self.0.realPath(path)
     }
 }
 
@@ -919,6 +951,10 @@ impl<C: FsWrite> FsWrite for Guarded<C> {
 
     fn syncFile(self, path: Path): Result<(), IoError> {
         self.0.syncFile(path)
+    }
+
+    fn copyFile(self, source: Path, destination: Path): Result<(), IoError> {
+        .Err(.Other("guarded"))
     }
 }
 
@@ -955,6 +991,18 @@ impl Env for EchoEnv {
 
     fn args(self): [Str] {
         [self.always]
+    }
+
+    fn currentDirectory(self): Str {
+        self.always
+    }
+
+    fn allVariables(self): [(Str, Str)] {
+        [(self.always, self.always)]
+    }
+
+    fn operatingSystemName(self): Str {
+        self.always
     }
 }
 

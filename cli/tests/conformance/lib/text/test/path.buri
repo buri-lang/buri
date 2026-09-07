@@ -243,6 +243,190 @@ test "the result of withSuffix is normalized like anything else" {
 }
 
 // -----------------------------------------------------------------------------
+// Containment, and writing a path from another
+// -----------------------------------------------------------------------------
+
+test "startsWith is component-wise, so a longer name is not a longer path" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let base = path.of(ctx, "/srv/a");
+    assert.isTrue(path.of(ctx, "/srv/a").startsWith(base));
+    assert.isTrue(path.of(ctx, "/srv/a/b/c").startsWith(base));
+    assert.isFalse(path.of(ctx, "/srv/ab").startsWith(base));
+    assert.isFalse(path.of(ctx, "/srv").startsWith(base));
+}
+
+test "an absolute path never starts with a relative one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isFalse(path.of(ctx, "/srv/a").startsWith(path.of(ctx, "srv")));
+    assert.isFalse(path.of(ctx, "srv/a").startsWith(path.of(ctx, "/srv")));
+}
+
+test "the root starts every absolute path and `.` every relative one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "/srv/a").startsWith(path.of(ctx, "/")));
+    assert.isTrue(path.of(ctx, "/").startsWith(path.of(ctx, "/")));
+    assert.isTrue(path.of(ctx, "a/b").startsWith(path.of(ctx, ".")));
+    assert.isFalse(path.of(ctx, "/a").startsWith(path.of(ctx, ".")));
+}
+
+test "relativeTo writes a path from a directory above it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let root = path.of(ctx, "/srv/app");
+    assert.eq(relative(ctx, "/srv/app/log/today", root), .Some("log/today"));
+    assert.eq(relative(ctx, "/srv/app", root), .Some("."));
+    assert.eq(relative(ctx, "/etc", root), .None);
+    assert.eq(relative(ctx, "/srv/application", root), .None);
+}
+
+test "relativeTo from the root and from `.` keeps the rest" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(relative(ctx, "/var/log", path.of(ctx, "/")), .Some("var/log"));
+    assert.eq(relative(ctx, "var/log", path.of(ctx, ".")), .Some("var/log"));
+    assert.eq(relative(ctx, "/", path.of(ctx, "/")), .Some("."));
+}
+
+// -----------------------------------------------------------------------------
+// Extensions
+// -----------------------------------------------------------------------------
+
+test "withExtension replaces the extension rather than appending to the name" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(extended(ctx, "/var/log/app.log", "gz"), .Some("/var/log/app.gz"));
+    assert.eq(extended(ctx, "a/report.tar.gz", "txt"), .Some("a/report.tar.txt"));
+    assert.eq(extended(ctx, "README", "md"), .Some("README.md"));
+    assert.eq(extended(ctx, "a/.gitignore", "txt"), .Some("a/.gitignore.txt"));
+}
+
+test "an empty extension drops the one that was there" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(extended(ctx, "a/b.log", ""), .Some("a/b"));
+    assert.eq(path.of(ctx, "a/b.log").withoutExtension(ctx).text(), "a/b");
+    assert.eq(
+        path.of(ctx, "a/report.tar.gz").withoutExtension(ctx).text(),
+        "a/report.tar",
+    );
+    assert.eq(path.of(ctx, "README").withoutExtension(ctx).text(), "README");
+}
+
+test "a path with no last component has no extension to replace" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(extended(ctx, "/", "txt"), .None);
+    assert.eq(extended(ctx, ".", "txt"), .None);
+    assert.eq(path.of(ctx, "/").withoutExtension(ctx).text(), "/");
+}
+
+// -----------------------------------------------------------------------------
+// Joining a path
+// -----------------------------------------------------------------------------
+
+test "joinPath is join for a path, and still appends an absolute one" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let dir = path.of(ctx, "var/log");
+    assert.eq(dir.joinPath(ctx, path.of(ctx, "app.log")).text(), "var/log/app.log");
+    assert.eq(dir.joinPath(ctx, path.of(ctx, "/etc")).text(), "var/log/etc");
+    assert.eq(dir.joinPath(ctx, path.of(ctx, ".")).text(), "var/log");
+}
+
+// -----------------------------------------------------------------------------
+// Globbing
+// -----------------------------------------------------------------------------
+
+test "a pattern with no metacharacter is an equality test" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "a/b").matchesGlob("a/b"));
+    assert.isFalse(path.of(ctx, "a/b").matchesGlob("a/c"));
+    assert.isFalse(path.of(ctx, "a/b").matchesGlob("a"));
+    assert.isFalse(path.of(ctx, "a").matchesGlob("a/b"));
+}
+
+test "`*` stays inside one component" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let file = path.of(ctx, "src/net/http.buri");
+    assert.isTrue(file.matchesGlob("src/net/*.buri"));
+    assert.isTrue(file.matchesGlob("src/*/http.buri"));
+    assert.isFalse(file.matchesGlob("src/*.buri"));
+    assert.isTrue(path.of(ctx, "a.buri").matchesGlob("*"));
+    assert.isTrue(path.of(ctx, "a.buri").matchesGlob("*.buri"));
+}
+
+test "`?` is exactly one character" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "a1").matchesGlob("a?"));
+    assert.isFalse(path.of(ctx, "a").matchesGlob("a?"));
+    assert.isFalse(path.of(ctx, "a12").matchesGlob("a?"));
+}
+
+test "a set matches one of its members, and `!` turns it round" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "b").matchesGlob("[abc]"));
+    assert.isFalse(path.of(ctx, "d").matchesGlob("[abc]"));
+    assert.isTrue(path.of(ctx, "q7").matchesGlob("q[0-9]"));
+    assert.isFalse(path.of(ctx, "qx").matchesGlob("q[0-9]"));
+    assert.isTrue(path.of(ctx, "d").matchesGlob("[!abc]"));
+    assert.isTrue(path.of(ctx, "d").matchesGlob("[^abc]"));
+    assert.isFalse(path.of(ctx, "a").matchesGlob("[!abc]"));
+    // A set nothing closes matches nothing.
+    assert.isFalse(path.of(ctx, "a").matchesGlob("[abc"));
+}
+
+test "`**` matches any number of whole components, none included" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "src/net/http.buri").matchesGlob("src/**/*.buri"));
+    assert.isTrue(path.of(ctx, "src/http.buri").matchesGlob("src/**/*.buri"));
+    assert.isTrue(path.of(ctx, "src/a/b/c/http.buri").matchesGlob("src/**/*.buri"));
+    assert.isTrue(path.of(ctx, "src/a/b").matchesGlob("src/**"));
+    assert.isTrue(path.of(ctx, "src").matchesGlob("src/**"));
+    assert.isFalse(path.of(ctx, "lib/a.buri").matchesGlob("src/**/*.buri"));
+}
+
+test "an absolute path matches only an absolute pattern" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "/var/log").matchesGlob("/var/*"));
+    assert.isFalse(path.of(ctx, "/var/log").matchesGlob("var/*"));
+    assert.isFalse(path.of(ctx, "var/log").matchesGlob("/var/*"));
+}
+
+test "the root and `.` have no components to match" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.isTrue(path.of(ctx, "/").matchesGlob("/**"));
+    assert.isFalse(path.of(ctx, "/").matchesGlob("/*"));
+    assert.isTrue(path.of(ctx, ".").matchesGlob("**"));
+    assert.isFalse(path.of(ctx, ".").matchesGlob("*"));
+}
+
+// -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
 
@@ -253,4 +437,13 @@ fn parentText(p: Path): Option<Str> {
 
 fn suffixText<C: Alloc>(ctx: C, p: Path): Option<Str> {
     p.withSuffix(ctx, ".tmp").map(fn(t) => t.text())
+}
+
+/// `relativeTo` as text, so an assertion can name what it expects.
+fn relative<C: Alloc>(ctx: C, text: Str, base: Path): Option<Str> {
+    path.of(ctx, text).relativeTo(ctx, base).map(fn(p) => p.text())
+}
+
+fn extended<C: Alloc>(ctx: C, text: Str, extension: Str): Option<Str> {
+    path.of(ctx, text).withExtension(ctx, extension).map(fn(p) => p.text())
 }

@@ -1,0 +1,5 @@
+// The standard streams conformance package.
+//
+// `core/io`'s two whole-input readers, over `core/host/testing`'s `stdin()`. A
+// filter reads until end of input, and these are the two spellings of that: the
+// lines, and the octets.

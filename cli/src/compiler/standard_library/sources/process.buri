@@ -1,13 +1,48 @@
-//! core/process — ending the process.
+//! core/process — ending this process, and running another one.
 //!
-//! One function, because `Proc` declares one operation. Exiting is a different
-//! authority from printing, so it gets its own module and a reader of a context
-//! can see which of them a program was given.
+//! Two authorities, and they are separate on purpose. `Proc` ends the program.
+//! `Spawn` starts a different one, which is the largest authority a context can
+//! carry: a program that can run `sh` can do anything the user can. A reader of
+//! a context sees which of the two it was given, and a program that never binds
+//! `Spawn` cannot run anything anywhere in its call graph.
 //!
-//! LINUX, MACOS and JS grant it. WEB does not: a page has no process to exit,
-//! and a mounted interface stays live.
+//! LINUX, MACOS and JS grant both. WEB does not: a page has no process to exit
+//! and nothing to start, and a worker answers a request rather than running one.
+//!
+//! ## Running something
+//!
+//! ```buri sig
+//! # from "core/effect" import { Alloc, IoError };
+//! # from "core/process" import * as process;
+//! # from "core/process" import { Output, Spawn };
+//! #
+//! export fn version<C: Alloc + Spawn>(ctx: C): Result<Output, IoError> {
+//!     process.run(ctx, process.command("git", ["--version"]))
+//! }
+//! ```
+//!
+//! [`run`] waits for the child and hands back everything it wrote. There is no
+//! streaming half and no handle to a live process: a program that needs one
+//! writes to a file and reads it, which is what the shape of `Output` says.
+//!
+//! **The exit code is not an error.** A child that ran and failed is `.Ok` with
+//! a non-zero `code`; `.Err` is for a child that never ran — no such program,
+//! no permission, a working directory that is not there.
+//!
+//! **Nothing is a shell.** `program` is an executable and `arguments` reach it
+//! one by one, so a value with a space or a `;` in it is one argument and never
+//! a second command.
 
-from "core/effect" import { Proc };
+from "core/effect" import { Alloc, Env, IoError, Proc };
+from "core/env" import * as env;
+from "core/fs" import * as fs;
+from "core/fs" import { FsRead };
+from "core/path" import * as path;
+from "core/path" import { Path };
+
+from "core/effect" export { IoError };
+
+from "core/path" export { Path };
 
 /// Ends the process with `code`, immediately.
 ///
@@ -20,4 +55,170 @@ from "core/effect" import { Proc };
 /// *particular* status — a tool whose exit code is part of its interface.
 export fn exit<C: Proc>(ctx: C, code: Int): () {
     ctx.exitWith(code)
+}
+
+derive Eq, Show for Command;
+/// What to run, and what to run it with.
+///
+/// [`command`] builds one with the three optional fields empty, and a program
+/// fills in what it needs. `.None` means "whatever this process has": the
+/// working directory it was started in, the environment it was given, and no
+/// standard input at all.
+export struct Command {
+    export program: Str,
+    export arguments: [Str],
+    export workingDirectory: Option<Path>,
+    /// The child's **whole** environment, replacing this process's rather than
+    /// adding to it. `.None` hands the child what this process has.
+    export environment: Option<[(Str, Str)]>,
+    /// Octets to write to the child's standard input, which is then closed.
+    /// `.None` and `.Some([])` both give the child an input that is empty and
+    /// already at its end.
+    export stdin: Option<[U8]>,
+}
+
+derive Eq, Show for Output;
+/// What a finished process left behind.
+///
+/// `code` is the exit status, and a child killed by a signal reports `128 +
+/// signal`, which is the number a shell reports for it.
+export struct Output {
+    export code: Int,
+    export stdout: [U8],
+    export stderr: [U8],
+}
+
+/// Running another program.
+///
+/// **The largest authority in the standard library**, which is why it is its
+/// own effect rather than a method on `Proc`: ending this process and starting
+/// another are not the same permission, and a program that only needs the first
+/// should not be handed the second.
+export effect Spawn {
+    /// Runs a program, waits for it, and answers everything it wrote.
+    ///
+    /// **Four flat arguments rather than a `Command`**, and the shape is the
+    /// boundary's rather than the module's. An argument crosses to the runtime
+    /// flattened into its scalar leaves, three of that struct's five fields are
+    /// an `Option` whose layout the runtime would have to know, and a runtime
+    /// call has a fixed number of registers to put leaves in
+    /// (`backend/stencil/abi.rs`). So the encoding is here, in one place, and
+    /// [`run`] is the only caller of it:
+    ///
+    /// * `plan` is the **program**, then the **working directory** — empty for
+    ///   this process's own — then the arguments.
+    /// * `environment` is name and value alternating, and is used only when
+    ///   `replaceEnvironment` says so.
+    /// * `stdin` is written to the child and the pipe is then closed.
+    fn spawnProcess(
+        self,
+        plan: [Str],
+        environment: [Str],
+        replaceEnvironment: Bool,
+        stdin: [U8],
+    ): Result<Output, IoError>;
+}
+
+/// A command to run `program` with these arguments, and nothing else set.
+///
+/// ```buri sig
+/// # from "core/process" import * as process;
+/// # from "core/process" import { Command };
+/// #
+/// export fn tagged(): Command {
+///     process.command("git", ["describe", "--tags"])
+/// }
+/// ```
+///
+/// `arguments` are the ones after the program's own name, exactly as
+/// `env.args` reports them on the other side.
+export fn command(program: Str, arguments: [Str]): Command {
+    Command {
+        program: program,
+        arguments: arguments,
+        workingDirectory: .None,
+        environment: .None,
+        stdin: .None,
+    }
+}
+
+/// Runs the command and waits for it.
+///
+/// `.Ok` means the child ran, whatever it made of it: read `code` to find out.
+/// `.Err` means it never ran — `.NotFound` for a program that is not there,
+/// `.PermissionDenied` for one that is not executable.
+///
+/// Both streams are read to the end while the child runs, so a child that
+/// writes more than a pipe holds does not deadlock.
+export fn run<C: Alloc + Spawn>(ctx: C, command: Command): Result<Output, IoError> {
+    let at = match (command.workingDirectory) {
+        .None => "",
+        .Some(directory) => directory.text(),
+    };
+    let replace = match (command.environment) {
+        .None => false,
+        .Some(_pairs) => true,
+    };
+    let variables = match (command.environment) {
+        .None => [],
+        .Some(pairs) => flattened(ctx, pairs, 0, []),
+    };
+    let input = match (command.stdin) {
+        .None => [],
+        .Some(body) => body,
+    };
+    let plan = [command.program, at].concat(ctx, command.arguments);
+    ctx.spawnProcess(plan, variables, replace, input)
+}
+
+/// `[(name, value)]` as name and value alternating, which is what the effect
+/// takes.
+fn flattened<C: Alloc>(ctx: C, pairs: [(Str, Str)], index: Int, sofar: [Str]): [Str] {
+    match (pairs.get(index)) {
+        .None => sofar,
+        .Some(pair) => {
+            let (name, value) = pair;
+            flattened(ctx, pairs, index + 1, sofar.push(ctx, name).push(ctx, value))
+        },
+    }
+}
+
+/// Where `PATH` says `program` is, or `.None` where nothing there is called
+/// that.
+///
+/// A `program` with a `/` in it names a file directly and `PATH` is not
+/// consulted, which is what a shell does.
+///
+/// **It asks whether the name resolves, not whether it can be executed.** That
+/// is `fs.exists`, so a directory with the right name answers `.Some`. The
+/// honest test is to run it and read the `.Err`.
+export fn which<C: Alloc + Env + FsRead>(ctx: C, program: Str): Option<Path> {
+    if (program.contains("/")) {
+        let at = path.of(ctx, program);
+        if (fs.exists(ctx, at)) { .Some(at) } else { .None }
+    } else {
+        match (env.get(ctx, "PATH")) {
+            .None => .None,
+            .Some(listed) => firstOnPath(ctx, listed.split(ctx, ":"), program, 0),
+        }
+    }
+}
+
+fn firstOnPath<C: Alloc + FsRead>(
+    ctx: C,
+    directories: [Str],
+    program: Str,
+    index: Int,
+): Option<Path> {
+    match (directories.get(index)) {
+        .None => .None,
+        .Some(directory) => {
+            let at = path.of(ctx, directory).join(ctx, program);
+            if (fs.exists(ctx, at)) {
+                .Some(at)
+            } else {
+                firstOnPath(ctx, directories, program, index + 1)
+            }
+        },
+    }
 }
