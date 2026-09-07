@@ -1,0 +1,106 @@
+error: "//lib/wire" does not export `height` [no-such-export]
+ --> cmd/app/main.buri:4:28
+  |
+4 | from "//lib/wire" import { height, width };
+  |                            ^^^^^^
+  |
+  = fix: check the spelling, or re-export `height` from "//lib/wire"'s `lib.buri`
+
+    What to do
+    ──────────
+
+    If the module declares the name but holds it back, add export to the
+    declaration there. If it declares no such name, the spelling is the mistake.
+    The diagnostic says which of the two it is, and offers the nearest exported
+    name.
+
+    Why
+    ───
+
+    A re-export may name only what its module path exports, so a library's
+    surface is never wider than the modules it is built from.
+
+error: "//lib/wire" does not export `width` [no-such-export]
+ --> cmd/app/main.buri:4:36
+  |
+4 | from "//lib/wire" import { height, width };
+  |                                    ^^^^^
+  |
+  = fix: check the spelling, or re-export `width` from "//lib/wire"'s `lib.buri`
+error: there is nothing named `width` in scope [unresolved-name]
+  --> cmd/app/main.buri:12:26
+   |
+12 |         .println(ctx, "${width * height}")
+   |                          ^^^^^
+   |
+   = fix: declare `width`, or import it — a name is in scope only from this module's own declarations and its imports
+
+     What to do
+     ──────────
+
+     Correct the spelling, or declare it. The diagnostic offers the nearest name
+     in scope.
+
+     Why
+     ───
+
+     There is no prelude and no ambient scope. A module's available names are
+     the ones it declares plus the ones its own imports name, which is what
+     makes the suggestion trustworthy.
+
+error: there is nothing named `height` in scope [unresolved-name]
+  --> cmd/app/main.buri:12:34
+   |
+12 |         .println(ctx, "${width * height}")
+   |                                  ^^^^^^
+   |
+   = fix: declare `height`, or import it — a name is in scope only from this module's own declarations and its imports
+error: the generator produced no response [generator-failed]
+ --> lib/wire/BUILD.buri:3:9
+  |
+3 |         { tool: "//cmd/gen", inputs: ["spare.txt", "units.txt"] },
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = the generator's answer is not a response: not a value at byte 0
+  = fix: run the tool by hand and check it writes one line of JSON on standard output
+
+    The note says which way it went: the tool did not build, it exited non-zero,
+    it wrote nothing, what it wrote is not a response, or it ran past the
+    build's deadline. Whatever the tool put on standard error comes with the
+    note.
+
+    A response is one line of JSON — the modules to load, and what the generator
+    has to say about its inputs:
+
+      {"modules":[{"name":"units","text":"export let width: Int = 3;\n","anchors":[]}],"diagnostics":[]}
+
+    The response is the last non-empty line of standard output, so a println of
+    your own above it costs nothing. core/codegen's run writes the line for you,
+    and a tool built on it reaches this page only when it never got as far as
+    answering.
+
+error: "//lib/wire/units" names no file (lib/wire/units.buri) [module-not-found]
+ --> lib/wire/lib.buri:1:6
+  |
+1 | from "//lib/wire/units" export { height, width };
+  |      ^^^^^^^^^^^^^^^^^^
+  |
+  = fix: create the file the path names, or correct the path — a module path maps to exactly one file, with no search
+
+    What to do
+    ──────────
+
+    Create the file the path names, or correct the path.
+
+    Why
+    ───
+
+    A module path maps to exactly one file, with no search path and no fallback,
+    so there is never a question of which of two candidates a path meant.
+
+    A program that provokes it
+    ──────────────────────────
+
+    This snippet resolves against the worked monorepo in cli/tests/example,
+    which has no lib/nope.
+

@@ -1,0 +1,23 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a generator's tool is a target, so a tool built from the target that runs it is a cycle — reported with the path, before anything is built, rather than a build that never finishes"
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# One edge, and the tool is now built from the library whose generator runs it.
+edit {
+  file: "cmd/gen/BUILD.buri"
+  replace: "binary {\n"
+  with: "binary {\n    dependencies: [\"//lib/wire\"]\n\n"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "cycle.txt"
+}

@@ -1,0 +1,135 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "a generator is an ordinary Buri binary: the build runs it, its inputs are declared and keyed like any other source, and what it hands back is a module of the rule that declared it"
+
+# An input no rule lists is `unused-library`, exactly as a stray .buri is — and
+# the fix names `generators`, because that is the field it belongs in.
+run {
+  args: ["lint", "//lib/wire"]
+  exit: 1
+  golden: "undeclared.txt"
+}
+
+# `buri gen` never writes `generators`: the tool cannot know which generator
+# owns a file. So the fix is the one the diagnostic named, made by hand.
+edit {
+  file: "lib/wire/BUILD.buri"
+  replace: "inputs: [\"units.txt\"]"
+  with: "inputs: [\"spare.txt\", \"units.txt\"]"
+}
+
+run {
+  args: ["lint", "//..."]
+  exit: 0
+  golden: "clean.txt"
+}
+
+# The whole point: a library re-exports what the generator produced, and a
+# binary in another package computes with it.
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "run.txt"
+}
+
+# The rule that declares a generator carries a `generate` action of its own,
+# keyed on the tool and on the contents of every declared input.
+run {
+  args: ["build", "//cmd/app", "--explain"]
+  exit: 0
+  golden: "explain.txt"
+}
+
+# Nothing changed, so nothing is rebuilt and the tool is not run again.
+run {
+  args: ["build", "//cmd/app", "--explain"]
+  exit: 0
+  golden: "cached.txt"
+}
+
+# An input is a source of the target: what the generator makes of it is
+# compiled into the artifact.
+run {
+  args: ["query", "sources(//lib/wire)"]
+  exit: 0
+  golden: "sources.txt"
+}
+
+# Two independent runs of the generator, into two output directories, compared
+# byte for byte.
+run {
+  args: ["build", "//cmd/app", "--check-reproducible", "--verbose"]
+  exit: 0
+  golden: "reproducible.txt"
+}
+
+# Editing an input changes the key.
+edit {
+  file: "lib/wire/units.txt"
+  replace: "width 3"
+  with: "width 5"
+}
+
+run {
+  args: ["build", "//cmd/app", "--explain"]
+  exit: 0
+  golden: "after_edit.txt"
+}
+
+# ...and the artifact.
+run {
+  args: ["run", "//cmd/app"]
+  exit: 0
+  golden: "after_run.txt"
+}
+
+# A generated module is internal to the rule that declared the generator:
+# another package reaches it the way it reaches any other internal module,
+# through `lib.buri`.
+edit {
+  file: "cmd/app/main.buri"
+  replace: "from \"//lib/wire\" import"
+  with: "from \"//lib/wire/units\" import"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "internal.txt"
+}
+
+edit {
+  file: "cmd/app/main.buri"
+  replace: "from \"//lib/wire/units\" import"
+  with: "from \"//lib/wire\" import"
+}
+
+# The signature failure. A tool that writes something that is not a response
+# fails the build where the `generators` entry is written, with what it wrote as
+# the note — never a silent empty module.
+edit {
+  file: "cmd/gen/main.buri"
+  replace: "\"${json.stringify(ctx, respond(ctx, inputs))}\""
+  with: "\"this is not a response\""
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "failed.txt"
+}
+
+# A tool that exits non-zero fails the same way, with what it said on standard
+# error as the note.
+edit {
+  file: "cmd/gen/main.buri"
+  replace: "let line = io.readLine(ctx).okOr(\"the generator was handed no request\")?;"
+  with: "let line = \"\";"
+}
+
+run {
+  args: ["build", "//cmd/app"]
+  exit: 1
+  golden: "refused.txt"
+}
