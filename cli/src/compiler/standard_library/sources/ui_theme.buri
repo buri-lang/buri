@@ -10,8 +10,8 @@
 //! **The package that owns a vocabulary writes a `themed`.** That is one small
 //! function taking a mapping, `fn(Token) => Color`, and answering the `themed`
 //! below applied to one binding per token: `(Token.Surface.color(),
-//! f(.Surface))`, and so on down the enum. Only that package can write it,
-//! because only that package knows what its tokens are.
+//! f(.Surface))`, and so on down the enum. Only that package knows what its
+//! tokens are.
 //!
 //! **The app that uses the package writes the mapping.** It is an ordinary
 //! function whose `match` over the package's enum is the compatibility check.
@@ -21,16 +21,12 @@
 //!
 //! A binding's left half is the token *written the way the owning package
 //! writes it*. Its right half is what that token is worth, and it may be another
-//! token — that is how you chain a library's token to the app's token to a
-//! value. Mount follows the chain once.
+//! token, so a library's token can chain to the app's token to a value. Mount
+//! follows the chain once.
 //!
-//! At run time this costs nothing. A token is a custom property in the
-//! stylesheet, so every class is settled at compile time and no theme changes
-//! any of them. Installing a theme writes one `:root` block of values, and
-//! switching one rewrites the same block. That is why dark mode is a
-//! `Prop<Bool>` here rather than a second stylesheet: nothing is re-extracted,
-//! no element is touched, and the browser repaints from the variables it
-//! already had.
+//! A token is a custom property, so every class is settled at compile time.
+//! Installing a theme writes one `:root` block of values, and switching one
+//! rewrites the same block.
 
 from "ui/prop" import { Prop };
 from "ui/style" import { Color };
@@ -39,8 +35,7 @@ from "ui/style" import { Color };
 ///
 /// Opaque: `themed` and `switching` build one, and only `mount` reads it. The
 /// field is private, so no program outside this module can build a theme or take
-/// one apart. Same shape as `ui/effect`'s `Scope`, and it is what keeps the type
-/// opaque now that an exported enum exports every variant it has.
+/// one apart.
 export struct Theme(ThemeKind);
 
 /// What a theme is, kept private so that `Theme` stays opaque.
@@ -65,15 +60,12 @@ export fn themed(bindings: [(Color, Color)]): Theme {
     Theme(.Values(bindings))
 }
 
-/// Whichever of two themes the condition currently picks.
+/// Whichever of two themes the condition currently picks. This is dark mode.
 ///
-/// This is dark mode, and it is deliberately not a second stylesheet. When the
-/// condition changes, the runtime writes the custom-property block again and
-/// every class on every element stays exactly as it was.
-///
-/// The condition is a `Prop<Bool>`, so it can be a constant, a signal the app
-/// writes, or a computation over one: a media query bridged into a signal, a
-/// stored preference, a switch in the page.
+/// When the condition changes, the runtime rewrites the custom-property block
+/// and every class on every element stays as it was. The condition is a
+/// `Prop<Bool>`, so it can be a constant, a signal the app writes, or a
+/// computation over one.
 export fn switching(condition: Prop<Bool>, whenTrue: Theme, whenFalse: Theme): Theme {
     Theme(.Switching(condition, [whenTrue], [whenFalse]))
 }

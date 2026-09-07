@@ -12,16 +12,14 @@
 //! The other rule runs through all of it: **whatever an assistive technology
 //! cannot do without is a parameter**, not an attribute somebody may remember
 //! to set. An image takes its `alt`, a link takes its `dest`, a field and a
-//! toggle take their `label`. An unlabelled input is the most common
-//! accessibility failure on the web, and unlike a missing `alt` it has no
-//! visual fallback. So you cannot write one here.
+//! toggle take their `label`. You cannot write an unlabelled input here.
 //!
 //! Building a tree needs no context, no allocator and no authority. Every
 //! constructor below is pure, and `C` is unbounded in all of them. A `Node<C>`
 //! keeps its one type parameter because handlers are open-ended: a press may
 //! legitimately need `Net`, and `main` picks the budget of effects a program
 //! permits. `C` occurs only in argument position, so holding a `Node<C>` is not
-//! holding a `C`. That is what lets `mount` take one as ordinary data
+//! holding a `C`, which is what lets `mount` take one as ordinary data
 //! (SPEC 10.2).
 //!
 //! Three constructors put reactivity *in* the tree, and each re-runs the
@@ -45,12 +43,10 @@ from "ui/theme" import { Theme };
 /// What a region *is*, as against what it looks like.
 ///
 /// Eighteen names, all from the accessibility taxonomy rather than from HTML.
-/// Some names are missing on purpose, each because it needs behaviour and not
-/// just a name: a dialog needs focus trapping and a modal stack, tabs and
-/// menus need a roving focus and a key model. There is no `Grid` *role*, so
-/// "grid is layout, table is semantics" has nothing to grab — visual
-/// arrangement is `Style::Layout`, and a data table is the four table roles
-/// below.
+/// Some are missing because they need behaviour and not just a name: a dialog
+/// needs focus trapping and a modal stack, tabs and menus need a roving focus
+/// and a key model. There is no `Grid` role: visual arrangement is
+/// `Style::Layout`, and a data table is the four table roles below.
 export enum Role {
     /// A set of links to elsewhere. `nav`.
     Navigation,
@@ -97,11 +93,9 @@ export enum Role {
 
 /// What a field accepts.
 ///
-/// It ships in the first version rather than arriving later, since adding it
-/// afterwards would change `field`'s arity. `Multiline` rather than a second
-/// constructor named after a `textarea`. `Number`, `Email` and `Search`
-/// because they choose the keyboard on a phone as well as the validation in a
-/// browser.
+/// `Multiline` rather than a second constructor named after a `textarea`.
+/// `Number`, `Email` and `Search` choose the keyboard on a phone as well as the
+/// validation in a browser.
 export enum FieldKind {
     /// A line of text.
     Text,
@@ -120,11 +114,8 @@ export enum FieldKind {
 /// A user interface, as a value.
 ///
 /// Opaque on purpose. The field is private, so the constructors below are the
-/// whole vocabulary, and this file fixes what a tree can be rather than
-/// leaving that open to whoever imports the type. No program can build a node
-/// the runtime has no lowering for, or take one apart. Same shape as
-/// `ui/effect`'s `Scope`, and it is what keeps the type closed now that an
-/// exported enum exports every variant it has.
+/// whole vocabulary. No program can build a node the runtime has no lowering
+/// for, or take one apart.
 export struct Node<C>(NodeKind<C>);
 
 /// What a node is, kept private so `Node` stays opaque. The variant order is
@@ -159,8 +150,7 @@ export fn nothing<C>(): Node<C> {
 /// A container with no meaning of its own: arrangement, and nothing else.
 ///
 /// Reach for `region` instead whenever the group of children *is* something —
-/// a list, a banner, a table row. A stack with a role would lie to a screen
-/// reader; a region with none would invent a landmark.
+/// a list, a banner, a table row.
 export fn stack<C>(styles: [Style], children: [Node<C>]): Node<C> {
     Node(.Stack(styles, children))
 }
@@ -172,9 +162,8 @@ export fn region<C>(role: Role, styles: [Style], children: [Node<C>]): Node<C> {
 
 /// A stack whose children run along the text direction.
 ///
-/// Sugar. The layout goes in front of the caller's styles rather than
-/// replacing them, so a caller who passes their own `Layout` still wins — last
-/// one wins, per property.
+/// Sugar. The layout goes in front of the caller's styles rather than replacing
+/// them, so a caller who passes their own `Layout` still wins.
 export fn row<C>(styles: [Style], children: [Node<C>]): Node<C> {
     Node(.Stack([.Layout(.Row), .Group(styles)], children))
 }
@@ -186,9 +175,9 @@ export fn column<C>(styles: [Style], children: [Node<C>]): Node<C> {
 
 /// Empty, and takes whatever room is left over.
 ///
-/// What sits between two things that should push apart. Sugar for a grown
-/// empty stack, so it is a child's share of the main axis rather than a margin
-/// — this vocabulary has no margins.
+/// What sits between two things that should push apart. Sugar for a grown empty
+/// stack, so it is a child's share of the main axis rather than a margin — this
+/// vocabulary has no margins.
 export fn spacer<C>(): Node<C> {
     Node(.Stack([.Grow(1)], []))
 }
@@ -196,8 +185,7 @@ export fn spacer<C>(): Node<C> {
 /// Text.
 ///
 /// A bare run of characters with no element around it. Styling text means
-/// styling the container it sits in, which keeps a paragraph with one bold
-/// word in it from becoming a tree of nested spans.
+/// styling the container it sits in.
 export fn text<C>(content: Prop<Str>): Node<C> {
     Node(.Text(content))
 }
@@ -215,11 +203,11 @@ export fn heading<C>(level: Int, content: Prop<Str>): Node<C> {
 ///
 /// The label is a parameter because a screen reader announces a button with no
 /// accessible name as "button". `onPress` takes its context as a parameter,
-/// since a lambda may not capture one, and the runtime hands it the very
-/// context `mount` was given.
+/// since a lambda may not capture one, and the runtime hands it the very context
+/// `mount` was given.
 ///
 /// A press, not a click: the same handler runs for a tap, for Enter and for
-/// Space. That is what carries it to a touchscreen and to a native backend.
+/// Space.
 export fn button<C>(label: Prop<Str>, onPress: fn(C, Event) => ()): Node<C> {
     Node(.Button(label, onPress))
 }
@@ -243,14 +231,12 @@ export fn image<C>(source: Prop<Str>, alt: Prop<Str>): Node<C> {
 
 /// Somewhere to type, and what it is for.
 ///
-/// The label is required. An early design took only `field(value)`, which
-/// broke this design's own rule that an accessibility-critical parameter is a
-/// parameter. An unlabelled input is the commonest accessibility failure there
-/// is, and unlike a missing `alt` it has no visual fallback.
+/// The label is required: an unlabelled input is the commonest accessibility
+/// failure there is, and unlike a missing `alt` it has no visual fallback.
 ///
 /// There is no change event. The field binds to a `Signal`, so what the reader
 /// types lands in the signal, and whatever writes the signal lands in the
-/// field. Two-way binding replaces the event entirely.
+/// field.
 export fn field<C>(label: Prop<Str>, kind: FieldKind, value: Signal<Str>): Node<C> {
     Node(.Field(label, kind, value))
 }
@@ -264,9 +250,8 @@ export fn toggle<C>(label: Prop<Str>, value: Signal<Bool>): Node<C> {
 
 /// A group of controls you submit.
 ///
-/// A widget rather than a role, because submitting is behaviour: pressing
-/// Enter in a field inside one runs `onSubmit`. That is the flow every "type
-/// it and add it" list needs, and the reason `Role` has no `Form`.
+/// A widget rather than a role, because submitting is behaviour: pressing Enter
+/// in a field inside one runs `onSubmit`. That is why `Role` has no `Form`.
 export fn form<C>(
     onSubmit: fn(C, Event) => (),
     styles: [Style],
@@ -281,10 +266,9 @@ export fn form<C>(
 /// computations go with it — and the other one builds. When it does not
 /// change, nothing here runs at all.
 ///
-/// Named `choose` rather than `when`, its first name. `when` is a reserved
-/// word, held for a language feature nobody has taken yet, so no function may
-/// use it. `ui/signal` makes the same substitution when it calls `watch` what
-/// would otherwise be `effect`.
+/// Named `choose` rather than `when` because `when` is a reserved word, the
+/// same substitution `ui/signal` makes when it calls `watch` what would
+/// otherwise be `effect`.
 export fn choose<C>(cond: Prop<Bool>, then: Node<C>, otherwise: Node<C>): Node<C> {
     Node(.When(cond, then, otherwise))
 }
@@ -293,33 +277,27 @@ export fn choose<C>(cond: Prop<Bool>, then: Node<C>, otherwise: Node<C>): Node<C
 ///
 /// The closure gets a `Scope` at evaluation time and can never capture one,
 /// which lets a pure component hold a derivation. It re-runs when anything it
-/// actually read changes, and it rebuilds its subtree when it does — so this
-/// is the coarse instrument. A `Prop` on a leaf is the fine one. Reach for
-/// that when only a string is changing.
+/// actually read changes, and rebuilds its subtree when it does. That makes it
+/// the coarse instrument: reach for a `Prop` on a leaf when only a string is
+/// changing.
 export fn computed<C>(build: fn(Scope) => Node<C>): Node<C> {
     Node(.Computed(build))
 }
 
 /// One row per item, reconciled by key.
 ///
-/// The key is a parameter rather than a convention, for the same reason `alt`
-/// is: keying a list by position silently corrupts it the moment anything
-/// reorders the list, and the runtime has no way to notice. Two items with the
-/// same key is a mistake the runtime refuses at the point you make it.
+/// The key is a parameter rather than a convention: keying a list by position
+/// silently corrupts it the moment anything reorders the list. Two items with
+/// the same key is a mistake the runtime refuses at the point you make it.
 ///
-/// A row whose key is still in the list *moves*, never rebuilds — that is what
-/// keyed means, and it keeps the focus, the scroll position and the
-/// computations inside a row alive across a reorder. It also means a row is
-/// built from its item once. If what a row shows can change while its key
-/// stays the same, make the changing part a `Prop`.
+/// A row whose key is still in the list *moves*, never rebuilds, which keeps the
+/// focus, the scroll position and the computations inside a row alive across a
+/// reorder. It also means a row is built from its item once. If what a row shows
+/// can change while its key stays the same, make the changing part a `Prop`.
 ///
 /// `T` carries an ordinary bound because the closures below capture a
 /// `Prop<[T]>`, and an unbounded type parameter could be a context
-/// (`design/ui-reactivity.md` rule 5). `Eq` is the natural one for a list
-/// element, and `derive Eq` supplies it.
-///
-/// There is no context parameter: a list is a description, and describing one
-/// is as pure as describing anything else here.
+/// (`design/ui-reactivity.md` rule 5). `derive Eq` supplies it.
 export fn each<C, T: Eq>(
     items: Prop<[T]>,
     key: fn(T) => Str,
@@ -354,25 +332,24 @@ export fn each<C, T: Eq>(
 /// tokens passes the empty list.
 ///
 /// Answers `.Ok(())` and returns immediately. The page stays live because the
-/// entry wrapper only exits on an `.Err`, and the listeners this registered
-/// keep running. `.Err` is for a platform with nowhere to mount — in a
-/// browser, a document with no body yet.
+/// entry wrapper only exits on an `.Err`, and the listeners this registered keep
+/// running. `.Err` is for a platform with nowhere to mount — in a browser, a
+/// document with no body yet.
 ///
-/// Run outside a browser, under `bun` or `node`, there is no document at all,
-/// so the runtime supplies one. A program written for a page builds, mounts
-/// and reacts from a command line, which is what lets a test and a golden run
-/// it. `ui/testing` lists what a substitute cannot answer.
+/// Run outside a browser, under `bun` or `node`, there is no document at all, so
+/// the runtime supplies one. A program written for a page builds, mounts and
+/// reacts from a command line, which is what lets a test and a golden run it.
+/// `ui/testing` lists what a substitute cannot answer.
 export fn mount<C: Ui>(ctx: C, root: Node<C>, themes: [Theme]): Result<(), Str>;
 
 // --- The scene document ------------------------------------------------------
 //
-// `describe` is the other thing you can do with a tree: instead of putting it
-// on a screen, write down what it would look like. `ui/testing`'s `snapshot`
-// paints what comes out, and `cli/runtime/paint.rs` reads it.
+// `describe` writes down what a tree would look like instead of putting it on a
+// screen. `ui/testing`'s `snapshot` paints what comes out, and
+// `cli/runtime/paint.rs` reads it.
 //
-// It is ordinary Buri and not an intrinsic, which is the whole trick: a node
-// holds closures, and a runtime written in C cannot call one. The walk is here,
-// where `NodeKind` is visible, and only three strings cross to the painter.
+// It is ordinary Buri and not an intrinsic: a node holds closures, and a runtime
+// written in C cannot call one.
 
 /// An untracked scope: reading through it records no dependency.
 ///
@@ -819,9 +796,8 @@ fn lengthCss<C: Alloc>(ctx: C, length: Length): Str {
 
 /// A colour, as CSS.
 ///
-/// A token stays a `var()`, exactly as the stylesheet writes it: what it is
-/// worth is a theme's answer, and a theme is installed at mount rather than
-/// here.
+/// A token stays a `var()`, exactly as the stylesheet writes it: a theme says
+/// what it is worth, and a theme is installed at mount.
 fn colorCss<C: Alloc>(ctx: C, color: Color): Str {
     match (color) {
         .Rgb(r, g, b) => str.format(ctx, "rgb(${r},${g},${b})"),
