@@ -12,7 +12,9 @@
 //! So that is what is here, in the shape `heap.rs` uses for the same reason: a
 //! scratch repository, the host's platform named rather than defaulted, and two
 //! arms on the release row so the test means something on a toolchain without
-//! LLVM instead of quietly passing.
+//! LLVM instead of quietly passing. The schema is the conformance corpus's own,
+//! which is one message of every field kind editions has, so what the linker
+//! gets is the whole of what the `.proto` generator can write.
 //!
 //! The third row is about the tool rather than the module. The generator this
 //! toolchain ships is a Buri program compiled to an `.mjs` the first time a
@@ -28,7 +30,7 @@
 //! cargo test -p buri --test build generators::
 //! ```
 
-use crate::harness::{ci, Run, Scratch};
+use crate::harness::{ci, tests_dir, Run, Scratch};
 
 /// The platform a binary here declares.
 ///
@@ -43,44 +45,63 @@ fn host_platform() -> &'static str {
     }
 }
 
-const SCHEMA: &str = "edition = \"2026\";\n\npackage wire.v1;\n\nmessage Point {\n  int32 x = 1;\n  int32 y = 2;\n}\n";
+const LIBRARY: &str = "library {\n    generators: [\n        { tool: \"std/codegen/proto\", inputs: [\"address.proto\", \"demo.proto\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n";
 
-const LIBRARY: &str = "library {\n    generators: [\n        { tool: \"std/codegen/proto\", inputs: [\"point.proto\"] },\n    ]\n\n    visibility: [\"//visibility:public\"]\n}\n";
-
-const SURFACE: &str =
-    "from \"//lib/wire/point.proto\" export { defaultPoint, encodePoint, Point };\n";
+const SURFACE: &str = "from \"//lib/proto/demo.proto\" export {\n    decodeEverything, defaultEverything, encodeEverything, Everything, Shade,\n};\n";
 
 /// A program whose whole answer comes out of the generated module: the codec
-/// encodes, and the bytes are the wire format's. A program that merely named a
-/// generated type would link the same way and prove less.
+/// encodes, the bytes are the wire format's, and the decoder reads them back
+/// into the value they came from. A program that merely named a generated type
+/// would link the same way and prove less.
 const PROGRAM: &str = r#"from "core/bytes" import * as bytes;
 from "core/effect" import { Alloc, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
-from "//lib/wire" import { defaultPoint, encodePoint, Point };
+from "//lib/proto" import {
+    decodeEverything, defaultEverything, encodeEverything, Everything, Shade,
+};
 
 export fn main(): Result<(), Str> {
     let ctx = context {
         Alloc: host.alloc,
         Stdout: host.stdout,
     };
-    let p = Point { ..defaultPoint(), x: .Some(1), y: .Some(300) };
+    let v = Everything {
+        ..defaultEverything(),
+        count: .Some(300),
+        shade: .Some(Shade.DARK),
+        scores: [1, 2, 3],
+    };
+    let wire = encodeEverything(ctx, v);
+    let back = decodeEverything(ctx, wire) == .Ok(v);
     io
-        .println(ctx, bytes.toHex(ctx, encodePoint(ctx, p)))
+        .println(ctx, "${bytes.toHex(ctx, wire)} ${back}")
         .mapErr(fn(_e) => "could not write to standard output")
 }
 "#;
 
 /// The repository every row here runs in.
+///
+/// **The schemas are `cli/tests/conformance/lib/proto`'s own**, copied rather
+/// than written again. That corpus is one message of every field kind editions
+/// has — nested messages, an enum, a oneof, repeated packed and expanded, both
+/// presences, a field per scalar type, a name that is a Buri keyword, and a
+/// second schema it imports across a file boundary — and `language::conformance`
+/// and `native::conformance` both assert what its codecs compute. What is left
+/// over is exactly what this file is for: does all of that survive a *linker*.
 fn repository(name: &str) -> Scratch {
     let scratch = Scratch::repo(name);
-    scratch.write("lib/wire/BUILD.buri", LIBRARY);
-    scratch.write("lib/wire/point.proto", SCHEMA);
-    scratch.write("lib/wire/lib.buri", SURFACE);
+    let corpus = tests_dir().join("conformance/lib/proto");
+    scratch.write("lib/proto/BUILD.buri", LIBRARY);
+    for schema in ["address.proto", "demo.proto"] {
+        let text = std::fs::read_to_string(corpus.join(schema)).expect("the conformance schema");
+        scratch.write(&format!("lib/proto/{schema}"), &text);
+    }
+    scratch.write("lib/proto/lib.buri", SURFACE);
     scratch.write(
         "cmd/point/BUILD.buri",
         &format!(
-            "binary {{\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{{ platform: {} }}]\n}}\n",
+            "binary {{\n    dependencies: [\"//lib/proto\"]\n\n    outputs: [{{ platform: {} }}]\n}}\n",
             host_platform()
         ),
     );
@@ -88,9 +109,14 @@ fn repository(name: &str) -> Scratch {
     scratch
 }
 
-/// Field 1 varint 1, field 2 varint 300 — what the schema says the two fields
-/// encode to, and a number no part of this test could produce by accident.
-const ENCODED: &str = "080110ac02";
+/// Field 2 varint 300 (`10 ac 02`), field 16 varint 2 (`80 01 02`), and field
+/// 30 packed with three varints (`f2 01 03 01 02 03`) — checked by hand against
+/// the protobuf encoding rules, and `true` for the decode that read them back.
+///
+/// Three fields rather than twenty-five because the rest of the message is
+/// unset, and a field holding no value writes no bytes: what the other twenty-
+/// two are here for is the code the backend has to compile, not the bytes.
+const ENCODED: &str = "10ac02800102f20103010203 true";
 
 fn ran_natively(run: &Run) -> bool {
     !run.all().contains("native-artifact-not-available")
@@ -168,11 +194,11 @@ fn the_toolchain_generator_is_compiled_once_per_repository() {
     // this row has to mean the same thing on every machine.
     scratch.write(
         "cmd/twice/BUILD.buri",
-        "binary {\n    dependencies: [\"//lib/wire\"]\n\n    outputs: [{ platform: JS }, { platform: WEB }]\n}\n",
+        "binary {\n    dependencies: [\"//lib/proto\"]\n\n    outputs: [{ platform: JS }, { platform: WEB }]\n}\n",
     );
     scratch.write("cmd/twice/main.buri", PROGRAM);
 
-    scratch.run(&["build", "//lib/wire"]).ok();
+    scratch.run(&["build", "//lib/proto"]).ok();
     let after_first = toolchain_artifacts(&scratch);
     assert_eq!(
         after_first.len(),
