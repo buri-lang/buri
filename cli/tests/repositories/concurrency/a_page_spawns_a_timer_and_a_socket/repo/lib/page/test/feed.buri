@@ -1,13 +1,12 @@
 // The application half: one scope, a long-lived loop and a timer in it, and a
 // handler that spawns after the body has returned.
 
-from "//lib/page" import { open, run, sweep };
 from "core/effect" import { Alloc, Clock, Stdout, Tasks };
 from "core/host/testing" import { alloc, clock, stdout, tasks };
 from "core/io" import * as io;
 from "core/tasks" import * as tasks;
 from "core/testing/assert" import * as assert;
-from "core/time" import * as time;
+from "//lib/page" import { open, run, sweep };
 
 test "a scope waits for the socket loop and the timer it was given" {
     let out = stdout();
@@ -18,7 +17,7 @@ test "a scope waits for the socket loop and the timer it was given" {
         Tasks: tasks(),
     };
     let _ = tasks.scope(ctx, fn(c, here) => {
-        let _ = tasks.spawn(c, here, fn(c2) => run(c2, open(c2)));
+        let _ = tasks.spawn(c, here, fn(c2) => run(c2, open()));
         let _ = tasks.spawn(c, here, fn(c2) => sweep(c2, 5 * 60 * 1000));
         let _ = io.println(c, "mounted").ignore();
         ()

@@ -21,7 +21,7 @@ from "core/testing/assert" import * as assert;
 from "core/time" import * as time;
 
 /// Writes one line, as a task does.
-fn say<C: Alloc + Stdout>(ctx: C, what: Str): () {
+fn say<C: Stdout>(ctx: C, what: Str): () {
     let _ = io.println(ctx, what).ignore();
     ()
 }

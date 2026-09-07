@@ -1184,8 +1184,14 @@ mod tests {
             fs.elsewhere_clause(),
             ", or build this target for a platform that grants it: LINUX, MACOS, JS"
         );
+        // `Tasks` is granted everywhere since the scope landed, so its clause
+        // names every platform — which is a clause a reader can still act on,
+        // and the row above is the one that shows a proper subset.
         let tasks = host_grant_of("tasks").expect("`tasks` is in the grant table");
-        assert_eq!(tasks.elsewhere_clause(), fs.elsewhere_clause());
+        assert_eq!(
+            tasks.elsewhere_clause(),
+            ", or build this target for a platform that grants it: LINUX, MACOS, JS, WEB"
+        );
     }
 
     /// Every type a primitive can be must have a module that exists.
