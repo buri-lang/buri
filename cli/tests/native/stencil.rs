@@ -1154,6 +1154,90 @@ fn ignore(value: Int): () {
     );
 }
 
+/// **A one-byte value the runtime writes into a frame slot defines the whole
+/// slot**, which is what a `Bool` signal read inside a memo depends on.
+///
+/// A frame slot is eight bytes and a `Bool` is one. The runtime writes a
+/// result through an out-pointer at the width of the *value*, so for as long
+/// as it wrote one byte the seven above it kept whatever the last computation
+/// to use that offset had left there — and `br/f`, which is how every
+/// condition in this backend is read, reads the whole word. A `Bool` written
+/// `false` then answered `true`.
+///
+/// It needed two things at once and that is why the program below has two
+/// blocks. The **first** leaves a non-zero word at the offset: a memo that
+/// reads another memo runs a body on a Buri stack the second block's memo will
+/// be handed again. The **second** is the one that reads a `Bool` out of a
+/// signal inside a memo body and turns it into two different answers. Either
+/// block alone passes, on the broken backend as much as on this one.
+///
+/// A `Str` result rather than an `Int` so the answer is a value a stale
+/// upper word could not have produced by accident.
+#[test]
+fn a_one_byte_signal_read_inside_a_memo_answers_what_was_written() {
+    if !supported() {
+        return;
+    }
+    let source = r#"
+from "core/alloc" import * as alloc;
+from "core/effect" import { Alloc };
+from "core/testing/assert" import * as assert;
+from "ui/effect" import { Scope, Ui, Watch };
+from "ui/prop" import { memo, Prop };
+from "ui/signal" import { signal, watch };
+from "ui/testing" import { headless, observer, Recorder, recorder };
+
+fn ignore(value: Int): () {
+    let _ = value;
+}
+
+fn yesNo(flag: Bool): Str {
+    if (flag) { "yes" } else { "no" }
+}
+
+fn noteStr(log: Recorder, text: Str): () {
+    let _ = log.record(text);
+}
+
+test "a memo reading a memo, which is what leaves the word behind" {
+    let ctx = context {
+        Alloc: alloc.generalPurpose(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 1);
+    let inner = memo(ctx, fn(s) => n.get(s) + 10);
+    let outer = memo(ctx, fn(s) => log.note(inner.read(s) + 1));
+    let _ = watch(ctx, fn(s) => ignore(outer.read(s)));
+    assert.eq(log.noted(), [12]);
+}
+
+test "a Bool signal read inside a memo" {
+    let ctx = context {
+        Alloc: alloc.generalPurpose(),
+        Ui: headless(),
+        Watch: observer(),
+    };
+    let log = recorder();
+    let flag = signal(ctx, true);
+    let label = memo(ctx, fn(s) => yesNo(flag.get(s)));
+    let _ = watch(ctx, fn(s) => noteStr(log, label.read(s)));
+    assert.eq(log.recorded(), ["yes"]);
+    let _ = flag.set(ctx, false);
+    assert.eq(log.recorded(), ["yes", "no"]);
+}
+"#;
+    let binary = build_tests("narrow-cell", source);
+    let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "a one-byte cell did not read back what it was written:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// **Writing a reactive cell over and over leaks nothing**, which is the half
 /// of the graph's ABI that a value assertion cannot see.
 ///

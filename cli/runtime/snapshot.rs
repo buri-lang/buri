@@ -60,8 +60,8 @@ pub unsafe extern "C" fn buri_rt_ui_testing_paint(
 
 /// Paints the scene, then either records the golden or compares against it.
 fn compare(name: &str, scene: &str, state: &str) {
-    if !usable(name) {
-        crate::abort::die(&[b"a snapshot name may not contain a path separator"]);
+    if let Some(complaint) = unusable(name) {
+        crate::abort::die(&[complaint.as_bytes()]);
     }
     let Ok(dir) = std::env::var(DIR) else {
         crate::abort::die(&[b"no snapshot directory: buri test did not set BURI_SNAPSHOT_DIR"])
@@ -137,16 +137,24 @@ fn stylesheet() -> String {
     }
 }
 
-/// Whether `name` is a file name and nothing else.
+/// What is wrong with `name`, or `None` when it is a file name and nothing
+/// else.
 ///
 /// A snapshot names a file in one directory. A separator or a `..` in it would
 /// name a file somewhere else, and a test that writes outside its own package
-/// is not a test.
-fn usable(name: &str) -> bool {
-    !name.is_empty()
-        && !name.contains('/')
-        && !name.contains('\\')
-        && !name.contains("..")
+/// is not a test. An empty name would name the directory itself.
+///
+/// **Two sentences rather than one**, because a name has two ways to be wrong
+/// and a reader who wrote `snapshot(ctx, "", …)` is not helped by being told
+/// about path separators.
+fn unusable(name: &str) -> Option<&'static str> {
+    if name.is_empty() {
+        return Some("a snapshot name may not be empty");
+    }
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Some("a snapshot name may not contain a path separator or `..`");
+    }
+    None
 }
 
 #[cfg(test)]
@@ -155,17 +163,26 @@ mod tests {
 
     #[test]
     fn a_plain_name_is_usable() {
-        assert!(usable("card"));
-        assert!(usable("card.hovered"));
-        assert!(usable("card-2_x"));
+        assert_eq!(unusable("card"), None);
+        assert_eq!(unusable("card.hovered"), None);
+        assert_eq!(unusable("card-2_x"), None);
+        // A name is a file name, not an ASCII one.
+        assert_eq!(unusable("снимок"), None);
     }
 
     #[test]
     fn a_name_that_could_leave_the_directory_is_refused() {
-        assert!(!usable(""));
-        assert!(!usable("a/b"));
-        assert!(!usable("a\\b"));
-        assert!(!usable(".."));
-        assert!(!usable("../golden"));
+        for name in ["a/b", "a\\b", "..", "../golden", "a/../b"] {
+            assert_eq!(
+                unusable(name),
+                Some("a snapshot name may not contain a path separator or `..`"),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_name_says_it_is_empty() {
+        assert_eq!(unusable(""), Some("a snapshot name may not be empty"));
     }
 }

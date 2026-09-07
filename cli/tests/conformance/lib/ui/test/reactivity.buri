@@ -8,6 +8,10 @@
 //     and watchers run in the order they were registered;
 //   - dependencies are re-collected per run, so a read behind a condition is
 //     tracked exactly — the branch not taken creates no edge;
+//   - a chain of memos runs bottom up, once each, and two memos over one
+//     signal run their reader once rather than twice;
+//   - the equality cutoff is the cell's: a memo that recomputed to the answer
+//     it had still runs what reads it;
 //   - `Prop.Const` registers nothing.
 //
 // The `Recorder` is how a computation says that it ran: a reactive closure
@@ -235,6 +239,77 @@ test "a memo of a memo settles in one pass" {
     let _ = watch(ctx, fn(s) => ignore(log.note(quadrupled.read(s))));
     let _ = n.set(ctx, 3);
     assert.eq(log.noted(), [4, 12]);
+}
+
+/// Three memos over one signal, and the chain runs top down: the deepest is
+/// what the watcher reads, and each level recomputes exactly once per write.
+test "a chain of memos recomputes once each, from the signal up" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 1);
+    let one = memo(ctx, fn(s) => log.note(n.get(s) + 10));
+    let two = memo(ctx, fn(s) => log.note(one.read(s) + 100));
+    let three = memo(ctx, fn(s) => log.note(two.read(s) + 1000));
+    let _ = watch(ctx, fn(s) => ignore(three.read(s)));
+    assert.eq(log.noted(), [11, 111, 1111]);
+    let _ = n.set(ctx, 2);
+    assert.eq(log.noted(), [11, 111, 1111, 12, 112, 1112]);
+}
+
+/// **The diamond.** Two memos read one signal and one watcher reads both, so a
+/// scheduler that pushed the change along each path separately would run the
+/// watcher twice and show it a half-updated world on the first of them. It runs
+/// once, and it sees both memos already recomputed.
+test "two memos over one signal run their reader once" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 1);
+    let doubled = memo(ctx, fn(s) => n.get(s) * 2);
+    let raised = memo(ctx, fn(s) => n.get(s) + 100);
+    let _ = watch(ctx, fn(s) => ignore(log.note(sum(s, doubled, raised))));
+    assert.eq(log.noted(), [103]);
+    let _ = n.set(ctx, 2);
+    assert.eq(log.noted(), [103, 106]);
+}
+
+/// The equality cutoff is the **cell's**, and it stops there. A signal written
+/// the value it already held is not a change and nothing re-runs; a memo that
+/// recomputed to the answer it already had is still a memo that recomputed, and
+/// what reads it runs again.
+///
+/// That is the honest reading of "a memo caches": it caches until something it
+/// read changes, not until its own answer changes. Anything else would need the
+/// graph to compare two values it holds only as bytes at a stride, at every
+/// level of every chain, to save a re-run that is usually cheaper than the
+/// comparison.
+test "a memo that recomputes to the answer it had still runs its reader" {
+    let ctx = context {
+        Ui: headless(),
+    };
+    let log = recorder();
+    let n = signal(ctx, 1);
+    let parity = memo(ctx, fn(s) => n.get(s) % 2);
+    let _ = watch(ctx, fn(s) => ignore(log.note(parity.read(s))));
+    assert.eq(log.noted(), [1]);
+
+    // Three is odd too, so the memo's answer is the one it already had.
+    let _ = n.set(ctx, 3);
+    assert.eq(log.noted(), [1, 1]);
+
+    // And the cell's own cutoff, one level down: writing three again is not a
+    // change, so neither the memo nor the watcher runs.
+    let _ = n.set(ctx, 3);
+    assert.eq(log.noted(), [1, 1]);
+}
+
+/// Two props read in one computation. A separate function because a reactive
+/// closure may capture neither a context nor a `Scope`.
+fn sum(ctx: Scope, a: Prop<Int>, b: Prop<Int>): Int {
+    a.read(ctx) + b.read(ctx)
 }
 
 // --- exact tracking ------------------------------------------------------------------

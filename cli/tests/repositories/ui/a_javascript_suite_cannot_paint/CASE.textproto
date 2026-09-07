@@ -1,0 +1,38 @@
+# Where the line is drawn between the graph and the painter.
+#
+# The reactive graph is native as well as JavaScript, so a suite that reads and
+# writes signals needs no `platforms: [JS]`. The painter is three crates in the
+# runtime archive and JavaScript cannot reach it — so a suite that *did* declare
+# `platforms: [JS]` fails the `snapshot` call with a sentence saying why, rather
+# than passing without having painted anything.
+#
+# Two steps, and they are the same source twice. Declared for JavaScript: the
+# graph block passes and the snapshot fails. Declared for nothing: both pass,
+# and the picture is on disk.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a `platforms: [JS]` suite runs the graph and is refused the picture, and the same suite paints it once the declaration goes"
+
+run {
+  args: ["test", "//lib/js", "--force"]
+  exit: 1
+  golden: "refused.txt"
+}
+
+path { path: "lib/js/test/__snapshots__/panel.png"  exists: false }
+
+# The same source, run where the painter is.
+edit {
+  file: "lib/js/BUILD.buri"
+  replace: "        platforms: [JS]\n"
+  with: ""
+}
+
+run {
+  args: ["test", "//lib/js", "--update", "--force"]
+  exit: 0
+  golden: "painted.txt"
+}
+
+path { path: "lib/js/test/__snapshots__/panel.png"  exists: true }

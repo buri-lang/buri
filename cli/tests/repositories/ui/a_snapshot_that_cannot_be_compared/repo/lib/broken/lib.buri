@@ -1,0 +1,3 @@
+// The package the failing snapshots live in. It has no exports: what is under
+// test is what `ui/testing`'s `snapshot` says when it cannot compare, and every
+// tree it needs to say it is one call to `ui.text`.

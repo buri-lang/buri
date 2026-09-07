@@ -1,0 +1,2 @@
+// The package is a suite and nothing else: what is under test is what a
+// `platforms: [JS]` suite is told when it asks for a picture.
