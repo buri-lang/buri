@@ -1,12 +1,12 @@
-//! `core/char` — the eight entries a `Char` cannot answer for itself.
+//! `core/character` — the eight entries a `Char` cannot answer for itself.
 //!
-//! `char.buri` declares nine methods and this file is eight of them; `toU32` is
+//! `character.buri` declares nine methods and this file is eight of them; `toU32` is
 //! the ninth and is a representation change the backend open-codes, because a
-//! `Char` **is** a `U32` (`char.buri`: "Exact: every `Char` is a `U32`").
+//! `Char` **is** a `U32` (`character.buri`: "Exact: every `Char` is a `U32`").
 //!
 //! `lib.rs` §0 divided the intrinsic surface into what a generated program
 //! cannot do for itself and what has no single right answer, and put
-//! `core/char`'s classifiers in the **second** group — beside `core/math`'s
+//! `core/character`'s classifiers in the **second** group — beside `core/math`'s
 //! transcendentals — with `isAlpha` as the reason: "implementing `isAlpha` with
 //! Rust's `is_alphabetic` against JavaScript's `\p{L}` would put a divergence
 //! into the toolchain that shows up on one input in a few thousand". That
@@ -15,7 +15,7 @@
 //!
 //! ## 1. `isAlpha` is `\p{L}`, and `\p{L}` is a table
 //!
-//! `runtime.js`'s `$char_isAlpha` is `/^\p{L}$/u.test(c)`, which is General
+//! `runtime.js`'s `$character_isAlpha` is `/^\p{L}$/u.test(c)`, which is General
 //! Category `L` — `Lu | Ll | Lt | Lm | Lo`. Rust's `char::is_alphabetic` is the
 //! **Alphabetic** derived property, which is `L` plus `Nl` (the letter numbers:
 //! Roman numerals, Cuneiform numerals) plus `Other_Alphabetic` (about thirteen
@@ -78,7 +78,7 @@
 //!
 //! ## 3. `toUpper` and `toLower` answer one scalar, and JavaScript does not
 //!
-//! `char.buri` declares `toUpper(self): Char`, and a `Char` is one Unicode
+//! `character.buri` declares `toUpper(self): Char`, and a `Char` is one Unicode
 //! scalar value. Some full case mappings are not one scalar: `"ß".toUpperCase()`
 //! is `"SS"`, and the JavaScript backend hands that back as a `Char` holding two
 //! characters — a value the type does not have.
@@ -310,35 +310,34 @@ fn is_letter(c: u32) -> bool {
 /// so the `None` arm is unreachable from a program and answers the identity or
 /// `false` rather than aborting, for the reason `testing.rs`'s `with` gives.
 fn scalar(c: u32) -> Option<char> {
-    // `core::char::from_u32` rather than `char::from_u32`: this module is
-    // called `char`, so the bare path is ambiguous with it.
-    core::char::from_u32(c)
+    char::from_u32(c)
 }
 
-/// `char.isDigit(self) -> Bool` — `c >= "0" && c <= "9"`, and nothing wider.
+/// `character.isDigit(self) -> Bool` — `c >= "0" && c <= "9"`, and nothing
+/// wider.
 ///
 /// Not `char::is_numeric`, which is General Category `N` and would accept the
-/// Arabic-Indic and Devanagari digits that `$char_isDigit`'s two comparisons
-/// reject.
+/// Arabic-Indic and Devanagari digits that `$character_isDigit`'s two
+/// comparisons reject.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_char_is_digit(c: u32) -> u8 {
+pub extern "C" fn buri_rt_character_is_digit(c: u32) -> u8 {
     u8::from((0x30..=0x39).contains(&c))
 }
 
-/// `char.isAlpha(self) -> Bool` — `\p{L}`, per the module header.
+/// `character.isAlpha(self) -> Bool` — `\p{L}`, per the module header.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_char_is_alpha(c: u32) -> u8 {
+pub extern "C" fn buri_rt_character_is_alpha(c: u32) -> u8 {
     u8::from(is_letter(c))
 }
 
-/// `char.isSpace(self) -> Bool` — JavaScript's `\s`, which ECMA-262 fixes as
+/// `character.isSpace(self) -> Bool` — JavaScript's `\s`, which ECMA-262 fixes as
 /// *WhiteSpace* plus *LineTerminator* rather than deriving from Unicode.
 ///
 /// So it is a written-out set and not a property lookup, and the difference is
 /// observable: U+180E MONGOLIAN VOWEL SEPARATOR was whitespace in Unicode 4 and
 /// is not in `\s`, and U+FEFF is in `\s` and is General Category `Cf`.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_char_is_space(c: u32) -> u8 {
+pub extern "C" fn buri_rt_character_is_space(c: u32) -> u8 {
     u8::from(matches!(
         c,
         0x09..=0x0D
@@ -355,44 +354,44 @@ pub extern "C" fn buri_rt_char_is_space(c: u32) -> u8 {
     ))
 }
 
-/// `char.isUpper(self) -> Bool` — `c !== c.toLowerCase() && c === c.toUpperCase()`.
+/// `character.isUpper(self) -> Bool` — `c !== c.toLowerCase() && c === c.toUpperCase()`.
 ///
 /// Transcribed rather than replaced by `char::is_uppercase`, which is the
 /// **Uppercase** derived property and answers `true` for the circled and
 /// squared Latin capitals whose case mappings leave them alone.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_char_is_upper(c: u32) -> u8 {
+pub extern "C" fn buri_rt_character_is_upper(c: u32) -> u8 {
     let Some(ch) = scalar(c) else { return 0 };
     let lowered = ch.to_lowercase().next() != Some(ch) || ch.to_lowercase().count() != 1;
     let uppered = ch.to_uppercase().count() == 1 && ch.to_uppercase().next() == Some(ch);
     u8::from(lowered && uppered)
 }
 
-/// `char.isLower(self) -> Bool` — the mirror of [`buri_rt_char_is_upper`].
+/// `character.isLower(self) -> Bool` — the mirror of [`buri_rt_character_is_upper`].
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_char_is_lower(c: u32) -> u8 {
+pub extern "C" fn buri_rt_character_is_lower(c: u32) -> u8 {
     let Some(ch) = scalar(c) else { return 0 };
     let uppered = ch.to_uppercase().next() != Some(ch) || ch.to_uppercase().count() != 1;
     let lowered = ch.to_lowercase().count() == 1 && ch.to_lowercase().next() == Some(ch);
     u8::from(uppered && lowered)
 }
 
-/// `char.toUpper(self) -> Char` — the first scalar of the full uppercase
+/// `character.toUpper(self) -> Char` — the first scalar of the full uppercase
 /// mapping, which is `"c".toUpperCase().codePointAt(0)` (§3).
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_char_to_upper(c: u32) -> u32 {
+pub extern "C" fn buri_rt_character_to_upper(c: u32) -> u32 {
     let Some(ch) = scalar(c) else { return c };
     ch.to_uppercase().next().map_or(c, |one| one as u32)
 }
 
-/// `char.toLower(self) -> Char` — the mirror of [`buri_rt_char_to_upper`].
+/// `character.toLower(self) -> Char` — the mirror of [`buri_rt_character_to_upper`].
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_char_to_lower(c: u32) -> u32 {
+pub extern "C" fn buri_rt_character_to_lower(c: u32) -> u32 {
     let Some(ch) = scalar(c) else { return c };
     ch.to_lowercase().next().map_or(c, |one| one as u32)
 }
 
-/// `char.toDigit(self, radix) -> Option<Int>` — `parseInt(c, radix)`.
+/// `character.toDigit(self, radix) -> Option<Int>` — `parseInt(c, radix)`.
 ///
 /// `lib.rs` §2 rule 3's shape: [`BURI_OK`] with the value written, or `0` for
 /// `.None`.
@@ -411,7 +410,7 @@ pub extern "C" fn buri_rt_char_to_lower(c: u32) -> u32 {
 /// # Safety
 /// `out` must be non-null and point at a writable, `i64`-aligned word.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_char_to_digit(c: u32, radix: i64, out: *mut i64) -> i32 {
+pub unsafe extern "C" fn buri_rt_character_to_digit(c: u32, radix: i64, out: *mut i64) -> i32 {
     let radix = if radix == 0 { 10 } else { radix };
     if !(2..=36).contains(&radix) {
         return 0;
@@ -446,10 +445,10 @@ mod tests {
             assert!(a < b, "ranges overlap or touch at {a:04X}/{b:04X}");
         }
         for c in ['a', 'Z', 'é', 'ʰ', 'あ', '漢', 'ᚠ', 'ᜎ'] {
-            assert_eq!(buri_rt_char_is_alpha(c as u32), 1, "{c:?}");
+            assert_eq!(buri_rt_character_is_alpha(c as u32), 1, "{c:?}");
         }
         for c in ['0', '_', ' ', '!', '\u{2167}', '\u{0903}', '\u{1F600}'] {
-            assert_eq!(buri_rt_char_is_alpha(c as u32), 0, "{c:?}");
+            assert_eq!(buri_rt_character_is_alpha(c as u32), 0, "{c:?}");
             assert!(
                 c == '0' || c == '_' || c == ' ' || c == '!' || c.is_alphabetic() || true,
                 "the negative rows exist because `is_alphabetic` disagrees"
@@ -457,8 +456,8 @@ mod tests {
         }
         assert!('\u{2167}'.is_alphabetic() && '\u{0903}'.is_alphabetic());
         // Unicode 16.0, checked by the two scripts that version added.
-        assert_eq!(buri_rt_char_is_alpha(0x105C0), 1, "Todhri");
-        assert_eq!(buri_rt_char_is_alpha(0x16D40), 1, "Kirat Rai");
+        assert_eq!(buri_rt_character_is_alpha(0x105C0), 1, "Todhri");
+        assert_eq!(buri_rt_character_is_alpha(0x16D40), 1, "Kirat Rai");
     }
 
     /// `\s` is ECMA-262's set and not a Unicode property, so the two
@@ -466,38 +465,38 @@ mod tests {
     #[test]
     fn the_space_set_is_the_one_javascript_fixes() {
         for c in [' ', '\t', '\n', '\r', '\u{0b}', '\u{0c}', '\u{a0}', '\u{3000}', '\u{feff}'] {
-            assert_eq!(buri_rt_char_is_space(c as u32), 1, "{c:?}");
+            assert_eq!(buri_rt_character_is_space(c as u32), 1, "{c:?}");
         }
         for c in ['a', '0', '_', '\u{180e}', '\u{200b}'] {
-            assert_eq!(buri_rt_char_is_space(c as u32), 0, "{c:?}");
+            assert_eq!(buri_rt_character_is_space(c as u32), 0, "{c:?}");
         }
     }
 
     #[test]
     fn case_answers_what_the_javascript_comparisons_answer() {
-        assert_eq!(buri_rt_char_is_upper('A' as u32), 1);
-        assert_eq!(buri_rt_char_is_upper('a' as u32), 0);
-        assert_eq!(buri_rt_char_is_upper('1' as u32), 0);
-        assert_eq!(buri_rt_char_is_lower('a' as u32), 1);
-        assert_eq!(buri_rt_char_is_lower('A' as u32), 0);
-        assert_eq!(buri_rt_char_is_lower('1' as u32), 0);
+        assert_eq!(buri_rt_character_is_upper('A' as u32), 1);
+        assert_eq!(buri_rt_character_is_upper('a' as u32), 0);
+        assert_eq!(buri_rt_character_is_upper('1' as u32), 0);
+        assert_eq!(buri_rt_character_is_lower('a' as u32), 1);
+        assert_eq!(buri_rt_character_is_lower('A' as u32), 0);
+        assert_eq!(buri_rt_character_is_lower('1' as u32), 0);
         // `ß` has no uppercase of its own: `"ß".toUpperCase()` is `"SS"`, so
         // JavaScript's `isLower` is true and its `isUpper` is false.
-        assert_eq!(buri_rt_char_is_lower(0xDF), 1);
-        assert_eq!(buri_rt_char_is_upper(0xDF), 0);
-        assert_eq!(buri_rt_char_to_upper('a' as u32), 'A' as u32);
-        assert_eq!(buri_rt_char_to_lower('A' as u32), 'a' as u32);
-        assert_eq!(buri_rt_char_to_upper('1' as u32), '1' as u32);
+        assert_eq!(buri_rt_character_is_lower(0xDF), 1);
+        assert_eq!(buri_rt_character_is_upper(0xDF), 0);
+        assert_eq!(buri_rt_character_to_upper('a' as u32), 'A' as u32);
+        assert_eq!(buri_rt_character_to_lower('A' as u32), 'a' as u32);
+        assert_eq!(buri_rt_character_to_upper('1' as u32), '1' as u32);
         // §3: the first scalar of the full mapping, which is what
         // `"ß".toUpperCase().codePointAt(0)` answers — `S`, not `ß`.
-        assert_eq!(buri_rt_char_to_upper(0xDF), u32::from('S'));
+        assert_eq!(buri_rt_character_to_upper(0xDF), u32::from('S'));
     }
 
     #[test]
     fn to_digit_is_parse_int() {
         let mut out = 0i64;
         let check = |c: char, radix: i64, out: &mut i64| unsafe {
-            buri_rt_char_to_digit(c as u32, radix, out)
+            buri_rt_character_to_digit(c as u32, radix, out)
         };
         assert_eq!(check('7', 10, &mut out), BURI_OK);
         assert_eq!(out, 7);

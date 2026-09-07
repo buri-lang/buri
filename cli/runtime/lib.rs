@@ -29,8 +29,8 @@
 //!   * **`core/str` and the block-copying half of `core/list`** ([`text`],
 //!     [`list`]) — UTF-8 slicing with the ASCII fast path, and the `[T]`
 //!     producers that are a copy plus a retain;
-//!   * **`core/char`'s eight** ([`char`]) — the classifiers, the two case
-//!     mappings and `toDigit`. Seven of them are transcriptions of what
+//!   * **`core/character`'s eight** ([`character`]) — the classifiers, the two
+//!     case mappings and `toDigit`. Seven of them are transcriptions of what
 //!     `runtime.js` does; `isAlpha` is `\p{L}`, which is a General Category and
 //!     not the **Alphabetic** property `char::is_alphabetic` answers, so that
 //!     file carries the category as data and says where the data came from;
@@ -77,16 +77,16 @@
 //!     up on one input in a few thousand — which is the hardest kind of bug to
 //!     find and the easiest to ship.
 //!
-//!     `core/char`'s classifiers used to be the second entry in this list, for
-//!     the same reason spelled at `isAlpha`: Rust's `is_alphabetic` is the
-//!     **Alphabetic** derived property and JavaScript's `\p{L}` is a General
-//!     Category, and they differ on about fifteen hundred characters. They are
-//!     out of this list rather than answered differently — [`char`] does not
-//!     use `is_alphabetic`; it carries `\p{L}` as a table, generated from the
-//!     engine the JavaScript backend runs on, and that file states the Unicode
-//!     version. The transcendentals have no equivalent move available, because
-//!     what differs there is the last bit of an arithmetic result and not a set
-//!     that can be written down.
+//!     `core/character`'s classifiers used to be the second entry in this
+//!     list, for the same reason spelled at `isAlpha`: Rust's `is_alphabetic`
+//!     is the **Alphabetic** derived property and JavaScript's `\p{L}` is a
+//!     General Category, and they differ on about fifteen hundred characters.
+//!     They are out of this list rather than answered differently —
+//!     [`character`] does not use `is_alphabetic`; it carries `\p{L}` as a
+//!     table, generated from the engine the JavaScript backend runs on, and
+//!     that file states the Unicode version. The transcendentals have no
+//!     equivalent move available, because what differs there is the last bit
+//!     of an arithmetic result and not a set that can be written down.
 //!
 //! Each is named where it would otherwise be looked for — `list.rs`'s and
 //! `math.rs`'s headers, and `backend/{stencil,llvm}`'s missing-intrinsic
@@ -619,7 +619,7 @@
 
 mod abort;
 mod bytes;
-mod char;
+mod character;
 /// The operating system's cryptographic generator, behind `Entropy`. Behind
 /// the `crypto` feature in full: without it there is no `getrandom` to call,
 /// the symbol is absent from the archive, and a program that reaches the
@@ -672,7 +672,7 @@ mod value;
 
 pub use abort::*;
 pub use bytes::*;
-pub use char::*;
+pub use character::*;
 #[cfg(feature = "crypto")]
 pub use entropy::*;
 pub use fmt::*;

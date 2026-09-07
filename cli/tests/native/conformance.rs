@@ -177,8 +177,8 @@
 //!    they are what
 //!    `semantics/effects.buri` and `semantics/evaluation.buri` were waiting
 //!    for.
-//!  * **`core/char`'s eight** (`cli/runtime/char.rs`), including `\p{L}` as a
-//!    table this repository carries. `data/strings.buri`.
+//!  * **`core/character`'s eight** (`cli/runtime/character.rs`), including
+//!    `\p{L}` as a table this repository carries. `data/strings.buri`.
 //!  * **`core/bytes`'s six** (`cli/runtime/bytes.rs`) — the UTF-8 pair and the
 //!    four IEEE 754 byte-pattern entries. `crypto/sha256.buri`,
 //!    `text/bytes.buri`, `proto/binary.buri` and `proto/failures.buri`.
@@ -473,14 +473,15 @@ const PACKAGES: &[Case] = &[
     included("data/assertions.buri"),
     included("data/optionresult.buri"),
     included("data/patterns.buri"),
-    // `core/char`'s eight, which used to be excluded as "a General_Category
-    // table Rust does not expose". It still is not one Rust exposes;
-    // `cli/runtime/char.rs` carries it, generated from the engine the
-    // JavaScript backend runs on, and says so.
+    // `core/character`'s eight, which used to be excluded as "a
+    // General_Category table Rust does not expose". It still is not one Rust
+    // exposes; `cli/runtime/character.rs` carries it, generated from the
+    // engine the JavaScript backend runs on, and says so.
     included("data/strings.buri"),
-    // `core/char`'s eight, which used to be "a General Category table Rust does
-    // not expose" and now is `cli/runtime/char.rs` — a table this repository
-    // carries, generated from the engine the JavaScript backend runs on.
+    // `core/character`'s eight, which used to be "a General Category table
+    // Rust does not expose" and now is `cli/runtime/character.rs` — a table
+    // this repository carries, generated from the engine the JavaScript
+    // backend runs on.
     // The two that cost nothing but opening the repository this corpus has
     // always been. They were excluded for `imports //lib/codegen`, which was
     // never a statement about the backend — see [`repository`].
@@ -565,17 +566,20 @@ const PACKAGES: &[Case] = &[
              `convert_checked` builds the `Result<T, RangeError>` — as are \
              every widening and every `wrapTo*`",
     ),
-    excluded("json/decoding.buri", "`json.decode`, and core/char's classifiers"),
+    excluded(
+        "json/decoding.buri",
+        "`json.decode`, and core/character's classifiers",
+    ),
     // `derivePrimJson` was this row's reason and is not any more: both native
     // backends have a body for it (VALUE-MODEL.md §12 row 10). What is left is
     // its sibling — `ToJson::toJson` called *directly* on a primitive, which
-    // reaches a backend as `bool.toJson`, `char.toJson`, `str.toJson`,
+    // reaches a backend as `bool.toJson`, `character.toJson`, `str.toJson`,
     // `num.I64.toJson` and `num.F64.toJson`, five ordinary intrinsic keys with
     // no body. They are the same three-way answer `json_prim` already gives
     // and are a slice of their own, because letting this file in moves the
     // census ratchet.
     excluded("json/encoding.buri", "`ToJson::toJson` at every primitive"),
-    // `core/bytes` and `char.toDigit` are emitted now, and this file needs
+    // `core/bytes` and `character.toDigit` are emitted now, and this file needs
     // nothing else.
     included("proto/failures.buri"),
     // Held out as `Out::Costly` until `middle/rc.rs`'s `Scan::short_circuit`
@@ -588,7 +592,7 @@ const PACKAGES: &[Case] = &[
     excluded(
         "proto/json.buri",
         "`num.F64.toI64` — an inexact conversion, so it answers \
-             `Result<Int, RangeError>`. `core/char`'s classifiers and \
+             `Result<Int, RangeError>`. `core/character`'s classifiers and \
              `core/bytes` are emitted now",
     ),
     // `core/bytes`'s six intrinsics — the UTF-8 pair and the four IEEE 754
@@ -612,7 +616,7 @@ const PACKAGES: &[Case] = &[
     // backends have to agree about, with every answer written into the file.
     included("random/gen.buri"),
     included("text/bytes.buri"),
-    // Hexadecimal across four modules — `char.fromDigit`, `num.toHex`,
+    // Hexadecimal across four modules — `character.fromDigit`, `num.toHex`,
     // `str.toRadix` and `core/bytes`' pair. Every conversion in it is exact, so
     // none of it meets the `Result<T, RangeError>` shape that holds
     // `numbers/conversions.buri` out.
@@ -639,7 +643,7 @@ const PACKAGES: &[Case] = &[
     excluded(
         "text/json.buri",
         "`num.U32.toChar` — an *inexact* conversion, so it answers \
-             `Result<Char, RangeError>`. `core/char`'s classifiers and \
+             `Result<Char, RangeError>`. `core/character`'s classifiers and \
              `list.find` are emitted now, and this one call is the whole of \
              what is left",
     ),

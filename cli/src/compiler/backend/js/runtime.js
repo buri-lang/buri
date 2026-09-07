@@ -1121,41 +1121,41 @@ function $str_padEnd(s, c, w, fill) {
   return n > 0 ? s + fill.repeat(n) : s;
 }
 
-// --- core/char ------------------------------------------------------------------
+// --- core/character -------------------------------------------------------------
 
-function $char_isDigit(c) {
+function $character_isDigit(c) {
   return c >= "0" && c <= "9";
 }
 
-function $char_isAlpha(c) {
+function $character_isAlpha(c) {
   return /^\p{L}$/u.test(c);
 }
 
-function $char_isSpace(c) {
+function $character_isSpace(c) {
   return /^\s$/u.test(c);
 }
 
-function $char_isUpper(c) {
+function $character_isUpper(c) {
   return c !== c.toLowerCase() && c === c.toUpperCase();
 }
 
-function $char_isLower(c) {
+function $character_isLower(c) {
   return c !== c.toUpperCase() && c === c.toLowerCase();
 }
 
-function $char_toLower(c) {
+function $character_toLower(c) {
   return c.toLowerCase();
 }
 
-function $char_toUpper(c) {
+function $character_toUpper(c) {
   return c.toUpperCase();
 }
 
-function $char_toU32(c) {
+function $character_toU32(c) {
   return c.codePointAt(0);
 }
 
-function $char_toDigit(c, radix) {
+function $character_toDigit(c, radix) {
   const n = parseInt(c, Number(radix));
   return Number.isNaN(n) ? undefined : $some(BigInt(n));
 }

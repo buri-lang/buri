@@ -1,4 +1,4 @@
-//! core/proc — ending the process.
+//! core/process — ending the process.
 //!
 //! One function, because `Proc` declares one operation. Exiting is a different
 //! authority from printing, so it gets its own module and a reader of a context

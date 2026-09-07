@@ -1,5 +1,5 @@
-// Hexadecimal, and the general radix underneath it: `char.fromDigit` and
-// `char.isHexDigit`, `num.toHex`, `str.toRadix`, and `core/bytes`' pair.
+// Hexadecimal, and the general radix underneath it: `character.fromDigit` and
+// `character.isHexDigit`, `num.toHex`, `str.toRadix`, and `core/bytes`' pair.
 //
 // One file, because these are four modules answering one question and the
 // interesting assertions are the ones that cross between them: a number
@@ -8,37 +8,37 @@
 // `num.toHex` at a width of two.
 
 from "core/bytes" import * as bytes;
-from "core/char" import * as char;
+from "core/character" import * as character;
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/num" import * as num;
 from "core/testing/assert" import * as assert;
 
-// --- char.fromDigit -----------------------------------------------------------
+// --- character.fromDigit -----------------------------------------------------
 
 test "fromDigit is the digit's character, lowercase" {
-    assert.eq(assert.some(char.fromDigit(0, 16)), '0');
-    assert.eq(assert.some(char.fromDigit(9, 16)), '9');
-    assert.eq(assert.some(char.fromDigit(10, 16)), 'a');
-    assert.eq(assert.some(char.fromDigit(15, 16)), 'f');
+    assert.eq(assert.some(character.fromDigit(0, 16)), '0');
+    assert.eq(assert.some(character.fromDigit(9, 16)), '9');
+    assert.eq(assert.some(character.fromDigit(10, 16)), 'a');
+    assert.eq(assert.some(character.fromDigit(15, 16)), 'f');
 }
 
 test "fromDigit reaches base 36" {
-    assert.eq(assert.some(char.fromDigit(35, 36)), 'z');
-    assert.eq(assert.some(char.fromDigit(1, 2)), '1');
+    assert.eq(assert.some(character.fromDigit(35, 36)), 'z');
+    assert.eq(assert.some(character.fromDigit(1, 2)), '1');
 }
 
 test "fromDigit refuses a digit the radix does not have" {
-    assert.none(char.fromDigit(16, 16));
-    assert.none(char.fromDigit(2, 2));
-    assert.none(char.fromDigit(-1, 16));
+    assert.none(character.fromDigit(16, 16));
+    assert.none(character.fromDigit(2, 2));
+    assert.none(character.fromDigit(-1, 16));
 }
 
 test "fromDigit refuses a radix outside 2 to 36" {
-    assert.none(char.fromDigit(0, 1));
-    assert.none(char.fromDigit(0, 37));
-    assert.none(char.fromDigit(0, 0));
+    assert.none(character.fromDigit(0, 1));
+    assert.none(character.fromDigit(0, 37));
+    assert.none(character.fromDigit(0, 0));
 }
 
 test "fromDigit inverts toDigit over every base-36 digit" {
@@ -48,7 +48,7 @@ test "fromDigit inverts toDigit over every base-36 digit" {
     let mismatched = list
         .range(ctx, 0, 36)
         .filter(ctx, fn(n) => {
-            match (char.fromDigit(n, 36)) {
+            match (character.fromDigit(n, 36)) {
                 .None => true,
                 .Some(c) => c.toDigit(36) != .Some(n),
             }
@@ -56,7 +56,7 @@ test "fromDigit inverts toDigit over every base-36 digit" {
     assert.eq(mismatched.len(), 0);
 }
 
-// --- char.isHexDigit ----------------------------------------------------------
+// --- character.isHexDigit ----------------------------------------------------
 
 test "isHexDigit accepts both cases" {
     assert.isTrue('0'.isHexDigit());

@@ -444,9 +444,9 @@ pub const ENTRIES: &[Entry] = &[
     e("bytes.f64FromBytes", "buri_rt_bytes_f64_from_bytes", Ret::Opt),
     cx(e("bytes.f32ToBytes", "buri_rt_bytes_f32_to_bytes", Ret::Out), 0),
     e("bytes.f32FromBytes", "buri_rt_bytes_f32_from_bytes", Ret::Opt),
-    // -- core/char ----------------------------------------------------------
+    // -- core/character -----------------------------------------------------
     //
-    // Eight of `char.buri`'s nine. `toU32` is the ninth and is not here: a
+    // Eight of `character.buri`'s nine. `toU32` is the ninth and is not here: a
     // `Char` **is** a `U32`, so it is a representation change the backend
     // open-codes, and `isAlphanumeric` is written in Buri over two of these.
     //
@@ -456,16 +456,16 @@ pub const ENTRIES: &[Entry] = &[
     // six hundred ranges of Unicode data, `isUpper` is two full case mappings,
     // and open-coding *those* in two backends is two places for the data to
     // drift. So all eight go through the archive together rather than four of
-    // them here and four there, and `cli/runtime/char.rs` is the one place the
+    // them here and four there, and `cli/runtime/character.rs` is the one place the
     // answers live.
-    e("char.isDigit", "buri_rt_char_is_digit", Ret::Scalar),
-    e("char.isAlpha", "buri_rt_char_is_alpha", Ret::Scalar),
-    e("char.isSpace", "buri_rt_char_is_space", Ret::Scalar),
-    e("char.isUpper", "buri_rt_char_is_upper", Ret::Scalar),
-    e("char.isLower", "buri_rt_char_is_lower", Ret::Scalar),
-    e("char.toUpper", "buri_rt_char_to_upper", Ret::Scalar),
-    e("char.toLower", "buri_rt_char_to_lower", Ret::Scalar),
-    e("char.toDigit", "buri_rt_char_to_digit", Ret::Opt),
+    e("character.isDigit", "buri_rt_character_is_digit", Ret::Scalar),
+    e("character.isAlpha", "buri_rt_character_is_alpha", Ret::Scalar),
+    e("character.isSpace", "buri_rt_character_is_space", Ret::Scalar),
+    e("character.isUpper", "buri_rt_character_is_upper", Ret::Scalar),
+    e("character.isLower", "buri_rt_character_is_lower", Ret::Scalar),
+    e("character.toUpper", "buri_rt_character_to_upper", Ret::Scalar),
+    e("character.toLower", "buri_rt_character_to_lower", Ret::Scalar),
+    e("character.toDigit", "buri_rt_character_to_digit", Ret::Opt),
     // -- core/math, the exactly-specified half --------------------------------
     //
     // Nine of twenty-two. `cli/runtime/math.rs` says why the other thirteen are
@@ -1245,7 +1245,7 @@ mod tests {
         ("actor", "core/actor"),
         ("alloc", "core/alloc"),
         ("bytes", "core/bytes"),
-        ("char", "core/char"),
+        ("character", "core/character"),
         ("host", "core/host"),
         ("host_testing", "core/host/testing"),
         ("list", "core/list"),

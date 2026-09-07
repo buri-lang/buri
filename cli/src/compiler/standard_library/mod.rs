@@ -122,7 +122,7 @@ pub const MODULES: &[StdModule] = &[
     // a program that has never heard of it.
     StdModule { eager: true, ..m("core/list", include_str!("sources/list.buri")) },
     StdModule { eager: true, ..m("core/str", include_str!("sources/str.buri")) },
-    StdModule { eager: true, ..m("core/char", include_str!("sources/char.buri")) },
+    StdModule { eager: true, ..m("core/character", include_str!("sources/character.buri")) },
     StdModule { eager: true, ..m("core/bool", include_str!("sources/bool.buri")) },
     m("core/queue", include_str!("sources/queue.buri")),
     m("core/bitset", include_str!("sources/bitset.buri")),
@@ -209,7 +209,7 @@ pub const MODULES: &[StdModule] = &[
     // it re-exports rather than declaring again — one program can serve on one
     // end and dial on the other, and the two ends use one vocabulary.
     m("core/net/websocket", include_str!("sources/websocket.buri")),
-    m("core/proc", include_str!("sources/proc.buri")),
+    m("core/process", include_str!("sources/process.buri")),
     // Not a platform module: it *names* `Tasks` in its bounds rather than
     // declaring or implementing it, exactly as `core/fs` names `Fs`. The
     // authority is still `core/host`'s to hand out.
@@ -284,6 +284,27 @@ pub fn roots_phrase() -> String {
     }
 }
 
+/// The paths this library used to answer to, and what each is called now.
+///
+/// A rename is not an alias: the old path stops resolving, and the point of
+/// this table is that the *diagnostic* names the new one rather than leaving a
+/// reader to guess. `core/char` and `core/proc` were the abbreviations, and
+/// `core/character` and `core/process` are the same two modules spelled out.
+///
+/// Nothing here is loadable, and [`find`] is asked first, so a name that came
+/// back into service would shadow its own row rather than collide with it.
+/// `no_retired_path_is_also_a_module` is what says a row cannot be both.
+pub const RETIRED: &[(&str, &str)] =
+    &[("core/char", "core/character"), ("core/proc", "core/process")];
+
+/// What a retired path is called now, or `None` for a path that never named a
+/// module here. Read with the same `/lib.buri` canonicalisation [`find`] uses,
+/// because both spellings of a retired module are equally retired.
+pub fn retired(path: &str) -> Option<&'static str> {
+    let canonical = path.strip_suffix("/lib.buri").unwrap_or(path);
+    RETIRED.iter().find(|(old, _)| *old == canonical).map(|(_, now)| *now)
+}
+
 /// The module a path names, whichever of its two spellings was written.
 ///
 /// `core/effect` is the canonical one and the one the table holds.
@@ -343,7 +364,7 @@ pub fn prelude() -> impl Iterator<Item = (&'static str, &'static str)> {
 pub fn defining_module(p: Prim) -> &'static str {
     match p {
         Prim::Str => "core/str",
-        Prim::Char => "core/char",
+        Prim::Char => "core/character",
         Prim::Bool => "core/bool",
         // A template is a `Str` with holes, and its operations are the
         // numeric-rendering ones, so it shares `core/num`'s module the way
@@ -715,7 +736,7 @@ pub const WRAPPERS: &[Wrapper] = &[
     w("Entropy", "bytes", "core/crypto", "crypto.randomBytes(ctx, count)"),
     w("Env", "variable", "core/env", "env.get(ctx, name)"),
     w("Env", "args", "core/env", "env.args(ctx)"),
-    w("Proc", "exitWith", "core/proc", "proc.exit(ctx, code)"),
+    w("Proc", "exitWith", "core/process", "process.exit(ctx, code)"),
     w("Tasks", "parallel", "core/tasks", "tasks.parallel(ctx, items, f)"),
     w("Listen", "listenBind", "core/net/server", "server.bind(ctx, aServer)"),
     w("Listen", "listenAccept", "core/net/server", "server.serve(ctx, aServer)"),
@@ -818,6 +839,22 @@ mod tests {
         out
     }
 
+    /// A retired path names no module, and the module it points at is real.
+    ///
+    /// Both halves matter. A row whose old path still loads would make
+    /// `load_std` unreachable for it and the rename a lie; a row pointing at a
+    /// module that does not exist would send a reader to a second failure.
+    #[test]
+    fn no_retired_path_is_also_a_module() {
+        for (old, now) in RETIRED {
+            assert!(find(old).is_none(), "`{old}` is retired and still loads");
+            assert!(find(now).is_some(), "`{old}` points at `{now}`, which is no module");
+            assert_eq!(retired(old), Some(*now));
+            assert_eq!(retired(&format!("{old}/lib.buri")), Some(*now));
+        }
+        assert_eq!(retired("core/list"), None);
+    }
+
     /// `core/actor` declares no effect, so it opens no door — and the two
     /// halves of that are asserted rather than left to be noticed.
     ///
@@ -897,7 +934,7 @@ mod tests {
     /// so a method with no wrapper is a method nothing can reach. `Alloc`,
     /// `Proc`, `Listen` and `Sockets` failed this the day the table was
     /// written — six methods of thirty-eight with no door — and it is the
-    /// reason `core/proc` and `core/net/server` exist.
+    /// reason `core/process` and `core/net/server` exist.
     #[test]
     fn every_effect_method_has_a_door() {
         let declared = declared_effect_methods();

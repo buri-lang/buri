@@ -26,7 +26,7 @@
 //! not a row here, because there is no longer a program to write it with.** It
 //! used to be `core/actor`'s discarded-message defect, provoked on purpose and
 //! pinned at its exact size; that defect is fixed, and nothing a *correct*
-//! program can do leaks (`proc.exit` is the one way to stop while holding
+//! program can do leaks (`process.exit` is the one way to stop while holding
 //! blocks, and the runtime quiets the audit for it by name, because a program
 //! that chose where to stop is entitled to be holding values). A simulated
 //! report would prove nothing a switched-off check could not fake. Where that
