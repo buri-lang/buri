@@ -184,11 +184,14 @@ took a CI job with it. So:
   so a client that failed reports as the client failing;
 * two things bound a `#[test]` here: the harness's per-invocation hang cap
   (`harness/hang.rs`) for anything it spawns through the CLI, and each CI job's
-  `timeout-minutes` outside that. The cap kills a child that has stopped using
-  the **processor**, not one that has merely gone quiet — it reads the child's
-  process tree out of `/proc` or `libproc` — because a wall clock cannot tell a
-  build that is stuck from one that is slow on a loaded runner, and killing the
-  second is a flake.
+  `timeout-minutes` outside that. The cap kills a child's process tree only
+  when it is **asleep and spending nothing** — nothing in it running or waiting
+  to run, and no processor time — which it reads out of `/proc` or `libproc`.
+  Neither half alone works: a wall clock cannot tell a stuck build from a slow
+  one, and processor time cannot either, since a starved spinner may get none
+  and macOS may not have flushed its counters. A thread queued for a core is
+  runnable at nought per cent of one, and that is the fact that separates
+  them.
 
 A broken server is a failing test with a sentence, never a job CI has to kill.
 
