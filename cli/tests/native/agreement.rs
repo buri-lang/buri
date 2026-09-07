@@ -3903,6 +3903,50 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// A task somebody **spawned** ends the program the same way, on every backend.
+///
+/// The row above aborts inside `parallel`'s step. This one aborts inside a task
+/// that crossed into the runtime as a value and came back out through
+/// `scopeTaskAt`, which `core/tasks::running` enters — a second frame in the
+/// middle, and the same claim about it: an abort is a write to standard error
+/// and an exit, so there is nothing for a scope's drain to do about one.
+/// `core/tasks` says stopping is cooperative and that an abort is "not
+/// something a second task can survive", and this is the sentence as a program.
+///
+/// The body's line is above the message, so what the abort interrupted was a
+/// program that was already running. `cli/tests/crash/spawned_task_aborts.buri`
+/// is the same program wherever the JavaScript corpus runs.
+#[test]
+fn an_abort_inside_a_spawned_task_stops_the_program_the_same_way() {
+    rows_or_skip!();
+    abort_agrees(
+        "tasks.spawn abort",
+        r#"
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+
+fn ratio(a: Int, b: Int): Int { a / b }
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Stdout: host.stdout, Tasks: host.tasks };
+  let _ = tasks.scope(ctx, fn(c, here) => {
+    let _ = tasks.spawn(c, here, fn(c2) => {
+      let _ = io.println(c2, "${ratio(8, 0)}").ignore();
+      ()
+    });
+    io.println(c, "before").ignore()
+  });
+  let _ = io.println(ctx, "after").ignore();
+  .Ok(())
+}
+"#,
+        "before\n",
+        "division by zero",
+    );
+}
+
 // -------------------------------------------------------------------
 // The table itself
 // -------------------------------------------------------------------
