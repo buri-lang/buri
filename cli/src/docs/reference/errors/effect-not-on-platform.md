@@ -53,6 +53,11 @@ same table. `Listen` and `Sockets` are granted on `LINUX` and `MACOS`, where
 holding a port open is a native program's authority, and never will be on `JS`
 or `WEB`. A row says who grants an effect now, not when the rest will fill.
 
+`Tasks` shows the other direction. It landed granted by nobody, then on the
+three platforms that are not a page, and now on all four — one edit to one row
+each time, and nothing to change in a program already written against the
+signature.
+
 ## A program that provokes it
 
 ```buri fail code=effect-not-on-platform platform=JS
