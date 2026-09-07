@@ -568,12 +568,19 @@ negotiated subprotocol arrives, and on `LINUX` and `MACOS` it is the head the
 server really sent; a page cannot see its own handshake, so there `Response`
 carries the subprotocol and the extensions and nothing else.
 
+`LINUX` and `MACOS` write the handshake here and check every clause of the
+answer, so a `101` signing another handshake's key is `.Err(.Transport)` naming
+that check. Everywhere else the engine's own `WebSocket` owns the handshake and
+decides how strictly to check it — `node` refuses that `101` and `bun` accepts
+it — because a page never sees the key it sent.
+
 `connect` is bounded `WebSocketClient + Sockets`. The first dials and the second
 pushes, and the hooks are handed your context, so both have to be in it.
-**Every platform grants both**, `WEB` included: holding a port open is a native
-program's authority, and dialling out is not. On a page `connect` follows
-`ui.mount` — it suspends without holding the event loop, so an interface goes on
-rendering while the socket is idle and a pushed frame wakes it like a click.
+**Every platform grants both**, `WEB` and `CLOUDFLARE_WORKER` included: holding
+a port open is a native program's authority, and dialling out is not. On a page
+`connect` follows `ui.mount` — it suspends without holding the event loop, so an
+interface goes on rendering while the socket is idle and a pushed frame wakes it
+like a click. A worker dials the same way while it answers a request.
 
 `Client` has no header list, because a browser's `WebSocket` cannot send request
 headers. A token or a subprotocol goes in the URL, which is what every browser
@@ -755,10 +762,12 @@ socket. So you test a broadcast room with no listener, no port and no client.
 `sockets()` and a script: `connect` dials it, gets a socket of *that* double's,
 receives those messages in order, and closes normally when the script runs out.
 So the pushes a client makes land in `sent()` and the whole of
-`core/net/websocket` runs with no network at all. A URL that is neither `ws://`
-nor `wss://` is the refusal — `.Err(.Unsupported)`, the cause a real client
-gives a scheme it cannot speak — which is how you test what your program does
-when the socket never opens.
+`core/net/websocket` runs with no network at all. Every dial replays the script
+on a socket of its own, so a reconnect loop gets a second session rather than a
+socket that was already spent. A URL that is neither `ws://` nor `wss://` is the
+refusal — `.Err(.Unsupported)`, the cause a real client gives a scheme it cannot
+speak — which is how you test what your program does when the socket never
+opens.
 
 `entropy()` is the one double that is the *opposite* of what the effect
 promises, and the only place in this language where these octets are predictable
