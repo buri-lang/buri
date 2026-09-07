@@ -42,6 +42,31 @@ struct, so every operation in `core/simd` is pure.
 `Option`, `Result`, `Order` and the comparison and operator traits are in the
 prelude, so `derive Eq for Point;` works in a module that imports nothing.
 
+`core/num` also carries the integer arithmetic that `/` and `%` do not:
+`power`, `greatestCommonDivisor`, `leastCommonMultiple`, `divideEuclidean` (the
+quotient that pairs with `remEuclid`), `divideCeiling`, `quotientRemainder`,
+`integerSquareRoot` — exact where `math.sqrt` stops being — `absoluteDifference`
+and `toRadix`, which writes a signed numeral in any base from 2 to 36 where
+`toHex` writes a bit pattern. `Checked` covers the remainder, the negation and
+the power as well as the four operators, at every integer width.
+
+`core/math` adds `hypotenuse`, `copySign`, `toRadians`, `toDegrees`, `roundTo`
+and `roundEven` — banker's rounding, the tie to the even neighbour, which is
+what a column of money wants — plus `isCloseAbsolute`, `isCloseRelative`, and
+the constants `EPSILON`, `MIN_POSITIVE` and `TAU`. Each of those is `+ - * /`,
+`sqrt` and the comparisons, so each answers the same bits on every backend. The
+six hyperbolics, their inverses, `lnOnePlus`, `expMinusOne` and `logBase` are
+built on `exp` and `ln` and so inherit the *existing* gap those two carry: they
+run on the JavaScript backend, and a native build reports the missing intrinsic
+by name (`cli/runtime/math.rs` says why implementing them with the platform's
+libm would be a divergence rather than a gap).
+
+`core/bits` covers the unsigned widths as well as `Int`: `rotateLeftU8` and
+`rotateRightU8`, the same pair at 32 and 64 bits, `byteSwapU32` and
+`byteSwapU64`, and `popCountU64`, `leadingZerosU64` and `trailingZerosU64`.
+Each rotates or counts inside its **own** width, and each is one machine
+instruction behind the range check the shifts already have.
+
 **A comparator is a value, and `core/order` builds one.** `order.by` takes the
 key. `order.chain` takes the tie-breaks in priority order. `order.reverseIf`
 takes the direction from the data. So a sort key with three columns and a `DESC`
@@ -254,6 +279,37 @@ the form a backend with vector registers can lower directly. The same kernel
 written as a fold over a list is not, because a fold says "in this order". Do
 not benchmark against a scalar loop expecting a win.
 
+`loadF32x4(items, at)` and `loadI32x4` take four consecutive elements out of a
+list, and answer `.None` at a short tail rather than padding one — so a kernel
+decides for itself what to do with the remainder. `mulAdd` is the multiply and
+the add written together and rounds **twice**: a fused multiply-add rounds once
+and would answer different bits on a machine that has the instruction.
+`F32x4.toInt` saturates rather than failing, because a lane has nowhere to put
+an error.
+
+[`core/bigint`](../../compiler/standard_library/sources/bigint.buri) is an
+integer with no width. Sign and magnitude over base-`2^24` limbs, pure Buri,
+every operation taking a context because every operation allocates. `add` and
+`sub` cost O(n); `mul` is schoolbook at O(n·m); `quotientRemainder` is
+schoolbook long division with each quotient limb binary-searched, at O(n·m·24);
+`parse` and `text` are O(d²) in the digits. Karatsuba wins past a few hundred
+limbs and loses below, and nothing needs the crossover yet. The limit is about
+32768 limbs — a little over 236,000 decimal digits — because `mul` sums a
+column of limb products in one `Int`.
+
+[`core/decimal`](../../compiler/standard_library/sources/decimal.buri) is money.
+A `Decimal` is an `Int` of units and a scale that says where the point goes, so
+the value *is* the digits you wrote and `0.1 + 0.2` is `0.3`. Every arithmetic
+method answers an `Option`, which is how it says the answer does not fit —
+`Checked`'s promise, at O(1). `roundTo` is the only thing that loses a digit,
+and it sends a tie to the **even** neighbour, so a column of them does not
+drift upward. The units are one `Int`, about nineteen significant digits; a
+ledger that needs more wants `core/bigint`.
+
+The two are separate types on purpose. A `BigInt` grows and a `Decimal` does
+not, and a scaled `Int` covers money, percentages and measurements without
+paying for limbs.
+
 ## Time
 
 [`core/time`](../../compiler/standard_library/sources/time.buri) is the clock,
@@ -305,6 +361,16 @@ pure. That is what a deterministic simulator needs, since it replays a failure
 from a seed and cannot take its generator from whoever called it.
 
 `Gen.nextInt` rejection-samples, so it has **no modulo bias**.
+
+`shuffle`, `pick` and `sample` draw from a list, and each has a `Gen` twin that
+answers the value and the next generator. `shuffle` is Fisher-Yates over an
+`OrdMap<Int, T>`, so it costs O(n log n) — a `[T]` has no write that costs less
+than a copy — and every permutation is equally likely. `sample` is that shuffle
+and a `take`, so it costs the same in the length of the *list* rather than of
+the sample. `nextGaussian` is Marsaglia's polar method: a point in the square
+from `-1` to `1`, kept only if it landed inside the unit circle, so a draw costs
+a little over two uniforms on average. It reaches `math.ln`, so it carries
+`core/math`'s transcendental gap on a native build.
 
 Neither door is a secret. Both are uniform and both are predictable. For octets
 nobody can guess, see [`core/crypto`](#cryptography) below.

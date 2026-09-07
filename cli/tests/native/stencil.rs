@@ -1822,6 +1822,8 @@ fn compile_corpus(path: &str) -> Compiled {
 const CORPUS_COMPILES: &[&str] = &[
     "actor/counter.buri",
     "actor/scoped.buri",
+    "bignum/bigint.buri",
+    "bignum/decimal.buri",
     "calendar/date.buri",
     "calendar/duration.buri",
     "canary/canary.buri",
@@ -1859,6 +1861,7 @@ const CORPUS_COMPILES: &[&str] = &[
     "proto/failures.buri",
     "proto_schema/reading.buri",
     "proto_schema/refusals.buri",
+    "random/draws.buri",
     "random/gen.buri",
     "semantics/anonymous.buri",
     "semantics/effects.buri",
