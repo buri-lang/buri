@@ -1,0 +1,279 @@
+// Expressions: the parentheses precedence needs, the escapes a literal needs,
+// and the two shapes that break however wide the page is.
+//
+// Each expression is printed inside `let X: Int = ...;`, which is the shortest
+// declaration one fits in, so the assertion is about the expression and not
+// about a wrapper.
+
+from "core/buri/ast" import * as ast;
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/testing/assert" import * as assert;
+from "//lib/buri_ast" import {
+    block, call, ex, field, fnOf, hole, id, letOf, n, pat, st, ty,
+};
+
+fn bin(op: ast.BinOp, lhs: ast.Expr, rhs: ast.Expr): ast.Expr {
+    ex(.Binary(op, [lhs], [rhs]))
+}
+
+// --- precedence -----------------------------------------------------------------
+
+test "a sum under a product keeps its parentheses" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let e = bin(.Mul, bin(.Add, id("a"), id("b")), id("c"));
+    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = (a + b) * c;\n");
+}
+
+test "a product under a sum needs none" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let e = bin(.Add, id("a"), bin(.Mul, id("b"), id("c")));
+    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = a + b * c;\n");
+}
+
+test "the ladder associates left, so only the right operand is parenthesised" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let left = bin(.Sub, bin(.Sub, id("a"), id("b")), id("c"));
+    let right = bin(.Sub, id("a"), bin(.Sub, id("b"), id("c")));
+    assert.eq(ast.print(ctx, letOf(left)).text, "let X: Int = a - b - c;\n");
+    assert.eq(ast.print(ctx, letOf(right)).text, "let X: Int = a - (b - c);\n");
+}
+
+test "a comparison does not associate, so both operands are parenthesised" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let e = bin(.Ne, bin(.Lt, id("a"), id("b")), bin(.Lt, id("c"), id("d")));
+    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = (a < b) != (c < d);\n");
+}
+
+test "a unary operand binds tighter than any operator" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let e = ex(.Unary(.Neg, [bin(.Add, id("a"), id("b"))]));
+    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = -(a + b);\n");
+}
+
+test "a lambda cannot head a chain without parentheses" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let f = ex(.Lambda([ast.LambdaParam { name: n("x"), ty: [] }], [], [id("x")]));
+    assert.eq(
+        ast.print(ctx, letOf(call(f, [ex(.Int(1))]))).text,
+        "let X: Int = (fn(x) => x)(1);\n",
+    );
+}
+
+test "a block-like expression heading a chain takes parentheses" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let branch = ex(
+        .If([id("a")], [block([], [id("b")])], [ex(.Block(block([], [id("c")])))]),
+    );
+    assert.eq(
+        ast.print(ctx, letOf(call(field(branch, "len"), []))).text,
+        "let X: Int = (if (a) { b } else { c }).len();\n",
+    );
+}
+
+test "a nested tuple index takes parentheses" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let e = ex(.TupleIndex([ex(.TupleIndex([id("t")], 0))], 1));
+    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = (t.0).1;\n");
+}
+
+test "the postfix operators print in order" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let indexed = ex(.Index([id("xs")], [ex(.Int(0))]));
+    let e = ex(.Try([indexed]));
+    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = xs[0]?;\n");
+    let generic = ex(.Generic([id("parse")], [ty("Int")]));
+    assert.eq(
+        ast.print(ctx, letOf(call(generic, [id("text")]))).text,
+        "let X: Int = parse<Int>(text);\n",
+    );
+}
+
+// --- literals -------------------------------------------------------------------
+
+test "a string literal escapes the four the formatter escapes" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let e = ex(.Str("a\"b\\c\nd\te"));
+    assert.eq(ast.print(ctx, letOf(e)).text, "let X: Int = \"a\\\"b\\\\c\\nd\\te\";\n");
+}
+
+test "a template escapes the dollar its own text carries" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let e = ex(.Template([.Text("cost $"), .Hole(id("count")), .Text(" each")]));
+    let want = "let X: Int = \"cost \\$"
+        .concat(ctx, hole(ctx, "count"))
+        .concat(ctx, " each\";\n");
+    assert.eq(ast.print(ctx, letOf(e)).text, want);
+}
+
+test "a character literal escapes what it has to" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(ast.print(ctx, letOf(ex(.Char('\n')))).text, "let X: Int = '\\n';\n");
+    assert.eq(ast.print(ctx, letOf(ex(.Char('\'')))).text, "let X: Int = '\\'';\n");
+    assert.eq(ast.print(ctx, letOf(ex(.Char('a')))).text, "let X: Int = 'a';\n");
+}
+
+test "a float always carries a point" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(ast.print(ctx, letOf(ex(.Float(2.0)))).text, "let X: Int = 2.0;\n");
+    assert.eq(ast.print(ctx, letOf(ex(.Float(2.5)))).text, "let X: Int = 2.5;\n");
+}
+
+test "the small expressions print" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eq(ast.print(ctx, letOf(ex(.Unit))).text, "let X: Int = ();\n");
+    assert.eq(ast.print(ctx, letOf(ex(.Bool(true)))).text, "let X: Int = true;\n");
+    assert.eq(ast.print(ctx, letOf(ex(.SelfValue))).text, "let X: Int = self;\n");
+    assert.eq(ast.print(ctx, letOf(ex(.Ctx))).text, "let X: Int = ctx;\n");
+    assert.eq(
+        ast.print(ctx, letOf(ex(.DotVariant(n("Ok"))))).text,
+        "let X: Int = .Ok;\n",
+    );
+    assert.eq(ast.print(ctx, letOf(ex(.Array([])))).text, "let X: Int = [];\n");
+    assert.eq(
+        ast.print(ctx, letOf(ex(.Tuple([id("a"), id("b")])))).text,
+        "let X: Int = (a, b);\n",
+    );
+}
+
+// --- what breaks whatever the width ----------------------------------------------
+
+test "a trailing lambda hugs the call that carries it" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let body = ex(
+        .Block(block([st(.Let(pat(.Bind(n("t"), [])), [], id("s")))], [id("t")])),
+    );
+    let f = ex(.Lambda([ast.LambdaParam { name: n("s"), ty: [] }], [], [body]));
+    let e = call(field(id("xs"), "map"), [ex(.Ctx), f]);
+    assert.eq(
+        ast.print(ctx, fnOf([], [e])).text,
+        "export fn go(): Int {\n    xs.map(ctx, fn(s) => {\n        let t = s;\n".concat(
+            ctx,
+            "        t\n    })\n}\n",
+        ),
+    );
+}
+
+test "a block-like trailing argument hugs too" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let arms = [
+        ast.Arm { pattern: pat(.Path(n("A"), true, [])), guard: [], body: ex(.Int(1)) },
+    ];
+    let e = call(id("f"), [ex(.Match([id("x")], arms))]);
+    assert.eq(
+        ast.print(ctx, fnOf([], [e])).text,
+        "export fn go(): Int {\n    f(match (x) {\n        .A => 1,\n    })\n}\n",
+    );
+}
+
+test "a match arm with a guard, and a body that has to break" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let inner = ex(
+        .Match([id("y")], [
+            ast.Arm { pattern: pat(.Wild), guard: [], body: ex(.Int(0)) },
+        ]),
+    );
+    let arms = [
+        ast.Arm { pattern: pat(.Bind(n("v"), [])), guard: [id("ok")], body: inner },
+    ];
+    assert.eq(
+        ast.print(ctx, fnOf([], [ex(.Match([id("x")], arms))])).text,
+        "export fn go(): Int {\n    match (x) {\n        v if ok => {\n"
+            .concat(
+                ctx,
+                "            match (y) {\n                _ => 0,\n            }\n",
+            )
+            .concat(ctx, "        },\n    }\n}\n"),
+    );
+}
+
+test "a context expression is always on lines of its own" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let bindings = [
+        ast.Binding { effectTy: ty("Alloc"), value: call(id("alloc"), []) },
+    ];
+    let stmt = st(.LetCtx(ex(.Context([], bindings))));
+    assert.eq(
+        ast.print(ctx, fnOf([stmt], [id("n")])).text,
+        "export fn go(): Int {\n    let ctx = context {\n        Alloc: alloc(),\n".concat(
+            ctx,
+            "    };\n    n\n}\n",
+        ),
+    );
+}
+
+// --- patterns -------------------------------------------------------------------
+
+test "the pattern shapes print on one line" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let payload: ast.Payload = .Record(
+        [ast.FieldPat { name: n("id"), pattern: [] }],
+        true,
+    );
+    let arms = [
+        ast.Arm {
+            pattern: pat(.Path(n("User"), false, [payload])),
+            guard: [],
+            body: ex(.Int(1)),
+        },
+        ast.Arm {
+            pattern: pat(.Array([pat(.LitInt(1))], [.Named(n("tail"))])),
+            guard: [],
+            body: ex(.Int(2)),
+        },
+        ast.Arm {
+            pattern: pat(.Or([pat(.LitStr("a")), pat(.LitBool(true))])),
+            guard: [],
+            body: ex(.Int(3)),
+        },
+        ast.Arm {
+            pattern: pat(.Bind(n("whole"), [pat(.Tuple([pat(.Wild), pat(.Unit)]))])),
+            guard: [],
+            body: ex(.Int(4)),
+        },
+    ];
+    assert.eq(
+        ast.print(ctx, fnOf([], [ex(.Match([id("x")], arms))])).text,
+        "export fn go(): Int {\n    match (x) {\n        User { id, .. } => 1,\n"
+            .concat(ctx, "        [1, ..tail] => 2,\n        \"a\" | true => 3,\n")
+            .concat(ctx, "        whole @ (_, ()) => 4,\n    }\n}\n"),
+    );
+}

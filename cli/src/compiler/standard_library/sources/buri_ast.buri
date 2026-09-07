@@ -1,0 +1,1993 @@
+//! core/buri/ast — the Buri grammar as Buri data, and the printer that writes
+//! it back out as source.
+//!
+//! A generator builds a [`Module`] and calls [`print`]. What comes back is the
+//! source text and one [`Anchor`] per node that knows where it came from, so a
+//! diagnostic about a generated declaration can point at the input line that
+//! produced it. A generator cannot emit a parse error, because there is no
+//! variant here that spells one.
+//!
+//! **A child position is a one-element array.** A Buri type recurses through
+//! `[T]`, so `If`'s condition is `[Expr]` and not `Expr`. An empty array is
+//! where the child is optional: `FnDecl.body` is `[]` for a signature and
+//! `[block]` for a body, and `Arm.guard` is `[]` for an arm with no `if`.
+//!
+//! **`print` writes what `buri format` leaves alone**, with one limit worth
+//! stating: it does not know the page width. Every construct the formatter
+//! always breaks — a function body, a struct or enum body, a `match`, a
+//! `context`, a trait or an impl — comes out broken, and everything else comes
+//! out on one line. A generated line past 88 columns is therefore the one
+//! place `buri format` would still move the text.
+//!
+//! Cost: `print` walks the tree once and measures every piece it writes in
+//! UTF-8, because an anchor is a **byte** range and `Str.len` counts scalar
+//! values. That is O(n) in the output text and one array per piece measured.
+//! The anchors are sorted once at the end, O(a log a).
+//!
+//! ```buri run
+//! from "core/buri/ast" import * as ast;
+//! from "core/effect" import { Alloc, Stdout };
+//! from "core/host" import * as host;
+//! from "core/io" import * as io;
+//!
+//! export fn main(): Result<(), Str> {
+//!     let ctx = context {
+//!         Alloc: host.alloc,
+//!         Stdout: host.stdout,
+//!     };
+//!     let id = ast.Type {
+//!         kind: .Named(ast.Name { text: "Int", origin: ast.nowhere() }, []),
+//!         origin: ast.nowhere(),
+//!     };
+//!     let module = ast.Module {
+//!         items: [
+//!             ast.Item {
+//!                 kind: .TypeAlias(ast.TypeAliasDecl {
+//!                     name: ast.Name { text: "Id", origin: ast.nowhere() },
+//!                     generics: [],
+//!                     ty: id,
+//!                     exported: true,
+//!                     docs: ["A row's key."],
+//!                 }),
+//!                 origin: ast.origin("rows.schema", 0, 6),
+//!             },
+//!         ],
+//!         docs: [],
+//!     };
+//!     let out = ast.print(ctx, module);
+//!     let _ = io.print(ctx, out.text).ignore();
+//!     let _ = io.println(ctx, "${out.anchors.len()} anchor(s)").ignore();
+//!     .Ok(())
+//! }
+//! ```
+//!
+//! ```stdout
+//! /// A row's key.
+//! export type Id = Int;
+//! 1 anchor(s)
+//! ```
+
+from "core/bytes" import * as bytes;
+from "core/effect" import { Alloc };
+from "core/list" import * as list;
+from "core/num" import * as num;
+from "core/order" import * as order;
+from "core/str" import * as str;
+
+// -----------------------------------------------------------------------------
+// Where a node came from
+// -----------------------------------------------------------------------------
+
+derive Eq, Show for Span;
+/// A half-open byte range.
+export struct Span {
+    export start: Int,
+    export end: Int,
+}
+
+derive Eq, Show for Origin;
+/// The input a node came from. An empty `file` means the generator invented
+/// the node, and [`print`] records no anchor for it.
+export struct Origin {
+    export file: Str,
+    export span: Span,
+}
+
+/// The origin of a node nothing produced.
+export fn nowhere(): Origin {
+    Origin { file: "", span: Span { start: 0, end: 0 } }
+}
+
+/// The origin of a node `file[start..end]` produced.
+export fn origin(file: Str, start: Int, end: Int): Origin {
+    Origin { file: file, span: Span { start: start, end: end } }
+}
+
+// -----------------------------------------------------------------------------
+// The module
+// -----------------------------------------------------------------------------
+
+/// One generated source file. `docs` are its `//!` lines, without the marker.
+export struct Module {
+    export items: [Item],
+    export docs: [Str],
+}
+
+/// A declaration.
+export struct Item {
+    export kind: ItemKind,
+    export origin: Origin,
+}
+
+/// There is no `Context` and no `Test`: a generated module declares neither.
+export enum ItemKind {
+    Import(Import),
+    ReExport(ReExport),
+    Fn(FnDecl),
+    Struct(StructDecl),
+    Enum(EnumDecl),
+    TypeAlias(TypeAliasDecl),
+    Let(LetDecl),
+    Trait(TraitDecl),
+    Impl(ImplDecl),
+    Derive(DeriveDecl),
+}
+
+/// `from "path" import ...;`
+export struct Import {
+    export path: Str,
+    export clause: ImportClause,
+}
+
+export enum ImportClause {
+    /// `import { a, b as c }`
+    Named([ImportSpec]),
+    /// `import * as list`
+    Namespace(Name),
+}
+
+/// One name of an import clause. `alias` is `[]` where the name is not renamed.
+export struct ImportSpec {
+    export name: Name,
+    export alias: [Name],
+}
+
+/// `from "path" export { a, b };`
+export struct ReExport {
+    export path: Str,
+    export specs: [ImportSpec],
+}
+
+/// One type parameter and the traits it is bounded by.
+export struct GenericParam {
+    export name: Name,
+    export bounds: [Type],
+}
+
+/// One parameter. `self` is a parameter named `self` with no type, and `ctx`
+/// is one named `ctx`.
+export struct Param {
+    export name: Name,
+    export ty: [Type],
+}
+
+/// A function. `body` is `[]` for a signature — a trait method, or a method of
+/// an effect.
+export struct FnDecl {
+    export name: Name,
+    export generics: [GenericParam],
+    export params: [Param],
+    export ret: Type,
+    export body: [Block],
+    export exported: Bool,
+    export docs: [Str],
+}
+
+export struct StructDecl {
+    export name: Name,
+    export generics: [GenericParam],
+    export body: StructBody,
+    export exported: Bool,
+    export docs: [Str],
+}
+
+export enum StructBody {
+    /// `struct Point { x: Int, y: Int }`
+    Record([FieldDecl]),
+    /// `struct Meters(F64);`
+    Tuple([TupleField]),
+}
+
+export struct FieldDecl {
+    export name: Name,
+    export ty: Type,
+    export exported: Bool,
+    export docs: [Str],
+    export origin: Origin,
+}
+
+export struct TupleField {
+    export ty: Type,
+    export exported: Bool,
+    export origin: Origin,
+}
+
+export struct EnumDecl {
+    export name: Name,
+    export generics: [GenericParam],
+    export variants: [Variant],
+    export exported: Bool,
+    export docs: [Str],
+}
+
+/// A variant carries no visibility of its own: it is exported exactly when the
+/// enum that declares it is.
+export struct Variant {
+    export name: Name,
+    export payload: VariantPayload,
+    export docs: [Str],
+    export origin: Origin,
+}
+
+export enum VariantPayload {
+    /// `Red`
+    Empty,
+    /// `Some(T)`
+    Tuple([Type]),
+    /// `User { id: Int }`
+    Record([FieldDecl]),
+}
+
+export struct TypeAliasDecl {
+    export name: Name,
+    export generics: [GenericParam],
+    export ty: Type,
+    export exported: Bool,
+    export docs: [Str],
+}
+
+/// A module-level `let`, which names a type and binds a name rather than a
+/// pattern. The block-level one is a [`Stmt`].
+export struct LetDecl {
+    export name: Name,
+    export ty: Type,
+    export value: Expr,
+    export exported: Bool,
+    export docs: [Str],
+}
+
+/// A `trait`, or an `effect` when `isEffect`. Every method is a signature: a
+/// trait method has no body.
+export struct TraitDecl {
+    export name: Name,
+    export generics: [GenericParam],
+    export methods: [FnDecl],
+    export isEffect: Bool,
+    export exported: Bool,
+    export docs: [Str],
+}
+
+/// `traitTy` is `[]` for an inherent `impl Type { ... }`.
+export struct ImplDecl {
+    export generics: [GenericParam],
+    export traitTy: [Type],
+    export selfTy: Type,
+    export methods: [FnDecl],
+    export docs: [Str],
+}
+
+/// `derive Eq, Show for Point;`
+export struct DeriveDecl {
+    export traits: [Type],
+    export selfTy: Type,
+}
+
+// -----------------------------------------------------------------------------
+// Names and types
+// -----------------------------------------------------------------------------
+
+/// A name a declaration introduces, or one a written type or expression uses.
+export struct Name {
+    export text: Str,
+    export origin: Origin,
+}
+
+export struct Type {
+    export kind: TypeKind,
+    export origin: Origin,
+}
+
+/// A written type. There is no dotted path and no `Self`: a generated module
+/// names the types it imported.
+export enum TypeKind {
+    /// `Point`, or `Option<Str>` with its arguments.
+    Named(Name, [Type]),
+    /// `()`
+    Unit,
+    /// `(A, B)`
+    Tuple([Type]),
+    /// `[T]`, whose element is the one entry.
+    Array([Type]),
+    /// `fn(A, B) => R`, whose return type is the one entry of the second list.
+    Fn([Type], [Type]),
+}
+
+// -----------------------------------------------------------------------------
+// Expressions
+// -----------------------------------------------------------------------------
+
+export struct Expr {
+    export kind: ExprKind,
+    export origin: Origin,
+}
+
+export enum ExprKind {
+    Int(Int),
+    Float(Float),
+    Str(Str),
+    Char(Char),
+    Bool(Bool),
+    /// `"a ${b} c"`
+    Template([Part]),
+    Ident(Name),
+    SelfValue,
+    Ctx,
+    /// `.Ok`
+    DotVariant(Name),
+    Unit,
+    Array([Expr]),
+    Tuple([Expr]),
+    Block(Block),
+    /// Condition, then-block, else-expression. Every `if` has an else.
+    If([Expr], [Block], [Expr]),
+    Match([Expr], [Arm]),
+    /// `context { ..base, Alloc: alloc() }` — the spread, then the bindings.
+    Context([Expr], [Binding]),
+    /// Parameters, the written return type, and the body.
+    Lambda([LambdaParam], [Type], [Expr]),
+    Unary(UnOp, [Expr]),
+    Binary(BinOp, [Expr], [Expr]),
+    /// `base.name`
+    Field([Expr], Name),
+    /// `pair.0`
+    TupleIndex([Expr], Int),
+    Call([Expr], [Expr]),
+    Index([Expr], [Expr]),
+    /// `base?`
+    Try([Expr]),
+    /// `base<T>`
+    Generic([Expr], [Type]),
+    /// The head — `[]` for the anonymous `{ ... }` — the spread, and the
+    /// fields.
+    StructLit([Expr], [Expr], [Init]),
+}
+
+/// One piece of a template literal.
+export enum Part {
+    Text(Str),
+    Hole(Expr),
+}
+
+/// One arm of a `match`. `guard` is `[]` for an arm with no `if`.
+export struct Arm {
+    export pattern: Pattern,
+    export guard: [Expr],
+    export body: Expr,
+}
+
+/// One field of a struct literal. `value` is `[]` for the `{ x }` shorthand.
+export struct Init {
+    export name: Name,
+    export value: [Expr],
+}
+
+/// One parameter of a lambda. `ty` is `[]` where none is written.
+export struct LambdaParam {
+    export name: Name,
+    export ty: [Type],
+}
+
+/// One binding of a `context` expression.
+export struct Binding {
+    export effectTy: Type,
+    export value: Expr,
+}
+
+/// A block: its statements, and the expression it ends with. `tail` is `[]`
+/// for a block whose value is `()`.
+export struct Block {
+    export stmts: [Stmt],
+    export tail: [Expr],
+    export origin: Origin,
+}
+
+export struct Stmt {
+    export kind: StmtKind,
+    export origin: Origin,
+}
+
+export enum StmtKind {
+    /// `let p: T = value;`, whose type annotation is `[]` when inferred.
+    Let(Pattern, [Type], Expr),
+    /// `let ctx = value;`, which takes no pattern and no annotation.
+    LetCtx(Expr),
+    /// `value;`
+    Expr(Expr),
+}
+
+// -----------------------------------------------------------------------------
+// Patterns
+// -----------------------------------------------------------------------------
+
+export struct Pattern {
+    export kind: PatternKind,
+    export origin: Origin,
+}
+
+export enum PatternKind {
+    /// `_`
+    Wild,
+    /// `x`, or `x @ sub`.
+    Bind(Name, [Pattern]),
+    LitInt(Int),
+    LitFloat(Float),
+    LitStr(Str),
+    LitChar(Char),
+    LitBool(Bool),
+    /// `Some(x)`, `.Ok(v)`, `User { id, .. }`. The `Bool` is the leading dot.
+    Path(Name, Bool, [Payload]),
+    /// `()`
+    Unit,
+    Tuple([Pattern]),
+    /// The elements, and the `..` that may close them.
+    Array([Pattern], [Rest]),
+    /// `a | b`
+    Or([Pattern]),
+}
+
+/// What a variant pattern matches inside itself.
+export enum Payload {
+    /// `Some(x)`
+    Tuple([Pattern]),
+    /// `User { id, .. }` — the fields, and whether `..` closes them.
+    Record([FieldPat], Bool),
+}
+
+/// One field of a record pattern. `pattern` is `[]` for the `{ id }`
+/// shorthand.
+export struct FieldPat {
+    export name: Name,
+    export pattern: [Pattern],
+}
+
+/// The `..` that may end an array pattern.
+export enum Rest {
+    /// `..`
+    Anonymous,
+    /// `..tail`
+    Named(Name),
+}
+
+// -----------------------------------------------------------------------------
+// Operators
+// -----------------------------------------------------------------------------
+
+export enum BinOp {
+    Or,
+    And,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    BitOr,
+    BitXor,
+    BitAnd,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+}
+
+export enum UnOp {
+    Neg,
+    Not,
+    BitNot,
+}
+
+// -----------------------------------------------------------------------------
+// Printing
+// -----------------------------------------------------------------------------
+
+derive Eq, Show for Anchor;
+/// Where one node landed in the printed text, and where it came from.
+export struct Anchor {
+    export start: Int,
+    export end: Int,
+    export origin: Origin,
+}
+
+derive Eq, Show for Printed;
+/// The printed module, and the map back to the input.
+///
+/// `anchors` holds one entry per printed node whose origin names a file,
+/// sorted by `start`, with the outermost first where two share one.
+export struct Printed {
+    export text: Str,
+    export anchors: [Anchor],
+}
+
+/// `module` as source text, with an anchor for every node that came from
+/// somewhere.
+///
+/// ```buri run
+/// from "core/buri/ast" import * as ast;
+/// from "core/effect" import { Alloc, Stdout };
+/// from "core/host" import * as host;
+/// from "core/io" import * as io;
+///
+/// export fn main(): Result<(), Str> {
+///     let ctx = context {
+///         Alloc: host.alloc,
+///         Stdout: host.stdout,
+///     };
+///     let module = ast.Module {
+///         items: [
+///             ast.Item {
+///                 kind: .Import(ast.Import {
+///                     path: "core/effect",
+///                     clause: .Named([
+///                         ast.ImportSpec {
+///                             name: ast.Name { text: "Alloc", origin: ast.nowhere() },
+///                             alias: [],
+///                         },
+///                     ]),
+///                 }),
+///                 origin: ast.nowhere(),
+///             },
+///         ],
+///         docs: [],
+///     };
+///     let _ = io.print(ctx, ast.print(ctx, module).text).ignore();
+///     .Ok(())
+/// }
+/// ```
+///
+/// ```stdout
+/// from "core/effect" import { Alloc };
+/// ```
+export fn print<C: Alloc>(ctx: C, m: Module): Printed {
+    let empty = Out { pieces: [], at: 0, anchors: [], indent: 0, pending: false };
+    let out = printModule(ctx, empty, m);
+    Printed {
+        text: out.pieces.join(ctx, ""),
+        anchors: out.anchors.sortBy(ctx, anchorOrder),
+    }
+}
+
+/// By `start`, and then by the widest first, which is what puts a declaration
+/// ahead of the name inside it.
+fn anchorOrder(a: Anchor, b: Anchor): Order {
+    match (order.int(a.start, b.start)) {
+        .Equal => order.int(b.end, a.end),
+        other => other,
+    }
+}
+
+// --- the writer ----------------------------------------------------------------
+
+/// What has been written: the pieces of the text, the byte offset the next one
+/// starts at, the anchors collected so far, and the indent a new line takes.
+///
+/// `pending` is a line break whose indentation has not been written yet, so a
+/// line nothing follows carries no trailing spaces.
+struct Out {
+    pieces: [Str],
+    at: Int,
+    anchors: [Anchor],
+    indent: Int,
+    pending: Bool,
+}
+
+fn raw<C: Alloc>(ctx: C, out: Out, text: Str): Out {
+    Out { ..out, pieces: out.pieces.push(ctx, text), at: out.at + byteLen(ctx, text) }
+}
+
+/// The UTF-8 length of `text`. An anchor is a byte range and `Str.len` counts
+/// scalar values, so a name outside ASCII would otherwise move every offset
+/// after it.
+fn byteLen<C: Alloc>(ctx: C, text: Str): Int {
+    bytes.toUtf8(ctx, text).len()
+}
+
+fn emit<C: Alloc>(ctx: C, out: Out, text: Str): Out {
+    if (out.pending) {
+        let indented = raw(
+            ctx,
+            Out { ..out, pending: false },
+            "    ".repeat(ctx, out.indent),
+        );
+        raw(ctx, indented, text)
+    } else {
+        raw(ctx, out, text)
+    }
+}
+
+/// A line break. The indentation waits until something is written on the line.
+fn nl<C: Alloc>(ctx: C, out: Out): Out {
+    Out { ..raw(ctx, out, "\n"), pending: true }
+}
+
+/// A line break with an empty line above it.
+fn blankLine<C: Alloc>(ctx: C, out: Out): Out {
+    nl(ctx, nl(ctx, out))
+}
+
+/// The offset the next piece will start at, with any waiting indentation
+/// written first — so an anchor on a node that opens a line starts at the
+/// node and not at the margin.
+fn ready<C: Alloc>(ctx: C, out: Out): Out {
+    emit(ctx, out, "")
+}
+
+/// One anchor, for a node that knows where it came from.
+fn anchor<C: Alloc>(ctx: C, out: Out, start: Int, source: Origin): Out {
+    if (source.file == "") {
+        out
+    } else {
+        Out {
+            ..out,
+            anchors: out
+                .anchors
+                .push(ctx, Anchor { start: start, end: out.at, origin: source }),
+        }
+    }
+}
+
+fn indented(out: Out, by: Int): Out {
+    Out { ..out, indent: out.indent + by }
+}
+
+/// The separator a list writes before every item but the first.
+fn comma<C: Alloc>(ctx: C, acc: (Out, Bool), separator: Str): Out {
+    if (acc.1) { emit(ctx, acc.0, separator) } else { acc.0 }
+}
+
+/// The line break a block writes before every line but the first.
+fn nextLine<C: Alloc>(ctx: C, acc: (Out, Bool)): Out {
+    if (acc.1) { nl(ctx, acc.0) } else { acc.0 }
+}
+
+/// The blank line a declaration writes before every one but the first.
+fn nextBlank<C: Alloc>(ctx: C, acc: (Out, Bool)): Out {
+    if (acc.1) { blankLine(ctx, acc.0) } else { acc.0 }
+}
+
+// --- the module ----------------------------------------------------------------
+
+fn printModule<C: Alloc>(ctx: C, out: Out, m: Module): Out {
+    // Every line written here ends with its own break, so an empty module is
+    // an empty text rather than a lone newline.
+    let head = docs(ctx, out, m.docs, "//!");
+    let gap = !m.docs.isEmpty() && !m.items.isEmpty();
+    let afterDocs = if (gap) { nl(ctx, head) } else { head };
+    let run = leadingImports(m.items);
+    let sorted = sortImports(ctx, m.items.take(ctx, run));
+    let rest = m.items.drop(ctx, run);
+    let afterImports = sorted.foldCtx(
+        ctx,
+        fn(c, o, it) => nl(c, item(c, o, it)),
+        afterDocs,
+    );
+    let started = if (run > 0 && !rest.isEmpty()) {
+        nl(ctx, afterImports)
+    } else {
+        afterImports
+    };
+    printDecls(ctx, started, rest)
+}
+
+/// How many of the leading items are imports. The formatter sorts that run and
+/// leaves every later import where it was written, so this does the same.
+fn leadingImports(items: [Item]): Int {
+    match (items.findIndex(fn(it) => !isImport(it))) {
+        .Some(i) => i,
+        .None => items.len(),
+    }
+}
+
+fn isImport(it: Item): Bool {
+    match (it.kind) {
+        .Import(_i) => true,
+        _other => false,
+    }
+}
+
+/// The run in the order the formatter puts it in: the standard library first,
+/// then by path, then by clause.
+fn sortImports<C: Alloc>(ctx: C, items: [Item]): [Item] {
+    items
+        .mapCtx(ctx, fn(c, it) => (importKey(c, it), it))
+        .sortBy(ctx, fn(a, b) => keyOrder(a.0, b.0))
+        .map(ctx, fn(pair) => pair.1)
+}
+
+fn keyOrder(a: (Int, Str, Str), b: (Int, Str, Str)): Order {
+    match (order.int(a.0, b.0)) {
+        .Equal => {
+            match (order.str(a.1, b.1)) {
+                .Equal => order.str(a.2, b.2),
+                other => other,
+            }
+        },
+        other => other,
+    }
+}
+
+fn importKey<C: Alloc>(ctx: C, it: Item): (Int, Str, Str) {
+    match (it.kind) {
+        .Import(i) => {
+            let group = if (i.path.startsWith("//")) { 1 } else { 0 };
+            (group, i.path, clauseText(ctx, i.clause))
+        },
+        _other => (0, "", ""),
+    }
+}
+
+fn clauseText<C: Alloc>(ctx: C, clause: ImportClause): Str {
+    match (clause) {
+        .Namespace(n) => str.format(ctx, "* as ${n.text}"),
+        .Named(specs) => {
+            let names = specList(ctx, specs).join(ctx, ", ");
+            str.format(ctx, "{ ${names} }")
+        },
+    }
+}
+
+/// The names of a clause, sorted the way the formatter sorts them: by the
+/// lowercased spelling, with the exact one breaking the tie.
+fn specList<C: Alloc>(ctx: C, specs: [ImportSpec]): [Str] {
+    specs
+        .mapCtx(ctx, fn(c, s) => specText(c, s))
+        .mapCtx(ctx, fn(c, t) => (t.toLower(c), t))
+        .sortBy(ctx, fn(a, b) => {
+            match (order.str(a.0, b.0)) {
+                .Equal => order.str(a.1, b.1),
+                other => other,
+            }
+        })
+        .map(ctx, fn(pair) => pair.1)
+}
+
+fn specText<C: Alloc>(ctx: C, spec: ImportSpec): Str {
+    spec
+        .alias
+        .foldCtx(
+            ctx,
+            fn(c, _acc, a) => { str.format(c, "${spec.name.text} as ${a.text}") },
+            spec.name.text,
+        )
+}
+
+/// The declarations, one blank line apart, with every `derive` sitting on the
+/// declaration it is about — which is where the formatter moves it.
+fn printDecls<C: Alloc>(ctx: C, out: Out, items: [Item]): Out {
+    let attached = items.map(ctx, fn(it) => attachment(items, it));
+    let indexed = list.range(ctx, 0, items.len());
+    indexed.foldCtx(
+        ctx,
+        fn(c, acc, i) => {
+            if (attached.get(i).withDefault(-1) >= 0) {
+                acc
+            } else {
+                let opened = nextLine(c, acc);
+                let derived = indexed.foldCtx(
+                    c,
+                    fn(d, o, j) => {
+                        if (attached.get(j).withDefault(-1) == i) {
+                            nl(
+                                d,
+                                item(
+                                    d,
+                                    o,
+                                    items
+                                        .get(j)
+                                        .withDefault(
+                                            items.get(i).withDefault(placeholder()),
+                                        ),
+                                ),
+                            )
+                        } else {
+                            o
+                        }
+                    },
+                    opened,
+                );
+                (nl(c, item(c, derived, items.get(i).withDefault(placeholder()))), true)
+            }
+        },
+        (out, false),
+    ).0
+}
+
+/// An item nothing can name, for the array reads that cannot miss: `i` and `j`
+/// are indices of `items` by construction.
+fn placeholder(): Item {
+    Item {
+        kind: .Derive(DeriveDecl { traits: [], selfTy: unitType() }),
+        origin: nowhere(),
+    }
+}
+
+fn unitType(): Type {
+    Type { kind: .Unit, origin: nowhere() }
+}
+
+/// The index of the declaration a `derive` belongs above, or `-1` for anything
+/// that is not one, or a `derive` for a type this module does not declare.
+fn attachment(items: [Item], it: Item): Int {
+    match (derivedName(it)) {
+        .None => -1,
+        .Some(name) => {
+            match (items.findIndex(fn(other) => declaredName(other) == .Some(name))) {
+                .Some(i) => i,
+                .None => -1,
+            }
+        },
+    }
+}
+
+/// The type a `derive` is about, when that is a bare name.
+fn derivedName(it: Item): Option<Str> {
+    match (it.kind) {
+        .Derive(d) => {
+            match (d.selfTy.kind) {
+                .Named(n, args) => if (args.isEmpty()) { .Some(n.text) } else { .None },
+                _other => .None,
+            }
+        },
+        _other => .None,
+    }
+}
+
+fn declaredName(it: Item): Option<Str> {
+    match (it.kind) {
+        .Struct(d) => .Some(d.name.text),
+        .Enum(d) => .Some(d.name.text),
+        .TypeAlias(d) => .Some(d.name.text),
+        _other => .None,
+    }
+}
+
+// --- declarations --------------------------------------------------------------
+
+fn item<C: Alloc>(ctx: C, out: Out, it: Item): Out {
+    let lead = itemDocs(ctx, out, it);
+    let started = ready(ctx, lead);
+    let written = itemKind(ctx, started, it.kind);
+    anchor(ctx, written, started.at, it.origin)
+}
+
+fn itemDocs<C: Alloc>(ctx: C, out: Out, it: Item): Out {
+    match (it.kind) {
+        .Fn(d) => docs(ctx, out, d.docs, "///"),
+        .Struct(d) => docs(ctx, out, d.docs, "///"),
+        .Enum(d) => docs(ctx, out, d.docs, "///"),
+        .TypeAlias(d) => docs(ctx, out, d.docs, "///"),
+        .Let(d) => docs(ctx, out, d.docs, "///"),
+        .Trait(d) => docs(ctx, out, d.docs, "///"),
+        .Impl(d) => docs(ctx, out, d.docs, "///"),
+        _other => out,
+    }
+}
+
+fn docs<C: Alloc>(ctx: C, out: Out, lines: [Str], marker: Str): Out {
+    lines.foldCtx(
+        ctx,
+        fn(c, o, line) => {
+            let text = if (line == "") {
+                marker
+            } else {
+                str.format(c, "${marker} ${line}")
+            };
+            nl(c, emit(c, o, text))
+        },
+        out,
+    )
+}
+
+fn itemKind<C: Alloc>(ctx: C, out: Out, kind: ItemKind): Out {
+    match (kind) {
+        .Import(i) => importDecl(ctx, out, i),
+        .ReExport(r) => {
+            nameList(
+                ctx,
+                out,
+                str.format(ctx, "from ${quote(ctx, r.path)} export"),
+                r.specs,
+            )
+        },
+        .Fn(d) => fnDecl(ctx, out, d),
+        .Struct(d) => structDecl(ctx, out, d),
+        .Enum(d) => enumDecl(ctx, out, d),
+        .TypeAlias(d) => typeAlias(ctx, out, d),
+        .Let(d) => letDecl(ctx, out, d),
+        .Trait(d) => traitDecl(ctx, out, d),
+        .Impl(d) => implDecl(ctx, out, d),
+        .Derive(d) => deriveDecl(ctx, out, d),
+    }
+}
+
+fn importDecl<C: Alloc>(ctx: C, out: Out, i: Import): Out {
+    let head = str.format(ctx, "from ${quote(ctx, i.path)} import");
+    match (i.clause) {
+        .Namespace(n) => {
+            let opened = emit(ctx, out, str.format(ctx, "${head} * as "));
+            emit(ctx, name(ctx, opened, n), ";")
+        },
+        .Named(specs) => nameList(ctx, out, head, specs),
+    }
+}
+
+fn nameList<C: Alloc>(ctx: C, out: Out, head: Str, specs: [ImportSpec]): Out {
+    let names = specList(ctx, specs);
+    if (names.isEmpty()) {
+        emit(ctx, out, str.format(ctx, "${head} {  };"))
+    } else {
+        emit(ctx, out, str.format(ctx, "${head} { ${names.join(ctx, ", ")} };"))
+    }
+}
+
+fn fnDecl<C: Alloc>(ctx: C, out: Out, d: FnDecl): Out {
+    let lead = if (d.exported) { "export fn " } else { "fn " };
+    let opened = emit(ctx, out, lead);
+    let named = name(ctx, opened, d.name);
+    let generic = generics(ctx, named, d.generics);
+    let params = d
+        .params
+        .foldCtx(
+            ctx,
+            fn(c, acc, p) => {
+                let o = comma(c, acc, ", ");
+                (param(c, o, p), true)
+            },
+            (emit(ctx, generic, "("), false),
+        );
+    let signature = ty(ctx, emit(ctx, params.0, "): "), d.ret);
+    if (d.body.isEmpty()) {
+        emit(ctx, signature, ";")
+    } else {
+        d.body.foldCtx(ctx, fn(c, o, b) => braceBlock(c, o, b), signature)
+    }
+}
+
+fn param<C: Alloc>(ctx: C, out: Out, p: Param): Out {
+    let named = name(ctx, out, p.name);
+    p.ty.foldCtx(ctx, fn(c, o, t) => ty(c, emit(c, o, ": "), t), named)
+}
+
+fn generics<C: Alloc>(ctx: C, out: Out, gs: [GenericParam]): Out {
+    if (gs.isEmpty()) {
+        out
+    } else {
+        let listed = gs.foldCtx(
+            ctx,
+            fn(c, acc, g) => {
+                let o = name(c, comma(c, acc, ", "), g.name);
+                let bounded = g
+                    .bounds
+                    .foldCtx(
+                        c,
+                        fn(d, inner, b) => { (ty(d, comma(d, inner, " + "), b), true) },
+                        (
+                            if (g.bounds.isEmpty()) { o } else { emit(c, o, ": ") },
+                            false,
+                        ),
+                    );
+                (bounded.0, true)
+            },
+            (emit(ctx, out, "<"), false),
+        );
+        emit(ctx, listed.0, ">")
+    }
+}
+
+/// ` { ... }` under a signature or a head, on lines of its own — or ` {}` for
+/// a body with nothing in it.
+fn braceBlock<C: Alloc>(ctx: C, out: Out, b: Block): Out {
+    if (b.stmts.isEmpty() && b.tail.isEmpty()) {
+        emit(ctx, out, " {}")
+    } else {
+        let opened = nl(ctx, emit(ctx, out, " {"));
+        let inner = blockLines(ctx, indented(opened, 1), b);
+        emit(ctx, nl(ctx, Out { ..inner, indent: out.indent }), "}")
+    }
+}
+
+fn structDecl<C: Alloc>(ctx: C, out: Out, d: StructDecl): Out {
+    let lead = if (d.exported) { "export struct " } else { "struct " };
+    let head = generics(ctx, name(ctx, emit(ctx, out, lead), d.name), d.generics);
+    match (d.body) {
+        .Tuple(fields) => {
+            let listed = fields.foldCtx(
+                ctx,
+                fn(c, acc, f) => {
+                    let o = comma(c, acc, ", ");
+                    let vis = if (f.exported) { emit(c, o, "export ") } else { o };
+                    let started = ready(c, vis);
+                    (anchor(c, ty(c, started, f.ty), started.at, f.origin), true)
+                },
+                (emit(ctx, head, "("), false),
+            );
+            emit(ctx, listed.0, ");")
+        },
+        .Record(fields) => {
+            if (fields.isEmpty()) {
+                emit(ctx, head, " {}")
+            } else {
+                let opened = nl(ctx, emit(ctx, head, " {"));
+                let inner = fields.foldCtx(
+                    ctx,
+                    fn(c, acc, f) => {
+                        (emit(c, fieldDecl(c, nextLine(c, acc), f), ","), true)
+                    },
+                    (indented(opened, 1), false),
+                );
+                emit(ctx, nl(ctx, Out { ..inner.0, indent: out.indent }), "}")
+            }
+        },
+    }
+}
+
+fn fieldDecl<C: Alloc>(ctx: C, out: Out, f: FieldDecl): Out {
+    let documented = docs(ctx, out, f.docs, "///");
+    let started = ready(ctx, documented);
+    let vis = if (f.exported) { emit(ctx, started, "export ") } else { started };
+    let written = ty(ctx, emit(ctx, name(ctx, vis, f.name), ": "), f.ty);
+    anchor(ctx, written, started.at, f.origin)
+}
+
+fn enumDecl<C: Alloc>(ctx: C, out: Out, d: EnumDecl): Out {
+    let lead = if (d.exported) { "export enum " } else { "enum " };
+    let head = generics(ctx, name(ctx, emit(ctx, out, lead), d.name), d.generics);
+    if (d.variants.isEmpty()) {
+        emit(ctx, head, " {}")
+    } else {
+        let opened = nl(ctx, emit(ctx, head, " {"));
+        let inner = d
+            .variants
+            .foldCtx(
+                ctx,
+                fn(c, acc, v) => {
+                    (emit(c, variant(c, nextLine(c, acc), v), ","), true)
+                },
+                (indented(opened, 1), false),
+            );
+        emit(ctx, nl(ctx, Out { ..inner.0, indent: out.indent }), "}")
+    }
+}
+
+fn variant<C: Alloc>(ctx: C, out: Out, v: Variant): Out {
+    let documented = docs(ctx, out, v.docs, "///");
+    let started = ready(ctx, documented);
+    let named = name(ctx, started, v.name);
+    let written = match (v.payload) {
+        .Empty => named,
+        .Tuple(types) => {
+            let listed = types.foldCtx(
+                ctx,
+                fn(c, acc, t) => { (ty(c, comma(c, acc, ", "), t), true) },
+                (emit(ctx, named, "("), false),
+            );
+            emit(ctx, listed.0, ")")
+        },
+        .Record(fields) => {
+            let listed = fields.foldCtx(
+                ctx,
+                fn(c, acc, f) => { (fieldDecl(c, comma(c, acc, ", "), f), true) },
+                (emit(ctx, named, " { "), false),
+            );
+            emit(ctx, listed.0, " }")
+        },
+    };
+    anchor(ctx, written, started.at, v.origin)
+}
+
+fn typeAlias<C: Alloc>(ctx: C, out: Out, d: TypeAliasDecl): Out {
+    let lead = if (d.exported) { "export type " } else { "type " };
+    let head = generics(ctx, name(ctx, emit(ctx, out, lead), d.name), d.generics);
+    emit(ctx, ty(ctx, emit(ctx, head, " = "), d.ty), ";")
+}
+
+fn letDecl<C: Alloc>(ctx: C, out: Out, d: LetDecl): Out {
+    let lead = if (d.exported) { "export let " } else { "let " };
+    let head = ty(ctx, emit(ctx, name(ctx, emit(ctx, out, lead), d.name), ": "), d.ty);
+    emit(ctx, expr(ctx, emit(ctx, head, " = "), d.value), ";")
+}
+
+fn traitDecl<C: Alloc>(ctx: C, out: Out, d: TraitDecl): Out {
+    let keyword = if (d.isEffect) { "effect " } else { "trait " };
+    let lead = if (d.exported) {
+        str.format(ctx, "export ${keyword}")
+    } else {
+        keyword
+    };
+    let head = generics(ctx, name(ctx, emit(ctx, out, lead), d.name), d.generics);
+    if (d.methods.isEmpty()) {
+        emit(ctx, head, " {}")
+    } else {
+        let opened = nl(ctx, emit(ctx, head, " {"));
+        let inner = d
+            .methods
+            .foldCtx(
+                ctx,
+                fn(c, acc, m) => {
+                    let o = nextLine(c, acc);
+                    (fnDecl(c, docs(c, o, m.docs, "///"), signatureOnly(m)), true)
+                },
+                (indented(opened, 1), false),
+            );
+        emit(ctx, nl(ctx, Out { ..inner.0, indent: out.indent }), "}")
+    }
+}
+
+/// A trait method is a signature: the grammar gives it no body, and neither
+/// does the formatter.
+fn signatureOnly(m: FnDecl): FnDecl {
+    FnDecl { ..m, body: [], exported: false, docs: [] }
+}
+
+fn implDecl<C: Alloc>(ctx: C, out: Out, d: ImplDecl): Out {
+    let head = generics(ctx, emit(ctx, out, "impl"), d.generics);
+    let named = d
+        .traitTy
+        .foldCtx(
+            ctx,
+            fn(c, o, t) => { emit(c, ty(c, emit(c, o, " "), t), " for") },
+            head,
+        );
+    let target = ty(ctx, emit(ctx, named, " "), d.selfTy);
+    if (d.methods.isEmpty()) {
+        emit(ctx, target, " {}")
+    } else {
+        let opened = nl(ctx, emit(ctx, target, " {"));
+        let inner = d
+            .methods
+            .foldCtx(
+                ctx,
+                fn(c, acc, m) => {
+                    let o = nextBlank(c, acc);
+                    (fnDecl(c, docs(c, o, m.docs, "///"), m), true)
+                },
+                (indented(opened, 1), false),
+            );
+        emit(ctx, nl(ctx, Out { ..inner.0, indent: out.indent }), "}")
+    }
+}
+
+fn deriveDecl<C: Alloc>(ctx: C, out: Out, d: DeriveDecl): Out {
+    let listed = d
+        .traits
+        .foldCtx(
+            ctx,
+            fn(c, acc, t) => { (ty(c, comma(c, acc, ", "), t), true) },
+            (emit(ctx, out, "derive "), false),
+        );
+    emit(ctx, ty(ctx, emit(ctx, listed.0, " for "), d.selfTy), ";")
+}
+
+// --- names and types -----------------------------------------------------------
+
+fn name<C: Alloc>(ctx: C, out: Out, n: Name): Out {
+    let started = ready(ctx, out);
+    anchor(ctx, emit(ctx, started, n.text), started.at, n.origin)
+}
+
+fn ty<C: Alloc>(ctx: C, out: Out, t: Type): Out {
+    let started = ready(ctx, out);
+    let written = match (t.kind) {
+        .Named(n, args) => {
+            let named = name(ctx, started, n);
+            if (args.isEmpty()) {
+                named
+            } else {
+                emit(ctx, typeList(ctx, emit(ctx, named, "<"), args), ">")
+            }
+        },
+        .Unit => emit(ctx, started, "()"),
+        .Tuple(elems) => emit(ctx, typeList(ctx, emit(ctx, started, "("), elems), ")"),
+        .Array(elem) => emit(ctx, typeList(ctx, emit(ctx, started, "["), elem), "]"),
+        .Fn(params, ret) => {
+            let head = emit(
+                ctx,
+                typeList(ctx, emit(ctx, started, "fn("), params),
+                ") => ",
+            );
+            typeList(ctx, head, ret)
+        },
+    };
+    anchor(ctx, written, started.at, t.origin)
+}
+
+fn typeList<C: Alloc>(ctx: C, out: Out, types: [Type]): Out {
+    types.foldCtx(
+        ctx,
+        fn(c, acc, t) => (ty(c, comma(c, acc, ", "), t), true),
+        (out, false),
+    ).0
+}
+
+// --- statements ----------------------------------------------------------------
+
+fn blockLines<C: Alloc>(ctx: C, out: Out, b: Block): Out {
+    let afterStmts = b
+        .stmts
+        .foldCtx(
+            ctx,
+            fn(c, acc, s) => { (stmt(c, nextLine(c, acc), s), true) },
+            (out, false),
+        );
+    b
+        .tail
+        .foldCtx(
+            ctx,
+            fn(c, acc, t) => { (expr(c, nextLine(c, acc), t), true) },
+            afterStmts,
+        ).0
+}
+
+fn stmt<C: Alloc>(ctx: C, out: Out, s: Stmt): Out {
+    let started = ready(ctx, out);
+    let written = match (s.kind) {
+        .Let(p, annotation, value) => {
+            let bound = pattern(ctx, emit(ctx, started, "let "), p);
+            let typed = annotation.foldCtx(
+                ctx,
+                fn(c, o, t) => { ty(c, emit(c, o, ": "), t) },
+                bound,
+            );
+            emit(ctx, expr(ctx, emit(ctx, typed, " = "), value), ";")
+        },
+        .LetCtx(value) => {
+            emit(ctx, expr(ctx, emit(ctx, started, "let ctx = "), value), ";")
+        },
+        .Expr(value) => emit(ctx, expr(ctx, started, value), ";"),
+    };
+    anchor(ctx, written, started.at, s.origin)
+}
+
+// --- patterns ------------------------------------------------------------------
+
+fn pattern<C: Alloc>(ctx: C, out: Out, p: Pattern): Out {
+    let started = ready(ctx, out);
+    let written = match (p.kind) {
+        .Wild => emit(ctx, started, "_"),
+        .Bind(n, sub) => {
+            let bound = name(ctx, started, n);
+            sub.foldCtx(ctx, fn(c, o, q) => pattern(c, emit(c, o, " @ "), q), bound)
+        },
+        .LitInt(n) => emit(ctx, started, str.fromInt(ctx, n)),
+        .LitFloat(x) => emit(ctx, started, floatText(ctx, x)),
+        .LitStr(text) => emit(ctx, started, quote(ctx, text)),
+        .LitChar(ch) => emit(ctx, started, quoteChar(ctx, ch)),
+        .LitBool(b) => emit(ctx, started, if (b) { "true" } else { "false" }),
+        .Path(n, dotted, payload) => {
+            let lead = if (dotted) { emit(ctx, started, ".") } else { started };
+            let named = name(ctx, lead, n);
+            payload.foldCtx(ctx, fn(c, o, pay) => patternPayload(c, o, pay), named)
+        },
+        .Unit => emit(ctx, started, "()"),
+        .Tuple(elems) => {
+            emit(ctx, patternList(ctx, emit(ctx, started, "("), elems), ")")
+        },
+        .Array(elems, rest) => {
+            let listed = elems.foldCtx(
+                ctx,
+                fn(c, acc, q) => { (pattern(c, comma(c, acc, ", "), q), true) },
+                (emit(ctx, started, "["), false),
+            );
+            let ended = rest.foldCtx(
+                ctx,
+                fn(c, acc, r) => {
+                    let o = comma(c, acc, ", ");
+                    match (r) {
+                        .Anonymous => (emit(c, o, ".."), true),
+                        .Named(n) => (name(c, emit(c, o, ".."), n), true),
+                    }
+                },
+                listed,
+            );
+            emit(ctx, ended.0, "]")
+        },
+        .Or(alts) => {
+            alts.foldCtx(
+                ctx,
+                fn(c, acc, q) => { (pattern(c, comma(c, acc, " | "), q), true) },
+                (started, false),
+            ).0
+        },
+    };
+    anchor(ctx, written, started.at, p.origin)
+}
+
+fn patternList<C: Alloc>(ctx: C, out: Out, ps: [Pattern]): Out {
+    ps.foldCtx(
+        ctx,
+        fn(c, acc, p) => (pattern(c, comma(c, acc, ", "), p), true),
+        (out, false),
+    ).0
+}
+
+fn patternPayload<C: Alloc>(ctx: C, out: Out, pay: Payload): Out {
+    match (pay) {
+        .Tuple(ps) => emit(ctx, patternList(ctx, emit(ctx, out, "("), ps), ")"),
+        .Record(fields, rest) => {
+            let listed = fields.foldCtx(
+                ctx,
+                fn(c, acc, f) => {
+                    let o = name(c, comma(c, acc, ", "), f.name);
+                    (
+                        f
+                            .pattern
+                            .foldCtx(
+                                c,
+                                fn(d, inner, q) => {
+                                    pattern(d, emit(d, inner, ": "), q)
+                                },
+                                o,
+                            ),
+                        true,
+                    )
+                },
+                (emit(ctx, out, " { "), false),
+            );
+            let ended = if (rest) { comma(ctx, listed, ", ") } else { listed.0 };
+            emit(ctx, if (rest) { emit(ctx, ended, "..") } else { ended }, " }")
+        },
+    }
+}
+
+// --- expressions ---------------------------------------------------------------
+
+fn expr<C: Alloc>(ctx: C, out: Out, e: Expr): Out {
+    let started = ready(ctx, out);
+    let written = exprKind(ctx, started, e);
+    anchor(ctx, written, started.at, e.origin)
+}
+
+fn exprKind<C: Alloc>(ctx: C, out: Out, e: Expr): Out {
+    match (e.kind) {
+        .Int(n) => emit(ctx, out, str.fromInt(ctx, n)),
+        .Float(x) => emit(ctx, out, floatText(ctx, x)),
+        .Str(text) => emit(ctx, out, quote(ctx, text)),
+        .Char(ch) => emit(ctx, out, quoteChar(ctx, ch)),
+        .Bool(b) => emit(ctx, out, if (b) { "true" } else { "false" }),
+        .Template(parts) => template(ctx, out, parts),
+        .Ident(n) => name(ctx, out, n),
+        .SelfValue => emit(ctx, out, "self"),
+        .Ctx => emit(ctx, out, "ctx"),
+        .DotVariant(n) => name(ctx, emit(ctx, out, "."), n),
+        .Unit => emit(ctx, out, "()"),
+        .Array(elems) => bracketed(ctx, out, "[", elems, "]"),
+        .Tuple(elems) => bracketed(ctx, out, "(", elems, ")"),
+        .Block(b) => blockExpr(ctx, out, b),
+        .If(cond, then, otherwise) => ifChain(ctx, out, cond, then, otherwise),
+        .Match(scrutinee, arms) => matchExpr(ctx, out, scrutinee, arms),
+        .Context(spread, bindings) => contextExpr(ctx, out, spread, bindings),
+        .Lambda(params, ret, body) => lambda(ctx, out, params, ret, body),
+        .Unary(op, operand) => atPrec(ctx, emit(ctx, out, unOpText(op)), operand, 10),
+        .Binary(op, lhs, rhs) => {
+            let p = binPrec(op);
+            let left = atPrec(ctx, out, lhs, leftBinding(p));
+            let spaced = emit(ctx, left, str.format(ctx, " ${binOpText(op)} "));
+            atPrec(ctx, spaced, rhs, p + 1)
+        },
+        .Field(base, n) => name(ctx, emit(ctx, headOf(ctx, out, base), "."), n),
+        .TupleIndex(base, index) => {
+            let head = base.foldCtx(
+                ctx,
+                fn(c, o, b) => {
+                    if (isTupleIndex(b)) {
+                        emit(c, expr(c, emit(c, o, "("), b), ")")
+                    } else {
+                        operand(c, o, b)
+                    }
+                },
+                out,
+            );
+            emit(ctx, head, str.format(ctx, ".${str.fromInt(ctx, index)}"))
+        },
+        .Call(callee, args) => callExpr(ctx, headOf(ctx, out, callee), args),
+        .Index(base, index) => {
+            emit(ctx, exprList(ctx, emit(ctx, headOf(ctx, out, base), "["), index), "]")
+        },
+        .Try(base) => emit(ctx, headOf(ctx, out, base), "?"),
+        .Generic(base, args) => {
+            emit(ctx, typeList(ctx, emit(ctx, headOf(ctx, out, base), "<"), args), ">")
+        },
+        .StructLit(head, spread, fields) => structLit(ctx, out, head, spread, fields),
+    }
+}
+
+/// The head of a postfix chain, parenthesised where the grammar needs it.
+fn headOf<C: Alloc>(ctx: C, out: Out, base: [Expr]): Out {
+    base.foldCtx(ctx, fn(c, o, b) => operand(c, o, b), out)
+}
+
+fn operand<C: Alloc>(ctx: C, out: Out, e: Expr): Out {
+    if (needsParens(e)) {
+        emit(ctx, expr(ctx, emit(ctx, out, "("), e), ")")
+    } else {
+        expr(ctx, out, e)
+    }
+}
+
+/// Parentheses only where precedence needs them.
+fn atPrec<C: Alloc>(ctx: C, out: Out, xs: [Expr], parent: Int): Out {
+    xs.foldCtx(
+        ctx,
+        fn(c, o, e) => {
+            if (exprPrec(e) < parent) {
+                emit(c, expr(c, emit(c, o, "("), e), ")")
+            } else {
+                expr(c, o, e)
+            }
+        },
+        out,
+    )
+}
+
+fn exprList<C: Alloc>(ctx: C, out: Out, xs: [Expr]): Out {
+    xs.foldCtx(
+        ctx,
+        fn(c, acc, e) => (expr(c, comma(c, acc, ", "), e), true),
+        (out, false),
+    ).0
+}
+
+/// `[a, b]`, or one element to a line when something inside it must break.
+fn bracketed<C: Alloc>(ctx: C, out: Out, open: Str, xs: [Expr], close: Str): Out {
+    if (xs.isEmpty()) {
+        emit(ctx, out, str.format(ctx, "${open}${close}"))
+    } else if (!xs.any(fn(e) => forces(e))) {
+        emit(ctx, exprList(ctx, emit(ctx, out, open), xs), close)
+    } else {
+        let opened = nl(ctx, emit(ctx, out, open));
+        let inner = xs.foldCtx(
+            ctx,
+            fn(c, acc, e) => { (emit(c, expr(c, nextLine(c, acc), e), ","), true) },
+            (indented(opened, 1), false),
+        );
+        emit(ctx, nl(ctx, Out { ..inner.0, indent: out.indent }), close)
+    }
+}
+
+/// An argument list. The last argument **hugs** when it has a shape of its own
+/// to spill into and every argument before it stays on the head line.
+fn callExpr<C: Alloc>(ctx: C, out: Out, args: [Expr]): Out {
+    let last = args.len() - 1;
+    let earlier = args.take(ctx, num.max(last, 0));
+    if (args.isEmpty() || !args.any(fn(e) => forces(e))) {
+        emit(ctx, exprList(ctx, emit(ctx, out, "("), args), ")")
+    } else if (!earlier.any(fn(e) => forces(e)) && args.any(fn(e) => huggable(e))) {
+        let head = earlier.foldCtx(
+            ctx,
+            fn(c, o, e) => emit(c, expr(c, o, e), ", "),
+            emit(ctx, out, "("),
+        );
+        emit(
+            ctx,
+            args.drop(ctx, last).foldCtx(ctx, fn(c, o, e) => expr(c, o, e), head),
+            ")",
+        )
+    } else {
+        bracketed(ctx, out, "(", args, ")")
+    }
+}
+
+fn template<C: Alloc>(ctx: C, out: Out, parts: [Part]): Out {
+    let inner = parts.foldCtx(
+        ctx,
+        fn(c, o, part) => {
+            match (part) {
+                .Text(text) => emit(c, o, escapeTemplate(c, text)),
+                // The two characters are written apart because a `Str` literal
+                // holding `${` is a literal the formatter cannot print back.
+                .Hole(e) => emit(c, expr(c, emit(c, emit(c, o, "$"), "{"), e), "}"),
+            }
+        },
+        emit(ctx, out, "\""),
+    );
+    emit(ctx, inner, "\"")
+}
+
+/// `{ x }`, or a block on lines of its own.
+fn blockExpr<C: Alloc>(ctx: C, out: Out, b: Block): Out {
+    if (b.stmts.isEmpty() && b.tail.isEmpty()) {
+        emit(ctx, nl(ctx, emit(ctx, out, "{")), "}")
+    } else if (blockForces(b)) {
+        let opened = nl(ctx, emit(ctx, out, "{"));
+        let inner = blockLines(ctx, indented(opened, 1), b);
+        emit(ctx, nl(ctx, Out { ..inner, indent: out.indent }), "}")
+    } else {
+        emit(ctx, blockLines(ctx, emit(ctx, out, "{ "), b), " }")
+    }
+}
+
+/// The braces of an `if` branch, which are the chain's rather than the block's.
+fn branch<C: Alloc>(ctx: C, out: Out, blocks: [Block], broken: Bool): Out {
+    blocks.foldCtx(
+        ctx,
+        fn(c, o, b) => {
+            // The brace that closes a branch belongs to the `else` that
+            // follows it, so it is written here with its space attached.
+            if (broken) {
+                let opened = nl(c, emit(c, o, "{"));
+                let inner = blockLines(c, indented(opened, 1), b);
+                emit(c, nl(c, Out { ..inner, indent: o.indent }), "} ")
+            } else {
+                emit(c, blockLines(c, emit(c, o, "{ "), b), " } ")
+            }
+        },
+        out,
+    )
+}
+
+fn ifChain<C: Alloc>(
+    ctx: C,
+    out: Out,
+    cond: [Expr],
+    then: [Block],
+    otherwise: [Expr],
+): Out {
+    let broken = ifForces(cond, then, otherwise);
+    let head = emit(ctx, exprList(ctx, emit(ctx, out, "if ("), cond), ") ");
+    let body = branch(ctx, head, then, broken);
+    otherwise.foldCtx(
+        ctx,
+        fn(c, o, e) => elseTail(c, o, e, broken),
+        emit(ctx, body, "else "),
+    )
+}
+
+fn elseTail<C: Alloc>(ctx: C, out: Out, e: Expr, broken: Bool): Out {
+    match (e.kind) {
+        .Block(b) => {
+            let started = ready(ctx, out);
+            let written = branchBlock(ctx, started, b, broken);
+            anchor(ctx, written, started.at, e.origin)
+        },
+        .If(cond, then, otherwise) => {
+            let started = ready(ctx, out);
+            let head = emit(ctx, exprList(ctx, emit(ctx, started, "if ("), cond), ") ");
+            let body = branch(ctx, head, then, broken);
+            let written = otherwise.foldCtx(
+                ctx,
+                fn(c, o, x) => { elseTail(c, o, x, broken) },
+                emit(ctx, body, "else "),
+            );
+            anchor(ctx, written, started.at, e.origin)
+        },
+        _other => expr(ctx, out, e),
+    }
+}
+
+fn branchBlock<C: Alloc>(ctx: C, out: Out, b: Block, broken: Bool): Out {
+    if (broken) {
+        let opened = nl(ctx, emit(ctx, out, "{"));
+        let inner = blockLines(ctx, indented(opened, 1), b);
+        emit(ctx, nl(ctx, Out { ..inner, indent: out.indent }), "}")
+    } else {
+        emit(ctx, blockLines(ctx, emit(ctx, out, "{ "), b), " }")
+    }
+}
+
+fn matchExpr<C: Alloc>(ctx: C, out: Out, scrutinee: [Expr], arms: [Arm]): Out {
+    let head = emit(ctx, exprList(ctx, emit(ctx, out, "match ("), scrutinee), ") {");
+    if (arms.isEmpty()) {
+        emit(ctx, nl(ctx, head), "}")
+    } else {
+        let opened = nl(ctx, head);
+        let inner = arms.foldCtx(
+            ctx,
+            fn(c, acc, a) => (arm(c, nextLine(c, acc), a), true),
+            (indented(opened, 1), false),
+        );
+        emit(ctx, nl(ctx, Out { ..inner.0, indent: out.indent }), "}")
+    }
+}
+
+fn arm<C: Alloc>(ctx: C, out: Out, a: Arm): Out {
+    let matched = pattern(ctx, out, a.pattern);
+    let guarded = a
+        .guard
+        .foldCtx(ctx, fn(c, o, g) => expr(c, emit(c, o, " if "), g), matched);
+    let arrow = emit(ctx, guarded, " => ");
+    let body = match (a.body.kind) {
+        .Block(_b) => expr(ctx, arrow, a.body),
+        _other => {
+            if (forces(a.body)) {
+                let opened = nl(ctx, emit(ctx, arrow, "{"));
+                let inner = expr(ctx, indented(opened, 1), a.body);
+                emit(ctx, nl(ctx, Out { ..inner, indent: out.indent }), "}")
+            } else {
+                expr(ctx, arrow, a.body)
+            }
+        },
+    };
+    emit(ctx, body, ",")
+}
+
+fn contextExpr<C: Alloc>(ctx: C, out: Out, spread: [Expr], bindings: [Binding]): Out {
+    let head = emit(ctx, out, "context {");
+    if (spread.isEmpty() && bindings.isEmpty()) {
+        emit(ctx, nl(ctx, head), "}")
+    } else {
+        let opened = indented(nl(ctx, head), 1);
+        let spilled = spread.foldCtx(
+            ctx,
+            fn(c, acc, e) => {
+                (emit(c, expr(c, emit(c, nextLine(c, acc), ".."), e), ","), true)
+            },
+            (opened, false),
+        );
+        let inner = bindings.foldCtx(
+            ctx,
+            fn(c, acc, b) => {
+                let o = ty(c, nextLine(c, acc), b.effectTy);
+                (emit(c, expr(c, emit(c, o, ": "), b.value), ","), true)
+            },
+            spilled,
+        );
+        emit(ctx, nl(ctx, Out { ..inner.0, indent: out.indent }), "}")
+    }
+}
+
+fn lambda<C: Alloc>(
+    ctx: C,
+    out: Out,
+    params: [LambdaParam],
+    ret: [Type],
+    body: [Expr],
+): Out {
+    let listed = params.foldCtx(
+        ctx,
+        fn(c, acc, p) => {
+            let o = name(c, comma(c, acc, ", "), p.name);
+            (
+                p.ty.foldCtx(c, fn(d, inner, t) => ty(d, emit(d, inner, ": "), t), o),
+                true,
+            )
+        },
+        (emit(ctx, out, "fn("), false),
+    );
+    let typed = ret.foldCtx(
+        ctx,
+        fn(c, o, t) => ty(c, emit(c, o, ": "), t),
+        emit(ctx, listed.0, ")"),
+    );
+    let arrow = emit(ctx, typed, " => ");
+    body.foldCtx(
+        ctx,
+        fn(c, o, e) => {
+            match (e.kind) {
+                .Block(_b) => expr(c, o, e),
+                _other => {
+                    if (forces(e)) {
+                        let opened = nl(c, emit(c, o, "{"));
+                        let inner = expr(c, indented(opened, 1), e);
+                        emit(c, nl(c, Out { ..inner, indent: o.indent }), "}")
+                    } else {
+                        expr(c, o, e)
+                    }
+                },
+            }
+        },
+        arrow,
+    )
+}
+
+fn structLit<C: Alloc>(
+    ctx: C,
+    out: Out,
+    head: [Expr],
+    spread: [Expr],
+    fields: [Init],
+): Out {
+    let named = head.foldCtx(ctx, fn(c, o, e) => emit(c, operand(c, o, e), " "), out);
+    if (spread.isEmpty() && fields.isEmpty()) {
+        emit(ctx, named, "{ }")
+    } else if (!spread.any(fn(e) => forces(e)) && !fields.any(fn(f) => initForces(f))) {
+        let opened = spread.foldCtx(
+            ctx,
+            fn(c, acc, e) => { (expr(c, emit(c, comma(c, acc, ", "), ".."), e), true) },
+            (emit(ctx, named, "{ "), false),
+        );
+        let inner = fields.foldCtx(
+            ctx,
+            fn(c, acc, f) => (init(c, comma(c, acc, ", "), f), true),
+            opened,
+        );
+        emit(ctx, inner.0, " }")
+    } else {
+        let opened = indented(nl(ctx, emit(ctx, named, "{")), 1);
+        let spilled = spread.foldCtx(
+            ctx,
+            fn(c, acc, e) => {
+                (emit(c, expr(c, emit(c, nextLine(c, acc), ".."), e), ","), true)
+            },
+            (opened, false),
+        );
+        let inner = fields.foldCtx(
+            ctx,
+            fn(c, acc, f) => { (emit(c, init(c, nextLine(c, acc), f), ","), true) },
+            spilled,
+        );
+        emit(ctx, nl(ctx, Out { ..inner.0, indent: out.indent }), "}")
+    }
+}
+
+fn init<C: Alloc>(ctx: C, out: Out, f: Init): Out {
+    let named = name(ctx, out, f.name);
+    f.value.foldCtx(ctx, fn(c, o, e) => expr(c, emit(c, o, ": "), e), named)
+}
+
+// --- what breaks whatever the width --------------------------------------------
+
+/// Whether the formatter breaks this expression however wide the page is —
+/// which is what `print` follows, having no width of its own.
+fn forces(e: Expr): Bool {
+    match (e.kind) {
+        .Match(_s, _a) => true,
+        .Context(_s, _b) => true,
+        .Block(b) => blockForces(b),
+        .If(cond, then, otherwise) => ifForces(cond, then, otherwise),
+        .Template(parts) => parts.any(fn(p) => partForces(p)),
+        .Array(xs) => xs.any(fn(x) => forces(x)),
+        .Tuple(xs) => xs.any(fn(x) => forces(x)),
+        .Lambda(_p, _r, body) => body.any(fn(x) => forces(x)),
+        .Unary(_op, x) => x.any(fn(y) => forces(y)),
+        .Binary(_op, lhs, rhs) => {
+            lhs.any(fn(x) => forces(x)) || rhs.any(fn(x) => forces(x))
+        },
+        .Field(base, _n) => base.any(fn(x) => forces(x)),
+        .TupleIndex(base, _i) => base.any(fn(x) => forces(x)),
+        .Call(callee, args) => {
+            callee.any(fn(x) => forces(x)) || args.any(fn(x) => forces(x))
+        },
+        .Index(base, index) => {
+            base.any(fn(x) => forces(x)) || index.any(fn(x) => forces(x))
+        },
+        .Try(base) => base.any(fn(x) => forces(x)),
+        .Generic(base, _a) => base.any(fn(x) => forces(x)),
+        .StructLit(head, spread, fields) => {
+            head.any(fn(x) => forces(x))
+                || spread.any(fn(x) => forces(x))
+                || fields.any(fn(f) => initForces(f))
+        },
+        _other => false,
+    }
+}
+
+fn partForces(p: Part): Bool {
+    match (p) {
+        .Text(_t) => false,
+        .Hole(e) => forces(e),
+    }
+}
+
+fn initForces(f: Init): Bool {
+    f.value.any(fn(e) => forces(e))
+}
+
+/// A block of two or more lines has a break in it, and so does an empty one —
+/// its braces go on lines of their own.
+fn blockForces(b: Block): Bool {
+    b.stmts.len() + b.tail.len() != 1
+        || b.stmts.any(fn(s) => stmtForces(s))
+        || b.tail.any(fn(e) => forces(e))
+}
+
+fn stmtForces(s: Stmt): Bool {
+    match (s.kind) {
+        .Let(_p, _t, value) => forces(value),
+        .LetCtx(value) => forces(value),
+        .Expr(value) => forces(value),
+    }
+}
+
+fn ifForces(cond: [Expr], then: [Block], otherwise: [Expr]): Bool {
+    cond.any(fn(e) => forces(e))
+        || then.any(fn(b) => branchForces(b))
+        || otherwise.any(fn(e) => elseForces(e))
+}
+
+/// An `if` branch is laid out by the chain rather than as a block expression,
+/// so an empty one does not break the chain the way an empty block does.
+fn branchForces(b: Block): Bool {
+    b.stmts.len() + b.tail.len() > 1
+        || b.stmts.any(fn(s) => stmtForces(s))
+        || b.tail.any(fn(e) => forces(e))
+}
+
+fn elseForces(e: Expr): Bool {
+    match (e.kind) {
+        .Block(b) => branchForces(b),
+        .If(cond, then, otherwise) => ifForces(cond, then, otherwise),
+        _other => forces(e),
+    }
+}
+
+/// Whether a trailing argument has a shape a wide call can spill into.
+fn huggable(e: Expr): Bool {
+    match (e.kind) {
+        .Lambda(_p, _r, _b) => true,
+        .Array(_x) => true,
+        .StructLit(_h, _s, _f) => true,
+        _other => isBlockLike(e),
+    }
+}
+
+fn isBlockLike(e: Expr): Bool {
+    match (e.kind) {
+        .Block(_b) => true,
+        .If(_c, _t, _e) => true,
+        .Match(_s, _a) => true,
+        .Context(_s, _b) => true,
+        _other => false,
+    }
+}
+
+fn isTupleIndex(e: Expr): Bool {
+    match (e.kind) {
+        .TupleIndex(_b, _i) => true,
+        _other => false,
+    }
+}
+
+/// A block-like expression may not head a postfix chain, so it takes
+/// parentheses; so does anything binding looser than a postfix operator.
+fn needsParens(e: Expr): Bool {
+    let blockish = match (e.kind) {
+        .Block(_b) => false,
+        _other => isBlockLike(e),
+    };
+    exprPrec(e) < 10 || blockish
+}
+
+fn exprPrec(e: Expr): Int {
+    match (e.kind) {
+        .Lambda(_p, _r, _b) => 0,
+        .Binary(op, _l, _r) => binPrec(op),
+        .Unary(_op, _x) => 9,
+        _other => 10,
+    }
+}
+
+/// The precedence ladder of SPEC 6.1, lowest to highest.
+fn binPrec(op: BinOp): Int {
+    match (op) {
+        .Or => 1,
+        .And => 2,
+        .Eq => 3,
+        .Ne => 3,
+        .Lt => 3,
+        .Le => 3,
+        .Gt => 3,
+        .Ge => 3,
+        .BitOr => 4,
+        .BitXor => 5,
+        .BitAnd => 6,
+        .Add => 7,
+        .Sub => 7,
+        .Mul => 8,
+        .Div => 8,
+        .Rem => 8,
+    }
+}
+
+/// What the left operand of a `p`-precedence operator must bind at least as
+/// tightly as. The ladder associates left, so a left operand may sit on its
+/// operator's own rung — except at the comparison rung, which does not
+/// associate at all.
+fn leftBinding(p: Int): Int {
+    if (p == 3) { p + 1 } else { p }
+}
+
+fn binOpText(op: BinOp): Str {
+    match (op) {
+        .Or => "||",
+        .And => "&&",
+        .Eq => "==",
+        .Ne => "!=",
+        .Lt => "<",
+        .Le => "<=",
+        .Gt => ">",
+        .Ge => ">=",
+        .BitOr => "|",
+        .BitXor => "^",
+        .BitAnd => "&",
+        .Add => "+",
+        .Sub => "-",
+        .Mul => "*",
+        .Div => "/",
+        .Rem => "%",
+    }
+}
+
+fn unOpText(op: UnOp): Str {
+    match (op) {
+        .Neg => "-",
+        .Not => "!",
+        .BitNot => "~",
+    }
+}
+
+// --- literals ------------------------------------------------------------------
+
+/// A float literal always carries a point or an exponent, so that what comes
+/// back reads as a float rather than as an integer.
+fn floatText<C: Alloc>(ctx: C, x: Float): Str {
+    let text = str.fromFloat(ctx, x);
+    if (text.contains(".") || text.contains("e") || text.contains("E")) {
+        text
+    } else {
+        str.format(ctx, "${text}.0")
+    }
+}
+
+/// A quoted string literal, escaped the way the formatter escapes one.
+fn quote<C: Alloc>(ctx: C, text: Str): Str {
+    let inner = text
+        .chars(ctx)
+        .mapCtx(ctx, fn(c, ch) => escapeChar(c, ch))
+        .join(ctx, "");
+    str.format(ctx, "\"${inner}\"")
+}
+
+fn escapeChar<C: Alloc>(ctx: C, ch: Char): Str {
+    if (ch == '"') {
+        "\\\""
+    } else if (ch == '\\') {
+        "\\\\"
+    } else if (ch == '\n') {
+        "\\n"
+    } else if (ch == '\t') {
+        "\\t"
+    } else {
+        str.fromChars(ctx, [ch])
+    }
+}
+
+/// The text of a template, where `$` is an escape as well.
+fn escapeTemplate<C: Alloc>(ctx: C, text: Str): Str {
+    text
+        .chars(ctx)
+        .mapCtx(ctx, fn(c, ch) => {
+            if (ch == '$') { "\\$" } else { escapeChar(c, ch) }
+        })
+        .join(ctx, "")
+}
+
+fn quoteChar<C: Alloc>(ctx: C, ch: Char): Str {
+    if (ch == '\'') {
+        "'\\''"
+    } else if (ch == '\\') {
+        "'\\\\'"
+    } else if (ch == '\n') {
+        "'\\n'"
+    } else if (ch == '\r') {
+        "'\\r'"
+    } else if (ch == '\t') {
+        "'\\t'"
+    } else if (ch == '\0') {
+        "'\\0'"
+    } else if (ch.toU32().toI64() < 32) {
+        let digits = num.toHex(ctx, ch.toU32().toI64(), 1);
+        str.format(ctx, "'\\u{${digits}}'")
+    } else {
+        str.format(ctx, "'${str.fromChars(ctx, [ch])}'")
+    }
+}

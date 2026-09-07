@@ -56,7 +56,9 @@ unordered, so it answers `.Equal` for a pair it could not order.
 [`core/char`](../../compiler/standard_library/sources/char.buri),
 [`core/bytes`](../../compiler/standard_library/sources/bytes.buri),
 [`core/json`](../../compiler/standard_library/sources/json.buri),
-[`core/proto`](../../compiler/standard_library/sources/proto.buri).
+[`core/proto`](../../compiler/standard_library/sources/proto.buri),
+[`core/buri/ast`](../../compiler/standard_library/sources/buri_ast.buri),
+[`core/codegen`](../../compiler/standard_library/sources/codegen.buri).
 
 - **`core/str`** — a `Str` measures in Unicode scalar values everywhere. `len`
   counts them, `charAt` and `slice` index by them, and `compare` orders by them.
@@ -136,6 +138,29 @@ unordered, so it answers `.Equal` for a pair it could not order.
   program using it cannot answer before the other side has finished speaking.
   Text and octets are two questions about one stream, so a program should ask
   only one of them.
+
+- **`core/buri/ast`** — the Buri grammar as Buri data, and `print`, which turns
+  a `Module` back into source text. A generator builds the tree instead of a
+  string, so it cannot emit a parse error, and every node carries the input
+  span it came from. `print` answers the text and one anchor per node whose
+  origin names a file — a byte range into the text, sorted by start, outermost
+  first — which is what lets a diagnostic about generated code point at the
+  input line behind it. A child position is a one-element array, because a Buri
+  type recurses through `[T]`. Printing costs O(n) in the output text plus one
+  UTF-8 measurement per piece written, and O(a log a) to sort the anchors. The
+  output is what `buri format` leaves alone, with one limit: `print` has no page
+  width, so it breaks only what the formatter always breaks and puts everything
+  else on one line.
+
+- **`core/codegen`** — the protocol a generator speaks. `run` reads one JSON
+  line from `Stdin`, hands your function the `Request`, and writes the
+  `Response` back as one JSON line on `Stdout`. It calls `core/buri/ast`'s
+  `print` for you, so what goes over the wire is text plus anchors and never a
+  tree. `main` names `Alloc`, `Stdin` and `Stdout` and nothing else, which is
+  what makes a generator deterministic. `run` answers `.Err` when there was no
+  request to read or the line was not one; returning that from `main` is how a
+  generator fails visibly. Costs one parse of the request line plus one `print`
+  per module — O(n) in the text read and the text written.
 
 ## Collections
 
