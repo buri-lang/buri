@@ -1659,7 +1659,12 @@ fn harnessMade<C: Alloc + Env + FsRead + FsWrite + Stdout>(ctx: C, here: Path): 
     // A directory this process may not read. The harness took the permission
     // away and knows whether the operating system honoured it.
     let closed = here.join(ctx, "closed");
-    io.println(ctx, "closed ${refused(fs.walk(ctx, closed))}").mapErr(fn(_e) => "print")
+    io
+        .println(
+            ctx,
+            "closed ${refused(fs.walk(ctx, closed))} ${refused(fs.removeTree(ctx, closed))}",
+        )
+        .mapErr(fn(_e) => "print")
 }
 
 export fn main(): Result<(), Str> {
@@ -1885,11 +1890,16 @@ fn a_native_binary_reads_a_real_tree_and_removes_it() {
     );
     // A process that may read anything — root in a container — is told the
     // same thing the operating system told the harness.
-    let expected_refusal = if unreadable { "PermissionDenied" } else { "no refusal" };
+    let expected_refusal = if unreadable {
+        "PermissionDenied PermissionDenied"
+    } else {
+        "no refusal no refusal"
+    };
     assert_eq!(
         said("closed "),
         expected_refusal,
-        "the walk and the operating system disagree about a directory with no permission"
+        "the walk, the removal and the operating system disagree about a directory with \
+         no permission"
     );
 
     // The tree the program made itself.
@@ -2227,13 +2237,25 @@ fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
         .println(ctx, "envnone ${nothing.code} ${text(ctx, nothing.stdout).contains("PATH=")}")
         .mapErr(fn(_e) => "print")?;
 
+    // Both streams at once, from one child: two pipes drained while it runs,
+    // and neither one of them is the other.
+    let shell = found(ctx, "sh")?;
+    let both = process
+        .run(ctx, process.command(shell.text(), ["-c", "echo out; echo err >&2; exit 4"]))
+        .mapErr(fn(_e) => "sh both")?;
+    let _p10 = io
+        .println(
+            ctx,
+            "both ${both.code} ${text(ctx, both.stdout)} ${text(ctx, both.stderr)}",
+        )
+        .mapErr(fn(_e) => "print")?;
+
     // A child killed by a signal reports `128 + signal`, which is the number a
     // shell reports for it.
-    let shell = found(ctx, "sh")?;
     let killed = process
         .run(ctx, process.command(shell.text(), ["-c", "kill -9 $$"]))
         .mapErr(fn(_e) => "sh")?;
-    let _p10 = io.println(ctx, "signal ${killed.code}").mapErr(fn(_e) => "print")?;
+    let _p11 = io.println(ctx, "signal ${killed.code}").mapErr(fn(_e) => "print")?;
 
     // And the directory it runs in.
     let pwd = found(ctx, "pwd")?;
@@ -2360,6 +2382,11 @@ fn a_native_binary_runs_a_real_child_and_reads_what_it_wrote() {
         said("envnone "),
         "0 false",
         "a child given an empty environment kept the parent's"
+    );
+    assert_eq!(
+        said("both "),
+        "4 out err",
+        "a child that wrote to both streams was not read from both"
     );
     assert_eq!(said("signal "), "137", "a child killed by a signal is not `128 + signal`");
     // The directory `true` sits in, whatever that is on this machine — and
