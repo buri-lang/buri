@@ -1026,7 +1026,8 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         //    HTTPS exchange, parsed by the same code `http://` is parsed by.
         trust(&ours);
         let (port, server) = serve(RESPONSE);
-        let answer = crate::http::fetch(0, &format!("https://localhost:{port}/probe"), &[], b"");
+        let url = format!("https://localhost:{port}/probe");
+        let answer = crate::http::fetch(crate::http::bound(0), 0, &url, &[], b"");
         // The answer is read before the server is joined, so that a client that
         // failed is reported as the client failing. Joining first would report
         // it as whatever the server made of never being connected to — which,
@@ -1052,7 +1053,8 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         //    `localhost` is a DNS SAN and `127.0.0.1` is not an IP SAN, so this
         //    is the "right server, wrong name" refusal.
         let (port, server) = serve(RESPONSE);
-        let answer = crate::http::fetch(0, &format!("https://127.0.0.1:{port}/probe"), &[], b"");
+        let url = format!("https://127.0.0.1:{port}/probe");
+        let answer = crate::http::fetch(crate::http::bound(0), 0, &url, &[], b"");
         let _ = server.join();
         let message = answer.err().expect("a certificate for localhost is not one for 127.0.0.1");
         assert_eq!(
@@ -1071,7 +1073,8 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         //    client that accepts anyone.
         trust(&stranger);
         let (port, server) = serve(RESPONSE);
-        let answer = crate::http::fetch(0, &format!("https://localhost:{port}/probe"), &[], b"");
+        let url = format!("https://localhost:{port}/probe");
+        let answer = crate::http::fetch(crate::http::bound(0), 0, &url, &[], b"");
         let _ = server.join();
         let message = answer.err().expect("an untrusted issuer is not a trusted one");
         assert_eq!(
@@ -1094,7 +1097,8 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         //    the message under test would never be reached.
         trust(&empty);
         let (port, server) = serve(RESPONSE);
-        let answer = crate::http::fetch(0, &format!("https://localhost:{port}/probe"), &[], b"");
+        let url = format!("https://localhost:{port}/probe");
+        let answer = crate::http::fetch(crate::http::bound(0), 0, &url, &[], b"");
         let _ = server.join();
         let message = answer.err().expect("no anchors is no connection");
         assert_eq!(
@@ -1111,7 +1115,8 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
         let _ = std::fs::remove_file(&missing);
         trust(&missing);
         let (port, server) = serve(RESPONSE);
-        let answer = crate::http::fetch(0, &format!("https://localhost:{port}/probe"), &[], b"");
+        let url = format!("https://localhost:{port}/probe");
+        let answer = crate::http::fetch(crate::http::bound(0), 0, &url, &[], b"");
         let _ = server.join();
         let message = answer.err().expect("an unreadable bundle is not a trust set");
         assert!(

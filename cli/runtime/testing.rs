@@ -225,7 +225,7 @@ struct FsLog {
     body: String,
 }
 
-/// One request through a `TestNet`, as `NetCall` records it — `Request`'s four
+/// One request through a `TestNet`, as `NetCall` records it — `Request`'s five
 /// fields, in the order `core/effect` declares them.
 ///
 /// `method` is the variant's index, which is what crosses in either direction:
@@ -236,6 +236,7 @@ struct NetLog {
     url: String,
     headers: Vec<(String, String)>,
     body: Vec<u8>,
+    timeout_millis: i64,
 }
 
 /// One read from a `TestStdin`. `count` is what `readBytes` asked for, and zero
@@ -2246,6 +2247,7 @@ struct BuriNetCall {
     url: BuriStr,
     headers: BuriList,
     body: BuriList,
+    timeout_millis: i64,
 }
 
 /// `StdinCall` — `struct { name: Str, count: Int }`.
@@ -2397,13 +2399,14 @@ pub extern "C" fn buri_rt_host_testing_net_with_plan(handle: i64) -> i64 {
     install(Slot::Net { calls: Vec::new(), plan })
 }
 
-/// `recordFetch(handle, method, url, headers, body)` — one request, recorded
-/// after the responder has answered it.
+/// `recordFetch(handle, method, url, headers, body, timeoutMillis)` — one
+/// request, recorded after the responder has answered it.
 ///
-/// The four pieces are `Request`'s four fields flattened by §2 rule 1, which is
+/// The five pieces are `Request`'s five fields flattened by §2 rule 1, which is
 /// exactly what `crate::buri_rt_host_net_fetch` is handed: the method's variant
-/// index, the URL's three `Str` leaves, and two `(ptr, len)` pairs. They are
-/// put back together by [`buri_rt_host_testing_net_calls`].
+/// index, the URL's three `Str` leaves, two `(ptr, len)` pairs, and the bound in
+/// milliseconds. They are put back together by
+/// [`buri_rt_host_testing_net_calls`].
 ///
 /// # Safety
 /// The URL view, the `[Header]` and the `[U8]` must be live for the call.
@@ -2419,6 +2422,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_fetch(
     hlen: u64,
     bptr: *const u8,
     blen: u64,
+    timeout_millis: i64,
 ) {
     // SAFETY: the caller promises the range.
     let url = String::from_utf8_lossy(unsafe { view(uptr, ulen) }).into_owned();
@@ -2427,7 +2431,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_fetch(
     // SAFETY: the caller promises `blen` readable bytes; a `[U8]`'s stride is
     // one, so the payload is the octets themselves.
     let body = unsafe { view(bptr, blen) }.to_vec();
-    let call = NetLog { method: method as i8, url, headers, body };
+    let call = NetLog { method: method as i8, url, headers, body, timeout_millis };
     with(handle, (), |slot| {
         if let Slot::Net { calls, .. } = slot {
             calls.push(call);
@@ -2475,18 +2479,27 @@ pub unsafe extern "C" fn buri_rt_host_testing_net_calls(handle: i64, out: *mut B
     let calls = with(handle, Vec::new(), |slot| match slot {
         Slot::Net { calls, .. } => calls
             .iter()
-            .map(|c| (c.method, c.url.clone(), c.headers.clone(), c.body.clone()))
+            .map(|c| {
+                (c.method, c.url.clone(), c.headers.clone(), c.body.clone(), c.timeout_millis)
+            })
             .collect(),
         _ => Vec::new(),
     });
     let value = list_of(
         &calls,
-        |(method, url, headers, body): &(i8, String, Vec<(String, String)>, Vec<u8>)| {
+        |(method, url, headers, body, timeout): &(
+            i8,
+            String,
+            Vec<(String, String)>,
+            Vec<u8>,
+            i64,
+        )| {
             BuriNetCall {
                 method: *method,
                 url: str_of(url),
                 headers: crate::value::list_of_headers(headers),
                 body: list_of_bytes(body),
+                timeout_millis: *timeout,
             }
         },
     );

@@ -792,6 +792,11 @@ pub(crate) unsafe fn headers(ptr: *const u8, len: u64) -> Vec<(String, String)> 
 /// `host.HostNet.fetch`, and both name it in their absent-key list. This body
 /// is what a row will call, and what `cli/tests/native/driver.c` calls today.
 ///
+/// `timeout_millis` is `Request.withTimeout`'s, and **zero is the runtime's own
+/// bound** — `http::DEADLINE`. It bounds every step of the exchange rather than
+/// the whole of it, which is what `http.rs`'s `fetch_within` takes and what its
+/// header says a deadline here is worth.
+///
 /// `http://` only; see `http.rs` for why, and for what would change it.
 ///
 /// # Safety
@@ -808,6 +813,7 @@ pub unsafe extern "C" fn buri_rt_host_net_fetch(
     hlen: u64,
     bptr: *const u8,
     blen: u64,
+    timeout_millis: i64,
     out_status: *mut i64,
     out_headers: *mut BuriList,
     out_body: *mut BuriList,
@@ -840,10 +846,11 @@ pub unsafe extern "C" fn buri_rt_host_net_fetch(
     // block two carriers can reach atomically counted (`rt.rs` §1), so what is
     // left is the ordinary rule — a runtime call builds no Buri value until it
     // has an answer to build one from.
+    let bound = http::bound(timeout_millis);
     #[cfg(feature = "net")]
-    let outcome = crate::rt::park_on(async { http::fetch(method, &url, &sent, body) });
+    let outcome = crate::rt::park_on(async { http::fetch(bound, method, &url, &sent, body) });
     #[cfg(not(feature = "net"))]
-    let outcome = http::fetch(method, &url, &sent, body);
+    let outcome = http::fetch(bound, method, &url, &sent, body);
     match outcome {
         Ok(response) => {
             let fields = list_of_headers(&response.headers);

@@ -1758,6 +1758,7 @@ test "the same method names resolve on the context value itself" {
             url: "http://example.com/ping",
             headers: [],
             body: [],
+            timeoutMillis: 0,
         }),
     );
     assert.eq(reply.status, 418);
@@ -2376,7 +2377,15 @@ impl Listen for Scripted {
 
     fn listenRequest(self, connection: Int): Result<Request, ServeError> {
         match (connection) {
-            7 => .Ok(Request { method: .Get, url: "/socket", headers: [], body: [] }),
+            7 => {
+                .Ok(Request {
+                    method: .Get,
+                    url: "/socket",
+                    headers: [],
+                    body: [],
+                    timeoutMillis: 0,
+                })
+            },
             _ => .Err(ServeError { cause: .Closed, detail: "" }),
         }
     }

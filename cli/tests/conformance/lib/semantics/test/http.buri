@@ -69,7 +69,7 @@ test "a header shows both of its fields" {
 }
 
 // -----------------------------------------------------------------------------
-// Request — four fields
+// Request — five fields
 // -----------------------------------------------------------------------------
 
 test "the constructor fills every field of a request" {
@@ -78,6 +78,7 @@ test "the constructor fills every field of a request" {
     assert.eq(r.url, "http://example.com/things");
     assert.eq(r.headers, []);
     assert.eq(r.body, []);
+    assert.eq(r.timeoutMillis, 0);
 }
 
 test "a text request encodes its body as UTF-8" {
@@ -96,6 +97,7 @@ test "a request literal and a constructed request are equal" {
         url: "http://example.com/",
         headers: [],
         body: [],
+        timeoutMillis: 0,
     });
     assert.notEq(
         http.request(.Get, "http://example.com/"),
@@ -161,14 +163,14 @@ test "query is everything between the first ? and any #" {
     assert.eq(http.request(.Get, "http://example.com/a#top").query(), "");
 }
 
-test "a request shows all four of its fields" {
+test "a request shows all five of its fields" {
     let ctx = context {
         Alloc: alloc(),
     };
     let plain = http.request(.Get, "http://x/").withBody([65]);
     assert.eq(
         plain.show(ctx),
-        "Request { method: .Get, url: \"http://x/\", headers: [], body: [65] }",
+        "Request { method: .Get, url: \"http://x/\", headers: [], body: [65], timeoutMillis: 0 }",
     );
     let headed = plain.withHeader(ctx, "accept", "*/*");
     assert.isTrue(

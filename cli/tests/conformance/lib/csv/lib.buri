@@ -1,0 +1,7 @@
+// The `core/csv` conformance package.
+//
+// RFC 4180 is a page long and almost all of it is about quoting, so that is
+// what these cases are: a delimiter inside quotes, a newline inside quotes, a
+// doubled quote, and a quote that never closes. The two errors are asserted by
+// value, because a record index in a message is the only thing that makes a
+// bad file findable.

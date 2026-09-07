@@ -334,18 +334,34 @@ fn within<T: Send + 'static>(
     }
 }
 
+/// The deadline a `Request.withTimeout` asks for, or this client's own.
+///
+/// **Zero is "you choose"**, which is what every request that never called
+/// `withTimeout` carries, and a negative number cannot be a duration — so both
+/// answer [`DEADLINE`]. `Request.withTimeout` already floors what it stores at
+/// zero; this is the second half of that, on the side that would otherwise
+/// panic converting it.
+pub fn bound(millis: i64) -> Duration {
+    match u64::try_from(millis) {
+        Ok(0) | Err(_) => DEADLINE,
+        Ok(n) => Duration::from_millis(n),
+    }
+}
+
 /// One request, one response.
 ///
 /// `method` is a `Method` tag, `headers` the request's own fields — sent after
 /// the four this client writes for itself, so a caller may add and may not
-/// silently replace — and `body` its octets.
+/// silently replace — and `body` its octets. `deadline` bounds **every step**,
+/// and [`bound`] is what turns a `Request`'s milliseconds into one.
 pub fn fetch(
+    deadline: Duration,
     method: i32,
     url: &str,
     headers: &[(String, String)],
     body: &[u8],
 ) -> Result<HttpResponse, NetFail> {
-    fetch_within(DEADLINE, method, url, headers, body)
+    fetch_within(deadline, method, url, headers, body)
 }
 
 /// [`fetch`], with the deadline as a parameter.
@@ -696,6 +712,32 @@ mod tests {
         let start = Instant::now();
         let answer =
             fetch_within(Duration::from_millis(250), 0, "http://192.0.2.1:81/probe", &[], b"");
+        assert!(answer.is_err(), "TEST-NET-1 answered an HTTP request");
+        assert!(start.elapsed() < SOON, "the dial took {:?}", start.elapsed());
+    }
+
+    /// What a `Request.withTimeout` becomes, including the two numbers that
+    /// mean "you choose".
+    ///
+    /// Zero is what every request that never asked for a bound carries, and a
+    /// negative number cannot be a duration — `Duration::from_millis` takes a
+    /// `u64`, so converting one without this guard would panic inside a host
+    /// call.
+    #[test]
+    fn a_bound_of_zero_or_less_is_this_client_own_deadline() {
+        assert_eq!(bound(0), DEADLINE);
+        assert_eq!(bound(-1), DEADLINE);
+        assert_eq!(bound(i64::MIN), DEADLINE);
+        assert_eq!(bound(250), Duration::from_millis(250));
+        assert_eq!(bound(1), Duration::from_millis(1));
+    }
+
+    /// And the bound is the one the exchange actually runs under, rather than a
+    /// number that is read and dropped.
+    #[test]
+    fn a_bound_a_caller_asked_for_is_the_deadline_the_dial_uses() {
+        let start = Instant::now();
+        let answer = fetch_within(bound(250), 0, "http://192.0.2.1:81/probe", &[], b"");
         assert!(answer.is_err(), "TEST-NET-1 answered an HTTP request");
         assert!(start.elapsed() < SOON, "the dial took {:?}", start.elapsed());
     }
