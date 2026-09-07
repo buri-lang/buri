@@ -23,7 +23,7 @@
 //! }
 //!
 //! fn answer<C: Alloc>(ctx: C, path: Str, state: Json): Response {
-//!     http.html(ctx, web.shell(ctx, web.render(page(.Const(path))), state))
+//!     http.html(ctx, web.shell(ctx, path, web.render(page(.Const(path))), state))
 //! }
 //! ```
 //!
@@ -69,17 +69,23 @@ from "ui/prop" import { Prop };
 /// and puts the rest of the page inside it.
 export fn render<C>(root: Node<C>): Str;
 
-/// The document `body` goes in, with `state` embedded in it for the page to
-/// pick up.
+/// The document `body` goes in, with `state` and the `path` it was rendered at
+/// embedded in it for the page to pick up.
 ///
 /// The state is written as JSON in a `<script id="buri-state">`, which a
 /// browser neither runs nor renders, and `resume` reads it back. Every `<` in it
 /// is written `\u003c`, which JSON reads back as `<`, so a string holding
 /// `</script>` closes nothing.
 ///
+/// `path` is the address this tree was rendered for — `request.path()` on a
+/// worker. It rides on the same script as `data-path`, and `resume` refuses a
+/// page whose address is somewhere else. Without it, two routes that render the
+/// same *shape* resume into each other, and the reader is left looking at one
+/// page's markup with another page's handlers on it.
+///
 /// The stylesheet the compiler extracted goes in the head. A resumed page keeps
 /// the styles the server sent it.
-export fn shell<C: Alloc>(ctx: C, body: Str, state: Json): Str {
+export fn shell<C: Alloc>(ctx: C, path: Str, body: Str, state: Json): Str {
     let embedded = json.stringify(ctx, state).replace(ctx, "<", "\\u003c");
     let sheet = stylesheet();
     let styles = if (sheet == "") {
@@ -92,10 +98,22 @@ export fn shell<C: Alloc>(ctx: C, body: Str, state: Json): Str {
         styles,
         "</head>\n<body>",
         body,
-        "<script id=\"buri-state\" type=\"application/json\">",
+        "<script id=\"buri-state\" type=\"application/json\" data-path=\"",
+        attribute(ctx, path),
+        "\">",
         embedded,
         "</script></body>\n</html>\n",
     ].join(ctx, "")
+}
+
+/// A string as the value of an attribute. `&` goes first, or the escapes escape
+/// each other.
+fn attribute<C: Alloc>(ctx: C, text: Str): Str {
+    text
+        .replace(ctx, "&", "&amp;")
+        .replace(ctx, "<", "&lt;")
+        .replace(ctx, ">", "&gt;")
+        .replace(ctx, "\"", "&quot;")
 }
 
 /// The stylesheet the compiler extracted for this artifact.
@@ -124,9 +142,17 @@ fn stylesheet(): Str;
 /// Resume once. A second call walks markup the first one has already taken
 /// over, and answers the same `.Err`.
 ///
-/// `.Err` twice: a platform with nowhere to resume — a browser whose document
-/// has no body yet, or a JavaScript host with no document at all — and a tree
-/// that is not what the markup says.
+/// **The address is checked first.** `shell` writes the path it rendered beside
+/// the state, and a page whose address is somewhere else is refused naming both
+/// — because two routes that render the same shape would otherwise resume into
+/// each other. A query string and a fragment are not part of a path and are not
+/// compared: `Request.path` and the address bar both leave them out. Markup no
+/// `shell` wrote carries no path, and only the shape is checked.
+///
+/// `.Err` three times: a platform with nowhere to resume — a browser whose
+/// document has no body yet, or a JavaScript host with no document at all — a
+/// page at an address the server did not render, and a tree that is not what the
+/// markup says.
 export fn resume<C: Ui>(ctx: C, root: Node<C>): Result<(), Str>;
 
 /// The state the server embedded, as the JSON text `shell` was given.

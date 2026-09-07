@@ -5,9 +5,10 @@
 #     `web.render`, and `web.shell` writes the document with the state embedded
 #     in it. Both artifacts come out of one build.
 #   * **The page resumes.** `main` reads the state back out, builds the tree
-#     the worker rendered from it, and hands that to `web.resume`, which takes
-#     the markup over — every element and every run of text is the one already
-#     there, and what it adds is the handlers.
+#     the worker rendered from it, and hands that to `web.resume`, which checks
+#     the address against the path `shell` wrote and then takes the markup over
+#     — every element and every run of text is the one already there, and what
+#     it adds is the handlers.
 #   * **Each artifact holds its own half.** The worker never resumes and the
 #     page never renders a document, so neither carries the other's half. That
 #     is per-entry dead code elimination, read off the bytes.
