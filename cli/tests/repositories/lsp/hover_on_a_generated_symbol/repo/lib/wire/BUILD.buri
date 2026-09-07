@@ -1,0 +1,5 @@
+library {
+    generators: [
+        { tool: "//cmd/gen", inputs: ["units.txt"] },
+    ]
+}

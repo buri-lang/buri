@@ -53,6 +53,7 @@ mod file_operations;
 mod formatting;
 mod inlay_hints;
 mod links;
+mod origins;
 mod pull_diagnostics;
 mod rename;
 mod schema;
@@ -1124,7 +1125,7 @@ fn dispatch(state: &mut State, msg: &Value) -> Vec<Value> {
                 Some(Ok(edit)) => response(&id, edit),
                 // A refusal is an error rather than an empty edit: a rename
                 // that silently changed nothing looks like the server hung.
-                Some(Err(why)) => error(&id, REQUEST_FAILED, why.message()),
+                Some(Err(why)) => error(&id, REQUEST_FAILED, &why.message()),
                 None => response(&id, Value::Null),
             });
             out
@@ -2258,6 +2259,15 @@ fn add_finding_rendering(
     }
     let f = session.map.get(d.span.file);
     if f.abs_path.as_os_str().is_empty() {
+        // Generated code, or the embedded standard library. A finding in
+        // generated text used to stop here, which meant a generator that wrote
+        // a program the checker refuses said nothing at all in an editor.
+        //
+        // Where it goes instead is where a person can act on it: the input the
+        // generator read, at the span it anchored — and, for text nothing
+        // anchored, the `generators` entry that ran the tool, because the rule
+        // is then the whole of what is known.
+        let _ = moved_finding(published, rendered, session, d);
         return;
     }
     let uri = convert::uri_of(&f.abs_path);
@@ -2270,6 +2280,63 @@ fn add_finding_rendering(
             item
         }
     };
+    filed(published, uri, item);
+}
+
+/// One finding about generated text, filed where a person can act on it.
+///
+/// Two answers, in the order the proposal states them. The anchored one is the
+/// input file at the span the generator recorded. The unanchored one is the
+/// `generators` entry in the `BUILD.buri` — a diagnostic about a program a rule
+/// produced, on the line that says the rule produces it.
+///
+/// The embedded standard library has neither, and goes on saying nothing: its
+/// text is compiled into this binary and there is no file to squiggle.
+fn moved_finding(
+    published: &mut Published,
+    rendered: &mut Rendered,
+    session: &Session,
+    d: &crate::diagnostics::Diagnostic,
+) -> Option<()> {
+    // Where it goes, before what it says: reading the file is the expensive
+    // half and the cache below decides whether it happens at all.
+    let (uri, span, input) = match origins::of_span(session, d.span) {
+        Some(at) => (at.uri(), at.span_in(d.span), Some(at)),
+        None => {
+            let entry = origins::entry_of(session, d.span)?;
+            let build = session.map.get(entry.file);
+            match build.abs_path.as_os_str().is_empty() {
+                true => return None,
+                false => (convert::uri_of(&build.abs_path), entry, None),
+            }
+        }
+    };
+    let key = (uri.clone(), span.start, span.end, d.message.clone());
+    let item = match rendered.get(&key) {
+        Some(known) => known.clone(),
+        None => {
+            let text = match &input {
+                Some(at) => at.text(session)?,
+                None => session.map.get(span.file).text.clone(),
+            };
+            // The secondary spans are offsets into the generated text and would
+            // land anywhere in the file this is going to, so they go. The `fix`
+            // and the notes hang off the primary span, and render against the
+            // text above.
+            let mut moved = d.clone();
+            moved.span = span;
+            moved.secondary_spans.clear();
+            let item = convert::diagnostic(&text, &moved, &uri);
+            rendered.insert(key, item.clone());
+            item
+        }
+    };
+    filed(published, uri, item);
+    Some(())
+}
+
+/// One rendered item into one file's bucket, once however many times it is met.
+fn filed(published: &mut Published, uri: String, item: Value) {
     let bucket = published.entry(uri).or_default();
     if !bucket.iter().any(|existing| same_finding(existing, &item)) {
         bucket.push(item);

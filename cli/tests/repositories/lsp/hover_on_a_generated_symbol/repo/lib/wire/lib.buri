@@ -1,0 +1,6 @@
+from "//lib/wire/units" import { depth, width };
+
+/// The face of the plate.
+export fn area(): Int {
+    width * depth
+}

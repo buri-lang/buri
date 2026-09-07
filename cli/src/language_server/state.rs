@@ -1474,7 +1474,16 @@ impl State {
     /// Public because `buri gen` writes through the session it is handed, and
     /// a kept one is shared by everything holding an `Rc` to it.
     pub fn overlaid_session(&mut self, root: &Path) -> Option<Session> {
-        Some((*self.opened(root)?).clone())
+        // `opened` first, for the announcement: a repository that will not load
+        // is a sentence the reader gets, not a silent `None`.
+        self.opened(root)?;
+        // Then the copy through `Sources::session`, which is the one door every
+        // command opens a repository through — and where the generators run. An
+        // editor that took the copy for itself never ran one, so every module a
+        // generator produces resolved to nothing and every import of one was
+        // `module-not-found` in a repository that builds.
+        let (sources, open) = self.sources_of(root);
+        sources.session(open).ok()
     }
 
     /// The analysis for the target owning `path`, if the closure it read is

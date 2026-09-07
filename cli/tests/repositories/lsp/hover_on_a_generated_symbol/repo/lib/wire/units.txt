@@ -1,0 +1,4 @@
+# The plate's width, in millimetres.
+# Measured across the short edge.
+width 3
+depth 5

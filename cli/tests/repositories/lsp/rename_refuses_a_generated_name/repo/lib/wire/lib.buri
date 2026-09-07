@@ -1,0 +1,6 @@
+from "//lib/wire/units" import { width };
+
+/// The plate, edge on.
+export fn edge(): Int {
+    width
+}

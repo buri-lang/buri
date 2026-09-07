@@ -1,0 +1,12 @@
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "go-to-definition on a name a generator wrote opens the input the generator read, at the line the name was written on — and a name nothing in the input was written from still answers `null` rather than a wrong file"
+
+run {
+  args: ["lsp"]
+  exit: 0
+  stdin: "session.jsonl"
+  stream: OUT
+  golden: "session.txt"
+}

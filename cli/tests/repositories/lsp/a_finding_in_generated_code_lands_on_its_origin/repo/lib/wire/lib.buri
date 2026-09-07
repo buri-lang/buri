@@ -1,0 +1,3 @@
+// The surface of the generated module: what a generator produces belongs to
+// the rule that ran it, so this is what lets anything else name what it holds.
+from "//lib/wire/units" export { spare, width };
