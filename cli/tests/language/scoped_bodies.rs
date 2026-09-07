@@ -70,7 +70,7 @@ fn a_scoped_analysis_answers_what_a_whole_closure_one_answers() {
         }
         repositories_checked = repositories_checked.saturating_add(1);
         for target in open.workspace.targets() {
-            let unit = Unit { target: Some(target), platform: None, with_tests: true };
+            let unit = Unit { target: Some(target), platform: None, entry: None, with_tests: true };
             let full = driver::analyze(
                 Some(&open.workspace),
                 &mut open.map,

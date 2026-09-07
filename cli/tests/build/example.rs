@@ -17,6 +17,7 @@ fn check_target(kind: buri::build::workspace::RuleKind, package: &str, with_test
     let unit = buri::compiler::modules::Unit {
         target: Some(buri::build::workspace::TargetId { package: id, kind }),
         platform: None,
+        entry: None,
         with_tests,
     };
     let mut cache = buri::parsing::parser::Cache::new();

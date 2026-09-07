@@ -150,7 +150,7 @@ pub const ERRORS: &[ErrorDoc] = &[
     e!("lambda-captures-effect", "A lambda may not capture an effect"),
     e!("lambda-captures-generic", "A lambda may not capture a value that could be a context"),
     e!("literal-out-of-range", "A literal must fit the type it is pinned to"),
-    e!("main-signature", "`main` has one shape"),
+    e!("main-signature", "An entry point has one shape", &["build/build-files"]),
     e!("match-not-exhaustive", "A `match` covers every case"),
     e!("method-declared-free", "A method is declared inside an `impl`"),
     e!("method-not-a-value", "A method is not a value"),
