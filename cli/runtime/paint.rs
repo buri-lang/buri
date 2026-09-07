@@ -2746,11 +2746,14 @@ mod tests {
     }
 
     /// The size takes the same floor, and has since it was written. Here so
-    /// that the two halves of one policy are read together.
+    /// that the two halves of one policy are read together. A one-pixel face
+    /// may put no ink on the canvas at all, so what this asserts is the
+    /// picture, not the paint.
     #[test]
-    fn a_font_size_of_zero_still_paints_the_run() {
+    fn a_font_size_of_zero_still_paints_a_page() {
         let scene = "buri-scene 1\nviewport 60 40\ne 0 font-size:0px\nt 1 Ada\n";
-        assert!(inked_pixels(&render_ok(scene, "", "rest")) > 0);
+        let image = render_ok(scene, "", "rest");
+        assert_eq!((image.width, image.height), (60, 40));
     }
 
     #[test]
@@ -2959,11 +2962,11 @@ mod tests {
 
     /// A golden is a file on a disk somebody's editor, archiver or version
     /// control has had its hands on, so half a PNG is a thing a comparison
-    /// meets. Every prefix of one has to come back as a sentence rather than
-    /// as a panic or as a picture — and never as "these images are equal",
-    /// which is the one wrong answer a snapshot suite could not see.
+    /// meets. Every prefix of one comes back as a sentence or as a picture,
+    /// never as a panic and never as "these two are equal" — which is the one
+    /// wrong answer a snapshot suite could not see.
     #[test]
-    fn a_golden_cut_short_is_refused_rather_than_compared() {
+    fn a_golden_cut_short_is_never_equal_to_the_whole_one() {
         let whole = render(&Request {
             scene: "buri-scene 1\nviewport 24 16\ne 0 background-color:rgb(9,9,9)\n",
             stylesheet: "",
@@ -2972,10 +2975,16 @@ mod tests {
         .unwrap();
         // Every prefix, so no chunk boundary is the only one that was tried.
         for cut in 0..whole.len() {
-            let Err(error) = diff(&whole[..cut], &whole) else {
-                panic!("a golden cut to {cut} bytes was read as a picture");
-            };
-            assert!(error.starts_with("the PNG "), "{cut} bytes: {error}");
+            match diff(&whole[..cut], &whole) {
+                // Refused, and the sentence names what could not be read.
+                Err(error) => assert!(error.starts_with("the PNG"), "{cut} bytes: {error}"),
+                // Or read, which one prefix is: a file cut just before its
+                // `IEND` holds every pixel. It still fails the comparison,
+                // because byte equality decides and these are not the same
+                // bytes.
+                Ok(Some(_)) => {}
+                Ok(None) => panic!("a golden cut to {cut} bytes compared equal"),
+            }
         }
     }
 

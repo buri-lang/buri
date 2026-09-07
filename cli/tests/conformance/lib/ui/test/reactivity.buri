@@ -8,6 +8,10 @@
 //     and watchers run in the order they were registered;
 //   - dependencies are re-collected per run, so a read behind a condition is
 //     tracked exactly — the branch not taken creates no edge;
+//   - a chain of memos runs bottom up, once each, and two memos over one
+//     signal run their reader once rather than twice;
+//   - the equality cutoff is the cell's: a memo that recomputed to the answer
+//     it had still runs what reads it;
 //   - `Prop.Const` registers nothing.
 //
 // The `Recorder` is how a computation says that it ran: a reactive closure

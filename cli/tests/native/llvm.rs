@@ -4216,6 +4216,63 @@ fn a_snapshot_is_painted_and_compared_by_a_linked_release_program() {
     assert!(snapshots.join("card.diff.png").exists(), "the difference was not written");
 }
 
+/// **The same claim where the two backends have most room to disagree: text.**
+///
+/// The card above is boxes and one Latin word. This is combining marks, glyphs
+/// no bundled face carries, a run that reads right to left, and a line wider
+/// than the page — which is the picture a difference between two code
+/// generators would show up in, because a scene document is a *string* and
+/// building one is what the backends do differently.
+///
+/// Compared, not recorded: the goldens beside
+/// `repositories/ui/every_shape_and_state_is_painted/` were painted by the
+/// copy-and-patch backend, and the assertion is that this one has nothing to
+/// say about them.
+#[test]
+fn the_text_a_shaper_has_to_survive_paints_the_same_bytes_under_the_release_backend() {
+    skip_unless_executable!();
+    let package = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "tests/repositories/ui/every_shape_and_state_is_painted/repo/lib/scenes",
+    );
+    let library = std::fs::read_to_string(package.join("scenes.buri")).unwrap();
+    let suite = std::fs::read_to_string(package.join("test/text.buri")).unwrap();
+    let mut lines: Vec<String> = Vec::new();
+    for line in library.lines().chain(suite.lines()) {
+        // `the_card_case`'s three rules: the cross-package import goes, an
+        // import already written once goes, and nothing in a test source is
+        // exported.
+        if line.starts_with("from \"//lib/scenes\"") {
+            continue;
+        }
+        if line.starts_with("from \"") && lines.iter().any(|seen| seen == line) {
+            continue;
+        }
+        lines.push(line.strip_prefix("export ").unwrap_or(line).to_string());
+    }
+    let binary = build_tests("snapshot-text", &lines.join("\n"));
+
+    let snapshots = workspace().join("snapshot-text").join("__snapshots__");
+    let _ = std::fs::remove_dir_all(&snapshots);
+    std::fs::create_dir_all(&snapshots).unwrap();
+    let goldens = package.join("test/__snapshots__");
+    for name in ["\u{441}\u{43d}\u{438}\u{43c}\u{43e}\u{43a}.png", "a-line-past-the-edge.png"] {
+        std::fs::copy(goldens.join(name), snapshots.join(name)).unwrap();
+    }
+
+    let out = Command::new(&binary)
+        .env("BURI_TEST_FROM", "0")
+        .env("BURI_SNAPSHOT_DIR", &snapshots)
+        .env("BURI_SNAPSHOT_SHEET", workspace().join("snapshot-text").join("styles.css"))
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the release backend painted different text from the copy-and-patch one:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
 /// **A boxed field and a boxed variant payload** round-trip: built, read back,
 /// and released.
 ///
