@@ -329,6 +329,10 @@ impl<'a> Checker<'a> {
         // means asking it of a half-built table.
         self.tables.compute_variance();
         self.check_ctx_rules();
+        // After the entry table is complete and before any body is checked, so
+        // an output naming a function that is not there is printed above its
+        // consequences.
+        self.check_declared_entries();
         self.register_primitive_methods();
         self.check_derives();
         self.compute_surfaces();
@@ -717,7 +721,7 @@ impl<'a> Checker<'a> {
         let mut platforms: Vec<Platform> = match inside {
             // Inside an entry's own body: the outputs that enter through it.
             Some(name) if kind == RuleKind::Binary && !entries.is_empty() => {
-                entries.iter().filter(|(e, _)| e == name).map(|(_, p)| *p).collect()
+                entries.iter().filter(|e| e.name == name).map(|e| e.platform).collect()
             }
             _ => ws.declared_platforms(target).into_iter().flatten().collect(),
         };
@@ -1315,11 +1319,14 @@ impl<'a> Checker<'a> {
             return;
         };
         let d = d.clone();
-        let shapes = self.entry_shapes(module, &name);
-        if !shapes.is_empty() {
+        // Asked of every output the binary declares, not of the one being
+        // built: `fetch` is an entry and builds its own context while the page
+        // is the artifact being compiled, and refusing it there would refuse a
+        // program that is correct.
+        if self.declares_entry(module, &name) {
             self.entry_points.insert(name.clone());
         }
-        for shape in shapes {
+        for shape in self.entry_shapes(module, &name) {
             self.check_entry_signature(fid, &d, &name, shape);
         }
     }
@@ -1336,13 +1343,26 @@ impl<'a> Checker<'a> {
     /// function. Both are checked, and at least one of them fails, which is
     /// the refusal: a function cannot be entered both ways.
     fn entry_shapes(&self, module: ModuleId, name: &str) -> Vec<EntryShape> {
+        // A build produces one artifact, and that artifact has one entry. Its
+        // output is the whole answer, for the reason `module_platforms` gives:
+        // reporting the other output's requirement here would report it twice,
+        // once per output built.
+        if let (Some(platform), Some(built)) = (self.loaded.platform, self.loaded.entry.as_deref())
+        {
+            return match built == name {
+                true => vec![platform.entry_shape()],
+                // Not this artifact's entry. `main` still answers below,
+                // because every analysis that has one expects the one shape.
+                false => self.default_entry_shape(name),
+            };
+        }
         let declared: Vec<EntryShape> = match (self.ws, self.module(module).pkg) {
             (Some(ws), Some(pkg)) => {
                 let target = TargetId { package: pkg, kind: RuleKind::Binary };
                 let mut shapes: Vec<EntryShape> = Vec::new();
-                for (entry, platform) in ws.declared_entries(target) {
-                    let shape = platform.entry_shape();
-                    if entry == name && !shapes.contains(&shape) {
+                for entry in ws.declared_entries(target) {
+                    let shape = entry.platform.entry_shape();
+                    if entry.name == name && !shapes.contains(&shape) {
                         shapes.push(shape);
                     }
                 }
@@ -1350,9 +1370,79 @@ impl<'a> Checker<'a> {
             }
             _ => Vec::new(),
         };
-        match (declared.is_empty(), name) {
-            (true, "main") => vec![EntryShape::Program],
-            _ => declared,
+        match declared.is_empty() {
+            true => self.default_entry_shape(name),
+            false => declared,
+        }
+    }
+
+    /// Whether an `outputs` entry names this function.
+    ///
+    /// True for `main` whatever the build file says, because every analysis
+    /// that has a `main` treats it as the entry — a documentation snippet
+    /// included.
+    fn declares_entry(&self, module: ModuleId, name: &str) -> bool {
+        if name == "main" {
+            return true;
+        }
+        let (Some(ws), Some(pkg)) = (self.ws, self.module(module).pkg) else { return false };
+        let target = TargetId { package: pkg, kind: RuleKind::Binary };
+        ws.declared_entries(target).iter().any(|e| e.name == name)
+    }
+
+    /// What `main` is held to where no output names it: the one shape every
+    /// analysis expects, a documentation snippet included.
+    fn default_entry_shape(&self, name: &str) -> Vec<EntryShape> {
+        match name {
+            "main" => vec![EntryShape::Program],
+            _ => Vec::new(),
+        }
+    }
+
+    /// Reports every `outputs` entry naming a function `main.buri` does not
+    /// export.
+    ///
+    /// Runs where the entry table is complete and before any body is checked,
+    /// so the cause is printed above its consequences: an output that names no
+    /// function leaves the function it *did* name an ordinary one, which may
+    /// then not build a context.
+    fn check_declared_entries(&mut self) {
+        let Some(ws) = self.ws else { return };
+        let entry_module = (0..self.loaded.modules.len() as u32)
+            .map(ModuleId)
+            .find(|m| self.module(*m).role == Role::Entry && self.module(*m).pkg.is_some());
+        let Some(module) = entry_module else { return };
+        let Some(pkg) = self.module(module).pkg else { return };
+        let target = TargetId { package: pkg, kind: RuleKind::Binary };
+        let mut exported: Vec<String> = self.entries.keys().cloned().collect();
+        exported.sort();
+        let label = ws.package(pkg).label();
+        let mut said: Vec<String> = Vec::new();
+        for entry in ws.declared_entries(target) {
+            // An output that named nothing is `no-main`'s business, which is a
+            // different mistake and is reported by the build.
+            if !entry.named || self.entries.contains_key(&entry.name) {
+                continue;
+            }
+            // The build file may name one missing entry from several outputs;
+            // the mistake is the name, so it is reported once.
+            if said.contains(&entry.name) {
+                continue;
+            }
+            said.push(entry.name.clone());
+            let refs: Vec<&str> = exported.iter().map(String::as_str).collect();
+            let near = crate::build::buildfile::nearest(&entry.name, &refs).map(str::to_string);
+            let d = self
+                .templated("entry-not-found", entry.span)
+                .bind("entry", entry.name.clone())
+                .bind("package", label.clone());
+            if let Some(near) = near {
+                d.notes.push(format!("did you mean `{near}`?"));
+            }
+            match exported.is_empty() {
+                true => d.notes.push("`main.buri` exports no function at all".into()),
+                false => d.notes.push(format!("`main.buri` exports: {}", exported.join(", "))),
+            }
         }
     }
 

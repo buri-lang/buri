@@ -33,6 +33,21 @@ pub struct TargetId {
     pub kind: RuleKind,
 }
 
+/// One entry a binary's `outputs` names, and the platform that fixes its shape.
+///
+/// This is what makes the `core/host` check and the entry-signature check per
+/// *entry* rather than per target. A binary with a page and a worker in it
+/// declares two of these out of one `main.buri`.
+#[derive(Clone, Debug)]
+pub struct DeclaredEntry {
+    pub name: String,
+    /// Whether the output wrote the name, rather than defaulting to `main`.
+    pub named: bool,
+    /// The `entry` field, or the output itself where it named none.
+    pub span: Span,
+    pub platform: Platform,
+}
+
 pub struct Package {
     /// `lib/money`, or the empty string for a package at the root.
     pub path: String,
@@ -809,8 +824,7 @@ impl Workspace {
     ///   `requires.platforms` of the tags it carries — the same two sources
     ///   [`Workspace::platforms`] reads, asked of this rule alone rather than
     ///   of its closure.
-    /// Every `(entry, platform)` a binary's `outputs` name, in declaration
-    /// order.
+    /// Every entry a binary's `outputs` name, in declaration order.
     ///
     /// This is what makes the `core/host` check per entry rather than per
     /// target. A binary with a page and a worker in it declares two entries,
@@ -819,14 +833,24 @@ impl Workspace {
     /// would refuse a program that is correct.
     ///
     /// Empty for a library, and for a binary that declares no `outputs`.
-    pub fn declared_entries(&self, target: TargetId) -> Vec<(String, Platform)> {
+    pub fn declared_entries(&self, target: TargetId) -> Vec<DeclaredEntry> {
         if target.kind != RuleKind::Binary {
             return Vec::new();
         }
         let Some(bin) = self.package(target.package).build.binary.as_ref() else {
             return Vec::new();
         };
-        bin.outputs.iter().map(|o| (o.entry_name().to_string(), o.platform())).collect()
+        bin.outputs
+            .iter()
+            .map(|o| DeclaredEntry {
+                name: o.entry_name().to_string(),
+                named: o.entry.is_some(),
+                // The `entry` field where there is one, the output itself
+                // otherwise: a caret on a field nobody wrote points at nothing.
+                span: o.entry.as_ref().map_or(o.span, |e| e.span),
+                platform: o.platform(),
+            })
+            .collect()
     }
 
     pub fn declared_platforms(&self, target: TargetId) -> Option<BTreeSet<Platform>> {

@@ -1,0 +1,6 @@
+binary {
+    outputs: [
+        { platform: WEB },
+        { platform: CLOUDFLARE_WORKER  entry: "fetch" },
+    ]
+}
