@@ -502,7 +502,7 @@ receiver, so `path.of(ctx, "/srv").join(ctx, "/etc")` is `/srv/etc`. The other
 behaviour is how a program that joined a user's string onto its own directory
 ends up reading `/etc/passwd`.
 
-`core/tasks` is one function. `parallel(ctx, items, f)` runs `f` over every item
+`core/tasks` has two shapes. `parallel(ctx, items, f)` runs `f` over every item
 and answers the results **in the items' order**, whatever order the work
 finished in, handing each call the item's own index. Every task finishes before
 `parallel` returns, so nothing outlives the context that granted it:
@@ -527,6 +527,36 @@ JavaScript starts the tasks together and awaits them together. A native
 overlap. `buri run` runs them in index order on one carrier. All three answer
 the same list. Two tasks that *compute* do not yet overlap on either native
 backend: `parallel` buys overlapped waiting rather than more processors.
+
+`scope` and `spawn` are the other shape: work that runs beside the code that
+started it. A scope returns when its body **and every task spawned into it**
+have finished, so the waiting moves from the call to the scope and nothing
+still escapes the context that granted it:
+
+```buri
+from "core/effect" import { Alloc, Clock, Stdout, Tasks };
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/time" import * as time;
+
+fn page<C: Alloc + Clock + Stdout + Tasks>(ctx: C): () {
+    tasks.scope(ctx, fn(c, here) => {
+        let _ = tasks.spawn(c, here, fn(c2) => {
+            let _ = time.sleepMs(c2, 5 * 60 * 1000);
+            let _ = io.println(c2, "sessions expired").ignore();
+            ()
+        });
+        ()
+    })
+}
+```
+
+A timer is a task that sleeps — there is no `Timer` and no `setTimeout`. A
+`Scope` is inert, so a lambda may capture one, which is how an interface hands
+a scope to a handler that spawns later. A library cannot spawn: it exposes a
+`run` and the application puts it in a scope. And stopping is cooperative —
+a loop ends by finding its socket closed or by asking an actor whether to carry
+on, because there is no way to unwind a task from outside it.
 
 `core/actor` is the other half of concurrency: state that outlives one call,
 behind a mailbox. An actor is a *value*, an initial state and a

@@ -18,14 +18,10 @@ error: "core/order" has no member `Comparable` [no-such-member]
 
     fs in fs.appendBytes(...) is a namespace, not a value. It stands for the
     module its import named, and what you may write after the dot is exactly
-    what that module exports. So the question the compiler can answer is about
-    the member. Answering about the base instead — "there is nothing named fs in
-    scope" — would send you hunting for a missing import when the import is the
-    one part that was right.
+    what that module exports.
 
     A namespace qualifies a type, a bound and an impl head the same way it
     qualifies a function, so list.Vector<Int> and <T: order.Comparable> are
-    answered here too. The base is the answer only when no import bound it at
-    all: with no namespace of that name in the file, fs.readText(...) is
-    unresolved-name on fs.
+    answered here too. When no import bound the name at all, fs.readText(...) is
+    unresolved-name on fs instead.
 

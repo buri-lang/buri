@@ -492,8 +492,8 @@ language one, and the existing machinery covers it:
   bound — `FsRead` taken as a bound rather than bound to a host — legal
   everywhere, a page included.
 
-  WEB grants `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand`, `Net`, `Ui` and
-  `Watch`, and withholds `FsRead`, `FsWrite`, `Stdin`, `Env`, `Proc`, `Tasks`,
+  WEB grants `Alloc`, `Stdout`, `Stderr`, `Clock`, `Rand`, `Net`, `Tasks`, `Ui`
+  and `Watch`, and withholds `FsRead`, `FsWrite`, `Stdin`, `Env`, `Proc`,
   `Listen` and `Sockets`. `LINUX` and `MACOS` grant all fourteen non-UI effects
   and neither UI one; `JS` grants twelve of the fourteen — everything but
   `Listen` and `Sockets`.
@@ -507,7 +507,10 @@ language one, and the existing machinery covers it:
   one authority in two halves: accepting a connection, and writing to one
   somebody already accepted. `JS` and `WEB` will never have them — a page is
   served rather than serving — which bounds what an empty row ever claimed: not
-  that everybody eventually grants this.
+  that everybody eventually grants this. `Tasks` came down it too and then
+  widened again: granted by nobody, then on the three platforms that are
+  not a page, and now on all four, once `core/tasks`'s `spawn` gave a page a
+  task worth running. `design/native/DECISIONS.md` carries that reversal.
 - **Email is a different effect grant, not a lesser web.** Its host exports
   rendering and nothing interactive: no `Ui`, no `Fetch`. A `render` evaluates
   the tree once, so `Const` and `Computed` props resolve and `Cell` has nothing

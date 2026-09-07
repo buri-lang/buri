@@ -5,11 +5,11 @@ note: a hole holds a primitive — `Int`, `Float`, `Bool`, `Char`, `Str` — or 
 fix: render it first, for instance with `.show(ctx)`
 ---
 
-A `Template` names no context. That is why `io.println(ctx, "hi ${name}")` needs
-only `Stdout`. So a hole may hold anything the *runtime* can render from the
-type's shape: a primitive, or a value whose `Show` came from a `derive`, which
-is that same structural fold. It may not hold a value that has to be rendered
-by calling a function with a context.
+A `Template` names no context, which is why `io.println(ctx, "hi ${name}")`
+needs only `Stdout`. So a hole may hold anything the *runtime* can render from
+the type's shape: a primitive, or a value whose `Show` came from a `derive`. It
+may not hold a value that has to be rendered by calling a function with a
+context.
 
 ```buri fail code=not-interpolatable
 struct Point {

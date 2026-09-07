@@ -18,25 +18,21 @@ the return type the trait declared it with. Where the trait wrote `Self`, an
 `impl` may write either `Self` or the type it is implementing for — they are the
 same type inside the block.
 
-## Why
-
-The compiler matches a method to the slot it fills by name, and nothing else
-about the two declarations has to agree for that match to succeed. Everything
-after it assumes they agree completely. A caller reaching the method through a
-bound is typechecked against the *trait's* declaration, and the code generator
-reconstructs the `impl` function's type arguments from the trait's. So an `impl`
-that took one more parameter, or one fewer type parameter, or a `Str` where the
-trait said `Int`, made a promise in one place and broke it in another — turning
-up at some later call site, if at all.
-
-The compiler compares bounds as a set, so writing the same bounds in another
-order is not a disagreement. Asking for one the trait does not declare is:
-nobody told the caller to supply it, so the requirement would surface at
-monomorphization rather than at the call that failed to meet it.
+Bounds are compared as a set, so writing the same bounds in another order is not
+a disagreement. Asking for one the trait does not declare is: nobody told the
+caller to supply it.
 
 Only the method's own type parameters count. The ones on the `impl` head belong
 to the block rather than to the method, so `impl<T> Show for [T]` supplies
 `show<C>` with one type parameter, not two.
+
+## Why
+
+A caller reaching the method through a bound is typechecked against the
+*trait's* declaration, and the code generator reconstructs the `impl` function's
+type arguments from the trait's. So an `impl` that took one more parameter, or a
+`Str` where the trait said `Int`, would break its promise at some later call
+site, if at all.
 
 ## A program that provokes it
 

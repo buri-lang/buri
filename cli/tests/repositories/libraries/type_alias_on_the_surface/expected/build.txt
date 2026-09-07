@@ -19,6 +19,6 @@ error: "//lib/units/units.buri" does not export `Raw` [no-such-export]
     Why
     ───
 
-    A re-export may name only what its module path exports. So a library's
+    A re-export may name only what its module path exports, so a library's
     surface is never wider than the modules it is built from.
 
