@@ -107,6 +107,18 @@ pub enum Extra {
     /// `[T]` argument and the result's otherwise, which covers `list.repeat`
     /// and `list.empty`, whose only mention of `T` is in the return type.
     Element,
+    /// [`Extra::Element`]'s pair with a **release** after it — the per-value
+    /// function that decrefs whatever counted pointers one value holds, or
+    /// null where it holds none.
+    ///
+    /// One shape needs it: a store the runtime *keeps* and later writes over.
+    /// [`Extra::Element`]'s retain says how the runtime takes a reference on
+    /// what it is given; nothing in `core/list` ever gives one back, because
+    /// nothing there holds a value past the call. `ui/effect`'s graph does —
+    /// a cell holds the bytes it was written until the next write — so the
+    /// write that replaces them has to let the old ones go, and the only side
+    /// of the boundary that knows how is the one that generated the glue.
+    Owned,
     // -- the closure trampoline --------------------------------------------
     /// The four words a **runtime-driven step** crosses on
     /// (`backend/intrinsic_keys.rs`'s `step_call`):
@@ -271,6 +283,11 @@ const fn el(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
 
 const fn er(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) -> Entry {
     Entry { key, symbol, extra: Extra::Element, ret, by_ref: Some(by_ref), ctx: None }
+}
+
+/// A row whose value the runtime keeps and later writes over ([`Extra::Owned`]).
+const fn eo(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) -> Entry {
+    Entry { key, symbol, extra: Extra::Owned, ret, by_ref: Some(by_ref), ctx: None }
 }
 
 /// `entry`, with the index of its declaration's `ctx` parameter
@@ -1010,8 +1027,7 @@ pub const ENTRIES: &[Entry] = &[
     //
     // `cli/runtime/ui.rs` holds the graph and `cli/runtime/snapshot.rs` the
     // painter's entry. These six are what a *snapshot* reaches, which is less
-    // than the whole of `ui/testing`: `observer()` and `Observer.read` are not
-    // here because nothing a snapshot does reaches them, and `Ui.memo` and
+    // than the whole of `ui/testing`: `Ui.memo` and
     // `Ui.watch` are not here because they take a Buri
     // closure and are not here, because the closure shape they need is not one
     // either native backend generates yet. `ui/node`'s `describe` is written so
@@ -1023,6 +1039,11 @@ pub const ENTRIES: &[Entry] = &[
     // `stencil/rtcall.rs`'s `element_ty` widened for: `signal` and `write` name
     // it in a `by_ref` argument, and the two `read`s name it in the result.
     //
+    // `write` carries a third word, the release, and is the one row in this
+    // table that does. A cell keeps what it was written, so the write that
+    // replaces the bytes is the one call in the archive that has a reference to
+    // give back — see [`Extra::Owned`].
+    //
     // `Ret::Out` on both `read`s although a `T` is often a scalar. One key is
     // one C signature, and `read` at `Str` and at `Bool` is one key — so the
     // value comes back through a pointer at every instantiation rather than in
@@ -1032,7 +1053,9 @@ pub const ENTRIES: &[Entry] = &[
     e("ui_testing.headless", "buri_rt_ui_testing_headless", Ret::Out),
     er("ui_testing.Headless.signal", "buri_rt_ui_testing_headless_signal", Ret::Scalar, 1),
     el("ui_testing.Headless.read", "buri_rt_ui_testing_headless_read", Ret::Out),
-    er("ui_testing.Headless.write", "buri_rt_ui_testing_headless_write", Ret::Void, 2),
+    e("ui_testing.observer", "buri_rt_ui_testing_observer", Ret::Out),
+    el("ui_testing.Observer.read", "buri_rt_ui_testing_observer_read", Ret::Out),
+    eo("ui_testing.Headless.write", "buri_rt_ui_testing_headless_write", Ret::Void, 2),
     e("ui_testing.paint", "buri_rt_ui_testing_paint", Ret::Void),
 ];
 

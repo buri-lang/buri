@@ -824,25 +824,29 @@ pub unsafe extern "C" fn buri_rt_ui_theme_variables(out: *mut BuriStr) {
 // the block cannot be freed under it, and once on the bytes handed back, so
 // the reader owns what it was given.
 //
-// The first of those is a reference the graph never gives back. This ABI has a
-// retain and no release (`list.rs`'s header says why), and a cell is written
-// over rather than dropped, so a stored value leaks one reference. That is the
-// safe direction and it is bounded: `ui/testing` is test-only, so the leak is
-// one test binary's. A release glue beside the retain is what would take it
-// back, and it would take `core/list`'s copies with it.
+// The reference the graph takes on what it stores is one it **gives back**:
+// `write` carries a third word, the per-value release glue of
+// `runtime_table.rs`'s `Extra::Owned`, and calls it on the bytes it just
+// replaced. A cell holds one value at a time and a write is the moment the old
+// one stops being held, so the counts balance over any number of writes and a
+// program that writes a `Str` signal in a loop leaks nothing.
+//
+// `core/list` needed no such word — nothing there holds a value past the call
+// — which is why the retain travelled alone until the graph arrived.
 
-use crate::list::Retain;
+use crate::list::{Release, Retain};
 
-/// Takes a reference on whatever counted pointers one value holds.
+/// Runs a per-value glue function — the retain or the release — over one
+/// value, where there is one to run.
 ///
 /// # Safety
 /// `at` addresses a whole value of the type `glue` was generated for.
-unsafe fn hold(glue: Retain, at: *mut u8) {
-    if let Some(retain) = glue
+unsafe fn walk(glue: Retain, at: *mut u8) {
+    if let Some(f) = glue
         && !at.is_null()
     {
         // SAFETY: the caller promises `at` is a whole value of that type.
-        unsafe { retain(at) };
+        unsafe { f(at) };
     }
 }
 
@@ -891,7 +895,7 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_signal(
     if let Some(n) = g.get_mut(id) {
         let at = n.value.as_mut_ptr();
         // SAFETY: the cell holds one whole value of that type.
-        unsafe { hold(glue, at) };
+        unsafe { walk(glue, at) };
     }
     id
 }
@@ -912,14 +916,24 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_read(
     // SAFETY: forwarded to the caller's promise.
     unsafe {
         read_into(id, stride, out);
-        hold(glue, out);
+        walk(glue, out);
     }
 }
 
-/// `Headless.write(id, value)`.
+/// `Headless.write(id, value)` — the new bytes retained, and the old ones
+/// released.
+///
+/// The release is what keeps a cell from growing a reference per write. The
+/// old bytes are copied out **before** the write, because the write is what
+/// destroys them, and released **after** it, because a watcher the write woke
+/// is entitled to see the new value first.
+///
+/// Identical bytes are not a change, so a write that stored nothing takes no
+/// reference and gives none back.
 ///
 /// # Safety
-/// As [`buri_rt_ui_testing_headless_signal`].
+/// As [`buri_rt_ui_testing_headless_signal`]; `drop` is the release glue for
+/// that type or null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_ui_testing_headless_write(
     _self: i64,
@@ -927,17 +941,66 @@ pub unsafe extern "C" fn buri_rt_ui_testing_headless_write(
     value: *const u8,
     stride: usize,
     glue: Retain,
+    drop: Release,
 ) {
+    let mut old = {
+        let g = lock();
+        g.get(id).map(|n| n.value.clone()).unwrap_or_default()
+    };
     // SAFETY: forwarded to the caller's promise.
     let changed = unsafe { write_changed(id, value, stride) };
     if !changed {
         return;
     }
-    let mut g = lock();
-    if let Some(n) = g.get_mut(id) {
-        let at = n.value.as_mut_ptr();
-        // SAFETY: the cell holds one whole value of that type.
-        unsafe { hold(glue, at) };
+    {
+        let mut g = lock();
+        if let Some(n) = g.get_mut(id) {
+            let at = n.value.as_mut_ptr();
+            // SAFETY: the cell holds one whole value of that type.
+            unsafe { walk(glue, at) };
+        }
+    }
+    if !old.is_empty() {
+        // SAFETY: `old` is the copy of a whole value of that type the cell held
+        // until the write above, and the graph no longer names it.
+        unsafe { walk(drop, old.as_mut_ptr()) };
+    }
+}
+
+/// `ui/testing`'s `observer()` — the handle an `Observer` carries.
+///
+/// [`buri_rt_ui_testing_headless`]'s twin, and the same number: both are
+/// windows onto the one graph the runtime holds, so there is nothing per
+/// handle to name.
+///
+/// # Safety
+/// As [`buri_rt_ui_testing_headless`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_observer(out: *mut i64) {
+    // SAFETY: the caller promises a writable, aligned destination.
+    unsafe { out.write(0) };
+}
+
+/// `Observer.read(id)` — a read from outside every computation.
+///
+/// The same read [`buri_rt_ui_testing_headless_read`] does, and it subscribes
+/// nothing for the same reason it subscribes nothing there: the graph draws an
+/// edge from whatever is *running*, and nothing is.
+///
+/// # Safety
+/// As [`buri_rt_ui_testing_headless_read`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn buri_rt_ui_testing_observer_read(
+    _self: i64,
+    id: i64,
+    stride: usize,
+    glue: Retain,
+    out: *mut u8,
+) {
+    // SAFETY: forwarded to the caller's promise.
+    unsafe {
+        read_into(id, stride, out);
+        walk(glue, out);
     }
 }
 
@@ -956,7 +1019,7 @@ pub unsafe extern "C" fn buri_rt_ui_effect_scope_read(
     // SAFETY: forwarded to the caller's promise.
     unsafe {
         read_into(id, stride, out);
-        hold(glue, out);
+        walk(glue, out);
     }
 }
 

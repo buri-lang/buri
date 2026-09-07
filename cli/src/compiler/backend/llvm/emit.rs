@@ -2113,6 +2113,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     match mode {
                         runtime::Arg::Stride => argv
                             .push(self.ctx.i64_type().const_int(u64::from(stride), false).into()),
+                        runtime::Arg::Release => {
+                            let glue = glue_ty
+                                .and_then(|t| self.release_glue(&t))
+                                .map(function_pointer)
+                                .unwrap_or_else(|| self.ptr_ty().const_null());
+                            argv.push(glue.into());
+                        }
                         _ => {
                             let glue = glue_ty
                                 .and_then(|t| self.retain_glue(&t))
@@ -2138,6 +2145,13 @@ impl<'ctx, 'a> Unit<'ctx, 'a> {
                     runtime::Arg::Stride => {
                         let stride = self.reprs.of_ty(&elem).layout.stride;
                         argv.push(self.ctx.i64_type().const_int(u64::from(stride), false).into());
+                    }
+                    runtime::Arg::Release => {
+                        let glue = self
+                            .release_glue(&elem)
+                            .map(function_pointer)
+                            .unwrap_or_else(|| self.ptr_ty().const_null());
+                        argv.push(glue.into());
                     }
                     _ => {
                         let glue = self

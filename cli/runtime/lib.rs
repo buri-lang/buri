@@ -145,6 +145,14 @@
 //!    ([`list`]'s header). A bare `T` — one with no leaf list a C signature
 //!    could name — goes by address, at that same stride.
 //!
+//!    An entry that **keeps** what it was given takes a third word, the
+//!    per-value **release** function, and calls it when the store ends. One
+//!    entry does: `ui/effect`'s `write`, where a cell holds the bytes it was
+//!    written until the next write replaces them
+//!    (`backend/runtime_table.rs`'s `Extra::Owned`). Nothing in `core/list`
+//!    holds a value past the call it was made in, so nothing there has a
+//!    reference to give back.
+//!
 //! 5. **A closure parameter arrives as an entry thunk and an opaque state.**
 //!    Rule 4 answers "the runtime cannot name `T`" for a value; this answers it
 //!    for a *call*. Four words: a `void(state, index, in, out)` the backend

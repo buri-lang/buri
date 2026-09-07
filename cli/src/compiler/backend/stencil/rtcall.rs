@@ -223,14 +223,14 @@ impl Jit<'_> {
             }
         }
 
-        if entry.extra == Extra::Element {
+        if matches!(entry.extra, Extra::Element | Extra::Owned) {
             // The pair, from the `[T]` this walks — or, where the row names no
             // list at all, from the bare `T` it names instead
             // ([`Self::bare_carrier`]).
-            let (stride, glue) = match self.element_ty(prog, dest.map(|d| d.1), args) {
+            let (stride, carried) = match self.element_ty(prog, dest.map(|d| d.1), args) {
                 Some(elem) => {
                     let stride = u64::from(self.layouts_of(elem.clone()).stride.max(1));
-                    (stride, self.element_glue(elem))
+                    (stride, Some(elem))
                 }
                 None => {
                     let bare = entry
@@ -248,9 +248,20 @@ impl Jit<'_> {
             // that increfs whatever counted pointers one element holds, and a
             // **null** pointer for an element type that holds none — which is
             // the common case and what the runtime tests for.
+            let glue = carried.clone().and_then(|ty| self.element_glue(ty));
             match glue {
                 Some(name) => ints.push(Src::Sym(name)),
                 None => ints.push(Src::Imm(0)),
+            }
+            // And, where the runtime *keeps* what it was given, the release
+            // after it ([`Extra::Owned`]): the same walk with a decref where
+            // the retain has an incref, which is the one `emit.rs` already
+            // emits for a value going out of scope.
+            if entry.extra == Extra::Owned {
+                match carried.and_then(|ty| self.value_release(ty)) {
+                    Some(name) => ints.push(Src::Sym(name)),
+                    None => ints.push(Src::Imm(0)),
+                }
             }
         }
 
@@ -686,6 +697,17 @@ impl Jit<'_> {
             .then(|| self.helper(super::glue::Helper::Walk { ty: elem, retain: true }))
     }
 
+    /// [`Self::element_glue`]'s mirror: the release, for a value the runtime
+    /// stores and later writes over ([`Extra::Owned`]).
+    ///
+    /// The same walk `emit.rs` emits for a value going out of scope. It is
+    /// reached from here because the runtime is the side that knows *when* a
+    /// store ends and this is the side that knows *what* is in it.
+    fn value_release(&mut self, ty: Ty) -> Option<String> {
+        self.rc_counted(&ty)
+            .then(|| self.helper(super::glue::Helper::Walk { ty, retain: false }))
+    }
+
     /// One argument into its place in the scratch area.
     pub(crate) fn marshal(&mut self, at: u32, src: &Src) {
         match src.clone() {
@@ -886,17 +908,18 @@ impl Jit<'_> {
     /// the result, and neither has a list anywhere for [`Self::element_ty`] to
     /// find. What the runtime needs is the same pair either way — how many
     /// bytes one value is, and how to take a reference on what it holds — so
-    /// this answers the pair rather than the type.
+    /// this answers the width and the type behind it, and the two glue
+    /// functions are read off that type.
     ///
     /// A scalar has no `Ty` to ask, because the IR keeps one only for an
     /// aggregate. It needs none: its width is its `ir::Type`, and a scalar
     /// holds no counted pointer, so the glue is null.
-    fn bare_carrier(&mut self, prog: &ir::Program, t: ir::Type) -> (u64, Option<String>) {
+    fn bare_carrier(&mut self, prog: &ir::Program, t: ir::Type) -> (u64, Option<Ty>) {
         match t {
             ir::Type::Agg(id) => {
                 let ty = prog.type_info(id).ty.clone();
                 let stride = u64::from(self.layouts_of(ty.clone()).stride.max(1));
-                (stride, self.element_glue(ty))
+                (stride, Some(ty))
             }
             ir::Type::Unit => (1, None),
             ir::Type::I1 | ir::Type::I8 => (1, None),

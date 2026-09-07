@@ -1082,6 +1082,87 @@ export fn main(): Result<(), Str> {
     assert_eq!(live, 0, "{total} blocks allocated and {live} still live at exit");
 }
 
+/// **Writing a reactive cell over and over leaks nothing**, which is the half
+/// of the graph's ABI that a value assertion cannot see.
+///
+/// A cell keeps the bytes it was written until the next write replaces them,
+/// so the runtime takes a reference on what it stores — and for as long as
+/// that was all it did, every write after the first left a block nothing could
+/// free. Nothing failed: the values were right, the tests passed, and the
+/// binary grew a `Str` per write.
+///
+/// `runtime_table.rs`'s `Extra::Owned` is the answer — a per-value **release**
+/// beside the retain, which the backend generates and the write calls on the
+/// bytes it just replaced — and this is the assertion that it is connected.
+/// **Two scales rather than one**, exactly as
+/// `interpolating_in_a_loop_leaks_nothing` uses two: a constant number of live
+/// blocks is a program that holds what it means to hold, and a count that
+/// grows with the number of writes is a leak per write. A single run could not
+/// tell the two apart, because a signal that is still alive at exit is
+/// *supposed* to hold one value.
+///
+/// A `test` block rather than a `main`, because `ui/testing` is test-only
+/// (SPEC rule 35), and the probe is linked beside the test binary the same way
+/// it is linked beside a program.
+#[test]
+fn writing_a_reactive_cell_leaks_nothing() {
+    if !supported() {
+        return;
+    }
+    let source = |writes: usize| {
+        let mut body = String::new();
+        for i in 0..writes {
+            body.push_str(&format!(
+                "    let _ = s.set(ctx, str.format(ctx, \"value ${{{i}}}\"));\n"
+            ));
+        }
+        format!(
+            r#"
+from "core/alloc" import * as alloc;
+from "core/effect" import {{ Alloc }};
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+from "ui/effect" import {{ Ui, Watch }};
+from "ui/signal" import {{ signal }};
+from "ui/testing" import {{ headless, observer }};
+
+test "a cell written many times" {{
+    let ctx = context {{
+        Alloc: alloc.generalPurpose(),
+        Ui: headless(),
+        Watch: observer(),
+    }};
+    let s = signal(ctx, str.format(ctx, "value ${{0}}"));
+{body}    assert.eq(s.get(ctx), str.format(ctx, "value ${{{last}}}"));
+}}
+"#,
+            body = body,
+            last = writes.saturating_sub(1)
+        )
+    };
+
+    let run = |name: &str, writes: usize| {
+        let binary = build_tests_with(name, &source(writes), Some(ALLOC_PROBE));
+        let out = Command::new(&binary).env("BURI_TEST_FROM", "0").output().unwrap();
+        assert_eq!(
+            out.status.code(),
+            Some(0),
+            "the block did not pass:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        probed(&String::from_utf8_lossy(&out.stderr))
+    };
+
+    let (total_few, live_few) = run("cell-writes-few", 20);
+    let (_, live_many) = run("cell-writes-many", 200);
+    assert!(total_few > 20, "{total_few} blocks: the program allocated nothing to leak");
+    assert_eq!(
+        live_few, live_many,
+        "twenty writes left {live_few} blocks live and two hundred left {live_many}: the cell \
+         keeps a reference per write"
+    );
+}
+
 /// **A program full of scopes leaks nothing**, which is the leak half of G5.
 ///
 /// A scope's blocks are served out of its own `mmap`s and their `free` is a
@@ -3331,6 +3412,13 @@ fn rows_naming(listing: &str, symbol: &str) -> String {
 
 /// A `.buri` snippet with `test` blocks, compiled as a test binary and linked.
 fn build_tests(name: &str, source: &str) -> PathBuf {
+    build_tests_with(name, source, None)
+}
+
+/// [`build_tests`], with a C probe linked beside it — [`build_with`]'s second
+/// argument, for the suites that are written as `test` blocks because what
+/// they drive is test-only.
+fn build_tests_with(name: &str, source: &str, probe: Option<&str>) -> PathBuf {
     let mut map = SourceMap::new();
     let analysis = driver::analyze_snippet(&mut map, "main", source, Role::TestSource);
     assert!(
@@ -3357,6 +3445,25 @@ fn build_tests(name: &str, source: &str) -> PathBuf {
         let at = dir.join(&unit.name);
         std::fs::write(&at, &unit.bytes).unwrap();
         objects.push(at);
+    }
+    if let Some(text) = probe {
+        let c = dir.join("probe.c");
+        std::fs::write(&c, text).unwrap();
+        let o = dir.join("probe.o");
+        let built = shared::product_cc()
+            .arg("-c")
+            .args(shared::product_compile_args())
+            .arg(&c)
+            .arg("-o")
+            .arg(&o)
+            .output()
+            .unwrap();
+        assert!(
+            built.status.success(),
+            "the probe did not compile:\n{}",
+            String::from_utf8_lossy(&built.stderr)
+        );
+        objects.push(o);
     }
     let binary = dir.join("program");
     // `build/link.rs`'s platform flags and its driver, for `build_with`'s
