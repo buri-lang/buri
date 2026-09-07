@@ -3404,6 +3404,127 @@ export fn main(): Result<(), Str> {
     );
 }
 
+/// **The edges of a scope, on every backend**: a body that gives up, a scope
+/// inside a scope, and an actor whose step spawns.
+///
+/// The row above says a scope waits for what was spawned into it. These are the
+/// three shapes around that claim which a program actually writes, and none of
+/// them is a timing:
+///
+///  * a body that answers `.Err` is still a body, so the scope waits for its
+///    tasks and then hands the error back;
+///  * an inner scope closes before the outer one, so its task has finished
+///    before the outer body's next line;
+///  * a `Scope` fits in a message, so an actor's step can start background work
+///    — and the spawn lands in the drain the *sender* is inside, which is why
+///    the job runs after the body rather than during the step.
+///
+/// `cli/tests/conformance/lib/tasks/test/background.buri` is the same claims as
+/// a corpus, and its native run is the stencil backend alone.
+#[test]
+fn the_edges_of_a_scope_agree_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "tasks.scope edges",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Stepped };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/tasks" import * as tasks;
+from "core/tasks" import { Scope };
+
+enum Job {
+  Run(Scope),
+}
+
+enum Ran {
+  Started(Int),
+}
+
+/// An actor that spawns rather than working. A `Scope` holds no context, so it
+/// fits in a message the way an address fits in a state.
+fn foreman<C: Alloc + Stdout + Tasks>(): Actor<C, Int, Job, Ran> {
+  Actor {
+    state: 0,
+    step: fn(c, started, message) => {
+      match (message) {
+        .Run(here) => {
+          let _ = tasks.spawn(c, here, fn(c2) => {
+            let _ = io.println(c2, "the job ran").ignore();
+            ()
+          });
+          Stepped { state: started + 1, answer: .Started(started + 1) }
+        },
+      }
+    },
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+
+  // A body that gives up. The scope has no opinion about that and is still what
+  // waits, so the task spawned before the error runs anyway.
+  let refused: Result<Int, Str> = tasks.scope(ctx, fn(c, here) => {
+    let _ = tasks.spawn(c, here, fn(c2) => {
+      let _ = io.println(c2, "the task still ran").ignore();
+      ()
+    });
+    .Err("the body gave up")
+  });
+  let said = match (refused) {
+    .Ok(_n) => "ran",
+    .Err(why) => why,
+  };
+  let _ = io.println(ctx, "body ${said}").ignore();
+
+  // A scope inside a scope waits for its own tasks and for nobody else's.
+  let _ = tasks.scope(ctx, fn(c, outer) => {
+    let _ = tasks.spawn(c, outer, fn(c2) => {
+      let _ = io.println(c2, "outer task").ignore();
+      ()
+    });
+    let _ = tasks.scope(c, fn(d, inner) => {
+      let _ = tasks.spawn(d, inner, fn(d2) => {
+        let _ = io.println(d2, "inner task").ignore();
+        ()
+      });
+      io.println(d, "inner body").ignore()
+    });
+    io.println(c, "outer body").ignore()
+  });
+
+  // A step that spawns. The body is still running, so the scope is still its
+  // own drain and neither job starts until the body has finished.
+  let boss = actor.start(ctx, foreman());
+  let started = tasks.scope(ctx, fn(c, here) => {
+    let first = match (boss.sendMessage(c, .Run(here))) {
+      .Ok(.Started(n)) => n,
+      _gone => -1,
+    };
+    let second = match (boss.sendMessage(c, .Run(here))) {
+      .Ok(.Started(n)) => n,
+      _gone => -1,
+    };
+    let _ = io.println(c, "asked twice").ignore();
+    first + second
+  });
+  let _ = io.println(ctx, "started ${started}").ignore();
+  let _ = boss.stop(ctx).ignore();
+  .Ok(())
+}
+"#,
+        "the task still ran\nbody the body gave up\ninner body\ninner task\nouter body\n\
+         outer task\nasked twice\nthe job ran\nthe job ran\nstarted 3\n",
+    );
+}
+
 /// **A timer is a task that sleeps**, and the sleep is a wait on every backend.
 ///
 /// The row above proves the order; this one proves the waiting. `core/tasks`
@@ -3968,6 +4089,324 @@ export fn main(): Result<(), Str> {
 }
 "#,
         "reentered 0\ncounted 1\nfanned 0\nfilled 64\n",
+    );
+}
+
+/// **What a message, a state and an answer may carry, on every backend.**
+///
+/// The rows above drive the protocol with `Int` states and `Int` answers, which
+/// is the one shape where nothing about the crossing is interesting. This one
+/// carries the shapes that are: a block whose element occupies **no** bytes, a
+/// list, text outside the basic plane, a struct two deep, and one actor's
+/// address as another actor's state.
+///
+/// Each backend generates the release and the copy walk for the concrete `T`
+/// itself, and the nine runtime entries are type-erased — the type argument
+/// written at the call is the only thing that says what the block holds — so a
+/// wrong walk on one pipeline is a wrong answer here rather than a difference
+/// nobody sees. `agree` fails a row that leaks, which is the other half: four
+/// blocks cross per send and every one of them is the runtime's between two
+/// calls.
+///
+/// `cli/tests/conformance/lib/actor/test/payloads.buri` is the same claims as a
+/// corpus, and its native run is the stencil backend alone.
+#[test]
+fn what_an_actors_messages_carry_agrees_on_every_backend() {
+    rows_or_skip!();
+    agree(
+        "actor payloads",
+        r#"
+from "core/actor" import * as actor;
+from "core/actor" import { Actor, Address, Stepped, Stopped };
+from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/str" import * as str;
+
+// --- nothing at all ---------------------------------------------------------
+
+enum Ping {
+  Ping,
+}
+
+fn silent<C: Alloc + Stdout + Tasks>(): Actor<C, (), Ping, ()> {
+  Actor {
+    state: (),
+    step: fn(c, held, message) => Stepped { state: (), answer: () },
+    onStop: .Some(fn(c, last) => io.println(c, "quiet").ignore()),
+  }
+}
+
+fn answered(r: Result<(), Stopped>): Str {
+  match (r) {
+    .Ok(_ok) => "yes",
+    .Err(_e) => "no",
+  }
+}
+
+// --- a list, and text nobody can spell in ASCII ------------------------------
+
+enum Bag {
+  Fill([Int]),
+  Push(Int),
+  Drain,
+}
+
+enum Bagged {
+  Kept(Int),
+  Held([Int]),
+}
+
+fn bag<C: Alloc + Tasks>(): Actor<C, [Int], Bag, Bagged> {
+  Actor {
+    state: [],
+    step: fn(c, held, message) => {
+      match (message) {
+        .Fill(next) => Stepped { state: next, answer: .Kept(next.len()) },
+        .Push(n) => {
+          let grown = held.push(c, n);
+          Stepped { state: grown, answer: .Kept(grown.len()) }
+        },
+        .Drain => Stepped { state: [], answer: .Held(held) },
+      }
+    },
+  }
+}
+
+fn drained(r: Result<Bagged, Stopped>): Int {
+  match (r) {
+    .Ok(.Held(xs)) => xs.len(),
+    .Ok(.Kept(n)) => n,
+    .Err(_e) => -1,
+  }
+}
+
+enum Say {
+  Say(Str),
+  Read,
+}
+
+enum Said {
+  Scalars(Int),
+  Text(Str),
+}
+
+fn scribe<C: Alloc + Tasks>(initial: Str): Actor<C, Str, Say, Said> {
+  Actor {
+    state: initial,
+    step: fn(c, held, message) => {
+      match (message) {
+        .Say(next) => Stepped { state: next, answer: .Scalars(next.len()) },
+        .Read => Stepped { state: held, answer: .Text(held) },
+      }
+    },
+  }
+}
+
+fn told(r: Result<Said, Stopped>): Str {
+  match (r) {
+    .Ok(.Text(s)) => s,
+    .Ok(.Scalars(n)) => "read back a count",
+    .Err(_e) => "gone",
+  }
+}
+
+fn counted(r: Result<Said, Stopped>): Int {
+  match (r) {
+    .Ok(.Scalars(n)) => n,
+    .Ok(.Text(s)) => s.len(),
+    .Err(_e) => -1,
+  }
+}
+
+// --- a struct inside a struct ------------------------------------------------
+
+struct Label {
+  name: Str,
+  tags: [Str],
+}
+
+struct Record {
+  label: Label,
+  counts: [Int],
+  note: Option<Str>,
+}
+
+enum Filing {
+  File(Record),
+  Look,
+}
+
+enum Filed {
+  Was(Record),
+}
+
+fn cabinet<C: Alloc + Tasks>(initial: Record): Actor<C, Record, Filing, Filed> {
+  Actor {
+    state: initial,
+    step: fn(c, held, message) => {
+      match (message) {
+        .File(next) => Stepped { state: next, answer: .Was(held) },
+        .Look => Stepped { state: held, answer: .Was(held) },
+      }
+    },
+  }
+}
+
+fn record(name: Str, note: Option<Str>): Record {
+  Record {
+    label: Label { name: name, tags: ["one", "two"] },
+    counts: [7, 8, 9],
+    note: note,
+  }
+}
+
+fn shown<C: Alloc>(ctx: C, r: Result<Filed, Stopped>): Str {
+  match (r) {
+    .Ok(.Was(rec)) => {
+      let note = match (rec.note) {
+        .None => "-",
+        .Some(text) => text,
+      };
+      str.format(
+        ctx,
+        "${rec.label.name}/${rec.label.tags.len()}/${rec.counts.len()}/${note}",
+      )
+    },
+    .Err(_e) => "gone",
+  }
+}
+
+// --- one actor's address as another actor's state ----------------------------
+
+enum Tally {
+  Increment,
+  Get,
+}
+
+enum Tallied {
+  Done,
+  Count(Int),
+}
+
+fn tally<C: Alloc + Tasks>(): Actor<C, Int, Tally, Tallied> {
+  Actor {
+    state: 0,
+    step: fn(c, count, message) => {
+      match (message) {
+        .Increment => Stepped { state: count + 1, answer: .Done },
+        .Get => Stepped { state: count, answer: .Count(count) },
+      }
+    },
+  }
+}
+
+enum Desk {
+  Bump,
+  Total,
+}
+
+enum Desked {
+  Noted,
+  Total(Int),
+  Gone,
+}
+
+fn desk<C: Alloc + Tasks>(
+  behind: Address<C, Int, Tally, Tallied>,
+): Actor<C, Address<C, Int, Tally, Tallied>, Desk, Desked> {
+  Actor {
+    state: behind,
+    step: fn(c, back, message) => {
+      match (message) {
+        .Bump => {
+          match (back.sendMessage(c, .Increment)) {
+            .Ok(_done) => Stepped { state: back, answer: .Noted },
+            .Err(_gone) => Stepped { state: back, answer: .Gone },
+          }
+        },
+        .Total => {
+          match (back.sendMessage(c, .Get)) {
+            .Ok(.Count(n)) => Stepped { state: back, answer: .Total(n) },
+            .Ok(_other) => Stepped { state: back, answer: .Gone },
+            .Err(_gone) => Stepped { state: back, answer: .Gone },
+          }
+        },
+      }
+    },
+  }
+}
+
+fn front(r: Result<Desked, Stopped>): Str {
+  match (r) {
+    .Ok(.Total(_n)) => "a total",
+    .Ok(.Noted) => "noted",
+    .Ok(.Gone) => "gone",
+    .Err(_e) => "stopped",
+  }
+}
+
+fn totalled(r: Result<Desked, Stopped>): Int {
+  match (r) {
+    .Ok(.Total(n)) => n,
+    .Ok(_other) => -1,
+    .Err(_e) => -1,
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context {
+    Alloc: host.alloc,
+    Stdout: host.stdout,
+    Tasks: host.tasks,
+  };
+
+  // A state and an answer that occupy no bytes at all, which is the only way a
+  // program reaches `Carried`'s pad.
+  let quiet = actor.start(ctx, silent());
+  let _ = io.println(ctx, "unit ${answered(quiet.sendMessage(ctx, .Ping))}").ignore();
+  let _ = quiet.stop(ctx).ignore();
+
+  // A list in the message, in the state, and in the answer.
+  let held = actor.start(ctx, bag());
+  let _ = held.sendMessage(ctx, .Fill([1, 2, 3])).ignore();
+  let _ = held.sendMessage(ctx, .Push(4)).ignore();
+  let _ = io.println(ctx, "list ${drained(held.sendMessage(ctx, .Drain))}").ignore();
+  let _ = io.println(ctx, "empty ${drained(held.sendMessage(ctx, .Drain))}").ignore();
+  let _ = held.stop(ctx).ignore();
+
+  // Text in four scripts, one of them outside the basic plane, and the empty
+  // string at the other end of the range.
+  let text = actor.start(ctx, scribe("mix日😀éd"));
+  let _ = io.println(ctx, "text ${told(text.sendMessage(ctx, .Read))}").ignore();
+  let wider = text.sendMessage(ctx, .Say("héllo wörld 🌍"));
+  let _ = io.println(ctx, "wide ${counted(wider)}").ignore();
+  let _ = io.println(ctx, "back ${told(text.sendMessage(ctx, .Read))}").ignore();
+  let _ = io.println(ctx, "none ${counted(text.sendMessage(ctx, .Say("")))}").ignore();
+  let _ = text.stop(ctx).ignore();
+
+  // A struct two deep, with a list at each level and an `Option` beside them.
+  let filed = actor.start(ctx, cabinet(record("first", .None)));
+  let put = filed.sendMessage(ctx, .File(record("second", .Some("kept"))));
+  let _ = io.println(ctx, "was ${shown(ctx, put)}").ignore();
+  let _ = io.println(ctx, "now ${shown(ctx, filed.sendMessage(ctx, .Look))}").ignore();
+  let _ = filed.stop(ctx).ignore();
+
+  // An address is inert, so it is another actor's whole state. The last send
+  // is made from inside a step, to an actor that has stopped.
+  let counted = actor.start(ctx, tally());
+  let clerk = actor.start(ctx, desk(counted));
+  let _ = clerk.sendMessage(ctx, .Bump).ignore();
+  let _ = clerk.sendMessage(ctx, .Bump).ignore();
+  let _ = io.println(ctx, "desk ${totalled(clerk.sendMessage(ctx, .Total))}").ignore();
+  let _ = counted.stop(ctx).ignore();
+  let _ = io.println(ctx, "behind ${front(clerk.sendMessage(ctx, .Bump))}").ignore();
+  let _ = clerk.stop(ctx).ignore();
+  .Ok(())
+}
+"#,
+        "unit yes\nquiet\nlist 4\nempty 0\ntext mix日😀éd\nwide 13\nback héllo wörld 🌍\n\
+         none 0\nwas first/2/3/-\nnow second/2/3/kept\ndesk 2\nbehind gone\n",
     );
 }
 
