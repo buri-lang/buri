@@ -874,7 +874,20 @@ impl<'a> Loader<'a> {
 
         // A path containing a `testing` segment is importable only from a test
         // source — or from another test-only module.
-        if is_test_only_path(path) && !role.is_test_context() {
+        //
+        // The importer's own path is asked as well as its role, because the two
+        // answer for different modules. A repository's `testing/` source is
+        // `Role::TestOnly` and the role settles it; a standard-library one is
+        // `Std` or `Platform`, since that is what lets it declare an operation
+        // the runtime supplies, and its path is the only thing that says it is
+        // test-only. `core/testing/check` reports through `core/testing/assert`
+        // and is the module that needed this. It grants nothing new: a module
+        // with a `testing` segment is already out of reach of a library source,
+        // so what it may import is a question about test sources only.
+        if is_test_only_path(path)
+            && !role.is_test_context()
+            && !is_test_only_path(importer_path)
+        {
             // The second note names the importer, which the page cannot.
             self.diags.push(
                 Diagnostic::templated("test-only-import", span)

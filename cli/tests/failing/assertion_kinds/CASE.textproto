@@ -1,11 +1,14 @@
 # One failing test per function `core/testing/assert` exports, so that the
-# message each produces is recorded rather than assumed. The seventeen of them
+# message each produces is recorded rather than assumed. The twenty-two of them
 # take three shapes:
 #
-#   * `eq`, `notEq`, `contains`, `isEmpty`, `len`, `gt`, `ge`, `lt`, `le` and
-#     `approxEq` render both sides — which is what the widened set is *for*:
-#     `isTrue(xs.contains(x))` printed "expected true, got false" and named
-#     neither the list nor the element;
+#   * `eq`, `eqWith`, `notEq`, `contains`, `containsText`, `startsWith`,
+#     `isEmpty`, `len`, `unordered`, `gt`, `ge`, `lt`, `le`, `approxEq` and
+#     `approxEqRelative` render both sides — which is what the widened set is
+#     *for*: `isTrue(xs.contains(x))` printed "expected true, got false" and
+#     named neither the list nor the element. `eqWith` is the one whose values
+#     have no `Eq` between them at all, and `unordered` the one that reports the
+#     sorted pair rather than the pair it was handed;
 #   * `isTrue`, `isFalse`, `ok`, `err`, `some` and `none` render the value they
 #     got against a constant — `true`, `.Ok`, `.Some`;
 #   * `notEmpty` is a sentence with no diff, because the only value it can fail

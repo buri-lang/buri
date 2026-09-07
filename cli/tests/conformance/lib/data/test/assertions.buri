@@ -12,6 +12,8 @@
 from "core/effect" import { Alloc };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
+from "core/map" import * as map;
+from "core/set" import * as set;
 from "core/testing/assert" import * as assert;
 
 // --- contains ---------------------------------------------------------------------
@@ -84,4 +86,103 @@ test "approxEq holds within the tolerance, in both directions" {
     assert.approxEq(1.25, 1.0, 0.25);
     assert.approxEq(1.0, 1.0, 0.0);
     assert.eq(1.0, 1.0);
+}
+
+// --- approxEqRelative -----------------------------------------------------------------
+
+test "approxEqRelative scales the tolerance with the larger value" {
+    // The same four significant figures at either size.
+    assert.approxEqRelative(1000000.0, 1000050.0, 0.0001);
+    assert.approxEqRelative(1.0, 1.00005, 0.0001);
+    assert.approxEqRelative(1.00005, 1.0, 0.0001);
+    assert.eq(1.0, 1.0);
+}
+
+test "approxEqRelative holds at zero, at equality and across signs" {
+    assert.approxEqRelative(0.0, 0.0, 0.0);
+    assert.approxEqRelative(2.5, 2.5, 0.0);
+    assert.approxEqRelative(0.0 - 100.0, 0.0 - 100.01, 0.001);
+    assert.eq(2.5, 2.5);
+}
+
+// --- eqWith ---------------------------------------------------------------------------
+
+test "eqWith compares two maps built in different orders" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let one = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
+    let two = map.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
+    assert.eqWith(ctx, one, two, fn(c, a, b) => a.equals(c, b));
+    assert.eq(one.len(), 2);
+}
+
+test "eqWith holds for two empty maps and for two empty sets" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.eqWith(ctx, map.empty<Str, Int>(), map.empty<Str, Int>(), fn(c, a, b) => {
+        a.equals(c, b)
+    });
+    assert.eqWith(ctx, set.empty<Int>(), set.empty<Int>(), fn(c, a, b) => {
+        a.equals(c, b)
+    });
+    assert.eq(map.empty<Str, Int>().len(), 0);
+}
+
+test "eqWith takes any comparison, not only a collection's equals" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // Same last digit, different numbers: the comparison decides what equal is.
+    assert.eqWith(ctx, 13, 33, fn(_c, a, b) => a % 10 == b % 10);
+    assert.eq(13 % 10, 3);
+}
+
+// --- containsText ----------------------------------------------------------------------
+
+test "containsText finds the needle at the start, the end and the middle" {
+    assert.containsText("hello, world", "hello");
+    assert.containsText("hello, world", ", w");
+    assert.containsText("hello, world", "world");
+    assert.eq("hello, world".len(), 12);
+}
+
+test "containsText holds for the empty needle and for the whole string" {
+    assert.containsText("abc", "");
+    assert.containsText("abc", "abc");
+    assert.containsText("", "");
+    assert.eq("".len(), 0);
+}
+
+// --- startsWith ------------------------------------------------------------------------
+
+test "startsWith holds for a prefix, the whole string and the empty one" {
+    assert.startsWith("main.buri:3: no such name", "main.buri:");
+    assert.startsWith("abc", "abc");
+    assert.startsWith("abc", "");
+    assert.startsWith("", "");
+    assert.eq("abc".len(), 3);
+}
+
+// --- unordered -------------------------------------------------------------------------
+
+test "unordered holds however the two lists are arranged" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.unordered(ctx, [3, 1, 2], [1, 2, 3]);
+    assert.unordered(ctx, [1, 2, 3], [1, 2, 3]);
+    assert.unordered(ctx, [3, 2, 1], [1, 2, 3]);
+    assert.eq([3, 1, 2].len(), 3);
+}
+
+test "unordered counts duplicates and holds for two empty lists" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    assert.unordered(ctx, [1, 1, 2], [2, 1, 1]);
+    assert.unordered(ctx, list.empty<Int>(), list.empty<Int>());
+    assert.unordered(ctx, ["b", "a"], ["a", "b"]);
+    assert.eq([1, 1, 2].len(), 3);
 }
