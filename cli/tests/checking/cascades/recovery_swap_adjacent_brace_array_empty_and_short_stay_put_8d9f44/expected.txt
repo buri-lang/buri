@@ -1,0 +1,17 @@
+error: expected a pattern, found `=` [unexpected-token]
+ --> main.buri:3:7
+  |
+3 |   let = b [1, 2, 3];
+  |       ^
+  |
+  = expected: a pattern
+  = actual: `=`
+  = fix: write a pattern: a binding, a literal, `.Variant`, or `_`
+error: there is nothing named `b` in scope [unresolved-name]
+ --> main.buri:4:3
+  |
+4 |   b
+  |   ^
+  |
+  = did you mean `a`?
+  = fix: correct the spelling, or declare it

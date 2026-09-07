@@ -1,0 +1,19 @@
+error: this variant payload pattern is missing its closing `)` [unclosed-delimiter]
+ --> main.buri:5:16
+  |
+5 |         .Some(n=> ) n,
+  |                ^^
+  |
+ --> main.buri:5:14
+  |
+5 |         .Some(n=> ) n,
+  |              ^ opened here
+  |
+  = fix: write `)` here
+error: a match arm is `pattern => expression` [missing-arrow]
+ --> main.buri:5:20
+  |
+5 |         .Some(n=> ) n,
+  |                    ^
+  |
+  = fix: write `=>` here

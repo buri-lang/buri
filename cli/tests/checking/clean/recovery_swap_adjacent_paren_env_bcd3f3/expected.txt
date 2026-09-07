@@ -1,7 +1,0 @@
-error: a tuple element ends with `,` [missing-separator]
-  --> main.buri:27:37
-   |
-27 |     assert.eq(env.all(ctx), [("HOME""/h" ,), ("LANG", "C"), ("PATH", "/bin")]);
-   |                                     ^
-   |
-   = fix: write `,` here

@@ -1,7 +1,0 @@
-error: a tuple element ends with `,` [missing-separator]
-  --> main.buri:41:39
-   |
-41 |         Env: testEnv().variables([("K" "one"), ("K", "two")]),
-   |                                       ^
-   |
-   = fix: write `,` here
