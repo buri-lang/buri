@@ -1506,6 +1506,13 @@ fn intrinsic_purity(name: &str) -> ir::Purity {
 /// different `Func` slots, and that difference is the whole point of asking
 /// the question here rather than at the signature.
 ///
+/// Two keys wait on **this program** rather than on the world —
+/// `Tasks.parallel` and the scheduler double beneath it — and they are here
+/// for the consequence rather than for the cause: the call does not return
+/// until a step has finished, and a step may itself sleep, dial a socket or
+/// ask an actor. A double that answered before its step had is the one place
+/// where a test could read less than the program did.
+///
 /// Everything absent is *not* suspending, so an omission is the direction that
 /// costs correctness rather than performance. That is why the whole
 /// `host.HostFs`/`host.HostFs` surface is in by prefix rather than
@@ -1544,6 +1551,13 @@ pub fn suspends(key: &str) -> bool {
                 // that is literally an `await`; on the natives it is what makes
                 // the caller's frame outlive a scheduling decision.
                 | "host.HostTasks.parallel"
+                // The double waits for the same reason, and it is the one
+                // `host_testing` key that does. It runs each step to
+                // completion before starting the next, so a step that sleeps,
+                // dials a socket or asks an actor makes the call outlive that
+                // wait — and a test whose spawned task waits reads what the
+                // task did rather than what it had got to.
+                | "host_testing.TestTasks.parallel"
                 // `core/actor`'s two waits, and they wait on the program's own
                 // actors for `Tasks.parallel`'s reason rather than on the
                 // world. `mailboxPush` waits for room in a full mailbox;
@@ -5867,6 +5881,10 @@ export fn main(): Result<(), Str> {
             // `core/actor`'s two, and they are the family's *only* two.
             "actor.mailboxPush",
             "actor.mailboxClose",
+            // The scheduler double, which is the one `host_testing` key that
+            // waits: it runs a step to completion, and a spawned task that
+            // sleeps or asks an actor waits inside one.
+            "host_testing.TestTasks.parallel",
         ] {
             assert!(suspends(key), "{key} blocks");
         }
