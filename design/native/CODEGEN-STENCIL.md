@@ -1317,16 +1317,14 @@ ships to is that machine. It is refused by name, and that refusal is a test.
 ## 11. Debug info and backtraces
 
 **No DWARF, and no `.buri_symbols` either.** §9 lists both as gaps rather than
-as decisions. This section is what a wave that closes them starts from, and it
-is the argument the removed backend's document carried before §13.
+as decisions. This section is what a wave that closes them starts from.
 
 Producing DWARF means building `.debug_*` sections by hand, and
 `rustc_codegen_cranelift/src/debuginfo/` is what that costs: a seven-file
-subsystem. A copy-and-patch emitter has a second problem the first backend did
-not. The instructions it copies are clang's, emitted for a C function that is
-not the Buri function, so a line table has to be synthesised from the stencil
-key and the IR rather than carried through the emission. That is a wave of its
-own, and it is not this one.
+subsystem. A copy-and-patch emitter has a second problem: the instructions it
+copies are clang's, emitted for a C function that is not the Buri function, so
+a line table has to be synthesised from the stencil key and the IR rather than
+carried through the emission.
 
 **No `.eh_frame` either, and nothing wants one.** The language has no
 exceptions — an abort is a write to stderr and `_exit`, not an unwind (SPEC
@@ -1336,16 +1334,14 @@ default it on, and the result is a `.eh_frame` the size of the code that
 nothing reads.
 
 **What was designed to replace both, and does not transfer unchanged.** The
-plan written for the removed backend was frame pointers plus a symbol table
-the compiler emits itself: a sorted `(address, name)` array in a
-`.buri_symbols` section, about eighty lines, giving an abort a stack trace
-with function names and line numbers waiting for DWARF. The symbol-table half
-is unchanged and still worth its eighty lines. The frame-pointer half is not.
-Generated code makes no use of the machine stack (§8), so what a walker
-follows is the Buri stack, and §2's frame records a return area, parameters
-and locals and **not its caller** — so the walk needs something the frame
-layout does not carry today. Naming that is the point of writing this down,
-rather than assuming the plan survived the backend it was written for.
+plan was frame pointers plus a symbol table the compiler emits itself: a
+sorted `(address, name)` array in a `.buri_symbols` section, about eighty
+lines, giving an abort a stack trace with function names and line numbers
+waiting for DWARF. The symbol-table half is still worth its eighty lines. The
+frame-pointer half is not: generated code makes no use of the machine stack
+(§8), so what a walker follows is the Buri stack, and §2's frame records a
+return area, parameters and locals and **not its caller** — so the walk needs
+something the frame layout does not carry today.
 
 The escape hatch when someone needs a real debugger is the JavaScript backend,
 which keeps names and structure (`generate.rs`), and `--release`, which will
@@ -1354,10 +1350,9 @@ get DWARF from LLVM for free when CODEGEN-LLVM.md §7 lands.
 ## 12. Linking, and what "incremental" honestly means
 
 **This section is not this backend's.** The link step is one step and both
-native backends reach it. It lives here because this is the backend inside the
-loop a developer waits on, and because the document it was written in is gone
-(§13). `build/link.rs` is the code, and it has never depended on which backend
-produced the objects — they are opaque bytes to it.
+native backends reach it; it lives here because this is the backend inside the
+loop a developer waits on. `build/link.rs` is the code, and it has never
+depended on which backend produced the objects — they are opaque bytes to it.
 
 ### 12.1 Neither mold nor lld does incremental linking
 
@@ -1368,25 +1363,22 @@ giving three reasons. The third settles it here:
 > It's not reproducible, so your binary isn't going to be the same as other
 > binaries even if you are compiling the same source tree.
 
-That directly contradicts this toolchain's central claim (`build.rs`). An
-incremental linker and `--check-reproducible` cannot both be right. The
-author's own conclusion is the plan: "I wanted to make full link as fast as
-possible, so that we don't have to think about how to work around the slowness
-of full link".
+An incremental linker and `--check-reproducible` (`build.rs`) cannot both be
+right. The author's own conclusion is the plan: "I wanted to make full link as
+fast as possible, so that we don't have to think about how to work around the
+slowness of full link".
 
 **LLD has none either**, and it is a documented non-goal; its design is "do
 less rather than do it efficiently", plus parallelism.
 
-Only three shipping incremental linkers are worth naming. MSVC's
-`/INCREMENTAL` pads code and inserts thunks, Microsoft says not to ship it,
-and *any object file added or removed* defeats it — a condition a
-monomorphizing compiler violates constantly. GNU gold's is unfinished,
-disables `.eh_frame_hdr`, and took about thirty seconds for a null incremental
-link of Chrome. Zig's in-place binary patcher is real and impressive, and its
-**Mach-O backend is still not done** (`ziglang/zig#21165`, unchecked as of
-2026-08-03). `wild`, the Rust linker designed around incremental linking, says
-in its own README that "the plan is to eventually make it incremental, however
-that isn't yet implemented".
+The shipping incremental linkers worth naming: MSVC's `/INCREMENTAL` pads code
+and inserts thunks, Microsoft says not to ship it, and *any object file added
+or removed* defeats it — a condition a monomorphizing compiler violates
+constantly. GNU gold's is unfinished, disables `.eh_frame_hdr`, and took about
+thirty seconds for a null incremental link of Chrome. Zig's in-place binary
+patcher is real and impressive, and its **Mach-O backend is still not done**
+(`ziglang/zig#21165`). `wild`, the Rust linker designed around incremental
+linking, says in its own README that it "isn't yet implemented".
 
 ### 12.2 So the granularity is re-compile, not re-link
 
@@ -1415,10 +1407,9 @@ linking issue has been open since 2016.
 
 The link is driven through the platform C compiler (`cc`, or `$CC`), never by
 invoking the linker directly. The driver is what knows where `crt1.o`, `libc`
-and `libSystem.tbd` live, and reimplementing that is reimplementing the part
-of a toolchain that changes with every OS release. It is also the same `cc`
-this backend's stencil library is compiled with (§3), so the one external tool
-the default toolchain needs is one tool rather than two.
+and `libSystem.tbd` live, and it is the same `cc` this backend's stencil
+library is compiled with (§3), so the default toolchain needs one external
+tool rather than two.
 
 **Linux**, in order: `mold`, `ld.lld`, the system default.
 
@@ -1438,13 +1429,12 @@ thing that differs between two machines comparing artifacts byte for byte
 
 mold is a drop-in for GNU ld and accepts its options. It goes first because it
 is 3-10x faster than lld on the benchmarks its README publishes, with the
-honest caveat that the advantage depends on core count: mold saturates every
-core and lld often does not, so on two cores the gap is much smaller.
+caveat that the advantage depends on core count: mold saturates every core and
+lld often does not, so on two cores the gap is much smaller.
 `--build-id=none` because a build id is a hash of content we are about to
-compare byte for byte, and one fewer thing in the way. `--gc-sections` is
-`-dead_strip`'s counterpart: relinking a CI job's own objects with and without
-it, debug information removed from both, measured 373 936 bytes
-against 673 440.
+compare byte for byte. `--gc-sections` is `-dead_strip`'s counterpart:
+relinking a CI job's own objects with and without it, debug information
+removed from both, measured 373 936 bytes against 673 440.
 
 Four of those flags are the libc's rather than the linker's, and each is the
 narrowest thing that would work:
@@ -1454,16 +1444,14 @@ narrowest thing that would work:
   driver that ignores it links glibc, and the artifact still runs *here*.
 - **`-B musl/lib -L musl/lib`** put the staged sysroot in front of the
   driver's own search path — `-B` for the crt objects, `-L` for `-lc` — and
-  nothing else points anywhere. **There is deliberately no `--sysroot`**, and
-  that is a measurement rather than an omission: it was the obvious flag, and
-  it makes the link *fail*. clang locates its GCC installation relative to the
+  nothing else points anywhere. **There is deliberately no `--sysroot`**: it
+  makes the link *fail*. clang locates its GCC installation relative to the
   sysroot, a staged directory has none, and the link ended at
   `mold: fatal: cannot open crtbeginS.o` — then, once those crt objects were
   baked too, at `mold: fatal: library not found: gcc`. The flag buys nothing
-  the two prefixes do not already buy, because a link reads no headers. Which
-  files a link needs, and in what order, stays the driver's business;
-  `-nostdlib` with a hand-assembled crt sequence was the alternative, and it
-  was rejected on exactly that.
+  the two prefixes do not, because a link reads no headers. Which files a link
+  needs, and in what order, stays the driver's business; `-nostdlib` with a
+  hand-assembled crt sequence was rejected on exactly that.
 - **`-static-pie`, not `-static`.** Both backends emit position-independent
   code, and musl ships the `rcrt1.o` that self-relocates a static PIE before
   `main`. The same flag serves debug and release: a *dynamic* musl executable
@@ -1529,11 +1517,9 @@ the link directory, so `.` strips the checkout's path out of the artifact.
 
 mold is **not** an option on macOS: it is ELF-only, has no `macho/` directory,
 and fails with "mold does not support macOS". The Mach-O fork, `sold`, was
-open-sourced in March 2024 and its repository **archived in November 2024**,
-with the author's own note recommending Apple's linker instead. `ld64.lld` is
-production-quality and actively maintained — the LLVM `lld/MachO` tree is
-under heavy current development — and remains the choice when hermeticity
-across machines matters more than matching the platform.
+**archived in November 2024**, with the author's own note recommending Apple's
+linker instead. `ld64.lld` remains the choice when hermeticity across machines
+matters more than matching the platform.
 
 The system linker is the default anyway because Apple's is what every macOS
 SDK assumption is built around, it closed most of the historical speed gap in
@@ -1550,8 +1536,7 @@ tests on the same emitter — which is why the harnesses now ask
 **Fallback.** With neither mold nor lld present, `cc` uses whatever the system
 provides and everything works, more slowly. There is **no** case in which the
 build fails for want of a fast linker, and no flag that has to be set to get a
-working build. That is the whole of the fallback story, and it is short
-because the design does not depend on the linker being any particular one.
+working build.
 
 ### 12.4 The manifest
 
@@ -1567,9 +1552,7 @@ main           8b2e01f4c7a9...  run
 The link step writes it and `--explain` reads it, printing one `codegen` line
 per unit in the existing format (`cache.rs`). It answers "which objects
 changed", and it is what makes §12.2's claim observable from outside — the
-standard the rest of this build system already holds itself to
-(`arguments.rs`: the build system's claims are about which actions run, and a
-claim nothing can observe is not one anybody can hold the toolchain to).
+standard the rest of this build system holds itself to (`arguments.rs`).
 
 ## 13. The backend this one replaced
 
@@ -1595,29 +1578,23 @@ it.
 1. **Parity was met and the gate was empty.** 997 of 997 native conformance
    tests through the real build system, the same six packages refused for the
    same three reasons, the same blocks live at exit on all nine measurable
-   packages (§9). The gate was written as correctness parity plus a
-   re-benchmark; both were answered, and what was left on the list was one
-   target rather than one behaviour.
+   packages (§9).
 2. **38 transitive crates to 0.** `cargo tree -p buri -e normal` was 39
    packages and is `buri` alone —
    `cranelift-{codegen,frontend,module,object,native}`, `regalloc2`, `gimli`,
    `object`, `target-lexicon` and their closure, over half of `Cargo.lock`.
-   The root `Cargo.toml` says the policy "used to be 'none at all', and native
-   code generation ends that". For the default toolchain it does not end it
-   any more: what this backend needs from outside is a host `cc`, which is a
-   platform interface and not a lockfile entry (BUILD-AND-WATCH.md §1.1).
+   What this backend needs from outside is a host `cc`, which is a platform
+   interface and not a lockfile entry (BUILD-AND-WATCH.md §1.1).
 3. **A clean release build in half the time.** 142.68 s to 73.94 s, median of
    three interleaved runs on the same tree, and the bench binary from 2 m 02 s
-   to 1 m 01 s. Measured 2026-08-29 on macOS/arm64, two builds into one target
-   directory. The *shipped binary* did not shrink with it — that is the first
-   bullet of what was accepted, below.
+   to 1 m 01 s. Measured 2026-08-29 on macOS/arm64. The *shipped binary* did
+   not shrink with it — that is the first bullet of what was accepted, below.
 4. **x86-64 through CI rather than through a second code generator.** The
    incumbent covered four targets to this backend's two, by a wide margin the
-   largest item on the list. It was a coverage difference rather than a
-   performance one, closeable by writing the emitter §10.3 lists, and it was
-   closed that way before the flip: `linux-x86_64` emits, links and runs, and
-   CI runs the programs on it. macOS/x86-64 stays uncovered, and §3.2 and §9
-   say so out loud.
+   largest item on the list. It was a coverage difference, closeable by
+   writing the emitter §10.3 lists, and it was closed that way before the
+   flip: `linux-x86_64` emits, links and runs, and CI runs the programs on it.
+   macOS/x86-64 stays uncovered (§3.2, §9).
 
 **What did *not* have to be accepted.** The flip would have carried one
 behavioural difference: `str.concat` allocating unconditionally where the
