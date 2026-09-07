@@ -1,0 +1,11 @@
+binary {
+    dependencies: ["//lib/wire"]
+
+    outputs: [
+        { platform: JS },
+        { platform: WEB },
+        { platform: CLOUDFLARE_WORKER, entry: "handle" },
+        { platform: LINUX },
+        { platform: MACOS },
+    ]
+}

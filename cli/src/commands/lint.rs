@@ -614,11 +614,22 @@ fn check_sources_declared(session: &Session, package: PackageId, diagnostics: &m
         // declared"), so the code is the same code. Anything that is not a
         // `.buri` is nobody's but a generator's, a schema included.
         let field = if rel.ends_with(".buri") { "sources" } else { "generators" };
+        // And who makes the edit follows from the field. `buri gen` rewrites
+        // `sources`; it never writes `generators`, because nothing tells it
+        // which generator owns a file. A fix that offered `buri gen` for both
+        // sent a reader to a command that would leave the file exactly as it
+        // found it.
+        let how = if field == "sources" {
+            format!("`buri gen //{}` does this automatically", p.path)
+        } else {
+            "`buri gen` leaves `generators` alone, so write the entry by hand".to_string()
+        };
         diagnostics.push(
             Diagnostic::templated("unused-library", Span::point(p.build_file_id, 0))
                 .with_bind("package_path", p.path.as_str())
                 .with_bind("source", rel)
-                .with_bind("field", field),
+                .with_bind("field", field)
+                .with_bind("how", how),
         );
     }
 }
