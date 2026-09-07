@@ -2697,6 +2697,57 @@ test "a client that closes the socket stops reading the script" {
     assert.eq(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("one")]);
 }
 
+/// Reconnecting, as `core/net/websocket` writes it: a loop around `connect` with
+/// a sleep between the attempts, and no field on the `Client` at all.
+///
+/// `connect` returns when the socket closes, so the loop is an ordinary
+/// recursion — `.Ok` is a session that ended and `.Err` is a socket that never
+/// opened, and only the first of those is worth trying again.
+fn following<C: Clock + Sockets + WebSocketClient>(
+    ctx: C,
+    client: Client<C, Int>,
+    left: Int,
+): Int {
+    match (websocket.connect(ctx, client)) {
+        .Err(_never) => left,
+        .Ok(_reason) => {
+            if (left <= 1) {
+                left
+            } else {
+                let _slept = time.sleepMs(ctx, 1000);
+                following(ctx, client, left - 1)
+            }
+        },
+    }
+}
+
+test "reconnecting is a loop around connect, and each dial is a socket of its own" {
+    let s = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Clock: clock(),
+        Sockets: s,
+        WebSocketClient: s.dialling([.Text("one")]),
+    };
+    assert.eq(following(ctx, echoing("ws://example/socket"), 3), 1);
+    // Three sessions, and each one ran the same hooks over the same script: the
+    // greeting `onOpen` pushes, then the echo of the one message.
+    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [
+        Message.Text("hello"),
+        Message.Text("one"),
+        Message.Text("hello"),
+        Message.Text("one"),
+        Message.Text("hello"),
+        Message.Text("one"),
+    ]);
+    // And a socket per session rather than one socket reopened. Asked as a
+    // comparison between two of this double's own sockets, never as a number: a
+    // socket's handle comes from a counter the whole suite shares.
+    let pushes = s.sent().map(alloc(), fn(one) => one.0);
+    assert.notEq(pushes.get(0), pushes.get(2));
+    assert.notEq(pushes.get(2), pushes.get(4));
+}
+
 test "the response that opened the socket reaches onOpen" {
     let s = sockets();
     let ctx = context {
