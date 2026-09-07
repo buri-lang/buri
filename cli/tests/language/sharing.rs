@@ -365,3 +365,143 @@ fn growing_a_list_in_a_loop_is_linear() {
             .join(" "),
     );
 }
+
+/// The same list, grown in a loop, held in a record whose **other** field is
+/// written in the same literal.
+///
+/// `raw` out of `core/buri/ast`'s printer, with the names changed: a record
+/// carrying the pieces written so far and the offset the next one starts at,
+/// and one functional update that pushes a piece and advances the offset. Both
+/// sizes are timed the way [`GROW`] times its two, and for the same reasons.
+///
+/// `total` is what the shape is for. It is written beside the push, it is read
+/// out of the same record, and what reading it produces is an `Int` rather
+/// than a reference to anything.
+const GROW_BESIDE: &str = r#"
+from "core/effect" import { Alloc, Clock, Stdout };
+from "core/host" import * as host;
+from "core/io" import * as io;
+from "core/list" import * as list;
+from "core/time" import * as time;
+
+struct Out { items: [Int], total: Int }
+
+struct Timing { millis: Int, pushed: Int }
+
+fn write<C: Alloc>(ctx: C, i: Int, n: Int, out: Out): Out {
+  if (i >= n) {
+    out
+  } else {
+    write(ctx, i + 1, n, Out { ..out, items: out.items.push(ctx, i), total: out.total + i })
+  }
+}
+
+fn writeRuns<C: Alloc>(ctx: C, k: Int, count: Int, n: Int, acc: Int): Int {
+  if (k >= count) {
+    acc
+  } else {
+    writeRuns(
+      ctx,
+      k + 1,
+      count,
+      n,
+      acc + write(ctx, 0, n, Out { items: list.empty<Int>(), total: 0 }).items.len(),
+    )
+  }
+}
+
+/// One size, timed: `count` runs of `n` pushes.
+fn timed<C: Alloc + Clock>(ctx: C, count: Int, n: Int): Timing {
+  let started = time.now(ctx);
+  let pushed = writeRuns(ctx, 0, count, n, 0);
+  let took = time.since(ctx, started);
+  Timing { millis: took.millis(), pushed: pushed }
+}
+
+fn say<C: Alloc + Stdout>(ctx: C, small: Timing, large: Timing): () {
+  io.println(
+    ctx,
+    "${small.millis} ${large.millis} ${small.pushed} ${large.pushed}",
+  ).ignore()
+}
+
+fn pairs<C: Alloc + Clock + Stdout>(ctx: C, k: Int, count: Int): () {
+  if (k >= count) {
+    ()
+  } else {
+    let _ = if (k % 2 == 0) {
+      let small = timed(ctx, SMALL_RUNS, SMALL_SIZE);
+      let large = timed(ctx, LARGE_RUNS, LARGE_SIZE);
+      say(ctx, small, large)
+    } else {
+      let large = timed(ctx, LARGE_RUNS, LARGE_SIZE);
+      let small = timed(ctx, SMALL_RUNS, SMALL_SIZE);
+      say(ctx, small, large)
+    };
+    pairs(ctx, k + 1, count)
+  }
+}
+
+export fn main(): Result<(), Str> {
+  let ctx = context { Alloc: host.alloc, Clock: host.clock, Stdout: host.stdout };
+  let _ = pairs(ctx, 0, PAIRS);
+  .Ok(())
+}
+"#;
+
+/// A push into a record's list stays in place when the same literal writes a
+/// field declared after it.
+///
+/// [`growing_a_list_in_a_loop_is_linear`] asserts the curve for the shape
+/// where the list is the last field the literal writes. Move one `Int` field
+/// past it — the same program, the same data, two words of the struct
+/// declaration swapped — and the push used to copy. The analysis behind the
+/// in-place write asks whether anything still reads the record after the push;
+/// `out.total` answered yes; and a record whose list has another reader is a
+/// record whose list has to be copied. Reading an `Int` out of a record is not
+/// another reader of its list, which is what `middle/rc.rs`'s
+/// `Scan::no_reference_path` says.
+///
+/// Measured the same way and against the same bound, because it is the same
+/// claim about the same curve. `core/buri/ast`'s printer is what found it:
+/// every token it writes goes through this shape, and printing a
+/// four-hundred-field message took 56 seconds.
+#[test]
+fn growing_a_list_beside_another_field_is_linear() {
+    let scratch = Scratch::repo("js-sharing-linearity-beside");
+    let source = GROW_BESIDE
+        .replace("PAIRS", &PAIRS.to_string())
+        .replace("SMALL_RUNS", "60")
+        .replace("SMALL_SIZE", "10_000")
+        .replace("LARGE_RUNS", "6")
+        .replace("LARGE_SIZE", "100_000");
+    scratch.write("cmd/grow/BUILD.buri", JS_BINARY);
+    scratch.write("cmd/grow/main.buri", &source);
+    scratch.run(&["build", "//cmd/grow", "--force"]).ok();
+
+    let measured = pairs(&scratch, "cmd/grow", "600000");
+    let ratio = median_ratio(&measured);
+
+    let mut short: Vec<u64> = measured.iter().map(|p| p.small).collect();
+    short.sort_unstable();
+    let typical = short[short.len() / 2];
+    assert!(
+        typical >= 5,
+        "the typical repetition took {typical} ms, which a whole-millisecond clock \
+         cannot resolve; raise the runs per repetition"
+    );
+    assert!(
+        ratio <= 4.0,
+        "a push beside another field is not linear: over {} pairs of six hundred \
+         thousand pushes, the median run in runs of a hundred thousand cost \
+         {ratio:.1} times the same work in runs of ten thousand, where linear \
+         growth scores about 1 and copying scores about 10. The pairs, as \
+         `<ten-thousand ms> <hundred-thousand ms>`: {}",
+        measured.len(),
+        measured
+            .iter()
+            .map(|p| format!("{}/{}", p.small, p.large))
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
+}

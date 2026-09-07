@@ -1127,7 +1127,7 @@ fn infer_ownership(
         for (i, f) in program.funcs.iter().enumerate() {
             let Some(body) = f.body() else { continue };
             let mut consumed: HashSet<LocalId> = HashSet::default();
-            consuming_uses(body, &own, i, &mut consumed);
+            consuming_uses(body, &own, counted, i, &mut consumed);
             let Some(row) = own.get(i) else { continue };
             let promoted: Vec<ir::Ownership> = f
                 .params
@@ -1204,6 +1204,7 @@ fn loop_variables_taken(program: &Program, own: &[Vec<ir::Ownership>]) -> Vec<(u
 fn consuming_uses(
     body: &Expr,
     own: &[Vec<ir::Ownership>],
+    counted: &mut dyn Counted,
     self_index: usize,
     out: &mut HashSet<LocalId>,
 ) {
@@ -1213,7 +1214,7 @@ fn consuming_uses(
     // by the function's locals.
     loop {
         let before = out.len();
-        collect_consuming(body, own, self_index, out);
+        collect_consuming(body, own, counted, self_index, out);
         if out.len() == before {
             return;
         }
@@ -1223,6 +1224,7 @@ fn consuming_uses(
 fn collect_consuming(
     body: &Expr,
     own: &[Vec<ir::Ownership>],
+    counted: &mut dyn Counted,
     self_index: usize,
     out: &mut HashSet<LocalId>,
 ) {
@@ -1248,6 +1250,32 @@ fn collect_consuming(
             updates.iter().for_each(|(_, a)| consume(a, out));
         }
         ExprKind::Lambda { captures, .. } => out.extend(captures.iter().copied()),
+        // `let p = l;` gives `l` a second name, so consuming `p` consumes `l`.
+        //
+        // This is not an exotic shape: [`super::inline`] replaces a call with
+        // a `let` per argument and the callee's body, so **every argument of
+        // every inlined call arrives as one of these**. Without the rule, a
+        // parameter whose only consuming use was a call that got inlined reads
+        // as borrowed — `core/buri/ast`'s `ready(ctx, out)` is one `emit`
+        // away from writing through the `Out` it was handed, the inliner
+        // pastes `emit` in, and the parameter it pastes it over goes back to
+        // borrowed. On the JavaScript branch that is a `$share` on the way in,
+        // which makes the next push copy the whole list and the printer
+        // quadratic (`language::sharing::growing_a_list_beside_another_field_is_linear`
+        // is the same claim one shape smaller).
+        //
+        // Only the plain binding, because only a plain binding is a second
+        // name. `let .Some(x) = v` binds a piece of `v`, and what taking a
+        // piece does to the whole is the `Match` rule below.
+        ExprKind::Block { stmts, .. } => {
+            for st in stmts {
+                let Stmt::Let { pattern, value, .. } = st else { continue };
+                let typed::PatKind::Bind { local, sub: None } = &pattern.kind else { continue };
+                if out.contains(local) {
+                    consume(value, out);
+                }
+            }
+        }
         // Taking a value apart and keeping a piece takes the whole: the piece
         // is a reference into it, and it outlives the match. This is where a
         // uniquely-owned value becomes a dying one, and therefore where reuse
@@ -1287,8 +1315,36 @@ fn collect_consuming(
         _ => {}
     });
     // The returned value, through whatever tail position leads to it.
+    //
+    // A tail that is a **projection** keeps a piece of its root, which takes
+    // the whole for the `Match` arm's reason one screen up: the piece outlives
+    // the call, so the value it was read out of is this body's to account for.
+    // `nextLine(ctx, acc): Out` answering `acc.0` is the shape, and answering
+    // it as a borrow is what made the `Out` it hands back a second reference —
+    // marked, and then copied by the next push into it.
     for t in tails(body) {
-        consume(t, out);
+        // A tail that is a **projection of something counted** keeps a piece of
+        // its root, and keeping a piece takes the whole for the `Match` arm's
+        // reason one screen up: the piece outlives the call, so the value it
+        // was read out of is this body's to account for. `nextLine(ctx, acc):
+        // Out` answering `acc.0` is the shape, and answering it as a borrow is
+        // what made the `Out` it hands back a second reference — marked, and
+        // then copied by the next push into it.
+        //
+        // Counted, because a piece with no count is not a piece anybody holds:
+        // `size(p: P): Int` answering `p.n` reads a number out and keeps
+        // nothing, and taking `P` for it would cost every caller a count for a
+        // field that is not one (MEMORY.md §5.2).
+        let kept = match field_root(t) {
+            Some(root) if counted.counted(&t.ty) == Answer::Yes => Some(root),
+            _ => None,
+        };
+        match kept {
+            Some(root) => {
+                out.insert(root);
+            }
+            None => consume(t, out),
+        }
     }
 }
 
@@ -2358,6 +2414,52 @@ impl Scan<'_> {
         self.project(id, mode);
     }
 
+    /// The local a projection may be scanned **without** keeping alive, because
+    /// what it reads out is not a reference to anything.
+    ///
+    /// This is the sharing question taken literally. [`sharing`] asks *where
+    /// does a second reference to a value come into existence*, and its live
+    /// set is the answer's input: a local is live where a later read of it
+    /// would be that second reference. Reading `out.at` out of a
+    /// `struct Out { pieces: [Str], at: Int }` is not one. The field is an
+    /// `Int`, its type cannot reach a list — which is exactly what
+    /// [`Counted`] answers under [`Leaves::Lists`], with an unanswerable type
+    /// counted rather than skipped — so nothing that could later be written
+    /// through is named by it.
+    ///
+    /// Without this, **the field's position in the struct decides whether a
+    /// push writes in place.** `Out { ..out, pieces: out.pieces.push(ctx, s),
+    /// at: out.at + n }` is scanned backwards, so `out.at` is read first and
+    /// puts `out` in the live set, and the projection under the push then sees
+    /// a base something still reads — the one thing that stops
+    /// [`Scan::projected`] letting a field inherit its parent's mark. So the
+    /// push copies, growing a list in a loop becomes quadratic, and moving the
+    /// same two fields' declarations past each other makes it linear again.
+    /// `core/buri/ast`'s printer is the shape that found it: five milliseconds
+    /// against fifteen hundred on the same data.
+    ///
+    /// Three conditions, and all three are what makes it sound:
+    ///
+    ///  * **`sharing` only.** The native branch's live set answers a different
+    ///    question — where a *release* goes — and a value still has to be
+    ///    released after its last uncounted field is read.
+    ///  * **The projection's type is uncounted**, so it holds no list, and no
+    ///    in-place write anywhere can change what it reads. A struct or a
+    ///    tuple is an array the JavaScript backend never writes through; only
+    ///    a list is, and a list is what "uncounted" rules out.
+    ///  * **The base is a plain path of locals and fields.** An `Index` reads
+    ///    its subscript and a call reads its arguments, and those are reads of
+    ///    other locals that this must not drop.
+    ///
+    /// A root already live stays live: the question is only whether *this*
+    /// read is what keeps it so.
+    fn no_reference_path(&mut self, e: &Expr) -> Option<LocalId> {
+        if !self.opts.sharing || self.counted_ty(&e.ty.clone()) {
+            return None;
+        }
+        field_root(e)
+    }
+
     /// The id of the `k`th child of the node at `id`, from the subtree sizes —
     /// the same preorder numbering `walk` assigns, so a site recorded here and
     /// a site read there name the same node.
@@ -2718,8 +2820,13 @@ impl Scan<'_> {
                 let bid = self.child(id, 0);
                 let bmode =
                     if self.tail_shaped_base(base) { Mode::Own } else { Mode::Borrow };
-                let out = self.expr(base, bid, live, bmode);
+                let mut out = self.expr(base, bid, live, bmode);
                 self.projected(e, base, id, bid, mode, live);
+                if let Some(root) = self.no_reference_path(e) {
+                    if !live.contains(&root) {
+                        out.remove(&root);
+                    }
+                }
                 out
             }
             ExprKind::Index { base, index, .. } => {
@@ -3147,6 +3254,11 @@ impl Scan<'_> {
             if modes.get(k).copied().unwrap_or(Mode::Borrow) != Mode::Borrow {
                 continue;
             }
+            // A projection that reads no reference out of its base does not
+            // hold the base open either. [`Scan::no_reference_path`].
+            if self.no_reference_path(kid).is_some() {
+                continue;
+            }
             let Some(l) = borrowed_root(kid) else { continue };
             if self.is_counted(l)
                 && self.owned.contains(&l)
@@ -3232,6 +3344,20 @@ fn dies_here(e: &Expr, owned: &HashSet<LocalId>, live: &Live) -> bool {
     match &e.kind {
         ExprKind::Local(l) => owned.contains(l) && !live.contains(l),
         _ => false,
+    }
+}
+
+/// The local a **field path** starts at: `s`, `s.a`, `s.a.1`, and nothing that
+/// reads a second local on the way.
+///
+/// [`borrowed_root`]'s narrower twin, for [`Scan::reads_no_reference`], which
+/// takes a local out of a live set and so has to know that the path named that
+/// local and no other. `xs[i]` and `f(x).n` name two.
+fn field_root(e: &Expr) -> Option<LocalId> {
+    match &e.kind {
+        ExprKind::Local(l) => Some(*l),
+        ExprKind::Field { base, .. } | ExprKind::TupleIndex { base, .. } => field_root(base),
+        _ => None,
     }
 }
 
