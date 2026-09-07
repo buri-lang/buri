@@ -35,7 +35,7 @@
 //!
 //! ## Stuck, not slow: what the cap actually measures
 //!
-//! **A child that is using the processor is working, whatever it has said.**
+//! **A child the machine is still running is working, whatever it has said.**
 //! This was a plain wall clock — five minutes from the spawn, then kill — and a
 //! wall clock cannot tell a stuck command from a slow one on a loaded machine.
 //! Run 34121595426's arm64 Linux leg is what that costs: the leg runs sixteen
@@ -43,22 +43,34 @@
 //! still minifying a fifty-thousand-arm match. The same build passed on every
 //! idle host. A budget a busy machine can trip is measuring the machine.
 //!
-//! So the cap asks the operating system what the child's process *tree* has
-//! spent on the processor, and kills only a child that has spent **nothing for
-//! a whole cap period**. Five minutes of no CPU at all is a deadlock, a read
-//! nothing is answering, or a wait on a child that already died. Five minutes
-//! of a busy core is a slow build, and how slow a build may be is not this
-//! module's question.
+//! So the cap asks the operating system about the child's process *tree*, and
+//! kills it only when **both** halves of being stuck are true for a whole cap
+//! period: nothing in the tree is on a processor or waiting for one, **and**
+//! nothing in it has spent any processor time. A tree that is asleep and
+//! spending nothing for five minutes is a deadlock, a read nothing is
+//! answering, or a wait on a child that already died. Anything else is a slow
+//! build, and how slow a build may be is not this module's question.
+//!
+//! **Both halves, because either alone is a flake.** Processor time alone was
+//! the first fix and it lasted a day: a spinning child on a mac carrying five
+//! agents' test suites reported no CPU at all for a second and was killed —
+//! measured, and it is not only starvation. macOS reports a process's CPU
+//! through `proc_pidinfo`, whose counters a thread that never yields can leave
+//! unflushed for seconds. Run state has no such lag: a runnable thread is
+//! runnable whether or not it has been given a core yet, and that is the fact
+//! that separates *starved* from *stuck*.
 //!
 //! The *tree*, because a build is mostly other people's processes: a `buri`
-//! waiting on `bun`, on `cc`, on a linker has nothing of its own to spend, and
-//! killing it for that would be the same mistake one level down. Output is not
-//! counted separately: a child that writes a byte spends processor time to
-//! write it, so "said nothing" is inside "spent nothing".
+//! waiting on `bun`, on `cc`, on a linker is asleep itself, and killing it for
+//! that would be the same mistake one level down. Output is not counted
+//! separately: a child that writes a byte is running to write it.
 //!
-//! [`cpu_time`] is the reading — `/proc/<pid>/stat` on Linux, `proc_pid_rusage`
-//! and `proc_listchildpids` on macOS. On a host that will not say, the cap is
-//! the wall clock it always was.
+//! [`look`] is the reading. `/proc/<pid>/stat` gives Linux both halves — the
+//! state letter and the four time fields — and `proc_pidinfo`'s task info gives
+//! macOS both, `pti_numrunning` and the total times. Measured on both: a
+//! spinner held to two per cent of a core reads runnable in every sample, and a
+//! `sleep` never does. On a host that will not say, the cap is the wall clock
+//! it always was.
 //!
 //! What this gives up is the runaway that *spins*: a child looping forever
 //! while burning a core is never killed here. The job's `timeout-minutes` ends
@@ -67,19 +79,19 @@
 //!
 //! ## The numbers
 //!
-//! **Five minutes** with no processor time, the period the deleted file named,
-//! overridable with `BURI_HANG_SECS`. The median invocation in this suite is a fraction of
-//! a second and the slowest is seconds, so the margin is three orders of
-//! magnitude. The override exists for the opposite direction — a test written
-//! against a hang wants a cap it can reach — and
+//! **Five minutes** asleep and spending nothing, the period the deleted file
+//! named, overridable with `BURI_HANG_SECS`. The median invocation in this
+//! suite is a fraction of a second and the slowest is seconds, so the margin is
+//! three orders of magnitude. The override exists for the opposite direction —
+//! a test written against a hang wants a cap it can reach — and
 //! `the_cap_fires_and_names_what_it_killed` below reaches it with an argument
 //! instead, so the ratchet is not itself a test of an environment variable.
 //!
 //! **One per cent of one core** over that period counts as spending it
-//! ([`busy_enough`]). Low enough that a real build clears it by three orders of
-//! magnitude even on a quarter of a starved core; high enough that a poll loop
-//! is still a hang — the busiest wait inside `buri` wakes every five
-//! milliseconds (`commands/test.rs`), which is a tenth of a per cent of one.
+//! ([`busy_enough`]). It is the second half of an `and`, so it only decides a
+//! tree the sampler never once caught running — a build whose work falls
+//! between the looks. Low enough that a real one clears it by three orders of
+//! magnitude even on a quarter of a starved core.
 
 // Each test binary that includes this file uses a subset of it.
 #![allow(dead_code)]
@@ -124,13 +136,15 @@ fn sample_every(cap: Duration) -> Duration {
     (cap / 4).min(Duration::from_secs(1))
 }
 
-/// When the child was last seen to be working, and what it had spent by then.
+/// When the child was last seen alive, and what it had spent by then.
 struct Progress {
-    /// The last moment the tree's processor time moved.
+    /// The last moment the tree was runnable or its processor time moved.
     at: Instant,
-    /// The reading taken at that moment. `None` until the first one, and on a
-    /// host that will not answer.
+    /// The time reading taken at that moment. `None` until the first one, and
+    /// on a host that will not answer.
     spent: Option<Duration>,
+    /// Whether the last reading found anything runnable, for the report.
+    runnable: bool,
     /// When to read again.
     next: Instant,
 }
@@ -138,22 +152,29 @@ struct Progress {
 impl Progress {
     /// Fold one reading in.
     ///
-    /// Three ways to be working, and the second is the one worth writing down.
-    /// A reading that has *risen* by the threshold is the ordinary case. A
-    /// reading that has *fallen* is a descendant that exited and took its time
-    /// out of the sum — which is progress by any reading of the word, and
-    /// treating it as silence would kill a build for finishing a subprocess.
-    /// And a first reading is not evidence of anything, so it starts the clock
-    /// rather than running against it.
-    fn note(&mut self, now: Instant, reading: Option<Duration>, busy: Duration) {
-        let Some(reading) = reading else { return };
-        let moved = match self.spent {
-            None => true,
-            Some(before) => reading.checked_sub(before).is_none_or(|spent| spent >= busy),
-        };
+    /// **Runnable is enough on its own.** A process on a core, or in a queue
+    /// waiting for one, is working however little of it the machine has handed
+    /// over — that is the whole difference between starved and stuck, and it is
+    /// not a quantity to be thresholded.
+    ///
+    /// Then three ways for the time to say the same thing, and the second is
+    /// the one worth writing down. A reading that has *risen* by the threshold
+    /// is the ordinary case. A reading that has *fallen* is a descendant that
+    /// exited and took its time out of the sum — which is progress by any
+    /// reading of the word, and treating it as silence would kill a build for
+    /// finishing a subprocess. And a first reading is not evidence of anything,
+    /// so it starts the clock rather than running against it.
+    fn note(&mut self, now: Instant, reading: Option<Look>, busy: Duration) {
+        let Some(look) = reading else { return };
+        self.runnable = look.runnable;
+        let moved = look.runnable
+            || match self.spent {
+                None => true,
+                Some(before) => look.spent.checked_sub(before).is_none_or(|d| d >= busy),
+            };
         if moved {
             self.at = now;
-            self.spent = Some(reading);
+            self.spent = Some(look.spent);
         }
     }
 }
@@ -173,7 +194,8 @@ pub fn wait_capped(child: &mut Child, what: &str, cap: Duration) -> ExitStatus {
     let pid = child.id();
     let start = Instant::now();
     let (busy, every) = (busy_enough(cap), sample_every(cap));
-    let mut progress = Progress { at: start, spent: None, next: start + every };
+    let mut progress =
+        Progress { at: start, spent: None, runnable: false, next: start + every };
     let mut nap = Duration::from_micros(200);
     loop {
         match child.try_wait() {
@@ -184,7 +206,7 @@ pub fn wait_capped(child: &mut Child, what: &str, cap: Duration) -> ExitStatus {
         let now = Instant::now();
         if now >= progress.next {
             progress.next = now + every;
-            progress.note(now, cpu_time(pid), busy);
+            progress.note(now, look(pid), busy);
         }
         let idle = now.saturating_duration_since(progress.at);
         if idle >= cap {
@@ -259,27 +281,31 @@ fn report(what: &str, ran: Duration, idle: Duration, spent: Option<Duration>) ->
     let who = thread.name().unwrap_or("an unnamed thread");
     let evidence = match spent {
         Some(spent) => format!(
-            "It had been running {:.1}s, and its process tree had used {:.1}s of processor time \
-             — none of it in the last {:.1}s.",
+            "It had been running {:.1}s, and its process tree had used {:.1}s of processor time. \
+             For the last {:.1}s of that, every process in it was asleep and none of them spent \
+             anything.",
             ran.as_secs_f64(),
             spent.as_secs_f64(),
             idle.as_secs_f64()
         ),
         None => format!(
-            "It had been running {:.1}s. This host does not report a process's processor time, so \
-             the cap here is the wall clock it used to be everywhere, and a machine slow enough \
-             can trip it.",
+            "It had been running {:.1}s. This host reports neither a process's run state nor its \
+             processor time, so the cap here is the wall clock it used to be everywhere, and a \
+             machine slow enough can trip it.",
             ran.as_secs_f64()
         ),
     };
     format!(
-        "the hang cap fired: `{what}` used no processor time for {:.1}s and was killed.\n\
+        "the hang cap fired: `{what}` was asleep and spending nothing for {:.1}s and was \
+         killed.\n\
          \n\
-         The test is `{who}`. {evidence} A command that is not running is stuck rather than slow \
-         — a deadlock, a read on a socket nothing is answering, or a wait on a child that already \
-         died. Reproduce it with that argv alone; `BURI_HANG_SECS` moves the cap. Without this the \
-         job would have run to its `timeout-minutes` and been killed by GitHub with no test named \
-         at all.",
+         The test is `{who}`. {evidence} A tree that is neither running nor waiting to run is \
+         stuck rather than slow — a deadlock, a read on a socket nothing is answering, or a wait \
+         on a child that already died. A starved machine does not look like this: a process that \
+         is queued for a core still reads as runnable, which is what this cap is asking. \
+         Reproduce it with that argv alone; `BURI_HANG_SECS` moves the cap. Without this the job \
+         would have run to its `timeout-minutes` and been killed by GitHub with no test named at \
+         all.",
         idle.as_secs_f64()
     )
 }
@@ -288,20 +314,32 @@ fn report(what: &str, ran: Duration, idle: Duration, spent: Option<Duration>) ->
 // What the machine says a process has spent
 // ---------------------------------------------------------------------------
 
-/// The processor time `pid` and its living descendants have used, where the
-/// host will say.
+/// What one look at a process tree finds: whether any of it is runnable, and
+/// what all of it has spent on the processor.
+#[derive(Clone, Copy, Debug)]
+pub struct Look {
+    /// Any process in the tree on a core or queued for one.
+    ///
+    /// The half that separates a starved tree from a stuck one, because it is
+    /// not a quantity: a thread waiting its turn is runnable at nought per cent
+    /// of a core.
+    pub runnable: bool,
+    /// The processor time the whole tree has used.
+    pub spent: Duration,
+}
+
+/// One look at `pid` and its living descendants, where the host will say.
 ///
 /// **The whole tree, because a build is mostly other processes.** `buri`
-/// waiting on `bun` or on a linker spends nothing itself, and a reading that
-/// covered only the process this suite spawned would call every such wait a
-/// hang.
+/// waiting on `bun` or on a linker is asleep itself, and a reading that covered
+/// only the process this suite spawned would call every such wait a hang.
 ///
 /// `None` means the host would not answer — a platform with neither of the two
 /// implementations below, or a process that exited between the wait and the
-/// reading. A caller treats it as "no evidence" rather than as "no work":
+/// look. A caller treats it as "no evidence" rather than as "no work":
 /// [`Progress::note`] leaves its clock alone, so the cap degrades to the wall
 /// clock it was before.
-pub fn cpu_time(pid: u32) -> Option<Duration> {
+pub fn look(pid: u32) -> Option<Look> {
     reading(pid)
 }
 
@@ -324,16 +362,25 @@ fn scaled(count: u64, numer: u64, denom: u64) -> Option<Duration> {
 /// than one that reports nothing.
 const TREE_LIMIT: usize = 4096;
 
-/// Linux: `/proc/<pid>/stat`, summed over the subtree.
+/// Linux: `/proc/<pid>/stat`, over the subtree.
 ///
-/// One pass over `/proc` reads every process's parent and its own times, and
-/// the subtree is walked in memory afterwards — a second pass per generation
-/// would be a different set of processes each time. `cutime`/`cstime` are in
-/// the sum as well as `utime`/`stime`, so the time of a child that has already
-/// been reaped stays counted where it landed: without them the sum would *fall*
-/// every time a build finished a subprocess.
+/// One file per process carries both halves of the question — the state letter
+/// and the four time fields — so one pass over `/proc` answers it. The subtree
+/// is walked in memory afterwards, because a second pass per generation would
+/// be a different set of processes each time.
+///
+/// **`R` and `D` both count as running.** `R` is on a core or queued for one.
+/// `D` is a process inside a syscall the kernel expects to finish — a read from
+/// a disk, usually — and killing a build for waiting on its own filesystem is
+/// the mistake this whole module is about. A tree stuck in `D` for ever is a
+/// broken kernel or a broken mount rather than a stuck toolchain, and the job's
+/// `timeout-minutes` is what answers for that.
+///
+/// `cutime`/`cstime` are in the sum as well as `utime`/`stime`, so the time of
+/// a child that has already been reaped stays counted where it landed: without
+/// them the sum would *fall* every time a build finished a subprocess.
 #[cfg(target_os = "linux")]
-fn reading(pid: u32) -> Option<Duration> {
+fn reading(pid: u32) -> Option<Look> {
     // `_SC_CLK_TCK`. The times in `/proc` are in this clock's ticks — 100 a
     // second on every host this runs on, but asked rather than assumed.
     const SC_CLK_TCK: i32 = 2;
@@ -342,8 +389,7 @@ fn reading(pid: u32) -> Option<Duration> {
     }
     let hz = u64::try_from(unsafe { sysconf(SC_CLK_TCK) }).ok().filter(|hz| *hz > 0)?;
 
-    // (the process, its parent, its own and its reaped children's ticks)
-    let mut rows: Vec<(u32, u32, u64)> = Vec::new();
+    let mut rows: Vec<Row> = Vec::new();
     for entry in std::fs::read_dir("/proc").ok()?.flatten() {
         let name = entry.file_name();
         let Some(id) = name.to_str().and_then(|n| n.parse::<u32>().ok()) else { continue };
@@ -354,6 +400,7 @@ fn reading(pid: u32) -> Option<Duration> {
     }
 
     let mut total: u64 = 0;
+    let mut runnable = false;
     let mut wanted = vec![pid];
     let mut walked = 0usize;
     while let Some(this) = wanted.pop() {
@@ -361,22 +408,31 @@ fn reading(pid: u32) -> Option<Duration> {
         if walked > TREE_LIMIT {
             break;
         }
-        for (id, parent, spent) in &rows {
-            if *id == this {
-                total = total.saturating_add(*spent);
+        for row in &rows {
+            if row.id == this {
+                total = total.saturating_add(row.spent);
+                runnable |= row.runnable;
             }
             // `!= this` so that a process reported as its own parent — pid 1
             // under some sandboxes — is a leaf rather than a loop.
-            if *parent == this && *id != this {
-                wanted.push(*id);
+            if row.parent == this && row.id != this {
+                wanted.push(row.id);
             }
         }
     }
-    scaled(total, 1_000_000_000, hz)
+    Some(Look { runnable, spent: scaled(total, 1_000_000_000, hz)? })
 }
 
-/// One line of `/proc/<pid>/stat`, as `(pid, ppid, utime + stime + cutime +
-/// cstime)`.
+/// One process, as `/proc` describes it.
+#[cfg(target_os = "linux")]
+struct Row {
+    id: u32,
+    parent: u32,
+    runnable: bool,
+    spent: u64,
+}
+
+/// One line of `/proc/<pid>/stat`, as a [`Row`].
 ///
 /// Parsed from the **last** `)` rather than by splitting on spaces from the
 /// left: the second field is the executable's name, in parentheses, and a
@@ -384,7 +440,7 @@ fn reading(pid: u32) -> Option<Duration> {
 /// bracket is fixed-width and positional, and the offsets here are the ones
 /// `proc(5)` numbers 3, 4, 14, 15, 16 and 17.
 #[cfg(target_os = "linux")]
-fn stat_row(id: u32, text: &str) -> Option<(u32, u32, u64)> {
+fn stat_row(id: u32, text: &str) -> Option<Row> {
     let after = text.rsplit_once(')')?.1;
     // The state, the parent, and everything up to `cstime`. Index 0 here is
     // `proc(5)`'s field 3.
@@ -394,30 +450,42 @@ fn stat_row(id: u32, text: &str) -> Option<(u32, u32, u64)> {
     let number = |i: usize| {
         fields.get(i).and_then(|f| f.parse::<i64>().ok()).map(|n| u64::try_from(n).unwrap_or(0))
     };
+    let runnable = matches!(fields.first(), Some(&"R") | Some(&"D"));
     let parent = u32::try_from(number(1)?).ok()?;
     let spent = number(11)?
         .checked_add(number(12)?)?
         .checked_add(number(13)?)?
         .checked_add(number(14)?)?;
-    Some((id, parent, spent))
+    Some(Row { id, parent, runnable, spent })
 }
 
-/// macOS: `proc_pid_rusage` per process, with `proc_listchildpids` for the
-/// tree.
+/// macOS: `proc_pidinfo`'s task info per process, with `proc_listchildpids`
+/// for the tree.
 ///
-/// The times come back in mach absolute ticks rather than in nanoseconds —
-/// 24 MHz on Apple silicon, one tick per nanosecond on Intel — so
-/// `mach_timebase_info` is what converts them, and a reading taken without it
-/// is forty-one times too small on the machines this repository is written on.
-/// Measured: a child spinning on one core for two seconds reports 48 million of
-/// them.
+/// `PROC_PIDTASKINFO` answers both halves in one call: `pti_numrunning` is how
+/// many of the task's threads are on a core or queued for one, and
+/// `pti_total_user`/`pti_total_system` are what it has spent. (`proc_pid_rusage`
+/// gives the same two times, to the tick — measured — and no run state, so this
+/// is one call rather than two.)
+///
+/// The times are mach absolute ticks rather than nanoseconds — 24 MHz on Apple
+/// silicon, one tick per nanosecond on Intel — so `mach_timebase_info` is what
+/// converts them, and a reading taken without it is forty-one times too small
+/// on the machines this repository is written on.
+///
+/// **`pti_numrunning` is the half that does not lag.** The times can: a thread
+/// that never yields may leave its counters unflushed for seconds, which is how
+/// a spinning child came to report no processor time at all and be killed for
+/// it. Measured beside that: one spinner among ninety-six on ten cores, at two
+/// per cent of a core, read `numrunning = 1` in twelve samples of twelve.
 ///
 /// Unlike Linux there is no reaped-children field here, so a tree's sum falls
 /// when a subprocess is collected. [`Progress::note`] reads a fall as progress,
 /// which is what it is.
 #[cfg(target_os = "macos")]
-fn reading(pid: u32) -> Option<Duration> {
+fn reading(pid: u32) -> Option<Look> {
     let mut total: u64 = 0;
+    let mut runnable = false;
     let mut wanted = vec![pid];
     let mut walked = 0usize;
     while let Some(this) = wanted.pop() {
@@ -425,31 +493,41 @@ fn reading(pid: u32) -> Option<Duration> {
         if walked > TREE_LIMIT {
             break;
         }
-        if let Some(spent) = spent_by(this) {
+        if let Some((spent, running)) = task_info(this) {
             total = total.saturating_add(spent);
+            runnable |= running;
         }
         wanted.extend(children_of(this));
     }
     let (numer, denom) = timebase()?;
-    scaled(total, u64::from(numer), u64::from(denom))
+    Some(Look { runnable, spent: scaled(total, u64::from(numer), u64::from(denom))? })
 }
 
-/// `RUSAGE_INFO_V0`'s buffer, in the order `<libproc.h>` declares it. Only the
-/// first two numbers after the identifier are read; the rest is here so the
-/// kernel writes into a buffer the size it expects.
+/// `PROC_PIDTASKINFO`'s buffer, in the order `<sys/proc_info.h>` declares it.
+/// Three of the numbers are read; the rest is here so the kernel writes into a
+/// buffer the size it expects.
 #[cfg(target_os = "macos")]
 #[repr(C)]
 #[derive(Default)]
-struct RusageInfoV0 {
-    uuid: [u8; 16],
-    user_time: u64,
-    system_time: u64,
-    pageins: u64,
-    wired_size: u64,
+struct ProcTaskInfo {
+    virtual_size: u64,
     resident_size: u64,
-    phys_footprint: u64,
-    proc_start_abstime: u64,
-    proc_exit_abstime: u64,
+    total_user: u64,
+    total_system: u64,
+    threads_user: u64,
+    threads_system: u64,
+    policy: i32,
+    faults: i32,
+    pageins: i32,
+    cow_faults: i32,
+    messages_sent: i32,
+    messages_received: i32,
+    syscalls_mach: i32,
+    syscalls_unix: i32,
+    csw: i32,
+    threadnum: i32,
+    numrunning: i32,
+    priority: i32,
 }
 
 /// `mach_timebase_info_data_t`: the fraction that turns mach ticks into
@@ -467,20 +545,24 @@ struct Timebase {
 // argument is the same one: a dependency for a declaration is a dependency.
 #[cfg(target_os = "macos")]
 unsafe extern "C" {
-    fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut std::ffi::c_void) -> i32;
+    fn proc_pidinfo(pid: i32, flavor: i32, arg: u64, buffer: *mut std::ffi::c_void, size: i32)
+    -> i32;
     fn proc_listchildpids(ppid: i32, buffer: *mut std::ffi::c_void, size: i32) -> i32;
     fn mach_timebase_info(info: *mut Timebase) -> i32;
 }
 
-/// One process's own mach ticks, or `None` if it is gone.
+/// One process's mach ticks and whether any thread of it is runnable, or
+/// `None` if it is gone.
 #[cfg(target_os = "macos")]
-fn spent_by(pid: u32) -> Option<u64> {
+fn task_info(pid: u32) -> Option<(u64, bool)> {
+    /// `PROC_PIDTASKINFO`.
+    const FLAVOUR: i32 = 4;
     let pid = i32::try_from(pid).ok()?;
-    let mut info = RusageInfoV0::default();
-    let buffer: *mut RusageInfoV0 = &mut info;
-    // `RUSAGE_INFO_V0`, the flavour every macOS since 10.9 answers.
-    let answered = unsafe { proc_pid_rusage(pid, 0, buffer.cast()) };
-    (answered == 0).then(|| info.user_time.saturating_add(info.system_time))
+    let mut info = ProcTaskInfo::default();
+    let buffer: *mut ProcTaskInfo = &mut info;
+    let size = i32::try_from(std::mem::size_of::<ProcTaskInfo>()).unwrap_or(i32::MAX);
+    let wrote = unsafe { proc_pidinfo(pid, FLAVOUR, 0, buffer.cast(), size) };
+    (wrote > 0).then(|| (info.total_user.saturating_add(info.total_system), info.numrunning > 0))
 }
 
 /// A process's immediate children.
@@ -509,7 +591,7 @@ fn timebase() -> Option<(u32, u32)> {
 
 /// Any other host: no reading, and the cap is a wall clock.
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn reading(_pid: u32) -> Option<Duration> {
+fn reading(_pid: u32) -> Option<Look> {
     None
 }
 
@@ -582,48 +664,84 @@ mod hang_tests {
 
     /// **The rule the cap turns on, with the machine taken out of it.**
     ///
-    /// A reading that rose by the threshold is work; one that stood still is
-    /// not; one that *fell* is a descendant exiting, which is work too. Fed by
-    /// hand rather than by a process, because a test that starves — and on a
-    /// runner carrying sixteen tests on four cores, a spinning child can go a
-    /// fifth of a second without the processor — would be the same flake one
-    /// level down. `ci.rs::the_hang_cap_leaves_a_busy_child_alone` is the half
-    /// that needs a real process, and it runs once rather than in every binary.
+    /// Runnable is enough on its own; otherwise a reading that rose by the
+    /// threshold is work, one that stood still is not, and one that *fell* is a
+    /// descendant exiting, which is work too. Fed by hand rather than by a
+    /// process, because every version of this fed by a real one has been a
+    /// flake: a spinning child can go a fifth of a second without a tick on a
+    /// loaded runner, and on macOS its counters can lag by seconds whatever the
+    /// load. `ci.rs` holds the two halves that need real processes — that the
+    /// reading tells a spinner from a sleeper, and that a sleeping tree is
+    /// still killed — and it is one binary rather than thirteen.
     #[test]
     fn work_is_a_reading_that_moved() {
         let cap = Duration::from_secs(300);
         let busy = busy_enough(cap);
         assert_eq!(busy, Duration::from_secs(3), "one per cent of five minutes");
+        let asleep = |spent: u64| Some(Look { runnable: false, spent: Duration::from_secs(spent) });
         let start = Instant::now();
-        let mut progress = Progress { at: start, spent: None, next: start };
+        let mut progress =
+            Progress { at: start, spent: None, runnable: false, next: start };
 
         // The first reading starts the clock rather than running against it.
         let first = start + Duration::from_secs(1);
-        progress.note(first, Some(Duration::from_secs(10)), busy);
+        progress.note(first, asleep(10), busy);
         assert_eq!(progress.at, first);
 
-        // Two seconds of work in a minute is a hang: the mark stays put.
+        // Two seconds of work in a minute, from a tree that is asleep, is a
+        // hang: the mark stays put.
         let quiet = first + Duration::from_secs(60);
-        progress.note(quiet, Some(Duration::from_secs(12)), busy);
+        progress.note(quiet, asleep(12), busy);
         assert_eq!(progress.at, first);
 
         // And the second that follows it counts, because what a reading is
         // compared against is the last mark rather than the last reading. A
         // tree spending a little the whole time is spending it.
         let later = quiet + Duration::from_secs(60);
-        progress.note(later, Some(Duration::from_secs(13)), busy);
+        progress.note(later, asleep(13), busy);
         assert_eq!(progress.at, later, "13s against a 10s mark is the 3s threshold, exactly");
 
         // A sum that fell is a subprocess that finished and took its time with
         // it. Reading that as silence would kill a build for making progress.
         let shrunk = later + Duration::from_secs(60);
-        progress.note(shrunk, Some(Duration::from_secs(1)), busy);
+        progress.note(shrunk, asleep(1), busy);
         assert_eq!(progress.at, shrunk);
 
         // A host that will not say leaves the clock alone, so the cap falls
         // back to the wall clock it was before any of this.
         progress.note(shrunk + Duration::from_secs(60), None, busy);
         assert_eq!(progress.at, shrunk);
+    }
+
+    /// **A runnable tree is working, whatever the clock says about it.**
+    ///
+    /// The half the processor-time rule cannot state, and the one that
+    /// separates a starved machine from a stuck build: a thread queued for a
+    /// core is runnable at nought per cent of one, so a reading that says
+    /// "runnable" moves the mark whether the time moved or not.
+    #[test]
+    fn a_runnable_tree_is_never_stuck() {
+        let cap = Duration::from_secs(300);
+        let busy = busy_enough(cap);
+        let start = Instant::now();
+        let mut progress =
+            Progress { at: start, spent: None, runnable: false, next: start };
+
+        // A first reading, and then an hour of a tree that is runnable and has
+        // spent nothing at all — which is what a starved spinner looks like,
+        // and what a mac's lagging counters make an ordinary one look like.
+        progress.note(start, Some(Look { runnable: false, spent: Duration::ZERO }), busy);
+        for minute in 1..=60 {
+            let now = start + Duration::from_secs(60 * minute);
+            progress.note(now, Some(Look { runnable: true, spent: Duration::ZERO }), busy);
+            assert_eq!(progress.at, now, "a runnable tree was left behind by the clock");
+        }
+
+        // The moment it stops being runnable and stops spending, the mark stops
+        // moving — and the cap is what fires on that.
+        let asleep = start + Duration::from_secs(60 * 61);
+        progress.note(asleep, Some(Look { runnable: false, spent: Duration::ZERO }), busy);
+        assert_eq!(progress.at, start + Duration::from_secs(60 * 60));
     }
 
     /// The default is the period the deleted `nextest.toml` named, and the
