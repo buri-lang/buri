@@ -1809,7 +1809,7 @@ export fn main(): Result<(), Str> {
 
     // A `cat` of a path that is not there writes to standard error and exits
     // non-zero: a child that ran and failed is `.Ok`, not `.Err`.
-    let complained = proc
+    let complained = process
         .run(ctx, process.command(cat.text(), ["no-such-file-here"]))
         .mapErr(fn(_e) => "cat missing")?;
     let _p5 = io
@@ -1857,7 +1857,7 @@ export fn main(): Result<(), Str> {
 /// **A native binary starts a real child, feeds it, waits for it, and reads
 /// back everything it wrote.**
 ///
-/// The conformance package for `core/proc` runs every one of these through the
+/// The conformance package for `core/process` runs every one of these through the
 /// double, which records the command and answers what the test wrote down.
 /// What a whole process adds is the half a double cannot have: a real `fork`
 /// and `exec`, a real pipe with octets going both ways, a real exit code, and
