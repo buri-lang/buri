@@ -119,8 +119,8 @@ export fn state<C: Ui>(ctx: C): Option<Str>;
 
 /// The path of the page's address now, as `/guide/routing`.
 ///
-/// Read inside a computation this is `route`, and read outside one it is a
-/// plain answer. Both are the same cell.
+/// The same cell `route` wraps, read once. A page that only wants to know where
+/// it is needs no prop for it.
 export fn path<C: Location + Watch>(ctx: C): Str {
     ctx.read(ctx.path())
 }
