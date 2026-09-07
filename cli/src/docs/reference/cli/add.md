@@ -6,8 +6,7 @@ checkout that is already there arrives under `add` instead, one subcommand each.
 There is one today.
 
 With no subcommand it prints what you can ask it for and exits 2, the way bare
-`buri` prints the command table: an incomplete invocation is the thing you asked
-*with* being wrong.
+`buri` prints the command table.
 
 ## `buri add skills`
 
@@ -37,9 +36,7 @@ removed .agent/skills/buri-retired
 A skill directory whose name begins `buri-` belongs to **this toolchain**.
 Every run rewrites all of them from the binary and removes any that a release
 has stopped shipping. So upgrade the compiler, run this command again, and the
-skills are current. There is nothing to merge.
+skills are current.
 
 A directory named anything else is somebody's own. The command never reads it,
-never writes it, and never removes it. That is why the marker is a prefix on the
-name rather than a manifest file: the directory is the only thing both sides can
-see.
+never writes it, and never removes it.
