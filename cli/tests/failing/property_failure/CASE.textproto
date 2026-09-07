@@ -1,0 +1,25 @@
+# `core/testing/check`, failing, with the counterexample it names recorded.
+#
+# A property tester is only worth having if the failure is reproducible, so
+# this case is the one that says it is. The first seed is fixed and there is no
+# shrinking, so the run draws the same hundred cases every time and stops at the
+# same one — and the `seed` in the report, handed to `random.seeded`, draws that
+# `case` back. A change that moves the draw order moves these numbers, and a
+# change that makes them wander does not compile a golden at all.
+#
+# The report comes out of `assert.none`, because that is how `check` reports:
+# it hands the runner an `Option<Counterexample<T>>` and the runner renders it
+# structurally, the way it renders both sides of every other assertion. There is
+# no second reporting intrinsic — see design/native/DECISIONS.md.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs. Textproto,
+# but not a Buri file: only repo/ below is a Buri repository.
+
+doc: "core/testing/check failing, with the seed and the case its report names"
+
+run {
+  args: ["test", "//lib/props", "--force", "--output=js"]
+  exit: 1
+  golden: "fail.txt"
+  stream: OUT
+}

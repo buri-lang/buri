@@ -234,6 +234,12 @@ pub const MODULES: &[StdModule] = &[
         platform: true,
         ..m("core/testing/assert", include_str!("sources/assert.buri"))
     },
+    // Property testing. Not a platform module: it declares no effect and no
+    // bodyless `fn` — every failure it reports goes through
+    // `core/testing/assert`, which is the module that owns the runner's door.
+    // The `testing` segment in the path is what keeps it out of a library
+    // source, exactly as it does for `core/testing/assert`.
+    m("core/testing/check", include_str!("sources/check.buri")),
     // `ui/*`. A user interface is not one of the deliberately small
     // essentials, and its vocabulary is large, so it gets its own reserved
     // root rather than growing `core/`. Only `ui/effect` is a platform module —

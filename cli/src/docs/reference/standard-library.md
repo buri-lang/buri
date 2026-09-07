@@ -462,15 +462,34 @@ effect by handing the context to a function, never by calling a method on it
 (SPEC 10.2). So `io.println(ctx, text)` is how a program prints, and the
 compiler refuses `ctx.println(text)`.
 Only a test source may import
-[`core/testing/assert`](../../compiler/standard_library/sources/assert.buri) and
+[`core/testing/assert`](../../compiler/standard_library/sources/assert.buri),
+[`core/testing/check`](../../compiler/standard_library/sources/check.buri) or
 [`core/host/testing`](../../compiler/standard_library/sources/host_testing.buri).
 `assert` is deliberately wide — `eq`,
-`notEq`, `isTrue`, `isFalse`, `contains`, `isEmpty`, `notEmpty`, `len`, `gt`,
-`ge`, `lt`, `le`, `approxEq`, and the unwrapping `ok`, `err`, `some`, `none` —
+`eqWith`, `notEq`, `isTrue`, `isFalse`, `contains`, `containsText`,
+`startsWith`, `isEmpty`, `notEmpty`, `len`, `unordered`, `gt`,
+`ge`, `lt`, `le`, `approxEq`, `approxEqRelative`, and the unwrapping `ok`,
+`err`, `some`, `none` —
 because the report is the point. Each one names the two values it compared,
 where `assert.isTrue(xs.contains(x))` can only say "expected true, got false".
+`eqWith(ctx, actual, expected, same)` is the one for a type with no `Eq`:
+`Map`, `Set`, `OrdMap`, `OrdSet`, `Queue` and `BitSet` answer
+`equals(ctx, other)` instead, and passing that comparison keeps the report.
+`unordered(ctx, actual, expected)` sorts both lists first and reports the sorted
+pair, which costs O(n log n).
 There is no `assert.fail`: it answered `()` rather than a bottom type, so a
 match arm using it could not produce a value.
+
+[`core/testing/check`](../../compiler/standard_library/sources/check.buri) is
+property testing over the same runner. `forAll(generator, property)` draws a
+hundred cases from `core/random`'s seeded `Gen` and stops at the first that
+breaks the claim; `forAllCtx` is the same where either half needs a context.
+`int(low, high)` and `listOf(ctx, item, maxLength)` are the two generators to
+compose. **The first seed is fixed and there is no shrinking**, so a failing run
+fails the same way every time and the report names the seed —
+`random.seeded(seed)` handed back to the generator draws the counterexample
+again. Drawing costs one case per iteration and stops early, so a broken
+property costs one draw rather than a hundred.
 
 [Build a web server](../guides/web-server.md) walks the four of them end to end.
 [Tasks and actors](../guides/concurrency.md) is the concurrency model

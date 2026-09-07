@@ -2,94 +2,119 @@ FAIL //lib/asserts  test/asserts.buri  "eq"
   assert.eq failed
     actual:   1
     expected: 2
-  --> lib/asserts/test/asserts.buri:11:1
+  --> lib/asserts/test/asserts.buri:15:1
+FAIL //lib/asserts  test/asserts.buri  "eqWith"
+  assert.eqWith failed
+    actual:   Map { buckets: [[], [], [], [], [], [], [("a", 1)], []], size: 1 }
+    expected: Map { buckets: [[], [], [], [], [], [], [("a", 2)], []], size: 1 }
+  --> lib/asserts/test/asserts.buri:19:1
 FAIL //lib/asserts  test/asserts.buri  "notEq"
   assert.notEq failed
     actual:   5
     expected: 5
-  --> lib/asserts/test/asserts.buri:15:1
+  --> lib/asserts/test/asserts.buri:28:1
 FAIL //lib/asserts  test/asserts.buri  "isTrue"
   assert.isTrue failed
     actual:   false
     expected: true
-  --> lib/asserts/test/asserts.buri:19:1
+  --> lib/asserts/test/asserts.buri:32:1
 FAIL //lib/asserts  test/asserts.buri  "isFalse"
   assert.isFalse failed
     actual:   true
     expected: false
-  --> lib/asserts/test/asserts.buri:23:1
+  --> lib/asserts/test/asserts.buri:36:1
 FAIL //lib/asserts  test/asserts.buri  "contains"
   assert.contains failed
     actual:   [1, 2, 3]
     expected: [9]
-  --> lib/asserts/test/asserts.buri:27:1
+  --> lib/asserts/test/asserts.buri:40:1
+FAIL //lib/asserts  test/asserts.buri  "containsText"
+  assert.containsText failed
+    actual:   "hello, world"
+    expected: "goodbye"
+  --> lib/asserts/test/asserts.buri:44:1
+FAIL //lib/asserts  test/asserts.buri  "startsWith"
+  assert.startsWith failed
+    actual:   "main.buri:3: no such name"
+    expected: "lib.buri:"
+  --> lib/asserts/test/asserts.buri:48:1
 FAIL //lib/asserts  test/asserts.buri  "isEmpty"
   assert.isEmpty failed
     actual:   [1, 2]
     expected: []
-  --> lib/asserts/test/asserts.buri:31:1
+  --> lib/asserts/test/asserts.buri:52:1
 FAIL //lib/asserts  test/asserts.buri  "notEmpty"
   assert.notEmpty failed: the list is empty
-  --> lib/asserts/test/asserts.buri:35:1
+  --> lib/asserts/test/asserts.buri:56:1
 FAIL //lib/asserts  test/asserts.buri  "len"
   assert.len failed
     actual:   3
     expected: 2
-  --> lib/asserts/test/asserts.buri:39:1
+  --> lib/asserts/test/asserts.buri:60:1
+FAIL //lib/asserts  test/asserts.buri  "unordered"
+  assert.unordered failed
+    actual:   [1, 2, 3]
+    expected: [1, 2, 4]
+  --> lib/asserts/test/asserts.buri:64:1
 FAIL //lib/asserts  test/asserts.buri  "gt"
   assert.gt failed
     actual:   3
     expected: 5
-  --> lib/asserts/test/asserts.buri:43:1
+  --> lib/asserts/test/asserts.buri:71:1
 FAIL //lib/asserts  test/asserts.buri  "ge"
   assert.ge failed
     actual:   3
     expected: 5
-  --> lib/asserts/test/asserts.buri:47:1
+  --> lib/asserts/test/asserts.buri:75:1
 FAIL //lib/asserts  test/asserts.buri  "lt"
   assert.lt failed
     actual:   5
     expected: 3
-  --> lib/asserts/test/asserts.buri:51:1
+  --> lib/asserts/test/asserts.buri:79:1
 FAIL //lib/asserts  test/asserts.buri  "le"
   assert.le failed
     actual:   5
     expected: 3
-  --> lib/asserts/test/asserts.buri:55:1
+  --> lib/asserts/test/asserts.buri:83:1
 FAIL //lib/asserts  test/asserts.buri  "approxEq"
   assert.approxEq failed
     actual:   1.0
     expected: 1.5
-  --> lib/asserts/test/asserts.buri:59:1
+  --> lib/asserts/test/asserts.buri:87:1
+FAIL //lib/asserts  test/asserts.buri  "approxEqRelative"
+  assert.approxEqRelative failed
+    actual:   1000000.0
+    expected: 1001000.0
+  --> lib/asserts/test/asserts.buri:91:1
 FAIL //lib/asserts  test/asserts.buri  "ok"
   assert.ok failed
     actual:   "boom"
     expected: .Ok
-  --> lib/asserts/test/asserts.buri:63:1
+  --> lib/asserts/test/asserts.buri:95:1
 FAIL //lib/asserts  test/asserts.buri  "err"
   assert.err failed
     actual:   7
     expected: .Err
-  --> lib/asserts/test/asserts.buri:67:1
+  --> lib/asserts/test/asserts.buri:99:1
 FAIL //lib/asserts  test/asserts.buri  "some"
   assert.some failed
     actual:   .None
     expected: .Some
-  --> lib/asserts/test/asserts.buri:71:1
+  --> lib/asserts/test/asserts.buri:103:1
 FAIL //lib/asserts  test/asserts.buri  "none"
   assert.none failed
     actual:   .Some(3)
     expected: .None
-  --> lib/asserts/test/asserts.buri:75:1
+  --> lib/asserts/test/asserts.buri:107:1
 FAIL //lib/asserts  test/asserts.buri  "eq on an Option"
   assert.eq failed
     actual:   .Some(1)
     expected: .None
-  --> lib/asserts/test/asserts.buri:79:1
+  --> lib/asserts/test/asserts.buri:111:1
 FAIL //lib/asserts  test/asserts.buri  "eq on a Result"
   assert.eq failed
     actual:   .Ok(1)
     expected: .Err("no")
-  --> lib/asserts/test/asserts.buri:83:1
+  --> lib/asserts/test/asserts.buri:115:1
 
-0 passed, 19 failed, 0 skipped (0.0s)
+0 passed, 24 failed, 0 skipped (0.0s)
