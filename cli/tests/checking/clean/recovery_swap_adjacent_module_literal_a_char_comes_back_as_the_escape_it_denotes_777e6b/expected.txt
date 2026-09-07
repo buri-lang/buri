@@ -1,0 +1,9 @@
+error: expected a function body, found a character literal [unexpected-token]
+  --> main.buri:14:26
+   |
+14 | export fn delete(): Char '\u{7f}' { }
+   |                          ^^^^^^^^
+   |
+   = expected: a function body
+   = actual: a character literal
+   = fix: write `{ ... }` after the return type

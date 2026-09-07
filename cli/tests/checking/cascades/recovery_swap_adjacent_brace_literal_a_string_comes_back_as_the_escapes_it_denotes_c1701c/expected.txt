@@ -1,0 +1,27 @@
+error: this `match` does not cover `_` [match-not-exhaustive]
+  --> main.buri:13:5
+   |
+13 |     match (s) { "\r\n" => 1, "\u{7f}" => 2, "\u{41}" 3 =>, _ => 0 }
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not covered
+   |
+   = exhaustiveness is not attempted over integer or string ranges
+   = fix: add a `_` arm
+error: a match arm is `pattern => expression` [missing-arrow]
+  --> main.buri:13:53
+   |
+13 |     match (s) { "\r\n" => 1, "\u{7f}" => 2, "\u{41}" 3 =>, _ => 0 }
+   |                                                     ^
+   |
+   = fix: write `=>` here
+error: this `match` is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:13:56
+   |
+13 |     match (s) { "\r\n" => 1, "\u{7f}" => 2, "\u{41}" 3 =>, _ => 0 }
+   |                                                        ^^
+   |
+  --> main.buri:13:15
+   |
+13 |     match (s) { "\r\n" => 1, "\u{7f}" => 2, "\u{41}" 3 =>, _ => 0 }
+   |               ^ opened here
+   |
+   = fix: write `}` here

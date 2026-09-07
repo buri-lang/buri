@@ -91,6 +91,8 @@ unordered, so it answers `.Equal` for a pair it could not order.
 [`core/character`](../../compiler/standard_library/sources/character.buri),
 [`core/bytes`](../../compiler/standard_library/sources/bytes.buri),
 [`core/json`](../../compiler/standard_library/sources/json.buri),
+[`core/csv`](../../compiler/standard_library/sources/csv.buri),
+[`core/compression`](../../compiler/standard_library/sources/compression.buri),
 [`core/proto`](../../compiler/standard_library/sources/proto.buri),
 [`core/buri/ast`](../../compiler/standard_library/sources/buri_ast.buri),
 [`core/codegen`](../../compiler/standard_library/sources/codegen.buri),
@@ -199,6 +201,26 @@ unordered, so it answers `.Equal` for a pair it could not order.
   hand**, because a hand-written encoder would run where something encodes the
   type on its own and be skipped silently where something encodes a type holding
   it.
+
+- **`core/csv`** — RFC 4180, and quoting is the whole of why it exists. `parse`
+  and `parseWith` read a file into `[[Str]]`, `parseWithHeader` peels the first
+  record off as the column names, and `render` writes one back, quoting only the
+  fields that hold a comma, a quote or a line break. A record ends at `\n` or
+  `\r\n`, `""` inside quotes is one quote, and a quote that never closes is
+  `.Unterminated(record)`. Records that are not all the same width are
+  `.RaggedRow(record)` rather than a table with a hole in it. One pass, O(n) in
+  the characters.
+
+- **`core/compression`** — `gzip`, `gunzip`, `deflate`, `inflate`. `inflate`
+  reads all of RFC 1951 — stored, fixed-Huffman and dynamic-Huffman blocks, any
+  number of them — so it reads what zlib and every web server produce.
+  `deflate` writes one fixed-Huffman block over a greedy LZ77 match finder with
+  a 32 KiB window, which is a few percent larger than `gzip -9` and readable by
+  everything. It is pure Buri: there is no compression crate in the runtime and
+  no table beyond RFC 1951 §3.2.5's own 29 lengths and 30 distances. Compressing
+  is O(n log n) for the match index and O(n) for the emit; decompressing is O(n)
+  in the output. The gzip trailer — CRC-32 and length — is checked on the way
+  back, and a mismatch is a `DecodeError` at the offset that failed.
 
 - **`core/proto`** — the protobuf wire format: tags, wire types, the packed
   readers, and `ProtoError`. You write none of this by hand either. A `.proto`
@@ -619,6 +641,7 @@ implements them all, and only the module that exports `main` may import it.
 [`core/time`](../../compiler/standard_library/sources/time.buri),
 [`core/random`](../../compiler/standard_library/sources/random.buri),
 [`core/crypto`](../../compiler/standard_library/sources/crypto.buri),
+[`core/net/url`](../../compiler/standard_library/sources/url.buri),
 [`core/net/http`](../../compiler/standard_library/sources/http.buri),
 [`core/net/server`](../../compiler/standard_library/sources/server.buri),
 [`core/net/websocket`](../../compiler/standard_library/sources/websocket.buri),
@@ -685,6 +708,25 @@ sits at the `Alloc` tier, which lets a test hand it `core/host/testing`'s
 `env().arguments([...])` and read the answer out of a captured stream.
 `buri docs core/cli` is the module's own page, with the five spellings a flag
 may take and a program worked end to end.
+
+`core/net/url` is RFC 3986, and it names no effect at all — it is here because
+both halves of `core/net` need it. `encodeComponent`, `encodePath` and
+`decodeComponent` are percent-encoding one piece at a time; `parseQuery` and
+`encodeQuery` are the `name=value` pairs of a query string, with `+` read as a
+space because that is what a form sends. A `Url` is its six parts — scheme,
+host, port, path, query, fragment — and `parse` lowercases the scheme and the
+host and changes nothing else, so `text` gives the URL back. `resolve` is
+reference resolution, dot segments and all, against this URL as the base. There
+is no field for a user name and a password, so `https://user:pass@host/` is
+refused rather than quietly halved.
+
+`core/net/http` also holds the half a server writes by hand: `cookies` and
+`withCookie`, `formRequest` and `formBody`, `statusText`, `contentTypeFor` for a
+handler serving a directory, and `contentType` for splitting
+`text/html; charset=utf-8` into its two halves. `headerValues` and `setHeader`
+are `header` and `withHeader` for the fields that legitimately repeat.
+`Request.withTimeout(millis)` bounds one request — every step of it, on every
+platform — and zero is the platform's own bound.
 
 `core/net/server` is the other half of `core/net/http`: a program that *is* a
 server rather than one that talks to one. That is a second authority, not a

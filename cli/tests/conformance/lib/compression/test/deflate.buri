@@ -1,0 +1,492 @@
+// core/compression — RFC 1951 and RFC 1952.
+//
+// The compressed vectors were produced by zlib and gzip, not by this
+// implementation, so a passing case is agreement with the format. The one
+// stream this implementation *writes* is checked against zlib's own fixed
+// Huffman output for the same three bytes.
+
+from "core/bytes" import * as bytes;
+from "core/bytes" import { DecodeError };
+from "core/compression" import * as compression;
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "core/list" import * as list;
+from "core/str" import * as str;
+from "core/testing/assert" import * as assert;
+
+fn octets(text: Str): [U8] {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    bytes.toUtf8(ctx, text)
+}
+
+fn text(b: [U8]): Str {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    bytes.fromUtf8(ctx, b).withDefault("<not utf-8>")
+}
+
+fn packed(raw: [U8]): [U8] {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    compression.deflate(ctx, raw)
+}
+
+fn unpacked(body: [U8]): Result<[U8], DecodeError> {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    compression.inflate(ctx, body)
+}
+
+fn wrapped(raw: [U8]): [U8] {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    compression.gzip(ctx, raw)
+}
+
+fn unwrapped(body: [U8]): Result<[U8], DecodeError> {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    compression.gunzip(ctx, body)
+}
+
+/// The same bytes with the one at `index` replaced. A list is a value, so this
+/// is a splice rather than a write.
+fn changed(b: [U8], index: Int, value: U8): [U8] {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    b.take(ctx, index).push(ctx, value).concat(ctx, b.drop(ctx, index + 1))
+}
+
+// About six kilobytes, and no two lines alike, so the match finder has to walk
+// its chain rather than answering with one enormous run.
+fn large(): [U8] {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    list
+        .range(ctx, 0, 120)
+        .mapCtx(ctx, fn(c, i) => {
+            bytes.toUtf8(
+                c,
+                str.format(
+                    c,
+                    "line ${i}: the quick brown fox jumps over the lazy dog.\n",
+                ),
+            )
+        })
+        .flatten(ctx)
+}
+
+// zlib, `compresslevel=9`, `wbits=-15`, over the 235 characters in
+// `DYNAMIC_TEXT` below. Its first byte's low three bits are 1, 0, 1: a final
+// block of type 10, which is dynamic Huffman.
+let DYNAMIC: [U8] = [
+    77,
+    143,
+    193,
+    13,
+    195,
+    48,
+    12,
+    3,
+    87,
+    225,
+    0,
+    65,
+    118,
+    104,
+    209,
+    71,
+    223,
+    221,
+    64,
+    177,
+    229,
+    216,
+    168,
+    45,
+    23,
+    150,
+    130,
+    160,
+    219,
+    87,
+    206,
+    171,
+    79,
+    129,
+    60,
+    82,
+    188,
+    31,
+    163,
+    160,
+    40,
+    8,
+    218,
+    168,
+    86,
+    84,
+    146,
+    253,
+    160,
+    157,
+    87,
+    60,
+    56,
+    85,
+    50,
+    254,
+    23,
+    83,
+    31,
+    141,
+    108,
+    197,
+    243,
+    72,
+    169,
+    145,
+    32,
+    244,
+    200,
+    174,
+    74,
+    196,
+    70,
+    225,
+    141,
+    193,
+    137,
+    7,
+    75,
+    96,
+    93,
+    32,
+    221,
+    114,
+    145,
+    29,
+    92,
+    149,
+    65,
+    6,
+    199,
+    87,
+    220,
+    16,
+    191,
+    66,
+    173,
+    4,
+    108,
+    181,
+    59,
+    112,
+    142,
+    98,
+    30,
+    80,
+    76,
+    209,
+    79,
+    129,
+    157,
+    29,
+    54,
+    120,
+    70,
+    102,
+    166,
+    136,
+    158,
+    96,
+    153,
+    17,
+    201,
+    104,
+    185,
+    90,
+    200,
+    239,
+    50,
+    226,
+    101,
+    242,
+    242,
+    246,
+    25,
+    172,
+    234,
+    118,
+    203,
+    93,
+    253,
+    227,
+    215,
+    132,
+    156,
+    104,
+    151,
+    121,
+    162,
+    174,
+    219,
+    28,
+    192,
+    164,
+    223,
+    245,
+    7,
+];
+
+let DYNAMIC_TEXT: Str =
+    "Buri is a small language. Deflate is a small format. Huffman codes and back references, nothing else at all. A dynamic block writes its own two trees ahead of the data, and a third tree compresses those. Read them and the rest is easy.";
+
+// zlib again, with a sync flush in the middle: a fixed block, then an empty
+// stored block, then the final fixed block.
+let MULTIBLOCK: [U8] = [
+    74,
+    203,
+    44,
+    42,
+    46,
+    81,
+    0,
+    0,
+    0,
+    0,
+    255,
+    255,
+    43,
+    78,
+    77,
+    206,
+    207,
+    75,
+    1,
+    0,
+];
+
+// `gzip -9`, mtime zero, over "hello, gzip\n".
+let GZIP_HELLO: [U8] = [
+    31,
+    139,
+    8,
+    0,
+    0,
+    0,
+    0,
+    0,
+    2,
+    255,
+    203,
+    72,
+    205,
+    201,
+    201,
+    215,
+    81,
+    72,
+    175,
+    202,
+    44,
+    224,
+    2,
+    0,
+    134,
+    31,
+    130,
+    164,
+    12,
+    0,
+    0,
+    0,
+];
+
+// The same, with FNAME set and `note.txt` in the header.
+let GZIP_NAMED: [U8] = [
+    31,
+    139,
+    8,
+    8,
+    0,
+    0,
+    0,
+    0,
+    2,
+    255,
+    110,
+    111,
+    116,
+    101,
+    46,
+    116,
+    120,
+    116,
+    0,
+    203,
+    75,
+    204,
+    77,
+    77,
+    81,
+    200,
+    77,
+    205,
+    77,
+    74,
+    45,
+    2,
+    0,
+    172,
+    183,
+    59,
+    67,
+    12,
+    0,
+    0,
+    0,
+];
+
+// --- What `deflate` writes ------------------------------------------------------
+
+test "the empty input is a stream that says where it ends" {
+    // Three bits of block header and seven of end-of-block: the two bytes every
+    // zlib writes for nothing at all.
+    assert.eq(packed(list.empty<U8>()), [3, 0]);
+    assert.eq(assert.ok(unpacked([3, 0])), list.empty<U8>());
+}
+
+test "three literals are the bytes zlib's fixed Huffman writes" {
+    assert.eq(packed(octets("abc")), [75, 76, 74, 6, 0]);
+}
+
+test "what it writes, it reads" {
+    assert.eq(text(assert.ok(unpacked(packed(octets("abc"))))), "abc");
+    assert.eq(
+        text(assert.ok(unpacked(packed(octets("ha ha ha ha ha ha ha ha!"))))),
+        "ha ha ha ha ha ha ha ha!",
+    );
+    assert.eq(text(assert.ok(unpacked(packed(octets(DYNAMIC_TEXT))))), DYNAMIC_TEXT);
+}
+
+test "a run longer than one match code round-trips" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    // 700 bytes of one value: longer than the 258 a single length code can say,
+    // so the emitter has to write more than one back-reference.
+    let filler: U8 = 65;
+    let run = list.repeat(ctx, filler, 700);
+    assert.eq(assert.ok(unpacked(packed(run))), run);
+}
+
+// --- What `inflate` reads -------------------------------------------------------
+
+test "a stored block is its bytes" {
+    assert.eq(text(assert.ok(unpacked([1, 3, 0, 252, 255, 97, 98, 99]))), "abc");
+}
+
+test "a fixed-Huffman block" {
+    assert.eq(text(assert.ok(unpacked([75, 76, 74, 6, 0]))), "abc");
+}
+
+test "a dynamic-Huffman block, tree and all" {
+    assert.eq(text(assert.ok(unpacked(DYNAMIC))), DYNAMIC_TEXT);
+}
+
+test "more than one block in a stream" {
+    assert.eq(text(assert.ok(unpacked(MULTIBLOCK))), "first second");
+}
+
+// --- What `inflate` refuses -----------------------------------------------------
+
+test "nothing at all is not a stream" {
+    assert.eq(assert.err(unpacked(list.empty<U8>())), DecodeError(0));
+}
+
+test "there is no fourth block type" {
+    // `111`: a final block of type 11, which RFC 1951 reserves.
+    assert.eq(assert.err(unpacked([7])), DecodeError(0));
+}
+
+test "a stream that stops mid-symbol" {
+    assert.eq(assert.err(unpacked([75, 76])), DecodeError(2));
+}
+
+test "a stored block whose complement does not complement" {
+    assert.eq(assert.err(unpacked([1, 3, 0, 0, 0, 97, 98, 99])), DecodeError(5));
+}
+
+test "a match that copies from before the start" {
+    // One literal, then a length of 3 at a distance of 5, with one byte written.
+    assert.eq(assert.err(unpacked([75, 4, 18, 0])), DecodeError(3));
+}
+
+// --- gzip -----------------------------------------------------------------------
+
+test "a gzip member from gzip itself" {
+    assert.eq(text(assert.ok(unwrapped(GZIP_HELLO))), "hello, gzip\n");
+}
+
+test "a header carrying a file name is read past" {
+    assert.eq(text(assert.ok(unwrapped(GZIP_NAMED))), "named member");
+}
+
+test "what gzip writes, gunzip reads" {
+    let raw = octets(DYNAMIC_TEXT);
+    assert.eq(assert.ok(unwrapped(wrapped(raw))), raw);
+    assert.eq(assert.ok(unwrapped(wrapped(list.empty<U8>()))), list.empty<U8>());
+}
+
+test "the header is the fixed ten bytes RFC 1952 asks for" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let member = wrapped(octets("x"));
+    assert.eq(member.take(ctx, 10), [31, 139, 8, 0, 0, 0, 0, 0, 0, 255]);
+}
+
+test "a member is not a member without its magic number" {
+    let ctx = context {
+        Alloc: alloc(),
+    };
+    let zeroes: [U8] = list.repeat(ctx, 0, 24);
+    assert.eq(assert.err(unwrapped(zeroes)), DecodeError(0));
+}
+
+test "a member shorter than a header" {
+    assert.eq(assert.err(unwrapped([31, 139])), DecodeError(0));
+}
+
+test "a compression method that is not DEFLATE" {
+    assert.eq(assert.err(unwrapped(changed(GZIP_HELLO, 2, 9))), DecodeError(2));
+}
+
+test "a trailer that does not match what came out" {
+    // The last eight bytes are the CRC-32 and the length, in that order.
+    assert.eq(assert.err(unwrapped(changed(GZIP_HELLO, 24, 0))), DecodeError(24));
+    assert.eq(assert.err(unwrapped(changed(GZIP_HELLO, 28, 9))), DecodeError(28));
+}
+
+// --- A large input ---------------------------------------------------------------
+
+test "six kilobytes there and back, through both wrappers" {
+    let raw = large();
+    assert.eq(assert.ok(unpacked(packed(raw))), raw);
+    assert.eq(assert.ok(unwrapped(wrapped(raw))), raw);
+}
+
+test "and it actually compresses" {
+    let raw = large();
+    assert.lt(packed(raw).len(), raw.len() / 3);
+}

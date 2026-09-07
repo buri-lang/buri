@@ -1,0 +1,7 @@
+// The `core/compression` conformance package.
+//
+// Every stream here was written by zlib rather than by this implementation, so
+// what the cases assert is agreement with the format and not agreement with
+// yesterday's answer. Between them they cover the three block types RFC 1951
+// has — stored, fixed and dynamic — a stream of more than one block, and the
+// gzip member RFC 1952 wraps one in, with and without a file name.

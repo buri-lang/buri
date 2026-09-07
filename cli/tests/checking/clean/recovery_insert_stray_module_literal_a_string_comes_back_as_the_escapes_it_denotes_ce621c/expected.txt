@@ -1,0 +1,9 @@
+error: expected a function body, found `?` [unexpected-token]
+ --> main.buri:8:28
+  |
+8 | export fn printable(): Str ? { "\u{41}\u{e9}\u{1F600}" }
+  |                            ^
+  |
+  = expected: a function body
+  = actual: `?`
+  = fix: write `{ ... }` after the return type

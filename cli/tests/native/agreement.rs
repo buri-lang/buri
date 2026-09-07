@@ -2906,7 +2906,13 @@ impl Listen for OneShot {
 
   fn listenRequest(self, connection: Int): Result<Request, ServeError> {
     match (connection) {
-      7 => .Ok(Request { method: .Get, url: "10.0.0.1", headers: [], body: [] }),
+      7 => .Ok(Request {
+              method: .Get,
+              url: "10.0.0.1",
+              headers: [],
+              body: [],
+              timeoutMillis: 0,
+          }),
       _ => .Err(ServeError { cause: .Closed, detail: "" }),
     }
   }

@@ -1,0 +1,7 @@
+// The `core/net/http` conformance package, for the half a server writes by
+// hand: repeated header fields, cookies, form bodies, status lines and content
+// types — plus the bound a request carries.
+//
+// `semantics/http.buri` is the other half, and it is about the *types*:
+// `Request` and `Response` as values, their fields, their equality and their
+// `show`. This one is about what the module does with them.
