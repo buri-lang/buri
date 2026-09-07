@@ -16,8 +16,7 @@ A test run reports the lint catalogue too, where `REPO.buri` asks it to.
 `lint { check_during_build: true }` runs the checks `buri lint` runs over the
 targets being tested and reports them alongside the verdicts. Add
 `fail_on_finding: true` and a finding becomes an error, failing the run the way
-a failing test does. Both default to false, so a repository that writes neither
-gets exactly the run described above.
+a failing test does. Both default to false.
 
 Opt in here for the same reason you opt in on `buri build`, and a little more
 so: you run this command more often than anything else, and a test suite is
@@ -32,10 +31,8 @@ those were.
 
 Natively, on the host, in the development profile. A suite that says otherwise
 in `test { platforms }` gets what it asked for, and `--output=js` says it for
-one invocation without editing a build file.
-
-Those two are the whole list. Nothing else moves a suite: a suite that named no
-platform runs natively or does not run.
+one invocation without editing a build file. Those two are the whole list: a
+suite that named no platform runs natively or does not run.
 
 Sometimes a native run is not available, because this toolchain has no backend
 for the host in this profile, no runtime archive, or no C compiler to link with.
@@ -46,13 +43,10 @@ about: the release profile routes to LLVM, so a toolchain built without
 the development backend.
 
 **A program the native backend has no body for is refused too**, naming the
-intrinsic and the backend. Both used to fall back onto JavaScript with a line on
-standard error, and that was the wrong answer. The suite then passed on a
-backend nobody chose, which turns a named gap into a wrong answer rather than
-into a report, and the line saying so went to a stream nobody reads when a run
-is green. A suite that belongs on JavaScript says so with
-`test { platforms: [JS] }`; anything else is a toolchain bug worth hearing
-about.
+intrinsic and the backend. Falling back onto JavaScript would pass the suite on
+a backend nobody chose, turning a named gap into a wrong answer. A suite that
+belongs on JavaScript says so with `test { platforms: [JS] }`; anything else is
+a toolchain bug worth hearing about.
 
 **A `platforms: [JS]` suite cannot paint a snapshot.** There is no painter in
 the JavaScript runtime, so a `snapshot` call there fails the test saying so.
@@ -88,8 +82,7 @@ list the cache keys are already made of. The loop polls each file with one
 `stat` every 150 ms, so it acts on a save between 150 and 300 ms after it lands,
 and a burst of writes becomes one run rather than twelve. Neither interval is
 configurable. Nothing the toolchain writes can wake the loop, because build
-output goes under `.buri/`, which is nobody's declared input. There is no ignore
-list for `.git/` or `target/` because they were never in.
+output goes under `.buri/`, which is nobody's declared input.
 
 **A new file is not watched until something declares it.** Sources are explicit
 lists rather than globs, so a file you have just created is an input of nothing.
@@ -105,10 +98,9 @@ it is, and the file that moved:
 ```
 
 The time is UTC and says so. The loop never clears the screen, and a run with
-nothing to do prints nothing at all, not even the separator, because a watch
-mode that prints on every sweep is one you stop reading. `--explain` turns that
-inside out and is at its most useful here: one line per suite per run, saying
-`cached` or `run`.
+nothing to do prints nothing at all, not even the separator. `--explain` turns
+that inside out and is at its most useful here: one line per suite per run,
+saying `cached` or `run`.
 
 **A run that does not build is a state, not an exit.** A `BUILD.buri` that stops
 parsing prints its diagnostics and the loop keeps watching, that file included,

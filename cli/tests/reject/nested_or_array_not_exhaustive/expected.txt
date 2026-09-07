@@ -16,7 +16,6 @@ error: this `match` does not cover `[false]` [match-not-exhaustive]
     Why
     ───
 
-    Exhaustiveness is what makes adding a variant a compile error at every place
-    that has to care about it. A _ arm opts out of that for one match, which is
-    sometimes right and is always a decision.
+    Exhaustiveness makes adding a variant a compile error at every place that
+    has to care. A _ arm opts out of that for one match.
 

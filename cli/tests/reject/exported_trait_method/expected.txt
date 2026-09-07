@@ -15,10 +15,9 @@ error: an `impl` method is not separately exported [impl-method-export]
      Why
      ───
 
-     Conformance belongs to the type. Once Version is visible, everything impl
-     Eq for Version supplies is visible with it, so export has nothing left to
-     decide. Withholding a method the trait requires would be a conformance that
-     does not hold.
+     Conformance belongs to the type: once Version is visible, everything impl
+     Eq for Version supplies is visible with it. Withholding a method the trait
+     requires would be a conformance that does not hold.
 
      A program that provokes it
      ──────────────────────────

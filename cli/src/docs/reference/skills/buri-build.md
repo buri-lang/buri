@@ -13,8 +13,7 @@ the normative pages.
 ## Five rules the layout follows from
 
 - **A directory with a `BUILD.buri` is a package.** Subdirectories without
-  one belong to the nearest ancestor package. A directory is not a unit of
-  anything.
+  one belong to the nearest ancestor package.
 - **`lib.buri` is a library's whole public surface.** Nothing outside the
   library can reach a name it does not export, as a function or as a method.
 - **`main.buri` is a binary's entry point** and exports `main`. Its rule
@@ -43,8 +42,7 @@ cmd/server/
 
 A label is a package path and **never carries a target name**: `//lib/money`,
 `//cmd/server`. A package holds at most one library and at most one binary, so
-the path plus the rule kind already identifies a target. That is also why a
-rule has no `name` field.
+a rule has no `name` field.
 
 In `dependencies` a label always means the *library* of that package. In a CLI
 argument it means every target in it. Patterns are CLI-only: `//lib/...`,
@@ -87,16 +85,15 @@ unknown rule name is `unknown-field`. A command whose repository turned rules
 off prints which. `buri lint` exits nonzero on any finding, whatever this file
 says.
 
-There is no `flags`, no toolchain pin, no `name`, no defaults block, no
-per-directory or per-file lint exemption, no dependency versions, no profiles,
-and no environment. A repository-wide knob would be a dialect, so a knob goes on
-the command or on the rule.
+Those two are the only fields: no `flags`, no toolchain pin, no `name`, no
+defaults block, no per-directory or per-file lint exemption, no dependency
+versions, no profiles, no environment.
 
 ## `BUILD.buri`
 
 Textproto that parses as `buri.build.v1.BuildFile`. `#` starts a comment. No
-variables, no conditionals, no concatenation, no globs, no `load`, no rule
-authoring: `sources: ["*.buri"]` is refused on purpose.
+variables, conditionals, concatenation, globs, `load` or rule authoring:
+`sources: ["*.buri"]` is refused.
 
 ```textproto
 library {
@@ -151,12 +148,11 @@ binary {
 }
 ```
 
-`main.buri` is required, and you leave it out of `sources` exactly as you leave
-out `lib.buri`. A `binary` takes **no `visibility`**, since nothing can depend
-on a binary, and no `platforms`, since `outputs` already says. Each output is a
-separate artifact and a separate check of the whole graph, so a build can
-succeed for Linux and fail for JS. Name an artifact with `artifact_name` on the
-output that wants it, not on the rule.
+`main.buri` is required, and you leave it out of `sources` as you leave out
+`lib.buri`. A `binary` takes **no `visibility`** and no `platforms`; `outputs`
+says where it runs. Each output is a separate artifact and a separate check of
+the whole graph, so a build can succeed for Linux and fail for JS. Name an
+artifact with `artifact_name` on the output, not on the rule.
 
 An empty rule is enough to start, and `gen` never invents one:
 
@@ -180,7 +176,7 @@ the binary at all.
 | `//lib/...` | any package under `lib/`, including `lib` |
 | `//lib/money` | that one package |
 
-Leave `visibility` out and the target is private. There is no package or
+Leave `visibility` out and the target is private; there is no package or
 repository default. Visibility applies to the **declared edge**, not
 transitively. Two edges skip the check: a target's own suite reaching the target
 under test, and a binary reaching the library in its own package.
@@ -214,10 +210,9 @@ for the standard library.
 
 `//lib/money` is a *label*, not a module path: it names a package in
 `dependencies` and on the command line. Write one where the other belongs and
-you get `import-path-without-a-file`, and inside a repository the diagnostic
-names the file the label meant.
+you get `import-path-without-a-file`.
 
-`lib.buri` is made of re-exports, and may declare things itself too:
+`lib.buri` is made of re-exports, and may declare things itself:
 
 ```buri
 from "//lib/money/cents.buri" export { Cents, fromCents, add, format };
@@ -226,46 +221,41 @@ from "//lib/money/parse.buri" export { ParseError, parse };
 
 Export `add` and callers get both `add(a, b)` and `a.add(b)`. Leave `toCents`
 out and they get neither (`not-on-the-surface`). A type's methods must live in
-the module that declares the type, so a library's file layout follows its types,
-not its verbs.
+the module that declares the type.
 
 ## Tags and platforms
 
-Tags are **labels saying what code is**, and mean the same thing on a library
-and on a binary. You declare what follows from a tag once, on the tag:
+Tags are **labels saying what code is**, the same on a library and on a binary.
+What follows from a tag is declared once, on the tag:
 
 - `forbids { tags: [...] }` — two tags that forbid each other may not appear
   anywhere in the same dependency closure. It is symmetric, checked at every
   target, and a **union over the closure** rather than a path.
-- `requires { platforms: [...] }` — a **whitelist**, never an exclusion, so
-  adding a platform to the toolchain cannot silently widen old code.
+- `requires { platforms: [...] }` — a **whitelist**, never an exclusion.
   `platforms(T)` is the intersection over the closure, and an empty intersection
   is an error at the target itself (`unsatisfiable-target`).
 
 The vocabulary is **closed**: a `tags` entry naming no `tag` block in
-`REPO.buri` is an error (`unknown-tag`), not a harmless annotation.
+`REPO.buri` is an error (`unknown-tag`).
 
 `Platform` is `LINUX`, `MACOS`, `JS`, `WEB`, and adding one is a compiler
 change. A platform *is* the set of effects its host exports, so a `main` binding
-`Ui: host.ui` under `platform: JS` fails with `effect-not-on-platform`. You see
-that as you edit the file, not at link time, and on every output the binary
-declares rather than only the one you are building.
+`Ui: host.ui` under `platform: JS` fails with `effect-not-on-platform` as you
+edit the file, on every output the binary declares.
 
-Tags are **not** a boolean expression language, **not** conditional compilation
-(there is no `#if`; two implementations means two libraries with different
-`platforms` and one dependent that picks), and **not** a substitute for
-visibility.
+There is no `#if` and no conditional compilation: two implementations means two
+libraries with different `platforms` and one dependent that picks. Tags are not
+visibility, and not a boolean expression language.
 
 ## Caching and hermeticity
 
 An action's key is the toolchain version, the build mode, the platform, and the
-content of every input. **Tags never enter a cache key.** Because the key is
-content-addressed, moving the checkout or building the same commit on another
-machine hits the same entries. Actions run with an empty environment. A file
-lock serializes cache writes and reads take none, so any number of `buri`
+content of every input, so the same commit hits the same entries on another
+machine. **Tags never enter a cache key.** Actions run with an empty
+environment. A file lock serializes cache writes, so any number of `buri`
 processes can work in one repository at once. Two builds of one commit in one
 configuration produce byte-identical artifacts, and
-`buri build --check-reproducible` asks that of the repository.
+`buri build --check-reproducible` checks that.
 
 If you reach for `buri clean` to fix a build, report it as a bug.
 

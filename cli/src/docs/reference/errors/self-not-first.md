@@ -12,12 +12,8 @@ error: `self` may appear only as a function's first parameter [self-not-first]
 ## What to do
 
 Move it to the front, or rename it if this parameter is not the receiver.
-
-## Why
-
-`self` first and `ctx` immediately after is the whole calling convention. It
-lets you answer "what does this take, and what may it do?" from the front of a
-signature.
+`self` first and `ctx` immediately after is the whole calling convention, so you
+can read what a function takes and what it may do from the front of a signature.
 
 ## A program that provokes it
 

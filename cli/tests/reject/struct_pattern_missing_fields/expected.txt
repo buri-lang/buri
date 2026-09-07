@@ -14,7 +14,6 @@ error: this pattern does not mention `y` [missing-field-pattern]
     Why
     ───
 
-    Same reason match is exhaustive one level up. Adding a field should be a
-    compile error everywhere the type is taken apart, and .. is how a pattern
-    opts out.
+    Adding a field should be a compile error everywhere the type is taken apart,
+    and .. is how a pattern opts out.
 

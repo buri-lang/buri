@@ -12,15 +12,9 @@ error: a namespace import must be named [unnamed-namespace-import]
 
 ## What to do
 
-Write `import * as list`, so every name it brings in is reached through one
-prefix.
-
-## Why
-
-Bare `import *` is not derivable from the grammar at all, so no identifier can
-enter a module's scope without appearing in that module's own source. The path
-leads for a related reason: an editor knows which module you mean before you
-open the brace, so it can complete the specifier list.
+Name the import. Bare `import *` is not derivable from the grammar at all, so no
+identifier can enter a module's scope without appearing in that module's own
+source.
 
 ## A program that provokes it
 

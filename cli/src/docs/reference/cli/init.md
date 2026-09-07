@@ -42,51 +42,42 @@ export fn greeting(): Str {
 
 `//apps/hello` is the binary. Its `main` builds a context holding two effects,
 allocation and standard output, and that context is the program's entire effect
-budget. Nothing it calls can read a file or open a socket, because nothing
-handed it the means to.
+budget. Nothing it calls can read a file or open a socket.
 
 The suite under `libs/greeting/test/` imports the library by label, exactly as a
 dependent does, so it can only assert on what a dependent can call. Run it with
 `buri test //...`.
 
-The `REPO.buri` declares no tags. A repository with no build policy has nothing
-to say there. In their place stands a two-line comment pointing at
-[`schema/repo.proto`](../schema/repo.proto), which lists every field the file
-may declare: the next reader needs the whole list, not a paragraph about the one
-field that is missing.
+The `REPO.buri` declares no tags. In their place stands a two-line comment
+pointing at [`schema/repo.proto`](../schema/repo.proto), which lists every field
+the file may declare.
 
 It does declare a `lint` block with both fields on, so `buri build` and `buri
 test` run the lint catalogue from the first commit and a finding fails them.
 Neither is the default, and a fresh repository is exactly where the strictest
-setting is free. There is no pile of findings to clean up before adopting it,
-and every one raised from here on lands on code somebody is still writing.
-Deleting the block takes one edit. Discovering later that it could have been
-there costs a year of findings nobody was shown
+setting is free: there is no pile of findings to clean up first. Deleting the
+block takes one edit
 ([`repo-config.md`](../build/repo-config.md#lint)).
 
 ## It never writes over your work
 
 A `REPO.buri` at the target means the directory is already a repository, so the
-command stops with exit 2 rather than refreshing it. There is no upgrade path
-here: a scaffold is a starting point, not something a release keeps in step.
-That is the difference from `buri add skills`, where re-running *is* the
-upgrade.
+command stops with exit 2 rather than refreshing it. A scaffold is a starting
+point, not something a release keeps in step. That is the difference from `buri
+add skills`, where re-running *is* the upgrade.
 
-A `REPO.buri` *above* the target stops it as well, for a sharper reason. Nesting
-one writes over nothing, but the toolchain finds a repository root by walking up
-to the outermost `REPO.buri` it meets. So the inner one is not a root. It is a
-stray build file inside somebody else's repository, and their next `buri build
-//...` fails on it. `buri init` in a subdirectory of a repository therefore says
-so and stops.
+A `REPO.buri` *above* the target stops it as well, for a sharper reason. The
+toolchain finds a repository root by walking up to the outermost `REPO.buri` it
+meets, so an inner one is not a root. It is a stray build file inside somebody
+else's repository, and their next `buri build //...` fails on it.
 
 Any other collision stops it too, and stops it before it writes the first byte,
 so a refusal never leaves half a repository behind. There is one exception. A
 `.gitignore` already at the target does not stop the run, because git owns that
-name: `git init` before `buri init` is the ordinary way to start, and refusing
-over the file git conventions put there would make the command useless exactly
-where people begin. Ignore entries are line-keyed and order-independent, so the
-command appends the build's entries below whatever is already written. Every
-existing line stays exactly where it was, an entry the file already has is not
-repeated, and a `.gitignore` that already ignores everything the build writes is
-left byte-for-byte alone. The one namespace the command shares is
-`.agent/skills/buri-*`, which belongs to `add skills` and follows its rules.
+name: `git init` before `buri init` is the ordinary way to start. Ignore entries
+are line-keyed and order-independent, so the command appends the build's entries
+below whatever is already written. Every existing line stays exactly where it
+was, an entry the file already has is not repeated, and a `.gitignore` that
+already ignores everything the build writes is left byte-for-byte alone. The one
+namespace the command shares is `.agent/skills/buri-*`, which belongs to `add
+skills` and follows its rules.

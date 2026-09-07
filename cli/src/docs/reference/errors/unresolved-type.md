@@ -11,13 +11,14 @@ error: there is no type `Widgett` [unresolved-type]
 
 ## What to do
 
-Declare it, import it, or correct the spelling.
+Correct the spelling, or bring the type into scope — a module declares it or an
+import names it, and there is no third way.
 
 ## Why
 
 Types are nominal throughout. There is no structural fallback and no inference
-from shape, so a misspelling cannot quietly become a different type that
-happens to fit.
+from shape, so a misspelling cannot quietly become a different type that happens
+to fit.
 
 ## A program that provokes it
 

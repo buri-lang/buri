@@ -24,8 +24,7 @@ error: expected `I64`, found `Str` [type-mismatch]
 
      There is no promotion of any kind, in either direction. A language that
      widened silently would make the width of an arithmetic result depend on the
-     shape of the expression rather than on what you wrote, and the one place
-     that matters is the one place nobody looks.
+     shape of the expression rather than on what you wrote.
 
 error: `Watch` is an effect, so `read` is not called on a context [effect-method-call]
   --> cmd/explicit_type_arguments_on_an_effect_method/main.buri:18:7
@@ -39,100 +38,28 @@ error: `Watch` is an effect, so `read` is not called on a context [effect-method
      ──────────
 
      Hand the context to the function that performs the operation. Every effect
-     method has one, and the diagnostic names both it and the module it comes
-     from. ctx.println("hi") becomes io.println(ctx, "hi"), ctx.readFile(p)
-     becomes fs.readText(ctx, p), ctx.allocate(n) becomes alloc.allocate(ctx,
-     n).
+     method has one, and the diagnostic names both it and its module.
+     ctx.println("hi") becomes io.println(ctx, "hi"), and ctx.readFile(p)
+     becomes fs.readText(ctx, p).
 
      Why
      ───
 
-     A context is the set of things a program may do. You write it down so a
-     reader can see what a function reaches for. x.f(y) hides that. The receiver
-     is the smallest, quietest part of a call, so an effect performed through
-     one reads like a method on an ordinary value. Passing the context as an
-     argument puts the authority where the reader is already looking, and it
-     splits the two halves — *which* effect, and *what* it does — into two
-     names.
+     A context is the set of things a program may do, and you write it down so a
+     reader can see what a function reaches for. The receiver is the quietest
+     part of a call, so x.f(y) hides that. Passing the context as an argument
+     puts the authority where the reader is already looking, and splits the two
+     halves — *which* effect, and *what* it does — into two names.
 
-     It also settles a question the method form left open. Method lookup through
-     a bound searches every effect the bound declares, so two effects declaring
-     the same verb make that verb ambiguous for everybody who binds both.
-     Ui.read and Watch.read are the shipped case. A module-qualified call cannot
-     be ambiguous, so the vocabulary stops being one flat namespace shared by
-     every effect that will ever exist.
+     It also keeps the vocabulary from being one flat namespace. Method lookup
+     through a bound searches every effect the bound declares, so Ui.read and
+     Watch.read would be ambiguous for anybody binding both. A module-qualified
+     call cannot be.
 
-     Two layers sit below this line and keep the method form. The standard
-     library holds the wrapper functions, so its bodies are the only code that
-     reaches an effect at all. And the body of an impl that *supplies* an effect
-     implements the operation, which is what keeps an attenuating wrapper
-     writable:
-
-       # from "core/effect" import { IoError };
-       # from "core/fs" import { FsRead, FsWrite, Path };
-
-       struct ReadOnly<C>(C);
-
-       impl<C: FsRead> FsRead for ReadOnly<C> {
-           fn readFile(self, path: Path): Result<Str, IoError> {
-               self.0.readFile(path)
-           }
-
-           fn fileExists(self, path: Path): Bool {
-               self.0.fileExists(path)
-           }
-
-           fn readDir(self, path: Path): Result<[Str], IoError> {
-               self.0.readDir(path)
-           }
-
-           fn readFileBytes(self, path: Path): Result<[U8], IoError> {
-               self.0.readFileBytes(path)
-           }
-       }
-
-       // Nothing here forwards, so this half needs no bound on `C` at all — which is
-       // what the filesystem being two effects buys a decorator: the half that
-       // refuses restates eight methods and the half that forwards restates four,
-       // and neither had to know about the other.
-       impl<C> FsWrite for ReadOnly<C> {
-           fn writeFile(self, path: Path, body: Str): Result<(), IoError> {
-               .Err(.ReadOnly)
-           }
-
-           fn writeFileBytes(self, path: Path, body: [U8]): Result<(), IoError> {
-               .Err(.ReadOnly)
-           }
-
-           fn appendFile(self, path: Path, body: [U8]): Result<(), IoError> {
-               .Err(.ReadOnly)
-           }
-
-           fn renameFile(self, source: Path, destination: Path): Result<(), IoError> {
-               .Err(.ReadOnly)
-           }
-
-           fn removeFile(self, path: Path): Result<(), IoError> {
-               .Err(.ReadOnly)
-           }
-
-           fn removeDir(self, path: Path): Result<(), IoError> {
-               .Err(.ReadOnly)
-           }
-
-           fn makeDir(self, path: Path): Result<(), IoError> {
-               .Err(.ReadOnly)
-           }
-
-           fn syncFile(self, path: Path): Result<(), IoError> {
-               .Err(.ReadOnly)
-           }
-       }
-
-     That delegation cannot become fs.readText(self.0, path), because the
-     wrapper is bounded Alloc + FsRead and this impl carries only C: FsRead. The
-     carve-out grants nothing new: an implementor reaches only an inner context
-     somebody already handed it.
+     Two layers below this line keep the method form: the standard library's
+     wrapper functions, and the body of an impl that *supplies* an effect. The
+     second is what keeps an attenuating wrapper writable — its readFile calls
+     self.0.readFile(path), reaching only the inner context it was handed.
 
 error: expected 1 type arguments, found 2 [type-argument-mismatch]
   --> cmd/explicit_type_arguments_on_an_effect_method/main.buri:23:11

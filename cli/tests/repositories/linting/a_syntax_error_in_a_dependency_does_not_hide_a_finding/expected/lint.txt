@@ -8,7 +8,7 @@ warning: `leftover` is bound and never used [unused-variable]
    = fix: use it, delete the `let`, or write `_` in its place
 
      An unused local is dead weight: every reader has to prove to themselves
-     that it does not matter. It usually means one of three things.
+     that it does not matter. It is usually one of three things.
 
      - A computation whose result nobody consumes. Delete the computation, not just
      the binding.
@@ -19,8 +19,7 @@ warning: `leftover` is bound and never used [unused-variable]
      Decide which it is before deleting. If the right-hand side has side effects
      you still need, keep the call but drop the binding. If the value was meant
      to be returned or passed on, finish that thread rather than silencing the
-     warning. Suppressing it with a throwaway name hides the question instead of
-     answering it.
+     warning.
 
 warning: str is imported but not used [unused-import]
  --> lib/money/cents.buri:6:29
@@ -50,19 +49,14 @@ error: a match arm ends with `,` [missing-separator]
      ──────────
 
      Write the , where the caret is. The error carries the edit as bytes, so an
-     editor's quick fix and buri lint --fix both write it for you. The parser
-     then reads the rest of the list rather than abandoning it.
+     editor's quick fix and buri lint --fix both write it for you.
 
      Why
      ───
 
      Every comma-separated list in the language separates the same way, with no
-     exception for an element that happens to end in a brace. A match arm whose
+     exception for an element that happens to end in a brace: a match arm whose
      body is a block still ends with ,. Without it, A => x followed by -1 => y
      reads as x - 1, and where one arm stops becomes a guess
      (design/grammar-rationale.md 12.12).
-
-     One rule, stated once, also lets the parser tell a missing separator from a
-     list that has ended. The next element is already under the cursor, so the
-     mistake is one comma and the diagnostic is one sentence.
 

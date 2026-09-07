@@ -17,8 +17,7 @@ Add `isEmptyThing` to the block, with the signature `Measurable` declares.
 ## Why
 
 There are no default method bodies, so a trait's method list is the whole of
-what an `impl` owes it. A partial conformance would be a value that satisfies a
-bound and aborts when somebody uses it.
+what an `impl` owes it.
 
 ## A program that provokes it
 
