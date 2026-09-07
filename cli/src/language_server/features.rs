@@ -181,9 +181,21 @@ fn import_path_at(analyzed: &Analyzed, path: &Path, offset: u32) -> Option<Strin
 /// A `core/...` path resolves to a module that is `include_str!`d into the
 /// binary and has no file to open, so it answers with nothing rather than with
 /// a guess. So does a path that resolves to nothing at all.
+///
+/// **A generated module has no file either**, and the one its location names is
+/// the path it *would* have had. Sending an editor there opens nothing — for a
+/// schema it happens to be the schema, and for `//lib/wire/units` out of
+/// `units.txt` it is a file that will never exist. So the input the generator
+/// read is the answer, which is the file the module's first anchor names, and a
+/// module that anchored nothing has nowhere to send anybody.
 fn import_target(analyzed: &Analyzed, module_path: &str) -> Option<Value> {
     let resolved = analyzed.session.workspace.resolve_module(module_path).ok()?;
-    Some(convert::top_of(&resolved.in_package()?.file))
+    let module = resolved.in_package()?;
+    if let Some(generated) = analyzed.session.workspace.generated.module(&module.path) {
+        let anchor = generated.anchors.first()?;
+        return Some(convert::top_of(&analyzed.session.workspace.root.join(&anchor.file)));
+    }
+    Some(convert::top_of(&module.file))
 }
 
 /// Every place the repository names the symbol under the cursor.
