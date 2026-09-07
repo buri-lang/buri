@@ -20,8 +20,7 @@ here, and `buri docs <module>` lists the methods it has.
 
 A method is looked up in exactly one place: the module that declares the
 receiver's type. There is no extension mechanism, so nobody can add a method to
-a type from outside. That is also what makes resolution a single lookup rather
-than a search.
+a type from outside.
 
 ## A program that provokes it
 

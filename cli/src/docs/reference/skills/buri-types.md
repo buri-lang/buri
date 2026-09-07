@@ -169,9 +169,9 @@ disambiguate: `Ord.compare(x, y)`.
 
 An **effect** is an interface declared with `effect` instead of `trait`, and
 only platform modules may declare one. `core/effect` declares `Alloc`, `Net`,
-`Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks` (all but
-`WEB`), `Listen` and `Sockets` (`LINUX` and `MACOS`, where a program serves a
-page). `core/fs` is a platform module too, and it declares the filesystem's
+`Clock`, `Rand`, `Env`, `Stdin`, `Stdout`, `Stderr`, `Proc`, `Tasks`, `Listen`
+and `Sockets` (`LINUX` and `MACOS`, where a program serves a page). `core/fs` is
+a platform module too, and it declares the filesystem's
 two, `FsRead` and `FsWrite`: reading your configuration does not earn you the
 right to delete it. Every method there names a `Path` (`core/path`), which
 `core/fs` re-exports.

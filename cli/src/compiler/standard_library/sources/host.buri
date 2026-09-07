@@ -149,9 +149,9 @@ impl Proc for HostProc {
 
 /// Running the program's own work concurrently.
 ///
-/// **Granted on LINUX, MACOS and JS.** Not on WEB: `parallel` returns only when
-/// the last task has finished, which is the shape a page's host is built to
-/// avoid. That is the same reason WEB does not grant `Net`.
+/// **Granted on every platform, WEB included.** A page's concurrency is its
+/// event loop, and `core/tasks`'s `spawn` is how a program puts work on one:
+/// a socket that stays open, a retry, a timer. `effect Tasks` has the argument.
 ///
 /// `core/tasks` is the module a program calls; this is what a context binds.
 export struct HostTasks {}

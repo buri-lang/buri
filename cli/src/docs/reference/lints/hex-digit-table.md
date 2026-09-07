@@ -7,9 +7,7 @@ fix: delete the table, and reach for `char.fromDigit`, `num.toHex` or `bytes.toH
 ---
 A table of digits never arrives on its own. With it come a `nibble` helper, a
 shift, a mask, an index, and — sooner or later — a sixteen-call unrolled
-renderer for one 64-bit value. That is thirty or forty lines of arithmetic that
-exist only because somebody wrote the digits down locally, and every package
-with a copy has to read, review and keep all of them correct.
+renderer for one 64-bit value.
 
 The library keeps the digits once:
 
@@ -19,17 +17,15 @@ The library keeps the digits once:
 - **Is this one?** — `char.isHexDigit()`, rather than comparing a `toDigit`
   against `.None`.
 - **A whole number** — `num.toHex(ctx, x, width)`, lowercase and zero-padded to
-  a width you name. A sixteen-digit rendering of a 64-bit value is
-  `num.toHex(ctx, x, 16)`, and the unrolled version of it can go.
+  a width you name.
 - **A whole byte string** — `bytes.toHex(ctx, b)` and `bytes.fromHex(ctx, s)`.
 - **Text back to a number** — `str.toRadix(text, radix)`, which answers `.None`
   rather than a value the `Int` cannot hold.
 
-If the table exists because the *output* has to differ — uppercase digits, a
-separator between bytes, a different alphabet entirely — say that instead of
+If the table exists because the *output* has to differ, say that instead of
 rebuilding the encoder underneath it. Uppercase is `toUpper` over the result. A
-separator is a `join`. A genuinely different alphabet is a different question,
-and worth a comment saying which one it is.
+separator is a `join`. A genuinely different alphabet is worth a comment saying
+which one it is.
 
 This rule only fires on the sixteen digits in order, as a string or as a run of
-character literals. Nothing else looks like that by accident.
+character literals.

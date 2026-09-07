@@ -12,13 +12,8 @@ error: this arm is unreachable [unreachable-arm]
 
 ## What to do
 
-Delete it, or move it above the arm that subsumes it.
-
-## Why
-
-The compiler tries arms in order, so an arm the ones above it already cover can
-never run. It reports rather than ignores that, because the usual cause is an
-arm in the wrong place and a silently dead arm reads as handled.
+Delete it, or move it above the arm that subsumes it. The usual cause is an arm
+in the wrong place, and a silently dead arm reads as handled.
 
 ## A program that provokes it
 

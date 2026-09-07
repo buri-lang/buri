@@ -61,9 +61,8 @@ error: there is nothing named `main` in scope [unresolved-name]
      ───
 
      There is no prelude and no ambient scope. A module's available names are
-     the ones it declares plus the ones its own imports name. That is what makes
-     the suggestion trustworthy: it is drawn from exactly the set the file put
-     there.
+     the ones it declares plus the ones its own imports name, which is what
+     makes the suggestion trustworthy.
 
 error: "//lib/money/cents" names no file [import-path-without-a-file]
  --> lib/money/parse.buri:5:6
@@ -84,7 +83,8 @@ error: there is no type `Cents` [unresolved-type]
     What to do
     ──────────
 
-    Declare it, import it, or correct the spelling.
+    Correct the spelling, or bring the type into scope — a module declares it or
+    an import names it, and there is no third way.
 
     Why
     ───

@@ -11,9 +11,8 @@ across several calls are a missing abstraction.
 
 **Find the missing abstraction:**
 1. Look at the call sites and nearby functions. Is there already a type a group
-   of these parameters belongs to? Search wider than the file that fired.
-   Values that keep appearing side by side are the entity, and it is usually one
-   of the domain's own nouns — where that name already exists, it is the answer.
+   of these parameters belongs to? Values that keep appearing side by side are
+   the entity, and it is usually one of the domain's own nouns.
 2. If there is none, create it, then move the behaviour that uses those fields
    onto it.
 3. If one value owns most of the parameters, it may be the natural home for this
@@ -24,9 +23,8 @@ across several calls are a missing abstraction.
 Useful tip: rewrite each call site with the signature that feels natural there,
 and let that shape the final function.
 
-**AVOID**: a `{ ...everything }` bag that merely renames the list hides the
-coupling instead of removing it. A `FooProps` or options value named after the
-function that takes it is the same bag, organised by function rather than by
-abstraction, so the next function invents another one and the concept stays
-unnamed. You are done when the entity carries a domain name and no call site
-still passes its fields loose.
+**AVOID**: a `{ ...everything }` bag that merely renames the list. A `FooProps`
+or options value named after the function that takes it is the same bag,
+organised by function rather than by abstraction, so the next function invents
+another one and the concept stays unnamed. You are done when the entity carries
+a domain name and no call site still passes its fields loose.

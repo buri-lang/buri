@@ -26,21 +26,18 @@ export fn main(): Result<(), Str> {
 
 `main` receives nothing and mints what it needs, so there is no fake to pass it
 and nothing in it worth testing. Put logic you want to test in a function `main`
-calls. That function takes an ordinary bounded `ctx` and does not care where the
-context came from — the same pressure the build system applies to a binary's
-surface
+calls, taking an ordinary bounded `ctx`
 ([`cli/src/docs/reference/build/testing.md`](./cli/src/docs/reference/build/testing.md)).
 
 ### 11.1 Standard library conventions
 
 Every function in the library sits in one of the three purity tiers of Section
-10.5, and the signature shows which rather than a comment. **Pure** takes no
-context parameter, **deterministic** takes one bounded by `Alloc` alone, and
-**effectful** takes one bounded by anything else. Section 10.5's rule about size
-decides the tier: an operation whose result size is fixed is pure, and one whose
-result size depends on runtime data names `Alloc`. So `xs.len()` and `s.trim()`
-are pure, `xs.map(ctx, f)` is deterministic, and `fs.readText(ctx, p)` is
-effectful.
+10.5, and the signature shows which. **Pure** takes no context parameter,
+**deterministic** takes one bounded by `Alloc` alone, and **effectful** takes one
+bounded by anything else. Size decides: an operation whose result size is fixed
+is pure, and one whose result size depends on runtime data names `Alloc`. So
+`xs.len()` and `s.trim()` are pure, `xs.map(ctx, f)` is deterministic, and
+`fs.readText(ctx, p)` is effectful.
 
 Two conventions run through the whole library. **Receiver first, context second**
 (Section 10.7): everything that operates on a value lives in an `impl` block for
@@ -50,11 +47,11 @@ has one meaning**: there is no overloading, so a pure variant and an allocating
 variant of the same idea get different names. `splitOnce` returns two slices and
 is pure; `split` returns `[Str]` and allocates.
 
-The catalogue itself is not normative in v0.3, and it is not here.
+The catalogue is not normative in v0.3 and is not here.
 [`cli/src/docs/reference/standard-library.md`](./cli/src/docs/reference/standard-library.md)
 lists which modules there are, what each one costs, and what is deliberately
 absent. `buri docs core/list` renders a module from the source the compiler
-checked, so a signature on that page is the signature that exists.
+checked.
 
 ### 11.2 Tests
 
@@ -80,23 +77,18 @@ test "pads the cents place" {
 }
 ```
 
-A test declaration is `test STRING Block`. The name is a string literal because
-test names are prose, and encoding prose in an identifier produces
-`test_pads_the_cents_place` and then an argument about the convention. A test
-takes no parameters and returns nothing: it passes unless an assertion in it
-fails.
+A test declaration is `test STRING Block`. A test takes no parameters and returns
+nothing: it passes unless an assertion in it fails.
 
 **A name is used once per file.** Two `test` declarations in one module with the
-same name are a compile error (`duplicate-test-name`). The name is how a report
-identifies a failing test and how `--filter` selects one, so two sharing it in
-one file are indistinguishable. Two *different* files may use the same name —
-they are separate modules, and a report names the file each failure came from.
+same name are a compile error (`duplicate-test-name`), since the name is how a
+report identifies a failing test and how `--filter` selects one. Two *different*
+files may use the same name.
 
 A test that needs a context builds one, with the same form `main` uses (Section
-11.3). `core/host/testing` is a **platform module**, the test runner's platform.
-It is `core/host`'s surface written out for a test: the same names, **called**
-rather than referred to, so each call answers a fresh double rather than the one
-value a process has.
+11.3). `core/host/testing` is a **platform module**, the test runner's platform:
+`core/host`'s surface written out for a test, with the same names **called**
+rather than referred to, so each call answers a fresh double.
 
 | Member | Effect | What it does |
 |---|---|---|
@@ -123,10 +115,9 @@ disk, FsWrite: disk` — and two calls to `fs()` are two filesystems that share
 nothing.
 
 Only a test source may import a `testing` path, so nothing in a shipped program
-can obtain any of them. And effects are ordinary interfaces (Section 10.9), so a
-test needing behavior the runner does not provide writes a struct with methods
-and binds that instead. Nothing distinguishes the runner's implementations from
-yours.
+can obtain any of them. Effects are ordinary interfaces (Section 10.9), so a test
+needing behavior the runner does not provide writes a struct with methods and
+binds that instead.
 
 #### 11.2.1 `core/testing/assert`
 
@@ -152,15 +143,13 @@ from "core/testing/assert" import * as assert;
 | `assert.err(r)` | Fails unless `r` is `.Err`; returns the error. |
 | `assert.some(o)` | Fails unless `o` is `.Some`; returns the wrapped value. |
 
-There are so many of them because of the message. Each one names the two values
+There are so many of them because of the message: each one names the two values
 it compared, where `assert.isTrue(xs.contains(x))` says only "expected true, got
-false". There is **no `assert.fail`**: it returned `()` rather than a bottom
-type, so a match arm using it could not produce a value and a test had to
-fabricate one to type-check. A test that has to fail asserts on the value it has
-instead.
+false". There is **no `assert.fail`**; a test that has to fail asserts on the
+value it has.
 
-Everything above the last three returns `()`. Those three return a value, and
-they are how a test consumes a `Result`, which is still must-use here:
+Everything above the last three returns `()`. Those three return a value, and are
+how a test consumes a `Result`, which is still must-use here:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 test "reads the config it wrote" {
@@ -187,9 +176,9 @@ being a platform module rather than a library:
   ends a program. The runner reports the file, the line, and both values.
 
 A test source may also use **expression statements**, which no other module may:
-*any* expression whose type is `()` may stand alone, terminated by `;`. A call
-is the common case, and a `match`, an `if` or a block whose every branch
-produces `()` is one too.
+*any* expression whose type is `()` may stand alone, terminated by `;`. A call is
+the common case; a `match`, an `if` or a block whose every branch produces `()`
+counts too.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 assert.eq(total, 42);              // statement: type is ()
@@ -201,20 +190,17 @@ match (parsed) {                   // statement: every arm is ()
                                    // it explicitly with `let _ =`
 ```
 
-This is the narrowest relaxation that makes assertions read as assertions, and it
-does not weaken Section 5.7.1: `Result` is not `()`, so it can drop nothing
+This does not weaken Section 5.7.1: `Result` is not `()`, so it can drop nothing
 must-use.
 
 The `;` is not decoration, and a `{`-initial expression carries it like any
-other. A block is statements followed by a result expression, and only the `;`
-says which one this is. Without it, a `match` in the middle of a test body reads
-as the block's result, and what follows has nowhere to go
-(`design/grammar-rationale.md` 12.2).
+other. Without it, a `match` in the middle of a test body reads as the block's
+result, and what follows has nowhere to go (`design/grammar-rationale.md` 12.2).
 
 ### 11.3 Contexts
 
 You build a context by naming each effect it provides and the value that
-implements it. There is one form, and `main` and a test use the same one.
+implements it. `main` and a test use the same form.
 
 **As an expression**, anonymous:
 
@@ -248,15 +234,14 @@ context Sandbox {
 ```
 
 You **construct a named context by calling it** — `Sandbox()` — and each call
-builds a fresh one. The parentheses are not decoration. A test's filesystem and
+builds a fresh one. The parentheses are not decoration: a test's filesystem and
 its captured `Stdout` accumulate what the test does to them, so two tests sharing
 one value would share its state. That is also why `Sandbox` binds `FsRead` and
 not `FsWrite`: each binding is its own expression, so a declaration naming both
 halves would call `fs()` twice and hand the test two unrelated filesystems. A
 test that writes and reads back binds one `fs()` to both names in a `context`
 **expression**, where a `let` can hold it. A context declaration takes no
-parameters. Override a binding to vary what a call site gets, rather than passing
-arguments.
+parameters; override a binding to vary what a call site gets.
 
 **Either form may begin with a spread**, which takes every binding from another
 context and lets the ones that follow replace them:
@@ -291,11 +276,11 @@ own, and either may start from another and change one line.
 | A test-only module (a `testing` path segment) | yes, and may be exported | anywhere in the file |
 | Anywhere else | no | no |
 
-That table is the whole restriction. Together with `core/host`'s import rule
-(Section 4.1.1), it is why the purity theorem's last clause is vacuous in
-ordinary code. Neither a `context` expression nor a call to a named context may
-appear inside a lambda, even where both are otherwise legal. Without that, a
-closure could mint authority and Section 10.6 would not mean what it says.
+That table is the whole restriction, and together with `core/host`'s import rule
+(Section 4.1.1) it is why the purity theorem's last clause is vacuous in ordinary
+code. Neither a `context` expression nor a call to a named context may appear
+inside a lambda, even where both are otherwise legal. Without that, a closure
+could mint authority and Section 10.6 would not mean what it says.
 
 **What the compiler checks:**
 
@@ -312,10 +297,5 @@ The compiler generates a context's type. It has no name, and nobody writes it
 down. Contexts flow only into `ctx` parameters, and effects bound those
 parameters rather than a context typing them, so there is nothing to spell. That
 is why this does not reintroduce the structural records of Section 5.5.
-
-The bindings use `:` rather than `=` for the same reason struct literals do: a
-brace-delimited list of `Name: value` pairs is a shape the language already has.
-What differs is that the name on the left is an effect rather than a field,
-which is visible in its case.
 
 ---

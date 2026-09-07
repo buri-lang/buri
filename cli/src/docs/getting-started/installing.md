@@ -1,7 +1,7 @@
 # Installing
 
-There is no release yet, so every path below builds from source. They all
-produce the same binary, and differ only in what supplies the Rust toolchain.
+There is no release yet, so every path below builds from source. They produce
+the same binary and differ only in where the Rust toolchain comes from.
 
 **Nix.** This repository is a flake, and its default package is `buri`:
 
@@ -17,8 +17,7 @@ brew tap buri-lang/buri https://github.com/buri-lang/buri.git
 brew install --HEAD buri-lang/buri/buri
 ```
 
-`--HEAD` builds the `main` branch. You need it until a release is tagged, then
-drop it.
+`--HEAD` builds the `main` branch. You need it until a release is tagged.
 
 **Cargo**, with a Rust toolchain already in hand:
 
@@ -51,19 +50,15 @@ moment it lands:
 | `.gitignore` | What the build writes |
 | `.agent/skills/` | The agent skills, one directory per skill |
 
-That last row is why you run `init` rather than copy files out of a page. A
-coding agent working in the repository gets the toolchain's own account of the
-language, the type system, the build system, testing, and the CLI, written by
-the release you installed. Each skill is also a page here, starting with
-[the language skill](../reference/skills/buri-language.md).
+Run `init` rather than copying files out of a page: those skills are the
+release's own account of the toolchain, and each is a page here too, starting
+with [the language skill](../reference/skills/buri-language.md).
 
-`buri init` never writes over your work. A `REPO.buri` at the target means the
-directory is already a repository, so the command stops. A `REPO.buri` *above*
-the target stops it too: a repository inside another one is not a root, it is a
-stray build file in somebody else's tree. A `.gitignore` already at the target
-is the one exception, since running `git init` first is the ordinary way to
-start. There `buri init` appends its entries below your lines instead of
-refusing to run.
+`buri init` never writes over your work. A `REPO.buri` at the target, or above
+it, stops the command — a repository inside another one is not a root. A
+`.gitignore` already at the target is the one exception, since `git init` first
+is the ordinary way to start; there `buri init` appends its entries below your
+lines.
 
 ## Skills in a repository you already have
 
@@ -73,14 +68,13 @@ buri add skills ~/src/some-other-repository
 ```
 
 `buri add skills` writes the same skills into `.agent/skills/` and touches
-nothing else. It works in a repository that predates them, and in a directory
-that is not a Buri repository at all, because the skills are compiled into the
-binary the way the rest of `buri docs` is.
+nothing else. The skills are compiled into the binary, so it works in any
+directory, Buri repository or not.
 
 Run it again to upgrade. A skill directory whose name begins `buri-` belongs to
-the toolchain, so every run rewrites it from the binary and removes any the
-release has stopped shipping. A directory named anything else is yours, and
-`buri add skills` never reads, writes, or removes it.
+the toolchain, so every run rewrites it and removes any the release has stopped
+shipping. A directory named anything else is yours, and `buri add skills` never
+reads, writes, or removes it.
 
 ## Next
 

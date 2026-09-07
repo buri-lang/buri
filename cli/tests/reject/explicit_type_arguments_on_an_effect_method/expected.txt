@@ -24,8 +24,7 @@ error: expected `I64`, found `Str` [type-mismatch]
 
      There is no promotion of any kind, in either direction. A language that
      widened silently would make the width of an arithmetic result depend on the
-     shape of the expression rather than on what you wrote, and the one place
-     that matters is the one place nobody looks.
+     shape of the expression rather than on what you wrote.
 
 error: `Watch` is an effect, so `read` is not called on a context [effect-method-call]
   --> cmd/explicit_type_arguments_on_an_effect_method/main.buri:18:7
