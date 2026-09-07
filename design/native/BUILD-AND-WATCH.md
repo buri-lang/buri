@@ -652,8 +652,7 @@ the **LLVM** backend, and link with something faster than the system linker.
 | lld | comes with `llvm@21` | `apt install lld` | packaged with LLVM |
 | mold | not applicable | `apt install mold` | `dnf install mold` / `pacman -S mold` |
 
-Three things about that table are worth stating rather than leaving to be
-discovered:
+Three things about that table:
 
 - **The version should be 21, and as landed nothing forces it.**
   CODEGEN-LLVM.md §8 asks for `llvm-sys`'s `strict-versioning`, so that an
