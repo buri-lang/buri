@@ -825,7 +825,7 @@ impl Str {
     ///         Alloc: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
-    ///     let text = "e\u{301}a";
+    ///     let text = "👍🏽!";
     ///     let _ = io.println(ctx, "${text.graphemes(ctx).len()} ${text.len()}").ignore();
     ///     .Ok(())
     /// }
@@ -891,15 +891,16 @@ impl Str {
     ///         Alloc: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
-    ///     let loose = "e\u{301}";
-    ///     let tight = loose.normalize(ctx, .Nfc);
-    ///     let _ = io.println(ctx, "${tight.len()} ${tight == "é"}").ignore();
+    ///     let tight = "é";
+    ///     let loose = tight.normalize(ctx, .Nfd);
+    ///     let back = loose.normalize(ctx, .Nfc) == tight;
+    ///     let _ = io.println(ctx, "${tight.len()} ${loose.len()} ${back}").ignore();
     ///     .Ok(())
     /// }
     /// ```
     ///
     /// ```stdout
-    /// 1 true
+    /// 1 2 true
     /// ```
     export fn normalize<C: Alloc>(self, ctx: C, form: Normalization): Str {
         let cs = self.chars(ctx);
