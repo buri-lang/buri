@@ -1448,7 +1448,7 @@ mod tests {
         // SAFETY: `call` is the thunk `held` was written for, `record` names
         // it, and `held` is a heap box the case keeps.
         let id = unsafe {
-            buri_rt_ui_memo(call, (&raw const record).cast(), 8, -1, 8, None)
+            buri_rt_ui_memo(call, (&raw const record).cast(), 8, -1, 8, None, None)
         };
         (held, id)
     }
@@ -1458,7 +1458,7 @@ mod tests {
         let held = Box::new(Body(Box::new(body)));
         let record: [*const Body; 1] = [&raw const *held];
         // SAFETY: as `memo`.
-        unsafe { buri_rt_ui_watch(call, (&raw const record).cast(), 8, -1) };
+        unsafe { buri_rt_ui_watch(call, (&raw const record).cast(), 8, -1, None) };
         held
     }
 
