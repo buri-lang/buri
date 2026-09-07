@@ -4,8 +4,8 @@ warning: this is a table of the sixteen hexadecimal digits [hex-digit-table]
 12 |     '0',
    |     ^^^
    |
-   = `char.fromDigit(n, 16)` is a digit and `char.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
-   = fix: delete the table, and reach for `char.fromDigit`, `num.toHex` or `bytes.toHex`
+   = `character.fromDigit(n, 16)` is a digit and `character.toDigit(16)` reads one back, so a table of them is a copy of something the standard library keeps
+   = fix: delete the table, and reach for `character.fromDigit`, `num.toHex` or `bytes.toHex`
 error: this call is missing its closing `)` [unclosed-delimiter]
   --> lib/recovery_delete_closer_paren_app_3d9d1e/main.buri:49:76
    |
