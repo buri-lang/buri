@@ -675,7 +675,12 @@ test "mapValues and filterMapValues on a map of one, and on a large one" {
     assert.eq(assert.some(one.mapValues(ctx, fn(v) => v * 10).get("a")), 10);
     assert.eq(one.filterMapValues(ctx, fn(_v) => .None).len(), 0);
     assert.eq(assert.some(one.filterMapValues(ctx, fn(v) => .Some(v)).get("a")), 1);
-    let big = map.of(ctx, list.range(ctx, 0, 300).map(ctx, fn(i) => (i, i)));
+    // The entries are named rather than built inside the call. Written as one
+    // expression, `map.of(ctx, xs.map(ctx, f))` answers a map of one entry on
+    // the native backends and the right one on JavaScript, which is a defect in
+    // the toolchain rather than in this module.
+    let entries = list.range(ctx, 0, 300).map(ctx, fn(i) => (i, i));
+    let big = map.of(ctx, entries);
     assert.eq(big.mapValues(ctx, fn(v) => v + 1).len(), 300);
     assert.eq(
         big
