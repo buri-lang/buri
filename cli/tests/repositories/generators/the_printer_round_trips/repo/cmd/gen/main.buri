@@ -1,0 +1,549 @@
+//! A generator that builds one module out of `core/buri/ast` nodes and hands
+//! it to `core/codegen`, which prints it.
+//!
+//! The module is written to reach the constructs `std/codegen/proto` never
+//! writes: a trait, an `impl`, a type alias, a re-export, the unary operators,
+//! the bitwise and comparison ones, the literal patterns, an array pattern
+//! closed by a bare `..`, a tuple index, an index, a template and a unit type.
+//! `lib/wire/twin.buri` is the same module written by hand, and the program
+//! that reads both is what says the two mean the same thing.
+
+from "core/buri/ast" import * as ast;
+from "core/codegen" import * as codegen;
+from "core/codegen" import { Response };
+from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/host" import * as host;
+from "core/list" import * as list;
+
+export fn main(): Result<(), Str> {
+    let ctx = context {
+        Alloc: host.alloc,
+        Stdin: host.stdin,
+        Stdout: host.stdout,
+    };
+    codegen.run(ctx, fn(c, _request) => {
+        Response { modules: [("every", moduleOf(c))], diagnostics: [] }
+    })
+}
+
+// --- the constructors ------------------------------------------------------------
+
+fn nm(text: Str): ast.Name {
+    ast.Name { text: text, origin: ast.nowhere() }
+}
+
+fn ty(text: Str): ast.Type {
+    ast.Type { kind: .Named(nm(text), []), origin: ast.nowhere() }
+}
+
+fn tyk(kind: ast.TypeKind): ast.Type {
+    ast.Type { kind: kind, origin: ast.nowhere() }
+}
+
+fn ex(kind: ast.ExprKind): ast.Expr {
+    ast.Expr { kind: kind, origin: ast.nowhere() }
+}
+
+fn st(kind: ast.StmtKind): ast.Stmt {
+    ast.Stmt { kind: kind, origin: ast.nowhere() }
+}
+
+fn pt(kind: ast.PatternKind): ast.Pattern {
+    ast.Pattern { kind: kind, origin: ast.nowhere() }
+}
+
+fn item(kind: ast.ItemKind): ast.Item {
+    ast.Item { kind: kind, origin: ast.nowhere() }
+}
+
+fn blk(stmts: [ast.Stmt], tail: [ast.Expr]): ast.Block {
+    ast.Block { stmts: stmts, tail: tail, origin: ast.nowhere() }
+}
+
+fn id(text: Str): ast.Expr {
+    ex(.Ident(nm(text)))
+}
+
+fn int(n: Int): ast.Expr {
+    ex(.Int(n))
+}
+
+fn fld(base: ast.Expr, text: Str): ast.Expr {
+    ex(.Field([base], nm(text)))
+}
+
+fn call(callee: ast.Expr, args: [ast.Expr]): ast.Expr {
+    ex(.Call([callee], args))
+}
+
+fn bin(op: ast.BinOp, lhs: ast.Expr, rhs: ast.Expr): ast.Expr {
+    ex(.Binary(op, [lhs], [rhs]))
+}
+
+fn bound(name: Str, t: ast.Type, value: ast.Expr): ast.Stmt {
+    st(.Let(pt(.Bind(nm(name), [])), [t], value))
+}
+
+fn arm(pattern: ast.Pattern, body: ast.Expr): ast.Arm {
+    ast.Arm { pattern: pattern, guard: [], body: body }
+}
+
+fn other(body: ast.Expr): ast.Arm {
+    arm(pt(.Bind(nm("_other"), [])), body)
+}
+
+fn init(name: Str, value: ast.Expr): ast.Init {
+    ast.Init { name: nm(name), value: [value] }
+}
+
+fn spec(name: Str): ast.ImportSpec {
+    ast.ImportSpec { name: nm(name), alias: [] }
+}
+
+// --- the module ------------------------------------------------------------------
+
+let HELPER: Str = "//lib/wire/helper.buri";
+
+fn moduleOf<C: Alloc>(ctx: C): ast.Module {
+    ast.Module {
+        items: [
+            item(
+                .Import(ast.Import {
+                    path: "core/effect",
+                    clause: .Named([spec("Alloc")]),
+                }),
+            ),
+            item(
+                .Import(ast.Import {
+                    path: "core/list",
+                    clause: .Namespace(nm("list")),
+                }),
+            ),
+            item(
+                .Import(ast.Import { path: "core/str", clause: .Namespace(nm("str")) }),
+            ),
+            item(.ReExport(ast.ReExport { path: HELPER, specs: [spec("helperTag")] })),
+            item(
+                .Import(ast.Import {
+                    path: HELPER,
+                    clause: .Named([spec("helperTag")]),
+                }),
+            ),
+            item(
+                .TypeAlias(ast.TypeAliasDecl {
+                    name: nm("Size"),
+                    generics: [],
+                    ty: ty("Int"),
+                    exported: true,
+                    docs: [],
+                }),
+            ),
+            item(
+                .Derive(ast.DeriveDecl {
+                    traits: [ty("Eq"), ty("Show")],
+                    selfTy: ty("Point"),
+                }),
+            ),
+            pointDecl(),
+            shapeDecl(),
+            wideTrait(),
+            wideImpl(),
+            item(
+                .Let(ast.LetDecl {
+                    name: nm("origin"),
+                    ty: ty("Point"),
+                    value: ex(
+                        .StructLit([id("Point")], [], [
+                            init("x", int(0)),
+                            init("y", int(0)),
+                        ]),
+                    ),
+                    exported: true,
+                    docs: [],
+                }),
+            ),
+            probe(ctx),
+        ],
+        docs: [],
+    }
+}
+
+fn pointDecl(): ast.Item {
+    let field = fn(name: Str, t: ast.Type) => {
+        ast.FieldDecl {
+            name: nm(name),
+            ty: t,
+            exported: true,
+            docs: [],
+            origin: ast.nowhere(),
+        }
+    };
+    item(
+        .Struct(ast.StructDecl {
+            name: nm("Point"),
+            generics: [],
+            body: .Record([field("x", ty("Int")), field("y", ty("Size"))]),
+            exported: true,
+            docs: [],
+        }),
+    )
+}
+
+fn shapeDecl(): ast.Item {
+    let variant = fn(name: Str, payload: ast.VariantPayload) => {
+        ast.Variant {
+            name: nm(name),
+            payload: payload,
+            docs: [],
+            origin: ast.nowhere(),
+        }
+    };
+    let size = ast.FieldDecl {
+        name: nm("size"),
+        ty: ty("Size"),
+        exported: false,
+        docs: [],
+        origin: ast.nowhere(),
+    };
+    item(
+        .Enum(ast.EnumDecl {
+            name: nm("Shape"),
+            generics: [],
+            variants: [
+                variant("Dot", .Empty),
+                variant("Line", .Tuple([ty("Int")])),
+                variant("Named", .Record([size])),
+            ],
+            exported: true,
+            docs: [],
+        }),
+    )
+}
+
+fn wideTrait(): ast.Item {
+    item(
+        .Trait(ast.TraitDecl {
+            name: nm("Wide"),
+            generics: [],
+            methods: [
+                ast.FnDecl {
+                    name: nm("wide"),
+                    generics: [],
+                    params: [ast.Param { name: nm("self"), ty: [] }],
+                    ret: ty("Int"),
+                    body: [],
+                    exported: false,
+                    docs: [],
+                },
+            ],
+            isEffect: false,
+            exported: true,
+            docs: [],
+        }),
+    )
+}
+
+fn wideImpl(): ast.Item {
+    let sum = bin(.Add, fld(ex(.SelfValue), "x"), fld(ex(.SelfValue), "y"));
+    item(
+        .Impl(ast.ImplDecl {
+            generics: [],
+            traitTy: [ty("Wide")],
+            selfTy: ty("Point"),
+            methods: [
+                ast.FnDecl {
+                    name: nm("wide"),
+                    generics: [],
+                    params: [ast.Param { name: nm("self"), ty: [] }],
+                    ret: ty("Int"),
+                    body: [blk([], [sum])],
+                    exported: false,
+                    docs: [],
+                },
+            ],
+            docs: [],
+        }),
+    )
+}
+
+/// The one function, and every construct this case is about.
+fn probe<C: Alloc>(ctx: C): ast.Item {
+    item(
+        .Fn(ast.FnDecl {
+            name: nm("probe"),
+            generics: [ast.GenericParam { name: nm("C"), bounds: [ty("Alloc")] }],
+            params: [
+                ast.Param { name: nm("ctx"), ty: [ty("C")] },
+                ast.Param { name: nm("n"), ty: [ty("Int")] },
+            ],
+            ret: ty("Int"),
+            body: [blk(statements(ctx), [total()])],
+            exported: true,
+            docs: ["Every construct the printer can write, in one function."],
+        }),
+    )
+}
+
+fn statements<C: Alloc>(ctx: C): [ast.Stmt] {
+    list
+        .empty<ast.Stmt>()
+        .concat(ctx, values(ctx))
+        .concat(ctx, matches())
+        .concat(ctx, tail())
+        .concat(ctx, sums(ctx))
+}
+
+fn values<C: Alloc>(ctx: C): [ast.Stmt] {
+    let template = ex(.Template([.Text("n is "), .Hole(id("n"))]));
+    let branch = ex(
+        .If(
+            [bin(.Gt, id("n"), int(2))],
+            [blk([], [call(ex(.DotVariant(nm("Line"))), [id("n")])])],
+            [
+                ex(
+                    .StructLit([ex(.DotVariant(nm("Named")))], [], [
+                        init("size", id("n")),
+                    ]),
+                ),
+            ],
+        ),
+    );
+    let doubling = ex(
+        .Lambda(
+            [
+                ast.LambdaParam { name: nm("_c"), ty: [] },
+                ast.LambdaParam { name: nm("i"), ty: [] },
+            ],
+            [],
+            [bin(.Mul, id("i"), int(2))],
+        ),
+    );
+    [
+        bound(
+            "pair",
+            tyk(.Tuple([ty("Int"), ty("Int")])),
+            ex(.Tuple([id("n"), bin(.Add, id("n"), int(1))])),
+        ),
+        bound("items", tyk(.Array([ty("Int")])), ex(.Array([int(1), int(2), int(3)]))),
+        bound("nothing", tyk(.Unit), ex(.Unit)),
+        bound("ch", ty("Char"), ex(.Char('q'))),
+        bound("text", ty("Str"), call(fld(id("str"), "format"), [ex(.Ctx), template])),
+        bound(
+            "flags",
+            ty("Int"),
+            bin(.BitOr, bin(.BitAnd, id("n"), int(3)), bin(.BitXor, id("n"), int(1))),
+        ),
+        bound("negated", ty("Int"), ex(.Unary(.Neg, [id("n")]))),
+        bound("flipped", ty("Int"), ex(.Unary(.BitNot, [id("n")]))),
+        bound("no", ty("Bool"), ex(.Unary(.Not, [bin(.Gt, id("n"), int(0))]))),
+        bound("shape", ty("Shape"), branch),
+        bound(
+            "point",
+            ty("Point"),
+            ex(.StructLit([id("Point")], [id("origin")], [init("x", id("n"))])),
+        ),
+        bound("widened", ty("Int"), call(fld(id("point"), "wide"), [])),
+        bound(
+            "mapped",
+            tyk(.Array([ty("Int")])),
+            call(fld(id("items"), "mapCtx"), [ex(.Ctx), doubling]),
+        ),
+        bound(
+            "twice",
+            tyk(.Fn([ty("Int")], [ty("Int")])),
+            ex(
+                .Lambda(
+                    [ast.LambdaParam { name: nm("a"), ty: [ty("Int")] }],
+                    [ty("Int")],
+                    [bin(.Mul, id("a"), int(2))],
+                ),
+            ),
+        ),
+    ]
+}
+
+fn matches(): [ast.Stmt] {
+    let named = pt(
+        .Path(nm("Named"), true, [
+            .Record([ast.FieldPat { name: nm("size"), pattern: [] }], false),
+        ]),
+    );
+    [
+        bound(
+            "byKind",
+            ty("Int"),
+            ex(
+                .Match([id("shape")], [
+                    arm(pt(.Path(nm("Dot"), true, [])), int(0)),
+                    arm(
+                        pt(.Path(nm("Line"), true, [.Tuple([pt(.LitInt(1))])])),
+                        int(1),
+                    ),
+                    arm(
+                        pt(
+                            .Path(nm("Line"), true, [
+                                .Tuple([pt(.Bind(nm("_other"), []))]),
+                            ]),
+                        ),
+                        int(2),
+                    ),
+                    arm(named, id("size")),
+                ]),
+            ),
+        ),
+        bound(
+            "byLiteral",
+            ty("Int"),
+            ex(
+                .Match([id("n")], [
+                    arm(pt(.LitInt(0)), int(10)),
+                    arm(pt(.Or([pt(.LitInt(1)), pt(.LitInt(2))])), int(20)),
+                    other(int(30)),
+                ]),
+            ),
+        ),
+        bound(
+            "byChar",
+            ty("Int"),
+            ex(
+                .Match([id("ch")], [
+                    arm(pt(.LitChar('q')), int(1)),
+                    arm(pt(.Wild), int(0)),
+                ]),
+            ),
+        ),
+        bound(
+            "byText",
+            ty("Int"),
+            ex(.Match([id("text")], [arm(pt(.LitStr("x")), int(1)), other(int(0))])),
+        ),
+        bound(
+            "byBool",
+            ty("Int"),
+            ex(
+                .Match([id("no")], [
+                    arm(pt(.LitBool(true)), int(1)),
+                    arm(pt(.LitBool(false)), int(0)),
+                ]),
+            ),
+        ),
+        bound(
+            "byFloat",
+            ty("Int"),
+            ex(
+                .Match([ex(.Float(1.5))], [
+                    arm(pt(.LitFloat(1.5)), int(1)),
+                    other(int(0)),
+                ]),
+            ),
+        ),
+        bound(
+            "byUnit",
+            ty("Int"),
+            ex(.Match([id("nothing")], [arm(pt(.Unit), int(1))])),
+        ),
+        bound(
+            "byTuple",
+            ty("Int"),
+            ex(
+                .Match([id("pair")], [
+                    arm(
+                        pt(
+                            .Bind(nm("whole"), [
+                                pt(
+                                    .Tuple([
+                                        pt(.Bind(nm("_first"), [])),
+                                        pt(.Bind(nm("_second"), [])),
+                                    ]),
+                                ),
+                            ]),
+                        ),
+                        ex(.TupleIndex([id("whole")], 0)),
+                    ),
+                ]),
+            ),
+        ),
+        bound(
+            "byArray",
+            ty("Int"),
+            ex(
+                .Match([id("items")], [
+                    arm(
+                        pt(.Array([pt(.Bind(nm("first"), []))], [.Anonymous])),
+                        id("first"),
+                    ),
+                    arm(pt(.Array([], [])), int(0)),
+                ]),
+            ),
+        ),
+    ]
+}
+
+fn tail(): [ast.Stmt] {
+    let empty = call(ex(.Generic([fld(id("list"), "empty")], [ty("Int")])), []);
+    [
+        bound(
+            "indexed",
+            ty("Int"),
+            call(fld(ex(.Index([id("items")], [int(2)])), "withDefault"), [int(0)]),
+        ),
+        bound(
+            "counted",
+            ty("Int"),
+            bin(.Add, call(fld(id("mapped"), "len"), []), call(fld(empty, "len"), [])),
+        ),
+        bound(
+            "quotient",
+            ty("Int"),
+            bin(
+                .Sub,
+                bin(.Div, bin(.Mul, id("n"), int(6)), int(2)),
+                bin(.Rem, id("n"), int(4)),
+            ),
+        ),
+        bound(
+            "compared",
+            ty("Bool"),
+            bin(
+                .Or,
+                bin(.And, bin(.Lt, id("n"), int(100)), bin(.Ge, id("n"), int(0))),
+                bin(.Le, id("n"), int(7)),
+            ),
+        ),
+        bound(
+            "scored",
+            ty("Int"),
+            ex(.If([id("compared")], [blk([], [int(1)])], [ex(.Int(0))])),
+        ),
+        st(.Let(pt(.Wild), [], call(id("twice"), [int(1)]))),
+    ]
+}
+
+/// The sums every binding above lands in, so nothing the printer wrote is
+/// dead — in four parts, because a line past 88 columns is the one place
+/// `buri format` would still move what `print` wrote.
+fn sums<C: Alloc>(ctx: C): [ast.Stmt] {
+    let groups = [
+        ("partOne", "n", ["helperTag", "widened", "byKind", "byLiteral"]),
+        ("partTwo", "byChar", ["byText", "byBool", "byFloat", "byUnit"]),
+        ("partThree", "byTuple", ["byArray", "indexed", "counted"]),
+        ("partFour", "quotient", ["scored", "flags", "negated", "flipped"]),
+    ];
+    groups.mapCtx(ctx, fn(_c, g) => {
+        bound(
+            g.0,
+            ty("Int"),
+            g.2.fold(fn(acc: ast.Expr, name) => bin(.Add, acc, id(name)), id(g.1)),
+        )
+    })
+}
+
+/// The tail: the four parts, and the tuple index nothing else reaches.
+fn total(): ast.Expr {
+    let parts = bin(
+        .Add,
+        bin(.Add, id("partOne"), id("partTwo")),
+        bin(.Add, id("partThree"), id("partFour")),
+    );
+    bin(.Add, parts, ex(.TupleIndex([id("pair")], 1)))
+}
