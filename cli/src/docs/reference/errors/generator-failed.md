@@ -7,8 +7,7 @@ reproduction: none
 # A generator answers with a response
 
 The note says which way it went: the tool did not build, it exited non-zero, a
-signal killed it, it wrote nothing, what it wrote is not a response, or it ran
-past the build's deadline.
+signal killed it, it wrote nothing, or what it wrote is not a response.
 
 ```text
 = the generator was killed by SIGSEGV (signal 11)
@@ -32,3 +31,7 @@ The response is the last non-empty line of standard output, so a `println` of
 your own above it costs nothing. `core/codegen`'s `run` writes the line for you,
 and a tool built on it reaches this page only when it never got as far as
 answering.
+
+A tool that is *slow* is not this page. Nothing puts a clock on a generator: the
+build waits for as long as it runs, the way it waits for a compiler or a linker.
+If a tool of yours never answers, stop the build and run it by hand.
