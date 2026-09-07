@@ -2405,6 +2405,13 @@ const GENERIC_INTRINSICS: &[&str] = &[
     "ui_testing.Headless.write",
     "ui_testing.Observer.read",
     "ui_testing.render",
+    // `ui/web`, and all three are generic in the *context* alone. `render`'s
+    // `C` is unbounded and occurs only inside the `Node<C>` it is handed, so
+    // what crosses is a tree of tags and strings; `resume` and `state` take the
+    // page's `Ui` and nothing of it reaches the runtime.
+    "ui_web.render",
+    "ui_web.resume",
+    "ui_web.state",
 ];
 
 /// Whether a generic intrinsic named `key` is one the erasure has been thought

@@ -95,3 +95,20 @@ impl Watch for Scope {
 /// Holds no authority, so a lambda may capture one. Its field is private, so
 /// only the runtime can mint one.
 export struct Event(Int);
+
+/// The address the page is at.
+///
+/// **Granted on WEB alone.** Nothing else has an address bar: a worker is
+/// handed a request and reads the path off that, and a native program has
+/// neither.
+///
+/// One method, and it answers a cell rather than a string, for the reason every
+/// identifier in this module is an `Int`: this is the boundary with the
+/// runtime, which holds one graph of untyped cells. `ui/web`'s `path` reads it
+/// and `ui/web`'s `route` wraps it in a `Prop`, so a computation that read the
+/// path re-runs when the reader navigates and nothing else does.
+export effect Location {
+    /// The cell holding the path of the page's address, as `/guide/routing`.
+    /// The runtime writes it when the reader navigates.
+    fn path(self): Int;
+}
