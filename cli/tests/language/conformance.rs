@@ -581,3 +581,87 @@ fn version_works_outside_a_repository() {
     verbose.ok().says("this executable: sha256 ");
     verbose.silent_about("unreadable");
 }
+
+/// A worker artifact, driven by the platform's own `Request` and `Response`.
+///
+/// **The highest tier a worker can reach.** A `CLOUDFLARE_WORKER` output is
+/// called by its runtime rather than started, so no `buri` command runs one and
+/// no repository fixture can. What a driver module can do is exactly what the
+/// platform does: import the artifact's default export, hand `fetch` a real
+/// `Request`, and read a real `Response` back. Every JavaScript engine this
+/// suite runs on has both globals.
+///
+/// Three crossings in one run: a path routed on, a method the entry reads, and
+/// a body it echoes. Each one is a field of the bridge, and a bridge that lost
+/// one would still answer the other two.
+#[test]
+fn a_worker_answers_the_platforms_request_with_the_platforms_response() {
+    let scratch = Scratch::repo("worker-fetch");
+    scratch.write(
+        "cmd/site/BUILD.buri",
+        "binary {\n    outputs: [\n        { platform: CLOUDFLARE_WORKER, entry: \"fetch\" },\n    ]\n}\n",
+    );
+    scratch.write(
+        "cmd/site/main.buri",
+        r#"
+from "core/effect" import { Alloc, Request, Response };
+from "core/host" import * as host;
+from "core/net/http" import * as http;
+from "core/str" import * as str;
+
+export fn fetch(request: Request): Response {
+  let ctx = context { Alloc: host.alloc };
+  let verb = match (request.method) {
+    .Get => "GET",
+    .Post => "POST",
+    _ => "OTHER",
+  };
+  match (request.path()) {
+    "/echo" => http.text(ctx, bodyOrExcuse(ctx, request)),
+    other => http.text(ctx, str.format(ctx, "${verb} ${other}")),
+  }
+}
+
+fn bodyOrExcuse<C: Alloc>(ctx: C, request: Request): Str {
+  match (http.bodyText(ctx, request.body)) {
+    .Ok(text) => text,
+    .Err(_e) => "not utf-8",
+  }
+}
+"#,
+    );
+    scratch.run(&["build", "//cmd/site"]).ok();
+
+    // The driver is the platform's half, written the way a worker runtime calls
+    // one. It prints a line per exchange, so a wrong answer names which.
+    let driver = scratch.write(
+        "drive.mjs",
+        r#"
+import worker from "./.buri/out/cloudflare-worker/cmd/site/fetch.mjs";
+
+const say = async (request) => {
+  const answer = await worker.fetch(request);
+  console.log(`${answer.status} ${answer.headers.get("content-type")} ${await answer.text()}`);
+};
+
+await say(new Request("https://example.com/about?ref=x#top"));
+await say(new Request("https://example.com/echo", { method: "POST", body: "hello" }));
+await say(new Request("https://example.com/", { method: "PUT", body: "ignored" }));
+"#,
+    );
+
+    let out = Command::new(js_runtime())
+        .arg(&driver)
+        .output()
+        .expect("the javascript runtime runs");
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "the worker refused the platform's request:\n{stderr}");
+    assert_eq!(
+        stdout,
+        "200 text/plain; charset=utf-8 GET /about\n\
+         200 text/plain; charset=utf-8 hello\n\
+         200 text/plain; charset=utf-8 OTHER /\n",
+        "the crossing lost a field:\n{stderr}"
+    );
+}

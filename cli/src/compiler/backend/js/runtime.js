@@ -2149,8 +2149,10 @@ async function $fetchEntry(entry, request) {
   const body = carries
     ? Array.from(new Uint8Array(await request.arrayBuffer()))
     : [];
+  // A payloadless enum is its variant index as a plain number, and an `Int`
+  // is a `BigInt`: `Method` crosses as the first and `status` as the second.
   const answer = await entry([
-    BigInt(method < 0 ? 0 : method),
+    method < 0 ? 0 : method,
     request.url,
     headers,
     body,
