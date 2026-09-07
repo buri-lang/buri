@@ -1,0 +1,43 @@
+// Every property the painter honours, twice: once with every length at zero
+// and every multiple at zero, and once with every length at the viewport's own
+// size. A property that stopped being read would move one of the two.
+
+from "core/effect" import { Alloc };
+from "core/host/testing" import { alloc };
+from "ui/effect" import { Ui };
+from "ui/node" import * as ui;
+from "ui/testing" import { headless, snapshot };
+from "//lib/scenes" import { plate, tinted };
+
+test "every property at zero" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "styles-at-zero", plate(.Px(0), 0.0), .Hover);
+}
+
+test "every property at the size of the page" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(ctx, "styles-at-the-viewport", plate(.Px(800), 3.0), .Hover);
+}
+
+test "a style the compiler could not fold still paints" {
+    let ctx = context {
+        Alloc: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "styles-inline",
+        ui.column([.Padding(.Px(10)), .Gap(.Px(4))], [
+            tinted(0, ui.text(.Const("nought"))),
+            tinted(128, ui.text(.Const("half"))),
+            tinted(255, ui.text(.Const("full"))),
+        ]),
+        .Hover,
+    );
+}

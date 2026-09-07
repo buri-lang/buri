@@ -1,0 +1,49 @@
+# Two packages, each with a snapshot suite, asked for the way a person asks:
+# `buri test`, with no target at all.
+#
+# **That invocation used to fail both of them**, with a sentence naming an
+# environment variable. `buri test` puts several suites in one binary when their
+# tags allow it, one process gets one snapshot directory, and a golden lives in
+# its own *package's* `test/__snapshots__` — so a batch drawn from two packages
+# had nowhere to put a picture and every `snapshot` in it aborted saying the
+# directory had not been set. Asking for either suite by name worked, which is
+# what made it a bug worth a case of its own: the failure was a property of the
+# invocation rather than of the program.
+#
+# Both goldens are named `panel.png` on purpose. One directory per package is
+# the claim, and two files with one name are how a run that lost track of which
+# package it was in would show it: the second suite would compare against the
+# first suite's picture and fail.
+#
+# The case is here rather than under `testing/` for `snapshots`' reason — the
+# assertion is a picture — and it ends with the edit that makes it fire.
+#
+# Schema: the repository-case manifest, cli/tests/harness/case.rs.
+
+doc: "a repository with two snapshot suites in it answers `buri test` with no target, each suite comparing against its own package's golden"
+
+run {
+  args: ["test"]
+  exit: 0
+  golden: "both.txt"
+}
+
+path { path: "lib/one/test/__snapshots__/panel.diff.png"  exists: false }
+path { path: "lib/two/test/__snapshots__/panel.diff.png"  exists: false }
+
+# The negative twin, and it is the one that says the two directories are still
+# two: one package's tree changes, and only that package's suite fails.
+edit {
+  file: "lib/two/test/two.buri"
+  replace: "ui.heading(2, .Const(\"two\"))"
+  with: "ui.heading(2, .Const(\"three\"))"
+}
+
+run {
+  args: ["test"]
+  exit: 1
+  golden: "one_of_them.txt"
+}
+
+path { path: "lib/two/test/__snapshots__/panel.diff.png"  exists: true }
+path { path: "lib/one/test/__snapshots__/panel.diff.png"  exists: false }

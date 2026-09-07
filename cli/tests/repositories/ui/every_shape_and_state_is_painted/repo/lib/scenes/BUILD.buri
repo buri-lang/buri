@@ -1,0 +1,15 @@
+# Four test sources, one suite, one linked binary — so this case also says a
+# snapshot from the second file lands beside a snapshot from the first, in the
+# one `test/__snapshots__` the package owns.
+library {
+    sources: ["scenes.buri"]
+
+    test {
+        sources: [
+            "test/shapes.buri",
+            "test/text.buri",
+            "test/styles.buri",
+            "test/states.buri",
+        ]
+    }
+}

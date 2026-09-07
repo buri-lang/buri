@@ -1202,6 +1202,31 @@ fn snapshot_dir(session: &Session, target: TargetId) -> String {
         .to_string()
 }
 
+/// The distinct snapshot directories a set of suites would name, sorted.
+///
+/// One entry is a batch that can be handed a directory; two or more is a batch
+/// that cannot.
+fn snapshot_dirs(session: &Session, targets: &[TargetId]) -> Vec<String> {
+    let mut dirs: Vec<String> = targets.iter().map(|&t| snapshot_dir(session, t)).collect();
+    dirs.sort();
+    dirs.dedup();
+    dirs
+}
+
+/// The intrinsic `ui/testing`'s `snapshot` reaches, which is the whole of what
+/// paints a golden.
+const PAINT_KEY: &str = "ui_testing.paint";
+
+/// Whether this program takes a snapshot.
+///
+/// Asked of the monomorphized program rather than of the sources, for
+/// [`native_gap`]'s reason: what a suite *reaches* is a property of the program
+/// and a list kept here would drift from the runtime table the day the key
+/// moves.
+fn paints(program: &monomorphize::Program) -> bool {
+    program.funcs.iter().filter_map(|f| f.intrinsic_key()).any(|key| key == PAINT_KEY)
+}
+
 /// Writes the artifact's stylesheet beside the binary, and answers its path.
 ///
 /// Beside the binary because that directory is one the build already owns:
@@ -1705,6 +1730,15 @@ fn run_batch(
     if native_gap(platform, &args.flags, &program, &analysis.checked.tables).is_some() {
         return;
     }
+    // And the snapshot probe, for the same reason and with the same answer. A
+    // golden lives in the *package's* `test/__snapshots__` and one process gets
+    // one directory, so a batch whose members do not share one has nowhere to
+    // put a picture — which is what `buri test` in a repository with two
+    // snapshot suites in it used to be: both suites failed, and the sentence
+    // they failed with named an environment variable.
+    if paints(&program) && snapshot_dirs(session, members).len() > 1 {
+        return;
+    }
 
     // Which suite owns each module that declares tests. Built from the build
     // files rather than from the program, so a module the batch loaded for some
@@ -1805,12 +1839,12 @@ fn run_batch(
         .collect();
     // One environment for the whole binary, so a snapshot directory is only
     // named when every member of the batch would name the same one. Members
-    // from two packages leave it unset, and a `snapshot` in such a suite says
-    // so rather than writing a golden into somebody else's package.
+    // from two packages leave it unset — and the probe above has already sent
+    // any batch that would actually *paint* one back to be run a suite at a
+    // time, so what this guards is a batch that names no directory and asks for
+    // none.
     let mut snapshots: Vec<(&str, String)> = Vec::new();
-    let mut dirs: Vec<String> = members.iter().map(|&t| snapshot_dir(session, t)).collect();
-    dirs.sort();
-    dirs.dedup();
+    let dirs = snapshot_dirs(session, members);
     if let [only] = dirs.as_slice() {
         snapshots.push((SNAPSHOT_DIR, only.clone()));
         if args.flags.update {

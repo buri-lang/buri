@@ -1,0 +1,8 @@
+# No `platforms`: a snapshot is painted by the native runtime.
+library {
+    sources: []
+
+    test {
+        sources: ["test/one.buri"]
+    }
+}
