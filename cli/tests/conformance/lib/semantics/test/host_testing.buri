@@ -33,6 +33,7 @@ from "core/host/testing" import {
     writeFileBytes,
 };
 from "core/io" import * as io;
+from "core/list" import * as list;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/net/server" import { Message, Socket };
@@ -2771,4 +2772,186 @@ test "the response that opened the socket reaches onOpen" {
     // `.Err` and `onOpen` would never have run.
     assert.eq(websocket.connect(ctx, reading), .Ok(.Normal));
     assert.eq(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("status 101")]);
+}
+
+// --- What a client is handed, and where a dial can happen ---------------------
+//
+// The blocks above are one client, dialled from `main`, over a script of text.
+// These are the rest of the surface: what a message can be, how many of them a
+// state survives, two clients in one program, and the two places other than a
+// program's own body where a `connect` can be written.
+
+/// A client that counts what it is told and pushes the running count back, so
+/// the state it threads is readable off the double's log.
+fn counting<C: Alloc + Sockets + WebSocketClient>(url: Str): Client<C, Int> {
+    Client {
+        url: url,
+        onOpen: fn(_c, _socket, _response) => 0,
+        onMessage: fn(c, socket, seen, _message) => {
+            let next = seen + 1;
+            let _pushed = socket.send(c, .Text(str.format(c, "${next}")));
+            next
+        },
+        onClose: fn(_c, _socket, _seen, _reason) => (),
+    }
+}
+
+test "a client's state is threaded through a hundred messages" {
+    let s = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: s,
+        WebSocketClient: s.dialling(list.repeat(alloc(), Message.Text("tick"), 100)),
+    };
+    // One message and a hundred are the same shape here, and the count is the
+    // evidence: `onMessage` answers the state the next one sees, so a hundred
+    // steps that lost the state would push a hundred ones.
+    assert.eq(websocket.connect(ctx, counting("ws://example/socket")), .Ok(.Normal));
+    let pushed = s.sent().map(alloc(), fn(one) => one.1);
+    assert.eq(pushed.len(), 100);
+    assert.eq(pushed.get(0), .Some(Message.Text("1")));
+    assert.eq(pushed.get(99), .Some(Message.Text("100")));
+}
+
+test "a message of nothing, of one octet, and of many is a message either way" {
+    let s = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: s,
+        WebSocketClient: s.dialling([
+            .Text(""),
+            .Binary([]),
+            .Text("x"),
+            .Binary([7]),
+            .Binary([1, 2, 3, 4, 5]),
+        ]),
+    };
+    // An empty message is a message and not the absence of one, in both
+    // framings — a client that dropped it would lose a keep-alive somebody
+    // really sent — and `.Text("")` is not `.Binary([])`.
+    assert.eq(websocket.connect(ctx, echoing("ws://example/socket")), .Ok(.Normal));
+    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [
+        Message.Text("hello"),
+        Message.Text(""),
+        Message.Binary([]),
+        Message.Text("x"),
+        Message.Binary([7]),
+        Message.Binary([1, 2, 3, 4, 5]),
+    ]);
+}
+
+test "an empty script opens a socket and closes it with nothing between" {
+    let s = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: s,
+        WebSocketClient: s.dialling([]),
+    };
+    let quiet = Client {
+        url: "ws://example/socket",
+        onOpen: fn(c, socket, response) => {
+            let said = str.format(
+                c,
+                "open ${response.status} ${response
+                    .headers
+                    .len()} ${response.body.len()}",
+            );
+            let _pushed = socket.send(c, .Text(said));
+            0
+        },
+        onMessage: fn(_c, _socket, seen, _message) => seen + 1,
+        onClose: fn(c, socket, _seen, _reason) => socket.send(c, .Text("goodbye")),
+    };
+    // Both hooks that must run did, the one that must not did not, and the
+    // whole of `Connected` reached `onOpen`: a `101`, no headers of this
+    // double's own, and no body — because a `101` never carries one.
+    assert.eq(websocket.connect(ctx, quiet), .Ok(.Normal));
+    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [Message.Text("open 101 0 0")]);
+}
+
+test "two clients on one double are two sockets writing into one log" {
+    let s = sockets();
+    let first = context {
+        Alloc: alloc(),
+        Sockets: s,
+        WebSocketClient: s.dialling([.Text("one")]),
+    };
+    let second = context {
+        Alloc: alloc(),
+        Sockets: s,
+        WebSocketClient: s.dialling([.Text("two"), .Text("three")]),
+    };
+    // Two `dialling` calls are two clients and one world: each mints its own
+    // socket on the `sockets()` that made it, and both write into that one
+    // double's log.
+    assert.eq(websocket.connect(first, echoing("ws://example/first")), .Ok(.Normal));
+    assert.eq(websocket.connect(second, echoing("ws://example/second")), .Ok(.Normal));
+    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [
+        Message.Text("hello"),
+        Message.Text("one"),
+        Message.Text("hello"),
+        Message.Text("two"),
+        Message.Text("three"),
+    ]);
+    // And they are two sockets rather than one client dialled twice. Asked as a
+    // comparison between this double's own sockets, never as a number.
+    let held = s.sent().map(alloc(), fn(one) => one.0);
+    assert.notEq(held.get(0), held.get(2));
+}
+
+/// An actor whose step dials, so a socket's whole life happens inside one
+/// message.
+fn dialler<C: Alloc + Sockets + WebSocketClient>(): Actor<C, Int, Str, Bool> {
+    Actor {
+        state: 0,
+        step: fn(c, seen, url) => {
+            Stepped {
+                state: seen + 1,
+                answer: websocket.connect(c, echoing(url)) == .Ok(.Normal),
+            }
+        },
+    }
+}
+
+test "a client dialled from inside an actor step is an ordinary client" {
+    let s = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: s,
+        Tasks: tasks(),
+        WebSocketClient: s.dialling([.Text("one")]),
+    };
+    // A step may do anything the code around it could, and dialling is one of
+    // those things: `connect` runs to the socket's close inside the step, and
+    // the answer `sendMessage` hands back is what the socket ended with.
+    let worker = actor.start(ctx, dialler());
+    assert.isTrue(assert.ok(worker.sendMessage(ctx, "ws://example/socket")));
+    let _stopped = worker.stop(ctx);
+    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [
+        Message.Text("hello"),
+        Message.Text("one"),
+    ]);
+}
+
+test "a client dialled from inside a spawned task is an ordinary client" {
+    let s = sockets();
+    let ctx = context {
+        Alloc: alloc(),
+        Sockets: s,
+        Tasks: tasks(),
+        WebSocketClient: s.dialling([.Text("one")]),
+    };
+    let _ran = tasks.scope(ctx, fn(c, here) => {
+        tasks.spawn(c, here, fn(inner) => {
+            let _ended = websocket.connect(inner, echoing("ws://example/socket"));
+            ()
+        })
+    });
+    // Nothing spawned into a scope outlives it, so the log is whole here rather
+    // than being raced for — which is what makes this an assertion about a
+    // value and not about a timing.
+    assert.eq(s.sent().map(alloc(), fn(one) => one.1), [
+        Message.Text("hello"),
+        Message.Text("one"),
+    ]);
 }

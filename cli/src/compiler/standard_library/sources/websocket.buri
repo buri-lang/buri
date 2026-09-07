@@ -112,6 +112,14 @@
 //! how strictly a bad `101` is refused is that engine's decision, and
 //! `Connected.headers` carries what the engine exposes — the negotiated
 //! subprotocol and extensions — rather than the head the server sent.
+//!
+//! **The close code is that engine's decision too.** A page reads a `close`
+//! event rather than a close frame, so `onClose`'s `CloseReason` is whatever the
+//! engine made of it: `node` reports the code the far side sent and `bun`
+//! reports `.Abnormal` for every close it did not start. And a close a page
+//! *sends* goes out as 1000 unless it is 1000 or in 3000–4999, which is
+//! `Sockets.socketClose`'s note. Put anything a program has to act on in a
+//! message, not in a code.
 
 from "core/effect" import {
     Connected, Received, Response, ServeError, Sockets, WebSocketClient,

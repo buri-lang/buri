@@ -428,6 +428,12 @@ export effect Sockets {
     /// Closes the socket, with the wire code and reason the far side is told. A
     /// message sent afterwards is dropped rather than refused: the other end may
     /// already be gone, so "did this arrive" was never answerable here.
+    ///
+    /// **On `JS` and `WEB` the far side is told 1000 unless the code is 1000 or
+    /// in 3000–4999.** A browser's `WebSocket.close` throws on every other
+    /// number, so `.GoingAway` and `.InternalError` go out as `.Normal` there:
+    /// closing for the wrong reason beats not closing at all. A native program
+    /// writes the number whole.
     fn socketClose(self, socket: Int, code: Int, reason: Str): ();
 }
 
@@ -693,6 +699,12 @@ export struct Received {
     /// codes are unsigned, so a number below zero cannot have come off a socket:
     /// it is how a platform says a socket ended for a reason that was never on
     /// the wire at all, such as an outbound buffer that filled.
+    ///
+    /// **On `JS` and `WEB` the number is the engine's reading of the close
+    /// event, not the octets on the wire**, and engines differ: against one
+    /// server that closes with 1001, `node` says 1001 and `bun` says 1000 with
+    /// `wasClean` false, which arrives here as 1006. So a program that must know
+    /// *why* a socket closed should be told in a message rather than in a code.
     export code: Int,
 }
 
