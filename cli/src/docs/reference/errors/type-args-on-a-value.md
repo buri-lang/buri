@@ -17,11 +17,11 @@ comparison was meant, remember that comparisons do not chain: `a < b && b > c`.
 ## Why
 
 `a < Int > (c)` parses as type arguments applied to `a`, because the comparison
-reading is not available. Comparison operators are non-associative, so
+reading is not available: comparison operators are non-associative, so
 `x < y > z` means nothing as a comparison. That is the trade the language made
-to get `f<T>(x)` without a turbofish, and this diagnostic is where the bill
-arrives. Type arguments name *which* instantiation of a generic function to use,
-so whatever sits to their left has to be a function.
+to get `f<T>(x)` without a turbofish. Type arguments name *which* instantiation
+of a generic function to use, so whatever sits to their left has to be a
+function.
 
 ## A program that provokes it
 

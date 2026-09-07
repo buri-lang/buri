@@ -15,9 +15,8 @@ Match `y` too, or end the pattern with `..` to ignore the rest.
 
 ## Why
 
-Same reason `match` is exhaustive one level up. Adding a field should be a
-compile error everywhere the type is taken apart, and `..` is how a pattern opts
-out.
+Adding a field should be a compile error everywhere the type is taken apart, and
+`..` is how a pattern opts out.
 
 ## A program that provokes it
 

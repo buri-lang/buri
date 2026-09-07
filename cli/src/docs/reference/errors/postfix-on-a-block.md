@@ -22,9 +22,6 @@ name with `let` and write the field access, call or index against the name.
 headed by the `if`, or an `if` followed by a block. Neither you nor the parser
 could tell which was meant (design/grammar-rationale.md 12.13).
 
-Refusing the chain outright keeps the `}` at the end of a block-like expression
-from being a place where the next token decides what the file means.
-
 ## A program that provokes it
 
 ```buri fail code=postfix-on-a-block

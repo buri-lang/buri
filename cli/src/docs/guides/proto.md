@@ -1,8 +1,7 @@
 # Import a `.proto` schema
 
 A `.proto` file in a package becomes a module. The compiler writes nothing to
-your source tree: there is no `_pb.buri` to check in and no generation step to
-forget.
+your source tree: no `_pb.buri` to check in, no generation step to forget.
 
 ## Put the schema in the package
 
@@ -23,8 +22,8 @@ message Point {
 
 ## Declare it
 
-A schema belongs to a rule the way a `.buri` does. `buri gen` writes the field
-for you:
+A schema belongs to a rule the way a `.buri` does, and `buri gen` writes the
+field for you:
 
 ```text
 $ buri gen
@@ -44,8 +43,8 @@ A schema no rule lists is `unused-library`, the same error a stray `.buri` gets.
 
 ## Decide what leaves the library
 
-A schema exports everything it declares, because that is what a schema *is*. The
-library boundary applies to the generated module unchanged, so `lib.buri` picks:
+A schema exports everything it declares. The library boundary applies to the
+generated module unchanged, so `lib.buri` picks:
 
 ```text
 // libs/wire/lib.buri
@@ -54,13 +53,12 @@ from "//libs/wire/point.proto" export {
 };
 ```
 
-The import path is the schema's own path, extension included. There is one
-spelling and it is the file's name.
+The import path is the schema's own path, extension included.
 
 ## Use the types
 
-Each message brings a default, a binary codec, and a JSON codec. For `Point`
-those are `defaultPoint`, `encodePoint`/`decodePoint`, and
+Each message brings a default, a binary codec and a JSON codec: for `Point`,
+`defaultPoint`, `encodePoint`/`decodePoint` and
 `encodePointJson`/`decodePointJson`. Encoding and decoding allocate, so they
 take a context — here for an `Address` message in another repository:
 
@@ -76,8 +74,8 @@ export fn roundTrip<C: Alloc>(ctx: C, a: Address): Result<Address, ProtoError> {
 
 **Every singular field is an `Option`**, because presence is the edition's
 default. Setting one is `.Some(...)`, leaving it out is `.None`, and the two are
-different messages on the wire. That default is what makes a message with more
-than a few fields writable:
+different messages on the wire. `default...()` with an update is what makes a
+message of more than a few fields writable:
 
 ```buri repo=cli/tests/conformance package=//lib/proto
 from "//lib/proto/demo.proto" import { defaultEverything, Everything, Shade };
@@ -88,13 +86,12 @@ export fn dark(): Everything {
 ```
 
 A failure is a `ProtoError` carrying a byte offset or a field number, so a
-malformed four-kilobyte message says where it went wrong.
+malformed message says where it went wrong.
 
 ## Share a schema between packages
 
-Depend on the library and use what its `lib.buri` re-exported: a generated
-module is inside the boundary like any other. One schema may `import` another,
-and when it does both must belong to the same rule.
+Depend on the library and use what its `lib.buri` re-exported. One schema may
+`import` another, and then both must belong to the same rule.
 
 ---
 

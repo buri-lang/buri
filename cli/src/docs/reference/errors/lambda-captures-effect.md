@@ -17,10 +17,8 @@ parameter instead: `paths.mapCtx(ctx, fn(c, p) => fs.readText(c, p))`.
 
 ## Why
 
-A closure's type is all a caller can see about it. A lambda that closed over a
-context would carry authority behind a type mentioning no effect. The guarantee
-that a signature says what a function may do would then hold for every function
-except the ones written as lambdas.
+A closure's type is all a caller can see about it, so a lambda that closed over
+a context would carry authority behind a type mentioning no effect.
 
 ## A program that provokes it
 

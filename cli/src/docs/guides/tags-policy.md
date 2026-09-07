@@ -1,8 +1,8 @@
 # Enforce policy with tags
 
 Say a repository has code that opens sockets and code that runs untrusted input,
-and the two may never end up in one artifact. Tags are how you write that down,
-and how the build checks it.
+and the two may never end up in one artifact. Tags write that down, and the
+build checks it.
 
 ## Declare the vocabulary
 
@@ -28,11 +28,11 @@ tag {
 }
 ```
 
-Write `doc` as the policy rather than a restatement of the name. The diagnostic
-prints it, and by then the reader wants to know why.
+Write `doc` as the policy rather than a restatement of the name: the diagnostic
+prints it.
 
 `forbids` is symmetric, so declaring it on one of the pair is the whole
-statement. Put it on the restricted side, which is where somebody will look.
+statement. Put it on the restricted side.
 
 ## Label the targets
 
@@ -59,12 +59,9 @@ binary {
 }
 ```
 
-Adding a library that reuses an existing tag never touches `REPO.buri`, and
-changing what `net` means never touches a library.
-
 A tag `REPO.buri` does not declare is `unknown-tag`, and the error suggests the
-nearest declared name, so a typo cannot quietly turn a checked build into an
-unchecked one.
+nearest declared name, so a typo cannot turn a checked build into an unchecked
+one.
 
 ## Watch it fail
 
@@ -84,10 +81,9 @@ error: //apps/scan cannot contain both "net" and "sandboxed" code [tag-violation
   = fix: drop one of the two dependencies, or split //apps/scan into a target per side
 ```
 
-The error prints the path because the interesting question is never "which
-library is tagged `net`", it is who dragged it in. The check runs at every
-target, not only at binaries, so the build reports an unsatisfiable library at
-itself rather than at whichever binary reaches it first.
+The error prints the path because the question is never which library is tagged
+`net`, it is who dragged it in. The check runs at every target, not only at
+binaries, so an unsatisfiable library is reported at itself.
 
 ## Ask before you build
 
@@ -117,9 +113,8 @@ error: //apps/scan cannot be built for js [platform-violation]
   = fix: drop the js output, or widen the tag's `requires { platforms }` in REPO.buri
 ```
 
-That is the reason to state a deployment policy on the tag: one declaration,
-enforced from both ends. `buri query 'platforms(//apps/scan)'` prints what the
-closure has left.
+One declaration, enforced from both ends.
+`buri query 'platforms(//apps/scan)'` prints what the closure has left.
 
 ---
 

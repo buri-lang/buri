@@ -16,10 +16,8 @@ for the standard library's two reserved roots, and `"//..."` for this
 repository, from its root. A surface is named as a module — `"core/list"`,
 `"//lib/money"` — and every other module by its file, extension and all.
 
-## Why
-
-A path matching neither kind names nothing. The error lands where the path is
-written rather than where the missing name is later used.
+The error lands where the path is written rather than where the missing name is
+later used.
 
 ## A program that provokes it
 

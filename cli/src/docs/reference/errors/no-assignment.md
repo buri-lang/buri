@@ -18,9 +18,7 @@ loop, it is the value the recursion or the fold returns.
 ## Why
 
 Every binding is final. There is no assignment operator, no `mut`, and no
-interior mutability. So a name means one value everywhere it is in scope. That
-is what lets you answer "what is this?" by finding the one line that says so,
-and what lets the compiler move a value rather than copy it.
+interior mutability, so a name means one value everywhere it is in scope.
 
 ## A program that provokes it
 

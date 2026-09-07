@@ -22,8 +22,7 @@ nothing pins it. It is not held to that: annotate it — `let x: F64 = 1.0`, or
 
 There is no promotion of any kind, in either direction. A language that widened
 silently would make the width of an arithmetic result depend on the shape of the
-expression rather than on what you wrote, and the one place that matters is the
-one place nobody looks.
+expression rather than on what you wrote.
 
 ## A program that provokes it
 
