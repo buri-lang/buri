@@ -188,6 +188,26 @@ pub enum Extra {
     Compute,
 }
 
+/// Where a generic row's `T` is — the question [`Extra::Element`]'s stride and
+/// glue are answers about.
+///
+/// A column rather than something a backend works out from the argument types,
+/// for [`Entry::by_ref`]'s reason: the two readings are indistinguishable in
+/// the IR the moment `T` is *itself* a list. `list.push`'s `[T]` and
+/// `Ui.signal`'s `T` are both an array-typed argument, and a backend that
+/// looked for the first one it could find gave `Signal<[Account]>` the stride
+/// and glue of an `Account` — a store of the wrong width, retained by the
+/// wrong walk, with nothing to say so until the allocator tripped over it at
+/// exit.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Carrier {
+    /// The element of the `[T]` this call walks — every `core/list` row.
+    Element,
+    /// The value the call carries whole, whatever type that is: `ui/effect`'s
+    /// graph, where a cell holds one `T` and `T` may be a list like any other.
+    Value,
+}
+
 /// What comes back.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Ret {
@@ -273,6 +293,9 @@ pub struct Entry {
     /// The exported symbol, per `cli/runtime/lib.rs` §1.
     pub symbol: &'static str,
     pub extra: Extra,
+    /// Where [`Extra::Element`]'s stride and glue are read from
+    /// ([`Carrier`]). Meaningless on a row that appends neither.
+    pub carrier: Carrier,
     pub ret: Ret,
     /// The index, in the Buri argument list, of an argument passed **by
     /// address** rather than flattened into leaves.
@@ -310,20 +333,58 @@ pub struct Entry {
 }
 
 const fn e(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry { key, symbol, extra: Extra::None, ret, by_ref: None, ctx: None }
+    Entry {
+        key,
+        symbol,
+        extra: Extra::None,
+        carrier: Carrier::Element,
+        ret,
+        by_ref: None,
+        ctx: None,
+    }
 }
 
 const fn el(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry { key, symbol, extra: Extra::Element, ret, by_ref: None, ctx: None }
+    Entry {
+        key,
+        symbol,
+        extra: Extra::Element,
+        carrier: Carrier::Element,
+        ret,
+        by_ref: None,
+        ctx: None,
+    }
 }
 
 const fn er(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) -> Entry {
-    Entry { key, symbol, extra: Extra::Element, ret, by_ref: Some(by_ref), ctx: None }
+    Entry {
+        key,
+        symbol,
+        extra: Extra::Element,
+        carrier: Carrier::Element,
+        ret,
+        by_ref: Some(by_ref),
+        ctx: None,
+    }
 }
 
 /// A row whose value the runtime keeps and later writes over ([`Extra::Owned`]).
 const fn eo(key: &'static str, symbol: &'static str, ret: Ret, by_ref: usize) -> Entry {
-    Entry { key, symbol, extra: Extra::Owned, ret, by_ref: Some(by_ref), ctx: None }
+    Entry {
+        key,
+        symbol,
+        extra: Extra::Owned,
+        carrier: Carrier::Element,
+        ret,
+        by_ref: Some(by_ref),
+        ctx: None,
+    }
+}
+
+/// The same row, carrying **one whole value** rather than a `[T]`'s element
+/// ([`Carrier::Value`]).
+const fn v(entry: Entry) -> Entry {
+    Entry { carrier: Carrier::Value, ..entry }
 }
 
 /// `entry`, with the index of its declaration's `ctx` parameter
@@ -334,12 +395,28 @@ const fn cx(entry: Entry, at: usize) -> Entry {
 
 /// A runtime-driven step ([`Extra::Step`]).
 const fn es(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry { key, symbol, extra: Extra::Step, ret, by_ref: None, ctx: None }
+    Entry {
+        key,
+        symbol,
+        extra: Extra::Step,
+        carrier: Carrier::Element,
+        ret,
+        by_ref: None,
+        ctx: None,
+    }
 }
 
 /// A deferred body ([`Extra::Compute`]).
 const fn ec(key: &'static str, symbol: &'static str, ret: Ret) -> Entry {
-    Entry { key, symbol, extra: Extra::Compute, ret, by_ref: None, ctx: None }
+    Entry {
+        key,
+        symbol,
+        extra: Extra::Compute,
+        carrier: Carrier::Element,
+        ret,
+        by_ref: None,
+        ctx: None,
+    }
 }
 
 /// Every key this backend has a runtime body for.
@@ -1178,10 +1255,14 @@ pub const ENTRIES: &[Entry] = &[
     // there is nothing on this side to render into. That is what still holds
     // `ui/tree.buri` and `ui/theme.buri` out of the native conformance set.
     //
-    // Three of them are generic and each carries §2 rule 4's pair. The type is
-    // a bare `T` rather than a `[T]`'s element, which is what
-    // `stencil/rtcall.rs`'s `element_ty` widened for: `signal` and `write` name
-    // it in a `by_ref` argument, and the two `read`s name it in the result.
+    // Five of them are generic and each carries §2 rule 4's pair. The type is
+    // the value the call carries whole rather than a `[T]`'s element, which is
+    // what [`Carrier::Value`] says: `signal` and `write` name it in a `by_ref`
+    // argument, and the three `read`s name it in the result. **A `T` that is
+    // itself a list is why that has to be a column** — `Signal<[Account]>` is
+    // an array-typed argument at `signal` exactly as `list.push`'s receiver is,
+    // and a backend that guessed gave the cell an `Account`'s width and an
+    // `Account`'s glue.
     //
     // `signal` and `write` carry a third word, the release, and are the only
     // rows in this table that do. A cell keeps what it was written, so the
@@ -1193,13 +1274,13 @@ pub const ENTRIES: &[Entry] = &[
     // value comes back through a pointer at every instantiation rather than in
     // a register at some of them.
     e("ui_node.rootScope", "buri_rt_ui_node_root_scope", Ret::Out),
-    el("ui_effect.Scope.read", "buri_rt_ui_effect_scope_read", Ret::Out),
+    v(el("ui_effect.Scope.read", "buri_rt_ui_effect_scope_read", Ret::Out)),
     e("ui_testing.headless", "buri_rt_ui_testing_headless", Ret::Out),
-    eo("ui_testing.Headless.signal", "buri_rt_ui_testing_headless_signal", Ret::Scalar, 1),
-    el("ui_testing.Headless.read", "buri_rt_ui_testing_headless_read", Ret::Out),
+    v(eo("ui_testing.Headless.signal", "buri_rt_ui_testing_headless_signal", Ret::Scalar, 1)),
+    v(el("ui_testing.Headless.read", "buri_rt_ui_testing_headless_read", Ret::Out)),
     e("ui_testing.observer", "buri_rt_ui_testing_observer", Ret::Out),
-    el("ui_testing.Observer.read", "buri_rt_ui_testing_observer_read", Ret::Out),
-    eo("ui_testing.Headless.write", "buri_rt_ui_testing_headless_write", Ret::Void, 2),
+    v(el("ui_testing.Observer.read", "buri_rt_ui_testing_observer_read", Ret::Out)),
+    v(eo("ui_testing.Headless.write", "buri_rt_ui_testing_headless_write", Ret::Void, 2)),
     ec("ui_testing.Headless.memo", "buri_rt_ui_testing_headless_memo", Ret::Scalar),
     ec("ui_testing.Headless.watch", "buri_rt_ui_testing_headless_watch", Ret::Void),
     e("ui_testing.paint", "buri_rt_ui_testing_paint", Ret::Void),

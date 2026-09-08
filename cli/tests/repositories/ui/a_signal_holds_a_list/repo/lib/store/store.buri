@@ -1,0 +1,33 @@
+//! One cell per list, built in one function from a plain record — the shape an
+//! application holds its state in.
+
+from "core/effect" import { Alloc };
+from "ui/effect" import { Ui };
+from "ui/signal" import { Signal, signal };
+
+/// A row with a counted pointer in it, so a cell holding `[Account]` has to
+/// retain the *list* rather than walk it as though an `Account` were the value.
+export struct Account {
+    export name: Str,
+    export balance: Int,
+}
+
+export struct Ledger {
+    export accounts: [Account],
+    export labels: [Str],
+    export ids: [Int],
+}
+
+export struct Store {
+    export accounts: Signal<[Account]>,
+    export labels: Signal<[Str]>,
+    export ids: Signal<[Int]>,
+}
+
+export fn of<C: Alloc + Ui>(ctx: C, ledger: Ledger): Store {
+    Store {
+        accounts: signal(ctx, ledger.accounts),
+        labels: signal(ctx, ledger.labels),
+        ids: signal(ctx, ledger.ids),
+    }
+}

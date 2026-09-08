@@ -24,7 +24,9 @@ use crate::compiler::middle::layout::{EnumRepr, Layout, Repr};
 /// `backend/runtime_table.rs` holds them, because the LLVM backend emits the
 /// same call from the same rows. They are re-exported here so that `runtime::` is
 /// still where this backend's emitter looks.
-pub use crate::compiler::backend::runtime_table::{entry, Entry, Extra, Ret, BURI_OK, ENTRIES};
+pub use crate::compiler::backend::runtime_table::{
+    entry, Carrier, Entry, Extra, Ret, BURI_OK, ENTRIES,
+};
 
 /// How an `Option<T>` is written, flattened out of `middle::layout` so that the
 /// emitter never learns which niche the layout chose.
