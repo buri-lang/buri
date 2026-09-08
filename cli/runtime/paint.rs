@@ -44,6 +44,16 @@
 //! folded and one that did not paint alike. Anything else parses and is
 //! ignored, which is what lets the vocabulary grow without breaking a scene.
 //!
+//! An `e` line may also carry `image:<source>`, which makes the box a picture
+//! rather than a container. **The painter loads nothing** — no network, no
+//! disk — so the only source it can read is a `data:` URI holding a PNG this
+//! file's own reader accepts, and it paints that at its pixel size, scaled to
+//! whatever box the layout gave it. Every other source — an SVG data URI, an
+//! `http` URL, a path — paints a **placeholder**: a framed grey box at the size
+//! the scene declared for it, or filling the box around it when the scene
+//! declared none. A picture that is not there is better shown as a box than as
+//! nothing, which is what an image with no source used to be.
+//!
 //! Two deliberate simplifications, each visible in a snapshot:
 //!
 //! * An element with no `display` lays out as a column of its children, which
@@ -51,6 +61,11 @@
 //! * `opacity` multiplies into every colour the subtree paints rather than
 //!   compositing the subtree as a group, so two overlapping half-transparent
 //!   children show through each other.
+//!
+//! `position: fixed` is honoured the way the page does it: the element leaves
+//! the flow, is laid out against the **viewport** rather than against whatever
+//! it was written inside, escapes every ancestor's clip, and paints last so an
+//! overlay covers the page it is over.
 //!
 //! `box-shadow`'s blur is three integer box passes over a coverage mask, which
 //! is what the SVG filter specification writes down for a Gaussian and what a
@@ -171,10 +186,13 @@ fn faded(p: [u8; 4]) -> [u8; 4] {
 // The scene document
 // ---------------------------------------------------------------------------
 
-/// One line of the scene: a box, or a run of text inside one.
+/// One line of the scene: a box, a picture, or a run of text inside one.
 struct Node {
     /// `Some` for a `t` line. A text run has no children and no declarations.
     text: Option<String>,
+    /// `Some` for a box whose declarations named an `image`. A picture holds
+    /// no children either: what is inside it is the source.
+    image: Option<String>,
     classes: Vec<String>,
     declarations: Vec<(String, String)>,
     children: Vec<usize>,
@@ -219,13 +237,18 @@ impl Scene {
             let node = if kind == "t " {
                 Node {
                     text: Some(unescape(body)),
+                    image: None,
                     classes: Vec::new(),
                     declarations: Vec::new(),
                     children: Vec::new(),
                 }
             } else {
                 let (classes, declarations) = parse_declarations(body)?;
-                Node { text: None, classes, declarations, children: Vec::new() }
+                let image = declarations
+                    .iter()
+                    .find(|(name, _)| name == "image")
+                    .map(|(_, source)| source.clone());
+                Node { text: None, image, classes, declarations, children: Vec::new() }
             };
             nodes.push(node);
 
@@ -308,11 +331,45 @@ fn unescape(text: &str) -> String {
 /// The classes a declaration list named, and everything else it said.
 type Declarations = (Vec<String>, Vec<(String, String)>);
 
+/// A declaration list, split on the semicolons that separate it, with `\;` and
+/// `\\` put back as the characters they stand for.
+///
+/// Anything else after a backslash keeps both characters, which is the rule
+/// [`unescape`] follows for a text run.
+fn entries(body: &str) -> Vec<String> {
+    let mut out = vec![String::new()];
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        let last = match out.last_mut() {
+            Some(entry) => entry,
+            None => return out,
+        };
+        match c {
+            ';' => out.push(String::new()),
+            '\\' => match chars.next() {
+                Some(escaped @ ('\\' | ';')) => last.push(escaped),
+                Some(other) => {
+                    last.push('\\');
+                    last.push(other);
+                }
+                None => last.push('\\'),
+            },
+            _ => last.push(c),
+        }
+    }
+    out
+}
+
 /// `name:value` pairs joined by `;`, with `class` lifted out.
+///
+/// A value may hold the separator, escaped: `\;` is a semicolon and `\\` a
+/// backslash. One value needs it — an image source is a data URI, and a data
+/// URI is full of both — and every other value in a scene or a sheet is
+/// written without a backslash, so nothing else changes shape.
 fn parse_declarations(body: &str) -> Result<Declarations, String> {
     let mut classes = Vec::new();
     let mut declarations = Vec::new();
-    for entry in body.split(';') {
+    for entry in entries(body) {
         if entry.is_empty() {
             continue;
         }
@@ -532,6 +589,9 @@ struct Computed {
     max: [Len; 2],
     aspect: Option<f32>,
     absolute: bool,
+    /// `position: fixed`. Absolute as well, and measured against the viewport
+    /// rather than against the box it was written in.
+    fixed: bool,
     inset: [Len; 4],
     clipped: [bool; 2],
 
@@ -577,6 +637,7 @@ impl Computed {
             max: [Len::Auto; 2],
             aspect: None,
             absolute: false,
+            fixed: false,
             inset: [Len::Auto; 4],
             clipped: [false; 2],
             background: Rgba::CLEAR,
@@ -716,7 +777,10 @@ fn apply(style: &mut Computed, name: &str, value: &str, parent: &Computed) {
         "max-width" => set_sides(&mut style.max, [0], len(value)),
         "max-height" => set_sides(&mut style.max, [1], len(value)),
         "aspect-ratio" => style.aspect = value.parse().ok().filter(|r: &f32| *r > 0.0),
-        "position" => style.absolute = value == "absolute",
+        "position" => {
+            style.fixed = value == "fixed";
+            style.absolute = style.fixed || value == "absolute";
+        }
         "inset-inline-start" => set_sides(&mut style.inset, [0], len(value)),
         "inset-inline-end" => set_sides(&mut style.inset, [1], len(value)),
         "inset-block-start" => set_sides(&mut style.inset, [2], len(value)),
@@ -1147,8 +1211,15 @@ fn paint_with(
     let mut tree: TaffyTree<usize> = TaffyTree::new();
     tree.disable_rounding();
 
+    // Every source read once, before the layout asks any of them how large it
+    // is. `None` beside a node that has an `image` is the placeholder.
+    let pictures: Vec<Option<Image>> =
+        scene.nodes.iter().map(|node| node.image.as_deref().and_then(picture)).collect();
+
     let mut ids: Vec<Option<NodeId>> = vec![None; scene.nodes.len()];
-    let roots = build(scene, styles, &mut tree, &scene.roots, &mut ids)?;
+    let mut fixed: Vec<usize> = Vec::new();
+    let roots =
+        build(scene, styles, &pictures, &mut tree, &scene.roots, &mut ids, &mut fixed)?;
     // **The canvas is an unstyled `stack`, sized to the viewport**, and that is
     // load-bearing rather than tidy: wrapping a tree in `ui.stack([], [...])`
     // must not move a pixel. An unstyled `stack` lowers to `display: flex;
@@ -1165,7 +1236,12 @@ fn paint_with(
         },
         ..Style::default()
     };
-    let root = tree.new_with_children(viewport, &roots).map_err(|e| format!("layout: {e}"))?;
+    // A fixed element is measured against the viewport, so it hangs off the
+    // canvas rather than off whatever it was written inside — and it comes
+    // last, so it is laid out over the page and painted over it.
+    let mut children = roots;
+    children.extend(fixed.iter().filter_map(|&index| ids.get(index).copied().flatten()));
+    let root = tree.new_with_children(viewport, &children).map_err(|e| format!("layout: {e}"))?;
 
     tree.compute_layout_with_measure(
         root,
@@ -1195,20 +1271,35 @@ fn paint_with(
         .ok_or_else(|| format!("the viewport {}x{} has no canvas", scene.width, scene.height))?;
     canvas.fill(tiny_skia::Color::WHITE);
 
-    let mut painter = Painter { scene, styles, tree: &tree, ids: &ids, fonts, cache };
+    let mut painter =
+        Painter { scene, styles, pictures: &pictures, tree: &tree, ids: &ids, fonts, cache };
     for &index in &scene.roots {
+        if painter.is_fixed(index) {
+            continue;
+        }
+        painter.draw(&mut canvas, index, 0.0, 0.0, None);
+    }
+    // Out of the flow and out of every ancestor's clip, at the origin the
+    // viewport gave it.
+    for &index in &fixed {
         painter.draw(&mut canvas, index, 0.0, 0.0, None);
     }
     Ok(canvas)
 }
 
 /// Mirrors the scene into a `taffy` tree, remembering each node's id.
+///
+/// Answers the ids that stay where they were written. A `position: fixed`
+/// node is built like any other and then handed up in `fixed` instead, for the
+/// caller to hang off the viewport.
 fn build(
     scene: &Scene,
     styles: &[Computed],
+    pictures: &[Option<Image>],
     tree: &mut TaffyTree<usize>,
     indices: &[usize],
     ids: &mut [Option<NodeId>],
+    fixed: &mut Vec<usize>,
 ) -> Result<Vec<NodeId>, String> {
     let mut out = Vec::with_capacity(indices.len());
     for &index in indices {
@@ -1216,22 +1307,55 @@ fn build(
         let style = styles.get(index).cloned().unwrap_or_else(Computed::root);
         let id = if node.text.is_some() {
             tree.new_leaf_with_context(taffy_style(&style), index)
+        } else if node.image.is_some() {
+            tree.new_leaf(picture_style(&style, pictures.get(index).and_then(Option::as_ref)))
         } else {
-            let children = build(scene, styles, tree, &node.children, ids)?;
+            let children = build(scene, styles, pictures, tree, &node.children, ids, fixed)?;
             tree.new_with_children(taffy_style(&style), &children)
         }
         .map_err(|e| format!("layout: {e}"))?;
         if let Some(slot) = ids.get_mut(index) {
             *slot = Some(id);
         }
-        out.push(id);
+        if style.fixed {
+            fixed.push(index);
+        } else {
+            out.push(id);
+        }
     }
     Ok(out)
+}
+
+/// A picture's box: whatever the scene declared, and where it declared
+/// nothing, the size the source has.
+///
+/// A source the painter read has a size in pixels, which is the size an `img`
+/// takes in a page when no rule says otherwise. A source it could not read has
+/// none, so the placeholder fills the box around it instead of collapsing to
+/// nothing — which is the whole complaint an image that painted blank was.
+fn picture_style(style: &Computed, picture: Option<&Image>) -> Style {
+    let mut out = taffy_style(style);
+    let (width, height) = match picture {
+        Some(image) => (
+            Dimension::length(image.width as f32),
+            Dimension::length(image.height as f32),
+        ),
+        None => (Dimension::percent(1.0), Dimension::percent(1.0)),
+    };
+    if style.size[0] == Len::Auto {
+        out.size.width = width;
+    }
+    if style.size[1] == Len::Auto {
+        out.size.height = height;
+    }
+    out
 }
 
 struct Painter<'a> {
     scene: &'a Scene,
     styles: &'a [Computed],
+    /// One slot per scene node: the pixels of a picture whose source was read.
+    pictures: &'a [Option<Image>],
     tree: &'a TaffyTree<usize>,
     ids: &'a [Option<NodeId>],
     fonts: &'a mut FontSystem,
@@ -1239,6 +1363,11 @@ struct Painter<'a> {
 }
 
 impl Painter<'_> {
+    /// Whether a node was lifted out of the flow and onto the viewport.
+    fn is_fixed(&self, index: usize) -> bool {
+        self.styles.get(index).is_some_and(|style| style.fixed)
+    }
+
     /// Draws one node and its children, in document order, which is paint
     /// order: a later sibling covers an earlier one.
     fn draw(&mut self, canvas: &mut Pixmap, index: usize, x: f32, y: f32, clip: Option<&Mask>) {
@@ -1292,9 +1421,41 @@ impl Painter<'_> {
         } else {
             clip
         };
+        if node.image.is_some() {
+            self.picture(canvas, index, style, box_, inner);
+            return;
+        }
         for &child in &node.children {
+            // A fixed child hangs off the viewport, so it is neither placed
+            // here nor clipped by anything here. It is drawn last, from the
+            // top.
+            if self.is_fixed(child) {
+                continue;
+            }
             self.draw(canvas, child, left, top, inner);
         }
+    }
+
+    /// Draws a picture into the box the layout gave it.
+    ///
+    /// A source that was read is scaled to that box, nearest neighbour, in
+    /// integers — the same pixel for the same box on every host. A source that
+    /// was not is a framed grey placeholder, which says "a picture belongs
+    /// here" without pretending to be one.
+    fn picture(
+        &mut self,
+        canvas: &mut Pixmap,
+        index: usize,
+        style: &Computed,
+        box_: Box2,
+        clip: Option<&Mask>,
+    ) {
+        let Some(image) = self.pictures.get(index).and_then(Option::as_ref) else {
+            fill(canvas, box_, 0.0, PLACEHOLDER_EDGE, style.opacity, clip);
+            fill(canvas, box_.grow(-1.0), 0.0, PLACEHOLDER_FILL, style.opacity, clip);
+            return;
+        };
+        scaled(canvas, image, box_, style.opacity, clip);
     }
 
     /// Draws one text run at the box the layout gave it.
@@ -1496,6 +1657,86 @@ fn stroke(
         pen.dash = StrokeDash::new(vec![width * 3.0, width * 2.0], 0.0);
     }
     canvas.stroke_path(&path, &paint, &pen, Transform::identity(), clip);
+}
+
+/// The frame around a picture the painter could not read.
+const PLACEHOLDER_EDGE: Rgba = Rgba { r: 153, g: 153, b: 153, a: 1.0 };
+
+/// What is inside that frame.
+const PLACEHOLDER_FILL: Rgba = Rgba { r: 224, g: 224, b: 224, a: 1.0 };
+
+/// The pixels of an image source, or `None` for one this painter cannot read.
+///
+/// **Nothing is fetched and nothing is opened.** A snapshot that reached the
+/// network would answer a different picture on a different day, so the one
+/// source that can be read is the one the scene carries whole: a `data:` URI
+/// holding a PNG in the form [`encode`] writes. Every other source — an SVG
+/// data URI, an `http` URL, a path — is a placeholder, and [`Painter::picture`]
+/// paints it as one.
+fn picture(source: &str) -> Option<Image> {
+    let data = source.strip_prefix("data:image/png;base64,")?;
+    decode(&base64(data)?).ok()
+}
+
+/// A base64 body, decoded. Whitespace is skipped, padding is optional, and any
+/// other character answers `None`.
+fn base64(text: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(text.len() / 4 * 3);
+    let mut acc: u32 = 0;
+    let mut bits = 0_u32;
+    for c in text.bytes() {
+        let sextet = match c {
+            b'A'..=b'Z' => u32::from(c - b'A'),
+            b'a'..=b'z' => u32::from(c - b'a') + 26,
+            b'0'..=b'9' => u32::from(c - b'0') + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' => break,
+            b' ' | b'\n' | b'\r' | b'\t' => continue,
+            _ => return None,
+        };
+        acc = (acc << 6) | sextet;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(u8::try_from((acc >> bits) & 0xff).ok()?);
+        }
+    }
+    Some(out)
+}
+
+/// Draws an image into a box, nearest neighbour.
+///
+/// The source pixel for a device pixel is picked in integers — `(x - left) *
+/// width / box width` — so a scaled picture is the same picture on every host,
+/// which is the rule the whole file is written to.
+fn scaled(canvas: &mut Pixmap, image: &Image, box_: Box2, opacity: f32, clip: Option<&Mask>) {
+    let (width, height) = (box_.r - box_.l, box_.b - box_.t);
+    if width <= 0 || height <= 0 || image.width == 0 || image.height == 0 {
+        return;
+    }
+    let (cw, ch) = (canvas.width(), canvas.height());
+    let alpha = (opacity.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+    let pixels = canvas.pixels_mut();
+    for y in box_.t.max(0)..box_.b.min(ch as i32) {
+        let sy = (i64::from(y - box_.t) * i64::from(image.height)) / i64::from(height);
+        for x in box_.l.max(0)..box_.r.min(cw as i32) {
+            let sx = (i64::from(x - box_.l) * i64::from(image.width)) / i64::from(width);
+            let (Ok(sx), Ok(sy)) = (u32::try_from(sx), u32::try_from(sy)) else { continue };
+            let Some(source) = image.pixel(sx, sy) else { continue };
+            let i = (y as u32 as usize).saturating_mul(cw as usize).saturating_add(x as usize);
+            let coverage =
+                clip.map_or(255, |mask| mask.data().get(i).copied().unwrap_or(0));
+            let a = mul255(mul255(source[3], coverage), alpha);
+            if a == 0 {
+                continue;
+            }
+            let src = [mul255(source[0], a), mul255(source[1], a), mul255(source[2], a), a];
+            if let Some(slot) = pixels.get_mut(i) {
+                *slot = over(src, *slot);
+            }
+        }
+    }
 }
 
 fn shade<'a>(colour: Rgba, opacity: f32) -> tiny_skia::Shader<'a> {
@@ -2754,6 +2995,127 @@ mod tests {
         let scene = "buri-scene 1\nviewport 60 40\ne 0 font-size:0px\nt 1 Ada\n";
         let image = render_ok(scene, "", "rest");
         assert_eq!((image.width, image.height), (60, 40));
+    }
+
+    /// A source the painter cannot read — an SVG data URI is the common one,
+    /// since it is the only vector form `ui/node` offers — is a framed grey
+    /// box at the size the scene gave it. It used to be nothing at all: an
+    /// image line carried no source, so a row of icons painted as blank page.
+    #[test]
+    fn a_source_the_painter_cannot_read_paints_a_placeholder() {
+        let scene = "buri-scene 1\nviewport 8 8\n\
+                     e 0 width:6px;height:6px\n\
+                     e 1 image:data:image/svg+xml,%3Csvg viewBox='0 0 1 1'%3E%3C/svg%3E\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 0, 0), [153, 153, 153, 255]);
+        assert_eq!(at(&image, 3, 3), [224, 224, 224, 255]);
+        // The box the scene declared, and not a pixel past it.
+        assert_eq!(at(&image, 6, 6), [255, 255, 255, 255]);
+    }
+
+    /// One base64 alphabet, one PNG reader, and the pixels come back where the
+    /// layout put them.
+    #[test]
+    fn a_png_data_uri_paints_its_own_pixels() {
+        let red = [255, 0, 0, 255];
+        let blue = [0, 0, 255, 255];
+        let mut pixels = Vec::new();
+        pixels.extend_from_slice(&red);
+        pixels.extend_from_slice(&blue);
+        // The semicolon in the media type is escaped, as `describe` writes it.
+        let source = format!("data:image/png\\;base64,{}", to_base64(&encode(2, 1, &pixels)));
+        let scene = format!("buri-scene 1\nviewport 8 8\ne 0 image:{source}\n");
+        let image = render_ok(&scene, "", "rest");
+        // Its own size, since nothing declared one.
+        assert_eq!(at(&image, 0, 0), red);
+        assert_eq!(at(&image, 1, 0), blue);
+        assert_eq!(at(&image, 0, 1), [255, 255, 255, 255]);
+    }
+
+    /// The box wins over the pixels: a source that was read is scaled into
+    /// whatever the layout gave it.
+    #[test]
+    fn a_picture_scales_to_the_box_the_layout_gave_it() {
+        let mut pixels = Vec::new();
+        pixels.extend_from_slice(&[255, 0, 0, 255]);
+        pixels.extend_from_slice(&[0, 0, 255, 255]);
+        let source = format!("data:image/png\\;base64,{}", to_base64(&encode(2, 1, &pixels)));
+        let scene =
+            format!("buri-scene 1\nviewport 8 8\ne 0 width:8px;height:2px;image:{source}\n");
+        let image = render_ok(&scene, "", "rest");
+        assert_eq!(at(&image, 0, 1), [255, 0, 0, 255]);
+        assert_eq!(at(&image, 7, 1), [0, 0, 255, 255]);
+    }
+
+    /// A data URI is full of semicolons, and a semicolon separates two
+    /// declarations. `describe` escapes both, and this is the other end of it.
+    #[test]
+    fn a_declaration_value_may_hold_an_escaped_semicolon() {
+        let (classes, declarations) = parse_declarations(r"image:a\;b;width:4px").unwrap();
+        assert!(classes.is_empty());
+        assert_eq!(
+            declarations,
+            vec![
+                ("image".to_string(), "a;b".to_string()),
+                ("width".to_string(), "4px".to_string()),
+            ]
+        );
+    }
+
+    /// `position: fixed` is measured against the viewport, not against the box
+    /// it was written in — a dock pinned to the bottom right belongs at the
+    /// page's bottom right however deep in the tree it was declared.
+    #[test]
+    fn a_fixed_box_is_pinned_to_the_viewport() {
+        let scene = "buri-scene 1\nviewport 10 10\n\
+                     e 0 width:4px;height:4px\n\
+                     e 1 position:fixed;inset-block-end:0px;inset-inline-end:0px;\
+                     width:2px;height:2px;background-color:rgb(0,128,0)\n";
+        let image = render_ok(scene, "", "rest");
+        assert_eq!(at(&image, 9, 9), [0, 128, 0, 255]);
+        assert_eq!(at(&image, 0, 0), [255, 255, 255, 255]);
+    }
+
+    /// It also leaves the flow where it was written: the box around it lays
+    /// out as though the fixed child were not there.
+    #[test]
+    fn a_fixed_box_takes_no_room_where_it_was_written() {
+        let without = "buri-scene 1\nviewport 10 10\n\
+                       e 0 background-color:rgb(255,0,0)\n\
+                       t 1 x\n";
+        let with = "buri-scene 1\nviewport 10 10\n\
+                    e 0 background-color:rgb(255,0,0)\n\
+                    t 1 x\n\
+                    e 1 position:fixed;width:2px;height:9px\n";
+        let rows = |scene: &str| {
+            let image = render_ok(scene, "", "rest");
+            (0..10).filter(|&y| at(&image, 9, y) == [255, 0, 0, 255]).count()
+        };
+        assert_eq!(rows(without), rows(with));
+    }
+
+    /// The base64 alphabet, written out for the two tests above. Nothing in the
+    /// painter encodes one — a scene arrives with its sources already written.
+    fn to_base64(bytes: &[u8]) -> String {
+        const ALPHABET: &[u8] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let mut block = [0_u8; 3];
+            if let Some(slot) = block.get_mut(..chunk.len()) {
+                slot.copy_from_slice(chunk);
+            }
+            let n = (u32::from(block[0]) << 16) | (u32::from(block[1]) << 8) | u32::from(block[2]);
+            for i in 0..4 {
+                if i <= chunk.len() {
+                    let sextet = (n >> (18 - 6 * i)) & 0x3f;
+                    out.push(char::from(ALPHABET[sextet as usize]));
+                } else {
+                    out.push('=');
+                }
+            }
+        }
+        out
     }
 
     #[test]
