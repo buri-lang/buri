@@ -1008,7 +1008,11 @@ const STDERR_TAIL: usize = 4096;
 /// ran out of memory sends `SIGKILL`. "The generator produced no response" is
 /// the same sentence for all three, and a CI job that says only that leaves
 /// nothing to go on.
-fn how_it_ended(status: &std::process::ExitStatus) -> String {
+///
+/// `commands::test` asks the same question of a test binary that died without
+/// writing a record, so this is the one signal table in the toolchain rather
+/// than one per caller.
+pub(crate) fn how_it_ended(status: &std::process::ExitStatus) -> String {
     if let Some(code) = status.code() {
         return format!("exited with {code}");
     }

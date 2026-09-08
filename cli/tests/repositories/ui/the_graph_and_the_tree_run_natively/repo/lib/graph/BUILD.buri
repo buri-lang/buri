@@ -1,0 +1,10 @@
+# No `platforms`, and that is the case. The guide promises the graph and the
+# tree walk both run natively, so this suite is the linked binary rather than a
+# JavaScript module.
+library {
+    sources: ["options.buri"]
+
+    test {
+        sources: ["test/graph.buri"]
+    }
+}

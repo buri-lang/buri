@@ -1314,6 +1314,27 @@ enum Verdicts {
     HeapCheck(String),
 }
 
+/// What to say about a run that stopped without a word.
+///
+/// `the run exited -1` was the whole report a native binary got when it died by
+/// a signal, and it named nothing a reader could act on: not the signal, not
+/// which side of the toolchain was at fault, and not the fact that the process
+/// never reached the code that writes a record. Two miscompiles hid behind that
+/// line for a release (buri-lang/buri#54 and #58).
+///
+/// A **missing** native facility never arrives here: `gap_refusal` names the
+/// intrinsic before anything is linked, so a suite reaching one gets a
+/// diagnostic and no binary. What is left when a linked binary dies silently is
+/// a program the backend compiled wrongly, and the sentence says so rather than
+/// leaving a number on its own.
+fn silent_end(status: &std::process::ExitStatus) -> String {
+    format!(
+        "the run {} and said nothing: no `test` block reported a failure, so the binary the \
+         backend produced is what to look at",
+        crate::build::generators::how_it_ended(status)
+    )
+}
+
 /// Runs a native test binary until every one of its `count` blocks has a
 /// verdict, and says what each did.
 ///
@@ -1390,7 +1411,7 @@ fn run_blocks(
             None => {
                 let text = stderr.trim().to_string();
                 if text.is_empty() {
-                    format!("the run exited {}", out.status.code().unwrap_or(-1))
+                    silent_end(&out.status)
                 } else {
                     text
                 }
