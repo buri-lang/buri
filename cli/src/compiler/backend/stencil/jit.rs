@@ -600,6 +600,13 @@ pub(crate) struct Fn2 {
     /// to be kept in step with its register, because something that cannot read
     /// a register reads it.
     pub wt: Vec<bool>,
+    /// Which values [`Jit::promote`] put in a register. Their register holds
+    /// the value inside [`Fn2::region`] and nowhere else.
+    pub cross: Vec<bool>,
+    /// The blocks of [`Jit::promote`]'s region, one entry each.
+    pub region: Vec<bool>,
+    /// The block being emitted, as an index into [`Fn2::region`].
+    pub cur: usize,
     /// The literal a value holds, when it is an `Inst::Const` a stencil can
     /// take as an immediate.
     pub constants: Vec<Option<u64>>,
@@ -630,11 +637,34 @@ impl Fn2 {
     pub fn at(&self, v: ir::ValueId) -> u32 {
         self.slot.get(v.index()).copied().unwrap_or(0)
     }
-    /// Where a value is: a CPS register if one was assigned, the frame
+    /// Where a value **lives**: a CPS register if one was assigned, the frame
     /// otherwise. This is the paper's "whether it operates on constants,
     /// registers, or stack locations".
-    pub fn loc(&self, v: ir::ValueId) -> Loc {
+    ///
+    /// The home is where a definition writes and where an edge copy lands, and
+    /// it is the same answer everywhere in the function. Where a *read* takes
+    /// the value from is [`Fn2::loc`], which is not.
+    pub fn home(&self, v: ir::ValueId) -> Loc {
         self.reg.get(v.index()).copied().flatten().unwrap_or(Loc::Frame)
+    }
+
+    /// Where a read in the block being emitted takes a value from.
+    ///
+    /// [`Jit::promote`]'s register is only the value inside its region: the
+    /// region is barrier-free and enterable only at its header, and neither
+    /// holds one block further out. So a read outside it takes the frame slot,
+    /// which `wt` had the edge keep in step for exactly this — the other half
+    /// of the promotion, and the half that was missing. Without it a
+    /// comparison one block past the loop read a register a call had already
+    /// overwritten, and a `Bool` walk that recursed from two places answered
+    /// `true` for every input (buri-lang/buri#47).
+    pub fn loc(&self, v: ir::ValueId) -> Loc {
+        if self.cross.get(v.index()).copied().unwrap_or(false)
+            && !self.region.get(self.cur).copied().unwrap_or(false)
+        {
+            return Loc::Frame;
+        }
+        self.home(v)
     }
 }
 
@@ -700,7 +730,9 @@ impl<'a> Jit<'a> {
                 let (slot, scratch) = self.slots(prog, code, &frame);
                 let mut reg = vec![None; code.values()];
                 let mut wt = vec![true; code.values()];
-                let taken = self.promote(code, &mut reg, &mut wt);
+                let mut cross = vec![false; code.values()];
+                let mut promoted = Vec::new();
+                let taken = self.promote(code, &mut reg, &mut wt, &mut cross, &mut promoted);
                 self.regalloc(code, &mut reg, taken);
                 let (constants, folded) = self.constants(code);
                 let mut closure_of: Vec<Option<u32>> = vec![None; code.values()];
@@ -718,6 +750,9 @@ impl<'a> Jit<'a> {
                     scratch,
                     reg,
                     wt,
+                    cross,
+                    region: promoted,
+                    cur: 0,
                     constants,
                     folded,
                     closure_of,
@@ -729,6 +764,9 @@ impl<'a> Jit<'a> {
                     let here = self.region.code_addr();
                     put(&mut st.blk, bi, here);
                     self.stats.blocks += 1;
+                    // Which side of the promotion's region every read in this
+                    // block is on. See [`Fn2::loc`].
+                    st.cur = bi;
                     let block = code.get(ir::BlockId(bi as u32));
                     let plan = self.plan_block(code, &st, block);
                     // `Plan::skip` is built with one flag per instruction of
@@ -764,6 +802,9 @@ impl<'a> Jit<'a> {
                     scratch: frame.param_end,
                     reg: Vec::new(),
                     wt: Vec::new(),
+                    cross: Vec::new(),
+                    region: Vec::new(),
+                    cur: 0,
                     constants: Vec::new(),
                     folded: Vec::new(),
                     closure_of: Vec::new(),
@@ -1712,6 +1753,13 @@ impl<'a> Jit<'a> {
     /// which the edge keeps in step — unless every use is provably a register
     /// one, and then the slot is not written at all.
     ///
+    /// Which is why the region comes back out in `region` and the promoted
+    /// values in `cross`: "outside it, from the frame slot" is a rule about a
+    /// *read*, and [`Fn2::loc`] is what states it. Leaving it unsaid was
+    /// buri-lang/buri#47 — a promoted loop variable read by a comparison one
+    /// block past the region, after a call in between had already taken the
+    /// register.
+    ///
     /// Answers how many integer and floating registers the promotion took, so
     /// that the paper's own expression-temporary allocator can have the rest.
     fn promote(
@@ -1719,6 +1767,8 @@ impl<'a> Jit<'a> {
         code: &ir::Code,
         out: &mut [Option<Loc>],
         wt: &mut [bool],
+        cross: &mut [bool],
+        region: &mut Vec<bool>,
     ) -> (usize, usize) {
         let nb = code.blocks.len();
         let register_count = super::abi::CPS_REGISTER_COUNT;
@@ -1806,6 +1856,7 @@ impl<'a> Jit<'a> {
         }
         let Some(body) = best else { return (0, 0) };
         let h = best_h;
+        region.clone_from(&body);
 
         // Where every value is used, and whether every one of those uses can
         // read a register.
@@ -1869,6 +1920,7 @@ impl<'a> Jit<'a> {
                 continue;
             }
             put(out, p.index(), Some(Loc::Reg(*k as u8)));
+            put(cross, p.index(), true);
             // A value no `reg_ok` entry covers is one nothing in this function
             // reads, so writing its slot through is the conservative answer.
             put(wt, p.index(), !ent(&reg_ok, p.index(), false));
@@ -1938,6 +1990,7 @@ impl<'a> Jit<'a> {
                         continue;
                     }
                     put(out, a.index(), Some(Loc::Reg(k)));
+                    put(cross, a.index(), true);
                     put(wt, a.index(), false);
                     self.stats.cross_regs += 1;
                 }
