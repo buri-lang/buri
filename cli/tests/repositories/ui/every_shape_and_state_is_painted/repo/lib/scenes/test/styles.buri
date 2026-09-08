@@ -73,5 +73,6 @@ test "a heading is the size its styles say, not the size a browser picked" {
             ui.text(.Const("beside them")),
         ]),
         .Hover,
+        [],
     );
 }
