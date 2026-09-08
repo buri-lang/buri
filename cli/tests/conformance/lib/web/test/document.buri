@@ -171,7 +171,10 @@ test "every kind of node renders" {
         ),
         "no",
     );
-    assert.equal(web.render(ui.computed(fn(_scope) => ui.text(.Const("built")))), "built");
+    assert.equal(
+        web.render(ui.computed(fn(_scope) => ui.text(.Const("built")))),
+        "built",
+    );
     assert.equal(
         web.render(
             ui.each(.Const(["a", "b"]), fn(item) => item, fn(_c, item, _i) => {
@@ -249,7 +252,10 @@ test "a state that ends the script it sits in closes nothing" {
         ctx,
         json.parse(ctx, embedded(document)).withDefault(.Null),
     );
-    assert.equal(read.withDefault(Reading { title: "", note: "" }).note, "</script><b>");
+    assert.equal(
+        read.withDefault(Reading { title: "", note: "" }).note,
+        "</script><b>",
+    );
 }
 
 test "the state crosses as every shape JSON has" {

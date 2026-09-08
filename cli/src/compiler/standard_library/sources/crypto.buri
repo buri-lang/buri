@@ -808,8 +808,12 @@ export fn token<C: Allocator + Entropy>(ctx: C, octets: Int): Str {
 ///
 /// No library can promise constant time under a JIT. What this promises is that
 /// the *algorithm* has no early exit.
-export fn equalsConstantTime(a: [U8], b: [U8]): Bool {
-    if (a.length() != b.length()) { false } else { accumulate(a, b, 0, 0) == 0 }
+export fn equalsConstantTime(first: [U8], second: [U8]): Bool {
+    if (first.length() != second.length()) {
+        false
+    } else {
+        accumulate(first, second, 0, 0) == 0
+    }
 }
 
 fn accumulate(a: [U8], b: [U8], i: Int, acc: Int): Int {
