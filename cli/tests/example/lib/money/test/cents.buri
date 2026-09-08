@@ -1,19 +1,19 @@
 // Tests for //lib/money. They import the library by label, exactly as any
 // dependent does, so they can only assert on what dependents can call.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "//lib/money" import { fromCents, fromDollars };
 
 test "dollars are a hundred cents" {
-    assert.eq(fromDollars(3), fromCents(300));
+    assert.equal(fromDollars(3), fromCents(300));
 }
 
 test "addition composes" {
     let subtotal = fromDollars(19);
     let shipping = fromCents(499);
-    assert.eq(subtotal.add(shipping), fromCents(2399));
+    assert.equal(subtotal.add(shipping), fromCents(2399));
 }
 
 test "zero is recognized" {
@@ -24,13 +24,13 @@ test "pads the cents place" {
     // Only this test needs a context: formatting allocates, and nothing else
     // here does. You can see which is which without leaving the test.
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(fromCents(1905).format(ctx), "$19.05");
-    assert.eq(fromDollars(19).format(ctx), "$19.00");
+    assert.equal(fromCents(1905).format(ctx), "$19.05");
+    assert.equal(fromDollars(19).format(ctx), "$19.00");
 }
 
-// assert.eq(fromCents(300).toCents(), 300)
+// assert.equal(fromCents(300).toCents(), 300)
 //   ERROR: `toCents` is not on //lib/money's surface. Either it belongs there —
 //   in which case add it to lib.buri and every dependent gets it — or this test
 //   is asserting on an implementation detail.

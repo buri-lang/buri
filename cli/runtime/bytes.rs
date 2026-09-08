@@ -73,7 +73,7 @@ pub unsafe extern "C" fn buri_rt_bytes_to_utf8(
     len: u64,
     out: *mut BuriList,
 ) {
-    // The length field carries the ASCII flag `str.len` reads, so it is masked
+    // The length field carries the ASCII flag `str.length` reads, so it is masked
     // before it is used as a byte count — the same mask `text.rs` applies.
     let n = len & crate::value::BURI_RT_STR_LEN_MASK;
     // SAFETY: the caller promises the range.

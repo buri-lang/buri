@@ -191,7 +191,7 @@ pub const TOPICS: &[Topic] = &[
         "Effects and purity",
         Kind::Language,
         include_str!("../docs/language/effects.md"),
-        &["ctx", "context", "capability", "pure", "io", "allocation", "Alloc", "side effect"],
+        &["ctx", "context", "capability", "pure", "io", "allocation", "Allocator", "side effect"],
         &["language/programs", "build/testing"],
     ),
     tagged(

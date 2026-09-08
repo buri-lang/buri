@@ -3,7 +3,7 @@ function __cmd_x_main_buri$main(){
   const ctx_0=[[],[]];
   const fs_1=__cmd_x_main_buri$adders$u3rqgv(ctx_0,0n,[]);
   const gs_2=__cmd_x_main_buri$scalers$u3rqgv(ctx_0,7n,0n,[]);
-  const text_9=String($list_len($list_map(fs_1,ctx_0,f_3=>f_3(100n))))+' '+String(__cmd_x_main_buri$sumTo(100n,0n));
+  const text_9=String($list_length($list_map(fs_1,ctx_0,f_3=>f_3(100n))))+' '+String(__cmd_x_main_buri$sumTo(100n,0n));
   const self_10=$host_HostStdout_println(ctx_0[1],text_9);
   let $t1;
   if(self_10[0]===0){
@@ -107,9 +107,9 @@ function __cmd_x_main_buri$sumTo(n_0,acc_1){
     }
   }
 }
-function core_option$Option_map$g9y0aa(self_0,f_1){
+function core_option$Option_map$g9y0aa(self_0,transform_1){
   if(self_0!==void 0){
-    return f_1(self_0);
+    return transform_1(self_0);
   }else if(self_0===void 0){
     return void 0;
   }else{

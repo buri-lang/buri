@@ -13,5 +13,5 @@ test "main is reachable from its own suite" {
 }
 
 test "and a dependency's testing surface is reachable by its label" {
-    assert.eq(sample().0, 1905);
+    assert.equal(sample().0, 1905);
 }

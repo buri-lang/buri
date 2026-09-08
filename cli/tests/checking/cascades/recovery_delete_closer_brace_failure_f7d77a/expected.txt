@@ -1,0 +1,35 @@
+error: `lines` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:58:16
+   |
+58 |         Stdin: stdin().lines(["{\"inputs\":\"lib/wire/p.proto\"}"],
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: `Stdout` is a type, not a value [type-not-a-value]
+  --> main.buri:59:9
+   |
+59 |         Stdout: out,
+   |         ^^^^^^
+   |
+   = fix: construct one, as in `Point { x: 1, y: 2 }`, or name a value
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:59:15
+   |
+59 |         Stdout: out,
+   |               ^
+   |
+  --> main.buri:58:29
+   |
+58 |         Stdin: stdin().lines(["{\"inputs\":\"lib/wire/p.proto\"}"],
+   |                             ^ opened here
+   |
+   = fix: write `)` here
+error: `a context` does not satisfy `Stdout` [unsatisfied-bound]
+  --> main.buri:63:20
+   |
+63 |         assert.err(codegen.run(ctx, silent)),
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = fix: bound the type parameter with `Stdout`, or use a type that has one

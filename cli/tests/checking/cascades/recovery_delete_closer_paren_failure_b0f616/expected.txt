@@ -1,0 +1,30 @@
+error: `equal` takes 2 arguments, but 1 were given [wrong-argument-count]
+  --> main.buri:92:5
+   |
+92 |     assert.equal(
+   |     ^^^^^^^^^^^^^
+   |
+   = expected: 2
+   = actual: 1
+   = fix: pass exactly 2
+error: `err` takes 1 arguments, but 2 were given [wrong-argument-count]
+  --> main.buri:93:9
+   |
+93 |         assert.err(codegen.run(ctx, silent),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = expected: 1
+   = actual: 2
+   = fix: pass exactly 1
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:95:6
+   |
+95 |     );
+   |      ^
+   |
+  --> main.buri:92:17
+   |
+92 |     assert.equal(
+   |                 ^ opened here
+   |
+   = fix: write `)` here

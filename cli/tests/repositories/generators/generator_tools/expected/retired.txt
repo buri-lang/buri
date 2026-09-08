@@ -15,10 +15,7 @@ error: `proto_sources` is retired [retired-proto-sources]
 
       library {
           generators: [
-              {
-                  tool: "std/codegen/proto"
-                  inputs: ["address.proto", "point.proto"]
-              }
+              { tool: "std/codegen/proto", inputs: ["address.proto", "point.proto"] },
           ]
           visibility: ["//visibility:public"]
       }

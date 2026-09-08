@@ -8,5 +8,5 @@ from "//lib/money/testing" import { fakeCents };
 test "the fake answers a hundred and fifty cents" {
     let doubled = 150 * 2;
     let made: Cents = fakeCents();
-    assert.eq(made, fromCents(150));
+    assert.equal(made, fromCents(150));
 }

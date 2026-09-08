@@ -119,11 +119,11 @@ const SEED: u64 = generate::SEED;
 const FLOOR: &str = "\
 from \"core/str\" import * as str;
 from \"core/list\" import * as list;
-from \"core/effect\" import { Alloc };
+from \"core/effect\" import { Allocator };
 
 export fn main(): Result<(), Str> {
   let xs: [Int] = list.empty<Int>();
-  if (xs.len() == 0) { .Ok(()) } else { .Err(\"impossible\") }
+  if (xs.length() == 0) { .Ok(()) } else { .Err(\"impossible\") }
 }
 ";
 

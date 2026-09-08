@@ -2,14 +2,14 @@
 // a real module and this is a real path; it is simply not this package's to
 // name (LIBRARIES.md:80-89).
 
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "//lib/money/cents.buri" import { fromCents };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     io

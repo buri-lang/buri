@@ -77,12 +77,12 @@ literal's type, and a conversion method changes a value's (Section 6.2.1).
 #### Generic numeric code
 
 Arithmetic is available on a type parameter through the operator traits of
-Section 5.12 — `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, `Ord` — each of which
+Section 5.12 — `Add`, `Subtract`, `Multiply`, `Divide`, `Remainder`, `Negate`, `Ordered` — each of which
 is an ordinary interface with a method set:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 fn total<N: Add>(zero: N, xs: [N]): N { ... }
-fn clamp<N: Ord>(lo: N, hi: N, x: N): N { ... }
+fn clamp<N: Ordered>(lo: N, hi: N, x: N): N { ... }
 ```
 
 There are no compiler-privileged bounds. A bound names what a type *can do*, so
@@ -123,7 +123,7 @@ access must be parenthesized: `(t.0).1`.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 let xs: [Int] = [1, 2, 3];
-let n = list.len(xs);          // pure: no allocation
+let n = list.length(xs);          // pure: no allocation
 let maybe = xs[0];             // Option<Int>, not Int
 ```
 
@@ -131,7 +131,7 @@ let maybe = xs[0];             // Option<Int>, not Int
 
 An array literal has a statically known length, so it is not by itself an
 allocation you must account for. Any operation whose result length depends on
-runtime data — `map`, `filter`, `concat`, `sort`, `range` — needs an `Alloc`
+runtime data — `map`, `filter`, `concat`, `sort`, `range` — needs an `Allocator`
 effect.
 
 ### 5.5 No records
@@ -390,9 +390,9 @@ enum.
 You declare type parameters in angle brackets. There are no row parameters.
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc, Stdout };
+# from "core/effect" import { Allocator, Stdout };
 fn identity<T>(x: T): T { x }
-fn map<A, B, C: Alloc>(self, ctx: C, f: fn(A) => B): [B] { ... }
+fn map<A, B, C: Allocator>(self, ctx: C, f: fn(A) => B): [B] { ... }
 fn tee<T, C: Stdout>(ctx: C, x: T): T { ... }
 ```
 
@@ -400,9 +400,9 @@ A parameter may carry one or more **bounds**, naming traits the argument type
 must satisfy. Multiple bounds are joined with `+`:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-# from "core/effect" import { Alloc };
-fn largest<T: Ord>(xs: [T]): Option<T> { ... }
-fn report<T: Ord + Show, C: Alloc>(ctx: C, xs: [T]): Str { ... }
+# from "core/effect" import { Allocator };
+fn largest<T: Ordered>(xs: [T]): Option<T> { ... }
+fn report<T: Ordered + Show, C: Allocator>(ctx: C, xs: [T]): Str { ... }
 ```
 
 Inside such a function you may call the bound's methods on the parameter —
@@ -430,40 +430,40 @@ equal values or copy one whenever that is faster (Section 8.1). Code that needs
 identity carries it as data — `struct NodeId(U64)` — which is a value the
 compiler cannot invent or coalesce.
 
-`==` and `!=` are `Eq.eq`; `<` `<=` `>` `>=` are `Ord.compare`. Section 5.12.4
+`==` and `!=` are `Equal.equal`; `<` `<=` `>` `>=` are `Ordered.compare`. Section 5.12.4
 has the operator table. Neither is compiler magic: a type has them because it
 derives or implements the trait. Every primitive, and `[T]` and tuples built from
-types that have them, satisfy `Eq` and `Ord` already. Your own structs and enums
+types that have them, satisfy `Equal` and `Ordered` already. Your own structs and enums
 opt in:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-derive Eq, Ord for Version;
+derive Equal, Ordered for Version;
 
 let same = Version { major: 1, minor: 2 } == Version { major: 1, minor: 2 };
 // true — different values, equal contents
 ```
 
-`Eq` is not defined for function types or `Template`, so comparing those is a
+`Equal` is not defined for function types or `Template`, so comparing those is a
 compile error.
 
 Three consequences:
 
-- **A derived `Eq` is an equivalence relation, and so is `==` on a float.**
+- **A derived `Equal` is an equivalence relation, and so is `==` on a float.**
   `NaN == NaN` (Section 6.2), so a struct with an `F64` field holding `NaN` is
-  equal to itself *and* to a separately built copy of itself. `Ord` on floats is
+  equal to itself *and* to a separately built copy of itself. `Ordered` on floats is
   unchanged and still IEEE-754's: it orders `-0.0` equal to `0.0` and reports
   `NaN` as unordered, so `<` and `compare` disagree with `==` at `NaN`. `==` is
   the one made total.
 
-- **A hand-written `impl Eq` need not be structural.** Nothing checks that it is
+- **A hand-written `impl Equal` need not be structural.** Nothing checks that it is
   reflexive, symmetric, or transitive, so a case-insensitive `Str` wrapper is
   expressible — and so is a broken one. `derive` cannot be wrong in that way.
 
-- **`Ord` on a `Str` is by Unicode scalar value.** That is the unit `len` counts
+- **`Ordered` on a `Str` is by Unicode scalar value.** That is the unit `len` counts
   and `charAt` hands back, and for a valid string it is byte-for-byte UTF-8
   order — not the UTF-16 code-unit order a JavaScript `<` gives. Both backends
-  answer the scalar order, and `sort`, an `OrdMap<Str, _>` and `core/order`'s
-  `str` all carry it. `Ord` on a `Char` is the scalar's integer order. The
+  answer the scalar order, and `sort`, an `OrderedMap<Str, _>` and `core/order`'s
+  `str` all carry it. `Ordered` on a `Char` is the scalar's integer order. The
   language has no locale-aware comparison.
 
 ### 5.12 Traits
@@ -472,14 +472,14 @@ A trait is an **interface**: a named set of method signatures that a type may
 satisfy.
 
 ```buri
-# from "core/effect" import { Alloc };
+# from "core/effect" import { Allocator };
 
-trait Ord {
+trait Ordered {
     fn compare(self, other: Self): Order;
 }
 
 trait Show {
-    fn show<C: Alloc>(self, ctx: C): Str;
+    fn show<C: Allocator>(self, ctx: C): Str;
 }
 ```
 
@@ -497,7 +497,7 @@ A type satisfies a trait only where an `impl` or a `derive` says so. Declaring a
 method that happens to match a trait's signature does not make the type conform.
 The compiler infers nothing from shape.
 
-Checking `T: Ord` is therefore a lookup in one table keyed by `(trait, type)`.
+Checking `T: Ordered` is therefore a lookup in one table keyed by `(trait, type)`.
 There is exactly one candidate, so there is no coherence pass, no orphan rule,
 and no instance search.
 
@@ -506,7 +506,7 @@ and no instance search.
 `impl Trait for Type` declares conformance and supplies the methods:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-impl Ord for Version {
+impl Ordered for Version {
   fn compare(self, other: Version): Order { ... }
 }
 ```
@@ -528,13 +528,13 @@ write `Version` or `Self` for its second parameter.
 #### 5.12.3 `derive` generates the implementation
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
-derive Eq, Ord, Show for Version;
+derive Equal, Ordered, Show for Version;
 ```
 
 `derive` generates the trait's methods structurally: struct fields in declaration
 order, enum variants in declaration order, recursing into field types.
 
-Derivation is available for `Eq`, `Ord`, `Show`, `Hash`, `ToJson`, `FromJson`,
+Derivation is available for `Equal`, `Ordered`, `Show`, `Hash`, `ToJson`, `FromJson`,
 and the operator traits. A `derive` fails to compile if any field's type does not
 itself satisfy the trait.
 
@@ -548,19 +548,19 @@ is. `core/json` states the mapping from Buri shapes onto JSON ones.
 | Operator | Trait method |
 |---|---|
 | `a + b` | `Add.add` |
-| `a - b` | `Sub.sub` |
-| `-a` | `Neg.neg` |
-| `a * b` | `Mul.mul` |
-| `a / b` | `Div.div` |
-| `a % b` | `Rem.rem` |
-| `a == b`, `a != b` | `Eq.eq` |
-| `a < b`, `a <= b`, `a > b`, `a >= b` | `Ord.compare` |
+| `a - b` | `Subtract.subtract` |
+| `-a` | `Negate.negate` |
+| `a * b` | `Multiply.multiply` |
+| `a / b` | `Divide.divide` |
+| `a % b` | `Remainder.remainder` |
+| `a == b`, `a != b` | `Equal.equal` |
+| `a < b`, `a <= b`, `a > b`, `a >= b` | `Ordered.compare` |
 
 This is what makes newtype wrappers work:
 
 ```buri ignore why="not yet converted to a compiled example: it references names the document never declares, so it needs a preamble before the harness can check it"
 struct Meters(F64);
-derive Add, Sub, Ord, Show for Meters;
+derive Add, Subtract, Ordered, Show for Meters;
 
 let total = Meters(1.5) + Meters(2.0);     // Meters
 let far = total > Meters(3.0);             // Bool

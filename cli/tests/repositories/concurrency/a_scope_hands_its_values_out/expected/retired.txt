@@ -1,5 +1,5 @@
 FAIL //lib/vault  test/crossings.buri  "an actor a scope minted is stopped correctly afterwards"
-  assert.eq failed
+  assert.equal failed
     actual:   .Ok(())
     expected: .Err(.Stopped)
   --> lib/vault/test/crossings.buri:101:1

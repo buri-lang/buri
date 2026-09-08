@@ -5,33 +5,33 @@
 //! these signatures does not make a type conform. An `impl` or a `derive` is
 //! what does (SPEC 5.12.1).
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 
-derive Eq, Show for Order;
+derive Equal, Show for Order;
 export enum Order {
     Less,
     Equal,
     Greater,
 }
 
-/// `a == b` and `a != b` are `Eq.eq`. Equality is structural, never
+/// `a == b` and `a != b` are `Equal.equal`. Equality is structural, never
 /// referential: Buri has no references, so there is no identity to compare.
-export trait Eq {
-    fn eq(self, other: Self): Bool;
+export trait Equal {
+    fn equal(self, other: Self): Bool;
 }
 
-/// `<` `<=` `>` `>=` are `Ord.compare`. The built-in orders are the same on
+/// `<` `<=` `>` `>=` are `Ordered.compare`. The built-in orders are the same on
 /// every backend: numbers by value, `Bool` with `false` below `true`, `Char` by
 /// scalar value, and `Str` lexicographically by scalar value. `core/str` states
 /// that last one in full.
-export trait Ord {
+export trait Ordered {
     fn compare(self, other: Self): Order;
 }
 
-/// Rendering allocates, so `show` names `Alloc` and nothing else. An
+/// Rendering allocates, so `show` names `Allocator` and nothing else. An
 /// implementation provably cannot read a file or open a socket.
 export trait Show {
-    fn show<C: Alloc>(self, ctx: C): Str;
+    fn show<C: Allocator>(self, ctx: C): Str;
 }
 
 export trait Hash {
@@ -50,15 +50,18 @@ impl Order {
 
 /// Reverses a comparator, for `sortBy`. The argument is a function value
 /// rather than an effect, so the lambda may capture it (SPEC 10.6).
-export fn reverse<T>(cmp: fn(T, T) => Order): fn(T, T) => Order {
-    fn(a, b) => cmp(b, a)
+export fn reverse<T>(compare: fn(T, T) => Order): fn(T, T) => Order {
+    fn(a, b) => compare(b, a)
 }
 
 /// Reverses a comparator when `descending` is true, and hands it back
 /// untouched when it is false. The direction of a sort is usually data: a
 /// column's `ORDER BY ... DESC`, a flag on a request.
-export fn reverseIf<T>(descending: Bool, cmp: fn(T, T) => Order): fn(T, T) => Order {
-    if (descending) { reverse(cmp) } else { cmp }
+export fn reverseIf<T>(
+    descending: Bool,
+    compare: fn(T, T) => Order,
+): fn(T, T) => Order {
+    if (descending) { reverse(compare) } else { compare }
 }
 
 /// Compares by a key rather than by the whole value: `cmp(key(a), key(b))`.
@@ -68,7 +71,7 @@ export fn reverseIf<T>(descending: Bool, cmp: fn(T, T) => Order): fn(T, T) => Or
 /// 10.6).
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/order" import * as order;
@@ -80,7 +83,7 @@ export fn reverseIf<T>(descending: Bool, cmp: fn(T, T) => Order): fn(T, T) => Or
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let rows = [
@@ -103,26 +106,26 @@ export fn reverseIf<T>(descending: Bool, cmp: fn(T, T) => Order): fn(T, T) => Or
 /// ```stdout
 /// a b c
 /// ```
-export fn by<T, K>(key: fn(T) => K, cmp: fn(K, K) => Order): fn(T, T) => Order {
-    fn(a, b) => cmp(key(a), key(b))
+export fn by<T, K>(key: fn(T) => K, compare: fn(K, K) => Order): fn(T, T) => Order {
+    fn(a, b) => compare(key(a), key(b))
 }
 
 /// Comparators in priority order: the first that does not answer `.Equal`
 /// decides, and an empty list answers `.Equal` for every pair. `Order.then` is
 /// the two-comparator case written by hand.
-export fn chain<T>(cmps: [fn(T, T) => Order]): fn(T, T) => Order {
-    fn(a, b) => chainAt(cmps, 0, a, b)
+export fn chain<T>(comparators: [fn(T, T) => Order]): fn(T, T) => Order {
+    fn(a, b) => chainAt(comparators, 0, a, b)
 }
 
 /// Walks by index rather than folding: a fold's lambda would have to capture `a`
 /// and `b`, and a lambda may not capture a value whose type could be a context,
 /// which an unbounded `T` could (SPEC 10.6).
-fn chainAt<T>(cmps: [fn(T, T) => Order], at: Int, a: T, b: T): Order {
-    match (cmps.get(at)) {
+fn chainAt<T>(comparators: [fn(T, T) => Order], at: Int, a: T, b: T): Order {
+    match (comparators.get(at)) {
         .None => .Equal,
         .Some(cmp) => {
             match (cmp(a, b)) {
-                .Equal => chainAt(cmps, at + 1, a, b),
+                .Equal => chainAt(comparators, at + 1, a, b),
                 decided => decided,
             }
         },
@@ -196,7 +199,7 @@ fn isNan(x: Float): Bool {
 
 /// Lexicographic by Unicode scalar value, which for a valid string is UTF-8 byte
 /// order. This is `core/str`'s `compare`. Every `<` on a `Str`, every
-/// `[Str].sort` and every `OrdMap<Str, _>` uses the same order.
+/// `[Str].sort` and every `OrderedMap<Str, _>` uses the same order.
 ///
 /// It is not JavaScript's `<`, which orders by UTF-16 code unit and so puts every
 /// astral character below every character in U+E000..U+FFFF. Both backends answer

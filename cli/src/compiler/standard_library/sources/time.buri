@@ -14,7 +14,7 @@
 //! **A `Duration` counts nanoseconds and an `Instant` counts milliseconds.** A
 //! timeout, a measurement and a budget are routinely finer than a millisecond,
 //! while the clock this module reads reports whole milliseconds. So
-//! `instant.plus(d)` moves by `d.millis()`, and a length finer than a
+//! `instant.plus(d)` moves by `d.milliseconds()`, and a length finer than a
 //! millisecond moves an instant by nothing.
 //!
 //! **Every arithmetic operation saturates.** Overflow is undefined behaviour
@@ -24,7 +24,7 @@
 //! passed.
 //!
 //! ```buri run
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //! from "core/time" import * as time;
@@ -32,7 +32,7 @@
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let started = Instant(1_000);
@@ -51,23 +51,23 @@
 //! 120s later, passed: true
 //! ```
 
-from "core/effect" import { Alloc, Clock };
-from "core/order" import { Eq, Ord, Show };
+from "core/effect" import { Allocator, Clock };
+from "core/order" import { Equal, Ordered, Show };
 from "core/str" import * as str;
 
-derive Eq, Ord, Show for Instant;
+derive Equal, Ordered, Show for Instant;
 /// A point in time, in milliseconds. A distinct type rather than an `I64`, so
 /// an instant cannot be added to a count by accident.
 export struct Instant(export I64);
 
-derive Eq, Ord, Hash for Duration;
+derive Equal, Ordered, Hash for Duration;
 /// A length of time, in nanoseconds, positive or negative.
 ///
 /// The field is exported, so `Duration(2_500)` is 2500 nanoseconds. The
 /// constructors below name their unit instead.
 export struct Duration(export I64);
 
-derive Eq, Ord, Show for Monotonic;
+derive Equal, Ordered, Show for Monotonic;
 /// A reading off a clock that only goes forward, in nanoseconds.
 ///
 /// **The number means nothing on its own.** Its zero is wherever the platform
@@ -85,17 +85,17 @@ export struct Monotonic(export I64);
 /// The length of no time at all, which is what an accumulator starts at.
 export let ZERO: Duration = Duration(0);
 
-export let NANOS_PER_MICROSECOND: Int = 1_000;
+export let NANOSECONDS_PER_MICROSECOND: Int = 1_000;
 
-export let NANOS_PER_MILLISECOND: Int = 1_000_000;
+export let NANOSECONDS_PER_MILLISECOND: Int = 1_000_000;
 
-export let NANOS_PER_SECOND: Int = 1_000_000_000;
+export let NANOSECONDS_PER_SECOND: Int = 1_000_000_000;
 
-export let NANOS_PER_MINUTE: Int = 60_000_000_000;
+export let NANOSECONDS_PER_MINUTE: Int = 60_000_000_000;
 
-export let NANOS_PER_HOUR: Int = 3_600_000_000_000;
+export let NANOSECONDS_PER_HOUR: Int = 3_600_000_000_000;
 
-export let NANOS_PER_DAY: Int = 86_400_000_000_000;
+export let NANOSECONDS_PER_DAY: Int = 86_400_000_000_000;
 
 // -----------------------------------------------------------------------------
 // Building a length
@@ -107,28 +107,28 @@ export let NANOS_PER_DAY: Int = 86_400_000_000_000;
 // Each one saturates, so a count no `Duration` can hold becomes the largest one
 // there is rather than a wrapped negative.
 
-export fn nanos(n: Int): Duration {
-    Duration(n)
+export fn nanoseconds(count: Int): Duration {
+    Duration(count)
 }
 
-export fn micros(n: Int): Duration {
-    Duration(n.saturatingMul(NANOS_PER_MICROSECOND))
+export fn microseconds(count: Int): Duration {
+    Duration(count.saturatingMultiply(NANOSECONDS_PER_MICROSECOND))
 }
 
-export fn millis(n: Int): Duration {
-    Duration(n.saturatingMul(NANOS_PER_MILLISECOND))
+export fn milliseconds(count: Int): Duration {
+    Duration(count.saturatingMultiply(NANOSECONDS_PER_MILLISECOND))
 }
 
-export fn seconds(n: Int): Duration {
-    Duration(n.saturatingMul(NANOS_PER_SECOND))
+export fn seconds(count: Int): Duration {
+    Duration(count.saturatingMultiply(NANOSECONDS_PER_SECOND))
 }
 
-export fn minutes(n: Int): Duration {
-    Duration(n.saturatingMul(NANOS_PER_MINUTE))
+export fn minutes(count: Int): Duration {
+    Duration(count.saturatingMultiply(NANOSECONDS_PER_MINUTE))
 }
 
-export fn hours(n: Int): Duration {
-    Duration(n.saturatingMul(NANOS_PER_HOUR))
+export fn hours(count: Int): Duration {
+    Duration(count.saturatingMultiply(NANOSECONDS_PER_HOUR))
 }
 
 /// A length from a fractional count of seconds: `secondsFloat(0.25)` is 250
@@ -138,19 +138,19 @@ export fn hours(n: Int): Duration {
 /// every constructor here does. A NaN is no length at all, which is the only
 /// answer that is not a lie.
 export fn secondsFloat(seconds: Float): Duration {
-    let nanos = seconds * 1_000_000_000.0;
+    let nanoseconds = seconds * 1_000_000_000.0;
     // The in-range test comes first, and the last arm is the one nothing else
     // caught. A NaN is not less than and not greater than anything, so it lands
     // there whatever the comparison does with it — and never reaches the
     // conversion, which has no answer for it.
     if (
-        nanos > -9_223_372_036_854_775_807.0 - 1.0
-            && nanos < 9_223_372_036_854_775_807.0
+        nanoseconds > -9_223_372_036_854_775_807.0 - 1.0
+            && nanoseconds < 9_223_372_036_854_775_807.0
     ) {
-        Duration(nanos.wrapToI64())
-    } else if (nanos > 0.0) {
+        Duration(nanoseconds.wrapToI64())
+    } else if (nanoseconds > 0.0) {
         Duration(9_223_372_036_854_775_807)
-    } else if (nanos < 0.0) {
+    } else if (nanoseconds < 0.0) {
         Duration(-9_223_372_036_854_775_807 - 1)
     } else {
         ZERO
@@ -162,34 +162,34 @@ export fn secondsFloat(seconds: Float): Duration {
 // -----------------------------------------------------------------------------
 
 impl Duration {
-    export fn nanos(self): Int {
+    export fn nanoseconds(self): Int {
         self.0
     }
 
-    /// Truncates towards zero, as every getter below does: `millis` of 1,999,999
+    /// Truncates towards zero, as every getter below does: `milliseconds` of 1,999,999
     /// nanoseconds is 1, not 2. Nothing here rounds.
-    export fn micros(self): Int {
-        self.0 / NANOS_PER_MICROSECOND
+    export fn microseconds(self): Int {
+        self.0 / NANOSECONDS_PER_MICROSECOND
     }
 
-    export fn millis(self): Int {
-        self.0 / NANOS_PER_MILLISECOND
+    export fn milliseconds(self): Int {
+        self.0 / NANOSECONDS_PER_MILLISECOND
     }
 
     export fn seconds(self): Int {
-        self.0 / NANOS_PER_SECOND
+        self.0 / NANOSECONDS_PER_SECOND
     }
 
     export fn minutes(self): Int {
-        self.0 / NANOS_PER_MINUTE
+        self.0 / NANOSECONDS_PER_MINUTE
     }
 
     export fn hours(self): Int {
-        self.0 / NANOS_PER_HOUR
+        self.0 / NANOSECONDS_PER_HOUR
     }
 
     export fn days(self): Int {
-        self.0 / NANOS_PER_DAY
+        self.0 / NANOSECONDS_PER_DAY
     }
 
     export fn isZero(self): Bool {
@@ -204,17 +204,17 @@ impl Duration {
         Duration(self.0.saturatingAdd(other.0))
     }
 
-    export fn sub(self, other: Duration): Duration {
-        Duration(self.0.saturatingSub(other.0))
+    export fn subtract(self, other: Duration): Duration {
+        Duration(self.0.saturatingSubtract(other.0))
     }
 
     /// Scales a length by a count. `factor` is an `Int` and not a `Duration`,
     /// because a length times a length is not a length.
-    export fn mul(self, factor: Int): Duration {
-        Duration(self.0.saturatingMul(factor))
+    export fn multiply(self, factor: Int): Duration {
+        Duration(self.0.saturatingMultiply(factor))
     }
 
-    /// `mul`'s inverse: the length split into `divisor` equal parts, truncated
+    /// `multiply`'s inverse: the length split into `divisor` equal parts, truncated
     /// toward zero. A zero divisor aborts, exactly as `/` does (SPEC 6.2).
     export fn divide(self, divisor: Int): Duration {
         Duration(self.0 / divisor)
@@ -224,7 +224,7 @@ impl Duration {
     /// Past about 104 days a `Duration` has more nanoseconds than a `Float` has
     /// digits, and the last of them go.
     export fn asSecondsFloat(self): Float {
-        self.0.toF64() / NANOS_PER_SECOND.toF64()
+        self.0.toF64() / NANOSECONDS_PER_SECOND.toF64()
     }
 
     /// How many times `other` goes into this length. A length over a length is a
@@ -242,7 +242,7 @@ impl Duration {
     /// place saturating and wrapping differ by more than a bound.
     export fn negate(self): Duration {
         let zero: Int = 0;
-        Duration(zero.saturatingSub(self.0))
+        Duration(zero.saturatingSubtract(self.0))
     }
 
     export fn abs(self): Duration {
@@ -264,15 +264,15 @@ impl Duration {
 // ASCII throughout: `us` rather than the micro sign, because this goes into
 // logs, file names and terminals that are not all UTF-8.
 impl Show for Duration {
-    fn show<C: Alloc>(self, ctx: C): Str {
+    fn show<C: Allocator>(self, ctx: C): Str {
         let sign = if (self.0 < 0) { "-" } else { "" };
         let magnitude = self.abs().0;
-        if (magnitude >= NANOS_PER_SECOND) {
-            scaled(ctx, sign, magnitude, NANOS_PER_SECOND, 9, "s")
-        } else if (magnitude >= NANOS_PER_MILLISECOND) {
-            scaled(ctx, sign, magnitude, NANOS_PER_MILLISECOND, 6, "ms")
-        } else if (magnitude >= NANOS_PER_MICROSECOND) {
-            scaled(ctx, sign, magnitude, NANOS_PER_MICROSECOND, 3, "us")
+        if (magnitude >= NANOSECONDS_PER_SECOND) {
+            scaled(ctx, sign, magnitude, NANOSECONDS_PER_SECOND, 9, "s")
+        } else if (magnitude >= NANOSECONDS_PER_MILLISECOND) {
+            scaled(ctx, sign, magnitude, NANOSECONDS_PER_MILLISECOND, 6, "ms")
+        } else if (magnitude >= NANOSECONDS_PER_MICROSECOND) {
+            scaled(ctx, sign, magnitude, NANOSECONDS_PER_MICROSECOND, 3, "us")
         } else if (magnitude > 0) {
             str.format(ctx, "${sign}${magnitude}ns")
         } else {
@@ -283,7 +283,7 @@ impl Show for Duration {
 
 /// `magnitude` in a unit that is `unit` nanoseconds and `places` decimal digits
 /// wide, with the fraction written out and its trailing zeros dropped.
-fn scaled<C: Alloc>(
+fn scaled<C: Allocator>(
     ctx: C,
     sign: Str,
     magnitude: Int,
@@ -306,7 +306,7 @@ fn scaled<C: Alloc>(
 /// Pure: `slice` is a view, so this walks back without copying.
 fn withoutTrailingZeros(text: Str): Str {
     if (text.endsWith("0")) {
-        withoutTrailingZeros(text.slice(0, text.len() - 1))
+        withoutTrailingZeros(text.slice(0, text.length() - 1))
     } else {
         text
     }
@@ -320,17 +320,21 @@ impl Instant {
     /// How long since `earlier`, negative if `earlier` is later. Pure: the
     /// difference between two points needs no clock.
     export fn duration(self, earlier: Instant): Duration {
-        Duration(self.0.saturatingSub(earlier.0).saturatingMul(NANOS_PER_MILLISECOND))
+        Duration(
+            self.0
+                .saturatingSubtract(earlier.0)
+                .saturatingMultiply(NANOSECONDS_PER_MILLISECOND),
+        )
     }
 
-    /// This point moved forward by a length. `d.millis()` is what moves it, so
+    /// This point moved forward by a length. `d.milliseconds()` is what moves it, so
     /// a length under a millisecond moves nothing — see the module header.
-    export fn plus(self, d: Duration): Instant {
-        Instant(self.0.saturatingAdd(d.millis()))
+    export fn plus(self, duration: Duration): Instant {
+        Instant(self.0.saturatingAdd(duration.milliseconds()))
     }
 
-    export fn minus(self, d: Duration): Instant {
-        Instant(self.0.saturatingSub(d.millis()))
+    export fn minus(self, duration: Duration): Instant {
+        Instant(self.0.saturatingSubtract(duration.milliseconds()))
     }
 
     /// Whether this point is at or past `deadline`. Both ends saturate, so the
@@ -341,7 +345,7 @@ impl Instant {
 }
 
 export fn now<C: Clock>(ctx: C): Instant {
-    Instant(ctx.nowMillis())
+    Instant(ctx.nowMilliseconds())
 }
 
 /// How long since `earlier`. Reading a clock is what makes this effectful; the
@@ -351,14 +355,8 @@ export fn since<C: Clock>(ctx: C, earlier: Instant): Duration {
 }
 
 /// Waits for a length of time, to the millisecond the clock offers.
-export fn sleep<C: Clock>(ctx: C, d: Duration): () {
-    ctx.sleepMillis(d.millis())
-}
-
-/// The same wait, in the unit the effect itself speaks. Reach for `sleep`
-/// unless you already hold a count of milliseconds.
-export fn sleepMs<C: Clock>(ctx: C, count: Int): () {
-    ctx.sleepMillis(count)
+export fn sleep<C: Clock>(ctx: C, duration: Duration): () {
+    ctx.sleepMilliseconds(duration.milliseconds())
 }
 
 // -----------------------------------------------------------------------------
@@ -375,7 +373,7 @@ impl Monotonic {
     /// How long since `earlier`, negative if `earlier` is the later reading.
     /// Pure: the difference between two readings needs no clock.
     export fn duration(self, earlier: Monotonic): Duration {
-        Duration(self.0.saturatingSub(earlier.0))
+        Duration(self.0.saturatingSubtract(earlier.0))
     }
 }
 
@@ -387,14 +385,14 @@ export fn monotonic<C: Clock>(ctx: C): Monotonic {
 /// How long since `started`. This is the one to measure with.
 ///
 /// ```buri run
-/// from "core/effect" import { Alloc, Clock, Stdout };
+/// from "core/effect" import { Allocator, Clock, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 /// from "core/time" import * as time;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Clock: host.clock,
 ///         Stdout: host.stdout,
 ///     };

@@ -1,20 +1,20 @@
-from "core/effect" import { Alloc, Env, Stdout };
+from "core/effect" import { Allocator, Environment, Stdout };
 from "core/host/testing" import { alloc, stdout };
 from "core/testing/assert" import * as assert;
 from "//libs/convert" import { ConvertError, parseRequest, run };
 
-/// A test double for `Env`: an ordinary struct with the effect's methods, and
+/// A test double for `Environment`: an ordinary struct with the effect's methods, and
 /// nothing but `args` doing any work.
 struct FixedArgs {
     export words: [Str],
 }
 
-impl Env for FixedArgs {
+impl Environment for FixedArgs {
     fn variable(self, name: Str): Option<Str> {
         .None
     }
 
-    fn args(self): [Str] {
+    fn arguments(self): [Str] {
         self.words
     }
 
@@ -32,11 +32,11 @@ impl Env for FixedArgs {
 }
 
 test "too few words is a usage error" {
-    assert.eq(assert.err(parseRequest(["1", "km"])), ConvertError.Usage);
+    assert.equal(assert.err(parseRequest(["1", "km"])), ConvertError.Usage);
 }
 
 test "an unknown unit has a line for the user" {
-    assert.eq(
+    assert.equal(
         assert.err(parseRequest(["1", "mi", "furlong"])).message(),
         "the units are m, km, mi and ft",
     );
@@ -45,10 +45,10 @@ test "an unknown unit has a line for the user" {
 test "run reads its arguments and prints one line" {
     let out = stdout();
     let ctx = context {
-        Alloc: alloc(),
-        Env: FixedArgs { words: ["10", "km", "mi"] },
+        Allocator: alloc(),
+        Environment: FixedArgs { words: ["10", "km", "mi"] },
         Stdout: out,
     };
     assert.ok(run(ctx));
-    assert.eq(out.captured(), "10.0 km = 6.21 mi\n");
+    assert.equal(out.captured(), "10.0 km = 6.21 mi\n");
 }

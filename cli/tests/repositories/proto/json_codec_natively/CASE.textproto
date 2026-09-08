@@ -4,7 +4,7 @@
 doc: "a generated JSON codec for an integer field compiles and runs under a plain `buri test`, which is the native backend on a host that has one"
 
 # buri-lang/buri#43. The JSON number path of a generated decoder reaches
-# `num.F64.toI64` — an inexact conversion, so a `Result<Int, RangeError>` — and
+# `number.F64.toI64` — an inexact conversion, so a `Result<Int, RangeError>` — and
 # the stencil backend had no body for it, or for the `F64` conversion behind it.
 # A suite naming no platform runs natively, so the repository the issue wrote
 # reported `1 failed to compile` where it had asserted a round trip.
@@ -23,8 +23,8 @@ run {
 # above is a suite that ran rather than a suite that was skipped.
 edit {
   file: "libs/wire/test/point.buri"
-  replace: "assert.eq(back, p);"
-  with: "assert.eq(back, defaultPoint());"
+  replace: "assert.equal(back, p);"
+  with: "assert.equal(back, defaultPoint());"
 }
 
 run {

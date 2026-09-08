@@ -1,0 +1,7 @@
+error: a statement ends with `;` [missing-terminator]
+   --> main.buri:110:28
+    |
+110 |     let a = lazy.load(left)
+    |                            ^
+    |
+    = fix: write `;` here

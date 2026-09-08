@@ -1,0 +1,49 @@
+error: `(Anchor, [U8])` has no method `find` [no-such-method]
+  --> main.buri:74:10
+   |
+74 |         .find(fn(pair) => pair.1 == wanted);
+   |          ^^^^
+   |
+   = tuples, function types, and `Template` have no defining module, so they have no methods
+   = fix: there is no module to declare `find` in, so write a free function taking the value, or wrap it in a struct of yours and give that the method
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:74:44
+   |
+74 |         .find(fn(pair) => pair.1 == wanted);
+   |                                            ^
+   |
+  --> main.buri:73:16
+   |
+73 |         .mapCtx(ctx, fn(c, a) => (a, raw.slice(c, a.start, a.end))
+   |                ^ opened here
+   |
+   = fix: write `)` here
+error: `[_3]` is not an enum [not-an-enum]
+  --> main.buri:76:9
+   |
+76 |         .Some(pair) => .Some(pair.0),
+   |         ^^^^^^^^^^^
+   |
+   = fix: a `.Variant` pattern matches an enum; match this value another way
+error: there is nothing named `pair` in scope [unresolved-name]
+  --> main.buri:76:30
+   |
+76 |         .Some(pair) => .Some(pair.0),
+   |                              ^^^^
+   |
+   = fix: declare `pair`, or import it — a name is in scope only from this module's own declarations and its imports
+error: `[_3]` is not an enum [not-an-enum]
+  --> main.buri:77:9
+   |
+77 |         .None => .None,
+   |         ^^^^^
+   |
+   = fix: a `.Variant` pattern matches an enum; match this value another way
+error: this arm is unreachable [unreachable-arm]
+  --> main.buri:77:9
+   |
+77 |         .None => .None,
+   |         ^^^^^^^^^^^^^^
+   |
+   = the arms before it already cover everything it matches
+   = fix: delete it, or move it above the arm that subsumes it

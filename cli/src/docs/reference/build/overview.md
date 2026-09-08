@@ -59,7 +59,7 @@ The two designs lean on each other more than most:
 | Mandatory top-level signatures | The build hashes a library's *interface* without compiling its bodies. Editing a private function invalidates no dependent's typecheck. |
 | Modules check independently | Compile actions within a package parallelize, with no ordering constraint beyond the dep graph. |
 | No macros, no reflection, no conditional compilation | How you configure the build never changes what a source file means, so a cache key is (sources, dependencies, platform, build mode) and nothing else. Tags never enter it. |
-| Effects arrive as bounds on `ctx` | The type system delivers hermeticity, not a sandbox. A test that never passes a `Net`-bounded context cannot reach the network. |
+| Effects arrive as bounds on `ctx` | The type system delivers hermeticity, not a sandbox. A test that never passes a `Network`-bounded context cannot reach the network. |
 | `Result` is must-use | A `Result` a test forgets to check does not compile, so a test cannot silently pass. |
 | No relative module paths | Moving a file does not change its imports, so `buri gen` rewrites a build file without touching source. |
 | No mutation, no global state | Nothing observes test order, so the runner shards and reorders freely. |

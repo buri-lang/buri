@@ -1,4 +1,4 @@
-// SPEC 7.2 — what `derive Eq` means, at every shape a value can have.
+// SPEC 7.2 — what `derive Equal` means, at every shape a value can have.
 //
 // The backend compiles a derived `==` at the type rather than calling a runtime
 // walker that rediscovers the shape as it goes. The two have to agree on every

@@ -47,7 +47,7 @@ pub enum Symbol {
     /// walk that found it.
     Local { name: String, ty: Ty, span: Span },
     /// A generic parameter — the `T` of `struct Pair<A, B>` or of
-    /// `fn describe<C: Alloc>`. Carried by value for a local's reason: it is
+    /// `fn describe<C: Allocator>`. Carried by value for a local's reason: it is
     /// written in a signature and the tables keep it under the declaration
     /// that introduced it rather than under an id of its own. `span` is where
     /// it was declared, at a use as well as at the declaration.

@@ -70,7 +70,7 @@
 //! * A producer whose body contains `?`, a `Continue` or a `Loop`. `?` exits the
 //!   lambda it is written in, and splicing a body moves which lambda that is.
 //! * A dropped `ctx` argument that is anything but a read. The fused call does
-//!   not build the producer's list, so the producer's `Alloc` argument is never
+//!   not build the producer's list, so the producer's `Allocator` argument is never
 //!   evaluated, and an argument that was a call would have been.
 //! * `filter(map(…))` and `map(filter(…))`, which are not fusions: the first
 //!   would have to answer source elements where it answers mapped ones, and the
@@ -234,7 +234,7 @@ impl Fuse<'_> {
     /// back in reach of the fusions above, which is where
     /// `range|map|filter|len` gets its traversal deleted.
     fn len_of_filter(&mut self, e: &mut Expr) -> bool {
-        let Some(("list.len", _, args)) = self.key(e) else { return false };
+        let Some(("list.length", _, args)) = self.key(e) else { return false };
         if args.len() != 1 {
             return false;
         }
@@ -296,7 +296,7 @@ impl Fuse<'_> {
         if !movable(producer_body) {
             return None;
         }
-        // `map` and `filter` both take an `Alloc` for the block they build, and
+        // `map` and `filter` both take an `Allocator` for the block they build, and
         // the fused call builds no such block.
         if !readonly(producer_args.get(1)?) {
             return None;
@@ -782,7 +782,7 @@ mod tests {
             list(),
         );
         let len = call(2, vec![filter], Ty::Unit);
-        let mut p = program(&["list.filter", "list.len"], len);
+        let mut p = program(&["list.filter", "list.length"], len);
         let before = p.funcs.len();
         run(&mut p);
 

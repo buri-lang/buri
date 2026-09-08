@@ -27,10 +27,10 @@ line each failure came from.
 from "core/testing/assert" import * as assert;
 
 test "adds" {
-    assert.eq(1 + 1, 2);
+    assert.equal(1 + 1, 2);
 }
 
 test "adds" {
-    assert.eq(2 + 2, 4);
+    assert.equal(2 + 2, 4);
 }
 ```

@@ -52,7 +52,7 @@
 //! table `cli/runtime/testing.rs` already carried, so it needed nothing the
 //! archive did not have. `semantics/anonymous.buri` is the
 //! twenty-ninth and `semantics/elision.buri` the twenty-eighth, with
-//! `collections/ordmap.buri` the twenty-seventh; none of them needed anything
+//! `collections/orderedmap.buri` the twenty-seventh; none of them needed anything
 //! the backend did not already have.
 //! `proto/binary.buri` was the twenty-sixth: it compiled and passed all along and
 //! was held out for a *middle-end* cost, `middle/rc.rs`'s exponential
@@ -103,7 +103,7 @@
 //! primitive, the derive's leaf having landed — and an inexact `F64 -> I64`.
 //! It reached two more in batch three, `numbers/floats.buri` and
 //! `text/json.buri`, excluded for `core/math`'s transcendentals and for
-//! `num.U32.toChar`; neither reason was ever about the testing context.
+//! `number.U32.toChar`; neither reason was ever about the testing context.
 //! [`the_excluded_packages_are_excluded_for_the_stated_reason`] was re-run at
 //! every step and still reported each of them. Three of the five are in the
 //! set now, and none of them moved for a context: what let them in was the
@@ -121,14 +121,14 @@
 //! the contexts nobody migrated — the ones written by hand — and the bindings
 //! a **dead bound** kept alive. `unused-context-bound`'s fix over the two
 //! corpora settled both, in that order, because the second follows from the
-//! first: `fn note<C: Alloc + Stdout>` whose body only prints forces
-//! `Alloc: alloc()` into the context of every test that calls it.
+//! first: `fn note<C: Allocator + Stdout>` whose body only prints forces
+//! `Allocator: alloc()` into the context of every test that calls it.
 //!
 //! Fifteen dead bounds went, over three rounds (the rule has a fixed point and
 //! reaching it takes as many passes as the call graph is deep), and **two
 //! hundred and forty-seven contexts then shrank** — two hundred and thirty-nine
-//! here and eight in `cli/tests/example` — dropping 251 bindings: 176 `Alloc`,
-//! 72 `Watch` and 3 `Net`. Fifty-eight of them were reachable *only* after the
+//! here and eight in `cli/tests/example` — dropping 251 bindings: 176 `Allocator`,
+//! 72 `Watch` and 3 `Network`. Fifty-eight of them were reachable *only* after the
 //! bounds went, measured by running the same sweep against the tree before
 //! them.
 //!
@@ -140,7 +140,7 @@
 //! written by hand against `core/host/testing` rather than rewritten from a
 //! world assembled for it — no commit in its history builds one. That leaves
 //! `semantics/evaluation.buri`, which is migrated and dropped fifty-one
-//! `Alloc`s: fifty of them are the dead bound on `note` and its nine
+//! `Allocator`s: fifty of them are the dead bound on `note` and its nine
 //! neighbours, which the migration could not have seen, and the fifty-first is
 //! one binding it genuinely left behind, out of the four hundred and
 //! sixty-four sites its three batches wrote here.
@@ -348,7 +348,7 @@ const PACKAGES: &[Case] = &[
     included("numbers/integers.buri"),
     // `core/simd` turned out to need no vector intrinsic at all: it is
     // written in Buri over fixed-size tuples, and the only entries it
-    // reaches outside the language are `math.sqrt` and `math.absFloat`.
+    // reaches outside the language are `math.squareRoot` and `math.absoluteFloat`.
     included("vectors/simd.buri"),
     // It used to be the only file that built a testing context and still
     // compiled, because the one it builds is `alloc` and that one reads no
@@ -365,7 +365,7 @@ const PACKAGES: &[Case] = &[
     // merely different.
     included("memory/allocators.buri"),
     // `core/alloc`'s scope, on the same terms: every effect forwarding through
-    // a `Scoped<C>` and `Alloc` not forwarding are both claims about *who was
+    // a `Scoped<C>` and `Allocator` not forwarding are both claims about *who was
     // charged*, which is the defined model and so the same integers here as on
     // the JavaScript side. The arena's pages are the other half of the slice
     // and are asserted where they are visible — `cli/runtime/memory.rs`'s own
@@ -418,7 +418,7 @@ const PACKAGES: &[Case] = &[
     // `the_excluded_packages_are_excluded_for_the_stated_reason` is what said
     // so on the day each stopped being true.
     //
-    // Neither builds one any more: both name `Alloc` alone. The reason above is
+    // Neither builds one any more: both name `Allocator` alone. The reason above is
     // why each *was* out, and it is left standing because the reason a file was
     // excluded is the thing this ledger records — but the pressure it names is
     // gone from those files and from every other in the corpus.
@@ -458,17 +458,17 @@ const PACKAGES: &[Case] = &[
     //  * `data/patterns.buri` wanted `deriveArrayShow`, which is the element's
     //    generated `show` called once per element plus `buri_rt_show_list`.
     included("collections/map.buri"),
-    // `core/ordmap` and `core/ordset` are ordinary Buri over a recursive enum,
+    // `core/orderedmap` and `core/orderedset` are ordinary Buri over a recursive enum,
     // which the backend boxes, and `core/list`'s splicing — so the file that
     // exercises them reaches nothing the four above do not, and is in the
     // native set from the day it was written.
-    included("collections/ordmap.buri"),
+    included("collections/orderedmap.buri"),
     // `core/heap` is the same kind of thing one more time: a recursive enum the
     // backend boxes, `push` onto a `[Tree<T>]`, and a fold over the pairs. It
-    // reaches nothing `collections/ordmap.buri` does not, so it is in from the
+    // reaches nothing `collections/orderedmap.buri` does not, so it is in from the
     // day it was written.
     included("collections/heap.buri"),
-    // `core/set` and `core/ordset`'s own file. Both are wrappers over the two
+    // `core/set` and `core/orderedset`'s own file. Both are wrappers over the two
     // maps above, and `distinct` is a fold whose accumulator is a tuple — a
     // shape the backend already stages for `insertInto`'s `(Grown, Bool)`.
     included("collections/sets.buri"),
@@ -494,7 +494,7 @@ const PACKAGES: &[Case] = &[
     // `cli/tests/failing/assertion_kinds` on the reference backend.
     included("data/assertions.buri"),
     // `core/testing/check`, whose whole surface is ordinary Buri over a
-    // function value and `core/random`'s `Gen`: a generator is a closure this
+    // function value and `core/random`'s `Generator`: a generator is a closure this
     // backend already returns from a function, and the counterexample it
     // reports goes through `assert.none`, which is `failExpected` — the same
     // door `data/assertions.buri` uses. The draws are the point of running it
@@ -524,7 +524,7 @@ const PACKAGES: &[Case] = &[
     // never a statement about the backend — see [`repository`].
     included("codegen/equality.buri"),
     // The other half of what a derived conformance means, and the file that
-    // `deriveArrayCompare` landing made runnable: `derive Ord` where the field
+    // `deriveArrayCompare` landing made runnable: `derive Ordered` where the field
     // is a `[T]` used to be a program the front end accepted and this backend
     // refused by name (buri-lang/buri#27). Its element types are the three that
     // reach different leaves — a scalar, a `Str` and a struct — so it is also
@@ -565,17 +565,17 @@ const PACKAGES: &[Case] = &[
     // that out loud on the native one too (design/grammar-rationale.md 12.3).
     included("semantics/anonymous.buri"),
     // The eighth: `core/host/testing`'s ten doubles. Seven of them are handles
-    // over `cli/runtime/testing.rs`'s table; `TestAlloc` is the two
-    // instructions both backends open-code, and `TestNet` and `TestProc` are
+    // over `cli/runtime/testing.rs`'s table; `TestAllocator` is the two
+    // instructions both backends open-code, and `TestNetwork` and `TestProcess` are
     // Buri bodies with no row at all. So the file reaches nothing the archive
     // did not already have. It is here rather than folded into `effects.buri`
     // because the two ask different questions: `effects.buri` is about contexts
     // and `host_testing.buri` is about the doubles a context binds.
     included("semantics/host_testing.buri"),
-    // The ninth: `Request` and `Response`, the two types `Net.fetch` speaks in.
-    // No `Net` call in it reaches the network — a fresh `net()` refuses and the rest
+    // The ninth: `Request` and `Response`, the two types `Network.fetch` speaks in.
+    // No `Network` call in it reaches the network — a fresh `net()` refuses and the rest
     // is construction — so what this proves natively is the *shape*: a struct
-    // holding a `[Header]` and a `[U8]`, its derived `Eq` and `Show`, and the
+    // holding a `[Header]` and a `[U8]`, its derived `Equal` and `Show`, and the
     // `core/bytes` pair underneath the text constructors.
     included("semantics/http.buri"),
     // The tenth: an enum reached through a namespace import. The alias is
@@ -618,7 +618,7 @@ const PACKAGES: &[Case] = &[
     // backends have a body for it (VALUE-MODEL.md §12 row 10). What is left is
     // its sibling — `ToJson::toJson` called *directly* on a primitive, which
     // reaches a backend as `bool.toJson`, `character.toJson`, `str.toJson`,
-    // `num.I64.toJson` and `num.F64.toJson`, five ordinary intrinsic keys with
+    // `number.I64.toJson` and `number.F64.toJson`, five ordinary intrinsic keys with
     // no body. They are the same three-way answer `json_prim` already gives
     // and are a slice of their own, because letting this file in moves the
     // census ratchet.
@@ -633,7 +633,7 @@ const PACKAGES: &[Case] = &[
     // right-nests, one link per field of a generated message. About 280
     // seconds then, about three now.
     included("proto/binary.buri"),
-    // The proto3 JSON mapping. Held out for `num.F64.toI64` — a JSON number
+    // The proto3 JSON mapping. Held out for `number.F64.toI64` — a JSON number
     // reaches a generated decoder as an `F64` and every integer field converts
     // — which is buri-lang/buri#43 exactly, and
     // `cli/tests/repositories/proto/json_codec_natively` is that issue's own
@@ -657,17 +657,17 @@ const PACKAGES: &[Case] = &[
     // reaching no host, with every answer a number somebody else published.
     included("checksum/checksum.buri"),
     // The seeded `Entropy` double and the two doors onto it. Native from the
-    // day it landed: `TestEntropy` shares `Slot::Rand` with `TestRand` in
+    // day it landed: `TestEntropy` shares `Slot::Rand` with `TestRandom` in
     // `cli/runtime/testing.rs`, so the sequence this file writes down is the
     // one both backends draw.
     included("crypto/entropy.buri"),
-    // `Gen`, which is ordinary Buri and reaches no host: U64 wrapping
+    // `Generator`, which is ordinary Buri and reaches no host: U64 wrapping
     // arithmetic, shifts, tail recursion and a tuple returned from every
     // method. It is on the native set from the day it landed for the reason
     // `crypto/sha256.buri` is — a second implementation of an algorithm both
     // backends have to agree about, with every answer written into the file.
     included("random/gen.buri"),
-    // The three draws from a list. Ordinary Buri over `[T]` and `core/ordmap`,
+    // The three draws from a list. Ordinary Buri over `[T]` and `core/orderedmap`,
     // reaching no host: `nextShuffle` is Fisher-Yates over the tree, and the
     // two doors are one algorithm. In for `random/gen.buri`'s reason — a
     // sequence both backends have to agree about, with every property written
@@ -708,7 +708,7 @@ const PACKAGES: &[Case] = &[
              `core/uuid` is in `uuid/uuid.buri` and is in the native set",
     ),
     included("text/bytes.buri"),
-    // Hexadecimal across four modules — `character.fromDigit`, `num.toHex`,
+    // Hexadecimal across four modules — `character.fromDigit`, `number.toHex`,
     // `str.toRadix` and `core/bytes`' pair. Every conversion in it is exact, so
     // none of it meets the `Result<T, RangeError>` shape that holds
     // `numbers/conversions.buri` out.
@@ -740,7 +740,7 @@ const PACKAGES: &[Case] = &[
     included("tcp/stream.buri"),
     // `core/net/url` is the same: percent-encoding over `[Char]`, RFC 3986's
     // reference resolution over string views, and a six-field struct that
-    // derives `Eq` and `Show`. No effect, and nothing on either backend to
+    // derives `Equal` and `Show`. No effect, and nothing on either backend to
     // disagree about but the answers.
     included("url/url.buri"),
     // The four packages the filesystem, the environment, a child process and
@@ -767,9 +767,9 @@ const PACKAGES: &[Case] = &[
     // the three as IEEE-754 divisions instead of as `1.0e400`, and an argument
     // no run of the reference backend alone can make. Nothing in it reaches a
     // transcendental: it is division by zero, `signum`, the three classifiers,
-    // `sqrt`, `floor`, `ceil`, `absFloat` and rendering, each of them exact.
+    // `squareRoot`, `floor`, `ceiling`, `absoluteFloat` and rendering, each of them exact.
     included("numbers/special_floats.buri"),
-    // `core/json`'s unescaping reaches `num.U32.toChar` — an *inexact*
+    // `core/json`'s unescaping reaches `number.U32.toChar` — an *inexact*
     // conversion, because not every `U32` is a Unicode scalar value — and that
     // one call was the whole of what held this file out.
     included("text/json.buri"),
@@ -1383,7 +1383,7 @@ fn the_test_platform_agrees_with_the_runner() {
     if !supported() {
         return;
     }
-    const SOURCE: &str = r##"from "core/effect" import { Alloc, Clock, Env, Rand, Stderr, Stdin, Stdout };
+    const SOURCE: &str = r##"from "core/effect" import { Allocator, Clock, Environment, Random, Stderr, Stdin, Stdout };
 from "core/env" import * as env;
 from "core/host/testing" import {
   alloc, clock, env, rand, stderr, stdin, stdout,
@@ -1408,106 +1408,106 @@ fn shout<C: Stderr>(ctx: C, what: Str): () {
 
 test "captured reads back what a function printed" {
   let sink = stdout();
-  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let ctx = context { Allocator: alloc(), Stdout: sink };
   speak(ctx, "hello");
-  assert.eq(sink.captured(), "[hello]\n");
+  assert.equal(sink.captured(), "[hello]\n");
 }
 
 test "a fresh sink is empty and stays independent" {
   let first = stdout();
   let second = stdout();
-  let ctx = context { Alloc: alloc(), Stdout: first };
+  let ctx = context { Allocator: alloc(), Stdout: first };
   speak(ctx, "one");
-  assert.eq(second.captured(), "");
-  assert.eq(first.captured(), "[one]\n");
+  assert.equal(second.captured(), "");
+  assert.equal(first.captured(), "[one]\n");
 }
 
 test "captured accumulates in the order things were printed" {
   let sink = stdout();
-  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let ctx = context { Allocator: alloc(), Stdout: sink };
   let _ = io.print(ctx, "a").ignore();
   let _ = io.println(ctx, "b").ignore();
   let _ = io.print(ctx, "c").ignore();
-  assert.eq(sink.captured(), "ab\nc");
+  assert.equal(sink.captured(), "ab\nc");
 }
 
 test "writeBytes is captured as the text the octets spell" {
   let sink = stdout();
-  let ctx = context { Alloc: alloc(), Stdout: sink };
+  let ctx = context { Allocator: alloc(), Stdout: sink };
   let _ = io.writeBytes(ctx, [104, 105]).ignore();
-  assert.eq(sink.captured(), "hi");
+  assert.equal(sink.captured(), "hi");
 }
 
 test "standard error is its own transcript" {
   let out = stdout();
   let err = stderr();
-  let ctx = context { Alloc: alloc(), Stdout: out, Stderr: err };
+  let ctx = context { Allocator: alloc(), Stdout: out, Stderr: err };
   shout(ctx, "bad");
-  assert.eq(err.captured(), "<bad\n");
-  assert.eq(out.captured(), "");
+  assert.equal(err.captured(), "<bad\n");
+  assert.equal(out.captured(), "");
 }
 
 test "a test clock starts where it was put and moves only when moved" {
   let dial = clock().at(1000);
-  let ctx = context { Alloc: alloc(), Clock: dial };
-  assert.eq(time.now(ctx).0, 1000);
-  assert.eq(time.now(ctx).0, 1000);
-  let _ = time.sleepMs(ctx, 5);
-  assert.eq(time.now(ctx).0, 1005);
-  let _ = time.sleepMs(dial, 10);
-  assert.eq(time.now(ctx).0, 1015);
+  let ctx = context { Allocator: alloc(), Clock: dial };
+  assert.equal(time.now(ctx).0, 1000);
+  assert.equal(time.now(ctx).0, 1000);
+  let _ = time.sleep(ctx, time.milliseconds(5));
+  assert.equal(time.now(ctx).0, 1005);
+  let _ = time.sleep(dial, time.milliseconds(10));
+  assert.equal(time.now(ctx).0, 1015);
 }
 
 test "a seeded generator is the same sequence on every backend" {
-  let ctx = context { Alloc: alloc(), Rand: rand().seed(0) };
-  assert.eq(random.int(ctx, 0, 100), 69);
-  assert.eq(random.int(ctx, 0, 100), 89);
-  assert.eq(random.int(ctx, 10, 11), 10);
-  let ctx2 = context { Alloc: alloc(), Rand: rand().seed(7) };
-  assert.eq(random.int(ctx2, 0, 1000), 583);
+  let ctx = context { Allocator: alloc(), Random: rand().seed(0) };
+  assert.equal(random.int(ctx, 0, 100), 69);
+  assert.equal(random.int(ctx, 0, 100), 89);
+  assert.equal(random.int(ctx, 10, 11), 10);
+  let ctx2 = context { Allocator: alloc(), Random: rand().seed(7) };
+  assert.equal(random.int(ctx2, 0, 1000), 583);
 }
 
 test "two generators with the same seed agree with each other" {
-  let a = context { Alloc: alloc(), Rand: rand().seed(42) };
-  let b = context { Alloc: alloc(), Rand: rand().seed(42) };
-  assert.eq(random.int(a, 0, 1000000), random.int(b, 0, 1000000));
+  let a = context { Allocator: alloc(), Random: rand().seed(42) };
+  let b = context { Allocator: alloc(), Random: rand().seed(42) };
+  assert.equal(random.int(a, 0, 1000000), random.int(b, 0, 1000000));
 }
 
 test "an environment holds what it was given and nothing else" {
   let ctx = context {
-    Alloc: alloc(),
-    Env: env().variables([("HOME", "/tmp"), ("LANG", "C")]).arguments(["--verbose", "x"]),
+    Allocator: alloc(),
+    Environment: env().variables([("HOME", "/tmp"), ("LANG", "C")]).withArguments(["--verbose", "x"]),
   };
-  assert.eq(assert.some(env.get(ctx, "HOME")), "/tmp");
-  assert.eq(assert.some(env.get(ctx, "LANG")), "C");
+  assert.equal(assert.some(env.get(ctx, "HOME")), "/tmp");
+  assert.equal(assert.some(env.get(ctx, "LANG")), "C");
   assert.isTrue(env.get(ctx, "PATH").isNone());
-  let args = env.args(ctx);
-  assert.eq(args.len(), 2);
-  assert.eq(args.join(ctx, " "), "--verbose x");
+  let args = env.arguments(ctx);
+  assert.equal(args.length(), 2);
+  assert.equal(args.join(ctx, " "), "--verbose x");
 }
 
 test "an empty environment has no variables and no arguments" {
-  let ctx = context { Alloc: alloc(), Env: env() };
+  let ctx = context { Allocator: alloc(), Environment: env() };
   assert.isTrue(env.get(ctx, "HOME").isNone());
-  assert.eq(env.args(ctx).len(), 0);
+  assert.equal(env.arguments(ctx).length(), 0);
 }
 
 test "stdin reads its lines, then end of input" {
-  let ctx = context { Alloc: alloc(), Stdin: stdin().lines(["one", "two"]) };
-  assert.eq(assert.some(io.readLine(ctx)), "one");
-  assert.eq(assert.some(io.readLine(ctx)), "two");
+  let ctx = context { Allocator: alloc(), Stdin: stdin().lines(["one", "two"]) };
+  assert.equal(assert.some(io.readLine(ctx)), "one");
+  assert.equal(assert.some(io.readLine(ctx)), "two");
   assert.isTrue(io.readLine(ctx).isNone());
 }
 
 test "a stdin of octets reads them, and readLine finds nothing there" {
-  let ctx = context { Alloc: alloc(), Stdin: stdin().bytes([1, 2, 3, 4]) };
+  let ctx = context { Allocator: alloc(), Stdin: stdin().bytes([1, 2, 3, 4]) };
   let first = assert.some(io.readBytes(ctx, 3));
-  assert.eq(first.len(), 3);
-  assert.eq(assert.some(first.get(0)), 1);
-  assert.eq(assert.some(first.get(2)), 3);
+  assert.equal(first.length(), 3);
+  assert.equal(assert.some(first.get(0)), 1);
+  assert.equal(assert.some(first.get(2)), 3);
   let rest = assert.some(io.readBytes(ctx, 3));
-  assert.eq(rest.len(), 1);
-  assert.eq(assert.some(rest.get(0)), 4);
+  assert.equal(rest.length(), 1);
+  assert.equal(assert.some(rest.get(0)), 4);
   assert.isTrue(io.readBytes(ctx, 1).isNone());
   assert.isTrue(io.readLine(ctx).isNone());
 }
@@ -1559,7 +1559,7 @@ fn self_through_a_context_is_the_implementing_type() {
         return;
     }
     const SOURCE: &str = r#"from "core/effect" import {
-  Alloc, Clock, Listen, Net, Request, Response, Sockets, Stdout, Tasks,
+  Allocator, Clock, Listen, Network, Request, Response, Sockets, Stdout, Tasks,
 };
 from "core/host/testing" import { alloc, clock, stdout };
 from "core/io" import * as io;
@@ -1574,7 +1574,7 @@ from "//lib/semantics" import {
 test "the handler is handed the caller's context" {
   let sink = stdout();
   let ctx = context {
-    Alloc: alloc(),
+    Allocator: alloc(),
     Listen: OneShotListen { bindsTo: "10.0.0.1" },
     Stdout: sink,
     Tasks: SerialTasks { label: "serial", bias: 4 },
@@ -1595,30 +1595,30 @@ test "the handler is handed the caller's context" {
       Response { status: 42, headers: [], body: [] }
     },
   }));
-  assert.eq(sink.captured(), "hit 10.0.0.1\nhit 10.0.0.1\n");
+  assert.equal(sink.captured(), "hit 10.0.0.1\nhit 10.0.0.1\n");
 }
 
 test "and a task is handed the context" {
   let ctx = context {
-    Alloc: alloc(),
+    Allocator: alloc(),
     Clock: clock().at(5),
     Tasks: SerialTasks { label: "serial", bias: 4 },
   };
   let out = tasks.parallel(ctx, [1], fn(c, i, item) => time.now(c).0 + item);
-  assert.eq(out[0].withDefault(0), 6);
+  assert.equal(out[0].withDefault(0), 6);
 }
 
 test "and through a bound the call still lands" {
   let ctx = context {
-    Alloc: alloc(),
+    Allocator: alloc(),
     Listen: OneShotListen { bindsTo: "127.0.0.1" },
-    Net: TeapotNet { body: [] },
+    Network: TeapotNet { body: [] },
     Sockets: QuietSockets {},
     Tasks: SerialTasks { label: "serial", bias: 0 },
   };
-  assert.eq(serveOnce(ctx, "http://example.com/ping"), 418);
-  assert.eq(runInOrder(ctx, [3, 4]), 107);
-  assert.eq(runInOrderNamed(ctx, [3, 4]), ["0:3", "1:4"]);
+  assert.equal(serveOnce(ctx, "http://example.com/ping"), 418);
+  assert.equal(runInOrder(ctx, [3, 4]), 107);
+  assert.equal(runInOrderNamed(ctx, [3, 4]), ["0:3", "1:4"]);
 }
 "#;
     let Some((status, out, err, blocks)) = run("semantics/self-through-a-context.buri", SOURCE)
@@ -1654,18 +1654,18 @@ fn the_native_set_can_fail() {
     // The value, not a name: renaming a constant and its use together would
     // leave the assertion true. `assert!` on the marker means a corpus that
     // stopped containing it fails here rather than passing vacuously.
-    const MARKER: &str = "assert.eq(bits.shl(1, 10), 1024);"; 
+    const MARKER: &str = "assert.equal(bits.shiftLeft(1, 10), 1024);"; 
     assert!(
         source.contains(MARKER),
         "`numbers/bits.buri` no longer contains the assertion this test edits"
     );
-    let broken = source.replace(MARKER, "assert.eq(bits.shl(1, 10), 1025);");
+    let broken = source.replace(MARKER, "assert.equal(bits.shiftLeft(1, 10), 1025);");
     let Some((status, out, err, _)) = run("bits-broken", &broken) else {
         return;
     };
     assert_ne!(status, 0, "a broken assertion still passed:\n{out}\n{err}");
     assert!(
-        err.contains("assert.eq failed"),
+        err.contains("assert.equal failed"),
         "the failure did not name the assertion:\nstdout:\n{out}\nstderr:\n{err}"
     );
 }

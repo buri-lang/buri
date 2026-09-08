@@ -1,4 +1,4 @@
-//! TLS for `Net.fetch`, and the trust decision that comes with it.
+//! TLS for `Network.fetch`, and the trust decision that comes with it.
 //!
 //! `http.rs` owns HTTP. This file owns exactly one question — *may this
 //! connection be trusted* — and answers it with `rustls` over the `ring`
@@ -979,7 +979,7 @@ YJlcERJ3qukVVHKAplDs77VXp3fy97GLt3F86A0=
     ///   variable even with the lock, each undoing the last.
     /// * The only other environment *reader* in the runtime is
     ///   `testing::resume_from`, a `OnceLock` over `BURI_TEST_FROM`, and
-    ///   `host::buri_rt_host_env_get`, which no unit test in this crate calls.
+    ///   `host::buri_rt_host_environment_variable`, which no unit test in this crate calls.
     ///
     /// The alternative — a seam that let the test hand the trust source in
     /// directly — would have tested everything except the lines that decide

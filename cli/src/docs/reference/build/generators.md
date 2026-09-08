@@ -39,12 +39,12 @@ whatever it likes, so a `README.md` is still nobody's.
 from "core/buri/ast" import * as ast;
 from "core/codegen" import * as codegen;
 from "core/codegen" import { Request, Response };
-from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/effect" import { Allocator, Stdin, Stdout };
 from "core/host" import * as host;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdin: host.stdin,
         Stdout: host.stdout,
     };
@@ -52,7 +52,7 @@ export fn main(): Result<(), Str> {
 }
 
 /// One module named `units`, holding an `export let` per input.
-fn generate<C: Alloc>(ctx: C, request: Request): Response {
+fn generate<C: Allocator>(ctx: C, request: Request): Response {
     let items = request.inputs.map(ctx, fn(input) => width(input.0));
     Response {
         modules: [("units", ast.Module { items: items, docs: [] })],
@@ -86,7 +86,7 @@ schema — goes the other way with `ast.parse(ctx, file, source)`. Every node it
 answers carries an `Origin` naming that file and the bytes it came from, so what
 you build out of it anchors the same way what you built by hand does.
 
-`run` hands your `generate` the context `main` built, bounded by `Alloc`,
+`run` hands your `generate` the context `main` built, bounded by `Allocator`,
 `Stdin` and `Stdout`. Write `main` the way the example does and reaching for the
 clock or the filesystem is a type error, not a rule to remember. Bind more than
 those three and you are answering for the result yourself: what a generator

@@ -3,13 +3,13 @@
 from "core/testing/assert" import * as assert;
 
 test "second: a failure" {
-    assert.eq(3, 4);
+    assert.equal(3, 4);
 }
 
 test "second: another failure" {
-    assert.eq(5, 6);
+    assert.equal(5, 6);
 }
 
 test "a title both modules use" {
-    assert.eq("second", "wrong");
+    assert.equal("second", "wrong");
 }

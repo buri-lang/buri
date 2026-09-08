@@ -7,7 +7,7 @@
 // The third's only check is a snapshot. That is an assertion too: a golden that
 // differs, or one that is not there yet, fails the test.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 from "ui/effect" import { Ui };
@@ -17,7 +17,7 @@ from "//lib/money" import { Cents, fromCents };
 
 // The helper. Nothing in `roundTrips` mentions `assert`; this does.
 fn isSame(a: Cents, b: Cents): () {
-    assert.eq(a, b)
+    assert.equal(a, b)
 }
 
 test "constructing a Cents does nothing observable" {
@@ -30,7 +30,7 @@ test "roundTrips through the helper" {
 
 test "the price paints" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "price", ui.text(.Const("150c")), .Hover, []);

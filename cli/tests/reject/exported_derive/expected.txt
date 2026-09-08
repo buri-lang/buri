@@ -1,7 +1,7 @@
 error: expected a declaration, found `derive` [unexpected-token]
  --> cmd/exported_derive/main.buri:9:8
   |
-9 | export derive Eq for Version;
+9 | export derive Equal for Version;
   |        ^^^^^^
   |
   = expected: a declaration

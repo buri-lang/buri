@@ -20,9 +20,9 @@
 {"jsonrpc": "2.0", "id": 6, "method": "typeHierarchy/supertypes", "params": {"item": {"name": "Item", "kind": 23, "uri": "file://<scratch>/lib/shop/catalog.buri", "range": {"start": {"line": 11, "character": 0}, "end": {"line": 17, "character": 1}}, "selectionRange": {"start": {"line": 11, "character": 14}, "end": {"line": 11, "character": 18}}, "data": {"uri": "file://<scratch>/lib/shop/catalog.buri", "position": {"line": 11, "character": 14}}}}}
 # Under a type: nothing. Buri has no subtyping, so no type is beneath another.
 {"jsonrpc": "2.0", "id": 7, "method": "typeHierarchy/subtypes", "params": {"item": {"name": "Item", "kind": 23, "uri": "file://<scratch>/lib/shop/catalog.buri", "range": {"start": {"line": 11, "character": 0}, "end": {"line": 17, "character": 1}}, "selectionRange": {"start": {"line": 11, "character": 14}, "end": {"line": 11, "character": 18}}, "data": {"uri": "file://<scratch>/lib/shop/catalog.buri", "position": {"line": 11, "character": 14}}}}}
-# `Coupon` conforms to `Priced` by hand and to `Eq` by `derive`.
+# `Coupon` conforms to `Priced` by hand and to `Equal` by `derive`.
 {"jsonrpc": "2.0", "id": 8, "method": "textDocument/prepareTypeHierarchy", "params": {"textDocument": {"uri": "file://<scratch>/lib/promo/coupon.buri"}, "position": {"line": 4, "character": 16}}}
-# And only `Priced` comes back: `Eq` is declared in the standard library, which
+# And only `Priced` comes back: `Equal` is declared in the standard library, which
 # is compiled into the binary and has no file, so an item for it would have no
 # `uri` to give. The same silence `definition` answers with there.
 {"jsonrpc": "2.0", "id": 9, "method": "typeHierarchy/supertypes", "params": {"item": {"name": "Coupon", "kind": 23, "uri": "file://<scratch>/lib/promo/coupon.buri", "range": {"start": {"line": 4, "character": 0}, "end": {"line": 6, "character": 1}}, "selectionRange": {"start": {"line": 4, "character": 14}, "end": {"line": 4, "character": 20}}, "data": {"uri": "file://<scratch>/lib/promo/coupon.buri", "position": {"line": 4, "character": 14}}}}}

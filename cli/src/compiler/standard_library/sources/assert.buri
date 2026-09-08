@@ -23,44 +23,44 @@
 //! There is no `fail`. A test that has to fail asserts on the value it has: a
 //! verdict rendered as a `Str`, or the `Option` itself.
 
-from "core/effect" import { Alloc };
-from "core/order" import { Eq };
+from "core/effect" import { Allocator };
+from "core/order" import { Equal };
 
-/// Fails unless `a == b`. Requires `Eq`, and nothing else.
+/// Fails unless `a == b`. Requires `Equal`, and nothing else.
 ///
-/// The comparison goes through `Eq`, so a hand-written implementation decides
+/// The comparison goes through `Equal`, so a hand-written implementation decides
 /// what equal means. The runner renders a failure structurally rather than
 /// calling `Show`, so a type is assertable as soon as it is comparable.
-export fn eq<T: Eq>(actual: T, expected: T): () {
-    report(actual == expected, "eq", actual, expected)
+export fn equal<T: Equal>(actual: T, expected: T): () {
+    report(actual == expected, "equal", actual, expected)
 }
 
-export fn notEq<T: Eq>(actual: T, expected: T): () {
-    report(actual != expected, "notEq", actual, expected)
+export fn notEqual<T: Equal>(actual: T, expected: T): () {
+    report(actual != expected, "notEqual", actual, expected)
 }
 
-/// `eq` for a type with no `Eq`: you pass the comparison, and a failure still
+/// `equal` for a type with no `Equal`: you pass the comparison, and a failure still
 /// reports both values.
 ///
-/// `Map`, `Set`, `OrdMap`, `OrdSet`, `Queue` and `BitSet` answer
-/// `equals(ctx, other)` rather than deriving `Eq` — two of them holding the
-/// same entries need not hold them in the same shape — so `assert.eq` cannot
+/// `Map`, `Set`, `OrderedMap`, `OrderedSet`, `Queue` and `BitSet` answer
+/// `equals(ctx, other)` rather than deriving `Equal` — two of them holding the
+/// same entries need not hold them in the same shape — so `assert.equal` cannot
 /// take one, and the test had to fall back to `isTrue(a.equals(ctx, b))`, which
 /// names neither map.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/host/testing" import { alloc };
 /// from "core/map" import * as map;
 /// from "core/testing/assert" import * as assert;
 ///
 /// test "two maps built in different orders hold the same entries" {
 ///     let ctx = context {
-///         Alloc: alloc(),
+///         Allocator: alloc(),
 ///     };
 ///     let one = map.empty<Str, Int>().insert(ctx, "a", 1).insert(ctx, "b", 2);
 ///     let two = map.empty<Str, Int>().insert(ctx, "b", 2).insert(ctx, "a", 1);
-///     assert.eqWith(ctx, one, two, fn(c, a, b) => a.equals(c, b));
+///     assert.equalWith(ctx, one, two, fn(c, a, b) => a.equals(c, b));
 /// }
 /// ```
 ///
@@ -71,13 +71,13 @@ export fn notEq<T: Eq>(actual: T, expected: T): () {
 /// The runner renders both sides *structurally*, so a failure shows a map's
 /// buckets rather than its entries — which is the layout the comparison just
 /// decided not to care about, and is still where the difference is.
-export fn eqWith<T, C: Alloc>(
+export fn equalWith<T, C: Allocator>(
     ctx: C,
     actual: T,
     expected: T,
     same: fn(C, T, T) => Bool,
 ): () {
-    report(same(ctx, actual, expected), "eqWith", actual, expected)
+    report(same(ctx, actual, expected), "equalWith", actual, expected)
 }
 
 export fn isTrue(actual: Bool): () {
@@ -91,7 +91,7 @@ export fn isFalse(actual: Bool): () {
 /// Fails unless `needle` is one of `haystack`'s elements. The whole list goes on
 /// the `actual` line, and the missing element goes on the `expected` line as a
 /// one-element list.
-export fn contains<T: Eq>(haystack: [T], needle: T): () {
+export fn contains<T: Equal>(haystack: [T], needle: T): () {
     report(haystack.contains(needle), "contains", haystack, [needle])
 }
 
@@ -125,25 +125,25 @@ export fn startsWith(haystack: Str, prefix: Str): () {
     report(haystack.startsWith(prefix), "startsWith", haystack, prefix)
 }
 
-/// Fails unless `xs` is empty. The report shows what was in it.
-export fn isEmpty<T>(xs: [T]): () {
-    report(xs.isEmpty(), "isEmpty", xs, [])
+/// Fails unless `items` is empty. The report shows what was in it.
+export fn isEmpty<T>(items: [T]): () {
+    report(items.isEmpty(), "isEmpty", items, [])
 }
 
-/// Fails when `xs` is empty. The one assertion here that reports a sentence
+/// Fails when `items` is empty. The one assertion here that reports a sentence
 /// rather than a diff, because it can only fail at one value.
-export fn notEmpty<T>(xs: [T]): () {
-    if (xs.isEmpty()) {
+export fn notEmpty<T>(items: [T]): () {
+    if (items.isEmpty()) {
         failWith("assert.notEmpty failed: the list is empty")
     } else {
         ()
     }
 }
 
-/// Fails unless `xs` holds exactly `expected` elements. The report compares the
+/// Fails unless `items` holds exactly `expected` elements. The report compares the
 /// two lengths.
-export fn len<T>(xs: [T], expected: Int): () {
-    report(xs.len() == expected, "len", xs.len(), expected)
+export fn length<T>(items: [T], expected: Int): () {
+    report(items.length() == expected, "length", items.length(), expected)
 }
 
 /// Fails unless the two lists hold the same elements in any order. Duplicates
@@ -154,20 +154,20 @@ export fn len<T>(xs: [T], expected: Int): () {
 /// up beside sorted.
 ///
 /// ```buri role=test
-/// from "core/effect" import { Alloc };
+/// from "core/effect" import { Allocator };
 /// from "core/host/testing" import { alloc };
 /// from "core/testing/assert" import * as assert;
 ///
 /// test "the keys are all there, whatever order they came out in" {
 ///     let ctx = context {
-///         Alloc: alloc(),
+///         Allocator: alloc(),
 ///     };
 ///     assert.unordered(ctx, [3, 1, 2], [1, 2, 3]);
 /// }
 /// ```
 ///
 /// Sorting costs O(n log n) and two lists.
-export fn unordered<T: Ord, C: Alloc>(ctx: C, actual: [T], expected: [T]): () {
+export fn unordered<T: Ordered, C: Allocator>(ctx: C, actual: [T], expected: [T]): () {
     let sortedActual = actual.sort(ctx);
     let sortedExpected = expected.sort(ctx);
     report(
@@ -180,23 +180,23 @@ export fn unordered<T: Ord, C: Alloc>(ctx: C, actual: [T], expected: [T]): () {
 
 /// Fails unless `actual > bound`. The report names the bound on its
 /// `expected` line: `gt(3, 5)` reads `actual: 3`, `expected: 5`.
-export fn gt<T: Ord>(actual: T, bound: T): () {
-    report(actual > bound, "gt", actual, bound)
+export fn greaterThan<T: Ordered>(actual: T, bound: T): () {
+    report(actual > bound, "greaterThan", actual, bound)
 }
 
 /// Fails unless `actual >= bound`.
-export fn ge<T: Ord>(actual: T, bound: T): () {
-    report(actual >= bound, "ge", actual, bound)
+export fn greaterOrEqual<T: Ordered>(actual: T, bound: T): () {
+    report(actual >= bound, "greaterOrEqual", actual, bound)
 }
 
 /// Fails unless `actual < bound`.
-export fn lt<T: Ord>(actual: T, bound: T): () {
-    report(actual < bound, "lt", actual, bound)
+export fn lessThan<T: Ordered>(actual: T, bound: T): () {
+    report(actual < bound, "lessThan", actual, bound)
 }
 
 /// Fails unless `actual <= bound`.
-export fn le<T: Ord>(actual: T, bound: T): () {
-    report(actual <= bound, "le", actual, bound)
+export fn lessOrEqual<T: Ordered>(actual: T, bound: T): () {
+    report(actual <= bound, "lessOrEqual", actual, bound)
 }
 
 /// Fails unless `actual` and `expected` are within `tolerance` of each other.
@@ -204,13 +204,13 @@ export fn le<T: Ord>(actual: T, bound: T): () {
 /// The tolerance is absolute, and a parameter rather than a constant: how close
 /// counts as close enough is a fact about the computation. A `NaN` on either side
 /// fails, since it is within nothing.
-export fn approxEq(actual: Float, expected: Float, tolerance: Float): () {
-    // `math.absFloat` would do, but would make every test source that imports
+export fn approximatelyEqual(actual: Float, expected: Float, tolerance: Float): () {
+    // `math.absoluteFloat` would do, but would make every test source that imports
     // this one load `core/math`. A `NaN` on either side makes `>` false, so the
     // subtraction takes the other branch and is a `NaN` too — and a `NaN` is `<=`
     // nothing, because the ordering operators stay IEEE's (SPEC 6.2).
     let apart = if (actual > expected) { actual - expected } else { expected - actual };
-    report(apart <= tolerance, "approxEq", actual, expected)
+    report(apart <= tolerance, "approximatelyEqual", actual, expected)
 }
 
 /// Fails unless the two are within `tolerance` *of the larger of them*, so the
@@ -225,22 +225,26 @@ export fn approxEq(actual: Float, expected: Float, tolerance: Float): () {
 /// from "core/testing/assert" import * as assert;
 ///
 /// test "the sum is right to four significant figures" {
-///     assert.approxEqRelative(1000000.0, 1000050.0, 0.0001);
+///     assert.approximatelyEqualRelative(1000000.0, 1000050.0, 0.0001);
 /// }
 /// ```
 ///
 /// Two zeroes pass. Anything else against zero fails at every finite tolerance,
-/// because the scale is zero too — use `approxEq` where one side may be zero. A
+/// because the scale is zero too — use `approximatelyEqual` where one side may be zero. A
 /// `NaN` on either side fails, as it does there.
-export fn approxEqRelative(actual: Float, expected: Float, tolerance: Float): () {
+export fn approximatelyEqualRelative(
+    actual: Float,
+    expected: Float,
+    tolerance: Float,
+): () {
     let apart = if (actual > expected) { actual - expected } else { expected - actual };
     let left = magnitude(actual);
     let right = magnitude(expected);
     let scale = if (left > right) { left } else { right };
-    report(apart <= tolerance * scale, "approxEqRelative", actual, expected)
+    report(apart <= tolerance * scale, "approximatelyEqualRelative", actual, expected)
 }
 
-/// `math.absFloat`, written out for the reason `approxEq` gives: importing
+/// `math.absoluteFloat`, written out for the reason `approximatelyEqual` gives: importing
 /// `core/math` here makes every test source that imports this one load it.
 fn magnitude(x: Float): Float {
     if (x > 0.0 - x) { x } else { 0.0 - x }
@@ -264,17 +268,17 @@ export fn err<T, E>(r: Result<T, E>): E {
 
 /// The report shows the `Option` itself, so a failure reads `actual: .None`
 /// against `expected: .Some` — both in the syntax you write the value in.
-export fn some<T>(o: Option<T>): T {
-    match (o) {
+export fn some<T>(option: Option<T>): T {
+    match (option) {
         .Some(v) => v,
-        .None => failExpected("some", o),
+        .None => failExpected("some", option),
     }
 }
 
 /// The mirror of `some`: `actual: .Some("none")` against `expected: .None`.
-export fn none<T>(o: Option<T>): () {
-    match (o) {
-        .Some(_) => failExpected("none", o),
+export fn none<T>(option: Option<T>): () {
+    match (option) {
+        .Some(_) => failExpected("none", option),
         .None => (),
     }
 }

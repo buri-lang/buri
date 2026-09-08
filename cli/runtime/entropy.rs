@@ -2,7 +2,7 @@
 //!
 //! `rng.rs` is the other generator in this archive and the two are deliberately
 //! not related. That one is xoshiro256++ over a seed read once, with a
-//! clock-derived fallback for a sandbox that has no `/dev`, because `Rand`
+//! clock-derived fallback for a sandbox that has no `/dev`, because `Random`
 //! promises a *distribution* and a program that cannot start is worse than a
 //! weak shuffle. This one promises that nobody can guess the next octet, and
 //! every one of those choices inverts: the source is the kernel's on every

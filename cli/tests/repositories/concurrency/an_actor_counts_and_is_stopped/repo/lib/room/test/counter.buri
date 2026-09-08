@@ -4,14 +4,14 @@
 
 from "core/actor" import * as actor;
 from "core/actor" import { Address };
-from "core/effect" import { Alloc, Stdout, Tasks };
+from "core/effect" import { Allocator, Stdout, Tasks };
 from "core/host/testing" import { alloc, stdout, tasks };
 from "core/testing/assert" import * as assert;
 from "//lib/room" import { counter, CounterAnswer, CounterMessage };
 
 /// Sends `left` messages, one at a time. Every one of them runs the mailbox
 /// down before it answers, so the box never grows past the one being stepped.
-fn pump<C: Alloc + Stdout + Tasks>(
+fn pump<C: Allocator + Stdout + Tasks>(
     ctx: C,
     address: Address<C, Int, CounterMessage, CounterAnswer>,
     left: Int,
@@ -26,7 +26,7 @@ fn pump<C: Alloc + Stdout + Tasks>(
 
 test "one sender's messages arrive in the order it sent them" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: tasks(),
     };
@@ -34,14 +34,14 @@ test "one sender's messages arrive in the order it sent them" {
     let _ = counted.sendMessage(ctx, .Increment).ignore();
     let _ = counted.sendMessage(ctx, .Add(2)).ignore();
     let _ = counted.sendMessage(ctx, .Add(3)).ignore();
-    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(123)));
-    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(123)));
+    assert.equal(counted.stop(ctx), .Ok(()));
 }
 
 test "a stop finds the mailbox empty, whatever was sent into it" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
         Tasks: tasks(),
     };
@@ -49,47 +49,47 @@ test "a stop finds the mailbox empty, whatever was sent into it" {
     // sixty-five steps, and the hook sees every one of them.
     let counted = actor.start(ctx, counter(0));
     let _ = pump(ctx, counted, 65);
-    assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(sink.captured(), "final 65\n");
+    assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(sink.captured(), "final 65\n");
 }
 
 test "more messages than the default mailbox holds still all arrive" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
     let _ = pump(ctx, counted, 65);
-    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(65)));
-    assert.eq(counted.stop(ctx), .Ok(()));
+    assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(65)));
+    assert.equal(counted.stop(ctx), .Ok(()));
 }
 
 test "onStop runs once, with the final state" {
     let sink = stdout();
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: sink,
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
     let _ = counted.sendMessage(ctx, .Add(4)).ignore();
-    assert.eq(counted.sendMessage(ctx, .Get), .Ok(.Count(4)));
-    assert.eq(sink.captured(), "");
-    assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(sink.captured(), "final 4\n");
-    assert.eq(counted.stop(ctx), .Err(.Stopped));
-    assert.eq(sink.captured(), "final 4\n");
+    assert.equal(counted.sendMessage(ctx, .Get), .Ok(.Count(4)));
+    assert.equal(sink.captured(), "");
+    assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(sink.captured(), "final 4\n");
+    assert.equal(counted.stop(ctx), .Err(.Stopped));
+    assert.equal(sink.captured(), "final 4\n");
 }
 
 test "everything after a stop is refused" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Stdout: stdout(),
         Tasks: tasks(),
     };
     let counted = actor.start(ctx, counter(0));
-    assert.eq(counted.stop(ctx), .Ok(()));
-    assert.eq(counted.sendMessage(ctx, .Increment), .Err(.Stopped));
-    assert.eq(counted.sendMessage(ctx, .Get), .Err(.Stopped));
+    assert.equal(counted.stop(ctx), .Ok(()));
+    assert.equal(counted.sendMessage(ctx, .Increment), .Err(.Stopped));
+    assert.equal(counted.sendMessage(ctx, .Get), .Err(.Stopped));
 }

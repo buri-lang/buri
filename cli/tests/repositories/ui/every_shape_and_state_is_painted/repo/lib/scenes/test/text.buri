@@ -5,7 +5,7 @@
 // The name of the second one is not ASCII either. A snapshot names a file, and
 // "снимок" is a file name on both hosts this suite runs on.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
@@ -14,7 +14,7 @@ from "//lib/scenes" import { tinted };
 
 test "combining marks, emoji and a right-to-left run" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(
@@ -34,7 +34,7 @@ test "combining marks, emoji and a right-to-left run" {
 
 test "a line longer than the page, wrapped and unwrapped" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     let line =

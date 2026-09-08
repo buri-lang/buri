@@ -1,4 +1,0 @@
-export context Everything {
-    Clock: Fixed(0),
-    Alloc: System(),
-    Stdout: Buffered(),

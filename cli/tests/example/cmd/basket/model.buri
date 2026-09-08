@@ -6,7 +6,7 @@
 // testable with no document, no renderer and no reactive graph, and the suite
 // in `test/model.buri` builds none of the three.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "//lib/ledger" import { Entry, entry };
 from "//lib/money" import { fromCents, parse };
 
@@ -23,7 +23,7 @@ export let LEDGER_URL: Str = "/entries";
 /// not parse is dropped rather than failing the whole response — a basket that
 /// shows four lines of five is more use than one that shows none, and a line
 /// nobody can read is the server's bug rather than the page's.
-export fn entriesFrom<C: Alloc>(ctx: C, body: Str): [Entry] {
+export fn entriesFrom<C: Allocator>(ctx: C, body: Str): [Entry] {
     let none: [Entry] = [];
     body
         .lines(ctx)
@@ -52,7 +52,7 @@ fn lineEntry(line: Str): Option<Entry> {
     }
 }
 
-derive Eq, Show for Draft;
+derive Equal, Show for Draft;
 /// What the composer's two fields currently amount to.
 ///
 /// An enum rather than a `Result<Entry, Str>` because "you have not typed a
@@ -98,7 +98,7 @@ export fn isTicked(ticked: [Str], memo: Str): Bool {
 }
 
 /// The settled list with `memo` added, or removed if it was already there.
-export fn flip<C: Alloc>(ctx: C, ticked: [Str], memo: Str): [Str] {
+export fn flip<C: Allocator>(ctx: C, ticked: [Str], memo: Str): [Str] {
     if (ticked.contains(memo)) {
         ticked.filter(ctx, fn(m) => m != memo)
     } else {
@@ -115,7 +115,7 @@ export fn settledFraction(items: [Entry], ticked: [Str]): Float {
     if (items.isEmpty()) {
         0.0
     } else {
-        items.count(fn(e) => ticked.contains(e.memo)).toF64() / items.len().toF64()
+        items.count(fn(e) => ticked.contains(e.memo)).toF64() / items.length().toF64()
     }
 }
 

@@ -5,12 +5,12 @@ message: `{type}` does not implement `{trait}`
 # Conformance is declared, never inferred
 
 ```text
-error: `HostStdout` does not implement `Alloc` [missing-conformance]
+error: `HostStdout` does not implement `Allocator` [missing-conformance]
 ```
 
 ## What to do
 
-Bind a value whose type has `impl Alloc for ...`.
+Bind a value whose type has `impl Allocator for ...`.
 
 ## Why
 
@@ -21,13 +21,13 @@ a test double is a struct with those methods and an `impl` block.
 ## A program that provokes it
 
 ```buri fail code=missing-conformance
-# from "core/effect" import { Alloc, Stdout };
+# from "core/effect" import { Allocator, Stdout };
 # from "core/host" import * as host;
 # from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.stdout,
+        Allocator: host.stdout,
         Stdout: host.stdout,
     };
     let _ = io.println(ctx, "ready").ignore();

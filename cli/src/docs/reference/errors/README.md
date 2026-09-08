@@ -54,7 +54,7 @@ and the line named.
 - **Names are `snake_case`, and spelled out.** `{function}`, never `{fn}` or
   `{fnName}`. A test enforces the shape.
 - **`{{` and `}}` are the literal braces.** A fix that shows
-  `` `impl Eq for ... { ... }` `` writes `{{ ... }}`, or the template would read
+  `` `impl Equal for ... { ... }` `` writes `{{ ... }}`, or the template would read
   `{ ... }` as a placeholder named `" ... "`.
 - **There are no filters, no conditionals, and no pluralization.** The call site
   binds whole finished phrases. Where the wording varies by more than an
@@ -190,7 +190,7 @@ joining; the template supplies the backticks.
 | `{name}` | The identifier the diagnostic is about, where no narrower role name applies. See the note below the table. |
 | `{operations}` | The intrinsic operations a toolchain cannot compile, quoted and joined by `diagnostics::names`. |
 | `{output}` | A declared output, spelled the way a build file and `--output` spell it — `linux/x86_64`, or `macos` where the output named no architecture. **Not a target triple**: a triple carries the host's own architecture whenever the output named none, so a recorded diagnostic holding one pins the runner rather than the product. |
-| `{operator}` | The operator's source text (`~`, `<<`, `Add`, `Neg`). |
+| `{operator}` | The operator's source text (`~`, `<<`, `Add`, `Negate`). |
 | `{other}` | The label at the far end of the reported dependency edge. |
 | `{owner}` | The label of the library whose surface or internals are being reached (`//lib/money`). |
 | `{owner_path}` | That label with `//` stripped, because the note names `lib/money/lib.buri`. |

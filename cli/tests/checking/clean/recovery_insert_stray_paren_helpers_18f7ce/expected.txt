@@ -1,9 +1,0 @@
-error: expected a type, found `?` [unexpected-token]
-  --> main.buri:30:31
-   |
-30 | export fn read<C: Alloc>(ctx: ? C, text: Str): schema.Parsed {
-   |                               ^
-   |
-   = expected: a type
-   = actual: `?`
-   = fix: name a type here, as in `Int` or `[Str]`

@@ -201,7 +201,7 @@ function __cmd_x_main_buri$main(){
   }else{
     $abort('no arm matched');
   }
-  const text_49=$t33+' '+String($list_len($k0));
+  const text_49=$t33+' '+String($list_length($k0));
   const self_50=$host_HostStdout_println(ctx_0[1],text_49);
   let $t35;
   if(self_50[0]===0){

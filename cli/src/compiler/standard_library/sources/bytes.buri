@@ -1,6 +1,6 @@
 //! core/bytes — sequences of octets.
 //!
-//! A byte string is a `[U8]`, an ordinary list: `len`, `get`, `slice` and the
+//! A byte string is a `[U8]`, an ordinary list: `length`, `get`, `slice` and the
 //! rest come from `core/list`, and this module does not repeat them. What it
 //! adds is the two things a list of numbers cannot do for itself — turning text
 //! into bytes and back, and the encodings that get bytes through something that
@@ -16,13 +16,13 @@
 //!
 //! ```buri run
 //! from "core/bytes" import * as bytes;
-//! from "core/effect" import { Alloc, Stdout };
+//! from "core/effect" import { Allocator, Stdout };
 //! from "core/host" import * as host;
 //! from "core/io" import * as io;
 //!
 //! export fn main(): Result<(), Str> {
 //!     let ctx = context {
-//!         Alloc: host.alloc,
+//!         Allocator: host.alloc,
 //!         Stdout: host.stdout,
 //!     };
 //!     let raw = bytes.toUtf8(ctx, "hi €");
@@ -30,7 +30,10 @@
 //!     let _ = io
 //!         .println(
 //!             ctx,
-//!             "${raw.len()} bytes, ${bytes.toHex(ctx, raw)}, ${bytes.toBase64(ctx, raw)}",
+//!             "${raw.length()} bytes, ${bytes.toHex(ctx, raw)}, ${bytes.toBase64(
+//!                 ctx,
+//!                 raw,
+//!             )}",
 //!         )
 //!         .ignore();
 //!     .Ok(())
@@ -43,24 +46,24 @@
 
 from "core/bits" import * as bits;
 from "core/character" import * as character;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 from "core/str" import * as str;
 
-derive Eq, Show for Utf8Error;
+derive Equal, Show for Utf8Error;
 /// Where a byte sequence stopped being UTF-8: the index of the first byte that
 /// could not be part of a valid encoding.
 export struct Utf8Error(export Int);
 
-derive Eq, Show for DecodeError;
+derive Equal, Show for DecodeError;
 /// Where a decoding stopped making sense.
 export struct DecodeError(export Int);
 
 /// The UTF-8 encoding of a string.
-export fn toUtf8<C: Alloc>(ctx: C, s: Str): [U8];
+export fn toUtf8<C: Allocator>(ctx: C, text: Str): [U8];
 
 /// The string those bytes encode, or where they stopped being one.
-export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
+export fn fromUtf8<C: Allocator>(ctx: C, bytes: [U8]): Result<Str, Utf8Error>;
 
 /// The same decoding, with every byte that cannot be part of a valid encoding
 /// replaced by U+FFFD instead of refused.
@@ -77,19 +80,19 @@ export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
 ///
 /// ```buri run
 /// from "core/bytes" import * as bytes;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     // "hi", then a euro sign with its last byte cut off.
 ///     let raw: [U8] = [104, 105, 226, 130];
 ///     let text = bytes.fromUtf8Lossy(ctx, raw);
-///     let _ = io.println(ctx, "${text} ${text.len()}").ignore();
+///     let _ = io.println(ctx, "${text} ${text.length()}").ignore();
 ///     .Ok(())
 /// }
 /// ```
@@ -97,7 +100,7 @@ export fn fromUtf8<C: Alloc>(ctx: C, b: [U8]): Result<Str, Utf8Error>;
 /// ```stdout
 /// hi� 3
 /// ```
-export fn fromUtf8Lossy<C: Alloc>(ctx: C, bytes: [U8]): Str {
+export fn fromUtf8Lossy<C: Allocator>(ctx: C, bytes: [U8]): Str {
     // The substitution happens in the *octets*, and `fromUtf8` then reads them.
     // What `cleaned` answers is valid UTF-8 by construction, so the decoder
     // cannot refuse it and the fallback is unreachable. Building the octets
@@ -111,24 +114,29 @@ let REPLACEMENT: [U8] = [0xef, 0xbf, 0xbd];
 
 /// The input with every maximal subpart that is not a valid sequence swapped for
 /// U+FFFD. Tail-recursive over the whole run.
-fn cleaned<C: Alloc>(ctx: C, b: [U8], i: Int, acc: [U8]): [U8] {
-    if (i >= b.len()) {
+fn cleaned<C: Allocator>(ctx: C, bytes: [U8], i: Int, acc: [U8]): [U8] {
+    if (i >= bytes.length()) {
         acc
     } else {
-        let lead = b.get(i).withDefault(0).toI64();
+        let lead = bytes.get(i).withDefault(0).toI64();
         if (lead < 0x80) {
-            cleaned(ctx, b, i + 1, acc.push(ctx, b.get(i).withDefault(0)))
+            cleaned(ctx, bytes, i + 1, acc.push(ctx, bytes.get(i).withDefault(0)))
         } else {
             let width = sequenceWidth(lead);
-            let taken = valid(b, i, width);
+            let taken = valid(bytes, i, width);
             if (taken == width) {
-                cleaned(ctx, b, i + width, acc.concat(ctx, b.slice(ctx, i, i + width)))
+                cleaned(
+                    ctx,
+                    bytes,
+                    i + width,
+                    acc.concat(ctx, bytes.slice(ctx, i, i + width)),
+                )
             } else {
                 // The maximal subpart: what was consumed before the byte that
                 // did not belong, and never fewer than one byte.
                 cleaned(
                     ctx,
-                    b,
+                    bytes,
                     i + if (taken < 1) { 1 } else { taken },
                     acc.concat(ctx, REPLACEMENT),
                 )
@@ -154,11 +162,11 @@ fn sequenceWidth(lead: Int): Int {
 /// How many of the `width` bytes at `i` are what the sequence needs. `width`
 /// means the whole sequence is there; anything less names the first byte that
 /// is not, and a lead byte that leads nothing answers 0.
-fn valid(b: [U8], i: Int, width: Int): Int {
+fn valid(bytes: [U8], i: Int, width: Int): Int {
     if (width == 1) {
         0
     } else {
-        let lead = b.get(i).withDefault(0).toI64();
+        let lead = bytes.get(i).withDefault(0).toI64();
         // The second byte's range is narrower than 80..bf for four lead bytes,
         // and that is what rejects an overlong encoding and a surrogate before
         // the code point is ever assembled.
@@ -176,23 +184,23 @@ fn valid(b: [U8], i: Int, width: Int): Int {
         } else {
             0xbf
         };
-        continuations(b, i, width, low, high, 1)
+        continuations(bytes, i, width, low, high, 1)
     }
 }
 
-fn continuations(b: [U8], i: Int, width: Int, low: Int, high: Int, at: Int): Int {
+fn continuations(bytes: [U8], i: Int, width: Int, low: Int, high: Int, at: Int): Int {
     if (at >= width) {
         width
-    } else if (i + at >= b.len()) {
+    } else if (i + at >= bytes.length()) {
         at
     } else {
-        let x = b.get(i + at).withDefault(0).toI64();
+        let x = bytes.get(i + at).withDefault(0).toI64();
         let lo = if (at == 1) { low } else { 0x80 };
         let hi = if (at == 1) { high } else { 0xbf };
         if (x < lo || x > hi) {
             at
         } else {
-            continuations(b, i, width, low, high, at + 1)
+            continuations(bytes, i, width, low, high, at + 1)
         }
     }
 }
@@ -200,13 +208,13 @@ fn continuations(b: [U8], i: Int, width: Int, low: Int, high: Int, at: Int): Int
 // --- Hexadecimal ---------------------------------------------------------------
 
 /// Lowercase, two characters per byte, no separator.
-export fn toHex<C: Alloc>(ctx: C, b: [U8]): Str {
+export fn toHex<C: Allocator>(ctx: C, bytes: [U8]): Str {
     str.fromChars(
         ctx,
         list
-            .range(ctx, 0, b.len() * 2)
+            .range(ctx, 0, bytes.length() * 2)
             .map(ctx, fn(i) => {
-                let octet = b.get(i / 2).withDefault(0).toI64();
+                let octet = bytes.get(i / 2).withDefault(0).toI64();
                 let nibble = if (i % 2 == 0) { octet / 16 } else { octet % 16 };
                 character.fromDigit(nibble, 16).withDefault('0')
             }),
@@ -215,13 +223,13 @@ export fn toHex<C: Alloc>(ctx: C, b: [U8]): Str {
 
 /// Reads either case. An odd number of digits, or a character that is not one,
 /// is an error at the offending index.
-export fn fromHex<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
+export fn fromHex<C: Allocator>(ctx: C, text: Str): Result<[U8], DecodeError> {
     let cs = text.chars(ctx);
-    if (cs.len() % 2 != 0) {
-        .Err(DecodeError(cs.len()))
+    if (cs.length() % 2 != 0) {
+        .Err(DecodeError(cs.length()))
     } else {
         list
-            .range(ctx, 0, cs.len() / 2)
+            .range(ctx, 0, cs.length() / 2)
             .foldResultCtx(
                 ctx,
                 fn(c, acc: [U8], i) => {
@@ -251,8 +259,8 @@ let B64: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/
 /// RFC 4648 §5: `-` and `_` where the standard alphabet has `+` and `/`.
 let B64URL: Str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-export fn toBase64<C: Alloc>(ctx: C, b: [U8]): Str {
-    encode64(ctx, b, B64)
+export fn toBase64<C: Allocator>(ctx: C, bytes: [U8]): Str {
+    encode64(ctx, bytes, B64)
 }
 
 /// The URL- and filename-safe alphabet, **unpadded**: `-` and `_` for `+` and
@@ -261,13 +269,13 @@ export fn toBase64<C: Alloc>(ctx: C, b: [U8]): Str {
 ///
 /// ```buri run
 /// from "core/bytes" import * as bytes;
-/// from "core/effect" import { Alloc, Stdout };
+/// from "core/effect" import { Allocator, Stdout };
 /// from "core/host" import * as host;
 /// from "core/io" import * as io;
 ///
 /// export fn main(): Result<(), Str> {
 ///     let ctx = context {
-///         Alloc: host.alloc,
+///         Allocator: host.alloc,
 ///         Stdout: host.stdout,
 ///     };
 ///     let raw: [U8] = [251, 255];
@@ -281,19 +289,19 @@ export fn toBase64<C: Alloc>(ctx: C, b: [U8]): Str {
 /// ```stdout
 /// +/8= -_8
 /// ```
-export fn toBase64Url<C: Alloc>(ctx: C, bytes: [U8]): Str {
+export fn toBase64Url<C: Allocator>(ctx: C, bytes: [U8]): Str {
     withoutPadding(encode64(ctx, bytes, B64URL))
 }
 
-fn encode64<C: Alloc>(ctx: C, b: [U8], alphabet: Str): Str {
-    let n = b.len();
+fn encode64<C: Allocator>(ctx: C, bytes: [U8], alphabet: Str): Str {
+    let n = bytes.length();
     list
         .range(ctx, 0, (n + 2) / 3)
         .mapCtx(ctx, fn(c, g) => {
             let i = g * 3;
-            let b0 = b.get(i).withDefault(0).toI64();
-            let b1 = b.get(i + 1).withDefault(0).toI64();
-            let b2 = b.get(i + 2).withDefault(0).toI64();
+            let b0 = bytes.get(i).withDefault(0).toI64();
+            let b1 = bytes.get(i + 1).withDefault(0).toI64();
+            let b2 = bytes.get(i + 2).withDefault(0).toI64();
             let left = n - i;
             str.fromChars(c, [
                 alphabet.charAt(b0 / 4).withDefault('A'),
@@ -316,22 +324,22 @@ fn encode64<C: Alloc>(ctx: C, b: [U8], alphabet: Str): Str {
 /// Pure: `slice` is a view, so this walks back over the `=`s without copying.
 fn withoutPadding(text: Str): Str {
     if (text.endsWith("=")) {
-        withoutPadding(text.slice(0, text.len() - 1))
+        withoutPadding(text.slice(0, text.length() - 1))
     } else {
         text
     }
 }
 
-export fn fromBase64<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
+export fn fromBase64<C: Allocator>(ctx: C, text: Str): Result<[U8], DecodeError> {
     decode64(ctx, text, B64)
 }
 
 /// Reads the URL-safe alphabet, padded or not. A length that no base64 has —
 /// one character past a group of four — is an error at the end of the input.
-export fn fromBase64Url<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> {
-    let short = text.len() % 4;
+export fn fromBase64Url<C: Allocator>(ctx: C, text: Str): Result<[U8], DecodeError> {
+    let short = text.length() % 4;
     if (short == 1) {
-        .Err(DecodeError(text.len()))
+        .Err(DecodeError(text.length()))
     } else if (short == 0) {
         decode64(ctx, text, B64URL)
     } else {
@@ -339,19 +347,19 @@ export fn fromBase64Url<C: Alloc>(ctx: C, text: Str): Result<[U8], DecodeError> 
     }
 }
 
-fn decode64<C: Alloc>(ctx: C, text: Str, alphabet: Str): Result<[U8], DecodeError> {
+fn decode64<C: Allocator>(ctx: C, text: Str, alphabet: Str): Result<[U8], DecodeError> {
     let cs = text.chars(ctx);
-    if (cs.len() % 4 != 0 || cs.len() == 0) {
-        if (cs.len() == 0) {
+    if (cs.length() % 4 != 0 || cs.length() == 0) {
+        if (cs.length() == 0) {
             .Ok(list.empty<U8>())
         } else {
-            .Err(DecodeError(cs.len()))
+            .Err(DecodeError(cs.length()))
         }
     } else {
-        match (firstNonBase64(cs, alphabet, 0, cs.len())) {
+        match (firstNonBase64(cs, alphabet, 0, cs.length())) {
             .Some(i) => .Err(DecodeError(i)),
             .None => {
-                let groups = cs.len() / 4;
+                let groups = cs.length() / 4;
                 let pad = padding(cs);
                 let bytes = list
                     .range(ctx, 0, groups)
@@ -368,7 +376,7 @@ fn decode64<C: Alloc>(ctx: C, text: Str, alphabet: Str): Result<[U8], DecodeErro
                         ]
                     })
                     .flatten(ctx);
-                .Ok(bytes.take(ctx, bytes.len() - pad))
+                .Ok(bytes.take(ctx, bytes.length() - pad))
             },
         }
     }
@@ -376,7 +384,7 @@ fn decode64<C: Alloc>(ctx: C, text: Str, alphabet: Str): Result<[U8], DecodeErro
 
 /// How many of the trailing bytes the padding says are not there.
 fn padding(cs: [Char]): Int {
-    let n = cs.len();
+    let n = cs.length();
     let last = cs.get(n - 1).withDefault('A');
     let before = cs.get(n - 2).withDefault('A');
     if (last == '=' && before == '=') { 2 } else if (last == '=') { 1 } else { 0 }
@@ -453,7 +461,7 @@ export fn indexOfFrom(haystack: [U8], needle: [U8], start: Int): Option<Int> {
 }
 
 fn scanFor(haystack: [U8], needle: [U8], at: Int): Option<Int> {
-    if (at + needle.len() > haystack.len()) {
+    if (at + needle.length() > haystack.length()) {
         .None
     } else if (equalAt(haystack, needle, at, 0)) {
         .Some(at)
@@ -464,18 +472,18 @@ fn scanFor(haystack: [U8], needle: [U8], at: Int): Option<Int> {
 
 /// Whether `haystack` begins with `prefix`. An empty prefix always does.
 export fn startsWith(haystack: [U8], prefix: [U8]): Bool {
-    prefix.len() <= haystack.len() && equalAt(haystack, prefix, 0, 0)
+    prefix.length() <= haystack.length() && equalAt(haystack, prefix, 0, 0)
 }
 
 /// Whether `haystack` ends with `suffix`. An empty suffix always does.
 export fn endsWith(haystack: [U8], suffix: [U8]): Bool {
-    suffix.len() <= haystack.len()
-        && equalAt(haystack, suffix, haystack.len() - suffix.len(), 0)
+    suffix.length() <= haystack.length()
+        && equalAt(haystack, suffix, haystack.length() - suffix.length(), 0)
 }
 
 /// Whether `needle` sits at `at`. Every caller has checked that it fits.
 fn equalAt(haystack: [U8], needle: [U8], at: Int, i: Int): Bool {
-    if (i >= needle.len()) {
+    if (i >= needle.length()) {
         true
     } else if (haystack.get(at + i).withDefault(0) != needle.get(i).withDefault(0)) {
         false
@@ -487,7 +495,7 @@ fn equalAt(haystack: [U8], needle: [U8], at: Int, i: Int): Bool {
 /// The pieces between the occurrences of `separator`, empty ones included: n
 /// separators give n + 1 pieces. An empty separator answers the whole input as
 /// one piece rather than one piece per byte.
-export fn split<C: Alloc>(ctx: C, bytes: [U8], separator: [U8]): [[U8]] {
+export fn split<C: Allocator>(ctx: C, bytes: [U8], separator: [U8]): [[U8]] {
     if (separator.isEmpty()) {
         [bytes]
     } else {
@@ -495,26 +503,32 @@ export fn split<C: Alloc>(ctx: C, bytes: [U8], separator: [U8]): [[U8]] {
     }
 }
 
-fn splitFrom<C: Alloc>(ctx: C, b: [U8], separator: [U8], at: Int, acc: [[U8]]): [[U8]] {
-    match (indexOfFrom(b, separator, at)) {
+fn splitFrom<C: Allocator>(
+    ctx: C,
+    bytes: [U8],
+    separator: [U8],
+    at: Int,
+    acc: [[U8]],
+): [[U8]] {
+    match (indexOfFrom(bytes, separator, at)) {
         .Some(i) => {
             splitFrom(
                 ctx,
-                b,
+                bytes,
                 separator,
-                i + separator.len(),
-                acc.push(ctx, b.slice(ctx, at, i)),
+                i + separator.length(),
+                acc.push(ctx, bytes.slice(ctx, at, i)),
             )
         },
-        .None => acc.push(ctx, b.slice(ctx, at, b.len())),
+        .None => acc.push(ctx, bytes.slice(ctx, at, bytes.length())),
     }
 }
 
 /// The parts with `separator` between each pair — `split`'s inverse when no part
 /// holds the separator.
-export fn join<C: Alloc>(ctx: C, parts: [[U8]], separator: [U8]): [U8] {
+export fn join<C: Allocator>(ctx: C, parts: [[U8]], separator: [U8]): [U8] {
     list
-        .range(ctx, 0, parts.len())
+        .range(ctx, 0, parts.length())
         .mapCtx(ctx, fn(c, i) => {
             let part = parts.get(i).withDefault(list.empty<U8>());
             if (i == 0) { part } else { separator.concat(c, part) }
@@ -539,7 +553,7 @@ let TWO32: Int = 4294967296;
 /// protocol buffers writes a negative `int64`. Encode a negative number as a
 /// zigzag instead — `toVarint(ctx, zigzag(x))` — and -1 costs two bytes rather
 /// than ten, which is the whole reason `sint64` exists.
-export fn toVarint<C: Alloc>(ctx: C, value: Int): [U8] {
+export fn toVarint<C: Allocator>(ctx: C, value: Int): [U8] {
     if (value < 0) {
         let a = 0 - value;
         let alo = a % TWO32;
@@ -554,7 +568,7 @@ export fn toVarint<C: Alloc>(ctx: C, value: Int): [U8] {
 
 /// Seven bits at a time off the low end of a 64-bit value held as two halves.
 /// The carry from the high half into the low one is `hi % 128` scaled by 2^25.
-fn varintBytes<C: Alloc>(ctx: C, hi: Int, lo: Int): [U8] {
+fn varintBytes<C: Allocator>(ctx: C, hi: Int, lo: Int): [U8] {
     let byte = lo % 128;
     let nextLo = (lo - byte) / 128 + hi % 128 * 33554432;
     let nextHi = (hi - hi % 128) / 128;
@@ -569,10 +583,10 @@ fn varintBytes<C: Alloc>(ctx: C, hi: Int, lo: Int): [U8] {
 ///
 /// An encoding that runs off the end of the input, or past ten bytes, is an
 /// error at the index it started from.
-export fn readVarint(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
-    match (varintEnd(b, at, 0)) {
+export fn readVarint(bytes: [U8], at: Int): Result<(Int, Int), DecodeError> {
+    match (varintEnd(bytes, at, 0)) {
         .None => .Err(DecodeError(at)),
-        .Some(end) => .Ok((varintValue(b, at, end - 1, 0, 0), end)),
+        .Some(end) => .Ok((varintValue(bytes, at, end - 1, 0, 0), end)),
     }
 }
 
@@ -581,33 +595,33 @@ export fn readVarint(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
 /// Not `readVarint(...) % 2^32`: a varint carries 64 bits and an `Int` is exact
 /// to 53, so the whole number may already have rounded. This keeps the low half
 /// from the start, which is exact for every input.
-export fn readVarint32(b: [U8], at: Int): Result<(Int, Int), DecodeError> {
-    match (varintEnd(b, at, 0)) {
+export fn readVarint32(bytes: [U8], at: Int): Result<(Int, Int), DecodeError> {
+    match (varintEnd(bytes, at, 0)) {
         .None => .Err(DecodeError(at)),
-        .Some(end) => .Ok((varintLow(b, at, end - 1, 0), end)),
+        .Some(end) => .Ok((varintLow(bytes, at, end - 1, 0), end)),
     }
 }
 
-fn varintLow(b: [U8], at: Int, i: Int, lo: Int): Int {
+fn varintLow(bytes: [U8], at: Int, i: Int, lo: Int): Int {
     if (i < at) {
         lo
     } else {
-        let g = b.get(i).withDefault(0).toI64() % 128;
-        varintLow(b, at, i - 1, (lo * 128 + g) % TWO32)
+        let g = bytes.get(i).withDefault(0).toI64() % 128;
+        varintLow(bytes, at, i - 1, (lo * 128 + g) % TWO32)
     }
 }
 
-fn varintEnd(b: [U8], i: Int, taken: Int): Option<Int> {
+fn varintEnd(bytes: [U8], i: Int, taken: Int): Option<Int> {
     if (taken >= 10) {
         .None
     } else {
-        match (b.get(i)) {
+        match (bytes.get(i)) {
             .None => .None,
             .Some(x) => {
                 if (x.toI64() < 128) {
                     .Some(i + 1)
                 } else {
-                    varintEnd(b, i + 1, taken + 1)
+                    varintEnd(bytes, i + 1, taken + 1)
                 }
             },
         }
@@ -617,14 +631,20 @@ fn varintEnd(b: [U8], i: Int, taken: Int): Option<Int> {
 /// Folds the groups from the most significant end down, so it never needs a
 /// power of two: each step is a multiply by 128 with a carry between the
 /// halves.
-fn varintValue(b: [U8], at: Int, i: Int, hi: Int, lo: Int): Int {
+fn varintValue(bytes: [U8], at: Int, i: Int, hi: Int, lo: Int): Int {
     if (i < at) {
         joinHalves(hi, lo)
     } else {
-        let g = b.get(i).withDefault(0).toI64() % 128;
+        let g = bytes.get(i).withDefault(0).toI64() % 128;
         let wide = lo * 128 + g;
         let nextLo = wide % TWO32;
-        varintValue(b, at, i - 1, (hi * 128 + (wide - nextLo) / TWO32) % TWO32, nextLo)
+        varintValue(
+            bytes,
+            at,
+            i - 1,
+            (hi * 128 + (wide - nextLo) / TWO32) % TWO32,
+            nextLo,
+        )
     }
 }
 
@@ -637,13 +657,13 @@ fn joinHalves(hi: Int, lo: Int): Int {
 
 /// The zigzag transform: a small negative number becomes a small positive one,
 /// so that a varint of it is short. -1 is 1, 1 is 2, -2 is 3.
-export fn zigzag(x: Int): Int {
-    if (x < 0) { (0 - x) * 2 - 1 } else { x * 2 }
+export fn zigzag(value: Int): Int {
+    if (value < 0) { (0 - value) * 2 - 1 } else { value * 2 }
 }
 
 /// Its inverse.
-export fn unzigzag(n: Int): Int {
-    if (n % 2 == 0) { n / 2 } else { 0 - (n + 1) / 2 }
+export fn unzigzag(value: Int): Int {
+    if (value % 2 == 0) { value / 2 } else { 0 - (value + 1) / 2 }
 }
 
 // --- Fixed-width numbers ------------------------------------------------------------
@@ -652,21 +672,21 @@ export fn unzigzag(n: Int): Int {
 // field uses.
 
 /// The eight bytes of an IEEE 754 double.
-export fn f64ToBytes<C: Alloc>(ctx: C, x: Float): [U8];
+export fn f64ToBytes<C: Allocator>(ctx: C, value: Float): [U8];
 
 /// The double encoded by the eight bytes at `at`, or `.None` if there are not
 /// eight. A NaN comes back as the canonical quiet NaN on every backend — the
 /// payload bits are not part of a `Float`'s value (SPEC 6.2). A zero keeps its
 /// sign.
-export fn f64FromBytes(b: [U8], at: Int): Option<Float>;
+export fn f64FromBytes(bytes: [U8], at: Int): Option<Float>;
 
 /// The four bytes of an IEEE 754 single. A `Float` that single precision cannot
 /// represent rounds, exactly as storing one in a `float` field does.
-export fn f32ToBytes<C: Alloc>(ctx: C, x: Float): [U8];
+export fn f32ToBytes<C: Allocator>(ctx: C, value: Float): [U8];
 
 /// The double the four bytes at `at` encode, or `.None` if there are not four.
 /// A NaN canonicalizes, as it does at eight bytes.
-export fn f32FromBytes(b: [U8], at: Int): Option<Float>;
+export fn f32FromBytes(bytes: [U8], at: Int): Option<Float>;
 
 // --- Fixed-width integers -------------------------------------------------------
 //
@@ -674,54 +694,54 @@ export fn f32FromBytes(b: [U8], at: Int): Option<Float>;
 // big-endian and a length prefix in a file usually is not.
 //
 // **Writing is pure.** An array literal of a fixed size allocates nothing a
-// context has to grant, so `fromU64Be(x)` is a pure function; only the readers
-// that produce a *slice* name `Alloc`.
+// context has to grant, so `fromU64BigEndian(x)` is a pure function; only the readers
+// that produce a *slice* name `Allocator`.
 
 /// Eight octets, most significant first.
-export fn fromU64Be(x: U64): [U8] {
+export fn fromU64BigEndian(value: U64): [U8] {
     [
-        bits.shrU64(x, 56).wrapToU8(),
-        bits.shrU64(x, 48).wrapToU8(),
-        bits.shrU64(x, 40).wrapToU8(),
-        bits.shrU64(x, 32).wrapToU8(),
-        bits.shrU64(x, 24).wrapToU8(),
-        bits.shrU64(x, 16).wrapToU8(),
-        bits.shrU64(x, 8).wrapToU8(),
-        x.wrapToU8(),
+        bits.shiftRightU64(value, 56).wrapToU8(),
+        bits.shiftRightU64(value, 48).wrapToU8(),
+        bits.shiftRightU64(value, 40).wrapToU8(),
+        bits.shiftRightU64(value, 32).wrapToU8(),
+        bits.shiftRightU64(value, 24).wrapToU8(),
+        bits.shiftRightU64(value, 16).wrapToU8(),
+        bits.shiftRightU64(value, 8).wrapToU8(),
+        value.wrapToU8(),
     ]
 }
 
 /// Eight octets, least significant first.
-export fn fromU64Le(x: U64): [U8] {
+export fn fromU64LittleEndian(value: U64): [U8] {
     [
-        x.wrapToU8(),
-        bits.shrU64(x, 8).wrapToU8(),
-        bits.shrU64(x, 16).wrapToU8(),
-        bits.shrU64(x, 24).wrapToU8(),
-        bits.shrU64(x, 32).wrapToU8(),
-        bits.shrU64(x, 40).wrapToU8(),
-        bits.shrU64(x, 48).wrapToU8(),
-        bits.shrU64(x, 56).wrapToU8(),
+        value.wrapToU8(),
+        bits.shiftRightU64(value, 8).wrapToU8(),
+        bits.shiftRightU64(value, 16).wrapToU8(),
+        bits.shiftRightU64(value, 24).wrapToU8(),
+        bits.shiftRightU64(value, 32).wrapToU8(),
+        bits.shiftRightU64(value, 40).wrapToU8(),
+        bits.shiftRightU64(value, 48).wrapToU8(),
+        bits.shiftRightU64(value, 56).wrapToU8(),
     ]
 }
 
 /// Four octets, most significant first.
-export fn fromU32Be(x: U32): [U8] {
+export fn fromU32BigEndian(value: U32): [U8] {
     [
-        bits.shrU32(x, 24).wrapToU8(),
-        bits.shrU32(x, 16).wrapToU8(),
-        bits.shrU32(x, 8).wrapToU8(),
-        x.wrapToU8(),
+        bits.shiftRightU32(value, 24).wrapToU8(),
+        bits.shiftRightU32(value, 16).wrapToU8(),
+        bits.shiftRightU32(value, 8).wrapToU8(),
+        value.wrapToU8(),
     ]
 }
 
 /// Four octets, least significant first.
-export fn fromU32Le(x: U32): [U8] {
+export fn fromU32LittleEndian(value: U32): [U8] {
     [
-        x.wrapToU8(),
-        bits.shrU32(x, 8).wrapToU8(),
-        bits.shrU32(x, 16).wrapToU8(),
-        bits.shrU32(x, 24).wrapToU8(),
+        value.wrapToU8(),
+        bits.shiftRightU32(value, 8).wrapToU8(),
+        bits.shiftRightU32(value, 16).wrapToU8(),
+        bits.shiftRightU32(value, 24).wrapToU8(),
     ]
 }
 
@@ -741,7 +761,7 @@ export fn fromU16LittleEndian(value: U16): [U8] {
 /// The `U16` the two octets at `at` spell, most significant first, or `.None` if
 /// there are not two of them.
 export fn toU16BigEndian(bytes: [U8], at: Int): Option<U16> {
-    if (at < 0 || at + 2 > bytes.len()) {
+    if (at < 0 || at + 2 > bytes.length()) {
         .None
     } else {
         .Some(
@@ -753,7 +773,7 @@ export fn toU16BigEndian(bytes: [U8], at: Int): Option<U16> {
 
 /// The same two octets read least significant first.
 export fn toU16LittleEndian(bytes: [U8], at: Int): Option<U16> {
-    if (at < 0 || at + 2 > bytes.len()) {
+    if (at < 0 || at + 2 > bytes.length()) {
         .None
     } else {
         .Some(
@@ -765,76 +785,76 @@ export fn toU16LittleEndian(bytes: [U8], at: Int): Option<U16> {
 
 /// The `U64` the eight octets at `at` spell, most significant first, or `.None`
 /// if there are not eight of them — never a truncated reading.
-export fn toU64Be(b: [U8], at: Int): Option<U64> {
-    if (at < 0 || at + 8 > b.len()) {
+export fn toU64BigEndian(bytes: [U8], at: Int): Option<U64> {
+    if (at < 0 || at + 8 > bytes.length()) {
         .None
     } else {
         .Some(
-            bits.shlU64(octet64(b, at), 56)
-                | bits.shlU64(octet64(b, at + 1), 48)
-                | bits.shlU64(octet64(b, at + 2), 40)
-                | bits.shlU64(octet64(b, at + 3), 32)
-                | bits.shlU64(octet64(b, at + 4), 24)
-                | bits.shlU64(octet64(b, at + 5), 16)
-                | bits.shlU64(octet64(b, at + 6), 8)
-                | octet64(b, at + 7),
+            bits.shiftLeftU64(octet64(bytes, at), 56)
+                | bits.shiftLeftU64(octet64(bytes, at + 1), 48)
+                | bits.shiftLeftU64(octet64(bytes, at + 2), 40)
+                | bits.shiftLeftU64(octet64(bytes, at + 3), 32)
+                | bits.shiftLeftU64(octet64(bytes, at + 4), 24)
+                | bits.shiftLeftU64(octet64(bytes, at + 5), 16)
+                | bits.shiftLeftU64(octet64(bytes, at + 6), 8)
+                | octet64(bytes, at + 7),
         )
     }
 }
 
 /// The same eight octets read least significant first.
-export fn toU64Le(b: [U8], at: Int): Option<U64> {
-    if (at < 0 || at + 8 > b.len()) {
+export fn toU64LittleEndian(bytes: [U8], at: Int): Option<U64> {
+    if (at < 0 || at + 8 > bytes.length()) {
         .None
     } else {
         .Some(
-            octet64(b, at)
-                | bits.shlU64(octet64(b, at + 1), 8)
-                | bits.shlU64(octet64(b, at + 2), 16)
-                | bits.shlU64(octet64(b, at + 3), 24)
-                | bits.shlU64(octet64(b, at + 4), 32)
-                | bits.shlU64(octet64(b, at + 5), 40)
-                | bits.shlU64(octet64(b, at + 6), 48)
-                | bits.shlU64(octet64(b, at + 7), 56),
+            octet64(bytes, at)
+                | bits.shiftLeftU64(octet64(bytes, at + 1), 8)
+                | bits.shiftLeftU64(octet64(bytes, at + 2), 16)
+                | bits.shiftLeftU64(octet64(bytes, at + 3), 24)
+                | bits.shiftLeftU64(octet64(bytes, at + 4), 32)
+                | bits.shiftLeftU64(octet64(bytes, at + 5), 40)
+                | bits.shiftLeftU64(octet64(bytes, at + 6), 48)
+                | bits.shiftLeftU64(octet64(bytes, at + 7), 56),
         )
     }
 }
 
 /// Four octets at `at`, most significant first.
-export fn toU32Be(b: [U8], at: Int): Option<U32> {
-    if (at < 0 || at + 4 > b.len()) {
+export fn toU32BigEndian(bytes: [U8], at: Int): Option<U32> {
+    if (at < 0 || at + 4 > bytes.length()) {
         .None
     } else {
         .Some(
-            bits.shlU32(octet32(b, at), 24)
-                | bits.shlU32(octet32(b, at + 1), 16)
-                | bits.shlU32(octet32(b, at + 2), 8)
-                | octet32(b, at + 3),
+            bits.shiftLeftU32(octet32(bytes, at), 24)
+                | bits.shiftLeftU32(octet32(bytes, at + 1), 16)
+                | bits.shiftLeftU32(octet32(bytes, at + 2), 8)
+                | octet32(bytes, at + 3),
         )
     }
 }
 
 /// Four octets at `at`, least significant first.
-export fn toU32Le(b: [U8], at: Int): Option<U32> {
-    if (at < 0 || at + 4 > b.len()) {
+export fn toU32LittleEndian(bytes: [U8], at: Int): Option<U32> {
+    if (at < 0 || at + 4 > bytes.length()) {
         .None
     } else {
         .Some(
-            octet32(b, at)
-                | bits.shlU32(octet32(b, at + 1), 8)
-                | bits.shlU32(octet32(b, at + 2), 16)
-                | bits.shlU32(octet32(b, at + 3), 24),
+            octet32(bytes, at)
+                | bits.shiftLeftU32(octet32(bytes, at + 1), 8)
+                | bits.shiftLeftU32(octet32(bytes, at + 2), 16)
+                | bits.shiftLeftU32(octet32(bytes, at + 3), 24),
         )
     }
 }
 
 /// The octet at `i` widened, or zero. Every caller checks the bounds first.
-fn octet64(b: [U8], i: Int): U64 {
-    b.get(i).withDefault(0).toU64()
+fn octet64(bytes: [U8], i: Int): U64 {
+    bytes.get(i).withDefault(0).toU64()
 }
 
-fn octet32(b: [U8], i: Int): U32 {
-    b.get(i).withDefault(0).toU32()
+fn octet32(bytes: [U8], i: Int): U32 {
+    bytes.get(i).withDefault(0).toU32()
 }
 
 // --- A reader -----------------------------------------------------------------------
@@ -848,9 +868,9 @@ fn octet32(b: [U8], i: Int): U32 {
 // the one it started from. For building, `[[U8]].flatten` is the answer.
 //
 // **The methods that only move the cursor are pure; the two that answer a
-// `[U8]` name `Alloc`**, because `[T].slice` copies.
+// `[U8]` name `Allocator`**, because `[T].slice` copies.
 
-derive Eq, Show for Reader;
+derive Equal, Show for Reader;
 /// A position in a run of octets: the octets, and how far in.
 export struct Reader {
     export bytes: [U8],
@@ -858,33 +878,33 @@ export struct Reader {
 }
 
 /// A reader positioned at the first octet.
-export fn reader(b: [U8]): Reader {
-    Reader { bytes: b, at: 0 }
+export fn reader(bytes: [U8]): Reader {
+    Reader { bytes: bytes, at: 0 }
 }
 
 /// A reader positioned at `at`, for a frame whose header some other decoder
 /// already read.
-export fn readerAt(b: [U8], at: Int): Reader {
-    Reader { bytes: b, at }
+export fn readerAt(bytes: [U8], at: Int): Reader {
+    Reader { bytes: bytes, at }
 }
 
 impl Reader {
     /// Whether every octet has been read.
     export fn isDone(self): Bool {
-        self.at >= self.bytes.len()
+        self.at >= self.bytes.length()
     }
 
     /// The next octet, and the reader after it.
     ///
     /// ```buri run
     /// from "core/bytes" import * as bytes;
-    /// from "core/effect" import { Alloc, Stdout };
+    /// from "core/effect" import { Allocator, Stdout };
     /// from "core/host" import * as host;
     /// from "core/io" import * as io;
     ///
     /// export fn main(): Result<(), Str> {
     ///     let ctx = context {
-    ///         Alloc: host.alloc,
+    ///         Allocator: host.alloc,
     ///         Stdout: host.stdout,
     ///     };
     ///     // A tag octet, then a length-prefixed body: the shape every wire
@@ -918,13 +938,13 @@ impl Reader {
     ///
     /// A negative `n`, or one that runs off the end, is an error at the index
     /// the read began.
-    export fn takeSlice<C: Alloc>(
+    export fn takeSlice<C: Allocator>(
         self,
         ctx: C,
         n: Int,
     ): Result<([U8], Reader), DecodeError> {
         let end = self.at + n;
-        if (n < 0 || end > self.bytes.len()) {
+        if (n < 0 || end > self.bytes.length()) {
             .Err(DecodeError(self.at))
         } else {
             .Ok((self.bytes.slice(ctx, self.at, end), Reader { ..self, at: end }))
@@ -936,7 +956,10 @@ impl Reader {
     ///
     /// The error index is where the *frame* began rather than where its body
     /// did.
-    export fn takeFramed<C: Alloc>(self, ctx: C): Result<([U8], Reader), DecodeError> {
+    export fn takeFramed<C: Allocator>(
+        self,
+        ctx: C,
+    ): Result<([U8], Reader), DecodeError> {
         let (n, afterLength) = self.takeVarint()?;
         match (afterLength.takeSlice(ctx, n)) {
             .Ok(pair) => .Ok(pair),

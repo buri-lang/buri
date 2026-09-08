@@ -66,21 +66,21 @@ from "core/io" import * as io;
 
 export fn main(): Result<(), Str> {
     let letters = [1, 2, 3].map(alloc, fn(n) => "buri".repeat(alloc, n));
-    let _ = io.println(stdout, "${letters.len()}").ignore();
+    let _ = io.println(stdout, "${letters.length()}").ignore();
     .Ok(())
 }
 "#;
 
 /// The same, as a test block, so that the binary `buri test` spawns has a heap
 /// to be audited.
-const COUNTING_TEST: &str = r#"from "core/effect" import { Alloc };
+const COUNTING_TEST: &str = r#"from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/testing/assert" import * as assert;
 
 test "a suite that allocates" {
-    let ctx = context { Alloc: alloc() };
+    let ctx = context { Allocator: alloc() };
     let letters = [1, 2, 3].mapCtx(ctx, fn(c, n) => "buri".repeat(c, n));
-    assert.eq(letters.len(), 3);
+    assert.equal(letters.length(), 3);
 }
 "#;
 

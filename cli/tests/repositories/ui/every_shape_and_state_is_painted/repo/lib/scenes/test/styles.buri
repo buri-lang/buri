@@ -1,8 +1,12 @@
 // Every property the painter honours, twice: once with every length at zero
 // and every multiple at zero, and once with every length at the viewport's own
 // size. A property that stopped being read would move one of the two.
+//
+// And a heading, which is the one element whose type a browser would decide by
+// itself. The picture is what says it does not: an unstyled heading is the size
+// of the text around it, and a styled one is the size it asked for.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "ui/effect" import { Ui };
 from "ui/node" import * as ui;
@@ -11,7 +15,7 @@ from "//lib/scenes" import { fractions, plate, tinted };
 
 test "every property at zero" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "styles-at-zero", plate(.Px(0), 0.0), .Hover, []);
@@ -19,7 +23,7 @@ test "every property at zero" {
 
 test "every property at the size of the page" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "styles-at-the-viewport", plate(.Px(800), 3.0), .Hover, []);
@@ -27,7 +31,7 @@ test "every property at the size of the page" {
 
 test "a style the compiler could not fold still paints" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(
@@ -45,8 +49,29 @@ test "a style the compiler could not fold still paints" {
 
 test "a fraction track takes its share of what is left" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
         Ui: headless(),
     };
     snapshot(ctx, "grid-fractions", fractions(), .Hover, []);
+}
+
+test "a heading is the size its styles say, not the size a browser picked" {
+    let ctx = context {
+        Allocator: alloc(),
+        Ui: headless(),
+    };
+    snapshot(
+        ctx,
+        "headings",
+        ui.column([.Padding(.Px(12)), .Gap(.Px(6)), .FontSize(.Px(13))], [
+            ui.heading(1, [], .Const("inherited")),
+            ui.heading(
+                2,
+                [.FontSize(.Px(28)), .FontWeight(.Bold)],
+                .Const("asked for"),
+            ),
+            ui.text(.Const("beside them")),
+        ]),
+        .Hover,
+    );
 }

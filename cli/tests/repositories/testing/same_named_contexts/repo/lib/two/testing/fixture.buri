@@ -1,5 +1,5 @@
-from "core/effect" import { Alloc, Rand };
-from "core/fs" import { FsRead, FsWrite };
+from "core/effect" import { Allocator, Random };
+from "core/fs" import { FileSystemRead, FileSystemWrite };
 from "core/host/testing" import { alloc, fs as disk, rand };
 
 /// `//lib/one`'s `Fixture` binds two effects; this one binds four. Two
@@ -7,8 +7,8 @@ from "core/host/testing" import { alloc, fs as disk, rand };
 /// empties the smaller into its callers, which is what left the larger one
 /// answering to an abort the day both wore the symbol `ctx$Fixture`.
 export context Fixture {
-    Alloc: alloc(),
-    FsRead: disk(),
-    FsWrite: disk(),
-    Rand: rand().seed(7),
+    Allocator: alloc(),
+    FileSystemRead: disk(),
+    FileSystemWrite: disk(),
+    Random: rand().seed(7),
 }

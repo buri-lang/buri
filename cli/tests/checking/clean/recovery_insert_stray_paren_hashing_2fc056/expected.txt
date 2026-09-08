@@ -1,9 +1,0 @@
-error: expected an expression, found `,` [unexpected-token]
-  --> main.buri:36:37
-   |
-36 |     assert.eq(table.get(assert.some(, uuid.fromBytes(id.0))), .Some("ada"));
-   |                                     ^
-   |
-   = expected: an expression
-   = actual: `,`
-   = fix: write a value here

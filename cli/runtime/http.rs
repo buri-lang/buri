@@ -1,8 +1,8 @@
-//! A minimal HTTP/1.1 client, for `Net::fetch`.
+//! A minimal HTTP/1.1 client, for `Network::fetch`.
 //!
 //! Synchronous, and now alone in it. A request made through this client blocks
 //! the thread it was made on; the JavaScript half no longer does, because
-//! `$host_HostNet_fetch` awaits the platform's own `fetch` (`runtime.js`). What
+//! `$host_HostNetwork_fetch` awaits the platform's own `fetch` (`runtime.js`). What
 //! makes the difference is a runtime that can suspend a call, which the native
 //! backends do not yet have — not the shape of the request, which is the same
 //! `Request` on both sides.
@@ -31,7 +31,7 @@
 //!
 //! What is *not* here is HTTP/2. `hyper` is in the runtime's manifest and this
 //! client does not use it: a synchronous exchange over one connection is the
-//! whole of what `Net.fetch` is until the carrier runtime exists (design/native
+//! whole of what `Network.fetch` is until the carrier runtime exists (design/native
 //! track B), and until then a `hyper` client would mean standing up a `tokio`
 //! reactor per request in order to reach a framing layer this file already has.
 //! The day `fetch` can suspend, that decision is worth taking again.
@@ -115,7 +115,7 @@ pub struct HttpResponse {
 /// How long any one step of a request may take before it is a `Timeout`.
 ///
 /// **Every** step: the name lookup, the connect, the handshake, each write and
-/// each read. That is what makes "a `Net.fetch` returns" a property of this
+/// each read. That is what makes "a `Network.fetch` returns" a property of this
 /// client rather than a property of the network it is pointed at — a peer that
 /// accepts and says nothing, a route that swallows the SYN, a resolver that
 /// never answers, all end here with the same answer instead of holding the
@@ -177,13 +177,13 @@ fn parse(url: &str) -> Result<Url<'_>, NetFail> {
     // than the compile-time one `Backend::missing_intrinsics` gives the server
     // and task intrinsics, and deliberately: the cleartext half of this client
     // needs no crate and goes on working, so refusing every program that
-    // mentions `Net.fetch` would be refusing programs that were never going to
+    // mentions `Network.fetch` would be refusing programs that were never going to
     // need TLS.
     #[cfg(not(feature = "net"))]
     if tls {
         return Err(NetFail::Transport(
             "https is not supported by this toolchain's native runtime: it was built without the \
-             runtime's `net` feature, so it carries no TLS code. `Net.fetch` speaks cleartext \
+             runtime's `net` feature, so it carries no TLS code. `Network.fetch` speaks cleartext \
              http only"
                 .to_string(),
         ));
@@ -265,7 +265,7 @@ fn io_fail(e: &std::io::Error) -> NetFail {
 /// what `to_socket_addrs` is on every host this runtime targets — takes as long
 /// as the resolver takes. On a machine whose DNS is answered that is a
 /// millisecond; on one whose packets to the resolver are dropped it is minutes,
-/// and on one whose resolver is gone it can be *never*. A `Net.fetch` that
+/// and on one whose resolver is gone it can be *never*. A `Network.fetch` that
 /// never returns is not a slow program, it is a stuck one, and the calling
 /// thread is a carrier that nothing can take back.
 ///

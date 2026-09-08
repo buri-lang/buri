@@ -10,10 +10,10 @@
 // golden nobody else could reproduce.
 
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Entropy, Env, IoError, Stdout };
+from "core/effect" import { Allocator, Entropy, Environment, IoError, Stdout };
 from "core/env" import * as env;
 from "core/fs" import * as fs;
-from "core/fs" import { EntryKind, FsRead, FsWrite };
+from "core/fs" import { EntryKind, FileSystemRead, FileSystemWrite };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/list" import * as list;
@@ -53,7 +53,7 @@ fn refused<T>(answer: Result<T, IoError>): Str {
     }
 }
 
-fn text<C: Alloc>(ctx: C, body: [U8]): Str {
+fn text<C: Allocator>(ctx: C, body: [U8]): Str {
     match (bytes.fromUtf8(ctx, body)) {
         .Ok(said) => said.trim(),
         .Err(_e) => "?",
@@ -62,7 +62,7 @@ fn text<C: Alloc>(ctx: C, body: [U8]): Str {
 
 /// The entries as `name:kind`, sorted: a directory answers in whatever order
 /// the operating system keeps it in.
-fn listed<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, Str> {
+fn listed<C: Allocator + FileSystemRead>(ctx: C, at: Path): Result<Str, Str> {
     let entries = fs
         .listDirectoryEntries(ctx, at)
         .mapErr(fn(_e) => "listDirectoryEntries")?;
@@ -73,7 +73,7 @@ fn listed<C: Alloc + FsRead>(ctx: C, at: Path): Result<Str, Str> {
 }
 
 /// Every path under `root`, written from it and sorted, for `listed`'s reason.
-fn walked<C: Alloc + FsRead>(ctx: C, root: Path): Result<Str, Str> {
+fn walked<C: Allocator + FileSystemRead>(ctx: C, root: Path): Result<Str, Str> {
     let found = fs.walk(ctx, root).mapErr(fn(_e) => "walk")?;
     let shown = found.mapCtx(ctx, fn(c, p) => {
         match (p.relativeTo(c, root)) {
@@ -84,14 +84,19 @@ fn walked<C: Alloc + FsRead>(ctx: C, root: Path): Result<Str, Str> {
     .Ok(shown.sort(ctx).join(ctx, " "))
 }
 
-fn found<C: Alloc + Env + FsRead>(ctx: C, program: Str): Result<Path, Str> {
+fn found<C: Allocator + Environment + FileSystemRead>(
+    ctx: C,
+    program: Str,
+): Result<Path, Str> {
     match (process.which(ctx, program)) {
         .Some(at) => .Ok(at),
         .None => .Err(str.format(ctx, "no `${program}` on PATH")),
     }
 }
 
-fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
+fn children<C: Allocator + Environment + FileSystemRead + Spawn + Stdout>(
+    ctx: C,
+): Result<(), Str> {
     let yes = found(ctx, "true")?;
     let cat = found(ctx, "cat")?;
     let printer = found(ctx, "env")?;
@@ -106,7 +111,7 @@ fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
         .run(ctx, process.command(yes.text(), []))
         .mapErr(fn(_e) => "true")?;
     let _p2 = io
-        .println(ctx, "true ${ran.code} ${ran.stdout.len()} ${ran.stderr.len()}")
+        .println(ctx, "true ${ran.code} ${ran.stdout.length()} ${ran.stderr.length()}")
         .mapErr(fn(_e) => "print")?;
 
     // A child that ran and failed is `.Ok` with a code and something on
@@ -117,7 +122,7 @@ fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
     let _p3 = io
         .println(
             ctx,
-            "failed ${complained.code != 0} ${complained.stderr.len() > 0} ${refused(
+            "failed ${complained.code != 0} ${complained.stderr.length() > 0} ${refused(
                 process.run(ctx, process.command("buri-no-such-program", [])),
             )}",
         )
@@ -135,7 +140,7 @@ fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
     };
     let all = process.run(ctx, flooded).mapErr(fn(_e) => "cat large")?;
     let _p4 = io
-        .println(ctx, "large ${all.code} ${all.stdout.len()}")
+        .println(ctx, "large ${all.code} ${all.stdout.length()}")
         .mapErr(fn(_e) => "print")?;
 
     // The child's whole environment, replaced rather than added to.
@@ -177,11 +182,11 @@ fn children<C: Alloc + Env + FsRead + Spawn + Stdout>(ctx: C): Result<(), Str> {
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Entropy: host.entropy,
-        Env: host.env,
-        FsRead: host.fs,
-        FsWrite: host.fs,
+        Environment: host.env,
+        FileSystemRead: host.fs,
+        FileSystemWrite: host.fs,
         Spawn: host.spawn,
         Stdout: host.stdout,
     };
@@ -259,7 +264,7 @@ export fn main(): Result<(), Str> {
             ctx,
             "empty ${fs
                 .walk(ctx, empty)
-                .map(fn(found) => found.len())
+                .map(fn(found) => found.length())
                 .withDefault(0 - 1)} ${refused(
                 fs.walk(ctx, root.join(ctx, "nope")),
             )} ${refused(fs.walk(ctx, note))}",
@@ -276,7 +281,11 @@ export fn main(): Result<(), Str> {
         .println(
             ctx,
             "window ${head
-                == [101, 108, 108]} ${past.len()} ${last.len()} ${none.len()} ${refused(
+                == [
+                    101,
+                    108,
+                    108,
+                ]} ${past.length()} ${last.length()} ${none.length()} ${refused(
                 fs.readRange(ctx, note, 0 - 1, 2),
             )} ${refused(fs.readRange(ctx, note, 0, 0 - 2))}",
         )
@@ -295,7 +304,7 @@ export fn main(): Result<(), Str> {
     let _p9 = io
         .println(
             ctx,
-            "copy ${back.len()} ${itself.len()} ${refused(
+            "copy ${back.length()} ${itself.length()} ${refused(
                 fs.copy(ctx, note, root.join(ctx, "nowhere/x")),
             )} ${refused(fs.copy(ctx, deep, root.join(ctx, "deep.copy")))}",
         )

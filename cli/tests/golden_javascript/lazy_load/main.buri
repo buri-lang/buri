@@ -4,31 +4,31 @@
 // `shared` stays, because `main` calls it too, and the chunk borrows it back
 // through `$bind`. `eager` is loaded and *also* called directly, so there is
 // nothing to move and its `load` compiles away to nothing at all.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/lazy" import * as lazy;
 from "core/str" import * as str;
 
-fn shared<C: Alloc>(ctx: C, n: Int): Str {
+fn shared<C: Allocator>(ctx: C, n: Int): Str {
     str.format(ctx, "[${n}]")
 }
 
-fn onlyTheChunk<C: Alloc>(ctx: C, n: Int): Str {
+fn onlyTheChunk<C: Allocator>(ctx: C, n: Int): Str {
     str.format(ctx, "row ${shared(ctx, n)}")
 }
 
-fn report<C: Alloc + Stdout>(ctx: C, n: Int): () {
+fn report<C: Allocator + Stdout>(ctx: C, n: Int): () {
     io.println(ctx, onlyTheChunk(ctx, n)).ignore()
 }
 
-fn eager<C: Alloc + Stdout>(ctx: C, n: Int): () {
+fn eager<C: Allocator + Stdout>(ctx: C, n: Int): () {
     io.println(ctx, shared(ctx, n)).ignore()
 }
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let _ = eager(ctx, 1);

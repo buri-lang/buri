@@ -7,29 +7,29 @@
 from "core/testing/assert" import * as assert;
 
 test "a title with: a colon" {
-    assert.eq(1, 2);
+    assert.equal(1, 2);
 }
 
 test "a title with \"quotes\" in it" {
-    assert.eq(1, 2);
+    assert.equal(1, 2);
 }
 
 test "a title with a backslash \\ and a tab \t" {
-    assert.eq(1, 2);
+    assert.equal(1, 2);
 }
 
 test "a título with ünïcödé — 日本語 🎉" {
-    assert.eq(1, 2);
+    assert.equal(1, 2);
 }
 
 test "" {
-    assert.eq(1, 2);
+    assert.equal(1, 2);
 }
 
 test "braces { } brackets [ ] and a comma , " {
-    assert.eq(1, 2);
+    assert.equal(1, 2);
 }
 
 test "a title with a newline \n in it" {
-    assert.eq(1, 2);
+    assert.equal(1, 2);
 }

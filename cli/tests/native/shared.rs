@@ -262,7 +262,7 @@ fn staged() -> &'static (PathBuf, Vec<String>) {
 //
 // `effect Listen`'s acceptor is `cli/runtime/net.rs` and reaching it needs a
 // *client*, which no Buri program can be on a native backend yet:
-// `host.HostNet.fetch` has a body in the archive and no row in either runtime
+// `host.HostNetwork.fetch` has a body in the archive and no row in either runtime
 // table, because `NetError` carries a payload on two of its variants and
 // `lib.rs` §2.1's `Result` shape restricts the variant a discriminant names to
 // carrying none. So the client here is Rust, on the far side of a loopback
@@ -302,15 +302,16 @@ pub const SERVER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(
 /// between is a flake rather than a failure.
 pub fn one_shot_server() -> String {
     String::from(
-        r#"from "core/effect" import { Alloc, Listen, Stdout, Tasks };
+        r#"from "core/effect" import { Allocator, Listen, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
+from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Listen: host.listen,
     Stdout: host.stdout,
     Tasks: host.tasks,
@@ -319,7 +320,7 @@ export fn main(): Result<(), Str> {
     port: 0,
     onRequest: fn(c, request) => http.text(c, request.path()),
     requestLimit: .Some(1),
-    idleTimeoutMillis: .Some(20000),
+    idleTimeout: .Some(time.milliseconds(20000)),
   };
   match (server.bind(ctx, plan)) {
     .Err(e) => .Err(server.errorText(e)),
@@ -340,7 +341,7 @@ export fn main(): Result<(), Str> {
 }
 
 /// A server that answers `requests` requests, each handler sleeping for
-/// `sleep_millis` before it answers.
+/// `sleep_milliseconds` before it answers.
 ///
 /// **The sleep is the whole instrument.** A handler that computes proves nothing
 /// about concurrency on a machine with one processor free, and a handler that
@@ -353,9 +354,9 @@ export fn main(): Result<(), Str> {
 /// and `run` fans out to it. That constant being a constant — sixty-four, and
 /// not a function of this machine's processor count — is what makes the timing
 /// assertion predictable, and `net.rs` says so where it is declared.
-pub fn concurrent_server(requests: usize, sleep_millis: usize) -> String {
+pub fn concurrent_server(requests: usize, sleep_milliseconds: usize) -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Clock, Listen, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Clock, Listen, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -364,7 +365,7 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Clock: host.clock,
     Listen: host.listen,
     Stdout: host.stdout,
@@ -373,11 +374,11 @@ export fn main(): Result<(), Str> {{
   let plan = server.Server {{
     port: 0,
     onRequest: fn(c, request) => {{
-      let _slept = time.sleepMs(c, {sleep});
+      let _slept = time.sleep(c, time.milliseconds({sleep}));
       http.text(c, request.path())
     }},
     requestLimit: .Some({requests}),
-    idleTimeoutMillis: .Some(60000),
+    idleTimeout: .Some(time.milliseconds(60000)),
   }};
   match (server.bind(ctx, plan)) {{
     .Err(e) => .Err(server.errorText(e)),
@@ -395,7 +396,7 @@ export fn main(): Result<(), Str> {{
 }}
 "#,
         requests = requests,
-        sleep = sleep_millis,
+        sleep = sleep_milliseconds,
     )
 }
 
@@ -634,7 +635,7 @@ unsafe extern "C" {
 /// A Buri server that **cannot stop on its own**, so that the only thing that
 /// can end it is a signal.
 ///
-/// No `requestLimit` and no `idleTimeoutMillis`: the two fields that let every
+/// No `requestLimit` and no `idleTimeoutMilliseconds`: the two fields that let every
 /// other server fixture in this file finish are deliberately absent, so a
 /// `.Ok(())` out of `serve` — which is what "served" on the last line reports —
 /// can only have come from the drain. A shutdown that did not work leaves a
@@ -647,9 +648,9 @@ unsafe extern "C" {
 /// handler prints a line, fills the output buffer to flush it (the same eight
 /// kilobytes and the same reason as the port above), and only then sleeps: when
 /// the test sees that line, the request is provably inside a handler.
-pub fn draining_server(sleep_millis: usize) -> String {
+pub fn draining_server(sleep_milliseconds: usize) -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Clock, Listen, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Clock, Listen, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
@@ -658,7 +659,7 @@ from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Clock: host.clock,
     Listen: host.listen,
     Stdout: host.stdout,
@@ -668,10 +669,10 @@ export fn main(): Result<(), Str> {{
     port: 0,
     onRequest: fn(c, request) => {{
       let _handling = io.println(c, "handling").ignore();
-      let _slept = time.sleepMs(c, {sleep});
+      let _slept = time.sleep(c, time.milliseconds({sleep}));
       http.text(c, request.path())
     }},
-    drainMillis: .Some(10000),
+    drain: .Some(time.milliseconds(10000)),
   }};
   match (server.bind(ctx, plan)) {{
     .Err(e) => .Err(server.errorText(e)),
@@ -688,7 +689,7 @@ export fn main(): Result<(), Str> {{
   }}
 }}
 "#,
-        sleep = sleep_millis,
+        sleep = sleep_milliseconds,
     )
 }
 
@@ -1093,15 +1094,16 @@ pub fn tls_identity(row: &str) -> (PathBuf, PathBuf, PathBuf) {
 ///   the pair.
 pub fn tls_server(certificate: &Path, key: &Path, absent: &Path) -> String {
     format!(
-        r#"from "core/effect" import {{ Alloc, Listen, Stdout, Tasks }};
+        r#"from "core/effect" import {{ Allocator, Listen, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
+from "core/time" import * as time;
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Listen: host.listen,
     Stdout: host.stdout,
     Tasks: host.tasks,
@@ -1110,7 +1112,7 @@ export fn main(): Result<(), Str> {{
     port: 0,
     onRequest: fn(_c, _request) => http.status(204),
     protocols: .Some([.Http2]),
-    idleTimeoutMillis: .Some(200),
+    idleTimeout: .Some(time.milliseconds(200)),
   }};
   let _h2 = match (server.bind(ctx, h2)) {{
     .Err(e) => io.println(ctx, "h2 ${{e.detail}}").ignore(),
@@ -1120,7 +1122,7 @@ export fn main(): Result<(), Str> {{
     port: 0,
     onRequest: fn(_c, _request) => http.status(204),
     tls: .Some(server.Tls {{ certificate: "{absent}", key: "{key}" }}),
-    idleTimeoutMillis: .Some(200),
+    idleTimeout: .Some(time.milliseconds(200)),
   }};
   let _missing = match (server.bind(ctx, missing)) {{
     .Err(e) => io.println(ctx, "missing ${{e.detail}}").ignore(),
@@ -1131,7 +1133,7 @@ export fn main(): Result<(), Str> {{
     onRequest: fn(_c, _request) => http.status(204),
     protocols: .Some([.Http1, .Http2]),
     tls: .Some(server.Tls {{ certificate: "{certificate}", key: "{key}" }}),
-    idleTimeoutMillis: .Some(200),
+    idleTimeout: .Some(time.milliseconds(200)),
   }};
   match (server.bind(ctx, secured)) {{
     .Err(e) => .Err(server.errorText(e)),
@@ -1233,18 +1235,19 @@ pub fn counting_socket_server() -> String {
     String::from(
         r#"from "core/actor" import * as actor;
 from "core/actor" import { Actor, Stepped };
-from "core/effect" import { Alloc, Listen, Sockets, Stdout, Tasks };
+from "core/effect" import { Allocator, Listen, Sockets, Stdout, Tasks };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/str" import * as str;
+from "core/time" import * as time;
 
 enum Counting {
   Increment,
 }
 
-fn counter<C: Alloc + Tasks>(): Actor<C, Int, Counting, Int> {
+fn counter<C: Allocator + Tasks>(): Actor<C, Int, Counting, Int> {
   Actor {
     state: 0,
     step: fn(c, count, message) => {
@@ -1257,7 +1260,7 @@ fn counter<C: Alloc + Tasks>(): Actor<C, Int, Counting, Int> {
 
 export fn main(): Result<(), Str> {
   let ctx = context {
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Listen: host.listen,
     Sockets: host.sockets,
     Stdout: host.stdout,
@@ -1267,7 +1270,7 @@ export fn main(): Result<(), Str> {
     port: 0,
     onRequest: fn(_c, _request) => http.status(404),
     requestLimit: .Some(1),
-    idleTimeoutMillis: .Some(20000),
+    idleTimeout: .Some(time.milliseconds(20000)),
     websocket: .Some(server.WebSocket {
       path: "/socket",
       onOpen: fn(c, _socket, _request) => actor.start(c, counter()),
@@ -1327,12 +1330,13 @@ pub fn broadcasting_socket_server(members: usize) -> String {
     format!(
         r#"from "core/actor" import * as actor;
 from "core/actor" import {{ Actor, Stepped }};
-from "core/effect" import {{ Alloc, Listen, Sockets, Stdout, Tasks }};
+from "core/effect" import {{ Allocator, Listen, Sockets, Stdout, Tasks }};
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "core/net/server" import * as server;
 from "core/net/server" import {{ Message, Socket }};
+from "core/time" import * as time;
 
 enum Room {{
   Joined(Socket),
@@ -1340,18 +1344,18 @@ enum Room {{
   Publish(Message),
 }}
 
-fn room<C: Alloc + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {{
+fn room<C: Allocator + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {{
   Actor {{
     state: [],
     step: fn(c, members, message) => {{
       match (message) {{
         .Joined(socket) => {{
           let joined = members.push(c, socket);
-          Stepped {{ state: joined, answer: joined.len() }}
+          Stepped {{ state: joined, answer: joined.length() }}
         }},
         .Left(socket) => {{
           let left = members.filter(c, fn(m) => m != socket);
-          Stepped {{ state: left, answer: left.len() }}
+          Stepped {{ state: left, answer: left.length() }}
         }},
         .Publish(m) => {{
           let _pushed = members.foldCtx(
@@ -1359,7 +1363,7 @@ fn room<C: Alloc + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {{
             fn(inner, _sofar, socket) => socket.send(inner, m),
             (),
           );
-          Stepped {{ state: members, answer: members.len() }}
+          Stepped {{ state: members, answer: members.length() }}
         }},
       }}
     }},
@@ -1368,7 +1372,7 @@ fn room<C: Alloc + Sockets + Tasks>(): Actor<C, [Socket], Room, Int> {{
 
 export fn main(): Result<(), Str> {{
   let ctx = context {{
-    Alloc: host.alloc,
+    Allocator: host.alloc,
     Listen: host.listen,
     Sockets: host.sockets,
     Stdout: host.stdout,
@@ -1379,7 +1383,7 @@ export fn main(): Result<(), Str> {{
     port: 0,
     onRequest: fn(_c, _request) => http.status(404),
     requestLimit: .Some({members}),
-    idleTimeoutMillis: .Some(20000),
+    idleTimeout: .Some(time.milliseconds(20000)),
     websocket: .Some(server.WebSocket {{
       path: "/socket",
       onOpen: fn(c, socket, _request) => {{

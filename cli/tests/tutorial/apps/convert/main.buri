@@ -1,11 +1,11 @@
-from "core/effect" import { Alloc, Env, Stdout };
+from "core/effect" import { Allocator, Environment, Stdout };
 from "core/host" import * as host;
 from "//libs/convert" import { run };
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
-        Env: host.env,
+        Allocator: host.alloc,
+        Environment: host.env,
         Stdout: host.stdout,
     };
 

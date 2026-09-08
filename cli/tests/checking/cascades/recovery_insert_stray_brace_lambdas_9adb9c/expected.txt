@@ -1,0 +1,21 @@
+error: `.extra` needs a known expected type [unannotated-variant]
+   --> main.buri:110:38
+    |
+110 |         if (n > 0) { .Ok(n) } else { .extra Err("low") }
+    |                                      ^^^^^^
+    |
+    = fix: write the qualified form, as in `Option.extra(...)`, or annotate what this value is being used as
+error: a statement ends with `;` [missing-terminator]
+   --> main.buri:110:44
+    |
+110 |         if (n > 0) { .Ok(n) } else { .extra Err("low") }
+    |                                            ^
+    |
+    = fix: write `;` here
+error: there is nothing named `Err` in scope [unresolved-name]
+   --> main.buri:110:45
+    |
+110 |         if (n > 0) { .Ok(n) } else { .extra Err("low") }
+    |                                             ^^^
+    |
+    = fix: declare `Err`, or import it — a name is in scope only from this module's own declarations and its imports

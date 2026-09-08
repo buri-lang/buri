@@ -2,13 +2,13 @@ from "core/testing/assert" import * as assert;
 from "//lib/money" import { format, fromCents };
 
 test "pads the cents place" {
-    assert.eq(format(fromCents(1905)), "some");
+    assert.equal(format(fromCents(1905)), "some");
 }
 
 test "addition composes" {
-    assert.eq(fromCents(19) + fromCents(4), 23);
+    assert.equal(fromCents(19) + fromCents(4), 23);
 }
 
 test "zero formats as zero" {
-    assert.eq(format(fromCents(0)), "zero");
+    assert.equal(format(fromCents(0)), "zero");
 }

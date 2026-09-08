@@ -828,13 +828,13 @@ pub fn tool_target(workspace: &Workspace, tool: &str) -> Option<TargetId> {
 const GENERATOR_MAIN_NAME: &str = "toolchain-generator-main";
 
 const PROTO_MAIN: &str = r#"from "core/codegen" import * as codegen;
-from "core/effect" import { Alloc, Stdin, Stdout };
+from "core/effect" import { Allocator, Stdin, Stdout };
 from "core/host" import * as host;
 from "std/codegen/proto" import * as proto;
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdin: host.stdin,
         Stdout: host.stdout,
     };
@@ -918,7 +918,7 @@ fn toolchain_artifact(
 /// [`crate::build::spawn::FIXED_CLOCK_JS`] is spliced into a *suite's* script,
 /// which the runner writes; a generator's artifact is the ordinary linked one,
 /// and nothing here rewrites it. What keeps a generator off the clock is that
-/// `core/codegen`'s `run` hands `generate` a context bounded by `Alloc`,
+/// `core/codegen`'s `run` hands `generate` a context bounded by `Allocator`,
 /// `Stdin` and `Stdout` — reach past those three and the program does not
 /// compile (`cli/tests/reject/generator_reaches_beyond_its_context`). A `main`
 /// that binds more than `run` needs is out of that bound, and

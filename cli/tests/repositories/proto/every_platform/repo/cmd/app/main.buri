@@ -2,13 +2,13 @@
 // `std/codegen/proto` produced, so each output that compiles is that module
 // compiling for that platform.
 from "core/bytes" import * as bytes;
-from "core/effect" import { Alloc, Request, Response, Stdout };
+from "core/effect" import { Allocator, Request, Response, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 from "core/net/http" import * as http;
 from "//lib/wire" import { decodePoint, defaultPoint, encodePoint, Point };
 
-fn hex<C: Alloc>(ctx: C): Str {
+fn hex<C: Allocator>(ctx: C): Str {
     let p = Point { ..defaultPoint(), x: .Some(1), y: .Some(300) };
     bytes.toHex(ctx, encodePoint(ctx, p))
 }
@@ -17,14 +17,14 @@ fn hex<C: Alloc>(ctx: C): Str {
 /// answer travels back as the response body.
 export fn handle(_request: Request): Response {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
     };
     http.text(ctx, hex(ctx))
 }
 
 export fn main(): Result<(), Str> {
     let ctx = context {
-        Alloc: host.alloc,
+        Allocator: host.alloc,
         Stdout: host.stdout,
     };
     let p = Point { ..defaultPoint(), x: .Some(1), y: .Some(300) };

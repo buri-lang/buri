@@ -1,0 +1,9 @@
+error: expected `(`, found `pointsAt` [unexpected-token]
+  --> main.buri:41:17
+   |
+41 | export fn extra pointsAt<C: Allocator>(ctx: C, text: Str, d: Diagnostic): Str {
+   |                 ^^^^^^^^
+   |
+   = expected: `(`
+   = actual: `pointsAt`
+   = fix: write `(` here

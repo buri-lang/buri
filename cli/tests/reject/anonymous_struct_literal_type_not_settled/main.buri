@@ -10,18 +10,18 @@
 // The neighbouring case where the annotation *does* reach through the call is
 // not an error and is in the conformance suite: `let w: World = identity({ hi:
 // "hi" })` binds `T` before the argument is checked, and compiles.
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
 struct World { export hi: Str, export hello: Option<Str> }
 
-derive Eq for World;
+derive Equal for World;
 
-fn same<T: Eq>(a: T, b: T): Bool { a == b }
+fn same<T: Equal>(a: T, b: T): Bool { a == b }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let yes: Bool = same({ hi: "hi" }, World { hi: "hi" });
   let _ = io.println(ctx, "${yes}").ignore();
   .Ok(())

@@ -34,7 +34,7 @@
 //!     `runtime.js` does; `isAlpha` is `\p{L}`, which is a General Category and
 //!     not the **Alphabetic** property `char::is_alphabetic` answers, so that
 //!     file carries the category as data and says where the data came from;
-//!   * **the exactly-specified half of `core/math`** ([`math`]) — `sqrt`, the
+//!   * **the exactly-specified half of `core/math`** ([`math`]) — `squareRoot`, the
 //!     four rounding functions and the three predicates. The thirteen
 //!     transcendentals are deliberately absent, and that file says why: IEEE
 //!     754 does not fix their answers, so V8's fdlibm port and the platform's
@@ -95,8 +95,8 @@
 //! ## 1. The symbol rule
 //!
 //! **Every exported symbol is `buri_rt_` followed by `snake_case`.** No
-//! exceptions, including the host capabilities: `host.HostFs.readFile` is
-//! `buri_rt_host_fs_read_file`. One prefix and one rule, so that "is this
+//! exceptions, including the host capabilities: `host.HostFileSystem.readFile` is
+//! `buri_rt_host_file_system_read_file`. One prefix and one rule, so that "is this
 //! symbol ours" is a string comparison and not a table.
 //!
 //! ## 2. The calling convention
@@ -231,7 +231,7 @@
 //!   * [`BURI_OK`], and `.Ok`'s payload written through the out-pointer — or,
 //!     where `T` is zero-sized, **no out-pointer at all**, because a parameter
 //!     for a value that occupies no bytes is a parameter the two sides can
-//!     disagree about for free. `TestFs.writeFile` answers `Result<(), IoError>`
+//!     disagree about for free. `TestFileSystem.writeFile` answers `Result<(), IoError>`
 //!     and takes no `out`.
 //!   * `0 ..= n`, naming a variant of `E` in declaration order, **which must
 //!     carry no fields.** The out-pointer is untouched.
@@ -239,7 +239,7 @@
 //! ### The message, which is the one payload a variant may carry
 //!
 //! The restriction above stood for as long as the archive had nothing that
-//! needed more, and it stopped standing the day the `Fs` capability was wired
+//! needed more, and it stopped standing the day the `FileSystem` capability was wired
 //! up: `IoError`'s seventh variant is `Other(Str)`, and it is what a real
 //! filesystem answers for every kind the other six do not name — `EISDIR` on a
 //! read of a directory, `ENOTEMPTY` on a `removeDir`, `ENAMETOOLONG` on a path.
@@ -282,7 +282,7 @@
 //! that is not read off a type
 //!
 //! Everything above is `E`'s layout. Whether an entry *has* a message is not:
-//! `buri_rt_host_fs_read_file` and `buri_rt_host_testing_fs_read_file` answer
+//! `buri_rt_host_file_system_read_file` and `buri_rt_host_testing_fs_read_file` answer
 //! the same `Result<Str, IoError>` and have different C signatures, because the
 //! first can meet an `EISDIR` and the second is a map in memory. So the two
 //! runtime tables carry a `Ret::ResMsg` beside `Ret::Res`, and an entry's row
@@ -297,7 +297,7 @@
 //! `a_hot_function_has_no_allocas` is the measurement of exactly that. A print's
 //! actionable half is which failure it was; a filesystem failure's is often only
 //! in the string, because `ENOTEMPTY` and `EISDIR` have no `IoError` variant at
-//! all. So `Fs` carries the message and the streams answer the variant alone.
+//! all. So `FileSystem` carries the message and the streams answer the variant alone.
 //!
 //! A payload-carrying error variant beyond that one shape is still not
 //! expressible, and that is still deliberate.
@@ -401,18 +401,18 @@
 //! 16-byte alignment and the header written. The reason to ship this first is
 //! that the size-class allocator is an optimization with no observable
 //! behaviour of its own — the header, the counts, `cap`, the reuse test and the
-//! `Alloc` cost model (MEMORY.md §7, which is *defined* and not measured) are
+//! `Allocator` cost model (MEMORY.md §7, which is *defined* and not measured) are
 //! all identical either way — so it can be replaced under a green test suite
 //! rather than co-developed with the backends.
 //!
-//! ## 5.1 `Alloc`, which is accounting and not allocation
+//! ## 5.1 `Allocator`, which is accounting and not allocation
 //!
 //! Five symbols, and none of them reaches the heap. MEMORY.md §7 makes the
-//! `Alloc` cost model a **definition** computed from the types rather than a
+//! `Allocator` cost model a **definition** computed from the types rather than a
 //! measurement, so the accounting is a set of counters beside the allocator
 //! and not inside it:
 //!
-//!   * [`buri_rt_host_alloc_allocate`] — the platform's `Alloc`, which counts
+//!   * [`buri_rt_host_allocator_allocate`] — the platform's `Allocator`, which counts
 //!     nothing and answers the bytes it was asked for.
 //!   * [`buri_rt_alloc_new_counter`], [`buri_rt_alloc_charge`],
 //!     [`buri_rt_alloc_count`], [`buri_rt_alloc_total`] — `core/alloc`'s
@@ -484,11 +484,11 @@
 //! }
 //! ```
 //!
-//! [`buri_rt_argv_init`] is what makes `env.args(ctx)` exact — `std::env` in
+//! [`buri_rt_argv_init`] is what makes `env.arguments(ctx)` exact — `std::env` in
 //! a staticlib depends on a platform-specific startup hook that a linker
 //! `--gc-sections` pass is entitled to have opinions about — and it installs
 //! the panic hook that turns a runtime bug into a message rather than a bare
-//! `SIGABRT`. If it is never called, `env.args(ctx)` falls back to `std::env`
+//! `SIGABRT`. If it is never called, `env.arguments(ctx)` falls back to `std::env`
 //! and the fallback is correct on both supported platforms; the call is
 //! preferred, not required.
 //!
@@ -516,7 +516,7 @@
 //! [`buri_rt_flush`] is required. Standard output and standard error are
 //! **buffered**, exactly as `$host` buffers them on JavaScript
 //! (`runtime.js:1224-1234`), so that the write ordering a program observes is
-//! the same on both backends. [`buri_rt_host_proc_exit_with`] and every abort
+//! the same on both backends. [`buri_rt_host_process_exit_with`] and every abort
 //! path flush for themselves; a normal return does not. What the buffer
 //! batches is a run of consecutive prints and nothing longer: the runtime
 //! flushes for itself before the program waits on anything outside it, which
@@ -539,7 +539,7 @@
 //!
 //! **Three of the six are linked and three are not.** [`rt`] is the carrier
 //! runtime — the reactor, the run baton, the carrier pool and the task table —
-//! and `Clock::sleepMillis` and `Net::fetch` wait on it, so the archive carries
+//! and `Clock::sleepMilliseconds` and `Network::fetch` wait on it, so the archive carries
 //! the reactor's code on purpose; `rustls` over `ring` is what [`tls`] uses for
 //! `https://`, and it is why the archive grew by about 1.72 MiB, most of it
 //! `ring`'s native object code, which a `staticlib` carries whether the linker
@@ -554,7 +554,7 @@
 //!
 //! Nothing about the **feature's** shape changed with any of it: `net` off is
 //! still a runtime with no dependency at all, [`rt`] and [`tls`] do not
-//! compile, `Clock::sleepMillis` is `thread::sleep` as it always was, and
+//! compile, `Clock::sleepMilliseconds` is `thread::sleep` as it always was, and
 //! `https://` goes back to a refusal that names this feature as the reason.
 //!
 //! **`net-h3` is the opposite default, and the asymmetry is the argument.**
@@ -595,12 +595,12 @@
 //! there is no socket for a program to name — and the same rule already covers
 //! it for the day there is.
 //!
-//! `host.HostNet.fetch` is deliberately **not** one of those keys, and that is
+//! `host.HostNetwork.fetch` is deliberately **not** one of those keys, and that is
 //! a decision rather than an omission: with `net` off this runtime still speaks
 //! cleartext HTTP, because `http.rs` writes that client itself. What it loses is
 //! `https://`, which refuses at run time with a message naming this feature. A
 //! compile-time refusal would have refused every program that mentions
-//! `Net.fetch`, including the ones that were only ever going to ask for
+//! `Network.fetch`, including the ones that were only ever going to ask for
 //! `http://`.
 //!
 //! A host with no C compiler gets the same `net`-off runtime, and gets it
@@ -773,7 +773,7 @@ pub(crate) fn forget_frames_are_per_carrier() {
 /// `$divi` documents on JavaScript (`runtime.js:48-50`).
 ///
 /// # Safety
-/// `quot` and `rem` must each be non-null and point at two writable,
+/// `quot` and `remainder` must each be non-null and point at two writable,
 /// `u64`-aligned words (low half first).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn buri_rt_i128_divmod(

@@ -459,7 +459,7 @@ impl Backend for Stencil {
 
         // **The functions are the grain, and not the units.** Emission used to
         // be one unit per core, and that put the whole of it behind the largest
-        // single unit: on a real repository `core/ordmap` instantiated at one
+        // single unit: on a real repository `core/orderedmap` instantiated at one
         // program's key types is 11,267 functions and was 1.10s of a 1.10s
         // ten-thread emission (`design/PERFORMANCE.md` §6.9). Splitting the
         // unit is not available — a unit is a cache key and an object file

@@ -28,7 +28,7 @@
 //! Installing a theme writes one `:root` block of values, and switching one
 //! rewrites the same block.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/str" import * as str;
 from "ui/effect" import { Scope };
 from "ui/prop" import { Prop };
@@ -95,7 +95,7 @@ fn rootScope(): Scope;
 /// with no runtime to install into — a snapshot — says the same thing. The text
 /// is UTF-8 and line-oriented, `buri-theme 1` first, then a `theme` line per
 /// applying theme with its bindings under it.
-export fn document<C: Alloc>(ctx: C, themes: [Theme]): Str {
+export fn document<C: Allocator>(ctx: C, themes: [Theme]): Str {
     ["buri-theme 1"].concat(ctx, blocks(ctx, themes, 0, [])).join(ctx, "\n")
 }
 
@@ -105,7 +105,7 @@ export fn document<C: Alloc>(ctx: C, themes: [Theme]): Str {
 /// that in one place is what keeps the block that is written and the map it is
 /// resolved through from ever disagreeing about which side of a switch the
 /// program is on.
-fn blocks<C: Alloc>(ctx: C, themes: [Theme], at: Int, acc: [Str]): [Str] {
+fn blocks<C: Allocator>(ctx: C, themes: [Theme], at: Int, acc: [Str]): [Str] {
     match (themes.get(at)) {
         .None => acc,
         .Some(theme) => {
@@ -125,7 +125,7 @@ fn blocks<C: Alloc>(ctx: C, themes: [Theme], at: Int, acc: [Str]): [Str] {
 }
 
 /// One theme's bindings, in declaration order.
-fn binds<C: Alloc>(ctx: C, bindings: [(Color, Color)], at: Int, acc: [Str]): [Str] {
+fn binds<C: Allocator>(ctx: C, bindings: [(Color, Color)], at: Int, acc: [Str]): [Str] {
     match (bindings.get(at)) {
         .None => acc,
         .Some(binding) => {
@@ -139,7 +139,7 @@ fn binds<C: Alloc>(ctx: C, bindings: [(Color, Color)], at: Int, acc: [Str]): [St
 ///
 /// A binding whose left half is a plain colour names nothing there is a custom
 /// property for, and `mount` skips it for the same reason.
-fn bindLine<C: Alloc>(ctx: C, left: Color, right: Color): [Str] {
+fn bindLine<C: Allocator>(ctx: C, left: Color, right: Color): [Str] {
     match (left) {
         .Token(reference) => {
             let name = propertyName(ctx, reference);
@@ -159,7 +159,7 @@ fn bindLine<C: Alloc>(ctx: C, left: Color, right: Color): [Str] {
 }
 
 /// The custom property a token reference names, without its leading dashes.
-fn propertyName<C: Alloc>(ctx: C, reference: TokenReference): Str {
+fn propertyName<C: Allocator>(ctx: C, reference: TokenReference): Str {
     let space = reference.namespace();
     let name = reference.name();
     str.format(ctx, "${space}-${name}")
@@ -167,7 +167,7 @@ fn propertyName<C: Alloc>(ctx: C, reference: TokenReference): Str {
 
 /// A colour that is not a token, as CSS — the same text `ui/node`'s walk writes
 /// into a declaration.
-fn valueText<C: Alloc>(ctx: C, color: Color): Str {
+fn valueText<C: Allocator>(ctx: C, color: Color): Str {
     match (color) {
         .Rgb(r, g, b) => str.format(ctx, "rgb(${r},${g},${b})"),
         .Rgba(r, g, b, a) => str.format(ctx, "rgba(${r},${g},${b},${a})"),

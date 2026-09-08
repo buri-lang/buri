@@ -2,7 +2,7 @@
 ///
 /// The shape `core/cli`'s own parser is written in: each word is added through
 /// a `..acc` update whose new list is grown out of the field it replaces.
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/list" import * as list;
 
 /// The words seen so far, and the last of them.
@@ -17,7 +17,7 @@ export fn empty(): Ledger {
 }
 
 /// Every word from `at` onwards, folded in.
-export fn folded<C: Alloc>(ctx: C, words: [Str], at: Int, acc: Ledger): Ledger {
+export fn folded<C: Allocator>(ctx: C, words: [Str], at: Int, acc: Ledger): Ledger {
     match (words.get(at)) {
         .None => acc,
         .Some(word) => {

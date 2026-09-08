@@ -20,15 +20,15 @@
 //! cannot do for itself and what it can. A handle table is squarely the first:
 //! it is mutable process state with a lifetime longer than any expression, and
 //! open-coding it in two backends would be two allocators for one array. The
-//! `Alloc` counters (`memory.rs`'s `buri_rt_alloc_new_counter`) are the same
+//! `Allocator` counters (`memory.rs`'s `buri_rt_alloc_new_counter`) are the same
 //! shape and are already here for the same reason.
 //!
-//! `alloc()` and `TestAlloc::allocate` are the exception and are deliberately
-//! **not** here: `$host_testing_TestAlloc_allocate` answers the byte count it
+//! `alloc()` and `TestAllocator::allocate` are the exception and are deliberately
+//! **not** here: `$host_testing_TestAllocator_allocate` answers the byte count it
 //! was handed and reads no state at all, so both backends open-code it and the
 //! handle names nothing.
 //!
-//! ## `Fs`'s eleven methods, and the divergence that used to be here
+//! ## `FileSystem`'s eleven methods, and the divergence that used to be here
 //!
 //! Most answer a `Result<T, IoError>`, which was the shape neither native
 //! backend had a `Ret` for and the reason the original four were held back. It
@@ -99,14 +99,14 @@ enum Slot {
     Files { entries: Vec<(String, Vec<u8>)>, dirs: Vec<String> },
     /// `TestClock` — the current instant, in milliseconds.
     Clock(i64),
-    /// `TestRand` — the xorshift32 state.
+    /// `TestRandom` — the xorshift32 state.
     Rand(u32),
-    /// `TestEnv`.
+    /// `TestEnvironment`.
     Env { vars: Vec<(String, String)>, args: Vec<String> },
     /// `TestSpawn` — the log, and nothing else. The scripted answer stays in
     /// the program, because `IoError::Other` carries a `Str`.
     Spawn { calls: Vec<SpawnLog> },
-    /// `core/host/testing`'s `TestFs` — a **view**: the handle of the
+    /// `core/host/testing`'s `TestFileSystem` — a **view**: the handle of the
     /// [`Slot::Files`] store its files live in, and whether writes through this
     /// view are refused.
     ///
@@ -126,10 +126,10 @@ enum Slot {
     /// `read_only` does — a builder is configuration and not a write — so the
     /// filesystem `fs().faults(p).files(x)` answers fails what `p` names.
     Fs { store: i64, read_only: bool, plan: i64, calls: Vec<FsLog> },
-    /// `core/host/testing`'s `TestNet` — its log and the plan it fails through,
+    /// `core/host/testing`'s `TestNetwork` — its log and the plan it fails through,
     /// and nothing else.
     ///
-    /// The one slot that holds no state the double *reads*: a `TestNet` carries
+    /// The one slot that holds no state the double *reads*: a `TestNetwork` carries
     /// its responder as a value, because behaviour is what a runner cannot hold
     /// (`host_testing.buri`'s own documentation), and a log is state, which is
     /// what a runner is for. So the handle names the log and the responder
@@ -141,7 +141,7 @@ enum Slot {
     ///
     /// The plan itself is a Buri value and stays in the program — an `IoError`
     /// is a value `lib.rs` §2.1 cannot hand back across a row, so matching is
-    /// the `Eq` the `Call` records derive and happens there. What is here is the
+    /// the `Equal` the `Call` records derive and happens there. What is here is the
     /// half a program cannot keep: a `test` block has returned by the time
     /// anyone could ask whether every fault it planned was used, so
     /// [`buri_rt_test_leave`] asks on its behalf.
@@ -231,7 +231,7 @@ struct Scripted {
     data: Vec<u8>,
 }
 
-/// One call to a `TestFs`, as `core/host/testing`'s `FsCall` records it: the
+/// One call to a `TestFileSystem`, as `core/host/testing`'s `FsCall` records it: the
 /// method's name, the path, and the second argument as text.
 ///
 /// `name` is `&'static str` because the only names are the eleven this file
@@ -242,7 +242,7 @@ struct FsLog {
     body: String,
 }
 
-/// One request through a `TestNet`, as `NetCall` records it — `Request`'s five
+/// One request through a `TestNetwork`, as `NetCall` records it — `Request`'s five
 /// fields, in the order `core/effect` declares them.
 ///
 /// `method` is the variant's index, which is what crosses in either direction:
@@ -535,7 +535,7 @@ fn fs_put(handle: i64, path: String, body: Vec<u8>) {
     });
 }
 
-/// Move a test clock forward, which is all `sleepMillis` does.
+/// Move a test clock forward, which is all `sleepMilliseconds` does.
 fn advance(handle: i64, millis: i64) {
     with(handle, (), |slot| {
         if let Slot::Clock(now) = slot {
@@ -576,16 +576,16 @@ fn next(handle: i64) -> u32 {
 //     `rand()` is at seed zero; a test that wants another says so with a
 //     builder.
 //   * **A builder answers a new handle.** `at`, `seed`, `variables` and
-//     `arguments` each `install` rather than editing the slot they were called
+//     `withArguments` each `install` rather than editing the slot they were called
 //     on, so the value a test already holds is unchanged and two clocks built
 //     from one are two clocks. That is what makes
-//     `let base = env(); base.arguments([..])` safe to write twice.
+//     `let base = env(); base.withArguments([..])` safe to write twice.
 //
-// `alloc()` and `TestAlloc::allocate` are absent for the reason the module
+// `alloc()` and `TestAllocator::allocate` are absent for the reason the module
 // header gives: both native backends open-code them, because the handle names
 // nothing and `allocate` answers the count it was handed.
 //
-// One shape is genuinely new rather than a second spelling: `TestFs` is a
+// One shape is genuinely new rather than a second spelling: `TestFileSystem` is a
 // *view* onto a store, so that `readOnly` can attenuate a filesystem without
 // copying it. [`Slot::Fs`] says why.
 
@@ -794,7 +794,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_read_bytes(
 
 // -- `core/host/testing`'s filesystem ---------------------------------------
 //
-// A `TestFs` handle is a **view**: [`Slot::Fs`] names the [`Slot::Files`] store
+// A `TestFileSystem` handle is a **view**: [`Slot::Fs`] names the [`Slot::Files`] store
 // its files live in and says whether writes through *this* view are refused.
 // `readOnly` installs a second view onto the same store, which is what folds
 // `ReadOnly<C>` into a method without turning it into a copy — the wrapper
@@ -813,7 +813,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_read_bytes(
 /// [`IO_NOT_FOUND`] and [`IO_ALREADY_EXISTS`] above.
 const IO_READ_ONLY: i32 = 2;
 
-/// The store a `TestFs` handle reads and writes, and whether writes through it
+/// The store a `TestFileSystem` handle reads and writes, and whether writes through it
 /// are refused.
 ///
 /// A handle naming no view answers `-1`, which no `usize` conversion accepts,
@@ -894,7 +894,7 @@ fn list_of_pairs(items: &[(String, String)]) -> BuriList {
 
 /// `newFs()` — in-memory, empty, writable, and failing nothing.
 ///
-/// A bare handle rather than a `TestFs`, for `newNet`'s reason: `fs()` is a Buri
+/// A bare handle rather than a `TestFileSystem`, for `newNet`'s reason: `fs()` is a Buri
 /// body that builds the value around it, because the second field is a fault
 /// plan and a plan is a list of Buri values this side cannot make.
 #[unsafe(no_mangle)]
@@ -902,7 +902,7 @@ pub extern "C" fn buri_rt_host_testing_new_fs() -> i64 {
     fs_install(Vec::new(), Vec::new(), false, -1)
 }
 
-/// `TestFs::files` — a **new** filesystem holding this one's files and these as
+/// `TestFileSystem::files` — a **new** filesystem holding this one's files and these as
 /// well, as the UTF-8 the text spells.
 ///
 /// Additive rather than replacing, so `files` and `filesBytes` compose in
@@ -929,7 +929,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_files(
     fs_extended(handle, added)
 }
 
-/// `TestFs::filesBytes` — the byte twin, for a fixture that is not text.
+/// `TestFileSystem::filesBytes` — the byte twin, for a fixture that is not text.
 ///
 /// # Safety
 /// `xs` points at `count` `(Str, [U8])` elements.
@@ -959,7 +959,7 @@ fn fs_extended(handle: i64, added: impl IntoIterator<Item = (String, Vec<u8>)>) 
     fs_install(entries, dirs, read_only, plan)
 }
 
-/// `TestFs::readOnly` — a **new** handle onto the *same* files, through which
+/// `TestFileSystem::readOnly` — a **new** handle onto the *same* files, through which
 /// every write fails.
 ///
 /// The same store, deliberately: `ReadOnly<C>` holds the inner value, so a read
@@ -973,7 +973,7 @@ pub extern "C" fn buri_rt_host_testing_fs_read_only(handle: i64) -> i64 {
     install(Slot::Fs { store, read_only: true, plan, calls: Vec::new() })
 }
 
-/// `TestFs::faults` — a **new** view onto the same store, with a fresh, empty
+/// `TestFileSystem::faults` — a **new** view onto the same store, with a fresh, empty
 /// plan and this one's attenuation.
 ///
 /// The plan the receiver was using is retired: `faults` replaces rather than
@@ -998,11 +998,11 @@ fn retire(plan: i64) {
     });
 }
 
-/// `TestFs::read(self, path) -> Result<Str, IoError>` — the read-back, without
+/// `TestFileSystem::read(self, path) -> Result<Str, IoError>` — the read-back, without
 /// the effect.
 ///
 /// The same answer `readFile` gives, including `.Err(.NotFound)` and the lossy
-/// decode; what it does not need is an `Fs` bound, because asserting on what a
+/// decode; what it does not need is an `FileSystem` bound, because asserting on what a
 /// function wrote is reading an environment back rather than performing an
 /// effect.
 ///
@@ -1027,7 +1027,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read(
     BURI_OK
 }
 
-/// `TestFs::snapshot(self) -> [(Str, Str)]` — every file, as text, sorted by
+/// `TestFileSystem::snapshot(self) -> [(Str, Str)]` — every file, as text, sorted by
 /// path.
 ///
 /// **UTF-16 code-unit order**, which is `sort()`'s on the other backend and the
@@ -1057,7 +1057,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_snapshot(
     unsafe { out.write(value) }
 }
 
-/// `TestFs.readFile(self, path) -> Result<Str, IoError>`, forwarded through the
+/// `TestFileSystem.readFile(self, path) -> Result<Str, IoError>`, forwarded through the
 /// view. A read is never refused.
 ///
 /// # Safety
@@ -1079,7 +1079,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_file(
     unsafe { buri_rt_host_testing_fs_read(handle, base, ptr, len, out) }
 }
 
-/// `TestFs.writeFile(self, path, body) -> Result<(), IoError>`.
+/// `TestFileSystem.writeFile(self, path, body) -> Result<(), IoError>`.
 ///
 /// `.Err(.ReadOnly)` through an attenuated view, and otherwise it cannot fail:
 /// a write to a path already there replaces it in place, so `files` written
@@ -1111,7 +1111,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_write_file(
     BURI_OK
 }
 
-/// `TestFs.fileExists(self, path) -> Bool` — true for a file, and for a
+/// `TestFileSystem.fileExists(self, path) -> Bool` — true for a file, and for a
 /// directory `makeDir` recorded.
 ///
 /// # Safety
@@ -1136,7 +1136,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_file_exists(
     u8::from(found)
 }
 
-/// `TestFs.readDir(self, path) -> Result<[Str], IoError>` — one entry per
+/// `TestFileSystem.readDir(self, path) -> Result<[Str], IoError>` — one entry per
 /// immediate child, deduplicated, in UTF-16 code-unit order.
 ///
 /// `readDir`'s two subtleties, unchanged: a
@@ -1184,7 +1184,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_dir(
     BURI_OK
 }
 
-/// `TestFs.readFileBytes(self, path) -> Result<[U8], IoError>` — the octets as
+/// `TestFileSystem.readFileBytes(self, path) -> Result<[U8], IoError>` — the octets as
 /// they were stored.
 ///
 /// # Safety
@@ -1208,7 +1208,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_file_bytes(
     BURI_OK
 }
 
-/// `TestFs.writeFileBytes(self, path, body) -> Result<(), IoError>` — replaces
+/// `TestFileSystem.writeFileBytes(self, path, body) -> Result<(), IoError>` — replaces
 /// the file, or creates it. `.Err(.ReadOnly)` through an attenuated view.
 ///
 /// # Safety
@@ -1236,7 +1236,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_write_file_bytes(
     BURI_OK
 }
 
-/// `TestFs.appendFile(self, path, body) -> Result<(), IoError>` — adds the
+/// `TestFileSystem.appendFile(self, path, body) -> Result<(), IoError>` — adds the
 /// octets to the end, creating the file when it is absent.
 ///
 /// # Safety
@@ -1271,7 +1271,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_append_file(
     BURI_OK
 }
 
-/// `TestFs.renameFile(self, from, to) -> Result<(), IoError>` — replaces `to`,
+/// `TestFileSystem.renameFile(self, from, to) -> Result<(), IoError>` — replaces `to`,
 /// and `.Err(.NotFound)` where `from` names nothing.
 ///
 /// # Safety
@@ -1312,7 +1312,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_rename_file(
     })
 }
 
-/// `TestFs.removeFile(self, path) -> Result<(), IoError>` — `.Err(.NotFound)`
+/// `TestFileSystem.removeFile(self, path) -> Result<(), IoError>` — `.Err(.NotFound)`
 /// where the path names nothing, as `unlink(2)` answers.
 ///
 /// # Safety
@@ -1341,7 +1341,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_remove_file(
     })
 }
 
-/// `TestFs.removeDir(self, path) -> Result<(), IoError>` — the directory must
+/// `TestFileSystem.removeDir(self, path) -> Result<(), IoError>` — the directory must
 /// be there and must be **empty**.
 ///
 /// A flat map has no containment, so "empty" is "no file and no recorded
@@ -1402,7 +1402,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_remove_dir(
     answer
 }
 
-/// `TestFs.makeDir(self, path) -> Result<(), IoError>` — parents included, an
+/// `TestFileSystem.makeDir(self, path) -> Result<(), IoError>` — parents included, an
 /// existing directory `.Ok`, and a path already naming a file
 /// `.Err(.AlreadyExists)`.
 ///
@@ -1442,7 +1442,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_make_dir(
     })
 }
 
-/// `TestFs.syncFile(self, path) -> Result<(), IoError>` — nothing to flush, so
+/// `TestFileSystem.syncFile(self, path) -> Result<(), IoError>` — nothing to flush, so
 /// it answers whether there was anything to have flushed.
 ///
 /// **Not** refused through an attenuated view: `sync` is not a write, and there
@@ -1508,18 +1508,18 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_clock_at(
     unsafe { out.write(handle) }
 }
 
-/// `TestClock::nowMillis`.
+/// `TestClock::nowMilliseconds`.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_testing_test_clock_now_millis(handle: i64) -> i64 {
+pub extern "C" fn buri_rt_host_testing_test_clock_now_milliseconds(handle: i64) -> i64 {
     with(handle, 0, |slot| match slot {
         Slot::Clock(now) => *now,
         _ => 0,
     })
 }
 
-/// `TestClock::sleepMillis` — moves the clock without sleeping.
+/// `TestClock::sleepMilliseconds` — moves the clock without sleeping.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_testing_test_clock_sleep_millis(handle: i64, millis: i64) {
+pub extern "C" fn buri_rt_host_testing_test_clock_sleep_milliseconds(handle: i64, millis: i64) {
     advance(handle, millis);
 }
 
@@ -1530,7 +1530,7 @@ pub extern "C" fn buri_rt_host_testing_test_clock_sleep_millis(handle: i64, mill
 /// the double would be teaching something no real clock does.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_test_clock_monotonic_nanoseconds(handle: i64) -> i64 {
-    buri_rt_host_testing_test_clock_now_millis(handle).saturating_mul(1_000_000)
+    buri_rt_host_testing_test_clock_now_milliseconds(handle).saturating_mul(1_000_000)
 }
 
 /// `rand()` — seeded at zero, and a zero state is a fixed point of xorshift,
@@ -1545,13 +1545,13 @@ pub unsafe extern "C" fn buri_rt_host_testing_rand(out: *mut i64) {
     unsafe { out.write(handle) }
 }
 
-/// `TestRand::seed` — a **new** generator at that seed, drawing from the start
+/// `TestRandom::seed` — a **new** generator at that seed, drawing from the start
 /// of its sequence.
 ///
 /// # Safety
 /// `out` must be writable and aligned for an `i64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_rand_seed(
+pub unsafe extern "C" fn buri_rt_host_testing_test_random_seed(
     _handle: i64,
     seed: i64,
     out: *mut i64,
@@ -1562,12 +1562,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_rand_seed(
     unsafe { out.write(handle) }
 }
 
-/// `TestRand::nextInt` — uniform enough for a fixture, in `lo ..< hi`.
+/// `TestRandom::nextInt` — uniform enough for a fixture, in `lo ..< hi`.
 ///
-/// An empty range aborts with the same message `host.HostRand.nextInt` and
+/// An empty range aborts with the same message `host.HostRandom.nextInt` and
 /// `runtime.js` use, which `cli/tests/crash/random_range_empty` pins.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_testing_test_rand_next_int(handle: i64, lo: i64, hi: i64) -> i64 {
+pub extern "C" fn buri_rt_host_testing_test_random_next_int(handle: i64, lo: i64, hi: i64) -> i64 {
     if hi <= lo {
         crate::buri_rt_abort_random_range();
     }
@@ -1575,9 +1575,9 @@ pub extern "C" fn buri_rt_host_testing_test_rand_next_int(handle: i64, lo: i64, 
     lo.wrapping_add(i64::from(next(handle)) % span)
 }
 
-/// `TestRand::nextFloat` — `x / 2^32`, as `$host_testing_TestRand_nextFloat`.
+/// `TestRandom::nextFloat` — `x / 2^32`, as `$host_testing_TestRandom_nextFloat`.
 #[unsafe(no_mangle)]
-pub extern "C" fn buri_rt_host_testing_test_rand_next_float(handle: i64) -> f64 {
+pub extern "C" fn buri_rt_host_testing_test_random_next_float(handle: i64) -> f64 {
     f64::from(next(handle)) / 4294967296.0
 }
 
@@ -1606,7 +1606,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_entropy(out: *mut i64) {
 }
 
 /// `TestEntropy::seed` — a **new** generator at that seed, drawing from the
-/// start of its sequence. `TestRand::seed`'s rule, including the zero one.
+/// start of its sequence. `TestRandom::seed`'s rule, including the zero one.
 ///
 /// # Safety
 /// `out` must be writable and aligned for an `i64`.
@@ -1660,7 +1660,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_env(out: *mut i64) {
     unsafe { out.write(handle) }
 }
 
-/// The arguments a handle holds, or none where it names no `Env` slot.
+/// The arguments a handle holds, or none where it names no `Environment` slot.
 fn env_args(handle: i64) -> Vec<String> {
     with(handle, Vec::new(), |slot| match slot {
         Slot::Env { args, .. } => args.clone(),
@@ -1668,14 +1668,14 @@ fn env_args(handle: i64) -> Vec<String> {
     })
 }
 
-/// `TestEnv::variables` — a **new** environment with these variables and this
+/// `TestEnvironment::variables` — a **new** environment with these variables and this
 /// one's arguments, so the two builders compose in either order.
 ///
 /// # Safety
 /// `xs` points at `count` `(Str, Str)` elements; `out` is writable and aligned
 /// for an `i64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_variables(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_variables(
     handle: i64,
     xs: *const u8,
     count: u64,
@@ -1689,10 +1689,10 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_variables(
     unsafe { out.write(fresh) }
 }
 
-/// `TestEnv::arguments` — a **new** environment with these arguments and this
+/// `TestEnvironment::arguments` — a **new** environment with these arguments and this
 /// one's variables.
 ///
-/// The name the design note asks for, which it can have because `Env`'s reader
+/// The name the design note asks for, which it can have because `Environment`'s reader
 /// moved to `args`; the module header says why where a reader of the source
 /// will meet it.
 ///
@@ -1700,7 +1700,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_variables(
 /// `xs` points at `count` [`BuriStr`]s; `out` is writable and aligned for an
 /// `i64`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_with_arguments(
     handle: i64,
     xs: *const u8,
     count: u64,
@@ -1717,7 +1717,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
     unsafe { out.write(fresh) }
 }
 
-/// `TestEnv::variable` — `.Some(value)` or `.None`.
+/// `TestEnvironment::variable` — `.Some(value)` or `.None`.
 ///
 /// The **last** binding of a name wins, because
 /// `for (const e of vars) v[e[0]] = e[1]` is what builds the object on the
@@ -1729,7 +1729,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_arguments(
 /// The name must be a live `Str` view; `out` writable and aligned for a
 /// [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_variable(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_variable(
     handle: i64,
     _base: *mut u8,
     ptr: *const u8,
@@ -1750,12 +1750,12 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_variable(
     BURI_OK
 }
 
-/// `TestEnv::args`.
+/// `TestEnvironment::args`.
 ///
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_args(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_arguments(
     handle: i64,
     out: *mut BuriList,
 ) {
@@ -1765,9 +1765,9 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_args(
 }
 
 // `core/host/testing`'s `proc()` has no entries here, and that is the whole of
-// the double: `TestProc` records nothing, because nothing can read it back.
-// `proc()` is `TestProc(0)` and `exitWith` is an empty body, both written in
-// `host_testing.buri` — the same shape `TestNet` has, reached for the plainer
+// the double: `TestProcess` records nothing, because nothing can read it back.
+// `proc()` is `TestProcess(0)` and `exitWith` is an empty body, both written in
+// `host_testing.buri` — the same shape `TestNetwork` has, reached for the plainer
 // reason.
 
 // -- `core/host/testing`'s `sockets()` ---------------------------------------
@@ -1913,7 +1913,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_sockets_socket_send_bytes(
 /// `TestSockets::socketClose` — the socket closes, and neither the code nor the
 /// phrase is kept.
 ///
-/// `TestProc::exitWith`'s reason: both are what the *far side* would be told,
+/// `TestProcess::exitWith`'s reason: both are what the *far side* would be told,
 /// there is no far side, and a number held where nothing can read it is state
 /// kept for its own sake. What a close does here is close, which
 /// `socketsIsOpen` reports and which every later send obeys.
@@ -2374,7 +2374,7 @@ impl Drop for Recording {
     }
 }
 
-/// A `TestFs` call, recorded on the **view** it was made through.
+/// A `TestFileSystem` call, recorded on the **view** it was made through.
 ///
 /// The view and not the store: `calls()` is per handle, so a builder's new
 /// filesystem and `readOnly`'s new view each start with an empty log, and the
@@ -2397,7 +2397,7 @@ fn recording_stdin(handle: i64, name: &'static str, count: i64) -> Recording {
 }
 
 
-/// `TestFs.metadata(self, path) -> Result<Metadata, IoError>`.
+/// `TestFileSystem.metadata(self, path) -> Result<Metadata, IoError>`.
 ///
 /// A flat map holds no links, so `kind` is `.File` for a file, `.Directory` for
 /// a path `makeDir` recorded, and never `.Symlink`. `modified` is the epoch: a
@@ -2439,7 +2439,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_metadata(
     BURI_OK
 }
 
-/// `TestFs.readRange(self, path, at, count) -> Result<[U8], IoError>`.
+/// `TestFileSystem.readRange(self, path, at, count) -> Result<[U8], IoError>`.
 ///
 /// Clamped at both ends: an offset past the end is the empty list, and a short
 /// file gives back what it has. A negative offset or count is `.Other` with the
@@ -2476,7 +2476,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_read_range(
     BURI_OK
 }
 
-/// `TestFs.realPath(self, path) -> Result<Str, IoError>` — the path back.
+/// `TestFileSystem.realPath(self, path) -> Result<Str, IoError>` — the path back.
 ///
 /// There are no links and no `..` to resolve in a flat map, so what comes back
 /// is what went in. A path that names nothing is still `.NotFound`, which is
@@ -2512,7 +2512,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_real_path(
     BURI_OK
 }
 
-/// `TestFs.copyFile(self, source, destination) -> Result<(), IoError>`.
+/// `TestFileSystem.copyFile(self, source, destination) -> Result<(), IoError>`.
 ///
 /// `.Err(.ReadOnly)` through an attenuated view, and `.Err(.NotFound)` where
 /// the source is not there — the two answers `renameFile` gives, minus the move.
@@ -2547,7 +2547,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_copy_file(
 }
 
 
-/// `TestEnv::currentDirectory` — `/`, whatever the machine running the suite is.
+/// `TestEnvironment::currentDirectory` — `/`, whatever the machine running the suite is.
 ///
 /// A double that answered the runner's own directory would give one test two
 /// answers on two machines, which is the one thing a hermetic double is for.
@@ -2555,7 +2555,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_fs_copy_file(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_current_directory(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_current_directory(
     _handle: i64,
     out: *mut BuriStr,
 ) {
@@ -2564,7 +2564,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_current_directory(
     unsafe { out.write(value) }
 }
 
-/// `TestEnv::allVariables` — the variables a test set, **sorted by name**.
+/// `TestEnvironment::allVariables` — the variables a test set, **sorted by name**.
 ///
 /// Sorted, unlike the real thing: a hermetic double owes a test one order, and
 /// the JavaScript half sorts for the same reason. The **last** binding of a
@@ -2573,7 +2573,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_current_directory(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_all_variables(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_all_variables(
     handle: i64,
     out: *mut BuriList,
 ) {
@@ -2594,7 +2594,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_all_variables(
     unsafe { out.write(value) }
 }
 
-/// `TestEnv::operatingSystemName` — `test`.
+/// `TestEnvironment::operatingSystemName` — `test`.
 ///
 /// A double is not an operating system, and answering `linux` on a Mac would be
 /// a lie a program could branch on.
@@ -2602,7 +2602,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_env_all_variables(
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriStr`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn buri_rt_host_testing_test_env_operating_system_name(
+pub unsafe extern "C" fn buri_rt_host_testing_test_environment_operating_system_name(
     _handle: i64,
     out: *mut BuriStr,
 ) {
@@ -2638,7 +2638,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_record_spawn(
     let plan = unsafe { strings(xs, count) };
     // The plan is the program, the working directory and then the arguments,
     // which is `spawnProcess`'s own encoding: the split happens here because a
-    // Buri body would need an `Alloc` to make the two lists and an effect
+    // Buri body would need an `Allocator` to make the two lists and an effect
     // method takes only `self`.
     let program = plan.first().cloned().unwrap_or_default();
     let arguments: Vec<String> = plan.iter().skip(2).cloned().collect();
@@ -2669,7 +2669,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_spawn_calls(handle: i64, out: *mut
     unsafe { out.write(value) }
 }
 
-/// `TestFs::calls` — every call through this view, in completion order.
+/// `TestFileSystem::calls` — every call through this view, in completion order.
 ///
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
@@ -2712,7 +2712,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_test_stdin_calls(handle: i64, out:
 ///
 /// A bare `I64` rather than a slot-shaped value, in
 /// `buri_rt_alloc_new_counter`'s shape and for its reason: `net()` is a Buri
-/// body that builds the `TestNet` itself, because the responder in the other
+/// body that builds the `TestNetwork` itself, because the responder in the other
 /// field is a value the archive cannot make.
 #[unsafe(no_mangle)]
 pub extern "C" fn buri_rt_host_testing_new_net() -> i64 {
@@ -2744,7 +2744,7 @@ pub extern "C" fn buri_rt_host_testing_net_with_plan(handle: i64) -> i64 {
 /// request, recorded after the responder has answered it.
 ///
 /// The five pieces are `Request`'s five fields flattened by §2 rule 1, which is
-/// exactly what `crate::buri_rt_host_net_fetch` is handed: the method's variant
+/// exactly what `crate::buri_rt_host_network_fetch` is handed: the method's variant
 /// index, the URL's three `Str` leaves, two `(ptr, len)` pairs, and the bound in
 /// milliseconds. They are put back together by
 /// [`buri_rt_host_testing_net_calls`].
@@ -3009,10 +3009,10 @@ unsafe fn header_pairs(ptr: *const u8, len: u64) -> Vec<(String, String)> {
 /// `netCalls(handle)` — every request through this network, in the order they
 /// were answered.
 ///
-/// By the handle and not by the `TestNet`: that value carries a responder as
+/// By the handle and not by the `TestNetwork`: that value carries a responder as
 /// well, and an argument crosses as its leaves, so `self` would arrive here as
 /// a handle *and* a `{ code, env }` pair this side has no name for.
-/// `TestNet.calls` is the Buri body that unwraps it.
+/// `TestNetwork.calls` is the Buri body that unwraps it.
 ///
 /// # Safety
 /// `out` must be writable and aligned for a [`BuriList`].
@@ -3075,7 +3075,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_spelled(
 // The fault plan's promise
 // ---------------------------------------------------------------------------
 //
-// The plan itself is a Buri value and is matched there, by the `Eq` the `Call`
+// The plan itself is a Buri value and is matched there, by the `Equal` the `Call`
 // records derive: an `IoError` carries a `Str` on `.Other` and `lib.rs` §2.1
 // cannot name an error variant that carries anything, so a plan the archive held
 // could not hand its errors back. What is here is the half a program cannot
@@ -3173,7 +3173,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_add_fs_fault(
 
 /// `addNetFault(handle, url)` — the call half of one entry of a network's plan.
 ///
-/// The URL and not the whole request: matching is `NetCall`'s derived `Eq` and
+/// The URL and not the whole request: matching is `NetCall`'s derived `Equal` and
 /// reads every field of it, and a message that named every header would be a
 /// paragraph where a reader wants a line.
 ///
@@ -3302,8 +3302,8 @@ pub unsafe extern "C" fn buri_rt_host_testing_note_fs_call(
     });
 }
 
-/// The names an `FsCall` can carry, which are the sixteen methods of `FsRead`
-/// and `FsWrite`.
+/// The names an `FsCall` can carry, which are the sixteen methods of `FileSystemRead`
+/// and `FileSystemWrite`.
 ///
 /// **Every one of them, or a fault on the missing one records a call with no
 /// name.** `removeDir` was absent for as long as this list was eleven long, and
@@ -3696,7 +3696,7 @@ const EVERY_ORDER_CEILING: i64 = 6;
 /// One planned failure, as the runner matches it: which task, which call of it,
 /// and what the failure will say.
 ///
-/// The whole fault, unlike `TestFs`' and `TestNet`'s, which keep the plan in the
+/// The whole fault, unlike `TestFileSystem`' and `TestNetwork`'s, which keep the plan in the
 /// program because an `IoError` cannot cross. A task's fault carries an index, a
 /// count and a sentence — three things that cross — so the matching is here
 /// beside the walk that needs it, and `Slot::Plan` holds the *promise* exactly as
@@ -3728,7 +3728,7 @@ pub unsafe extern "C" fn buri_rt_host_testing_tasks(out: *mut i64) {
 ///
 /// A fresh log, as every builder in this module answers one: the tasks a test
 /// reads back are the tasks run through the value it put in its context. The
-/// plan travels, exactly as `TestFs`' does through `files` — a builder is
+/// plan travels, exactly as `TestFileSystem`' does through `files` — a builder is
 /// configuration and not a write.
 fn tasks_at(handle: i64, mode: i64, seed: i64) -> i64 {
     let (plan, faults) = with(handle, (-1, Vec::new()), |slot| match slot {
@@ -4234,10 +4234,10 @@ mod tests {
             buri_rt_host_testing_clock(&raw mut origin);
             buri_rt_host_testing_test_clock_at(origin, 1_000, &raw mut handle);
         }
-        assert_eq!(buri_rt_host_testing_test_clock_now_millis(handle), 1_000);
-        buri_rt_host_testing_test_clock_sleep_millis(handle, 5);
-        buri_rt_host_testing_test_clock_sleep_millis(handle, 5);
-        assert_eq!(buri_rt_host_testing_test_clock_now_millis(handle), 1_010);
+        assert_eq!(buri_rt_host_testing_test_clock_now_milliseconds(handle), 1_000);
+        buri_rt_host_testing_test_clock_sleep_milliseconds(handle, 5);
+        buri_rt_host_testing_test_clock_sleep_milliseconds(handle, 5);
+        assert_eq!(buri_rt_host_testing_test_clock_now_milliseconds(handle), 1_010);
     }
 
     /// A handle nothing installed reads as empty rather than aborting, which is
@@ -4245,7 +4245,7 @@ mod tests {
     #[test]
     fn an_unknown_handle_is_inert() {
         assert_eq!(transcript(9_999_999), "");
-        assert_eq!(buri_rt_host_testing_test_clock_now_millis(-1), 0);
+        assert_eq!(buri_rt_host_testing_test_clock_now_milliseconds(-1), 0);
     }
 
     /// The escapes `JSON.stringify` writes, because `commands/test.rs` reads

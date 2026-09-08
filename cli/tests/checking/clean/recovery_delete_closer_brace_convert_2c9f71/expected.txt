@@ -1,0 +1,12 @@
+error: this call is missing its closing `)` [unclosed-delimiter]
+  --> main.buri:36:40
+   |
+36 |     assert.equal(v.toFloat().toInt(), v;
+   |                                        ^
+   |
+  --> main.buri:36:17
+   |
+36 |     assert.equal(v.toFloat().toInt(), v;
+   |                 ^ opened here
+   |
+   = fix: write `)` here

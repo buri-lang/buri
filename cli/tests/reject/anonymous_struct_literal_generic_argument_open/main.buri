@@ -4,7 +4,7 @@
 // open. That is still refused: `Holder<Int>` is a type a reader can see and
 // `Holder<?>` is one the fields would have to decide, and this feature reads a
 // type rather than deciding one (design/grammar-rationale.md 12.3).
-from "core/effect" import { Alloc, Stdout };
+from "core/effect" import { Allocator, Stdout };
 from "core/host" import * as host;
 from "core/io" import * as io;
 
@@ -13,7 +13,7 @@ struct Holder<T> { export only: T, export slot: Option<T> }
 fn first<T>(h: Holder<T>): T { h.only }
 
 export fn main(): Result<(), Str> {
-  let ctx = context { Alloc: host.alloc, Stdout: host.stdout };
+  let ctx = context { Allocator: host.alloc, Stdout: host.stdout };
   let n = first({ only: 1 });
   let _ = io.println(ctx, "${n}").ignore();
   .Ok(())

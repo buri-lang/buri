@@ -5,12 +5,12 @@
 // not `export`, so nothing outside this file can see them, which is exactly
 // what a self-contained conformance test wants.
 
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 
-derive Eq, Ord, Show for Point;
+derive Equal, Ordered, Show for Point;
 // --- the types under test -----------------------------------------------------
 
 struct Point {
@@ -18,26 +18,26 @@ struct Point {
     y: Int,
 }
 
-derive Eq, Show for User;
+derive Equal, Show for User;
 struct User {
     id: Int,
     name: Str,
     active: Bool,
 }
 
-derive Eq, Ord, Show for Meters;
+derive Equal, Ordered, Show for Meters;
 struct Meters(Int);
 
-derive Eq, Show for Pair;
+derive Equal, Show for Pair;
 struct Pair(Int, Str);
 
-derive Eq, Show for Wrapper;
+derive Equal, Show for Wrapper;
 struct Wrapper {
     inner: Point,
     label: Str,
 }
 
-derive Eq, Ord, Show for Shape;
+derive Equal, Ordered, Show for Shape;
 enum Shape {
     Empty,
     Circle(Int),
@@ -45,20 +45,20 @@ enum Shape {
     Rect { width: Int, height: Int },
 }
 
-derive Eq, Show for Tree;
+derive Equal, Show for Tree;
 enum Tree {
     Leaf(Int),
     Node(Shape, Shape),
 }
 
-derive Eq, Ord, Show for Colour;
+derive Equal, Ordered, Show for Colour;
 enum Colour {
     Red,
     Green,
     Blue,
 }
 
-derive Eq, Show for Event;
+derive Equal, Show for Event;
 // Two record variants carrying a field of the same name and type, which is what
 // an or-pattern written with field shorthand alternates over.
 enum Event {
@@ -75,7 +75,7 @@ test "integer literal patterns match by value" {
         2 => "two",
         _ => "many",
     };
-    assert.eq(describe, "two");
+    assert.equal(describe, "two");
 }
 
 test "an integer literal pattern falls through to the wildcard" {
@@ -84,7 +84,7 @@ test "an integer literal pattern falls through to the wildcard" {
         1 => "one",
         _ => "many",
     };
-    assert.eq(describe, "many");
+    assert.equal(describe, "many");
 }
 
 test "negative integer literal patterns match" {
@@ -93,7 +93,7 @@ test "negative integer literal patterns match" {
         0 => "zero",
         _ => "other",
     };
-    assert.eq(sign, "minus one");
+    assert.equal(sign, "minus one");
 }
 
 test "a negative literal pattern does not match its positive" {
@@ -101,7 +101,7 @@ test "a negative literal pattern does not match its positive" {
         -1 => "minus one",
         _ => "other",
     };
-    assert.eq(sign, "other");
+    assert.equal(sign, "other");
 }
 
 test "string literal patterns match by value" {
@@ -110,7 +110,7 @@ test "string literal patterns match by value" {
         "no" => 0,
         _ => -1,
     };
-    assert.eq(n, 1);
+    assert.equal(n, 1);
 }
 
 test "string literal patterns are case sensitive" {
@@ -118,7 +118,7 @@ test "string literal patterns are case sensitive" {
         "yes" => 1,
         _ => -1,
     };
-    assert.eq(n, -1);
+    assert.equal(n, -1);
 }
 
 test "the empty string is a literal pattern" {
@@ -126,7 +126,7 @@ test "the empty string is a literal pattern" {
         "" => 0,
         _ => 1,
     };
-    assert.eq(n, 0);
+    assert.equal(n, 0);
 }
 
 test "char literal patterns match by value" {
@@ -135,7 +135,7 @@ test "char literal patterns match by value" {
         'b' => "second",
         _ => "other",
     };
-    assert.eq(kind, "second");
+    assert.equal(kind, "second");
 }
 
 test "bool literal patterns are exhaustive without a wildcard" {
@@ -143,7 +143,7 @@ test "bool literal patterns are exhaustive without a wildcard" {
         true => 1,
         false => 0,
     };
-    assert.eq(n, 1);
+    assert.equal(n, 1);
 }
 
 test "bool literal patterns match false" {
@@ -151,7 +151,7 @@ test "bool literal patterns match false" {
         true => 1,
         false => 0,
     };
-    assert.eq(n, 0);
+    assert.equal(n, 0);
 }
 
 // --- binding and wildcard patterns --------------------------------------------
@@ -160,7 +160,7 @@ test "a binding pattern binds the scrutinee" {
     let doubled = match (21) {
         n => n * 2,
     };
-    assert.eq(doubled, 42);
+    assert.equal(doubled, 42);
 }
 
 test "a binding pattern after a literal binds only the fallthrough" {
@@ -168,14 +168,14 @@ test "a binding pattern after a literal binds only the fallthrough" {
         0 => 100,
         n => n * 3,
     };
-    assert.eq(out, 15);
+    assert.equal(out, 15);
 }
 
 test "a wildcard matches without binding" {
     let out = match (5) {
         _ => "anything",
     };
-    assert.eq(out, "anything");
+    assert.equal(out, "anything");
 }
 
 test "a bare identifier pattern is a binding, not a variant" {
@@ -203,7 +203,7 @@ test "an @ pattern over a literal binds that literal" {
         n @ 7 => n * 2,
         _ => 0,
     };
-    assert.eq(out, 14);
+    assert.equal(out, 14);
 }
 
 test "an @ pattern over a struct pattern binds the struct" {
@@ -212,7 +212,7 @@ test "an @ pattern over a struct pattern binds the struct" {
         whole @ Point { x: 1, .. } => whole.y,
         _ => -1,
     };
-    assert.eq(out, 2);
+    assert.equal(out, 2);
 }
 
 test "an @ pattern nested inside another pattern" {
@@ -233,9 +233,9 @@ test "an or-pattern matches either alternative" {
             .Green => "green",
         }
     };
-    assert.eq(classify(Colour.Red), "cool-or-warm");
-    assert.eq(classify(Colour.Blue), "cool-or-warm");
-    assert.eq(classify(Colour.Green), "green");
+    assert.equal(classify(Colour.Red), "cool-or-warm");
+    assert.equal(classify(Colour.Blue), "cool-or-warm");
+    assert.equal(classify(Colour.Green), "green");
 }
 
 test "an or-pattern over literals" {
@@ -243,7 +243,7 @@ test "an or-pattern over literals" {
         1 | 3 | 5 => "odd-ish",
         _ => "other",
     };
-    assert.eq(out, "odd-ish");
+    assert.equal(out, "odd-ish");
 }
 
 test "a binding or-pattern binds from the left alternative" {
@@ -252,7 +252,7 @@ test "a binding or-pattern binds from the left alternative" {
         .Circle(r) | .Square(r) => r,
         _ => -1,
     };
-    assert.eq(n, 9);
+    assert.equal(n, 9);
 }
 
 test "a binding or-pattern binds from the right alternative" {
@@ -261,7 +261,7 @@ test "a binding or-pattern binds from the right alternative" {
         .Circle(r) | .Square(r) => r,
         _ => -1,
     };
-    assert.eq(n, 5);
+    assert.equal(n, 5);
 }
 
 test "a binding or-pattern binds correctly in each alternative in turn" {
@@ -272,10 +272,10 @@ test "a binding or-pattern binds correctly in each alternative in turn" {
             .Empty => 0,
         }
     };
-    assert.eq(sizeOf(Shape.Circle(1)), 1);
-    assert.eq(sizeOf(Shape.Square(2)), 2);
-    assert.eq(sizeOf(Shape.Rect { width: 3, height: 99 }), 3);
-    assert.eq(sizeOf(Shape.Empty), 0);
+    assert.equal(sizeOf(Shape.Circle(1)), 1);
+    assert.equal(sizeOf(Shape.Square(2)), 2);
+    assert.equal(sizeOf(Shape.Rect { width: 3, height: 99 }), 3);
+    assert.equal(sizeOf(Shape.Empty), 0);
 }
 
 test "a binding or-pattern across a tuple-struct and a record variant" {
@@ -285,10 +285,10 @@ test "a binding or-pattern across a tuple-struct and a record variant" {
             .Empty => -1,
         }
     };
-    assert.eq(sizeOf(Shape.Circle(11)), 11);
-    assert.eq(sizeOf(Shape.Square(22)), 22);
-    assert.eq(sizeOf(Shape.Rect { width: 33, height: 44 }), 33);
-    assert.eq(sizeOf(Shape.Empty), -1);
+    assert.equal(sizeOf(Shape.Circle(11)), 11);
+    assert.equal(sizeOf(Shape.Square(22)), 22);
+    assert.equal(sizeOf(Shape.Rect { width: 33, height: 44 }), 33);
+    assert.equal(sizeOf(Shape.Empty), -1);
 }
 
 // Field shorthand binds through the same slot the explicit form does. It did
@@ -302,8 +302,8 @@ test "a field-shorthand or-pattern over two record variants" {
             .Opened { value, at: _ } | .Closed { value } => value,
         }
     };
-    assert.eq(valueOf(Event.Opened { value: "first", at: 1 }), "first");
-    assert.eq(valueOf(Event.Closed { value: "second" }), "second");
+    assert.equal(valueOf(Event.Opened { value: "first", at: 1 }), "first");
+    assert.equal(valueOf(Event.Closed { value: "second" }), "second");
 }
 
 test "a field shorthand and an explicit field pattern bind one slot" {
@@ -312,16 +312,16 @@ test "a field shorthand and an explicit field pattern bind one slot" {
             .Opened { value: value, .. } | .Closed { value } => value,
         }
     };
-    assert.eq(valueOf(Event.Opened { value: "left", at: 7 }), "left");
-    assert.eq(valueOf(Event.Closed { value: "right" }), "right");
+    assert.equal(valueOf(Event.Opened { value: "left", at: 7 }), "left");
+    assert.equal(valueOf(Event.Closed { value: "right" }), "right");
 }
 
 test "a field-shorthand or-pattern with a binding beside it" {
     let out = match ((Event.Closed { value: "x" }, 2)) {
         (.Opened { value, at: _ } | .Closed { value }, n) => (value, n),
     };
-    assert.eq(out.0, "x");
-    assert.eq(out.1, 2);
+    assert.equal(out.0, "x");
+    assert.equal(out.1, 2);
 }
 
 test "an array rest binds in every alternative of an or-pattern" {
@@ -331,9 +331,9 @@ test "an array rest binds in every alternative of an or-pattern" {
             _ => [],
         }
     };
-    assert.eq(tailOf([1, 8, 9]), [8, 9]);
-    assert.eq(tailOf([2, 3, 8]), [8]);
-    assert.eq(tailOf([4]), []);
+    assert.equal(tailOf([1, 8, 9]), [8, 9]);
+    assert.equal(tailOf([2, 3, 8]), [8]);
+    assert.equal(tailOf([4]), []);
 }
 
 test "a binding or-pattern inside a tuple pattern" {
@@ -341,7 +341,7 @@ test "a binding or-pattern inside a tuple pattern" {
         (.Circle(n) | .Square(n), m) => n + m,
         _ => -1,
     };
-    assert.eq(out, 5);
+    assert.equal(out, 5);
 }
 
 test "a binding or-pattern inside an array pattern" {
@@ -349,7 +349,7 @@ test "a binding or-pattern inside an array pattern" {
         [.Circle(n) | .Square(n)] => n,
         _ => -1,
     };
-    assert.eq(out, 4);
+    assert.equal(out, 4);
 }
 
 test "a binding or-pattern of two array patterns" {
@@ -359,9 +359,9 @@ test "a binding or-pattern of two array patterns" {
             _ => -1,
         }
     };
-    assert.eq(head([1]), 1);
-    assert.eq(head([1, 2]), 1);
-    assert.eq(head([1, 2, 3]), -1);
+    assert.equal(head([1]), 1);
+    assert.equal(head([1, 2]), 1);
+    assert.equal(head([1, 2, 3]), -1);
 }
 
 test "a binding or-pattern with the binding in different positions" {
@@ -369,7 +369,7 @@ test "a binding or-pattern with the binding in different positions" {
         (1, b) | (b, 1) => b,
         _ => -1,
     };
-    assert.eq(out, 2);
+    assert.equal(out, 2);
 }
 
 test "a binding or-pattern nested under a variant" {
@@ -379,7 +379,7 @@ test "a binding or-pattern nested under a variant" {
         .Some(_) => 0,
         .None => -1,
     };
-    assert.eq(out, 7);
+    assert.equal(out, 7);
 }
 
 test "an or-pattern inside a tuple pattern" {
@@ -387,7 +387,7 @@ test "an or-pattern inside a tuple pattern" {
         (1 | 2, s) => s,
         _ => "no",
     };
-    assert.eq(out, "x");
+    assert.equal(out, "x");
 }
 
 test "an or-pattern nested under a variant" {
@@ -396,7 +396,7 @@ test "an or-pattern nested under a variant" {
         .Some(_) => "other",
         .None => "none",
     };
-    assert.eq(out, "even and small");
+    assert.equal(out, "even and small");
 }
 
 // --- a nested or-pattern completes a match ------------------------------------
@@ -416,9 +416,9 @@ test "a nested or-pattern covers its sub-type" {
             .None => 0,
         }
     };
-    assert.eq(describe(.Some(true)), 1);
-    assert.eq(describe(.Some(false)), 1);
-    assert.eq(describe(.None), 0);
+    assert.equal(describe(.Some(true)), 1);
+    assert.equal(describe(.Some(false)), 1);
+    assert.equal(describe(.None), 0);
 }
 
 test "a nested or-pattern covers an enum under a constructor" {
@@ -428,9 +428,9 @@ test "a nested or-pattern covers an enum under a constructor" {
             .None => "none",
         }
     };
-    assert.eq(describe(.Some(Colour.Green)), "some colour");
-    assert.eq(describe(.Some(Colour.Blue)), "some colour");
-    assert.eq(describe(.None), "none");
+    assert.equal(describe(.Some(Colour.Green)), "some colour");
+    assert.equal(describe(.Some(Colour.Blue)), "some colour");
+    assert.equal(describe(.None), "none");
 }
 
 test "a nested or-pattern covers a tuple position" {
@@ -440,9 +440,9 @@ test "a nested or-pattern covers a tuple position" {
             (_, .Green | .Blue) => "cool",
         }
     };
-    assert.eq(describe((true, Colour.Red)), "red");
-    assert.eq(describe((false, Colour.Red)), "red");
-    assert.eq(describe((true, Colour.Blue)), "cool");
+    assert.equal(describe((true, Colour.Red)), "red");
+    assert.equal(describe((false, Colour.Red)), "red");
+    assert.equal(describe((true, Colour.Blue)), "cool");
 }
 
 test "a nested or-pattern covers an array element" {
@@ -450,13 +450,13 @@ test "a nested or-pattern covers an array element" {
         match (xs) {
             [] => 0,
             [true | false] => 1,
-            [_, ..rest] => 2 + rest.len(),
+            [_, ..rest] => 2 + rest.length(),
         }
     };
-    assert.eq(describe([]), 0);
-    assert.eq(describe([true]), 1);
-    assert.eq(describe([false]), 1);
-    assert.eq(describe([true, false]), 3);
+    assert.equal(describe([]), 0);
+    assert.equal(describe([true]), 1);
+    assert.equal(describe([false]), 1);
+    assert.equal(describe([true, false]), 3);
 }
 
 test "an or-pattern two constructors deep covers its sub-type" {
@@ -466,10 +466,10 @@ test "an or-pattern two constructors deep covers its sub-type" {
             .None => "outer",
         }
     };
-    assert.eq(describe(.Some(.Some(true))), "inner");
-    assert.eq(describe(.Some(.Some(false))), "inner");
-    assert.eq(describe(.Some(.None)), "inner");
-    assert.eq(describe(.None), "outer");
+    assert.equal(describe(.Some(.Some(true))), "inner");
+    assert.equal(describe(.Some(.Some(false))), "inner");
+    assert.equal(describe(.Some(.None)), "inner");
+    assert.equal(describe(.None), "outer");
 }
 
 test "two nested or-patterns in one arm both count" {
@@ -478,8 +478,8 @@ test "two nested or-patterns in one arm both count" {
             (true | false, true | false) => "covered",
         }
     };
-    assert.eq(describe((true, false)), "covered");
-    assert.eq(describe((false, false)), "covered");
+    assert.equal(describe((true, false)), "covered");
+    assert.equal(describe((false, false)), "covered");
 }
 
 test "a nested or-pattern with a wildcard alternative covers everything" {
@@ -489,9 +489,9 @@ test "a nested or-pattern with a wildcard alternative covers everything" {
             .None => "none",
         }
     };
-    assert.eq(describe(.Some(Shape.Empty)), "some");
-    assert.eq(describe(.Some(Shape.Circle(1))), "some");
-    assert.eq(describe(.None), "none");
+    assert.equal(describe(.Some(Shape.Empty)), "some");
+    assert.equal(describe(.Some(Shape.Circle(1))), "some");
+    assert.equal(describe(.None), "none");
 }
 
 test "a nested or-pattern splits the arms that follow it" {
@@ -504,8 +504,8 @@ test "a nested or-pattern splits the arms that follow it" {
             _ => "rest",
         }
     };
-    assert.eq(describe(.Some(false)), "some");
-    assert.eq(describe(.None), "rest");
+    assert.equal(describe(.Some(false)), "some");
+    assert.equal(describe(.None), "rest");
 }
 
 // --- struct patterns ----------------------------------------------------------
@@ -515,7 +515,7 @@ test "a struct pattern with field shorthand binds each field" {
     let sum = match (p) {
         Point { x, y } => x + y,
     };
-    assert.eq(sum, 7);
+    assert.equal(sum, 7);
 }
 
 test "a struct pattern may rename a field" {
@@ -523,7 +523,7 @@ test "a struct pattern may rename a field" {
     let out = match (p) {
         Point { x: a, y: b } => b - a,
     };
-    assert.eq(out, 1);
+    assert.equal(out, 1);
 }
 
 test "a struct pattern mixes shorthand and renaming" {
@@ -531,7 +531,7 @@ test "a struct pattern mixes shorthand and renaming" {
     let out = match (u) {
         User { id, name: n, active } => if (active) { n } else { "inactive" },
     };
-    assert.eq(out, "ada");
+    assert.equal(out, "ada");
 }
 
 test "a struct pattern with .. ignores the remaining fields" {
@@ -539,7 +539,7 @@ test "a struct pattern with .. ignores the remaining fields" {
     let out = match (u) {
         User { id, .. } => id,
     };
-    assert.eq(out, 7);
+    assert.equal(out, 7);
 }
 
 test "a struct pattern with .. and no bindings still matches" {
@@ -547,7 +547,7 @@ test "a struct pattern with .. and no bindings still matches" {
     let out = match (u) {
         User { .. } => "matched",
     };
-    assert.eq(out, "matched");
+    assert.equal(out, "matched");
 }
 
 test "a struct pattern with a literal field selects on that field" {
@@ -559,10 +559,10 @@ test "a struct pattern with a literal field selects on that field" {
             Point { .. } => "elsewhere",
         }
     };
-    assert.eq(classify(Point { x: 0, y: 0 }), "origin");
-    assert.eq(classify(Point { x: 0, y: 5 }), "on the y axis");
-    assert.eq(classify(Point { x: 5, y: 0 }), "on the x axis");
-    assert.eq(classify(Point { x: 5, y: 5 }), "elsewhere");
+    assert.equal(classify(Point { x: 0, y: 0 }), "origin");
+    assert.equal(classify(Point { x: 0, y: 5 }), "on the y axis");
+    assert.equal(classify(Point { x: 5, y: 0 }), "on the x axis");
+    assert.equal(classify(Point { x: 5, y: 5 }), "elsewhere");
 }
 
 // --- tuple-struct patterns ----------------------------------------------------
@@ -572,7 +572,7 @@ test "a tuple-struct pattern binds its field" {
     let out = match (m) {
         Meters(n) => n,
     };
-    assert.eq(out, 9);
+    assert.equal(out, 9);
 }
 
 test "a tuple-struct pattern may hold a literal" {
@@ -582,8 +582,8 @@ test "a tuple-struct pattern may hold a literal" {
             Meters(_) => "nonzero",
         }
     };
-    assert.eq(describe(Meters(0)), "zero");
-    assert.eq(describe(Meters(3)), "nonzero");
+    assert.equal(describe(Meters(0)), "zero");
+    assert.equal(describe(Meters(3)), "nonzero");
 }
 
 test "a multi-field tuple-struct pattern binds every field" {
@@ -591,8 +591,8 @@ test "a multi-field tuple-struct pattern binds every field" {
     let out = match (p) {
         Pair(n, s) => (n, s),
     };
-    assert.eq(out.0, 1);
-    assert.eq(out.1, "one");
+    assert.equal(out.0, 1);
+    assert.equal(out.1, "one");
 }
 
 // --- nested patterns ----------------------------------------------------------
@@ -602,7 +602,7 @@ test "a struct pattern nested inside a struct pattern" {
     let out = match (w) {
         Wrapper { inner: Point { x, y }, label } => x + y,
     };
-    assert.eq(out, 3);
+    assert.equal(out, 3);
 }
 
 test "a struct pattern nested with a literal selector" {
@@ -611,7 +611,7 @@ test "a struct pattern nested with a literal selector" {
         Wrapper { inner: Point { x: 0, .. }, .. } => "axis",
         Wrapper { .. } => "other",
     };
-    assert.eq(out, "axis");
+    assert.equal(out, "axis");
 }
 
 test "a variant nested inside a variant" {
@@ -620,7 +620,7 @@ test "a variant nested inside a variant" {
         .Node(.Circle(r), .Rect { width: w, height: h }) => r + w + h,
         _ => -1,
     };
-    assert.eq(out, 9);
+    assert.equal(out, 9);
 }
 
 test "a nested variant falls through when the inner shape differs" {
@@ -630,7 +630,7 @@ test "a nested variant falls through when the inner shape differs" {
         .Node(.Empty, .Empty) => "both empty",
         _ => "other",
     };
-    assert.eq(out, "both empty");
+    assert.equal(out, "both empty");
 }
 
 test "an Option of an enum matches through both layers" {
@@ -640,7 +640,7 @@ test "an Option of an enum matches through both layers" {
         .Some(_) => 0,
         .None => -1,
     };
-    assert.eq(out, 6);
+    assert.equal(out, 6);
 }
 
 test "a Result of an Option matches through both layers" {
@@ -650,7 +650,7 @@ test "a Result of an Option matches through both layers" {
         .Ok(.None) => 0,
         .Err(_) => -1,
     };
-    assert.eq(out, 5);
+    assert.equal(out, 5);
 }
 
 test "a list of enums matches elementwise" {
@@ -659,7 +659,7 @@ test "a list of enums matches elementwise" {
         [.Circle(r), .Empty] => r,
         _ => -1,
     };
-    assert.eq(out, 1);
+    assert.equal(out, 1);
 }
 
 // --- array patterns -----------------------------------------------------------
@@ -671,8 +671,8 @@ test "the empty array pattern matches only the empty list" {
             _ => "nonempty",
         }
     };
-    assert.eq(describe(list.empty<Int>()), "empty");
-    assert.eq(describe([1]), "nonempty");
+    assert.equal(describe(list.empty<Int>()), "empty");
+    assert.equal(describe([1]), "nonempty");
 }
 
 test "a one-element array pattern binds that element" {
@@ -682,9 +682,9 @@ test "a one-element array pattern binds that element" {
             _ => -1,
         }
     };
-    assert.eq(describe([42]), 42);
-    assert.eq(describe(list.empty<Int>()), -1);
-    assert.eq(describe([1, 2]), -1);
+    assert.equal(describe([42]), 42);
+    assert.equal(describe(list.empty<Int>()), -1);
+    assert.equal(describe([1, 2]), -1);
 }
 
 test "a two-element array pattern binds both elements" {
@@ -692,7 +692,7 @@ test "a two-element array pattern binds both elements" {
         [a, b] => a * b,
         _ => -1,
     };
-    assert.eq(out, 12);
+    assert.equal(out, 12);
 }
 
 test "array patterns select by length" {
@@ -704,10 +704,10 @@ test "array patterns select by length" {
             _ => "many",
         }
     };
-    assert.eq(describe(list.empty<Int>()), "0");
-    assert.eq(describe([1]), "1");
-    assert.eq(describe([1, 2]), "2");
-    assert.eq(describe([1, 2, 3]), "many");
+    assert.equal(describe(list.empty<Int>()), "0");
+    assert.equal(describe([1]), "1");
+    assert.equal(describe([1, 2]), "2");
+    assert.equal(describe([1, 2, 3]), "many");
 }
 
 test "an array pattern may hold literals" {
@@ -716,7 +716,7 @@ test "an array pattern may hold literals" {
         [1, _] => "one something",
         _ => "other",
     };
-    assert.eq(out, "one two");
+    assert.equal(out, "one two");
 }
 
 test "a rest pattern binds the head and the tail" {
@@ -724,8 +724,8 @@ test "a rest pattern binds the head and the tail" {
         [first, ..rest] => (first, rest),
         [] => (0, list.empty<Int>()),
     };
-    assert.eq(out.0, 1);
-    assert.eq(out.1, [2, 3, 4]);
+    assert.equal(out.0, 1);
+    assert.equal(out.1, [2, 3, 4]);
 }
 
 test "a rest pattern binds a tail of the right length" {
@@ -733,8 +733,8 @@ test "a rest pattern binds a tail of the right length" {
         [_, ..tail] => tail,
         [] => list.empty<Int>(),
     };
-    assert.eq(rest.len(), 4);
-    assert.eq(rest, [2, 3, 4, 5]);
+    assert.equal(rest.length(), 4);
+    assert.equal(rest, [2, 3, 4, 5]);
 }
 
 test "a rest pattern binds an empty tail for a singleton" {
@@ -742,8 +742,8 @@ test "a rest pattern binds an empty tail for a singleton" {
         [_, ..tail] => tail,
         [] => [0],
     };
-    assert.eq(rest, list.empty<Int>());
-    assert.eq(rest.len(), 0);
+    assert.equal(rest, list.empty<Int>());
+    assert.equal(rest.length(), 0);
 }
 
 test "a rest pattern does not match the empty list" {
@@ -751,7 +751,7 @@ test "a rest pattern does not match the empty list" {
         [_, ..rest] => "nonempty",
         [] => "empty",
     };
-    assert.eq(out, "empty");
+    assert.equal(out, "empty");
 }
 
 test "a rest pattern after two fixed elements" {
@@ -759,8 +759,8 @@ test "a rest pattern after two fixed elements" {
         [a, b, ..rest] => (a + b, rest),
         _ => (0, list.empty<Int>()),
     };
-    assert.eq(out.0, 3);
-    assert.eq(out.1, [3, 4]);
+    assert.equal(out.0, 3);
+    assert.equal(out.1, [3, 4]);
 }
 
 test "a rest pattern after two fixed elements needs at least two" {
@@ -768,7 +768,7 @@ test "a rest pattern after two fixed elements needs at least two" {
         [a, b, ..rest] => "two or more",
         _ => "fewer",
     };
-    assert.eq(out, "fewer");
+    assert.equal(out, "fewer");
 }
 
 test "a rest pattern over strings" {
@@ -776,20 +776,20 @@ test "a rest pattern over strings" {
         [head, ..tail] => (head, tail),
         [] => ("", list.empty<Str>()),
     };
-    assert.eq(out.0, "a");
-    assert.eq(out.1, ["b", "c"]);
+    assert.equal(out.0, "a");
+    assert.equal(out.1, ["b", "c"]);
 }
 
 test "a rest pattern binding is a real list usable by list functions" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let rest = match ([1, 2, 3, 4]) {
         [_, ..tail] => tail,
         [] => list.empty<Int>(),
     };
-    assert.eq(rest.sum(), 9);
-    assert.eq(rest.map(ctx, fn(x) => x * 2), [4, 6, 8]);
+    assert.equal(rest.sum(), 9);
+    assert.equal(rest.map(ctx, fn(x) => x * 2), [4, 6, 8]);
 }
 
 // --- guards -------------------------------------------------------------------
@@ -802,9 +802,9 @@ test "a guard filters an arm" {
             _ => "small",
         }
     };
-    assert.eq(describe(500), "huge");
-    assert.eq(describe(50), "big");
-    assert.eq(describe(5), "small");
+    assert.equal(describe(500), "huge");
+    assert.equal(describe(50), "big");
+    assert.equal(describe(5), "small");
 }
 
 test "a failing guard falls through to a later arm with the same pattern" {
@@ -813,7 +813,7 @@ test "a failing guard falls through to a later arm with the same pattern" {
         .Circle(r) => "circle",
         _ => "other",
     };
-    assert.eq(out, "circle");
+    assert.equal(out, "circle");
 }
 
 test "a failing guard falls through to a later arm that binds differently" {
@@ -822,7 +822,7 @@ test "a failing guard falls through to a later arm that binds differently" {
         .Some(n) => n * 10,
         .None => 0,
     };
-    assert.eq(out, 10);
+    assert.equal(out, 10);
 }
 
 test "a guard may use several bindings from its pattern" {
@@ -833,18 +833,18 @@ test "a guard may use several bindings from its pattern" {
             Point { .. } => "above",
         }
     };
-    assert.eq(classify(Point { x: 1, y: 1 }), "diagonal");
-    assert.eq(classify(Point { x: 2, y: 1 }), "below");
-    assert.eq(classify(Point { x: 1, y: 2 }), "above");
+    assert.equal(classify(Point { x: 1, y: 1 }), "diagonal");
+    assert.equal(classify(Point { x: 2, y: 1 }), "below");
+    assert.equal(classify(Point { x: 1, y: 2 }), "above");
 }
 
 test "a guard on an array pattern" {
     let out = match ([1, 2, 3]) {
-        [_, ..rest] if rest.len() == 2 => "tail of two",
+        [_, ..rest] if rest.length() == 2 => "tail of two",
         [_, ..rest] => "other tail",
         [] => "empty",
     };
-    assert.eq(out, "tail of two");
+    assert.equal(out, "tail of two");
 }
 
 test "a guard on an or-pattern applies to both alternatives" {
@@ -855,10 +855,10 @@ test "a guard on an or-pattern applies to both alternatives" {
             _ => "other",
         }
     };
-    assert.eq(f(Shape.Circle(50)), "big");
-    assert.eq(f(Shape.Square(50)), "big");
-    assert.eq(f(Shape.Circle(1)), "small");
-    assert.eq(f(Shape.Square(1)), "small");
+    assert.equal(f(Shape.Circle(50)), "big");
+    assert.equal(f(Shape.Square(50)), "big");
+    assert.equal(f(Shape.Circle(1)), "small");
+    assert.equal(f(Shape.Square(1)), "small");
 }
 
 // --- qualified and dot-form variants ------------------------------------------
@@ -869,7 +869,7 @@ test "a qualified variant pattern matches" {
         Option.Some(x) => x,
         Option.None => -1,
     };
-    assert.eq(out, 3);
+    assert.equal(out, 3);
 }
 
 test "a qualified nullary variant pattern matches" {
@@ -878,7 +878,7 @@ test "a qualified nullary variant pattern matches" {
         Option.Some(x) => x,
         Option.None => -1,
     };
-    assert.eq(out, -1);
+    assert.equal(out, -1);
 }
 
 test "the dot form matches the same values as the qualified form" {
@@ -891,7 +891,7 @@ test "the dot form matches the same values as the qualified form" {
         .Some(x) => x,
         .None => -1,
     };
-    assert.eq(a, b);
+    assert.equal(a, b);
 }
 
 test "qualified and dot forms may be mixed in one match" {
@@ -902,7 +902,7 @@ test "qualified and dot forms may be mixed in one match" {
         Shape.Rect { width: w, height: h } => w * h,
         .Empty => 0,
     };
-    assert.eq(out, 6);
+    assert.equal(out, 6);
 }
 
 test "a qualified variant of a user enum matches" {
@@ -912,7 +912,7 @@ test "a qualified variant of a user enum matches" {
         Colour.Green => "g",
         Colour.Blue => "b",
     };
-    assert.eq(out, "g");
+    assert.equal(out, "g");
 }
 
 test "a Result matches in both qualified and dot forms" {
@@ -925,8 +925,8 @@ test "a Result matches in both qualified and dot forms" {
         .Ok(v) => v,
         .Err(_) => -1,
     };
-    assert.eq(a, -1);
-    assert.eq(b, -1);
+    assert.equal(a, -1);
+    assert.equal(b, -1);
 }
 
 // --- matching on tuples -------------------------------------------------------
@@ -935,8 +935,8 @@ test "a tuple pattern binds each element" {
     let out = match ((1, "a")) {
         (n, s) => (s, n),
     };
-    assert.eq(out.0, "a");
-    assert.eq(out.1, 1);
+    assert.equal(out.0, "a");
+    assert.equal(out.1, 1);
 }
 
 test "a tuple pattern may hold literals" {
@@ -948,17 +948,17 @@ test "a tuple pattern may hold literals" {
             (_, _) => "elsewhere",
         }
     };
-    assert.eq(classify((0, 0)), "origin");
-    assert.eq(classify((0, 1)), "y axis");
-    assert.eq(classify((1, 0)), "x axis");
-    assert.eq(classify((1, 1)), "elsewhere");
+    assert.equal(classify((0, 0)), "origin");
+    assert.equal(classify((0, 1)), "y axis");
+    assert.equal(classify((1, 0)), "x axis");
+    assert.equal(classify((1, 1)), "elsewhere");
 }
 
 test "a three-element tuple pattern" {
     let out = match ((1, 2, 3)) {
         (a, b, c) => a + b + c,
     };
-    assert.eq(out, 6);
+    assert.equal(out, 6);
 }
 
 test "a tuple pattern over two Options" {
@@ -970,10 +970,10 @@ test "a tuple pattern over two Options" {
             (.None, .None) => 0,
         }
     };
-    assert.eq(combine((.Some(1), .Some(2))), 3);
-    assert.eq(combine((.Some(1), .None)), 1);
-    assert.eq(combine((.None, .Some(2))), 2);
-    assert.eq(combine((.None, .None)), 0);
+    assert.equal(combine((.Some(1), .Some(2))), 3);
+    assert.equal(combine((.Some(1), .None)), 1);
+    assert.equal(combine((.None, .Some(2))), 2);
+    assert.equal(combine((.None, .None)), 0);
 }
 
 test "a tuple pattern nested inside an array pattern" {
@@ -981,7 +981,7 @@ test "a tuple pattern nested inside an array pattern" {
         [(_, s), _] => s,
         _ => "none",
     };
-    assert.eq(out, "a");
+    assert.equal(out, "a");
 }
 
 // --- arm order ----------------------------------------------------------------
@@ -991,7 +991,7 @@ test "the first matching arm wins" {
         .Circle(_) => "first",
         _ => "second",
     };
-    assert.eq(out, "first");
+    assert.equal(out, "first");
 }
 
 test "a match is an expression usable in a larger expression" {
@@ -1000,7 +1000,7 @@ test "a match is an expression usable in a larger expression" {
             2 => 40,
             _ => 0,
         };
-    assert.eq(n, 41);
+    assert.equal(n, 41);
 }
 
 test "a match arm body may be a block" {
@@ -1011,31 +1011,31 @@ test "a match arm body may be a block" {
         },
         _ => 0,
     };
-    assert.eq(out, 40);
+    assert.equal(out, 40);
 }
 
 // --- let patterns -------------------------------------------------------------
 
 test "a let may destructure a tuple" {
     let (a, b) = (1, "one");
-    assert.eq(a, 1);
-    assert.eq(b, "one");
+    assert.equal(a, 1);
+    assert.equal(b, "one");
 }
 
 test "a let may destructure a struct" {
     let Point { x, y } = Point { x: 5, y: 6 };
-    assert.eq(x, 5);
-    assert.eq(y, 6);
+    assert.equal(x, 5);
+    assert.equal(y, 6);
 }
 
 test "a let may destructure a tuple struct" {
     let Meters(n) = Meters(12);
-    assert.eq(n, 12);
+    assert.equal(n, 12);
 }
 
 test "a let may destructure a nested tuple" {
     let (a, (b, c)) = (1, (2, 3));
-    assert.eq(a + b + c, 6);
+    assert.equal(a + b + c, 6);
 }
 
 // --- structural equality (SPEC 5.11) ------------------------------------------
@@ -1043,119 +1043,122 @@ test "a let may destructure a nested tuple" {
 test "two separately constructed structs with equal contents are equal" {
     let a = Point { x: 1, y: 2 };
     let b = Point { x: 1, y: 2 };
-    assert.eq(a, b);
+    assert.equal(a, b);
 }
 
 test "structs differing in one field are not equal" {
-    assert.notEq(Point { x: 1, y: 2 }, Point { x: 1, y: 3 });
+    assert.notEqual(Point { x: 1, y: 2 }, Point { x: 1, y: 3 });
 }
 
 test "nested structs compare structurally" {
     let a = Wrapper { inner: Point { x: 1, y: 2 }, label: "w" };
     let b = Wrapper { inner: Point { x: 1, y: 2 }, label: "w" };
-    assert.eq(a, b);
-    assert.notEq(a, Wrapper { inner: Point { x: 1, y: 9 }, label: "w" });
+    assert.equal(a, b);
+    assert.notEqual(a, Wrapper { inner: Point { x: 1, y: 9 }, label: "w" });
 }
 
 test "functional update produces an equal value when nothing changes" {
     let a = User { id: 1, name: "ada", active: true };
     let b = User { ..a };
-    assert.eq(a, b);
+    assert.equal(a, b);
 }
 
 test "functional update changes exactly the named field" {
     let a = User { id: 1, name: "ada", active: true };
     let b = User { ..a, name: "grace" };
-    assert.eq(b, User { id: 1, name: "grace", active: true });
-    assert.notEq(a, b);
+    assert.equal(b, User { id: 1, name: "grace", active: true });
+    assert.notEqual(a, b);
 }
 
 test "field shorthand builds the same value as explicit fields" {
     let x = 3;
     let y = 4;
-    assert.eq(Point { x, y }, Point { x: 3, y: 4 });
+    assert.equal(Point { x, y }, Point { x: 3, y: 4 });
 }
 
 test "two separately constructed enum values with equal payloads are equal" {
-    assert.eq(Shape.Circle(3), Shape.Circle(3));
+    assert.equal(Shape.Circle(3), Shape.Circle(3));
 }
 
 test "different enum variants are not equal" {
-    assert.notEq(Shape.Circle(3), Shape.Square(3));
+    assert.notEqual(Shape.Circle(3), Shape.Square(3));
 }
 
 test "same variant with different payloads is not equal" {
-    assert.notEq(Shape.Circle(3), Shape.Circle(4));
+    assert.notEqual(Shape.Circle(3), Shape.Circle(4));
 }
 
 test "nullary variants are equal to themselves" {
-    assert.eq(Shape.Empty, Shape.Empty);
-    assert.notEq(Colour.Red, Colour.Blue);
+    assert.equal(Shape.Empty, Shape.Empty);
+    assert.notEqual(Colour.Red, Colour.Blue);
 }
 
 test "record variants compare fieldwise" {
-    assert.eq(Shape.Rect { width: 1, height: 2 }, Shape.Rect { width: 1, height: 2 });
-    assert.notEq(Shape.Rect { width: 1, height: 2 }, Shape.Rect {
+    assert.equal(Shape.Rect { width: 1, height: 2 }, Shape.Rect {
+        width: 1,
+        height: 2,
+    });
+    assert.notEqual(Shape.Rect { width: 1, height: 2 }, Shape.Rect {
         width: 2,
         height: 1,
     });
 }
 
 test "nested enums compare structurally" {
-    assert.eq(
+    assert.equal(
         Tree.Node(Shape.Circle(1), Shape.Empty),
         Tree.Node(Shape.Circle(1), Shape.Empty),
     );
-    assert.notEq(
+    assert.notEqual(
         Tree.Node(Shape.Circle(1), Shape.Empty),
         Tree.Node(Shape.Circle(2), Shape.Empty),
     );
 }
 
 test "arrays of structs compare structurally" {
-    assert.eq([Point { x: 1, y: 1 }], [Point { x: 1, y: 1 }]);
-    assert.notEq([Point { x: 1, y: 1 }], [Point { x: 1, y: 2 }]);
+    assert.equal([Point { x: 1, y: 1 }], [Point { x: 1, y: 1 }]);
+    assert.notEqual([Point { x: 1, y: 1 }], [Point { x: 1, y: 2 }]);
 }
 
 test "arrays of enums compare structurally" {
-    assert.eq([Shape.Empty, Shape.Circle(1)], [Shape.Empty, Shape.Circle(1)]);
-    assert.notEq([Shape.Empty], [Shape.Circle(1)]);
+    assert.equal([Shape.Empty, Shape.Circle(1)], [Shape.Empty, Shape.Circle(1)]);
+    assert.notEqual([Shape.Empty], [Shape.Circle(1)]);
 }
 
 test "tuple structs compare fieldwise" {
-    assert.eq(Pair(1, "a"), Pair(1, "a"));
-    assert.notEq(Pair(1, "a"), Pair(1, "b"));
-    assert.notEq(Pair(1, "a"), Pair(2, "a"));
+    assert.equal(Pair(1, "a"), Pair(1, "a"));
+    assert.notEqual(Pair(1, "a"), Pair(1, "b"));
+    assert.notEqual(Pair(1, "a"), Pair(2, "a"));
 }
 
 test "tuples of structs compare structurally" {
     let a = (Point { x: 1, y: 2 }, Shape.Empty);
     let b = (Point { x: 1, y: 2 }, Shape.Empty);
-    assert.eq(a.0, b.0);
-    assert.eq(a.1, b.1);
+    assert.equal(a.0, b.0);
+    assert.equal(a.1, b.1);
 }
 
 test "a value built by a list operation equals a literal one" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let built = [1, 2, 3].map(ctx, fn(n) => Point { x: n, y: n });
-    assert.eq(built, [
+    assert.equal(built, [
         Point { x: 1, y: 1 },
         Point { x: 2, y: 2 },
         Point { x: 3, y: 3 },
     ]);
 }
 
-// --- derive Ord (SPEC 5.12.3, 5.12.4) -----------------------------------------
+// --- derive Ordered (SPEC 5.12.3, 5.12.4) -----------------------------------------
 
-test "derived Ord on a struct compares fields in declaration order" {
+test "derived Ordered on a struct compares fields in declaration order" {
     assert.isTrue(Point { x: 1, y: 9 } < Point { x: 2, y: 0 });
     assert.isTrue(Point { x: 1, y: 1 } < Point { x: 1, y: 2 });
     assert.isTrue(Point { x: 2, y: 0 } > Point { x: 1, y: 9 });
 }
 
-test "derived Ord reports equal values as neither less nor greater" {
+test "derived Ordered reports equal values as neither less nor greater" {
     let a = Point { x: 1, y: 1 };
     let b = Point { x: 1, y: 1 };
     assert.isFalse(a < b);
@@ -1164,69 +1167,69 @@ test "derived Ord reports equal values as neither less nor greater" {
     assert.isTrue(a >= b);
 }
 
-test "derived Ord yields Order from compare" {
-    assert.eq(Point { x: 1, y: 1 }.compare(Point { x: 1, y: 2 }), Order.Less);
-    assert.eq(Point { x: 1, y: 2 }.compare(Point { x: 1, y: 2 }), Order.Equal);
-    assert.eq(Point { x: 1, y: 3 }.compare(Point { x: 1, y: 2 }), Order.Greater);
+test "derived Ordered yields Order from compare" {
+    assert.equal(Point { x: 1, y: 1 }.compare(Point { x: 1, y: 2 }), Order.Less);
+    assert.equal(Point { x: 1, y: 2 }.compare(Point { x: 1, y: 2 }), Order.Equal);
+    assert.equal(Point { x: 1, y: 3 }.compare(Point { x: 1, y: 2 }), Order.Greater);
 }
 
-test "derived Ord on an enum orders by variant declaration order" {
+test "derived Ordered on an enum orders by variant declaration order" {
     assert.isTrue(Colour.Red < Colour.Green);
     assert.isTrue(Colour.Green < Colour.Blue);
     assert.isTrue(Colour.Blue > Colour.Red);
 }
 
-test "derived Ord on an enum compares payloads within a variant" {
+test "derived Ordered on an enum compares payloads within a variant" {
     assert.isTrue(Shape.Circle(1) < Shape.Circle(2));
     assert.isTrue(Shape.Empty < Shape.Circle(0));
     assert.isTrue(Shape.Circle(999) < Shape.Square(0));
 }
 
-test "derived Ord on a tuple struct delegates to the field" {
+test "derived Ordered on a tuple struct delegates to the field" {
     assert.isTrue(Meters(1) < Meters(2));
     assert.isTrue(Meters(2) >= Meters(2));
 }
 
-test "derived Ord sorts a list of user structs" {
+test "derived Ordered sorts a list of user structs" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [Point { x: 2, y: 0 }, Point { x: 1, y: 5 }, Point { x: 1, y: 1 }];
-    assert.eq(xs.sort(ctx), [
+    assert.equal(xs.sort(ctx), [
         Point { x: 1, y: 1 },
         Point { x: 1, y: 5 },
         Point { x: 2, y: 0 },
     ]);
 }
 
-test "derived Ord sorts a list of user enums by variant order" {
+test "derived Ordered sorts a list of user enums by variant order" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let xs = [Colour.Blue, Colour.Red, Colour.Green];
-    assert.eq(xs.sort(ctx), [Colour.Red, Colour.Green, Colour.Blue]);
+    assert.equal(xs.sort(ctx), [Colour.Red, Colour.Green, Colour.Blue]);
 }
 
-test "maximum and minimum use the derived Ord" {
+test "maximum and minimum use the derived Ordered" {
     let xs = [Colour.Green, Colour.Red, Colour.Blue];
-    assert.eq(assert.some(xs.maximum()), Colour.Blue);
-    assert.eq(assert.some(xs.minimum()), Colour.Red);
+    assert.equal(assert.some(xs.maximum()), Colour.Blue);
+    assert.equal(assert.some(xs.minimum()), Colour.Red);
 }
 
 // --- derive Show --------------------------------------------------------------
 
 test "derived Show renders a struct with its field names" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(Point { x: 1, y: 2 }.show(ctx), "Point { x: 1, y: 2 }");
+    assert.equal(Point { x: 1, y: 2 }.show(ctx), "Point { x: 1, y: 2 }");
 }
 
 test "derived Show renders a nested struct" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         Wrapper { inner: Point { x: 1, y: 2 }, label: "w" }.show(ctx),
         "Wrapper { inner: Point { x: 1, y: 2 }, label: \"w\" }",
     );
@@ -1236,30 +1239,30 @@ test "derived Show renders a nested struct" {
 
 test "derived Show renders a tuple struct" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(Meters(9).show(ctx), "Meters(9)");
+    assert.equal(Meters(9).show(ctx), "Meters(9)");
 }
 
 test "derived Show renders a nullary variant" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(Shape.Empty.show(ctx), ".Empty");
+    assert.equal(Shape.Empty.show(ctx), ".Empty");
 }
 
 test "derived Show renders a tuple variant" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(Shape.Circle(4).show(ctx), ".Circle(4)");
+    assert.equal(Shape.Circle(4).show(ctx), ".Circle(4)");
 }
 
 test "derived Show renders a record variant" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         Shape.Rect { width: 1, height: 2 }.show(ctx),
         ".Rect { width: 1, height: 2 }",
     );
@@ -1267,25 +1270,25 @@ test "derived Show renders a record variant" {
 
 test "derived Show is deterministic for equal values" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let a = Point { x: 1, y: 2 };
     let b = Point { x: 1, y: 2 };
-    assert.eq(a.show(ctx), b.show(ctx));
+    assert.equal(a.show(ctx), b.show(ctx));
 }
 
 test "derived Show distinguishes unequal values" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.notEq(Point { x: 1, y: 2 }.show(ctx), Point { x: 2, y: 1 }.show(ctx));
+    assert.notEqual(Point { x: 1, y: 2 }.show(ctx), Point { x: 2, y: 1 }.show(ctx));
 }
 
 test "derived Show recurses into a nested enum" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         Tree.Node(Shape.Circle(1), Shape.Empty).show(ctx),
         ".Node(.Circle(1), .Empty)",
     );

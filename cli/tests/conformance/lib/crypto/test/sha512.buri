@@ -13,14 +13,14 @@
 
 from "core/bytes" import * as bytes;
 from "core/crypto" import * as crypto;
-from "core/effect" import { Alloc };
+from "core/effect" import { Allocator };
 from "core/host/testing" import { alloc };
 from "core/list" import * as list;
 from "core/testing/assert" import * as assert;
 
 fn hex(text: Str): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     crypto.sha512Text(ctx, text).toHex(ctx)
 }
@@ -28,21 +28,21 @@ fn hex(text: Str): Str {
 // --- the NIST vectors ------------------------------------------------------------
 
 test "the empty message" {
-    assert.eq(
+    assert.equal(
         hex(""),
         "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e",
     );
 }
 
 test "abc" {
-    assert.eq(
+    assert.equal(
         hex("abc"),
         "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
     );
 }
 
 test "the 112-byte vector, which forces a second block" {
-    assert.eq(
+    assert.equal(
         hex(
             "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
         ),
@@ -54,18 +54,18 @@ test "the 112-byte vector, which forces a second block" {
 
 test "messages either side of a 128-byte block boundary" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // 111 bytes fits with its padding; 112 does not; 128 is exactly a block.
-    assert.eq(
+    assert.equal(
         hex("a".repeat(ctx, 111)),
         "fa9121c7b32b9e01733d034cfc78cbf67f926c7ed83e82200ef86818196921760b4beff48404df811b953828274461673c68d04e297b0eb7b2b4d60fc6b566a2",
     );
-    assert.eq(
+    assert.equal(
         hex("a".repeat(ctx, 112)),
         "c01d080efd492776a1c43bd23dd99d0a2e626d481e16782e75d54c2503b5dc32bd05f0f1ba33e568b88fd2d970929b719ecbb152f58f130a407c8830604b70ca",
     );
-    assert.eq(
+    assert.equal(
         hex("a".repeat(ctx, 128)),
         "b73d1929aa615934e61a871596b3f3b33359f42b8175602e89f7e06e5f658a243667807ed300314b95cacdd579f3e33abdfbe351909519a846d465c59582f321",
     );
@@ -73,9 +73,9 @@ test "messages either side of a 128-byte block boundary" {
 
 test "a long message spanning many blocks" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         hex("a".repeat(ctx, 1000)),
         "67ba5535a46e3f86dbfbed8cbbaf0125c76ed549ff8b0b9e03e0c88cf90fa634fa7b12b47d77b694de488ace8d9a65967dc96df599727d3292a8d9d447709c97",
     );
@@ -85,40 +85,40 @@ test "a long message spanning many blocks" {
 
 test "a SHA-512 digest is sixty-four bytes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.len(crypto.sha512(ctx, list.empty<U8>()).0, 64);
-    assert.eq(crypto.sha512(ctx, list.empty<U8>()).toHex(ctx).len(), 128);
+    assert.length(crypto.sha512(ctx, list.empty<U8>()).0, 64);
+    assert.equal(crypto.sha512(ctx, list.empty<U8>()).toHex(ctx).length(), 128);
 }
 
 test "the byte form and the text form agree" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         crypto.sha512(ctx, bytes.toUtf8(ctx, "abc")),
         crypto.sha512Text(ctx, "abc"),
     );
 }
 
 test "one bit of input changes the whole digest" {
-    assert.notEq(hex("abc"), hex("abd"));
+    assert.notEqual(hex("abc"), hex("abd"));
 }
 
 // --- HMAC-SHA-512, RFC 4231 --------------------------------------------------------
 
 fn mac(key: [U8], message: [U8]): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     crypto.hmacSha512(ctx, key, message).toHex(ctx)
 }
 
 test "RFC 4231 case 1: a twenty-byte key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         mac(list.repeat(ctx, 11, 20), bytes.toUtf8(ctx, "Hi There")),
         "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854",
     );
@@ -126,9 +126,9 @@ test "RFC 4231 case 1: a twenty-byte key" {
 
 test "RFC 4231 case 2: a four-byte key" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         mac(
             bytes.toUtf8(ctx, "Jefe"),
             bytes.toUtf8(ctx, "what do ya want for nothing?"),
@@ -139,9 +139,9 @@ test "RFC 4231 case 2: a four-byte key" {
 
 test "RFC 4231 case 3: fifty bytes of message" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         mac(list.repeat(ctx, 170, 20), list.repeat(ctx, 221, 50)),
         "fa73b0089d56a284efb0f0756c890be9b1b5dbdd8ee81a3655f83e33b2279d39bf3e848279a722c806b485a47e67c807b946a337bee8942674278859e13292fb",
     );
@@ -152,9 +152,9 @@ test "RFC 4231 case 3: fifty bytes of message" {
 // if the code still thought a block was 64.
 test "RFC 4231 case 6: a key longer than the block is hashed first" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         mac(
             list.repeat(ctx, 170, 131),
             bytes.toUtf8(ctx, "Test Using Larger Than Block-Size Key - Hash Key First"),
@@ -165,18 +165,18 @@ test "RFC 4231 case 6: a key longer than the block is hashed first" {
 
 test "an empty key and an empty message still make a digest" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.len(crypto.hmacSha512(ctx, list.empty<U8>(), list.empty<U8>()).0, 64);
+    assert.length(crypto.hmacSha512(ctx, list.empty<U8>(), list.empty<U8>()).0, 64);
 }
 
 test "HMAC-SHA-512 is not SHA-512 of the same bytes" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let key = bytes.toUtf8(ctx, "k");
     let message = bytes.toUtf8(ctx, "m");
-    assert.notEq(
+    assert.notEqual(
         crypto.hmacSha512(ctx, key, message),
         crypto.sha512(ctx, key.concat(ctx, message)),
     );
@@ -190,22 +190,22 @@ test "HMAC-SHA-512 is not SHA-512 of the same bytes" {
 
 fn sha1Hex(text: Str): Str {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     crypto.sha1(ctx, bytes.toUtf8(ctx, text)).toHex(ctx)
 }
 
 test "the SHA-1 vectors" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(sha1Hex(""), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
-    assert.eq(sha1Hex("abc"), "a9993e364706816aba3e25717850c26c9cd0d89d");
-    assert.eq(
+    assert.equal(sha1Hex(""), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+    assert.equal(sha1Hex("abc"), "a9993e364706816aba3e25717850c26c9cd0d89d");
+    assert.equal(
         sha1Hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
         "84983e441c3bd26ebaae4aa1f95129e5e54670f1",
     );
-    assert.eq(
+    assert.equal(
         sha1Hex("a".repeat(ctx, 1000)),
         "291e9a6c66994949b57ba5e650361e98fc36b1ba",
     );
@@ -213,21 +213,30 @@ test "the SHA-1 vectors" {
 
 test "SHA-1's block boundary is 64 bytes, as SHA-256's is" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(sha1Hex("a".repeat(ctx, 55)), "c1c8bbdc22796e28c0e15163d20899b65621d65a");
-    assert.eq(sha1Hex("a".repeat(ctx, 56)), "c2db330f6083854c99d4b5bfb6e8f29f201be699");
-    assert.eq(sha1Hex("a".repeat(ctx, 64)), "0098ba824b5c16427bd7a1122a5a442a25ec644d");
+    assert.equal(
+        sha1Hex("a".repeat(ctx, 55)),
+        "c1c8bbdc22796e28c0e15163d20899b65621d65a",
+    );
+    assert.equal(
+        sha1Hex("a".repeat(ctx, 56)),
+        "c2db330f6083854c99d4b5bfb6e8f29f201be699",
+    );
+    assert.equal(
+        sha1Hex("a".repeat(ctx, 64)),
+        "0098ba824b5c16427bd7a1122a5a442a25ec644d",
+    );
 }
 
 test "a SHA-1 digest is twenty bytes, and the three functions differ" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let message = bytes.toUtf8(ctx, "abc");
-    assert.len(crypto.sha1(ctx, message).0, 20);
-    assert.notEq(crypto.sha1(ctx, message), crypto.sha256(ctx, message));
-    assert.notEq(crypto.sha512(ctx, message), crypto.sha256(ctx, message));
+    assert.length(crypto.sha1(ctx, message).0, 20);
+    assert.notEqual(crypto.sha1(ctx, message), crypto.sha256(ctx, message));
+    assert.notEqual(crypto.sha512(ctx, message), crypto.sha256(ctx, message));
 }
 
 // --- the rest of the NIST and RFC vectors --------------------------------------------
@@ -236,11 +245,11 @@ test "the two multi-block NIST messages" {
     // FIPS 180-4's appendix writes one message per width: 896 bits for the
     // 1024-bit block and 448 for the 512-bit one, so neither lands on a
     // boundary.
-    assert.eq(
+    assert.equal(
         hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
         "204a8fc6dda82f0a0ced7beb8e08a41657c16ef468b228a8279be331a703c33596fd15c13b1b07f9aa1d3bea57789ca031ad85c7a71dd70354ec631238ca3445",
     );
-    assert.eq(
+    assert.equal(
         hex(
             "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
         ),
@@ -250,16 +259,16 @@ test "the two multi-block NIST messages" {
 
 test "the million-character message" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // FIPS 180-4's long vector: a million `a`s, which is 7813 blocks and the
     // only one of these that says the block loop still terminates correctly a
     // long way in. The length in the padding is 8,000,000 bits.
-    assert.eq(
+    assert.equal(
         hex("a".repeat(ctx, 1_000_000)),
         "e718483d0ce769644e2e42c7bc15b4638e1f98b13b2044285632a803afa973ebde0ff244877ea60a4cb0432ce577c31beb009c5c2c49aa2e4eadb217ad8cc09b",
     );
-    assert.eq(
+    assert.equal(
         sha1Hex("a".repeat(ctx, 1_000_000)),
         "34aa973cd4c4daa4f61eeb2bdbad27316534016f",
     );
@@ -267,16 +276,16 @@ test "the million-character message" {
 
 test "the rest of the SHA-1 vectors RFC 3174 names" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
-    assert.eq(
+    assert.equal(
         sha1Hex(
             "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu",
         ),
         "a49b2446a02c645bf419f995b67091253a04a259",
     );
     // RFC 3174's fourth test: the same 64-byte block ten times over.
-    assert.eq(
+    assert.equal(
         sha1Hex(
             "0123456701234567012345670123456701234567012345670123456701234567".repeat(
                 ctx,
@@ -289,11 +298,11 @@ test "the rest of the SHA-1 vectors RFC 3174 names" {
 
 test "RFC 4231 case 4: a key of every value from 1 to 25" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let key = list.range(ctx, 1, 26).map(ctx, fn(n) => n.wrapToU8());
     let message = list.repeat(ctx, 205, 50);
-    assert.eq(
+    assert.equal(
         mac(key, message),
         "b0ba465637458c6990e5a8c5f61d4af7e576d97ff94b872de76f8050361ee3dba91ca5c11aa25eb4d679275cc5788063a5f19741120c4f2de2adebeb10a298dd",
     );
@@ -301,18 +310,18 @@ test "RFC 4231 case 4: a key of every value from 1 to 25" {
 
 test "RFC 4231 case 5: the digest a truncating caller would cut down" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // The RFC truncates this one to 128 bits. Nothing here truncates, so the
     // whole digest is what is pinned — and its first sixteen bytes are the
     // RFC's answer.
     let key = list.repeat(ctx, 12, 20);
     let message = bytes.toUtf8(ctx, "Test With Truncation");
-    assert.eq(
+    assert.equal(
         mac(key, message),
         "415fad6271580a531d4179bc891d87a650188707922a4fbb36663a1eb16da008711c5b50ddd0fc235084eb9d3364a1454fb2ef67cd1d29fe6773068ea266e96b",
     );
-    assert.eq(
+    assert.equal(
         crypto.hmacSha512(ctx, key, message).0.take(ctx, 16),
         assert.ok(bytes.fromHex(ctx, "415fad6271580a531d4179bc891d87a6")),
     );
@@ -320,14 +329,14 @@ test "RFC 4231 case 5: the digest a truncating caller would cut down" {
 
 test "RFC 4231 case 7: a key and a message both longer than the block" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     let key = list.repeat(ctx, 170, 131);
     let message = bytes.toUtf8(
         ctx,
         "This is a test using a larger than block-size key and a larger than block-size data. The key needs to be hashed before being used by the HMAC algorithm.",
     );
-    assert.eq(
+    assert.equal(
         mac(key, message),
         "e37b6a775dc87dbaa4dfa9f96e5e3ffddebd71f8867289865df5a32d20cdc944b6022cac3c4982b10d5eeb55c3e4de15134676fb6de0446065c97440fa8c6a58",
     );
@@ -335,7 +344,7 @@ test "RFC 4231 case 7: a key and a message both longer than the block" {
 
 test "a key of exactly the block width is neither padded nor hashed" {
     let ctx = context {
-        Alloc: alloc(),
+        Allocator: alloc(),
     };
     // 128 bytes is the block, so this is the boundary the "longer than the
     // block gets hashed first" rule turns on. A key one byte longer is a
@@ -343,11 +352,11 @@ test "a key of exactly the block width is neither padded nor hashed" {
     let exact = list.repeat(ctx, 170, 128);
     let over = list.repeat(ctx, 170, 129);
     let message = bytes.toUtf8(ctx, "boundary");
-    assert.notEq(mac(exact, message), mac(over, message));
+    assert.notEqual(mac(exact, message), mac(over, message));
     // And the one that gets hashed is the same as passing the digest as the
     // key, which is what the rule says happens.
-    assert.eq(mac(over, message), mac(crypto.sha512(ctx, over).0, message));
+    assert.equal(mac(over, message), mac(crypto.sha512(ctx, over).0, message));
     // A key of 64 bytes is short here and would be exact for SHA-256, which is
     // the mistake carrying the constant over would make.
-    assert.notEq(mac(list.repeat(ctx, 170, 64), message), mac(exact, message));
+    assert.notEqual(mac(list.repeat(ctx, 170, 64), message), mac(exact, message));
 }

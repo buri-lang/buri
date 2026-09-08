@@ -1,0 +1,12 @@
+error: this function body is missing its closing `}` [unclosed-delimiter]
+  --> main.buri:86:1
+   |
+86 | export fn spanText(schemaText: Str, o: ast.Origin): Str {
+   | ^^^^^^
+   |
+  --> main.buri:68:23
+   |
+68 | ): Option<ast.Anchor> {
+   |                       ^ opened here
+   |
+   = fix: write `}` here
