@@ -117,8 +117,7 @@ fn generators() {
 ///
 /// The `repo_lint_*` cases are the other half: what `REPO.buri`'s `lint` block
 /// does to the same finding — when the catalogue runs, how hard a finding
-/// lands, what a misspelled field in the block costs, and which single
-/// declaration `allow` takes a rule off, leaving the one beside it reported.
+/// lands, and what a misspelled field in the block costs.
 ///
 /// Eleven of them are about a file the front end had something to say about,
 /// and together they draw the line the rules stay behind. Six are about the
@@ -173,7 +172,7 @@ fn generators() {
 /// `buri build` compiles only one of them.
 #[test]
 fn lint_catalogue() {
-    run_corpus(&tests_dir().join("repositories/linting"), "linting", 61);
+    run_corpus(&tests_dir().join("repositories/linting"), "linting", 60);
 }
 
 /// TESTING.md: where tests live, what a test source may reach, and what the
